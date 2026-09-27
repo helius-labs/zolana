@@ -21,6 +21,9 @@ worker.addEventListener("message", ({ data }) => {
   if (data.error) {
     const error = new Error(data.error.message);
     error.name = data.error.name;
+    if (data.error.location !== undefined) {
+      error.location = data.error.location;
+    }
     request?.reject(error);
   } else {
     request?.resolve(data.result);

@@ -30,5 +30,8 @@ export function plain(value) {
 }
 
 export function failure(error) {
-  return { error: { name: error?.name ?? "Error", message: String(error?.message ?? error) } };
+  const location = typeof error?.location === "string" ? { location: error.location } : {};
+  return {
+    error: { name: error?.name ?? "Error", message: String(error?.message ?? error), ...location },
+  };
 }

@@ -6,7 +6,7 @@ use zk_program_sdk::{
         DataUtxo, PublicInputs, TokenUtxo, Uint,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -48,7 +48,7 @@ struct SettlePublicInputs {
 
 #[circuit]
 impl Circuit for Settle {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let price = &self.public.execution_price;
         let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;

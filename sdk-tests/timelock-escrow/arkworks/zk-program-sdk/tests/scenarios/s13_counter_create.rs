@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -21,7 +21,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Counter {}
 impl ProofInput for Counter {
     type Circuit = circuit::Counter;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Counter, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Counter, CircuitError> {
         Ok(circuit::Counter {
             count: self.count.instantiate(allocator)?,
         })
@@ -29,7 +29,7 @@ impl ProofInput for Counter {
 }
 
 impl FromCircuit for Counter {
-    fn from_circuit(circuit: &circuit::Counter) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Counter) -> Result<Self, CircuitError> {
         Ok(Self {
             count: u64::from_circuit(&circuit.count)?,
         })
@@ -37,7 +37,7 @@ impl FromCircuit for Counter {
 }
 
 impl Placeholder for Counter {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             count: Placeholder::placeholder()?,
         })
@@ -66,7 +66,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CounterCreate {}
 impl ProofInput for CounterCreate {
     type Circuit = circuit::CounterCreate;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CounterCreate, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CounterCreate, CircuitError> {
         let private = &self.private;
         Ok(circuit::CounterCreate {
             private: circuit::CounterCreatePrivateInputs {
@@ -81,7 +81,7 @@ impl ProofInput for CounterCreate {
 }
 
 impl Placeholder for CounterCreate {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CounterCreatePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -101,7 +101,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -118,7 +118,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Counter {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.count.var()])
         }
     }
@@ -144,7 +144,7 @@ pub(crate) mod circuit {
     impl Circuit for CounterCreate {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let counter = DataUtxo::<Counter>::new_init(&self.public.owner, &Asset::sol());
@@ -157,7 +157,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for CounterCreatePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.owner.hash()?, transaction_hash.clone()])
         }
     }

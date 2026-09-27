@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::WalletUtxo;
@@ -34,7 +34,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Close {}
 impl ProofInput for Close {
     type Circuit = circuit::Close;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Close, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Close, CircuitError> {
         let private = &self.private;
         Ok(circuit::Close {
             private: circuit::ClosePrivateInputs {
@@ -50,7 +50,7 @@ impl ProofInput for Close {
 }
 
 impl Placeholder for Close {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: ClosePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -70,7 +70,7 @@ mod circuit {
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s13_counter_create::circuit::Counter;
@@ -93,7 +93,7 @@ mod circuit {
     impl Circuit for Close {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let counter = DataUtxo::new_burn(&private.counter, &private.state)?;
             counter
@@ -108,7 +108,7 @@ mod circuit {
     }
 
     impl PublicInputs for ClosePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.owner.hash()?, transaction_hash.clone()])
         }
     }

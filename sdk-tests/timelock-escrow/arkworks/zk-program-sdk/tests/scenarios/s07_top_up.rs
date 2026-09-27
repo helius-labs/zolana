@@ -1,7 +1,7 @@
 use solana_address::Address;
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
@@ -33,7 +33,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::TopUp {}
 impl ProofInput for TopUp {
     type Circuit = circuit::TopUp;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TopUp, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TopUp, CircuitError> {
         let private = &self.private;
         Ok(circuit::TopUp {
             private: circuit::TopUpPrivateInputs {
@@ -49,7 +49,7 @@ impl ProofInput for TopUp {
 }
 
 impl Placeholder for TopUp {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: TopUpPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -69,7 +69,7 @@ mod circuit {
             poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct TopUp {
@@ -90,7 +90,7 @@ mod circuit {
     impl Circuit for TopUp {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             tokens.deposit(&self.public.amount, &private.source)?;
@@ -102,7 +102,7 @@ mod circuit {
     }
 
     impl PublicInputs for TopUpPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.amount.var(), transaction_hash.clone()])
         }
     }

@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, Uint,
     },
     conversion::{to_bytes, Allocator, ProofInput},
-    RelationError, TxContext,
+    CircuitError, TxContext,
 };
 
 #[derive(Clone, ProofInput)]
@@ -36,13 +36,13 @@ struct EmptyPublicInputs;
 
 #[circuit]
 impl Circuit for Empty {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         ConfidentialTransaction::new(&self.private.tx_context, &self.public).check()
     }
 }
 
 #[circuit]
-fn shaped_sum<const N: usize>(values: &[Uint<16>; N]) -> Result<Uint<32>, RelationError> {
+fn shaped_sum<const N: usize>(values: &[Uint<16>; N]) -> Result<Uint<32>, CircuitError> {
     let total = Uint::<16>::sum::<24, N>(values);
     let scaled = if const { N > 2 } {
         total.add::<25>(&total)
@@ -105,7 +105,7 @@ mod whole {
     use zk_program_sdk::{
         circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs},
         conversion::ProofInput,
-        RelationError, TxContext,
+        CircuitError, TxContext,
     };
 
     #[derive(Clone, ProofInput)]
@@ -123,7 +123,7 @@ mod whole {
     pub struct SoloPublicInputs;
 
     impl Circuit for Solo {
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             ConfidentialTransaction::new(&self.private.tx_context, &self.public).check()
         }
     }
@@ -157,7 +157,7 @@ fn a_module_writes_the_circuit_marker_on_each_circuit_twin() {
     .expect("native instantiation");
     assert!(matches!(
         solo.circuit(),
-        Err(RelationError::Violated(rule)) if rule.contains("input")
+        Err(error) if error.broken_rule().is_some_and(|rule| rule.contains("input"))
     ));
 }
 
@@ -185,7 +185,7 @@ fn the_attribute_writes_the_circuit_marker_on_the_twin() {
     .expect("native instantiation");
     assert!(matches!(
         empty.circuit(),
-        Err(RelationError::Violated(rule)) if rule.contains("input")
+        Err(error) if error.broken_rule().is_some_and(|rule| rule.contains("input"))
     ));
 }
 

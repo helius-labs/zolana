@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
@@ -31,7 +31,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::OrderTerms {}
 impl ProofInput for OrderTerms {
     type Circuit = circuit::OrderTerms;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::OrderTerms, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::OrderTerms, CircuitError> {
         Ok(circuit::OrderTerms {
             maker_hash: self.maker_hash.instantiate(allocator)?,
             ask_asset_hash: self.ask_asset_hash.instantiate(allocator)?,
@@ -42,7 +42,7 @@ impl ProofInput for OrderTerms {
 }
 
 impl FromCircuit for OrderTerms {
-    fn from_circuit(circuit: &circuit::OrderTerms) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::OrderTerms) -> Result<Self, CircuitError> {
         Ok(Self {
             maker_hash: <[u8; 32]>::from_circuit(&circuit.maker_hash)?,
             ask_asset_hash: <[u8; 32]>::from_circuit(&circuit.ask_asset_hash)?,
@@ -53,7 +53,7 @@ impl FromCircuit for OrderTerms {
 }
 
 impl Placeholder for OrderTerms {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             maker_hash: Placeholder::placeholder()?,
             ask_asset_hash: Placeholder::placeholder()?,
@@ -89,7 +89,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Make {}
 impl ProofInput for Make {
     type Circuit = circuit::Make;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Make, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Make, CircuitError> {
         let private = &self.private;
         Ok(circuit::Make {
             private: circuit::MakePrivateInputs {
@@ -108,7 +108,7 @@ impl ProofInput for Make {
 }
 
 impl Placeholder for Make {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: MakePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -132,7 +132,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -155,7 +155,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for OrderTerms {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.maker_hash.clone(),
                 self.ask_asset_hash.clone(),
@@ -190,7 +190,7 @@ pub(crate) mod circuit {
     impl Circuit for Make {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut order =
@@ -209,7 +209,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for MakePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.order_owner.hash()?,
                 self.expiry.var(),

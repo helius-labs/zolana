@@ -5,7 +5,8 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo, Uint,
     },
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, CircuitErrorKind, Groth16Prover, ProverError, ProverErrorKind, TxContext,
+    ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -33,7 +34,7 @@ struct RecipientPublicInputs {
 
 #[circuit]
 impl Circuit for Payment {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -53,10 +54,10 @@ struct Peeking {
 
 #[circuit]
 impl Circuit for Peeking {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         if value(&private.amount.var())? == Field::from(0u64) {
-            return Err(RelationError::Violated("the payment moves nothing"));
+            return Err(CircuitError::rule_broken("the payment moves nothing"));
         }
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -77,7 +78,7 @@ struct Reshaped {
 impl ProofInput for Reshaped {
     type Circuit = PaymentCircuit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, CircuitError> {
         if self.extra_input {
             let _extra = Field::from(0u64).instantiate(allocator)?;
         }
@@ -86,7 +87,7 @@ impl ProofInput for Reshaped {
 }
 
 impl Placeholder for Reshaped {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             payment: Payment::placeholder()?,
             extra_input: false,
@@ -100,7 +101,7 @@ struct ConstantAmount(Payment);
 impl ProofInput for ConstantAmount {
     type Circuit = PaymentCircuit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, CircuitError> {
         let mut circuit = self.0.instantiate(allocator)?;
         circuit.private.amount = Uint::constant(self.0.private.amount)?;
         Ok(circuit)
@@ -108,7 +109,7 @@ impl ProofInput for ConstantAmount {
 }
 
 impl Placeholder for ConstantAmount {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self(Payment::placeholder()?))
     }
 }
@@ -157,8 +158,8 @@ fn an_extra_private_variable_is_a_shape_difference_named_where_it_parts() {
     let error = reshaped.check_constraints().unwrap_err();
     let message = error.to_string();
 
-    match error {
-        RelationError::ShapeDiffers {
+    match error.into_kind() {
+        ProverErrorKind::ShapeDiffers {
             setup,
             proof,
             first_apart,
@@ -177,8 +178,11 @@ fn an_extra_private_variable_is_a_shape_difference_named_where_it_parts() {
 
 #[test]
 fn an_input_dependent_constant_is_a_constraint_difference() {
-    match ConstantAmount(payment(400)).check_constraints() {
-        Err(RelationError::ConstraintsDiffer(row)) => assert_eq!(
+    match ConstantAmount(payment(400))
+        .check_constraints()
+        .map_err(ProverError::into_kind)
+    {
+        Err(ProverErrorKind::ConstraintsDiffer(row)) => assert_eq!(
             row.label.map(|label| (label.kind, label.text)),
             Some((LabelKind::Check, "the transfer exceeds the balance"))
         ),
@@ -192,9 +196,16 @@ fn a_value_read_of_a_variable_names_its_line() {
         private: private_inputs(400),
         public: recipient(),
     };
-    let read_at = |result: Result<(), RelationError>| match result {
-        Err(RelationError::ValueOfVariable(location)) => {
-            location.file().ends_with("tests/check_constraints.rs")
+    let read_at = |result: Result<(), ProverError>| match result {
+        Err(error)
+            if error.circuit_error().is_some_and(|error| {
+                matches!(error.kind(), CircuitErrorKind::ReadsVariableValue)
+            }) =>
+        {
+            error
+                .location()
+                .file()
+                .ends_with("tests/check_constraints.rs")
         }
         other => panic!("expected a value read of a variable, got {other:?}"),
     };
@@ -205,7 +216,7 @@ fn a_value_read_of_a_variable_names_its_line() {
             read_at(Groth16Prover::<Peeking>::new_with_test_setup().map(|_| ())),
             peeking.check_constraints().err().map(|error| error
                 .to_string()
-                .starts_with("the circuit reads the value of a variable at ")),
+                .starts_with("the circuit reads the value of a variable;")),
         ),
         (true, true, Some(true))
     );

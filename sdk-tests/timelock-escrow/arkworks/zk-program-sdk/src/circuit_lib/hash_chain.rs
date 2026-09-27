@@ -3,11 +3,11 @@ use ark_r1cs_std::boolean::Boolean;
 use super::poseidon;
 use crate::{
     circuit::{labels::Scope, var::system_of, zero, Bool, CircuitVar},
-    RelationError,
+    CircuitError,
 };
 
 #[track_caller]
-pub fn nonzero_hash_chain(values: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
+pub fn nonzero_hash_chain(values: &[CircuitVar]) -> Result<CircuitVar, CircuitError> {
     let _scope = Scope::open(&system_of(values), "a hash chain of the nonzero values");
     values.iter().try_fold(zero(), |chain, value| {
         let skip = value.equals_zero()?;

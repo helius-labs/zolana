@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_keypair::ShieldedAddress;
@@ -37,7 +37,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Cancel {}
 impl ProofInput for Cancel {
     type Circuit = circuit::Cancel;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Cancel, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Cancel, CircuitError> {
         let private = &self.private;
         Ok(circuit::Cancel {
             private: circuit::CancelPrivateInputs {
@@ -55,7 +55,7 @@ impl ProofInput for Cancel {
 }
 
 impl Placeholder for Cancel {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CancelPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -78,7 +78,7 @@ mod circuit {
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
             Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s31_order_make::circuit::OrderTerms;
@@ -103,7 +103,7 @@ mod circuit {
     impl Circuit for Cancel {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;
@@ -129,7 +129,7 @@ mod circuit {
     }
 
     impl PublicInputs for CancelPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.expiry.var(),
                 self.maker_identity.clone(),

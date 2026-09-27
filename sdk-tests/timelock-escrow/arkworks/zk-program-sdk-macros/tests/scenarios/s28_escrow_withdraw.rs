@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -37,7 +37,7 @@ pub(crate) struct WithdrawPublicInputs {
 
 #[circuit]
 impl Circuit for Withdraw {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
         escrow

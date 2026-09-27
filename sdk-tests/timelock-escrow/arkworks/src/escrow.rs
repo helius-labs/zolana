@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    RelationError, TxContext,
+    CircuitError, TxContext,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::WalletUtxo;
@@ -56,7 +56,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Escrow {}
 impl ProofInput for Escrow {
     type Circuit = circuit::Escrow;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Escrow, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Escrow, CircuitError> {
         let private = &self.private;
         Ok(circuit::Escrow {
             private: circuit::EscrowPrivateInputs {
@@ -73,7 +73,7 @@ impl ProofInput for Escrow {
 }
 
 impl Placeholder for Escrow {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: EscrowPrivateInputs {
                 tx_context: Placeholder::placeholder()?,

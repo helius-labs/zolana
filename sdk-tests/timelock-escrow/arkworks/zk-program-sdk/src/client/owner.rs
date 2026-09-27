@@ -5,7 +5,7 @@ use zolana_hasher::{
 };
 use zolana_keypair::{Curve, PublicKey, ShieldedAddress};
 
-use crate::{hasher::ToByteArray, RelationError};
+use crate::{hasher::ToByteArray, CircuitError, CircuitErrorKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(
@@ -31,12 +31,15 @@ pub struct Owner {
 }
 
 impl TryFrom<(&PublicKey, [u8; 32])> for Owner {
-    type Error = RelationError;
+    type Error = CircuitError;
 
     fn try_from(
         (signing_pubkey, nullifier_pk): (&PublicKey, [u8; 32]),
-    ) -> Result<Self, RelationError> {
-        let tag = match signing_pubkey.curve().map_err(RelationError::input)? {
+    ) -> Result<Self, CircuitError> {
+        let tag = match signing_pubkey
+            .curve()
+            .map_err(CircuitErrorKind::InvalidOwner)?
+        {
             Curve::Ed25519 | Curve::Pda => SOLANA_OWNER_TAG,
             Curve::P256 => P256_OWNER_TAG,
         };
@@ -44,16 +47,16 @@ impl TryFrom<(&PublicKey, [u8; 32])> for Owner {
             tag,
             key: signing_pubkey
                 .confidential_view_tag()
-                .map_err(RelationError::input)?,
+                .map_err(CircuitErrorKind::InvalidOwner)?,
             nullifier_pk,
         })
     }
 }
 
 impl TryFrom<&ShieldedAddress> for Owner {
-    type Error = RelationError;
+    type Error = CircuitError;
 
-    fn try_from(address: &ShieldedAddress) -> Result<Self, RelationError> {
+    fn try_from(address: &ShieldedAddress) -> Result<Self, CircuitError> {
         Self::try_from((&address.signing_pubkey, address.nullifier_pubkey))
     }
 }

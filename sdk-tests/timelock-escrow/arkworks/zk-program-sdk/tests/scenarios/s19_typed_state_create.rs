@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ShieldedAddress;
@@ -28,7 +28,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::TypedState {}
 impl ProofInput for TypedState {
     type Circuit = circuit::TypedState;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TypedState, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TypedState, CircuitError> {
         Ok(circuit::TypedState {
             amount: self.amount.instantiate(allocator)?,
             count: self.count.instantiate(allocator)?,
@@ -42,7 +42,7 @@ impl ProofInput for TypedState {
 }
 
 impl FromCircuit for TypedState {
-    fn from_circuit(circuit: &circuit::TypedState) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::TypedState) -> Result<Self, CircuitError> {
         Ok(Self {
             amount: u64::from_circuit(&circuit.amount)?,
             count: u32::from_circuit(&circuit.count)?,
@@ -56,7 +56,7 @@ impl FromCircuit for TypedState {
 }
 
 impl Placeholder for TypedState {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             amount: Placeholder::placeholder()?,
             count: Placeholder::placeholder()?,
@@ -97,7 +97,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::TypedCreate {}
 impl ProofInput for TypedCreate {
     type Circuit = circuit::TypedCreate;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TypedCreate, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TypedCreate, CircuitError> {
         let private = &self.private;
         Ok(circuit::TypedCreate {
             private: circuit::TypedCreatePrivateInputs {
@@ -118,7 +118,7 @@ impl ProofInput for TypedCreate {
 }
 
 impl Placeholder for TypedCreate {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: TypedCreatePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -144,7 +144,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -173,7 +173,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for TypedState {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.amount.var(),
                 self.count.var(),
@@ -213,7 +213,7 @@ pub(crate) mod circuit {
     impl Circuit for TypedCreate {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut state = DataUtxo::<TypedState>::new_init(&private.owner, &Asset::sol());
@@ -233,7 +233,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for TypedCreatePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.amount.var(), transaction_hash.clone()])
         }
     }

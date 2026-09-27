@@ -4,7 +4,7 @@ use zk_program_sdk::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -33,7 +33,7 @@ struct SweepPublicInputs {
 
 #[circuit]
 impl Circuit for Sweep {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
         let mut sweep = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());

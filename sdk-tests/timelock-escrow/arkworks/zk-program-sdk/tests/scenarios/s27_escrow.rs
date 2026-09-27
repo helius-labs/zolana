@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, Owner, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, Owner, TxContext, ZkProgram,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
@@ -28,7 +28,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::EscrowTerms {}
 impl ProofInput for EscrowTerms {
     type Circuit = circuit::EscrowTerms;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::EscrowTerms, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::EscrowTerms, CircuitError> {
         Ok(circuit::EscrowTerms {
             creator: self.creator.instantiate(allocator)?,
             unlock: self.unlock.instantiate(allocator)?,
@@ -37,7 +37,7 @@ impl ProofInput for EscrowTerms {
 }
 
 impl FromCircuit for EscrowTerms {
-    fn from_circuit(circuit: &circuit::EscrowTerms) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::EscrowTerms) -> Result<Self, CircuitError> {
         Ok(Self {
             creator: Owner::from_circuit(&circuit.creator)?,
             unlock: u64::from_circuit(&circuit.unlock)?,
@@ -46,7 +46,7 @@ impl FromCircuit for EscrowTerms {
 }
 
 impl Placeholder for EscrowTerms {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             creator: Placeholder::placeholder()?,
             unlock: Placeholder::placeholder()?,
@@ -78,7 +78,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Escrow {}
 impl ProofInput for Escrow {
     type Circuit = circuit::Escrow;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Escrow, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Escrow, CircuitError> {
         let private = &self.private;
         Ok(circuit::Escrow {
             private: circuit::EscrowPrivateInputs {
@@ -95,7 +95,7 @@ impl ProofInput for Escrow {
 }
 
 impl Placeholder for Escrow {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: EscrowPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -117,7 +117,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -136,7 +136,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for EscrowTerms {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.creator.hash()?, self.unlock.hash()?])
         }
     }
@@ -164,7 +164,7 @@ pub(crate) mod circuit {
     impl Circuit for Escrow {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             private.amount.assert_not_zero("the escrow locks nothing")?;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -182,7 +182,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for EscrowPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.escrow_owner.hash()?, transaction_hash.clone()])
         }
     }

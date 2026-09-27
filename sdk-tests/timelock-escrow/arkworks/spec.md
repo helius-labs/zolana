@@ -81,11 +81,11 @@ pub struct WithdrawPublicInputs {
 
   ```rust
   pub trait PublicInputs {
-      fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError>;
+      fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError>;
   }
 
   impl PublicInputs for circuit::EscrowPublicInputs {
-      fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+      fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
           poseidon(&[self.escrow_owner.clone(), private_tx_hash.clone()])
       }
   }
@@ -179,7 +179,7 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 
 - `circuit` is a method of the circuit type, so inside it every value is a `CircuitVar`.
 - Instantiation is the only way from a proof input to its circuit type, and it runs the
-  checks: natively as a comparison that fails with a named `RelationError`, in R1CS as
+  checks: natively as a comparison that fails with a named `CircuitError`, in R1CS as
   constraints, for example a bit decomposition for a `u64`.
 - A state has two forms, written by hand for now: the client form, for example
   `EscrowTerms { creator: Owner, unlock: u64 }`, and the circuit form with `circuit::Owner`
@@ -219,7 +219,7 @@ and `Balance::transfer` moves value from one to the other:
 
   ```rust
   impl DataHash for circuit::EscrowTerms {
-      fn hash(&self) -> Result<CircuitVar, RelationError> {
+      fn hash(&self) -> Result<CircuitVar, CircuitError> {
           poseidon(&[self.creator.hash()?, self.unlock.hash()?])
       }
   }
@@ -255,7 +255,7 @@ and `Balance::transfer` moves value from one to the other:
   4. what remains of the source's balance fits in 64 bits, so the transfer does not exceed
      the balance. A mint's total supply is a u64.
 
-  Natively each rule is a named `RelationError`, so the mistake stops while the proof inputs
+  Natively each rule is a named `CircuitError`, so the mistake stops while the proof inputs
   are built; in R1CS rules 2 and 4 are constraints. `transfer_all(&mut destination)?` checks
   rules 1 and 2 and moves the whole balance: a balance cannot go negative, because SPP
   range-checks the input amounts and every debit passes rules 3 and 4. `withdraw` checks rule
@@ -301,7 +301,7 @@ and `Balance::transfer` moves value from one to the other:
 
 ```rust
 impl Circuit for Escrow {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -341,7 +341,7 @@ impl Circuit for Escrow {
 - In R1CS, zk-program-sdk asserts the returned public hash equals the public input.
   `ConfidentialTransaction` is `#[must_use]`, so a circuit cannot skip `check`.
 - The same method runs natively on constants, where a broken rule is a named
-  `RelationError`, and in R1CS on allocated variables, where it is an unsatisfied
+  `CircuitError` that points at the circuit's line, and in R1CS on allocated variables, where it is an unsatisfied
   constraint. Every check labels its rows with its rule and the circuit's `file:line`, so an
   unsatisfied row names both.
 - The logic cannot branch on values, since `value` reads only constants, so both runs build
@@ -422,8 +422,8 @@ zk-program-sdk follows the same split:
 
 | Path | Contents |
 | --- | --- |
-| `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `Unsigned`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Compare`, `Arithmetic`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `ConstraintLabel`, `LabelKind`, `VariableRole`, `UnsatisfiedRow`, `SynthesisShape`. |
+| `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `CircuitError`, `ClientError`, `ProverError`, their kinds and `SourceLocation`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `Unsigned`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Compare`, `Arithmetic`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
 | `zk_program_sdk::testing` | Feature `client`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 

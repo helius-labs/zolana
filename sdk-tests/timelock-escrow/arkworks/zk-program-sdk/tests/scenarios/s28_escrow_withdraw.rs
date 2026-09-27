@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -35,7 +35,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Withdraw {}
 impl ProofInput for Withdraw {
     type Circuit = circuit::Withdraw;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Withdraw, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Withdraw, CircuitError> {
         let private = &self.private;
         Ok(circuit::Withdraw {
             private: circuit::WithdrawPrivateInputs {
@@ -52,7 +52,7 @@ impl ProofInput for Withdraw {
 }
 
 impl Placeholder for Withdraw {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: WithdrawPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -73,7 +73,7 @@ mod circuit {
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s27_escrow::circuit::EscrowTerms;
@@ -97,7 +97,7 @@ mod circuit {
     impl Circuit for Withdraw {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
             escrow
@@ -121,7 +121,7 @@ mod circuit {
     }
 
     impl PublicInputs for WithdrawPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.unlock.var(),
                 self.owner_identity.clone(),

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -42,7 +42,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Claim {}
 impl ProofInput for Claim {
     type Circuit = circuit::Claim;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Claim, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Claim, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         Ok(circuit::Claim {
@@ -66,7 +66,7 @@ impl ProofInput for Claim {
 }
 
 impl Placeholder for Claim {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: ClaimPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -94,7 +94,7 @@ mod circuit {
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
             Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::{s39_airdrop_pool::circuit::Pool, shared::CircuitMerklePath};
@@ -124,7 +124,7 @@ mod circuit {
     impl Circuit for Claim {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut pool = DataUtxo::new_burn(&private.pool, &private.state)?;
@@ -162,7 +162,7 @@ mod circuit {
     }
 
     impl PublicInputs for ClaimPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.root.clone(),
                 self.airdrop_id.var(),

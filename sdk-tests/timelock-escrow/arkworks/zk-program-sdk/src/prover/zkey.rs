@@ -5,7 +5,7 @@ use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_relations::r1cs::ConstraintMatrices;
 
 use super::groth16::{ProvingKey, VerifyingKey};
-use crate::{circuit::Field, RelationError};
+use crate::{circuit::Field, ProverError, ProverErrorKind};
 
 const G1_BYTES: usize = 64;
 const G2_BYTES: usize = 128;
@@ -32,21 +32,18 @@ struct Coefficient {
 }
 
 impl Zkey {
-    pub(crate) fn read(bytes: &[u8]) -> Result<Self, RelationError> {
+    pub(crate) fn read(bytes: &[u8]) -> Result<Self, ProverError> {
         let sections = Sections::read(bytes)?;
 
         let mut header = Reader::new(sections.get(1)?);
         if header.u32()? != GROTH16 {
-            return Err(RelationError::InvalidZkey("the zkey is not a Groth16 key"));
+            return Err(ProverErrorKind::InvalidZkey("the zkey is not a Groth16 key").into());
         }
         header.finish()?;
 
         let mut groth = Reader::new(sections.get(2)?);
-        groth.modulus(&Fq::MODULUS, "the zkey is not over the BN254 base field")?;
-        groth.modulus(
-            &Field::MODULUS,
-            "the zkey is not over the BN254 scalar field",
-        )?;
+        groth.modulus(&Fq::MODULUS, "the zkey belongs to another proof system")?;
+        groth.modulus(&Field::MODULUS, "the zkey belongs to another proof system")?;
         let variables = groth.usize()?;
         let public_inputs = groth.usize()?;
         let domain_size = groth.usize()?;
@@ -58,13 +55,13 @@ impl Zkey {
         let delta_g2 = non_identity(groth.g2("delta")?, "delta")?;
         groth.finish()?;
         if delta_g2 == gamma_g2 {
-            return Err(RelationError::UncontributedZkey);
+            return Err(ProverErrorKind::UnfinishedZkey.into());
         }
 
         let witness_variables = variables
             .checked_sub(public_inputs)
             .and_then(|count| count.checked_sub(1))
-            .ok_or(RelationError::InvalidZkey(
+            .ok_or(ProverErrorKind::InvalidZkey(
                 "the zkey has more public inputs than variables",
             ))?;
 
@@ -97,18 +94,18 @@ impl Zkey {
     pub(crate) fn check_circuit(
         &self,
         matrices: &ConstraintMatrices<Field>,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), ProverError> {
         let domain_size = GeneralEvaluationDomain::<Field>::new(
             matrices.num_constraints + matrices.num_instance_variables,
         )
-        .ok_or(RelationError::KeysForAnotherCircuit)?
+        .ok_or(ProverErrorKind::KeysForAnotherCircuit)?
         .size();
         let same_shape = self.variables
             == matrices.num_instance_variables + matrices.num_witness_variables
             && self.public_inputs + 1 == matrices.num_instance_variables
             && self.domain_size == domain_size;
         if !same_shape {
-            return Err(RelationError::KeysForAnotherCircuit);
+            return Err(ProverErrorKind::KeysForAnotherCircuit.into());
         }
 
         let mut expected = circuit_coefficients(matrices)?;
@@ -116,24 +113,24 @@ impl Zkey {
         let mut actual = self.coefficients.clone();
         actual.sort_unstable();
         if actual != expected {
-            return Err(RelationError::KeysForAnotherCircuit);
+            return Err(ProverErrorKind::KeysForAnotherCircuit.into());
         }
         Ok(())
     }
 }
 
-fn non_identity<P: AffineRepr>(point: P, name: &'static str) -> Result<P, RelationError> {
+fn non_identity<P: AffineRepr>(point: P, name: &'static str) -> Result<P, ProverError> {
     if point.is_zero() {
-        return Err(RelationError::InvalidKeyPoint(name));
+        return Err(ProverErrorKind::CorruptZkeyValue(name).into());
     }
     Ok(point)
 }
 
 fn circuit_coefficients(
     matrices: &ConstraintMatrices<Field>,
-) -> Result<Vec<Coefficient>, RelationError> {
+) -> Result<Vec<Coefficient>, ProverError> {
     let index =
-        |value: usize| u32::try_from(value).map_err(|_| RelationError::KeysForAnotherCircuit);
+        |value: usize| u32::try_from(value).map_err(|_| ProverErrorKind::KeysForAnotherCircuit);
     let mut coefficients = Vec::with_capacity(
         matrices.a_num_non_zero + matrices.b_num_non_zero + matrices.num_instance_variables,
     );
@@ -160,16 +157,17 @@ fn circuit_coefficients(
     Ok(coefficients)
 }
 
-fn coefficients(section: &[u8]) -> Result<Vec<Coefficient>, RelationError> {
+fn coefficients(section: &[u8]) -> Result<Vec<Coefficient>, ProverError> {
     let mut reader = Reader::new(section);
     let count = reader.usize()?;
     let expected = count
         .checked_mul(COEFFICIENT_BYTES)
         .and_then(|size| size.checked_add(4));
     if expected != Some(section.len()) {
-        return Err(RelationError::InvalidZkey(
+        return Err(ProverErrorKind::InvalidZkey(
             "the zkey coefficient section has the wrong size",
-        ));
+        )
+        .into());
     }
     let mut coefficients = Vec::with_capacity(count);
     for _ in 0..count {
@@ -189,32 +187,34 @@ struct Sections<'a> {
 }
 
 impl<'a> Sections<'a> {
-    fn read(bytes: &'a [u8]) -> Result<Self, RelationError> {
+    fn read(bytes: &'a [u8]) -> Result<Self, ProverError> {
         let mut reader = Reader::new(bytes);
         if reader.take(4)? != b"zkey" {
-            return Err(RelationError::InvalidZkey("the file is not a zkey"));
+            return Err(ProverErrorKind::InvalidZkey("the file is not a zkey").into());
         }
         if reader.u32()? != 1 {
-            return Err(RelationError::InvalidZkey("the zkey version is not 1"));
+            return Err(ProverErrorKind::InvalidZkey("the zkey version is not 1").into());
         }
         let count = reader.u32()?;
         let mut sections = Vec::new();
         for _ in 0..count {
             let kind = reader.u32()?;
             let size = usize::try_from(reader.u64()?)
-                .map_err(|_| RelationError::InvalidZkey("a zkey section is too large"))?;
+                .map_err(|_| ProverErrorKind::InvalidZkey("a zkey section is too large"))?;
             sections.push((kind, reader.take(size)?));
         }
         reader.finish()?;
         Ok(Self { sections })
     }
 
-    fn get(&self, kind: u32) -> Result<&'a [u8], RelationError> {
+    fn get(&self, kind: u32) -> Result<&'a [u8], ProverError> {
         let mut matching = self.sections.iter().filter(|(id, _)| *id == kind);
         match (matching.next(), matching.next()) {
             (Some((_, payload)), None) => Ok(payload),
-            (None, _) => Err(RelationError::InvalidZkey("a zkey section is missing")),
-            (Some(_), Some(_)) => Err(RelationError::InvalidZkey("a zkey section is repeated")),
+            (None, _) => Err(ProverErrorKind::InvalidZkey("a zkey section is missing").into()),
+            (Some(_), Some(_)) => {
+                Err(ProverErrorKind::InvalidZkey("a zkey section is repeated").into())
+            }
         }
     }
 
@@ -223,7 +223,7 @@ impl<'a> Sections<'a> {
         kind: u32,
         count: usize,
         name: &'static str,
-    ) -> Result<Vec<G1Affine>, RelationError> {
+    ) -> Result<Vec<G1Affine>, ProverError> {
         let mut reader = self.sized(kind, count, G1_BYTES)?;
         let points = (0..count)
             .map(|_| reader.g1(name))
@@ -232,7 +232,7 @@ impl<'a> Sections<'a> {
         Ok(points)
     }
 
-    fn g2s(&self, kind: u32, count: usize) -> Result<Vec<G2Affine>, RelationError> {
+    fn g2s(&self, kind: u32, count: usize) -> Result<Vec<G2Affine>, ProverError> {
         let mut reader = self.sized(kind, count, G2_BYTES)?;
         let points = (0..count)
             .map(|_| reader.g2("B2"))
@@ -246,12 +246,12 @@ impl<'a> Sections<'a> {
         kind: u32,
         count: usize,
         point_bytes: usize,
-    ) -> Result<Reader<'a>, RelationError> {
+    ) -> Result<Reader<'a>, ProverError> {
         let section = self.get(kind)?;
         if count.checked_mul(point_bytes) != Some(section.len()) {
-            return Err(RelationError::InvalidZkey(
-                "a zkey point section has the wrong size",
-            ));
+            return Err(
+                ProverErrorKind::InvalidZkey("a zkey point section has the wrong size").into(),
+            );
         }
         Ok(Reader::new(section))
     }
@@ -266,45 +266,44 @@ impl<'a> Reader<'a> {
         Self { bytes }
     }
 
-    fn take(&mut self, count: usize) -> Result<&'a [u8], RelationError> {
+    fn take(&mut self, count: usize) -> Result<&'a [u8], ProverError> {
         if count > self.bytes.len() {
-            return Err(RelationError::InvalidZkey("the zkey ends early"));
+            return Err(ProverErrorKind::InvalidZkey("the zkey ends early").into());
         }
         let (taken, rest) = self.bytes.split_at(count);
         self.bytes = rest;
         Ok(taken)
     }
 
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], RelationError> {
-        self.take(N)?
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], ProverError> {
+        Ok(self
+            .take(N)?
             .try_into()
-            .map_err(|_| RelationError::InvalidZkey("the zkey ends early"))
+            .map_err(|_| ProverErrorKind::InvalidZkey("the zkey ends early"))?)
     }
 
-    fn finish(&self) -> Result<(), RelationError> {
+    fn finish(&self) -> Result<(), ProverError> {
         if self.bytes.is_empty() {
             Ok(())
         } else {
-            Err(RelationError::InvalidZkey(
-                "a zkey section has trailing bytes",
-            ))
+            Err(ProverErrorKind::InvalidZkey("a zkey section has trailing bytes").into())
         }
     }
 
-    fn u32(&mut self) -> Result<u32, RelationError> {
+    fn u32(&mut self) -> Result<u32, ProverError> {
         Ok(u32::from_le_bytes(self.array()?))
     }
 
-    fn u64(&mut self) -> Result<u64, RelationError> {
+    fn u64(&mut self) -> Result<u64, ProverError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
-    fn usize(&mut self) -> Result<usize, RelationError> {
-        usize::try_from(self.u32()?)
-            .map_err(|_| RelationError::InvalidZkey("a zkey count is too large"))
+    fn usize(&mut self) -> Result<usize, ProverError> {
+        Ok(usize::try_from(self.u32()?)
+            .map_err(|_| ProverErrorKind::InvalidZkey("a zkey count is too large"))?)
     }
 
-    fn bigint(&mut self) -> Result<BigInt<4>, RelationError> {
+    fn bigint(&mut self) -> Result<BigInt<4>, ProverError> {
         let bytes: [u8; FIELD_BYTES] = self.array()?;
         let mut limbs = [0u64; 4];
         for (limb, chunk) in limbs.iter_mut().zip(bytes.as_chunks::<8>().0) {
@@ -313,35 +312,33 @@ impl<'a> Reader<'a> {
         Ok(BigInt::new(limbs))
     }
 
-    fn modulus(&mut self, modulus: &BigInt<4>, wrong: &'static str) -> Result<(), RelationError> {
+    fn modulus(&mut self, modulus: &BigInt<4>, wrong: &'static str) -> Result<(), ProverError> {
         let size = self.usize()?;
         if size != FIELD_BYTES || self.bigint()? != *modulus {
-            return Err(RelationError::InvalidZkey(wrong));
+            return Err(ProverErrorKind::InvalidZkey(wrong).into());
         }
         Ok(())
     }
 
-    fn coefficient(&mut self) -> Result<Field, RelationError> {
+    fn coefficient(&mut self) -> Result<Field, ProverError> {
         let montgomery = self.bigint()?;
         if montgomery >= Field::MODULUS {
-            return Err(RelationError::InvalidZkey(
-                "a zkey coefficient is not canonical",
-            ));
+            return Err(ProverErrorKind::InvalidZkey("a zkey coefficient is not canonical").into());
         }
         Ok(Field::new_unchecked(
             Field::new_unchecked(montgomery).into_bigint(),
         ))
     }
 
-    fn fq(&mut self, name: &'static str) -> Result<Fq, RelationError> {
+    fn fq(&mut self, name: &'static str) -> Result<Fq, ProverError> {
         let montgomery = self.bigint()?;
         if montgomery >= Fq::MODULUS {
-            return Err(RelationError::InvalidKeyPoint(name));
+            return Err(ProverErrorKind::CorruptZkeyValue(name).into());
         }
         Ok(Fq::new_unchecked(montgomery))
     }
 
-    fn g1(&mut self, name: &'static str) -> Result<G1Affine, RelationError> {
+    fn g1(&mut self, name: &'static str) -> Result<G1Affine, ProverError> {
         let x = self.fq(name)?;
         let y = self.fq(name)?;
         if x.is_zero() && y.is_zero() {
@@ -349,12 +346,12 @@ impl<'a> Reader<'a> {
         }
         let point = G1Affine::new_unchecked(x, y);
         if !point.is_on_curve() || !point.is_in_correct_subgroup_assuming_on_curve() {
-            return Err(RelationError::InvalidKeyPoint(name));
+            return Err(ProverErrorKind::CorruptZkeyValue(name).into());
         }
         Ok(point)
     }
 
-    fn g2(&mut self, name: &'static str) -> Result<G2Affine, RelationError> {
+    fn g2(&mut self, name: &'static str) -> Result<G2Affine, ProverError> {
         let x = Fq2::new(self.fq(name)?, self.fq(name)?);
         let y = Fq2::new(self.fq(name)?, self.fq(name)?);
         if x.is_zero() && y.is_zero() {
@@ -362,7 +359,7 @@ impl<'a> Reader<'a> {
         }
         let point = G2Affine::new_unchecked(x, y);
         if !point.is_on_curve() || !point.is_in_correct_subgroup_assuming_on_curve() {
-            return Err(RelationError::InvalidKeyPoint(name));
+            return Err(ProverErrorKind::CorruptZkeyValue(name).into());
         }
         Ok(point)
     }

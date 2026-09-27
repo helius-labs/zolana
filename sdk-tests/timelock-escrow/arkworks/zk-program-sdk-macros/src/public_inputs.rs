@@ -15,7 +15,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let public_inputs = paths::public_inputs();
     let data_hash = paths::data_hash();
     let circuit_var = paths::circuit_var();
-    let relation_error = paths::relation_error();
+    let circuit_error = paths::circuit_error();
     let poseidon = paths::poseidon();
 
     let hash = match shape {
@@ -39,7 +39,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
             fn hash(
                 &self,
                 transaction_hash: &#circuit_var,
-            ) -> ::core::result::Result<#circuit_var, #relation_error> {
+            ) -> ::core::result::Result<#circuit_var, #circuit_error> {
                 #hash
             }
         }

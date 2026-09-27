@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
@@ -29,7 +29,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Poll {}
 impl ProofInput for Poll {
     type Circuit = circuit::Poll;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Poll, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Poll, CircuitError> {
         Ok(circuit::Poll {
             poll_id: self.poll_id.instantiate(allocator)?,
             root: self.root.instantiate(allocator)?,
@@ -39,7 +39,7 @@ impl ProofInput for Poll {
 }
 
 impl FromCircuit for Poll {
-    fn from_circuit(circuit: &circuit::Poll) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Poll) -> Result<Self, CircuitError> {
         Ok(Self {
             poll_id: u64::from_circuit(&circuit.poll_id)?,
             root: <[u8; 32]>::from_circuit(&circuit.root)?,
@@ -49,7 +49,7 @@ impl FromCircuit for Poll {
 }
 
 impl Placeholder for Poll {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             poll_id: Placeholder::placeholder()?,
             root: Placeholder::placeholder()?,
@@ -82,7 +82,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CreatePoll {}
 impl ProofInput for CreatePoll {
     type Circuit = circuit::CreatePoll;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreatePoll, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreatePoll, CircuitError> {
         let private = &self.private;
         Ok(circuit::CreatePoll {
             private: circuit::CreatePollPrivateInputs {
@@ -99,7 +99,7 @@ impl ProofInput for CreatePoll {
 }
 
 impl Placeholder for CreatePoll {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CreatePollPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -121,7 +121,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -142,7 +142,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Poll {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.poll_id.var(), self.root.clone(), self.tally.hash()?])
         }
     }
@@ -170,7 +170,7 @@ pub(crate) mod circuit {
     impl Circuit for CreatePoll {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut poll = DataUtxo::<Poll>::new_init(&private.poll_owner, &Asset::sol());
@@ -185,7 +185,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for CreatePollPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.poll_id.var(),
                 self.root.clone(),

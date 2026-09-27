@@ -3,19 +3,19 @@ use ark_ff::{BigInteger, PrimeField};
 use super::{Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
     circuit::{constant, value, var::assert_bool, Bool, CircuitVar, Field, Uint, VariableRole},
-    RelationError,
+    CircuitError, CircuitErrorKind,
 };
 
-pub fn field(bytes: &[u8; 32], name: &'static str) -> Result<Field, RelationError> {
+pub fn field(bytes: &[u8; 32], name: &'static str) -> Result<Field, CircuitError> {
     let field = Field::from_be_bytes_mod_order(bytes);
     if field_bytes(&field) == *bytes {
         Ok(field)
     } else {
-        Err(RelationError::NonCanonical(name))
+        Err(CircuitErrorKind::BytesTooLarge(name).into())
     }
 }
 
-pub fn var(bytes: &[u8; 32], name: &'static str) -> Result<CircuitVar, RelationError> {
+pub fn var(bytes: &[u8; 32], name: &'static str) -> Result<CircuitVar, CircuitError> {
     Ok(constant(field(bytes, name)?))
 }
 
@@ -33,26 +33,26 @@ pub(crate) fn be_bytes(element: &impl PrimeField) -> [u8; 32] {
 }
 
 #[track_caller]
-pub fn to_bytes(var: &CircuitVar) -> Result<[u8; 32], RelationError> {
+pub fn to_bytes(var: &CircuitVar) -> Result<[u8; 32], CircuitError> {
     Ok(field_bytes(&value(var)?))
 }
 
 impl ProofInput for Field {
     type Circuit = CircuitVar;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, CircuitError> {
         allocator.witness(*self, "a field proof input", VariableRole::Constrained)
     }
 }
 
 impl FromCircuit for Field {
-    fn from_circuit(circuit: &CircuitVar) -> Result<Field, RelationError> {
+    fn from_circuit(circuit: &CircuitVar) -> Result<Field, CircuitError> {
         value(circuit)
     }
 }
 
 impl Placeholder for Field {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Field::from(0u64))
     }
 }
@@ -60,14 +60,14 @@ impl Placeholder for Field {
 impl<T: ProofInput, const N: usize> ProofInput for [T; N] {
     type Circuit = [T::Circuit; N];
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<Self::Circuit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<Self::Circuit, CircuitError> {
         let instantiated = self
             .iter()
             .map(|item| item.instantiate(allocator))
             .collect::<Result<Vec<_>, _>>()?;
-        instantiated
-            .try_into()
-            .map_err(|_| RelationError::Violated("an array instantiates to its own length"))
+        Ok(instantiated.try_into().map_err(|_| {
+            CircuitErrorKind::WrongLength("an array instantiates to its own length")
+        })?)
     }
 }
 
@@ -77,7 +77,7 @@ fn integer<const BITS: u32>(
     value: u64,
     text: &'static str,
     rule: &'static str,
-) -> Result<Uint<BITS>, RelationError> {
+) -> Result<Uint<BITS>, CircuitError> {
     Uint::from_var(
         &allocator.witness(Field::from(value), text, VariableRole::Constrained)?,
         rule,
@@ -87,7 +87,7 @@ fn integer<const BITS: u32>(
 impl ProofInput for u64 {
     type Circuit = Uint<64>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<64>, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<64>, CircuitError> {
         integer(
             allocator,
             *self,
@@ -100,7 +100,7 @@ impl ProofInput for u64 {
 impl ProofInput for u32 {
     type Circuit = Uint<32>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<32>, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<32>, CircuitError> {
         integer(
             allocator,
             u64::from(*self),
@@ -113,7 +113,7 @@ impl ProofInput for u32 {
 impl ProofInput for u16 {
     type Circuit = Uint<16>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<16>, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<16>, CircuitError> {
         integer(
             allocator,
             u64::from(*self),
@@ -126,7 +126,7 @@ impl ProofInput for u16 {
 impl ProofInput for bool {
     type Circuit = Bool;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<Bool, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<Bool, CircuitError> {
         let value = allocator.witness(
             Field::from(*self),
             "a bool proof input",
@@ -140,7 +140,7 @@ impl ProofInput for bool {
 impl ProofInput for [u8; 32] {
     type Circuit = CircuitVar;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, CircuitError> {
         allocator.witness(
             field(self, "32-byte input")?,
             "a 32-byte proof input",
@@ -150,107 +150,112 @@ impl ProofInput for [u8; 32] {
 }
 
 impl<T: FromCircuit, const N: usize> FromCircuit for [T; N] {
-    fn from_circuit(circuit: &[T::Circuit; N]) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &[T::Circuit; N]) -> Result<Self, CircuitError> {
         let values = circuit
             .iter()
             .map(T::from_circuit)
             .collect::<Result<Vec<_>, _>>()?;
-        values
-            .try_into()
-            .map_err(|_| RelationError::Violated("an array converts back to its own length"))
+        Ok(values.try_into().map_err(|_| {
+            CircuitErrorKind::WrongLength("an array converts back to its own length")
+        })?)
     }
 }
 
-pub(super) fn integer_value(var: &CircuitVar, bits: usize) -> Result<u64, RelationError> {
+#[track_caller]
+pub(super) fn integer_value(var: &CircuitVar, bits: usize) -> Result<u64, CircuitError> {
     let value = value(var)?.into_bigint();
     if value.num_bits() as usize > bits {
-        return Err(RelationError::OutOfRange(bits));
+        return Err(CircuitErrorKind::ValueTooLarge { bits }.into());
     }
-    value
+    Ok(value
         .as_ref()
         .first()
         .copied()
-        .ok_or(RelationError::OutOfRange(bits))
+        .ok_or(CircuitErrorKind::ValueTooLarge { bits })?)
 }
 
-pub(crate) fn u16_value(var: &CircuitVar) -> Result<u16, RelationError> {
-    u16::try_from(integer_value(var, 16)?).map_err(|_| RelationError::OutOfRange(16))
+#[track_caller]
+pub(crate) fn u16_value(var: &CircuitVar) -> Result<u16, CircuitError> {
+    Ok(u16::try_from(integer_value(var, 16)?)
+        .map_err(|_| CircuitErrorKind::ValueTooLarge { bits: 16 })?)
 }
 
-pub(crate) fn u64_value(var: &CircuitVar) -> Result<u64, RelationError> {
+#[track_caller]
+pub(crate) fn u64_value(var: &CircuitVar) -> Result<u64, CircuitError> {
     integer_value(var, 64)
 }
 
 impl FromCircuit for u64 {
-    fn from_circuit(circuit: &Uint<64>) -> Result<u64, RelationError> {
+    fn from_circuit(circuit: &Uint<64>) -> Result<u64, CircuitError> {
         u64_value(&circuit.var())
     }
 }
 
 impl FromCircuit for u32 {
-    fn from_circuit(circuit: &Uint<32>) -> Result<u32, RelationError> {
-        u32::try_from(integer_value(&circuit.var(), 32)?).map_err(|_| RelationError::OutOfRange(32))
+    fn from_circuit(circuit: &Uint<32>) -> Result<u32, CircuitError> {
+        Ok(u32::try_from(integer_value(&circuit.var(), 32)?)
+            .map_err(|_| CircuitErrorKind::ValueTooLarge { bits: 32 })?)
     }
 }
 
 impl FromCircuit for u16 {
-    fn from_circuit(circuit: &Uint<16>) -> Result<u16, RelationError> {
+    fn from_circuit(circuit: &Uint<16>) -> Result<u16, CircuitError> {
         u16_value(&circuit.var())
     }
 }
 
 impl FromCircuit for bool {
-    fn from_circuit(circuit: &Bool) -> Result<bool, RelationError> {
+    fn from_circuit(circuit: &Bool) -> Result<bool, CircuitError> {
         match value(&circuit.var())? {
             value if value == Field::from(0u64) => Ok(false),
             value if value == Field::from(1u64) => Ok(true),
-            _ => Err(RelationError::NotBool),
+            _ => Err(CircuitErrorKind::NotZeroOrOne.into()),
         }
     }
 }
 
 impl FromCircuit for [u8; 32] {
-    fn from_circuit(circuit: &CircuitVar) -> Result<[u8; 32], RelationError> {
+    fn from_circuit(circuit: &CircuitVar) -> Result<[u8; 32], CircuitError> {
         to_bytes(circuit)
     }
 }
 
 impl Placeholder for u64 {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(0)
     }
 }
 
 impl Placeholder for u32 {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(0)
     }
 }
 
 impl Placeholder for u16 {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(0)
     }
 }
 
 impl Placeholder for bool {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(false)
     }
 }
 
 impl Placeholder for [u8; 32] {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok([0u8; 32])
     }
 }
 
 impl<T: Placeholder, const N: usize> Placeholder for [T; N] {
-    fn placeholder() -> Result<Self, RelationError> {
-        (0..N)
+    fn placeholder() -> Result<Self, CircuitError> {
+        Ok((0..N)
             .map(|_| T::placeholder())
             .collect::<Result<Vec<_>, _>>()?
             .try_into()
-            .map_err(|_| RelationError::Violated("a placeholder array has its own length"))
+            .map_err(|_| CircuitErrorKind::WrongLength("a placeholder array has its own length"))?)
     }
 }

@@ -4,10 +4,10 @@ use zk_program_sdk::{
         Asset, Bits, Bool, Bytes, CircuitVar, Compare, ConstraintSystem, Field, Uint,
     },
     conversion::{Allocator, ProofInput},
-    RelationError,
+    CircuitError,
 };
 
-type Gadget<'a> = &'a dyn Fn(&[CircuitVar]) -> Result<Vec<CircuitVar>, RelationError>;
+type Gadget<'a> = &'a dyn Fn(&[CircuitVar]) -> Result<Vec<CircuitVar>, CircuitError>;
 
 #[derive(Debug, PartialEq)]
 struct Outcome {
@@ -50,7 +50,7 @@ fn run(inputs: &[Field], gadget: Gadget) -> Outcome {
             Some(expected) if satisfied => expected.clone(),
             _ => vec![],
         };
-        Ok::<_, RelationError>((computed, satisfied))
+        Ok::<_, CircuitError>((computed, satisfied))
     })()
     .map_err(|error| error.to_string());
     Outcome {
@@ -100,13 +100,13 @@ fn minus(value: u64) -> Field {
     -f(value)
 }
 
-fn uint<const BITS: u32>(var: &CircuitVar) -> Result<Uint<BITS>, RelationError> {
+fn uint<const BITS: u32>(var: &CircuitVar) -> Result<Uint<BITS>, CircuitError> {
     Uint::from_var(var, "an operand fits in its width")
 }
 
 fn uint_operands<const BITS: u32>(
     inputs: &[CircuitVar],
-) -> Result<(Uint<BITS>, Uint<BITS>), RelationError> {
+) -> Result<(Uint<BITS>, Uint<BITS>), CircuitError> {
     let (left, right) = operands(inputs);
     Ok((uint(&left)?, uint(&right)?))
 }
@@ -215,7 +215,7 @@ fn ordering_holds_at_the_widest_ordered_width() {
 
 #[test]
 fn comparison_asserts_hold_exactly_on_their_relation() {
-    let check = |inputs: &[CircuitVar], index: usize| -> Result<Vec<CircuitVar>, RelationError> {
+    let check = |inputs: &[CircuitVar], index: usize| -> Result<Vec<CircuitVar>, CircuitError> {
         let (left, right) = uint_operands::<64>(inputs)?;
         match index {
             0 => left.assert_less_than(&right, "less than"),
@@ -522,8 +522,14 @@ fn bytes_convert_to_and_from_a_var() {
         (
             holds(&fs(&[0x12, 0x34, 0x1234, 1, 0])),
             violated("a value does not fit in 16 bits"),
-            Err("a range check over 256 bits covers the whole field".to_string()),
-            Err("a range check over 256 bits covers the whole field".to_string()),
+            Err(
+                "a check over 256 bits is too wide; a circuit value holds at most 253 bits"
+                    .to_string()
+            ),
+            Err(
+                "a check over 256 bits is too wide; a circuit value holds at most 253 bits"
+                    .to_string()
+            ),
             Ok(()),
         )
     );

@@ -8,7 +8,7 @@ use super::{
     var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
     Assert, Bool, Bytes, CircuitVar, Field, Select,
 };
-use crate::{circuit_lib::packed, RelationError};
+use crate::{circuit_lib::packed, CircuitError};
 
 #[derive(Clone, Debug)]
 pub struct Asset {
@@ -32,7 +32,7 @@ impl Asset {
         Self::constant(&SOL_MINT)
     }
 
-    pub fn hash(&self) -> Result<CircuitVar, RelationError> {
+    pub fn hash(&self) -> Result<CircuitVar, CircuitError> {
         cached(&self.hash, || self.bytes.hash_bytes())
     }
 
@@ -46,7 +46,7 @@ impl Asset {
         other: &Self,
         skip: &Boolean<Field>,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         for (left, right) in packed(self.bytes.bytes())
             .iter()
             .zip(&packed(other.bytes.bytes()))
@@ -64,11 +64,11 @@ impl Default for Asset {
 }
 
 impl Assert for Asset {
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         all_equal(&packed(self.bytes.bytes()), &packed(other.bytes.bytes()))
     }
 
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         assert_all_equal(
             &packed(self.bytes.bytes()),
             &packed(other.bytes.bytes()),
@@ -81,7 +81,7 @@ impl Assert for Asset {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         assert_all_equal_if(
             &packed(self.bytes.bytes()),
             &packed(other.bytes.bytes()),

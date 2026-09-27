@@ -8,7 +8,7 @@ use ark_r1cs_std::{
 use ark_relations::r1cs::SynthesisError;
 
 use super::{labels, CircuitSystem, CircuitVar, Field, VariableRole};
-use crate::RelationError;
+use crate::CircuitError;
 
 impl CircuitVar {
     pub(crate) fn cs(&self) -> CircuitSystem {
@@ -33,7 +33,7 @@ impl CircuitVar {
     pub(crate) fn witness(
         cs: &CircuitSystem,
         value: impl FnOnce() -> Result<Field, SynthesisError>,
-    ) -> Result<Self, RelationError> {
+    ) -> Result<Self, CircuitError> {
         Ok(Self(FpVar::new_witness(cs.clone(), value)?))
     }
 
@@ -41,7 +41,7 @@ impl CircuitVar {
     pub(crate) fn input(
         cs: &CircuitSystem,
         value: impl FnOnce() -> Result<Field, SynthesisError>,
-    ) -> Result<Self, RelationError> {
+    ) -> Result<Self, CircuitError> {
         Ok(Self(FpVar::new_input(cs.clone(), value)?))
     }
 
@@ -69,20 +69,20 @@ impl CircuitVar {
         Self(self.0.clone() + addend)
     }
 
-    pub(crate) fn squared(&self) -> Result<Self, RelationError> {
+    pub(crate) fn squared(&self) -> Result<Self, CircuitError> {
         Ok(Self(self.0.square()?))
     }
 
-    pub(crate) fn inverted(&self) -> Result<Self, RelationError> {
+    pub(crate) fn inverted(&self) -> Result<Self, CircuitError> {
         Ok(Self(self.0.inverse()?))
     }
 
-    pub(crate) fn power(&self, exponent: u64) -> Result<Self, RelationError> {
+    pub(crate) fn power(&self, exponent: u64) -> Result<Self, CircuitError> {
         Ok(Self(self.0.pow_by_constant([exponent])?))
     }
 
     #[track_caller]
-    pub(crate) fn equals(&self, other: &Self) -> Result<Boolean<Field>, RelationError> {
+    pub(crate) fn equals(&self, other: &Self) -> Result<Boolean<Field>, CircuitError> {
         let cs = self.cs().or(other.cs());
         let first = cs.num_witness_variables();
         let equal = self.0.is_eq(&other.0)?;
@@ -96,11 +96,11 @@ impl CircuitVar {
     }
 
     #[track_caller]
-    pub(crate) fn equals_zero(&self) -> Result<Boolean<Field>, RelationError> {
+    pub(crate) fn equals_zero(&self) -> Result<Boolean<Field>, CircuitError> {
         self.equals(&CircuitVar(FpVar::Constant(Field::from(0u64))))
     }
 
-    pub(crate) fn enforce_equal(&self, other: &Self) -> Result<(), RelationError> {
+    pub(crate) fn enforce_equal(&self, other: &Self) -> Result<(), CircuitError> {
         Ok(self.0.enforce_equal(&other.0)?)
     }
 
@@ -108,15 +108,11 @@ impl CircuitVar {
         &self,
         other: &Self,
         condition: &Boolean<Field>,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         Ok(self.0.conditional_enforce_equal(&other.0, condition)?)
     }
 
-    pub(crate) fn enforce_product(
-        &self,
-        other: &Self,
-        product: &Self,
-    ) -> Result<(), RelationError> {
+    pub(crate) fn enforce_product(&self, other: &Self, product: &Self) -> Result<(), CircuitError> {
         Ok(self.0.mul_equals(&other.0, &product.0)?)
     }
 }

@@ -3,11 +3,11 @@ use zolana_hasher::primitives::PACK_BE_CHUNK_BYTES;
 use super::poseidon;
 use crate::{
     circuit::{labels::Scope, var::system_of, zero, CircuitVar, Field},
-    RelationError,
+    CircuitError,
 };
 
 #[track_caller]
-pub fn hash_bytes(bytes: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
+pub fn hash_bytes(bytes: &[CircuitVar]) -> Result<CircuitVar, CircuitError> {
     let _scope = Scope::open(&system_of(bytes), "a hash of bytes");
     let mut chunks = packed(bytes).into_iter();
     let Some(first) = chunks.next() else {

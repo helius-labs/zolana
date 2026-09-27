@@ -4,7 +4,7 @@ use zk_program_sdk::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -37,7 +37,7 @@ struct TwoAssetPaymentPublicInputs {
 
 #[circuit]
 impl Circuit for TwoAssetPayment {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let recipient = &self.public.recipient;
         let mut tokens_a = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

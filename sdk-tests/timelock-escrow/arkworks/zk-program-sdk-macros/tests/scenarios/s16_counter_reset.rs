@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, Uint,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -36,7 +36,7 @@ pub(crate) struct ResetPublicInputs {
 
 #[circuit]
 impl Circuit for Reset {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
         counter

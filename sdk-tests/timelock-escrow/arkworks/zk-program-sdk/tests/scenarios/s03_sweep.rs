@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -32,7 +32,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Sweep {}
 impl ProofInput for Sweep {
     type Circuit = circuit::Sweep;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Sweep, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Sweep, CircuitError> {
         let private = &self.private;
         Ok(circuit::Sweep {
             private: circuit::SweepPrivateInputs {
@@ -47,7 +47,7 @@ impl ProofInput for Sweep {
 }
 
 impl Placeholder for Sweep {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: SweepPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -66,7 +66,7 @@ mod circuit {
             poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct Sweep {
@@ -86,7 +86,7 @@ mod circuit {
     impl Circuit for Sweep {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
             let mut sweep = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -100,7 +100,7 @@ mod circuit {
     }
 
     impl PublicInputs for SweepPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.recipient.hash()?, transaction_hash.clone()])
         }
     }

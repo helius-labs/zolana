@@ -5,7 +5,7 @@ use zk_program_sdk::{
         Uint,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -38,7 +38,7 @@ struct FanOutPublicInputs {
 
 #[circuit]
 impl Circuit for FanOut {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         Uint::<64>::sum::<67, _>(&private.amounts)
             .assert_equal(&self.public.total, "the payments do not sum to the total")?;

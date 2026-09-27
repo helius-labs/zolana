@@ -1,37 +1,41 @@
 use ark_ff::{Field as _, Zero};
 
 use super::{constant, CircuitVar};
-use crate::RelationError;
+use crate::{CircuitError, CircuitErrorKind};
 
 pub trait Arithmetic: Sized {
-    fn inverse(&self) -> Result<Self, RelationError>;
+    #[track_caller]
+    fn inverse(&self) -> Result<Self, CircuitError>;
 
-    fn div(&self, divisor: &Self) -> Result<Self, RelationError>;
+    #[track_caller]
+    fn div(&self, divisor: &Self) -> Result<Self, CircuitError>;
 
-    fn pow(&self, exponent: u64) -> Result<Self, RelationError>;
+    #[track_caller]
+    fn pow(&self, exponent: u64) -> Result<Self, CircuitError>;
 }
 
 impl Arithmetic for CircuitVar {
     #[track_caller]
-    fn inverse(&self) -> Result<Self, RelationError> {
+    fn inverse(&self) -> Result<Self, CircuitError> {
         if let Some(value) = self.constant_value() {
             return value
                 .inverse()
                 .map(constant)
-                .ok_or(RelationError::DivisionByZero);
+                .ok_or(CircuitErrorKind::DivisionByZero.into());
         }
         if self.assigned().is_ok_and(|value| value.is_zero()) {
-            return Err(RelationError::DivisionByZero);
+            return Err(CircuitErrorKind::DivisionByZero.into());
         }
         self.inverted()
     }
 
     #[track_caller]
-    fn div(&self, divisor: &Self) -> Result<Self, RelationError> {
+    fn div(&self, divisor: &Self) -> Result<Self, CircuitError> {
         Ok(self.times(&Arithmetic::inverse(divisor)?))
     }
 
-    fn pow(&self, exponent: u64) -> Result<Self, RelationError> {
+    #[track_caller]
+    fn pow(&self, exponent: u64) -> Result<Self, CircuitError> {
         self.power(exponent)
     }
 }

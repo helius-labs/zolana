@@ -12,11 +12,11 @@ use rayon::prelude::*;
 use super::ProofInputs;
 use crate::{
     circuit::{
-        labels, value, Circuit, CircuitSystem, CircuitVar, ConstraintLabel, ConstraintSystem,
-        Field, SynthesisShape,
+        labels, value, Circuit, CircuitLabel, CircuitSize, CircuitSystem, CircuitVar,
+        ConstraintSystem, Field,
     },
     conversion::{Allocator, ProofInput},
-    RelationError,
+    CircuitError, CircuitErrorKind, ProverError, ProverErrorKind,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,7 +27,7 @@ pub(crate) struct CircuitShape {
 
 pub(crate) struct CircuitMatrices {
     matrices: ConstraintMatrices<Field>,
-    labels: Vec<ConstraintLabel>,
+    labels: Vec<CircuitLabel>,
 }
 
 impl CircuitMatrices {
@@ -42,8 +42,8 @@ impl CircuitMatrices {
         self.matrices.num_constraints
     }
 
-    fn synthesis_shape(&self) -> SynthesisShape {
-        SynthesisShape {
+    fn synthesis_shape(&self) -> CircuitSize {
+        CircuitSize {
             constraints: self.matrices.num_constraints,
             public_variables: self.matrices.num_instance_variables,
             private_variables: self.matrices.num_witness_variables,
@@ -61,15 +61,15 @@ impl CircuitMatrices {
     }
 
     #[cfg(feature = "setup")]
-    pub(crate) fn r1cs(&self) -> Result<Vec<u8>, RelationError> {
+    pub(crate) fn r1cs(&self) -> Result<Vec<u8>, ProverError> {
         super::snarkjs::r1cs(&self.matrices)
     }
 
-    pub(crate) fn labels(&self) -> &[ConstraintLabel] {
+    pub(crate) fn labels(&self) -> &[CircuitLabel] {
         &self.labels
     }
 
-    pub(crate) fn into_labels(self) -> Vec<ConstraintLabel> {
+    pub(crate) fn into_labels(self) -> Vec<CircuitLabel> {
         self.labels
     }
 
@@ -77,11 +77,11 @@ impl CircuitMatrices {
         &self,
         assignment: &[Field],
         seed: u64,
-    ) -> Result<Vec<usize>, RelationError> {
+    ) -> Result<Vec<usize>, ProverError> {
         let instance = self.matrices.num_instance_variables;
         let private = self.matrices.num_witness_variables;
         if assignment.len() != instance + private {
-            return Err(RelationError::ProofInputsForAnotherCircuit);
+            return Err(ProverErrorKind::ProofInputsForAnotherCircuit.into());
         }
         let mut rows_of = vec![Vec::new(); private];
         let mut honest = Vec::with_capacity(self.matrices.num_constraints);
@@ -92,7 +92,7 @@ impl CircuitMatrices {
                 };
                 let rows = rows_of
                     .get_mut(private_index)
-                    .ok_or(RelationError::ProofInputsForAnotherCircuit)?;
+                    .ok_or(ProverErrorKind::ProofInputsForAnotherCircuit)?;
                 if rows.last() != Some(&row) {
                     rows.push(row);
                 }
@@ -119,7 +119,7 @@ impl CircuitMatrices {
                     self.matrices.b.get(*row),
                     self.matrices.c.get(*row),
                 ) else {
-                    return Err(RelationError::ProofInputsForAnotherCircuit);
+                    return Err(ProverErrorKind::ProofInputsForAnotherCircuit.into());
                 };
                 let shifted = |value: &Field, entries: &[(Field, usize)]| {
                     *value + delta * coefficient(entries, variable)
@@ -136,21 +136,20 @@ impl CircuitMatrices {
         Ok(unconstrained)
     }
 
-    pub(crate) fn check(&self, assignment: &[Field]) -> Result<(), RelationError> {
+    pub(crate) fn check(&self, assignment: &[Field]) -> Result<(), ProverError> {
         let variables = self.matrices.num_instance_variables + self.matrices.num_witness_variables;
         if assignment.len() != variables {
-            return Err(RelationError::ProofInputsForAnotherCircuit);
+            return Err(ProverErrorKind::ProofInputsForAnotherCircuit.into());
         }
         let check = |(row, ((a, b), c)): (usize, ((&Vec<_>, &Vec<_>), &Vec<_>))| {
             let satisfied = evaluate(a, assignment)
                 .and_then(|a| Ok(a * evaluate(b, assignment)? == evaluate(c, assignment)?));
             match satisfied {
                 Ok(true) => None,
-                Ok(false) => Some(RelationError::Unsatisfied(labels::report(
-                    &self.labels,
-                    row,
+                Ok(false) => Some(ProverErrorKind::ProofInputsBreakRule(Box::new(
+                    labels::report(&self.labels, row),
                 ))),
-                Err(error) => Some(error),
+                Err(kind) => Some(kind),
             }
         };
         let rows = cfg_iter!(self.matrices.a)
@@ -161,7 +160,10 @@ impl CircuitMatrices {
         let failure = rows.find_map_first(check);
         #[cfg(not(feature = "parallel"))]
         let failure = rows.map(check).find_map(|failure| failure);
-        failure.map_or(Ok(()), Err)
+        match failure {
+            Some(kind) => Err(kind.into()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -187,21 +189,19 @@ fn coefficient(entries: &[(Field, usize)], variable: usize) -> Field {
         .fold(Field::zero(), |sum, (coefficient, _)| sum + coefficient)
 }
 
-fn evaluate(row: &[(Field, usize)], assignment: &[Field]) -> Result<Field, RelationError> {
+fn evaluate(row: &[(Field, usize)], assignment: &[Field]) -> Result<Field, ProverErrorKind> {
     row.iter()
         .try_fold(Field::zero(), |sum, (coefficient, variable)| {
             assignment
                 .get(*variable)
                 .map(|value| sum + *coefficient * value)
         })
-        .ok_or(RelationError::ProofInputsForAnotherCircuit)
+        .ok_or(ProverErrorKind::ProofInputsForAnotherCircuit)
 }
 
-fn one_public_input(instance_variables: usize) -> Result<(), RelationError> {
+fn one_public_input(instance_variables: usize) -> Result<(), ProverError> {
     if instance_variables != 2 {
-        return Err(RelationError::Violated(
-            "a circuit has exactly one public input, its public hash",
-        ));
+        return Err(ProverErrorKind::WrongPublicInputCount.into());
     }
     Ok(())
 }
@@ -213,7 +213,7 @@ fn constraint_system(mode: SynthesisMode) -> CircuitSystem {
     cs
 }
 
-fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, RelationError> {
+fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> {
     cs.finalize();
     let matrices = cs.to_matrices().ok_or(SynthesisError::MissingCS)?;
     one_public_input(matrices.num_instance_variables)?;
@@ -223,7 +223,7 @@ fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, RelationError
     })
 }
 
-fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Field>, RelationError> {
+fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Field>, CircuitError> {
     let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
     Ok([
         system.instance_assignment.as_slice(),
@@ -255,7 +255,7 @@ where
     P: ProofInput,
     P::Circuit: Circuit,
 {
-    pub(crate) fn new(proof_inputs: &'a P) -> Result<Self, RelationError> {
+    pub(crate) fn new(proof_inputs: &'a P) -> Result<Self, CircuitError> {
         let public_hash = value(
             proof_inputs
                 .instantiate(&Allocator::native())?
@@ -279,7 +279,7 @@ where
         }
     }
 
-    pub(crate) fn check_constraints(&self, placeholder: &P) -> Result<usize, RelationError> {
+    pub(crate) fn check_constraints(&self, placeholder: &P) -> Result<usize, ProverError> {
         let setup = ArkworksCircuit::for_setup(placeholder).matrices()?;
         let synthesized = self.synthesized()?;
         let (setup_shape, proof_shape) = (
@@ -287,34 +287,36 @@ where
             synthesized.matrices.synthesis_shape(),
         );
         if setup_shape != proof_shape {
-            return Err(RelationError::ShapeDiffers {
+            return Err(ProverErrorKind::ShapeDiffers {
                 setup: setup_shape,
                 proof: proof_shape,
                 first_apart: labels::first_apart(&setup.labels, &synthesized.matrices.labels),
-            });
+            }
+            .into());
         }
         if let Some(row) = setup.first_differing_row(&synthesized.matrices) {
-            return Err(RelationError::ConstraintsDiffer(labels::report(
+            return Err(ProverErrorKind::ConstraintsDiffer(Box::new(labels::report(
                 &synthesized.matrices.labels,
                 row,
-            )));
+            )))
+            .into());
         }
         setup.check(&synthesized.assignment)?;
         Ok(setup.constraint_count())
     }
 
-    pub(crate) fn matrices(&self) -> Result<CircuitMatrices, RelationError> {
+    pub(crate) fn matrices(&self) -> Result<CircuitMatrices, ProverError> {
         let cs = constraint_system(SynthesisMode::Setup);
-        self.synthesize(&cs).map_err(|error| match error {
-            RelationError::Synthesis(SynthesisError::AssignmentMissing) => {
-                RelationError::ReadsValueDuringSetup(None)
+        self.synthesize(&cs).map_err(|error| match error.kind() {
+            CircuitErrorKind::Internal(SynthesisError::AssignmentMissing) => {
+                ProverError::from(ProverErrorKind::ReadsValueDuringSetup)
             }
-            error => error,
+            _ => ProverError::from(error),
         })?;
         circuit_matrices(&cs)
     }
 
-    pub(crate) fn synthesized(&self) -> Result<Synthesized, RelationError> {
+    pub(crate) fn synthesized(&self) -> Result<Synthesized, ProverError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: true,
         });
@@ -326,11 +328,11 @@ where
         })
     }
 
-    pub(crate) fn proof_inputs(&self) -> Result<ProofInputs, RelationError> {
-        ProofInputs::new(self.assignment()?)
+    pub(crate) fn proof_inputs(&self) -> Result<ProofInputs, CircuitError> {
+        Ok(ProofInputs::from_assignment(self.assignment()?))
     }
 
-    fn assignment(&self) -> Result<Vec<Field>, RelationError> {
+    fn assignment(&self) -> Result<Vec<Field>, CircuitError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: false,
         });
@@ -338,7 +340,7 @@ where
         assignment_of(&cs)
     }
 
-    fn synthesize(&self, cs: &CircuitSystem) -> Result<(), RelationError> {
+    fn synthesize(&self, cs: &CircuitSystem) -> Result<(), CircuitError> {
         let public_input = CircuitVar::input(cs, || Ok(self.public_hash))?;
         let checked = self
             .proof_inputs
@@ -358,6 +360,13 @@ where
     P::Circuit: Circuit,
 {
     fn generate_constraints(self, cs: CircuitSystem) -> Result<(), SynthesisError> {
-        Ok(self.synthesize(&cs)?)
+        self.synthesize(&cs).map_err(flatten)
+    }
+}
+
+fn flatten(error: CircuitError) -> SynthesisError {
+    match error.into_kind() {
+        CircuitErrorKind::Internal(error) => error,
+        _ => SynthesisError::Unsatisfiable,
     }
 }

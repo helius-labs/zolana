@@ -5,7 +5,7 @@ use zk_program_sdk::{
         DataUtxo, PublicInputs, Uint,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -42,7 +42,7 @@ use crate::s35_create_issuer::CredentialCircuit;
 
 #[circuit]
 impl Circuit for IssueCredential {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let issuer_hash = self.public.issuer.hash()?;
         let mut issuer = DataUtxo::new_mut(&private.issuer_utxo, &private.issuer_state)?;

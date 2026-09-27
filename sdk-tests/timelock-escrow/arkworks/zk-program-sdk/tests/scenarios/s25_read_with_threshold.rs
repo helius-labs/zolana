@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -20,7 +20,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Account {}
 impl ProofInput for Account {
     type Circuit = circuit::Account;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Account, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Account, CircuitError> {
         Ok(circuit::Account {
             balance: self.balance.instantiate(allocator)?,
         })
@@ -28,7 +28,7 @@ impl ProofInput for Account {
 }
 
 impl FromCircuit for Account {
-    fn from_circuit(circuit: &circuit::Account) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Account) -> Result<Self, CircuitError> {
         Ok(Self {
             balance: u64::from_circuit(&circuit.balance)?,
         })
@@ -36,7 +36,7 @@ impl FromCircuit for Account {
 }
 
 impl Placeholder for Account {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             balance: Placeholder::placeholder()?,
         })
@@ -66,7 +66,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::ReadThreshold {}
 impl ProofInput for ReadThreshold {
     type Circuit = circuit::ReadThreshold;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::ReadThreshold, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::ReadThreshold, CircuitError> {
         let private = &self.private;
         Ok(circuit::ReadThreshold {
             private: circuit::ReadThresholdPrivateInputs {
@@ -82,7 +82,7 @@ impl ProofInput for ReadThreshold {
 }
 
 impl Placeholder for ReadThreshold {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: ReadThresholdPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -103,7 +103,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
             UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -120,7 +120,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Account {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.balance.var()])
         }
     }
@@ -147,7 +147,7 @@ pub(crate) mod circuit {
     impl Circuit for ReadThreshold {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
             self.public
@@ -161,7 +161,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for ReadThresholdPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.threshold.var(), transaction_hash.clone()])
         }
     }

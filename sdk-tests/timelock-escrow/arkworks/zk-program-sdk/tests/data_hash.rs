@@ -5,7 +5,7 @@ use zk_program_sdk::{
     },
     conversion::{to_bytes, Allocator, FromCircuit, ProofInput},
     hasher::{DataHasher, Hasher, HasherError, ToByteArray},
-    Bytes, Owner, RelationError,
+    Bytes, CircuitError, CircuitErrorKind, Owner,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 
@@ -91,7 +91,7 @@ impl CircuitType for TallyCircuit {}
 impl ProofInput for Tally {
     type Circuit = TallyCircuit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<TallyCircuit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<TallyCircuit, CircuitError> {
         Ok(TallyCircuit {
             count: self.count.instantiate(allocator)?,
         })
@@ -99,7 +99,7 @@ impl ProofInput for Tally {
 }
 
 impl FromCircuit for Tally {
-    fn from_circuit(circuit: &TallyCircuit) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &TallyCircuit) -> Result<Self, CircuitError> {
         Ok(Self {
             count: u64::from_circuit(&circuit.count)?,
         })
@@ -107,7 +107,7 @@ impl FromCircuit for Tally {
 }
 
 impl DataHash for TallyCircuit {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         poseidon(&[self.count.var()])
     }
 }
@@ -137,7 +137,7 @@ impl CircuitType for SkewedTallyCircuit {}
 impl ProofInput for SkewedTally {
     type Circuit = SkewedTallyCircuit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<SkewedTallyCircuit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<SkewedTallyCircuit, CircuitError> {
         Ok(SkewedTallyCircuit {
             count: self.count.instantiate(allocator)?,
         })
@@ -145,7 +145,7 @@ impl ProofInput for SkewedTally {
 }
 
 impl FromCircuit for SkewedTally {
-    fn from_circuit(circuit: &SkewedTallyCircuit) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &SkewedTallyCircuit) -> Result<Self, CircuitError> {
         Ok(Self {
             count: u64::from_circuit(&circuit.count)?,
         })
@@ -153,7 +153,7 @@ impl FromCircuit for SkewedTally {
 }
 
 impl DataHash for SkewedTallyCircuit {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         poseidon(&[self.count.var()])
     }
 }
@@ -181,8 +181,8 @@ fn checked_utxo_data_encodes_a_state_whose_hashes_agree() {
 #[test]
 fn checked_utxo_data_refuses_a_state_whose_hashes_differ() {
     assert!(matches!(
-        checked_utxo_data(&native(&SkewedTally { count: 9 })),
-        Err(RelationError::DataHashMismatch)
+        checked_utxo_data(&native(&SkewedTally { count: 9 })).map_err(CircuitError::into_kind),
+        Err(CircuitErrorKind::DataHashMismatch)
     ));
 }
 

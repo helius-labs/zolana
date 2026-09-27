@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, ProofInput},
-    RelationError,
+    CircuitError,
 };
 
 struct Raw {
@@ -10,7 +10,7 @@ struct Raw {
 impl ProofInput for Raw {
     type Circuit = u64;
 
-    fn instantiate(&self, _allocator: &Allocator) -> Result<u64, RelationError> {
+    fn instantiate(&self, _allocator: &Allocator) -> Result<u64, CircuitError> {
         Ok(self.value)
     }
 }

@@ -1,6 +1,7 @@
 use core::{any::TypeId, fmt, ops::Range, panic::Location};
 
 use super::CircuitSystem;
+use crate::CircuitError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LabelKind {
@@ -17,7 +18,7 @@ pub enum VariableRole {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ConstraintLabel {
+pub struct CircuitLabel {
     pub kind: LabelKind,
     pub text: &'static str,
     pub file: &'static str,
@@ -28,18 +29,18 @@ pub struct ConstraintLabel {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnsatisfiedRow {
+pub struct FailedConstraint {
     pub row: usize,
-    pub label: Option<ConstraintLabel>,
+    pub label: Option<CircuitLabel>,
 }
 
-impl fmt::Display for ConstraintLabel {
+impl fmt::Display for CircuitLabel {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{} ({}:{})", self.text, self.file, self.line)
     }
 }
 
-impl fmt::Display for UnsatisfiedRow {
+impl fmt::Display for FailedConstraint {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.label {
             Some(label) if label.kind == LabelKind::Check => {
@@ -52,13 +53,13 @@ impl fmt::Display for UnsatisfiedRow {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SynthesisShape {
+pub struct CircuitSize {
     pub constraints: usize,
     pub public_variables: usize,
     pub private_variables: usize,
 }
 
-impl fmt::Display for SynthesisShape {
+impl fmt::Display for CircuitSize {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
@@ -69,12 +70,17 @@ impl fmt::Display for SynthesisShape {
 }
 
 #[derive(Default)]
-struct ConstraintLabels(Vec<ConstraintLabel>);
+struct ConstraintLabels(Vec<CircuitLabel>);
 
 #[track_caller]
-pub(crate) fn check<T>(cs: &CircuitSystem, text: &'static str, body: impl FnOnce() -> T) -> T {
-    let open = Open::new(LabelKind::Check, Location::caller(), cs, text);
-    let result = body();
+pub(crate) fn check<T>(
+    cs: &CircuitSystem,
+    text: &'static str,
+    body: impl FnOnce() -> Result<T, CircuitError>,
+) -> Result<T, CircuitError> {
+    let location = Location::caller();
+    let open = Open::new(LabelKind::Check, location, cs, text);
+    let result = body().map_err(|error| error.restamp(location));
     open.close();
     result
 }
@@ -106,7 +112,7 @@ pub(crate) fn mark(
     let rows = cs.num_constraints();
     push(
         cs,
-        ConstraintLabel {
+        CircuitLabel {
             kind: LabelKind::Allocation(role),
             text,
             file: location.file(),
@@ -171,7 +177,7 @@ impl Open {
         if self.cs.is_none() {
             return;
         }
-        let label = ConstraintLabel {
+        let label = CircuitLabel {
             kind: self.kind,
             text: self.text,
             file: self.location.file(),
@@ -186,7 +192,7 @@ impl Open {
     }
 }
 
-fn push(cs: &CircuitSystem, label: ConstraintLabel) {
+fn push(cs: &CircuitSystem, label: CircuitLabel) {
     let Some(system) = cs.borrow() else {
         return;
     };
@@ -200,7 +206,7 @@ fn push(cs: &CircuitSystem, label: ConstraintLabel) {
 }
 
 #[cfg(feature = "client")]
-pub(crate) fn take(cs: &CircuitSystem) -> Vec<ConstraintLabel> {
+pub(crate) fn take(cs: &CircuitSystem) -> Vec<CircuitLabel> {
     cs.borrow()
         .and_then(|system| {
             system
@@ -215,9 +221,9 @@ pub(crate) fn take(cs: &CircuitSystem) -> Vec<ConstraintLabel> {
 
 #[cfg(feature = "client")]
 pub(crate) fn first_apart(
-    setup: &[ConstraintLabel],
-    proof: &[ConstraintLabel],
-) -> Option<Box<ConstraintLabel>> {
+    setup: &[CircuitLabel],
+    proof: &[CircuitLabel],
+) -> Option<Box<CircuitLabel>> {
     setup
         .iter()
         .zip(proof)
@@ -230,10 +236,7 @@ pub(crate) fn first_apart(
 }
 
 #[cfg(feature = "client")]
-pub(crate) fn allocation_of(
-    labels: &[ConstraintLabel],
-    variable: usize,
-) -> Option<&ConstraintLabel> {
+pub(crate) fn allocation_of(labels: &[CircuitLabel], variable: usize) -> Option<&CircuitLabel> {
     labels
         .iter()
         .rev()
@@ -250,7 +253,7 @@ pub(crate) fn allocation_of(
 }
 
 #[cfg(feature = "client")]
-pub(crate) fn report(labels: &[ConstraintLabel], row: usize) -> UnsatisfiedRow {
+pub(crate) fn report(labels: &[CircuitLabel], row: usize) -> FailedConstraint {
     let innermost = |kind: LabelKind| {
         labels
             .iter()
@@ -258,7 +261,7 @@ pub(crate) fn report(labels: &[ConstraintLabel], row: usize) -> UnsatisfiedRow {
             .filter(|label| label.kind == kind && label.rows.contains(&row))
             .max_by_key(|label| (label.rows.start, core::cmp::Reverse(label.rows.end)))
     };
-    UnsatisfiedRow {
+    FailedConstraint {
         row,
         label: innermost(LabelKind::Check)
             .or_else(|| innermost(LabelKind::Scope))

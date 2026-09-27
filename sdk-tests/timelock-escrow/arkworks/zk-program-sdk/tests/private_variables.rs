@@ -6,7 +6,7 @@ use zk_program_sdk::{
     },
     conversion::ProofInput,
     testing::{check_private_variables, FreeVariable},
-    RelationError, TxContext,
+    CircuitError, TxContext,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -34,7 +34,7 @@ struct RecipientPublicInputs {
 
 #[circuit]
 impl<const N: usize> Circuit for Payment<N> {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -61,7 +61,7 @@ struct MemoPrivateInputs {
 
 #[circuit]
 impl Circuit for Memo {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         ConfidentialTransaction::new(&private.tx_context, &self.public)

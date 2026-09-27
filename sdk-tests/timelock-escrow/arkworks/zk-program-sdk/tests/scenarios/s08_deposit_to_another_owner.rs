@@ -1,7 +1,7 @@
 use solana_address::Address;
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
@@ -35,7 +35,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Deposit {}
 impl ProofInput for Deposit {
     type Circuit = circuit::Deposit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Deposit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Deposit, CircuitError> {
         let private = &self.private;
         Ok(circuit::Deposit {
             private: circuit::DepositPrivateInputs {
@@ -52,7 +52,7 @@ impl ProofInput for Deposit {
 }
 
 impl Placeholder for Deposit {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: DepositPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -74,7 +74,7 @@ mod circuit {
             CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
             Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct Deposit {
@@ -96,7 +96,7 @@ mod circuit {
     impl Circuit for Deposit {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut deposit = TokenUtxo::new_init(&self.public.recipient, &Asset::sol());
@@ -110,7 +110,7 @@ mod circuit {
     }
 
     impl PublicInputs for DepositPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.recipient.hash()?,
                 self.amount.var(),

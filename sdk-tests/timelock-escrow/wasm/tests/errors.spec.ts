@@ -38,6 +38,7 @@ test("every failure rejects with a named error and leaves the module proving", a
           ]),
         ),
         overdraftMessage: "error" in attempts.overdraft ? attempts.overdraft.error.message : "",
+        overdraftLocation: "error" in attempts.overdraft ? attempts.overdraft.error.location : "",
         stillVerifies: await api.verify(escrow.verifyingKey, proof),
       };
     },
@@ -54,15 +55,16 @@ test("every failure rejects with a named error and leaves the module proving", a
 
   expect(result).toEqual({
     names: {
-      malformedInputs: "InvalidInput",
-      overdraft: "Violated",
-      shortSender: "InvalidInput",
-      truncatedProofInputs: "InvalidProofInputs",
-      otherCircuitProofInputs: "ProofInputsForAnotherCircuit",
-      withdrawKey: "KeysForAnotherCircuit",
-      withdrawZkey: "KeysForAnotherCircuit",
+      malformedInputs: "ClientError.InvalidArgument",
+      overdraft: "CircuitError.RuleBroken",
+      shortSender: "ClientError.SenderLength",
+      truncatedProofInputs: "ProverError.InvalidProofInputs",
+      otherCircuitProofInputs: "ProverError.ProofInputsForAnotherCircuit",
+      withdrawKey: "ProverError.KeysForAnotherCircuit",
+      withdrawZkey: "ProverError.KeysForAnotherCircuit",
     },
     overdraftMessage: "the transfer exceeds the balance",
+    overdraftLocation: expect.stringMatching(/arkworks\/src\/circuit\/escrow\.rs:\d+:\d+$/),
     stillVerifies: true,
   });
 });

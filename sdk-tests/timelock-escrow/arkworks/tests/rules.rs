@@ -8,7 +8,7 @@ use zk_program_sdk::{
     circuit::{Circuit, ConstraintSystem},
     conversion::{to_bytes, Allocator, ProofInput},
     testing::check_private_variables,
-    Owner, RelationError, TxContext, ZkProgram,
+    CircuitErrorKind, Owner, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_keypair::ShieldedKeypair;
@@ -50,9 +50,16 @@ where
         .instantiate(&Allocator::R1cs(cs.clone()))
         .and_then(|circuit| circuit.circuit())
     {
-        Err(RelationError::Synthesis(
-            SynthesisError::AssignmentMissing | SynthesisError::DivisionByZero,
-        )) => true,
+        Err(error)
+            if matches!(
+                error.kind(),
+                CircuitErrorKind::Internal(
+                    SynthesisError::AssignmentMissing | SynthesisError::DivisionByZero
+                )
+            ) =>
+        {
+            true
+        }
         Err(error) => panic!("unexpected R1CS error: {error}"),
         Ok(_) => !cs.is_satisfied().expect("satisfiability"),
     }

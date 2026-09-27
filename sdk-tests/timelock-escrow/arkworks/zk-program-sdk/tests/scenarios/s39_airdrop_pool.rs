@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
@@ -28,7 +28,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Pool {}
 impl ProofInput for Pool {
     type Circuit = circuit::Pool;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Pool, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Pool, CircuitError> {
         Ok(circuit::Pool {
             root: self.root.instantiate(allocator)?,
             airdrop_id: self.airdrop_id.instantiate(allocator)?,
@@ -37,7 +37,7 @@ impl ProofInput for Pool {
 }
 
 impl FromCircuit for Pool {
-    fn from_circuit(circuit: &circuit::Pool) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Pool) -> Result<Self, CircuitError> {
         Ok(Self {
             root: <[u8; 32]>::from_circuit(&circuit.root)?,
             airdrop_id: u64::from_circuit(&circuit.airdrop_id)?,
@@ -46,7 +46,7 @@ impl FromCircuit for Pool {
 }
 
 impl Placeholder for Pool {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             root: Placeholder::placeholder()?,
             airdrop_id: Placeholder::placeholder()?,
@@ -79,7 +79,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CreatePool {}
 impl ProofInput for CreatePool {
     type Circuit = circuit::CreatePool;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreatePool, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreatePool, CircuitError> {
         let private = &self.private;
         Ok(circuit::CreatePool {
             private: circuit::CreatePoolPrivateInputs {
@@ -97,7 +97,7 @@ impl ProofInput for CreatePool {
 }
 
 impl Placeholder for CreatePool {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CreatePoolPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -120,7 +120,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -139,7 +139,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Pool {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.root.clone(), self.airdrop_id.var()])
         }
     }
@@ -168,7 +168,7 @@ pub(crate) mod circuit {
     impl Circuit for CreatePool {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut pool = DataUtxo::<Pool>::new_init(&private.pool_owner, &tokens.asset());
@@ -184,7 +184,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for CreatePoolPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.root.clone(),
                 self.airdrop_id.var(),

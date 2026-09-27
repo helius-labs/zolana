@@ -11,25 +11,25 @@ use crate::{
     conversion::{field_bytes, to_bytes, u16_value, Allocator, Placeholder, ProofInput, Records},
     program::{transaction_hash, PublicTransfer},
     prover::{ArkworksCircuit, ProofInputs},
-    RelationError,
+    ClientError, ClientErrorKind, ProverError, SlotKind,
 };
 
 pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
-    fn check_constraints(&self) -> Result<usize, RelationError> {
+    fn check_constraints(&self) -> Result<usize, ProverError> {
         ArkworksCircuit::new(self)?.check_constraints(&Self::placeholder()?)
     }
 
     #[cfg(feature = "setup")]
-    fn export_r1cs() -> Result<Vec<u8>, RelationError> {
+    fn export_r1cs() -> Result<Vec<u8>, ProverError> {
         let placeholder = Self::placeholder()?;
         ArkworksCircuit::for_setup(&placeholder).matrices()?.r1cs()
     }
 
-    fn proof_inputs(&self) -> Result<ProofInputs, RelationError> {
-        ArkworksCircuit::new(self)?.proof_inputs()
+    fn proof_inputs(&self) -> Result<ProofInputs, ProverError> {
+        Ok(ArkworksCircuit::new(self)?.proof_inputs()?)
     }
 
-    fn export_assignment(&self) -> Result<Vec<u8>, RelationError> {
+    fn export_assignment(&self) -> Result<Vec<u8>, ProverError> {
         self.proof_inputs()?.to_bytes()
     }
 
@@ -37,7 +37,7 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         &self,
         sender: &ShieldedAddress,
         payer: Address,
-    ) -> Result<FinalizedTransaction, RelationError> {
+    ) -> Result<FinalizedTransaction, ClientError> {
         Ok(finalize(self, sender, payer)?.1)
     }
 
@@ -45,7 +45,7 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         &self,
         sender: &ShieldedAddress,
         payer: Address,
-    ) -> Result<ProgramTransaction, RelationError> {
+    ) -> Result<ProgramTransaction, ClientError> {
         let (checked, finalized) = finalize(self, sender, payer)?;
         let public_hash = value(checked.public_hash())?;
         Ok(ProgramTransaction {
@@ -61,12 +61,14 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         shielded_keys: &impl ShieldedKeys,
         payer: Address,
         expiry_unix_ts: u64,
-    ) -> Result<SppProofInputs, RelationError> {
-        let sender = shielded_keys.address().map_err(RelationError::spp)?;
+    ) -> Result<SppProofInputs, ClientError> {
+        let sender = shielded_keys
+            .address()
+            .map_err(ClientErrorKind::Transaction)?;
         let mut spp_proof_inputs = self
             .create_finalized_transaction(&sender, payer)?
             .encrypt(shielded_keys)
-            .map_err(RelationError::spp)?;
+            .map_err(ClientErrorKind::Transaction)?;
         spp_proof_inputs.external_data.expiry_unix_ts = expiry_unix_ts;
         Ok(spp_proof_inputs)
     }
@@ -85,7 +87,7 @@ fn finalize<P: ZkProgram>(
     program: &P,
     sender: &ShieldedAddress,
     payer: Address,
-) -> Result<(CheckedTransaction, FinalizedTransaction), RelationError> {
+) -> Result<(CheckedTransaction, FinalizedTransaction), ClientError> {
     let allocator = Allocator::native();
     let checked = program.instantiate(&allocator)?.circuit()?;
     let records = allocator.into_records();
@@ -105,22 +107,22 @@ pub(super) struct SppTransactionBuilder<'a> {
 }
 
 impl SppTransactionBuilder<'_> {
-    fn build(self, sender: &ShieldedAddress) -> Result<FinalizedTransaction, RelationError> {
+    fn build(self, sender: &ShieldedAddress) -> Result<FinalizedTransaction, ClientError> {
         let first_nullifier = to_bytes(&self.checked.first_nullifier)?;
         let blinding_seed = to_bytes(&self.checked.blinding_seed)?;
-        let output_tree_id = u16_value(&self.checked.output_tree_id)
-            .map_err(|_| RelationError::Conversion("the output tree id does not fit in u16"))?;
+        let output_tree_id = u16_value(&self.checked.output_tree_id)?;
         let inputs = self.input_utxos(&first_nullifier)?;
         let outputs = self.output_utxos(sender)?;
-        let shape = canonical_shape(inputs.len(), outputs.len()).map_err(RelationError::spp)?;
+        let shape =
+            canonical_shape(inputs.len(), outputs.len()).map_err(ClientErrorKind::Transaction)?;
         let mut transaction = ConfidentialTransaction::new(inputs, self.payer)
             .and_then(|transaction| transaction.with_blinding_seed(blinding_seed))
             .and_then(|transaction| transaction.with_output_tree_id(output_tree_id))
-            .map_err(RelationError::spp)?;
+            .map_err(ClientErrorKind::Transaction)?;
         for output in outputs {
             transaction
                 .add_output_utxo(output)
-                .map_err(RelationError::spp)?;
+                .map_err(ClientErrorKind::Transaction)?;
         }
         for transfer in self.public_transfers()? {
             transaction
@@ -130,36 +132,42 @@ impl SppTransactionBuilder<'_> {
                     transfer.amount,
                     transfer.target,
                 )
-                .map_err(RelationError::spp)?;
+                .map_err(ClientErrorKind::Transaction)?;
         }
         transaction
             .pad_utxos_with_empty_outputs(shape, sender)
-            .map_err(RelationError::spp)?;
-        let finalized = transaction.finalize(sender).map_err(RelationError::spp)?;
+            .map_err(ClientErrorKind::Transaction)?;
+        let finalized = transaction
+            .finalize(sender)
+            .map_err(ClientErrorKind::Transaction)?;
         self.check_hashes(&finalized)?;
         Ok(finalized)
     }
 
-    fn check_hashes(&self, finalized: &FinalizedTransaction) -> Result<(), RelationError> {
-        let output_hashes = finalized.output_hashes().map_err(RelationError::spp)?;
+    fn check_hashes(&self, finalized: &FinalizedTransaction) -> Result<(), ClientError> {
+        let output_hashes = finalized
+            .output_hashes()
+            .map_err(ClientErrorKind::Transaction)?;
         for (slot, (output_hash, checked)) in
             output_hashes.iter().zip(&self.checked.outputs).enumerate()
         {
             if *output_hash != to_bytes(&checked.hash)? {
-                return Err(RelationError::Slot {
-                    kind: "output",
-                    slot,
+                return Err(ClientErrorKind::Slot {
+                    kind: SlotKind::Output,
+                    index: slot,
                     problem: "does not match the circuit's output hash",
-                });
+                }
+                .into());
             }
         }
         let private_tx_hash = finalized
             .padding_independent_private_tx_hash()
-            .map_err(RelationError::spp)?;
+            .map_err(ClientErrorKind::Transaction)?;
         if private_tx_hash != to_bytes(&self.checked.private_tx_hash)? {
-            return Err(RelationError::Violated(
-                "the SPP transaction does not match the circuit's private transaction hash",
-            ));
+            return Err(ClientErrorKind::TransactionMismatch(
+                "the built transaction does not match the circuit's private transaction hash",
+            )
+            .into());
         }
         let public_transfers: Vec<PublicTransfer> = finalized
             .interface_transfers()
@@ -170,9 +178,10 @@ impl SppTransactionBuilder<'_> {
         if transaction_hash(&private_tx_hash, &public_transfers)?
             != to_bytes(&self.checked.transaction_hash)?
         {
-            return Err(RelationError::Violated(
-                "the SPP transaction's public transfers do not match the circuit's",
-            ));
+            return Err(ClientErrorKind::TransactionMismatch(
+                "the built transaction's public transfers do not match the circuit's",
+            )
+            .into());
         }
         Ok(())
     }

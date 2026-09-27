@@ -19,7 +19,7 @@ pub use zk_program_sdk_macros::ProofInput;
 
 use crate::{
     circuit::{constant, labels, CircuitSystem, CircuitType, CircuitVar, Field, VariableRole},
-    RelationError,
+    CircuitError,
 };
 
 #[derive(Clone, Default)]
@@ -59,7 +59,7 @@ impl Allocator {
         value: Field,
         text: &'static str,
         role: VariableRole,
-    ) -> Result<CircuitVar, RelationError> {
+    ) -> Result<CircuitVar, CircuitError> {
         match self {
             Self::Native(_) => Ok(constant(value)),
             Self::R1cs(cs) => {
@@ -92,13 +92,13 @@ impl Allocator {
 pub trait ProofInput {
     type Circuit: CircuitType;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<Self::Circuit, RelationError>;
+    fn instantiate(&self, allocator: &Allocator) -> Result<Self::Circuit, CircuitError>;
 }
 
 pub trait FromCircuit: ProofInput + Sized {
-    fn from_circuit(circuit: &Self::Circuit) -> Result<Self, RelationError>;
+    fn from_circuit(circuit: &Self::Circuit) -> Result<Self, CircuitError>;
 }
 
 pub trait Placeholder: Sized {
-    fn placeholder() -> Result<Self, RelationError>;
+    fn placeholder() -> Result<Self, CircuitError>;
 }

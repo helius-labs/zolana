@@ -6,7 +6,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ShieldedAddress;
@@ -53,7 +53,7 @@ struct TypedCreatePublicInputs {
 
 #[circuit]
 impl Circuit for TypedCreate {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut state = DataUtxo::<TypedStateCircuit>::new_init(&private.owner, &Asset::sol());

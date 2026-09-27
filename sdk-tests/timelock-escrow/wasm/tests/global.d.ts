@@ -10,7 +10,7 @@ type PlainTransaction = {
   publicHash: number[];
 };
 
-type Attempt<T> = { value: T } | { error: { name: string; message: string } };
+type Attempt<T> = { value: T } | { error: { name: string; message: string; location?: string } };
 
 interface EscrowHarness {
   moduleLoadMs: number;

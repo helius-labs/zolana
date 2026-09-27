@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, Uint,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -43,7 +43,7 @@ struct CastVotePublicInputs {
 
 #[circuit]
 impl Circuit for CastVote {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut poll = DataUtxo::new_mut(&private.poll, &private.state)?;

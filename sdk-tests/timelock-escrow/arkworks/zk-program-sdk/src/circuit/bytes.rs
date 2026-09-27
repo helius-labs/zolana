@@ -5,7 +5,7 @@ use super::{
     var::{all_equal, assert_all_equal, assert_all_equal_if, bits_le, collect_array},
     zero, Assert, Bool, CircuitVar, Field, Select,
 };
-use crate::{circuit_lib::packed, RelationError};
+use crate::{circuit_lib::packed, CircuitError, CircuitErrorKind};
 
 #[derive(Clone, Debug)]
 pub struct Bytes<const N: usize> {
@@ -19,7 +19,7 @@ impl<const N: usize> Bytes<N> {
         }
     }
 
-    pub fn from_var(var: &CircuitVar) -> Result<Self, RelationError> {
+    pub fn from_var(var: &CircuitVar) -> Result<Self, CircuitError> {
         let bits = bits_le(var, 8 * N)?;
         let bytes = bits.chunks(8).rev().map(|chunk| {
             chunk
@@ -40,14 +40,14 @@ impl<const N: usize> Bytes<N> {
         &self.bytes
     }
 
-    pub fn to_var(&self) -> Result<CircuitVar, RelationError> {
+    pub fn to_var(&self) -> Result<CircuitVar, CircuitError> {
         if N > PACK_BE_CHUNK_BYTES {
-            return Err(RelationError::RangeTooWide(8 * N));
+            return Err(CircuitErrorKind::BitWidthTooLarge { bits: 8 * N }.into());
         }
         Ok(packed(&self.bytes).into_iter().next().unwrap_or_else(zero))
     }
 
-    pub fn hash_bytes(&self) -> Result<CircuitVar, RelationError> {
+    pub fn hash_bytes(&self) -> Result<CircuitVar, CircuitError> {
         hash_bytes(&self.bytes)
     }
 }
@@ -59,11 +59,11 @@ impl<const N: usize> Default for Bytes<N> {
 }
 
 impl<const N: usize> Assert for Bytes<N> {
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         all_equal(&packed(&self.bytes), &packed(&other.bytes))
     }
 
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         assert_all_equal(&packed(&self.bytes), &packed(&other.bytes), rule)
     }
 
@@ -72,7 +72,7 @@ impl<const N: usize> Assert for Bytes<N> {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         assert_all_equal_if(&packed(&self.bytes), &packed(&other.bytes), condition, rule)
     }
 }

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -35,7 +35,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CompareTwo {}
 impl ProofInput for CompareTwo {
     type Circuit = circuit::CompareTwo;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CompareTwo, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CompareTwo, CircuitError> {
         let private = &self.private;
         Ok(circuit::CompareTwo {
             private: circuit::CompareTwoPrivateInputs {
@@ -53,7 +53,7 @@ impl ProofInput for CompareTwo {
 }
 
 impl Placeholder for CompareTwo {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CompareTwoPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -75,7 +75,7 @@ mod circuit {
             poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s25_read_with_threshold::circuit::Account;
@@ -100,7 +100,7 @@ mod circuit {
     impl Circuit for CompareTwo {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;
             let second = DataUtxo::new_mut(&private.second_utxo, &private.second)?;
@@ -117,7 +117,7 @@ mod circuit {
     }
 
     impl PublicInputs for CompareTwoPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.total.var(), transaction_hash.clone()])
         }
     }

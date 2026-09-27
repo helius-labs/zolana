@@ -6,7 +6,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
@@ -81,7 +81,7 @@ pub(crate) fn pool_utxo(
 
 #[circuit]
 impl Circuit for CreatePool {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut pool = DataUtxo::<PoolCircuit>::new_init(&private.pool_owner, &tokens.asset());

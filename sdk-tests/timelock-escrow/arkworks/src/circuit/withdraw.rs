@@ -3,7 +3,7 @@ use zk_program_sdk::{
         poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
         ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
     },
-    RelationError,
+    CircuitError,
 };
 
 use super::EscrowTerms;
@@ -27,7 +27,7 @@ pub struct WithdrawPublicInputs {
 impl Circuit for Withdraw {
     const MARKER: CircuitMarker = CircuitMarker;
 
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
         escrow
@@ -51,7 +51,7 @@ impl Circuit for Withdraw {
 }
 
 impl PublicInputs for WithdrawPublicInputs {
-    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         poseidon(&[
             self.unlock.var(),
             self.owner_identity.clone(),

@@ -6,7 +6,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, Owner, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, Owner, TxContext, ZkProgram,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
@@ -82,7 +82,7 @@ pub(crate) fn escrow_utxo(
 
 #[circuit]
 impl Circuit for Escrow {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

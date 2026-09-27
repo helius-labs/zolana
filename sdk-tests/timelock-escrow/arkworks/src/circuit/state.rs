@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{poseidon, CircuitVar, DataHash, Owner, Uint, UtxoData},
-    RelationError,
+    CircuitError,
 };
 
 #[derive(Clone, Debug)]
@@ -19,7 +19,7 @@ impl Default for EscrowTerms {
 }
 
 impl DataHash for EscrowTerms {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         poseidon(&[self.creator.hash()?, self.unlock.hash()?])
     }
 }

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_keypair::ShieldedAddress;
@@ -38,7 +38,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::SplitWithdraw {}
 impl ProofInput for SplitWithdraw {
     type Circuit = circuit::SplitWithdraw;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::SplitWithdraw, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::SplitWithdraw, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         Ok(circuit::SplitWithdraw {
@@ -58,7 +58,7 @@ impl ProofInput for SplitWithdraw {
 }
 
 impl Placeholder for SplitWithdraw {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: SplitWithdrawPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -82,7 +82,7 @@ mod circuit {
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
             Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s27_escrow::circuit::EscrowTerms;
@@ -108,7 +108,7 @@ mod circuit {
     impl Circuit for SplitWithdraw {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
@@ -136,7 +136,7 @@ mod circuit {
     }
 
     impl PublicInputs for SplitWithdrawPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.unlock.var(),
                 self.owner_identity.clone(),

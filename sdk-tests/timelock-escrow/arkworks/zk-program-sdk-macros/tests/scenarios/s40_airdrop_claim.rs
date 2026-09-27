@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -53,7 +53,7 @@ use crate::s39_airdrop_pool::PoolCircuit;
 
 #[circuit]
 impl Circuit for Claim {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut pool = DataUtxo::new_burn(&private.pool, &private.state)?;

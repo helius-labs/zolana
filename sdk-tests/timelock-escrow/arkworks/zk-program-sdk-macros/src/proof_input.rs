@@ -21,7 +21,7 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
     let proof_input = paths::proof_input();
     let placeholder = paths::placeholder();
     let allocator = paths::allocator();
-    let relation_error = paths::relation_error();
+    let circuit_error = paths::circuit_error();
     let circuit_type = paths::circuit_type();
 
     let (twin_struct, instantiate, placeholder_value) = match shape {
@@ -49,7 +49,7 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
                     fn instantiate(
                         &self,
                         allocator: &#allocator,
-                    ) -> ::core::result::Result<Self::Circuit, #relation_error> {
+                    ) -> ::core::result::Result<Self::Circuit, #circuit_error> {
                         ::core::result::Result::Ok(#twin {
                             #(#instantiated,)*
                         })
@@ -67,7 +67,7 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
                 fn instantiate(
                     &self,
                     _allocator: &#allocator,
-                ) -> ::core::result::Result<Self::Circuit, #relation_error> {
+                ) -> ::core::result::Result<Self::Circuit, #circuit_error> {
                     ::core::result::Result::Ok(#twin)
                 }
             },
@@ -85,7 +85,7 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
         }
 
         impl #impl_generics #placeholder for #ident #ty_generics #where_clause {
-            fn placeholder() -> ::core::result::Result<Self, #relation_error> {
+            fn placeholder() -> ::core::result::Result<Self, #circuit_error> {
                 ::core::result::Result::Ok(#placeholder_value)
             }
         }

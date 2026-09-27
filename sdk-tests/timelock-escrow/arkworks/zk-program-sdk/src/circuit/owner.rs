@@ -8,7 +8,7 @@ use super::{
     var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
     zero, Assert, Bool, Bytes, CircuitVar, DataHash, Field, Select,
 };
-use crate::{circuit_lib::packed, RelationError};
+use crate::{circuit_lib::packed, CircuitError};
 
 #[derive(Clone, Debug)]
 pub struct OwnerKey {
@@ -23,7 +23,7 @@ impl OwnerKey {
         tag: CircuitVar,
         bytes: Bytes<32>,
         skip_tag_check: &Boolean<Field>,
-    ) -> Result<Self, RelationError> {
+    ) -> Result<Self, CircuitError> {
         let solana = tag.offset(-Field::from(SOLANA_OWNER_TAG));
         let p256 = tag.offset(-Field::from(P256_OWNER_TAG));
         assert_equal_unless(
@@ -47,7 +47,7 @@ impl OwnerKey {
         &self.bytes
     }
 
-    pub fn identity(&self) -> Result<CircuitVar, RelationError> {
+    pub fn identity(&self) -> Result<CircuitVar, CircuitError> {
         cached(&self.identity, || hash_bytes(&self.tagged()))
     }
 
@@ -57,7 +57,7 @@ impl OwnerKey {
         other: &Self,
         skip: &Boolean<Field>,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         for (left, right) in packed(&self.tagged()).iter().zip(&packed(&other.tagged())) {
             assert_equal_unless(left, right, skip, rule)?;
         }
@@ -105,7 +105,7 @@ impl Owner {
         &self.nullifier_pk
     }
 
-    pub fn hash(&self) -> Result<CircuitVar, RelationError> {
+    pub fn hash(&self) -> Result<CircuitVar, CircuitError> {
         cached(&self.hash, || {
             poseidon(&[self.key.identity()?, self.nullifier_pk.clone()])
         })
@@ -117,7 +117,7 @@ impl Owner {
         other: &Self,
         skip: &Boolean<Field>,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         self.key.assert_same_unless(&other.key, skip, rule)?;
         assert_equal_unless(&self.nullifier_pk, &other.nullifier_pk, skip, rule)
     }
@@ -127,7 +127,7 @@ impl Owner {
         &self,
         condition: &Boolean<Field>,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         assert_equal_unless(&self.nullifier_pk, &zero(), &!condition, rule)
     }
 }
@@ -139,17 +139,17 @@ impl Default for Owner {
 }
 
 impl DataHash for Owner {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         Owner::hash(self)
     }
 }
 
 impl Assert for OwnerKey {
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         all_equal(&packed(&self.tagged()), &packed(&other.tagged()))
     }
 
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         assert_all_equal(&packed(&self.tagged()), &packed(&other.tagged()), rule)
     }
 
@@ -158,7 +158,7 @@ impl Assert for OwnerKey {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         assert_all_equal_if(
             &packed(&self.tagged()),
             &packed(&other.tagged()),
@@ -179,14 +179,14 @@ impl Select for OwnerKey {
 }
 
 impl Assert for Owner {
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         Ok(self
             .key
             .is_equal(&other.key)?
             .and(&self.nullifier_pk.is_equal(&other.nullifier_pk)?))
     }
 
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         self.key.assert_equal(&other.key, rule)?;
         self.nullifier_pk.assert_equal(&other.nullifier_pk, rule)
     }
@@ -196,7 +196,7 @@ impl Assert for Owner {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         self.key.assert_equal_if(&other.key, condition, rule)?;
         self.nullifier_pk
             .assert_equal_if(&other.nullifier_pk, condition, rule)

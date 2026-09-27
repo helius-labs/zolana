@@ -5,7 +5,7 @@ use zk_program_sdk::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
@@ -34,7 +34,7 @@ struct TopUpPublicInputs {
 
 #[circuit]
 impl Circuit for TopUp {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         tokens.deposit(&self.public.amount, &private.source)?;

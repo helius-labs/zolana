@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::ShieldedAddress;
@@ -28,7 +28,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::PrivateSweep {}
 impl ProofInput for PrivateSweep {
     type Circuit = circuit::PrivateSweep;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::PrivateSweep, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::PrivateSweep, CircuitError> {
         let private = &self.private;
         Ok(circuit::PrivateSweep {
             private: circuit::PrivateSweepPrivateInputs {
@@ -42,7 +42,7 @@ impl ProofInput for PrivateSweep {
 }
 
 impl Placeholder for PrivateSweep {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: PrivateSweepPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -59,7 +59,7 @@ mod circuit {
             poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct PrivateSweep {
@@ -78,7 +78,7 @@ mod circuit {
     impl Circuit for PrivateSweep {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
             let mut sweep = TokenUtxo::new_init(&private.recipient, &tokens.asset());
@@ -92,7 +92,7 @@ mod circuit {
     }
 
     impl PublicInputs for NoPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(std::slice::from_ref(transaction_hash))
         }
     }

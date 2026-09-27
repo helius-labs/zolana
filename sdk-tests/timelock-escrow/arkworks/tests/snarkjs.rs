@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use timelock_escrow_arkworks::{Escrow, Withdraw};
 use zk_program_sdk::{
-    Groth16Keys, Groth16Prover, ProofResult, RelationError, SetupKind, SolanaProof,
+    Groth16Keys, Groth16Prover, ProofResult, ProverErrorKind, SetupKind, SolanaProof,
     VerifyingKeyExport, ZkProgram,
 };
 
@@ -230,8 +230,8 @@ fn a_libsnark_reduction_proof_does_not_verify_against_a_zkey() {
         ),
         (
             None,
-            Some(RelationError::ProofRejected.to_string()),
-            Some(RelationError::ProofRejected.to_string()),
+            Some(ProverErrorKind::ProofRejected.to_string()),
+            Some(ProverErrorKind::ProofRejected.to_string()),
         )
     );
 }
@@ -348,13 +348,13 @@ fn load_zkey_rejects_keys_that_do_not_belong_to_the_circuit() {
             load_modified("unchanged", &bytes),
         ),
         (
-            Some(RelationError::KeysForAnotherCircuit.to_string()),
-            Some(RelationError::UncontributedZkey.to_string()),
-            Some(RelationError::InvalidKeyPoint("delta").to_string()),
-            Some(RelationError::InvalidKeyPoint("A").to_string()),
-            Some(RelationError::InvalidKeyPoint("B2").to_string()),
-            Some(RelationError::KeysForAnotherCircuit.to_string()),
-            Some(RelationError::InvalidZkey("the zkey ends early").to_string()),
+            Some(ProverErrorKind::KeysForAnotherCircuit.to_string()),
+            Some(ProverErrorKind::UnfinishedZkey.to_string()),
+            Some(ProverErrorKind::CorruptZkeyValue("delta").to_string()),
+            Some(ProverErrorKind::CorruptZkeyValue("A").to_string()),
+            Some(ProverErrorKind::CorruptZkeyValue("B2").to_string()),
+            Some(ProverErrorKind::KeysForAnotherCircuit.to_string()),
+            Some(ProverErrorKind::InvalidZkey("the zkey ends early").to_string()),
             None,
         )
     );

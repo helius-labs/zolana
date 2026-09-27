@@ -5,7 +5,7 @@ use zk_program_sdk::{
         TokenUtxo, Uint, Utxo,
     },
     conversion::{field_bytes, to_bytes, Allocator, ProofInput},
-    RelationError,
+    CircuitError,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ShieldedKeypair;
@@ -71,7 +71,7 @@ impl Default for Counter {
 }
 
 impl DataHash for Counter {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         poseidon(&[self.value.hash()?])
     }
 }
@@ -88,7 +88,7 @@ fn balance_bytes(utxo: &impl Balance) -> [u8; 32] {
     to_bytes(&utxo.balance().unwrap().var()).unwrap()
 }
 
-fn error<T>(result: Result<T, RelationError>) -> String {
+fn error<T>(result: Result<T, CircuitError>) -> String {
     result.err().map(|e| e.to_string()).unwrap_or_default()
 }
 
@@ -301,7 +301,7 @@ fn a_token_utxo_enforces_its_rules_in_r1cs() {
 }
 
 fn natively_and_in_r1cs(
-    run: impl Fn(&Allocator) -> Result<(), RelationError>,
+    run: impl Fn(&Allocator) -> Result<(), CircuitError>,
 ) -> (Result<(), String>, Result<bool, String>) {
     let native = run(&Allocator::native()).map_err(|e| e.to_string());
     let cs = ConstraintSystem::new_ref();
@@ -493,7 +493,7 @@ fn a_public_transfer_of_zero_is_unsatisfied_in_r1cs() {
 fn a_balance_is_range_checked_only_when_its_inputs_can_exceed_64_bits() {
     let cs = ConstraintSystem::new_ref();
     let allocator = Allocator::R1cs(cs.clone());
-    let cost = |read: &dyn Fn() -> Result<Uint<64>, RelationError>| {
+    let cost = |read: &dyn Fn() -> Result<Uint<64>, CircuitError>| {
         let before = cs.num_constraints();
         read().map(|_| ()).unwrap();
         cs.num_constraints() - before
@@ -529,7 +529,7 @@ fn a_balance_is_range_checked_only_when_its_inputs_can_exceed_64_bits() {
 fn a_destination_built_from_the_source_asset_adds_no_asset_constraints() {
     let cs = ConstraintSystem::new_ref();
     let allocator = Allocator::R1cs(cs.clone());
-    let cost = |transfer: &mut dyn FnMut() -> Result<(), RelationError>| {
+    let cost = |transfer: &mut dyn FnMut() -> Result<(), CircuitError>| {
         let before = cs.num_constraints();
         transfer().unwrap();
         cs.num_constraints() - before

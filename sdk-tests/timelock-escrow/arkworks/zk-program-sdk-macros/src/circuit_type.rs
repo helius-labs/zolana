@@ -19,7 +19,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let hasher = paths::hasher();
     let data_hash = paths::data_hash();
     let circuit_var = paths::circuit_var();
-    let relation_error = paths::relation_error();
+    let circuit_error = paths::circuit_error();
     let poseidon = paths::poseidon();
     let constant = paths::constant();
     let circuit_default = paths::circuit_default();
@@ -51,7 +51,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 quote! {
                     fn from_circuit(
                         circuit: &Self::Circuit,
-                    ) -> ::core::result::Result<Self, #relation_error> {
+                    ) -> ::core::result::Result<Self, #circuit_error> {
                         ::core::result::Result::Ok(Self { #(#converted,)* })
                     }
                 },
@@ -62,7 +62,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
             quote! {
                 fn from_circuit(
                     _circuit: &Self::Circuit,
-                ) -> ::core::result::Result<Self, #relation_error> {
+                ) -> ::core::result::Result<Self, #circuit_error> {
                     ::core::result::Result::Ok(Self)
                 }
             },
@@ -77,7 +77,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         }
 
         impl #impl_generics #data_hash for #twin #ty_generics #where_clause {
-            fn hash(&self) -> ::core::result::Result<#circuit_var, #relation_error> {
+            fn hash(&self) -> ::core::result::Result<#circuit_var, #circuit_error> {
                 #poseidon(&[
                     #constant(u64::from_be_bytes(
                         <#ident #ty_generics as #hasher::Discriminator>::DISCRIMINATOR,
@@ -126,7 +126,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         impl #impl_generics #utxo_data for #twin #ty_generics #where_clause {
             type Client = #ident #ty_generics;
 
-            fn utxo_data(&self) -> ::core::result::Result<::std::vec::Vec<u8>, #relation_error> {
+            fn utxo_data(&self) -> ::core::result::Result<::std::vec::Vec<u8>, #circuit_error> {
                 #checked_utxo_data(self)
             }
         }

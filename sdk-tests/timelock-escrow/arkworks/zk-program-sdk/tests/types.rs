@@ -2,7 +2,7 @@ use ark_relations::r1cs::SynthesisMode;
 use zk_program_sdk::{
     circuit::{constant, value, Assert, Bool, ConstraintSystem, Field, Uint},
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
-    RelationError,
+    CircuitErrorKind,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -70,7 +70,7 @@ fn bytes_must_be_canonical() {
         (native_error(&canonical), native_error(&[0xffu8; 32])),
         (
             None,
-            Some("32-byte input is not a canonical field element".to_string())
+            Some("32-byte input is too large for a circuit value".to_string())
         )
     );
 }
@@ -137,8 +137,8 @@ fn only_a_constant_has_a_value_in_setup_and_in_prove_mode() {
         cs.set_mode(mode);
         let allocated = Field::from(3u64).instantiate(&Allocator::R1cs(cs)).unwrap();
         match value(&allocated) {
-            Err(RelationError::ValueOfVariable(location)) => {
-                location.file().ends_with("tests/types.rs")
+            Err(error) if matches!(error.kind(), CircuitErrorKind::ReadsVariableValue) => {
+                error.location().file().ends_with("tests/types.rs")
             }
             other => panic!("expected a value read of a variable, got {other:?}"),
         }

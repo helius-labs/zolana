@@ -12,7 +12,7 @@ use super::{
     groth16::{Proof, ProvingKey},
     reduction::CircomReduction,
 };
-use crate::{circuit::Field, RelationError};
+use crate::{circuit::Field, ProverError, ProverErrorKind};
 
 pub(crate) fn create_proof(
     proving_key: &ProvingKey,
@@ -20,7 +20,7 @@ pub(crate) fn create_proof(
     s: Field,
     matrices: &ConstraintMatrices<Field>,
     full_assignment: &[Field],
-) -> Result<Proof, RelationError> {
+) -> Result<Proof, ProverError> {
     let num_inputs = matrices.num_instance_variables;
     let h = CircomReduction::witness_map_from_matrices::<Field, GeneralEvaluationDomain<Field>>(
         matrices,
@@ -74,14 +74,14 @@ fn bigints(values: &[Field]) -> Vec<BigInteger256> {
     cfg_iter!(values).map(|value| value.into_bigint()).collect()
 }
 
-fn first<G: AffineRepr>(query: &[G]) -> Result<G, RelationError> {
-    query
+fn first<G: AffineRepr>(query: &[G]) -> Result<G, ProverError> {
+    Ok(query
         .first()
         .copied()
-        .ok_or(RelationError::Synthesis(SynthesisError::AssignmentMissing))
+        .ok_or(ProverErrorKind::Internal(SynthesisError::AssignmentMissing))?)
 }
 
-fn query_msm<G>(query: &[G], assignment: &[BigInteger256]) -> Result<G::Group, RelationError>
+fn query_msm<G>(query: &[G], assignment: &[BigInteger256]) -> Result<G::Group, ProverError>
 where
     G: AffineRepr<ScalarField = Field>,
     G::Group: VariableBaseMSM<MulBase = G>,

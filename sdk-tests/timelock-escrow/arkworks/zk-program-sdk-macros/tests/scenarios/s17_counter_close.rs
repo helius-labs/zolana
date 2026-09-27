@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::WalletUtxo;
@@ -36,7 +36,7 @@ pub(crate) struct ClosePublicInputs {
 
 #[circuit]
 impl Circuit for Close {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let counter = DataUtxo::new_burn(&private.counter, &private.state)?;
         counter

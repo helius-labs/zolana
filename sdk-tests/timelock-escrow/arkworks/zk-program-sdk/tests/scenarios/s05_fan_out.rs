@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -36,7 +36,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::FanOut {}
 impl ProofInput for FanOut {
     type Circuit = circuit::FanOut;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::FanOut, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::FanOut, CircuitError> {
         let private = &self.private;
         Ok(circuit::FanOut {
             private: circuit::FanOutPrivateInputs {
@@ -53,7 +53,7 @@ impl ProofInput for FanOut {
 }
 
 impl Placeholder for FanOut {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: FanOutPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -74,7 +74,7 @@ mod circuit {
             poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use super::RECIPIENTS;
@@ -98,7 +98,7 @@ mod circuit {
     impl Circuit for FanOut {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             Uint::<64>::sum::<67, _>(&private.amounts)
                 .assert_equal(&self.public.total, "the payments do not sum to the total")?;
@@ -124,7 +124,7 @@ mod circuit {
     }
 
     impl PublicInputs for FanOutPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.total.var(), transaction_hash.clone()])
         }
     }

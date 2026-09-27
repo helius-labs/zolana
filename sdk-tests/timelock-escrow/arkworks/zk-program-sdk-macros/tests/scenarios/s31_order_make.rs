@@ -6,7 +6,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
@@ -89,7 +89,7 @@ pub(crate) fn order_utxo(
 
 #[circuit]
 impl Circuit for Make {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut order =

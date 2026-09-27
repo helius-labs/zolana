@@ -6,7 +6,7 @@ use zk_program_sdk::{
         DataUtxo, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -53,7 +53,7 @@ struct VestingClaimPublicInputs {
 
 #[circuit]
 impl Circuit for VestingClaim {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut vesting = DataUtxo::new_burn(&private.vesting, &private.state)?;

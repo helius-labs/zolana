@@ -4,7 +4,7 @@ use zk_program_sdk::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -89,7 +89,7 @@ fn payment_prove_and_verify<const N: usize, const R: usize>(
 
 #[circuit]
 impl<const N: usize, const R: usize> Circuit for Payment<N, R> {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut payments = self

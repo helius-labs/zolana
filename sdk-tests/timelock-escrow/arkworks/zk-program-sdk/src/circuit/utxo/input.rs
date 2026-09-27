@@ -2,7 +2,7 @@ use zolana_interface::DUMMY_DOMAIN;
 
 use crate::{
     circuit::{constant, poseidon, zero, Assert, Asset, Bool, CircuitVar, Owner, Uint},
-    RelationError,
+    CircuitError,
 };
 
 #[derive(Clone, Debug)]
@@ -57,7 +57,7 @@ impl Utxo {
     }
 
     #[track_caller]
-    pub fn hash(&self) -> Result<CircuitVar, RelationError> {
+    pub fn hash(&self) -> Result<CircuitVar, CircuitError> {
         self.hash_with(&self.owner.hash()?, &self.asset.hash()?)
     }
 
@@ -75,7 +75,7 @@ impl Utxo {
         &self,
         owner_hash: &CircuitVar,
         asset_hash: &CircuitVar,
-    ) -> Result<CircuitVar, RelationError> {
+    ) -> Result<CircuitVar, CircuitError> {
         let ring = poseidon(&[self.ring_data_hash.clone(), self.ring_program_id.clone()])?;
         let owner = poseidon(&[owner_hash.clone(), self.blinding.clone()])?;
         poseidon(&[
@@ -90,7 +90,7 @@ impl Utxo {
     }
 
     #[track_caller]
-    pub(super) fn assert_default_ring(&self) -> Result<(), RelationError> {
+    pub(super) fn assert_default_ring(&self) -> Result<(), CircuitError> {
         self.ring_data_hash
             .assert_equal(&zero(), "the utxo is in a ring")?;
         self.ring_program_id

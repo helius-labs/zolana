@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -40,7 +40,7 @@ pub(crate) struct TakePublicInputs {
 
 #[circuit]
 impl Circuit for Take {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;

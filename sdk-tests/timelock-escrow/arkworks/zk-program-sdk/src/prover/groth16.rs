@@ -21,7 +21,7 @@ use super::{
 };
 #[cfg(feature = "client")]
 use crate::{circuit::Field, ZkProgram};
-use crate::{conversion::be_bytes, RelationError};
+use crate::{conversion::be_bytes, ProverError, ProverErrorKind};
 
 pub type ProvingKey = ark_groth16::ProvingKey<Bn254>;
 pub type VerifyingKey = ark_groth16::VerifyingKey<Bn254>;
@@ -59,49 +59,49 @@ impl Groth16Keys {
     }
 
     #[cfg(feature = "setup")]
-    pub fn save(&self, path: &Path) -> Result<(), RelationError> {
+    pub fn save(&self, path: &Path) -> Result<(), ProverError> {
         use ark_serialize::CanonicalSerialize;
 
         let mut bytes = Vec::new();
         self.proving_key
             .serialize_uncompressed(&mut bytes)
-            .map_err(RelationError::keys)?;
-        std::fs::write(path, bytes).map_err(RelationError::keys)
+            .map_err(ProverErrorKind::KeyEncoding)?;
+        Ok(std::fs::write(path, bytes).map_err(|error| key_file(path, error))?)
     }
 
     #[cfg(feature = "client")]
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RelationError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ProverError> {
         use ark_serialize::CanonicalDeserialize;
 
         let proving_key =
-            ProvingKey::deserialize_uncompressed(bytes).map_err(RelationError::keys)?;
+            ProvingKey::deserialize_uncompressed(bytes).map_err(ProverErrorKind::KeyEncoding)?;
         Ok(Self::from(proving_key))
     }
 
     #[cfg(all(feature = "client", not(target_arch = "wasm32")))]
-    pub fn load(path: &Path) -> Result<Self, RelationError> {
-        Self::from_bytes(&std::fs::read(path).map_err(RelationError::keys)?)
+    pub fn load(path: &Path) -> Result<Self, ProverError> {
+        Self::from_bytes(&std::fs::read(path).map_err(|error| key_file(path, error))?)
     }
 
     #[cfg(feature = "client")]
-    pub fn from_zkey_bytes<P: ZkProgram>(bytes: &[u8]) -> Result<Self, RelationError> {
+    pub fn from_zkey_bytes<P: ZkProgram>(bytes: &[u8]) -> Result<Self, ProverError> {
         Self::from_zkey_for(bytes, &circuit_matrices::<P>()?)
     }
 
     #[cfg(all(feature = "client", not(target_arch = "wasm32")))]
-    pub fn load_zkey<P: ZkProgram>(path: &Path) -> Result<Self, RelationError> {
-        Self::from_zkey_bytes::<P>(&std::fs::read(path).map_err(RelationError::keys)?)
+    pub fn load_zkey<P: ZkProgram>(path: &Path) -> Result<Self, ProverError> {
+        Self::from_zkey_bytes::<P>(&std::fs::read(path).map_err(|error| key_file(path, error))?)
     }
 
     #[cfg(feature = "client")]
-    fn from_zkey_for(bytes: &[u8], matrices: &CircuitMatrices) -> Result<Self, RelationError> {
+    fn from_zkey_for(bytes: &[u8], matrices: &CircuitMatrices) -> Result<Self, ProverError> {
         let zkey = Zkey::read(bytes)?;
         zkey.check_circuit(matrices.matrices())?;
         Ok(Self::from(zkey.proving_key))
     }
 
     #[cfg(feature = "setup")]
-    pub fn gnark_verifying_key(&self) -> Result<Vec<u8>, RelationError> {
+    pub fn gnark_verifying_key(&self) -> Result<Vec<u8>, ProverError> {
         let vk = &self.proving_key.vk;
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&g1_bytes(&vk.alpha_g1));
@@ -110,8 +110,9 @@ impl Groth16Keys {
         bytes.extend_from_slice(&g2_bytes(&vk.gamma_g2));
         bytes.extend_from_slice(&g1_bytes(&self.proving_key.delta_g1));
         bytes.extend_from_slice(&g2_bytes(&vk.delta_g2));
-        let ic_len = u32::try_from(vk.gamma_abc_g1.len())
-            .map_err(|_| RelationError::Conversion("the verifying key has too many points"))?;
+        let ic_len = u32::try_from(vk.gamma_abc_g1.len()).map_err(|_| {
+            ProverErrorKind::ExportTooLarge("the verifying key has too many points")
+        })?;
         bytes.extend_from_slice(&ic_len.to_be_bytes());
         for point in &vk.gamma_abc_g1 {
             bytes.extend_from_slice(&g1_bytes(point));
@@ -122,17 +123,15 @@ impl Groth16Keys {
     }
 
     #[cfg(feature = "setup")]
-    pub fn export_verifying_key(
-        &self,
-        export: &VerifyingKeyExport<'_>,
-    ) -> Result<(), RelationError> {
+    pub fn export_verifying_key(&self, export: &VerifyingKeyExport<'_>) -> Result<(), ProverError> {
         use groth16_solana::vk::{gnark::generate_bsb22_vk_file, setup::ProvingKeySource};
 
-        std::fs::create_dir_all(export.output_dir).map_err(RelationError::keys)?;
+        std::fs::create_dir_all(export.output_dir)
+            .map_err(|error| key_file(export.output_dir, error))?;
         let raw = export
             .output_dir
             .join(format!(".{}.vk.bin", export.output_filename));
-        std::fs::write(&raw, self.gnark_verifying_key()?).map_err(RelationError::keys)?;
+        std::fs::write(&raw, self.gnark_verifying_key()?).map_err(|error| key_file(&raw, error))?;
         let generated = generate_bsb22_vk_file(
             &raw,
             export.output_dir,
@@ -141,9 +140,9 @@ impl Groth16Keys {
             export.setup,
             ProvingKeySource::File(export.proving_key),
         )
-        .map_err(|error| RelationError::keys(format!("{error:?}")));
-        std::fs::remove_file(&raw).map_err(RelationError::keys)?;
-        generated
+        .map_err(ProverErrorKind::VerifyingKeyExport);
+        std::fs::remove_file(&raw).map_err(|error| key_file(&raw, error))?;
+        Ok(generated?)
     }
 }
 
@@ -217,14 +216,16 @@ impl SolanaProof {
         &self,
         verifying_key: &SolanaVerifyingKey,
         public_input_hash: [u8; 32],
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), ProverError> {
         use groth16_solana::groth16::Groth16Verifier;
 
         let public_inputs = [public_input_hash];
         let verifying_key = Groth16Verifyingkey::from(verifying_key);
-        Groth16Verifier::new(&self.a, &self.b, &self.c, &public_inputs, &verifying_key)
-            .and_then(|mut verifier| verifier.verify())
-            .map_err(|_| RelationError::ProofRejected)
+        Ok(
+            Groth16Verifier::new(&self.a, &self.b, &self.c, &public_inputs, &verifying_key)
+                .and_then(|mut verifier| verifier.verify())
+                .map_err(|_| ProverErrorKind::ProofRejected)?,
+        )
     }
 }
 
@@ -238,14 +239,14 @@ pub struct CompressedProof {
 
 #[cfg(feature = "client")]
 impl TryFrom<&SolanaProof> for CompressedProof {
-    type Error = RelationError;
+    type Error = ProverError;
 
-    fn try_from(proof: &SolanaProof) -> Result<Self, RelationError> {
+    fn try_from(proof: &SolanaProof) -> Result<Self, ProverError> {
         use solana_bn254::compression::prelude::{
             alt_bn128_g1_compress_be, alt_bn128_g2_compress_be,
         };
 
-        let invalid = |_| RelationError::InvalidProofPoint;
+        let invalid = |_| ProverErrorKind::CorruptProof;
         Ok(Self {
             a: alt_bn128_g1_compress_be(&proof.a).map_err(invalid)?,
             b: alt_bn128_g2_compress_be(&proof.b).map_err(invalid)?,
@@ -260,12 +261,12 @@ impl CompressedProof {
         &self,
         verifying_key: &SolanaVerifyingKey,
         public_hash: [u8; 32],
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), ProverError> {
         use solana_bn254::compression::prelude::{
             alt_bn128_g1_decompress_be, alt_bn128_g2_decompress_be,
         };
 
-        let invalid = |_| RelationError::InvalidProofPoint;
+        let invalid = |_| ProverErrorKind::CorruptProof;
         SolanaProof {
             a: alt_bn128_g1_decompress_be(&self.a).map_err(invalid)?,
             b: alt_bn128_g2_decompress_be(&self.b).map_err(invalid)?,
@@ -284,7 +285,7 @@ pub struct ProofResult {
 
 #[cfg(feature = "client")]
 impl ProofResult {
-    pub fn compressed(&self) -> Result<CompressedProof, RelationError> {
+    pub fn compressed(&self) -> Result<CompressedProof, ProverError> {
         CompressedProof::try_from(&self.proof)
     }
 }
@@ -298,19 +299,19 @@ pub struct Groth16Prover<P> {
 
 #[cfg(feature = "client")]
 impl<P: ZkProgram> Groth16Prover<P> {
-    pub fn new(keys: Groth16Keys) -> Result<Self, RelationError> {
+    pub fn new(keys: Groth16Keys) -> Result<Self, ProverError> {
         Self::with_matrices(keys, circuit_matrices::<P>()?)
     }
 
-    pub fn from_zkey_bytes(zkey: &[u8]) -> Result<Self, RelationError> {
+    pub fn from_zkey_bytes(zkey: &[u8]) -> Result<Self, ProverError> {
         let matrices = circuit_matrices::<P>()?;
         let keys = Groth16Keys::from_zkey_for(zkey, &matrices)?;
         Self::with_matrices(keys, matrices)
     }
 
-    fn with_matrices(keys: Groth16Keys, matrices: CircuitMatrices) -> Result<Self, RelationError> {
+    fn with_matrices(keys: Groth16Keys, matrices: CircuitMatrices) -> Result<Self, ProverError> {
         if matrices.shape() != keys.circuit_shape() {
-            return Err(RelationError::KeysForAnotherCircuit);
+            return Err(ProverErrorKind::KeysForAnotherCircuit.into());
         }
         Ok(Self {
             keys,
@@ -320,7 +321,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
     }
 
     #[cfg(feature = "setup")]
-    pub fn new_with_test_setup() -> Result<Self, RelationError> {
+    pub fn new_with_test_setup() -> Result<Self, ProverError> {
         use ark_groth16::Groth16;
         use ark_std::rand::{rngs::StdRng, SeedableRng};
 
@@ -348,11 +349,11 @@ impl<P: ZkProgram> Groth16Prover<P> {
         self.matrices.constraint_count()
     }
 
-    pub fn prove(&self, proof_inputs: &P) -> Result<ProofResult, RelationError> {
+    pub fn prove(&self, proof_inputs: &P) -> Result<ProofResult, ProverError> {
         self.prove_inputs(&ArkworksCircuit::new(proof_inputs)?.proof_inputs()?)
     }
 
-    pub fn prove_inputs(&self, proof_inputs: &ProofInputs) -> Result<ProofResult, RelationError> {
+    pub fn prove_inputs(&self, proof_inputs: &ProofInputs) -> Result<ProofResult, ProverError> {
         let assignment = proof_inputs.values();
         self.matrices.check(assignment)?;
         let proof = SolanaProof::from(&create_proof(
@@ -367,7 +368,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
         Ok(ProofResult { proof, public_hash })
     }
 
-    pub fn verify(&self, result: &ProofResult) -> Result<(), RelationError> {
+    pub fn verify(&self, result: &ProofResult) -> Result<(), ProverError> {
         CompressedProof::try_from(&result.proof)?
             .verify(&self.keys.verifying_key, result.public_hash)
     }
@@ -377,9 +378,17 @@ impl<P: ZkProgram> Groth16Prover<P> {
 const TEST_SETUP_SEED: u64 = 0;
 
 #[cfg(feature = "client")]
-fn circuit_matrices<P: ZkProgram>() -> Result<CircuitMatrices, RelationError> {
+fn circuit_matrices<P: ZkProgram>() -> Result<CircuitMatrices, ProverError> {
     let placeholder = P::placeholder()?;
     ArkworksCircuit::for_setup(&placeholder).matrices()
+}
+
+#[cfg(any(feature = "setup", not(target_arch = "wasm32")))]
+fn key_file(path: &Path, error: std::io::Error) -> ProverErrorKind {
+    ProverErrorKind::KeyFile {
+        path: path.to_path_buf(),
+        error,
+    }
 }
 
 fn g1_bytes(point: &G1Affine) -> [u8; 64] {

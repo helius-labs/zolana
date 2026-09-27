@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -25,7 +25,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Limits {}
 impl ProofInput for Limits {
     type Circuit = circuit::Limits;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Limits, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Limits, CircuitError> {
         Ok(circuit::Limits {
             daily: self.daily.instantiate(allocator)?,
             weekly: self.weekly.instantiate(allocator)?,
@@ -37,7 +37,7 @@ impl ProofInput for Limits {
 }
 
 impl FromCircuit for Limits {
-    fn from_circuit(circuit: &circuit::Limits) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Limits) -> Result<Self, CircuitError> {
         Ok(Self {
             daily: u64::from_circuit(&circuit.daily)?,
             weekly: u64::from_circuit(&circuit.weekly)?,
@@ -49,7 +49,7 @@ impl FromCircuit for Limits {
 }
 
 impl Placeholder for Limits {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             daily: Placeholder::placeholder()?,
             weekly: Placeholder::placeholder()?,
@@ -74,7 +74,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Portfolio {}
 impl ProofInput for Portfolio {
     type Circuit = circuit::Portfolio;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Portfolio, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Portfolio, CircuitError> {
         Ok(circuit::Portfolio {
             owner_hash: self.owner_hash.instantiate(allocator)?,
             nonce: self.nonce.instantiate(allocator)?,
@@ -86,7 +86,7 @@ impl ProofInput for Portfolio {
 }
 
 impl FromCircuit for Portfolio {
-    fn from_circuit(circuit: &circuit::Portfolio) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Portfolio) -> Result<Self, CircuitError> {
         Ok(Self {
             owner_hash: <[u8; 32]>::from_circuit(&circuit.owner_hash)?,
             nonce: u32::from_circuit(&circuit.nonce)?,
@@ -98,7 +98,7 @@ impl FromCircuit for Portfolio {
 }
 
 impl Placeholder for Portfolio {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             owner_hash: Placeholder::placeholder()?,
             nonce: Placeholder::placeholder()?,
@@ -135,10 +135,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::PortfolioCreate {}
 impl ProofInput for PortfolioCreate {
     type Circuit = circuit::PortfolioCreate;
 
-    fn instantiate(
-        &self,
-        allocator: &Allocator,
-    ) -> Result<circuit::PortfolioCreate, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::PortfolioCreate, CircuitError> {
         let private = &self.private;
         Ok(circuit::PortfolioCreate {
             private: circuit::PortfolioCreatePrivateInputs {
@@ -157,7 +154,7 @@ impl ProofInput for PortfolioCreate {
 }
 
 impl Placeholder for PortfolioCreate {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: PortfolioCreatePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -181,7 +178,7 @@ mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -206,7 +203,7 @@ mod circuit {
     }
 
     impl DataHash for Limits {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.daily.var(),
                 self.weekly.var(),
@@ -239,7 +236,7 @@ mod circuit {
     }
 
     impl DataHash for Portfolio {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.owner_hash.clone(),
                 self.nonce.var(),
@@ -275,7 +272,7 @@ mod circuit {
     impl Circuit for PortfolioCreate {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut portfolio = DataUtxo::<Portfolio>::new_init(&self.public.owner, &Asset::sol());
@@ -293,7 +290,7 @@ mod circuit {
     }
 
     impl PublicInputs for PortfolioCreatePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.owner.hash()?, transaction_hash.clone()])
         }
     }

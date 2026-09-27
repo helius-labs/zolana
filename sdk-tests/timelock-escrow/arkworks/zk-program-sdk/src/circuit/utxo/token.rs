@@ -8,7 +8,7 @@ use crate::{
         var::{assert_equal_unless, system_of},
         zero, Assert, Asset, Bool, CircuitVar, Owner, PublicTransfer, Uint,
     },
-    RelationError,
+    CircuitError, CircuitErrorKind,
 };
 
 #[must_use]
@@ -45,12 +45,12 @@ impl TokenUtxo {
     }
 
     #[track_caller]
-    pub fn new_mut<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
+    pub fn new_mut<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, CircuitError> {
         Self::spend(inputs, false)
     }
 
     #[track_caller]
-    pub fn new_burn<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
+    pub fn new_burn<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, CircuitError> {
         Self::spend(inputs, true)
     }
 
@@ -67,7 +67,7 @@ impl TokenUtxo {
     }
 
     #[track_caller]
-    pub(crate) fn change(&self) -> Result<Option<Output>, RelationError> {
+    pub(crate) fn change(&self) -> Result<Option<Output>, CircuitError> {
         let balance = self.ledger.balance_var();
         if self.burn {
             balance.assert_equal(&zero(), "a burned token utxo leaves a balance")?;
@@ -83,12 +83,12 @@ impl TokenUtxo {
     }
 
     #[track_caller]
-    fn spend(inputs: &[Utxo], burn: bool) -> Result<Self, RelationError> {
+    fn spend(inputs: &[Utxo], burn: bool) -> Result<Self, CircuitError> {
         let _scope = Scope::open(
             &system_of(inputs.iter().map(|input| &input.domain)),
             "a token utxo's inputs",
         );
-        let first = inputs.first().ok_or(RelationError::Violated(
+        let first = inputs.first().ok_or(CircuitErrorKind::RuleBroken(
             "a token utxo spends at least one input",
         ))?;
         first

@@ -6,8 +6,8 @@ use zk_program_sdk::{
     circuit::{Circuit, ConstraintSystem, Field},
     conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
     testing::{check_tampered, Tamper},
-    Groth16Keys, Groth16Prover, ProofInputs, RelationError, SetupKind, TxContext,
-    VerifyingKeyExport, ZkProgram,
+    CircuitError, CircuitErrorKind, Groth16Keys, Groth16Prover, ProofInputs, ProverErrorKind,
+    SetupKind, TxContext, VerifyingKeyExport, ZkProgram,
 };
 use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 use zolana_keypair::ShieldedAddress;
@@ -44,7 +44,7 @@ impl ProofInput for RecipientPublicInputs {
     fn instantiate(
         &self,
         allocator: &Allocator,
-    ) -> Result<circuit::RecipientPublicInputs, RelationError> {
+    ) -> Result<circuit::RecipientPublicInputs, CircuitError> {
         Ok(circuit::RecipientPublicInputs {
             recipient: self.recipient.instantiate(allocator)?,
         })
@@ -56,7 +56,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Payment {}
 impl ProofInput for Payment {
     type Circuit = circuit::Payment;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, CircuitError> {
         let private = &self.private;
         Ok(circuit::Payment {
             private: circuit::PaymentPrivateInputs {
@@ -70,7 +70,7 @@ impl ProofInput for Payment {
 }
 
 impl Placeholder for Payment {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: PaymentPrivateInputs {
                 tx_context: TxContext::placeholder()?,
@@ -92,7 +92,7 @@ struct DivergingPayment {
 impl ProofInput for DivergingPayment {
     type Circuit = circuit::Payment;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, CircuitError> {
         let mut payment = self.payment.clone();
         if let Allocator::R1cs(_) = allocator {
             payment.private.amount += 1;
@@ -102,7 +102,7 @@ impl ProofInput for DivergingPayment {
 }
 
 impl Placeholder for DivergingPayment {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             payment: Payment::placeholder()?,
         })
@@ -118,7 +118,7 @@ struct ReshapedPayment {
 impl ProofInput for ReshapedPayment {
     type Circuit = circuit::Payment;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, CircuitError> {
         if self.extra_input {
             let _extra = Field::from(0u64).instantiate(allocator)?;
         }
@@ -127,7 +127,7 @@ impl ProofInput for ReshapedPayment {
 }
 
 impl Placeholder for ReshapedPayment {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             payment: Payment::placeholder()?,
             extra_input: false,
@@ -153,7 +153,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Sweep {}
 impl ProofInput for Sweep {
     type Circuit = circuit::Sweep;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Sweep, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Sweep, CircuitError> {
         let private = &self.private;
         Ok(circuit::Sweep {
             private: circuit::SweepPrivateInputs {
@@ -167,7 +167,7 @@ impl ProofInput for Sweep {
 }
 
 impl Placeholder for Sweep {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: SweepPrivateInputs {
                 tx_context: TxContext::placeholder()?,
@@ -191,7 +191,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Label {}
 impl ProofInput for Label {
     type Circuit = circuit::Label;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Label, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Label, CircuitError> {
         Ok(circuit::Label {
             value: self.value.instantiate(allocator)?,
         })
@@ -199,7 +199,7 @@ impl ProofInput for Label {
 }
 
 impl FromCircuit for Label {
-    fn from_circuit(circuit: &circuit::Label) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Label) -> Result<Self, CircuitError> {
         Ok(Self {
             value: u64::from_circuit(&circuit.value)?,
         })
@@ -229,7 +229,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Register {}
 impl ProofInput for Register {
     type Circuit = circuit::Register;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Register, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Register, CircuitError> {
         let private = &self.private;
         Ok(circuit::Register {
             private: circuit::RegisterPrivateInputs {
@@ -245,7 +245,7 @@ impl ProofInput for Register {
 }
 
 impl Placeholder for Register {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: RegisterPrivateInputs {
                 tx_context: TxContext::placeholder()?,
@@ -264,7 +264,7 @@ mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct Payment {
@@ -283,7 +283,7 @@ mod circuit {
     }
 
     impl PublicInputs for RecipientPublicInputs {
-        fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.recipient.hash()?, private_tx_hash.clone()])
         }
     }
@@ -291,7 +291,7 @@ mod circuit {
     impl Circuit for Payment {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -317,7 +317,7 @@ mod circuit {
     impl Circuit for Sweep {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
             let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -343,7 +343,7 @@ mod circuit {
     }
 
     impl DataHash for Label {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.value.hash()?])
         }
     }
@@ -368,7 +368,7 @@ mod circuit {
     }
 
     impl PublicInputs for RegisterPublicInputs {
-        fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.label.var(), private_tx_hash.clone()])
         }
     }
@@ -376,7 +376,7 @@ mod circuit {
     impl Circuit for Register {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut label = DataUtxo::<Label>::new_init(&private.owner, &Asset::sol());
@@ -399,9 +399,16 @@ where
         .instantiate(&Allocator::R1cs(cs.clone()))
         .and_then(|circuit| circuit.circuit())
     {
-        Err(RelationError::Synthesis(
-            SynthesisError::AssignmentMissing | SynthesisError::DivisionByZero,
-        )) => true,
+        Err(error)
+            if matches!(
+                error.kind(),
+                CircuitErrorKind::Internal(
+                    SynthesisError::AssignmentMissing | SynthesisError::DivisionByZero
+                )
+            ) =>
+        {
+            true
+        }
         Err(error) => panic!("unexpected R1CS error: {error}"),
         Ok(_) => !cs.is_satisfied().expect("satisfiability"),
     }
@@ -414,7 +421,7 @@ where
 {
     match check_tampered(proof_inputs, Tamper::PublicHash(public_hash)) {
         Ok(()) => true,
-        Err(RelationError::Unsatisfied(_)) => false,
+        Err(error) if matches!(error.kind(), ProverErrorKind::ProofInputsBreakRule(_)) => false,
         Err(error) => panic!("unexpected error: {error}"),
     }
 }
@@ -529,7 +536,7 @@ fn the_prover_refuses_a_witness_its_circuit_does_not_accept() {
                 diverging.prove(&DivergingPayment {
                     payment: payment.clone()
                 }),
-                Err(RelationError::Unsatisfied(_))
+                Err(error) if matches!(error.kind(), ProverErrorKind::ProofInputsBreakRule(_))
             ),
             reshaped
                 .prove(&ReshapedPayment {
@@ -724,9 +731,9 @@ fn malformed_proof_inputs_are_rejected_with_named_errors() {
                 "the proof inputs are malformed: the first value is not the constant one"
                     .to_string()
             ),
-            Some("a proof input is not a canonical field element".to_string()),
-            Some("Unsatisfied"),
-            Some("ProofInputsForAnotherCircuit"),
+            Some("a proof input is too large for a circuit value".to_string()),
+            Some("ProverError.ProofInputsBreakRule"),
+            Some("ProverError.ProofInputsForAnotherCircuit"),
         )
     );
 }

@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -24,7 +24,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Reservation {}
 impl ProofInput for Reservation {
     type Circuit = circuit::Reservation;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Reservation, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Reservation, CircuitError> {
         Ok(circuit::Reservation {
             limit_price: self.limit_price.instantiate(allocator)?,
             fill_price: self.fill_price.instantiate(allocator)?,
@@ -33,7 +33,7 @@ impl ProofInput for Reservation {
 }
 
 impl FromCircuit for Reservation {
-    fn from_circuit(circuit: &circuit::Reservation) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Reservation) -> Result<Self, CircuitError> {
         Ok(Self {
             limit_price: u64::from_circuit(&circuit.limit_price)?,
             fill_price: u64::from_circuit(&circuit.fill_price)?,
@@ -42,7 +42,7 @@ impl FromCircuit for Reservation {
 }
 
 impl Placeholder for Reservation {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             limit_price: Placeholder::placeholder()?,
             fill_price: Placeholder::placeholder()?,
@@ -77,7 +77,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Settle {}
 impl ProofInput for Settle {
     type Circuit = circuit::Settle;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Settle, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Settle, CircuitError> {
         let private = &self.private;
         Ok(circuit::Settle {
             private: circuit::SettlePrivateInputs {
@@ -97,7 +97,7 @@ impl ProofInput for Settle {
 }
 
 impl Placeholder for Settle {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: SettlePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -122,7 +122,7 @@ mod circuit {
             CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
             TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s31_order_make::circuit::OrderTerms;
@@ -143,7 +143,7 @@ mod circuit {
     }
 
     impl DataHash for Reservation {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.limit_price.var(), self.fill_price.var()])
         }
     }
@@ -174,7 +174,7 @@ mod circuit {
     impl Circuit for Settle {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let price = &self.public.execution_price;
             let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;
@@ -209,7 +209,7 @@ mod circuit {
     }
 
     impl PublicInputs for SettlePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.execution_price.var(), transaction_hash.clone()])
         }
     }

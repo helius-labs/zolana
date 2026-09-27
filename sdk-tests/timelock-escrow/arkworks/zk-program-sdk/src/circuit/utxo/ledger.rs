@@ -5,7 +5,7 @@ use crate::{
         field, labels::Scope, var::range_check, zero, Asset, Bytes, CircuitSystem, CircuitVar,
         Owner, PublicTransfer, Uint,
     },
-    RelationError,
+    CircuitError, CircuitErrorKind,
 };
 
 const AMOUNT_BITS: u32 = 64;
@@ -58,15 +58,18 @@ impl Accumulator {
         };
     }
 
-    fn bounded(&self) -> Result<(), RelationError> {
+    fn bounded(&self) -> Result<(), CircuitError> {
         if self.bits > MAX_BOUNDED_BITS {
-            return Err(RelationError::RangeTooWide(self.bits as usize));
+            return Err(CircuitErrorKind::BitWidthTooLarge {
+                bits: self.bits as usize,
+            }
+            .into());
         }
         Ok(())
     }
 
     #[track_caller]
-    fn narrow(&self, rule: &'static str) -> Result<Uint<64>, RelationError> {
+    fn narrow(&self, rule: &'static str) -> Result<Uint<64>, CircuitError> {
         if self.bits <= AMOUNT_BITS {
             return Ok(Uint::trusted(self.var.clone()));
         }
@@ -75,12 +78,16 @@ impl Accumulator {
     }
 
     #[track_caller]
-    fn debit(&mut self, amount: &Uint<64>, rule: &'static str) -> Result<(), RelationError> {
+    fn debit(&mut self, amount: &Uint<64>, rule: &'static str) -> Result<(), CircuitError> {
         self.bounded()?;
         let remaining = self.var.minus(&amount.var());
-        range_check(&remaining, AMOUNT_BITS as usize, rule).map_err(|error| match error {
-            RelationError::OutOfRange(_) => RelationError::Violated(rule),
-            error => error,
+        range_check(&remaining, AMOUNT_BITS as usize, rule).map_err(|error| {
+            match error.kind() {
+                CircuitErrorKind::ValueTooLarge { .. } => {
+                    error.replace_kind(CircuitErrorKind::RuleBroken(rule))
+                }
+                _ => error,
+            }
         })?;
         self.var = remaining;
         self.bits = AMOUNT_BITS;
@@ -140,11 +147,9 @@ impl Ledger {
 }
 
 #[track_caller]
-fn check_destination(asset: &Asset, destination: &impl HasLedger) -> Result<(), RelationError> {
+fn check_destination(asset: &Asset, destination: &impl HasLedger) -> Result<(), CircuitError> {
     if destination.is_burned() {
-        return Err(RelationError::Violated(
-            "a burned utxo receives no transfer",
-        ));
+        return Err(CircuitErrorKind::TransferToBurnedUtxo.into());
     }
     let held = &destination.ledger().asset;
     if asset.is_clone_of(held) {
@@ -171,7 +176,7 @@ pub trait Balance: HasLedger {
     }
 
     #[track_caller]
-    fn balance(&self) -> Result<Uint<64>, RelationError> {
+    fn balance(&self) -> Result<Uint<64>, CircuitError> {
         self.ledger().balance.narrow(BALANCE_FITS)
     }
 
@@ -180,7 +185,7 @@ pub trait Balance: HasLedger {
         &mut self,
         destination: &mut impl Balance,
         amount: &Uint<64>,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         let _scope = Scope::open(&self.ledger().cs(amount), "a transfer");
         check_destination(&self.ledger().asset, &*destination)?;
         let source = self.ledger_mut();
@@ -195,7 +200,7 @@ pub trait Balance: HasLedger {
     }
 
     #[track_caller]
-    fn transfer_all(&mut self, destination: &mut impl Balance) -> Result<(), RelationError> {
+    fn transfer_all(&mut self, destination: &mut impl Balance) -> Result<(), CircuitError> {
         let _scope = Scope::open(
             &self.ledger().balance.var.cs(),
             "a transfer of the whole balance",
@@ -209,7 +214,7 @@ pub trait Balance: HasLedger {
     }
 
     #[track_caller]
-    fn deposit(&mut self, amount: &Uint<64>, source: &Bytes<32>) -> Result<(), RelationError> {
+    fn deposit(&mut self, amount: &Uint<64>, source: &Bytes<32>) -> Result<(), CircuitError> {
         amount.assert_not_zero(NONZERO)?;
         let ledger = self.ledger_mut();
         ledger.balance.add(&Accumulator::amount(amount));
@@ -218,11 +223,7 @@ pub trait Balance: HasLedger {
     }
 
     #[track_caller]
-    fn withdraw(
-        &mut self,
-        amount: &Uint<64>,
-        destination: &Bytes<32>,
-    ) -> Result<(), RelationError> {
+    fn withdraw(&mut self, amount: &Uint<64>, destination: &Bytes<32>) -> Result<(), CircuitError> {
         let _scope = Scope::open(&self.ledger().cs(amount), "a withdrawal");
         amount.assert_not_zero(NONZERO)?;
         let ledger = self.ledger_mut();
@@ -234,7 +235,7 @@ pub trait Balance: HasLedger {
     }
 
     #[track_caller]
-    fn withdraw_all(&mut self, destination: &Bytes<32>) -> Result<Uint<64>, RelationError> {
+    fn withdraw_all(&mut self, destination: &Bytes<32>) -> Result<Uint<64>, CircuitError> {
         let amount = self.ledger().balance.narrow(BALANCE_FITS)?;
         amount.assert_not_zero(NONZERO)?;
         let ledger = self.ledger_mut();

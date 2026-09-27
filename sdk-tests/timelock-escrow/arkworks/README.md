@@ -54,7 +54,10 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof`, `CompressedProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`, and the 128-byte form an instruction contains, from `CompressedProof::try_from(&proof)`. `CompressedProof::verify` decompresses and verifies it. |
-| `RelationError` | Names the broken rule, the misused slot, the value out of range or the failed resolution. An unsatisfied constraint carries its row, the rule of the check that made it and the circuit's `file:line`. |
+| `CircuitError` | What circuit code returns: a broken rule, a value out of range, a wrong length or a bad owner or UTXO. `broken_rule()` names the rule and `location()` the `file:line:column` of the program's line that broke it. |
+| `ClientError` | What building a transaction returns: a circuit error, a slot that does not resolve or a transaction the SPP builder refuses. |
+| `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. A failing constraint carries its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. |
+| `SourceLocation`, `SlotKind` | The `file:line:column` of an error, and the kind of slot a slot error names. |
 | `ProvingKey`, `VerifyingKey`, `Proof` | Features `client` or `setup`. The arkworks Groth16 types over BN254, without the curve parameter. |
 
 **Setup** (feature `setup`)
@@ -116,9 +119,9 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 
 | Name | What it is good for |
 | --- | --- |
-| `ConstraintLabel`, `LabelKind`, `VariableRole` | What a synthesis records: the rows of each check and scope and the private variables of each allocation, with the rule and the circuit's `file:line`. |
-| `UnsatisfiedRow` | The first failing row and its innermost label. |
-| `SynthesisShape` | Constraints and public and private variables, for comparing a proof's synthesis with the placeholder's. |
+| `CircuitLabel`, `LabelKind`, `VariableRole` | What a synthesis records: the rows of each check and scope and the private variables of each allocation, with the rule and the circuit's `file:line`. |
+| `FailedConstraint` | The first failing row and its innermost label. |
+| `CircuitSize` | Constraints and public and private variables, for comparing a proof's synthesis with the placeholder's. |
 
 ### `zk_program_sdk::testing` (feature `client`)
 
@@ -168,7 +171,7 @@ stateDiagram-v2
     state "Circuit type over variables" as R1cs
     state "ProofResult" as Proof
     state "Accepted by verify_groth16" as Accepted
-    state "Refused with a named RelationError" as Refused
+    state "Refused with a named CircuitError or ClientError" as Refused
     state "Refused, a constraint fails" as Unsatisfied
 
     [*] --> Inputs
@@ -196,7 +199,7 @@ checks and fills the records. It then runs `circuit`, resolves each slot of the
 `CheckedTransaction` against the records and converts the amounts. `zolana_transaction`'s
 `ConfidentialTransaction` then pads to the smallest SPP shape that fits and encrypts the
 outputs, and the result's `padding_independent_private_tx_hash` must equal the circuit's. A broken rule or a slot
-without a record stops it with a named `RelationError`.
+without a record stops it with a named `CircuitError` or `ClientError`.
 
 The same inputs go to a `Groth16Prover` of the program. Its keys come from
 `new_with_test_setup`, which synthesizes the circuit from the program's `Placeholder`, or from

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -37,7 +37,7 @@ impl<const N: usize, const R: usize> zk_program_sdk::circuit::CircuitType
 impl<const N: usize, const R: usize> ProofInput for Payment<N, R> {
     type Circuit = circuit::Payment<N, R>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment<N, R>, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment<N, R>, CircuitError> {
         let private = &self.private;
         Ok(circuit::Payment {
             private: circuit::PaymentPrivateInputs {
@@ -53,7 +53,7 @@ impl<const N: usize, const R: usize> ProofInput for Payment<N, R> {
 }
 
 impl<const N: usize, const R: usize> Placeholder for Payment<N, R> {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: PaymentPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -73,7 +73,7 @@ mod circuit {
             poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct Payment<const N: usize, const R: usize> {
@@ -94,7 +94,7 @@ mod circuit {
     impl<const N: usize, const R: usize> Circuit for Payment<N, R> {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut payments = self
@@ -119,7 +119,7 @@ mod circuit {
     }
 
     impl<const R: usize> PublicInputs for PaymentPublicInputs<R> {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             let mut inputs = self
                 .recipients
                 .iter()

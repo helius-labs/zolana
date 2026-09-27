@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    RelationError, TxContext,
+    CircuitError, TxContext,
 };
 use zolana_transaction::WalletUtxo;
 
@@ -58,7 +58,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Withdraw {}
 impl ProofInput for Withdraw {
     type Circuit = circuit::Withdraw;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Withdraw, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Withdraw, CircuitError> {
         let private = &self.private;
         Ok(circuit::Withdraw {
             private: circuit::WithdrawPrivateInputs {
@@ -75,7 +75,7 @@ impl ProofInput for Withdraw {
 }
 
 impl Placeholder for Withdraw {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: WithdrawPrivateInputs {
                 tx_context: Placeholder::placeholder()?,

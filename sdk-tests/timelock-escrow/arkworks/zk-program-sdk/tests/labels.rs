@@ -1,12 +1,12 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        Balance, CheckedTransaction, Circuit, ConfidentialTransaction, ConstraintLabel, Field,
-        LabelKind, PublicInputs, TokenUtxo, UnsatisfiedRow,
+        Balance, CheckedTransaction, Circuit, CircuitLabel, ConfidentialTransaction,
+        FailedConstraint, Field, LabelKind, PublicInputs, TokenUtxo,
     },
     conversion::{Allocator, Placeholder, ProofInput},
     testing::{check_tampered, constraint_labels, Tamper},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, ProverError, ProverErrorKind, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -34,7 +34,7 @@ struct RecipientPublicInputs {
 
 #[circuit]
 impl Circuit for Payment {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
@@ -52,7 +52,7 @@ struct OverspendingPayment(Payment);
 impl ProofInput for OverspendingPayment {
     type Circuit = PaymentCircuit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, CircuitError> {
         let mut payment = self.0.clone();
         if let Allocator::R1cs(_) = allocator {
             payment.private.amount = 600;
@@ -62,7 +62,7 @@ impl ProofInput for OverspendingPayment {
 }
 
 impl Placeholder for OverspendingPayment {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self(Payment::placeholder()?))
     }
 }
@@ -84,14 +84,14 @@ fn payment(amount: u64) -> Payment {
     }
 }
 
-fn unsatisfied(result: Result<(), RelationError>) -> UnsatisfiedRow {
-    match result {
-        Err(RelationError::Unsatisfied(row)) => row,
+fn unsatisfied(result: Result<(), ProverError>) -> FailedConstraint {
+    match result.map_err(ProverError::into_kind) {
+        Err(ProverErrorKind::ProofInputsBreakRule(row)) => *row,
         other => panic!("expected an unsatisfied row, got {other:?}"),
     }
 }
 
-fn label_of(row: &UnsatisfiedRow) -> (LabelKind, &'static str, bool) {
+fn label_of(row: &FailedConstraint) -> (LabelKind, &'static str, bool) {
     let label = row.label.as_ref().expect("a labelled row");
     (label.kind, label.text, label.rows.contains(&row.row))
 }
@@ -184,8 +184,8 @@ fn a_tampered_hash_variable_reports_its_scope() {
 fn a_row_only_the_constraints_refuse_is_labelled_by_the_prover_and_the_check() {
     let overspending = OverspendingPayment(payment(400));
     let prover = Groth16Prover::<OverspendingPayment>::new_with_test_setup().unwrap();
-    let proved = match prover.prove(&overspending) {
-        Err(RelationError::Unsatisfied(row)) => row,
+    let proved = match prover.prove(&overspending).map_err(ProverError::into_kind) {
+        Err(ProverErrorKind::ProofInputsBreakRule(row)) => *row,
         other => panic!("expected an unsatisfied row, got {:?}", other.map(|_| ())),
     };
     let checked = unsatisfied(overspending.check_constraints().map(|_| ()));
@@ -220,7 +220,7 @@ fn a_private_variable_outside_the_circuit_is_named() {
 
 #[test]
 fn an_unsatisfied_row_names_its_rule_and_location() {
-    let label = |kind| ConstraintLabel {
+    let label = |kind| CircuitLabel {
         kind,
         text: "the amount is too large",
         file: "src/circuit.rs",
@@ -229,16 +229,17 @@ fn an_unsatisfied_row_names_its_rule_and_location() {
         rows: 4..6,
         private_variables: 0..0,
     };
-    let row = |label| UnsatisfiedRow { row: 5, label };
+    let row = |label| FailedConstraint { row: 5, label };
 
     assert_eq!(
         (
-            RelationError::Unsatisfied(row(Some(label(LabelKind::Check)))).to_string(),
+            ProverErrorKind::ProofInputsBreakRule(Box::new(row(Some(label(LabelKind::Check)))))
+                .to_string(),
             row(Some(label(LabelKind::Scope))).to_string(),
             row(None).to_string(),
         ),
         (
-            "the constraint system is unsatisfied at row 5: the amount is too large (src/circuit.rs:7)"
+            "the proof inputs break a rule at row 5: the amount is too large (src/circuit.rs:7)"
                 .to_string(),
             "row 5, inside the amount is too large (src/circuit.rs:7)".to_string(),
             "row 5".to_string(),

@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -29,7 +29,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Vesting {}
 impl ProofInput for Vesting {
     type Circuit = circuit::Vesting;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Vesting, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Vesting, CircuitError> {
         Ok(circuit::Vesting {
             beneficiary_hash: self.beneficiary_hash.instantiate(allocator)?,
             total: self.total.instantiate(allocator)?,
@@ -41,7 +41,7 @@ impl ProofInput for Vesting {
 }
 
 impl FromCircuit for Vesting {
-    fn from_circuit(circuit: &circuit::Vesting) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Vesting) -> Result<Self, CircuitError> {
         Ok(Self {
             beneficiary_hash: <[u8; 32]>::from_circuit(&circuit.beneficiary_hash)?,
             total: u64::from_circuit(&circuit.total)?,
@@ -53,7 +53,7 @@ impl FromCircuit for Vesting {
 }
 
 impl Placeholder for Vesting {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             beneficiary_hash: Placeholder::placeholder()?,
             total: Placeholder::placeholder()?,
@@ -91,7 +91,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::VestingClaim {}
 impl ProofInput for VestingClaim {
     type Circuit = circuit::VestingClaim;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::VestingClaim, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::VestingClaim, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         Ok(circuit::VestingClaim {
@@ -112,7 +112,7 @@ impl ProofInput for VestingClaim {
 }
 
 impl Placeholder for VestingClaim {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: VestingClaimPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -137,7 +137,7 @@ mod circuit {
             CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
             TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -162,7 +162,7 @@ mod circuit {
     }
 
     impl DataHash for Vesting {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.beneficiary_hash.clone(),
                 self.total.var(),
@@ -199,7 +199,7 @@ mod circuit {
     impl Circuit for VestingClaim {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut vesting = DataUtxo::new_burn(&private.vesting, &private.state)?;
@@ -251,7 +251,7 @@ mod circuit {
     }
 
     impl PublicInputs for VestingClaimPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.now.var(),
                 self.start.var(),

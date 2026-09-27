@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{CheckedTransaction, Circuit, CircuitType},
-    RelationError,
+    CircuitError,
 };
 
 struct HandWritten;
@@ -8,7 +8,7 @@ struct HandWritten;
 impl CircuitType for HandWritten {}
 
 impl Circuit for HandWritten {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         unimplemented!()
     }
 }

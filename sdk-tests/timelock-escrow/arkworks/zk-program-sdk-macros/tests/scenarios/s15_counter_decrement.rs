@@ -2,7 +2,7 @@ use zk_program_sdk::{
     circuit,
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -32,7 +32,7 @@ pub(crate) struct DecrementPublicInputs {
 
 #[circuit]
 impl Circuit for Decrement {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
         counter.count = counter

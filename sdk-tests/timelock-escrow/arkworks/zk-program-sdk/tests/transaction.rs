@@ -8,7 +8,7 @@ use zk_program_sdk::{
         TokenUtxo, Uint, Utxo,
     },
     conversion::{field, field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
-    RelationError, TxContext,
+    CircuitError, TxContext,
 };
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
@@ -106,7 +106,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Counter {}
 impl ProofInput for Counter {
     type Circuit = circuit::Counter;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Counter, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Counter, CircuitError> {
         Ok(circuit::Counter {
             value: self.value.instantiate(allocator)?,
         })
@@ -114,7 +114,7 @@ impl ProofInput for Counter {
 }
 
 impl FromCircuit for Counter {
-    fn from_circuit(circuit: &circuit::Counter) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Counter) -> Result<Self, CircuitError> {
         Ok(Self {
             value: u64::from_circuit(&circuit.value)?,
         })
@@ -124,7 +124,7 @@ impl FromCircuit for Counter {
 mod circuit {
     use zk_program_sdk::{
         circuit::{poseidon, CircuitVar, DataHash, Uint, UtxoData},
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -141,7 +141,7 @@ mod circuit {
     }
 
     impl DataHash for Counter {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.value.hash()?])
         }
     }
@@ -160,7 +160,7 @@ fn counter(value: u64) -> circuit::Counter {
 struct PrivateTxHash;
 
 impl PublicInputs for PrivateTxHash {
-    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         Ok(private_tx_hash.clone())
     }
 }
@@ -170,7 +170,7 @@ struct Tagged {
 }
 
 impl PublicInputs for Tagged {
-    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         poseidon(&[self.tag.clone(), private_tx_hash.clone()])
     }
 }
@@ -221,7 +221,7 @@ fn transaction<P: PublicInputs>(
     context: &zk_program_sdk::circuit::TxContext,
     public: &P,
     inputs: [Utxo; 3],
-) -> Result<CircuitVar, RelationError> {
+) -> Result<CircuitVar, CircuitError> {
     let [first, second, data] = inputs;
     let mut token = TokenUtxo::new_mut(&[first, second])?;
     let mut transfer = TokenUtxo::new_init(&owner(30), &token.asset());
@@ -311,7 +311,7 @@ fn two_transfers_into_one_destination_produce_one_output_holding_the_sum() {
             ),
         ],
     );
-    let pay_twice = |allocator: &Allocator| -> Result<bool, RelationError> {
+    let pay_twice = |allocator: &Allocator| -> Result<bool, CircuitError> {
         let context = tx_context().instantiate(allocator)?;
         let [first, second, data] = inputs().map(|input| input.instantiate(allocator).unwrap());
         let mut token = TokenUtxo::new_mut(&[first, second])?;
@@ -351,7 +351,7 @@ fn a_transfer_that_leaves_a_utxo_out_of_the_transaction_is_refused() {
             .instantiate(allocator)
             .map_err(|e| e.to_string())?;
         let [first, second, data] = inputs().map(|input| input.instantiate(allocator).unwrap());
-        let transaction = || -> Result<(), RelationError> {
+        let transaction = || -> Result<(), CircuitError> {
             let mut token = TokenUtxo::new_mut(&[first, second])?;
             let mut vault = DataUtxo::new_mut(&data, &counter(9))?;
             let mut payment = TokenUtxo::new_init(&owner(30), &token.asset());

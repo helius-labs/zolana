@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -35,7 +35,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Merge {}
 impl ProofInput for Merge {
     type Circuit = circuit::Merge;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Merge, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Merge, CircuitError> {
         let private = &self.private;
         Ok(circuit::Merge {
             private: circuit::MergePrivateInputs {
@@ -50,7 +50,7 @@ impl ProofInput for Merge {
 }
 
 impl Placeholder for Merge {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: MergePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -69,7 +69,7 @@ mod circuit {
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use super::MERGED_INPUTS;
@@ -91,7 +91,7 @@ mod circuit {
     impl Circuit for Merge {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
             tokens
@@ -109,7 +109,7 @@ mod circuit {
     }
 
     impl PublicInputs for MergePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.owner.hash()?, transaction_hash.clone()])
         }
     }

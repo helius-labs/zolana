@@ -17,8 +17,8 @@ pub(crate) fn allocator() -> TokenStream {
     quote!(::zk_program_sdk::conversion::Allocator)
 }
 
-pub(crate) fn relation_error() -> TokenStream {
-    quote!(::zk_program_sdk::RelationError)
+pub(crate) fn circuit_error() -> TokenStream {
+    quote!(::zk_program_sdk::CircuitError)
 }
 
 pub(crate) fn circuit_type() -> TokenStream {

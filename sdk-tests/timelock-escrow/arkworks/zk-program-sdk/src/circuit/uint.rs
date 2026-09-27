@@ -7,7 +7,7 @@ use super::{
     var::{bits_le, range_check, system_of},
     zero, Assert, Bool, CircuitVar, Field, Select,
 };
-use crate::RelationError;
+use crate::{CircuitError, CircuitErrorKind};
 
 const MAX_BITS: u32 = 253;
 const MAX_ORDERED_BITS: u32 = 252;
@@ -50,10 +50,13 @@ impl<const BITS: u32> Uint<BITS> {
         Self { var: zero() }
     }
 
-    pub fn constant(value: u64) -> Result<Self, RelationError> {
+    pub fn constant(value: u64) -> Result<Self, CircuitError> {
         let () = Self::VALID;
         if value.checked_shr(BITS).is_some_and(|high| high != 0) {
-            return Err(RelationError::OutOfRange(BITS as usize));
+            return Err(CircuitErrorKind::ValueTooLarge {
+                bits: BITS as usize,
+            }
+            .into());
         }
         Ok(Self {
             var: constant(value),
@@ -61,7 +64,7 @@ impl<const BITS: u32> Uint<BITS> {
     }
 
     #[track_caller]
-    pub fn from_var(var: &CircuitVar, rule: &'static str) -> Result<Self, RelationError> {
+    pub fn from_var(var: &CircuitVar, rule: &'static str) -> Result<Self, CircuitError> {
         let () = Self::VALID;
         fits(var, BITS, rule)?;
         Ok(Self { var: var.clone() })
@@ -125,7 +128,7 @@ impl<const BITS: u32> Uint<BITS> {
     }
 
     #[track_caller]
-    pub fn narrow<const OUT: u32>(&self, rule: &'static str) -> Result<Uint<OUT>, RelationError> {
+    pub fn narrow<const OUT: u32>(&self, rule: &'static str) -> Result<Uint<OUT>, CircuitError> {
         const { assert!(OUT >= 1 && OUT < BITS, "narrow goes to fewer bits") };
         fits(&self.var, OUT, rule)?;
         Ok(Uint {
@@ -134,7 +137,7 @@ impl<const BITS: u32> Uint<BITS> {
     }
 
     #[track_caller]
-    pub fn checked_sub(&self, other: &Self, rule: &'static str) -> Result<Self, RelationError> {
+    pub fn checked_sub(&self, other: &Self, rule: &'static str) -> Result<Self, CircuitError> {
         let () = Self::ORDERED;
         let difference = self.var.minus(&other.var);
         fits(&difference, BITS, rule)?;
@@ -146,13 +149,13 @@ impl<const BITS: u32> Uint<BITS> {
         &self,
         other: &Self,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         let () = Self::ORDERED;
         fits(&other.var.minus(&self.var), BITS, rule)
     }
 
     #[track_caller]
-    pub fn assert_less_than(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    pub fn assert_less_than(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         let () = Self::ORDERED;
         fits(
             &other.var.minus(&self.var).offset(-Field::one()),
@@ -162,13 +165,13 @@ impl<const BITS: u32> Uint<BITS> {
     }
 
     #[track_caller]
-    pub fn is_less_or_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    pub fn is_less_or_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         let () = Self::ORDERED;
         self.ordered_below(other, Field::ZERO)
     }
 
     #[track_caller]
-    pub fn is_less_than(&self, other: &Self) -> Result<Bool, RelationError> {
+    pub fn is_less_than(&self, other: &Self) -> Result<Bool, CircuitError> {
         let () = Self::ORDERED;
         self.ordered_below(other, Field::one())
     }
@@ -179,18 +182,18 @@ impl<const BITS: u32> Uint<BITS> {
         low: &Self,
         high: &Self,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         low.assert_less_or_equal(self, rule)?;
         self.assert_less_or_equal(high, rule)
     }
 
     #[track_caller]
-    pub fn min(&self, other: &Self) -> Result<Self, RelationError> {
+    pub fn min(&self, other: &Self) -> Result<Self, CircuitError> {
         Ok(self.is_less_than(other)?.select(self, other))
     }
 
     #[track_caller]
-    pub fn max(&self, other: &Self) -> Result<Self, RelationError> {
+    pub fn max(&self, other: &Self) -> Result<Self, CircuitError> {
         Ok(self.is_less_than(other)?.select(other, self))
     }
 
@@ -199,7 +202,7 @@ impl<const BITS: u32> Uint<BITS> {
         &self,
         other: &Uint<OTHER>,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         self.var.assert_equal(&other.var, rule)
     }
 
@@ -208,27 +211,27 @@ impl<const BITS: u32> Uint<BITS> {
         &self,
         other: &Uint<OTHER>,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         self.var.assert_not_equal(&other.var, rule)
     }
 
     #[track_caller]
-    pub fn is_equal<const OTHER: u32>(&self, other: &Uint<OTHER>) -> Result<Bool, RelationError> {
+    pub fn is_equal<const OTHER: u32>(&self, other: &Uint<OTHER>) -> Result<Bool, CircuitError> {
         Bool::of_equality(&self.var, &other.var)
     }
 
     #[track_caller]
-    pub fn is_zero(&self) -> Result<Bool, RelationError> {
+    pub fn is_zero(&self) -> Result<Bool, CircuitError> {
         Bool::of_equality(&self.var, &zero())
     }
 
     #[track_caller]
-    pub fn assert_zero(&self, rule: &'static str) -> Result<(), RelationError> {
+    pub fn assert_zero(&self, rule: &'static str) -> Result<(), CircuitError> {
         self.var.assert_equal(&zero(), rule)
     }
 
     #[track_caller]
-    pub fn assert_not_zero(&self, rule: &'static str) -> Result<(), RelationError> {
+    pub fn assert_not_zero(&self, rule: &'static str) -> Result<(), CircuitError> {
         self.var.assert_not_equal(&zero(), rule)
     }
 
@@ -237,7 +240,7 @@ impl<const BITS: u32> Uint<BITS> {
         &self,
         divisor: &Uint<DIVISOR>,
         rule: &'static str,
-    ) -> Result<(Uint<QUOTIENT>, Uint<DIVISOR>), RelationError> {
+    ) -> Result<(Uint<QUOTIENT>, Uint<DIVISOR>), CircuitError> {
         const {
             assert!(
                 BITS <= MAX_DIVIDED_BITS && DIVISOR <= MAX_DIVIDED_BITS,
@@ -254,7 +257,7 @@ impl<const BITS: u32> Uint<BITS> {
         if cs.is_none() {
             let (quotient, remainder) = divide(&self.var, &divisor.var)
                 .filter(|(quotient, _)| quotient.checked_shr(QUOTIENT).is_none_or(|high| high == 0))
-                .ok_or(RelationError::Violated(rule))?;
+                .ok_or(CircuitErrorKind::RuleBroken(rule))?;
             return Ok((
                 Uint::trusted(constant(Field::from(quotient))),
                 Uint::trusted(constant(Field::from(remainder))),
@@ -281,7 +284,7 @@ impl<const BITS: u32> Uint<BITS> {
     );
 
     #[track_caller]
-    fn ordered_below(&self, other: &Self, gap: Field) -> Result<Bool, RelationError> {
+    fn ordered_below(&self, other: &Self, gap: Field) -> Result<Bool, CircuitError> {
         let offset = power_of_two(BITS) - gap;
         let shifted = other.var.minus(&self.var).offset(offset);
         if let Some(value) = shifted.constant_value() {
@@ -302,12 +305,12 @@ impl<const BITS: u32> Select for Uint<BITS> {
 
 impl<const BITS: u32> Assert for Uint<BITS> {
     #[track_caller]
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         Bool::of_equality(&self.var, &other.var)
     }
 
     #[track_caller]
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         self.var.assert_equal(&other.var, rule)
     }
 
@@ -317,21 +320,23 @@ impl<const BITS: u32> Assert for Uint<BITS> {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         self.var.assert_equal_if(&other.var, condition, rule)
     }
 
     #[track_caller]
-    fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         self.var.assert_not_equal(&other.var, rule)
     }
 }
 
 #[track_caller]
-fn fits(var: &CircuitVar, bits: u32, rule: &'static str) -> Result<(), RelationError> {
-    range_check(var, bits as usize, rule).map_err(|error| match error {
-        RelationError::OutOfRange(_) => RelationError::Violated(rule),
-        error => error,
+fn fits(var: &CircuitVar, bits: u32, rule: &'static str) -> Result<(), CircuitError> {
+    range_check(var, bits as usize, rule).map_err(|error| match error.kind() {
+        CircuitErrorKind::ValueTooLarge { .. } => {
+            error.replace_kind(CircuitErrorKind::RuleBroken(rule))
+        }
+        _ => error,
     })
 }
 

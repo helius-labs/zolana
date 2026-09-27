@@ -1,8 +1,8 @@
 use super::{constant, Bool, CircuitVar, Compare};
-use crate::RelationError;
+use crate::CircuitError;
 
 #[track_caller]
-pub fn is_in(value: &CircuitVar, set: &[CircuitVar]) -> Result<Bool, RelationError> {
+pub fn is_in(value: &CircuitVar, set: &[CircuitVar]) -> Result<Bool, CircuitError> {
     distance_product(value, set).is_zero()
 }
 
@@ -11,7 +11,7 @@ pub fn assert_in(
     value: &CircuitVar,
     set: &[CircuitVar],
     rule: &'static str,
-) -> Result<(), RelationError> {
+) -> Result<(), CircuitError> {
     distance_product(value, set).assert_zero(rule)
 }
 

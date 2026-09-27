@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -21,7 +21,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Profile {}
 impl ProofInput for Profile {
     type Circuit = circuit::Profile;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Profile, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Profile, CircuitError> {
         Ok(circuit::Profile {
             score: self.score.instantiate(allocator)?,
         })
@@ -29,7 +29,7 @@ impl ProofInput for Profile {
 }
 
 impl FromCircuit for Profile {
-    fn from_circuit(circuit: &circuit::Profile) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Profile) -> Result<Self, CircuitError> {
         Ok(Self {
             score: u64::from_circuit(&circuit.score)?,
         })
@@ -37,7 +37,7 @@ impl FromCircuit for Profile {
 }
 
 impl Placeholder for Profile {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             score: Placeholder::placeholder()?,
         })
@@ -54,7 +54,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Badge {}
 impl ProofInput for Badge {
     type Circuit = circuit::Badge;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Badge, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Badge, CircuitError> {
         Ok(circuit::Badge {
             level: self.level.instantiate(allocator)?,
         })
@@ -62,7 +62,7 @@ impl ProofInput for Badge {
 }
 
 impl FromCircuit for Badge {
-    fn from_circuit(circuit: &circuit::Badge) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Badge) -> Result<Self, CircuitError> {
         Ok(Self {
             level: u16::from_circuit(&circuit.level)?,
         })
@@ -70,7 +70,7 @@ impl FromCircuit for Badge {
 }
 
 impl Placeholder for Badge {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             level: Placeholder::placeholder()?,
         })
@@ -101,10 +101,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CreateAndUpdate {}
 impl ProofInput for CreateAndUpdate {
     type Circuit = circuit::CreateAndUpdate;
 
-    fn instantiate(
-        &self,
-        allocator: &Allocator,
-    ) -> Result<circuit::CreateAndUpdate, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreateAndUpdate, CircuitError> {
         let private = &self.private;
         Ok(circuit::CreateAndUpdate {
             private: circuit::CreateAndUpdatePrivateInputs {
@@ -121,7 +118,7 @@ impl ProofInput for CreateAndUpdate {
 }
 
 impl Placeholder for CreateAndUpdate {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CreateAndUpdatePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -143,7 +140,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint,
             Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -160,7 +157,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Profile {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.score.var()])
         }
     }
@@ -183,7 +180,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Badge {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[constant(1u64), self.level.var()])
         }
     }
@@ -211,7 +208,7 @@ pub(crate) mod circuit {
     impl Circuit for CreateAndUpdate {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
             profile.score = profile
@@ -229,7 +226,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for CreateAndUpdatePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.badge_owner.hash()?, transaction_hash.clone()])
         }
     }

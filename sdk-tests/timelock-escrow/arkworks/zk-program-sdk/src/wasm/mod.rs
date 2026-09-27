@@ -14,9 +14,9 @@ pub use types::{
 };
 pub use zk_program_sdk_macros::ZkProgramWasm;
 
+use crate::{CircuitError, ClientError, ClientErrorKind, ProverError, SourceLocation, ZkProgram};
 #[cfg(feature = "wasm-prover")]
 use crate::{Groth16Keys, Groth16Prover, ProofInputs};
-use crate::{RelationError, ZkProgram};
 
 #[doc(hidden)]
 pub mod __private {
@@ -73,23 +73,48 @@ macro_rules! __zk_program_wasm_prover {
     ($prover:ident, $program:ty) => {};
 }
 
-pub fn js_error(error: RelationError) -> JsValue {
-    let js_error = js_sys::Error::new(&error.to_string());
-    js_error.set_name(error.name());
-    js_error.into()
+fn js_error(name: &str, message: &str, location: SourceLocation) -> JsValue {
+    let error = js_sys::Error::new(message);
+    error.set_name(name);
+    let _ = js_sys::Reflect::set(
+        &error,
+        &JsValue::from_str("location"),
+        &JsValue::from_str(&location.to_string()),
+    );
+    error.into()
+}
+
+impl From<CircuitError> for JsValue {
+    fn from(error: CircuitError) -> Self {
+        js_error(error.name(), &error.to_string(), error.location())
+    }
+}
+
+impl From<ClientError> for JsValue {
+    fn from(error: ClientError) -> Self {
+        js_error(error.name(), &error.to_string(), error.location())
+    }
+}
+
+impl From<ProverError> for JsValue {
+    fn from(error: ProverError) -> Self {
+        js_error(error.name(), &error.to_string(), error.location())
+    }
 }
 
 pub fn from_js<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
-    serde_wasm_bindgen::from_value(value)
-        .map_err(|error| js_error(RelationError::InvalidInput(error.to_string())))
+    Ok(serde_wasm_bindgen::from_value(value)
+        .map_err(|error| ClientError::from(ClientErrorKind::InvalidArgument(error.to_string())))?)
 }
 
 pub fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    value
+    Ok(value
         .serialize(
             &serde_wasm_bindgen::Serializer::new().serialize_large_number_types_as_bigints(true),
         )
-        .map_err(|error| js_error(RelationError::ToJs(error.to_string())))
+        .map_err(|error| {
+            ClientError::from(ClientErrorKind::JavaScriptConversion(error.to_string()))
+        })?)
 }
 
 pub fn program_transaction<P>(
@@ -101,25 +126,21 @@ where
     P: ZkProgram + DeserializeOwned,
 {
     let program: P = from_js(inputs)?;
-    let sender = shielded_address(sender).map_err(js_error)?;
+    let sender = shielded_address(sender)?;
     let payer = Address::from_str(payer)
-        .map_err(|error| js_error(RelationError::InvalidInput(format!("payer: {error}"))))?;
-    let transaction = program
-        .create_program_transaction(&sender, payer)
-        .map_err(js_error)?;
-    to_js(&ProgramTransaction::try_from(&transaction).map_err(js_error)?)
+        .map_err(|error| ClientError::from(ClientErrorKind::InvalidPayer(error)))?;
+    let transaction = program.create_program_transaction(&sender, payer)?;
+    to_js(&ProgramTransaction::try_from(&transaction)?)
 }
 
 #[cfg(feature = "wasm-prover")]
 pub fn prover_from_key<P: ZkProgram>(proving_key: &[u8]) -> Result<Groth16Prover<P>, JsValue> {
-    Groth16Keys::from_bytes(proving_key)
-        .and_then(Groth16Prover::new)
-        .map_err(js_error)
+    Ok(Groth16Keys::from_bytes(proving_key).and_then(Groth16Prover::new)?)
 }
 
 #[cfg(feature = "wasm-prover")]
 pub fn prover_from_zkey<P: ZkProgram>(zkey: &[u8]) -> Result<Groth16Prover<P>, JsValue> {
-    Groth16Prover::from_zkey_bytes(zkey).map_err(js_error)
+    Ok(Groth16Prover::from_zkey_bytes(zkey)?)
 }
 
 #[cfg(feature = "wasm-prover")]
@@ -128,23 +149,23 @@ pub fn prove<P: ZkProgram>(
     proof_inputs: &[u8],
 ) -> Result<JsValue, JsValue> {
     let result = ProofInputs::from_bytes(proof_inputs)
-        .and_then(|proof_inputs| prover.prove_inputs(&proof_inputs))
-        .map_err(js_error)?;
-    to_js(&ProgramProof::try_from(&result).map_err(js_error)?)
+        .and_then(|proof_inputs| prover.prove_inputs(&proof_inputs))?;
+    to_js(&ProgramProof::try_from(&result)?)
 }
 
-fn shielded_address(bytes: &[u8]) -> Result<ShieldedAddress, RelationError> {
-    let bytes = <[u8; SHIELDED_ADDRESS_LEN]>::try_from(bytes).map_err(|_| {
-        RelationError::InvalidInput("the sender is not a 99-byte shielded address".to_string())
-    })?;
-    ShieldedAddress::from_bytes(&bytes).map_err(RelationError::input)
+fn shielded_address(bytes: &[u8]) -> Result<ShieldedAddress, ClientError> {
+    let bytes = <[u8; SHIELDED_ADDRESS_LEN]>::try_from(bytes)
+        .map_err(|_| ClientErrorKind::SenderLength { found: bytes.len() })?;
+    Ok(ShieldedAddress::from_bytes(&bytes).map_err(ClientErrorKind::InvalidSender)?)
 }
 
 #[wasm_bindgen(js_name = dummyWalletUtxo, unchecked_return_type = "WalletUtxo")]
 pub fn dummy_wallet_utxo(
     #[wasm_bindgen(js_name = treeId)] tree_id: u16,
 ) -> Result<JsValue, JsValue> {
-    to_js(&WalletUtxo::dummy(tree_id).map_err(|error| js_error(RelationError::input(error)))?)
+    let utxo = WalletUtxo::dummy(tree_id)
+        .map_err(|error| ClientError::from(ClientErrorKind::InvalidUtxo(error)))?;
+    to_js(&utxo)
 }
 
 #[cfg(feature = "wasm-verify")]
@@ -160,7 +181,7 @@ pub fn verify_proof(
         return Ok(false);
     }
     let verifying_key = parse_gnark_vk_bytes(verifying_key)
-        .map_err(|error| js_error(RelationError::keys(format!("{error:?}"))))?;
+        .map_err(|error| ProverError::from(crate::ProverErrorKind::InvalidVerifyingKey(error)))?;
     let verifying_key = verifying_key.as_borrowed();
     let public_inputs = [proof.public_hash];
     Ok(Groth16Verifier::new(

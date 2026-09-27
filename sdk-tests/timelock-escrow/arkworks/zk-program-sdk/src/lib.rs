@@ -14,7 +14,10 @@ pub mod wasm;
 pub use client::{Bytes, Owner, ProgramOwner, TxContext};
 #[cfg(feature = "client")]
 pub use client::{ProgramTransaction, ZkProgram};
-pub use error::RelationError;
+pub use error::{
+    CircuitError, CircuitErrorKind, ClientError, ClientErrorKind, ProverError, ProverErrorKind,
+    SlotKind, SourceLocation,
+};
 #[cfg(feature = "client")]
 pub use prover::{CompressedProof, Groth16Prover, ProofInputs, ProofResult, SolanaProof};
 #[cfg(any(feature = "client", feature = "setup"))]

@@ -5,7 +5,7 @@ use zk_program_sdk::{
     circuit,
     circuit::{poseidon, Circuit, CircuitVar, ConstraintSystem, DataHash},
     conversion::{to_bytes, Allocator, ProofInput},
-    RelationError, ZkProgram,
+    CircuitError, ZkProgram,
 };
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::{random_blinding, P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey};
@@ -334,7 +334,7 @@ pub struct MerklePath {
 
 #[circuit]
 impl MerklePath {
-    pub fn root(&self, leaf: &CircuitVar) -> Result<CircuitVar, RelationError> {
+    pub fn root(&self, leaf: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         self.siblings
             .iter()
             .zip(&self.bits)

@@ -21,7 +21,7 @@ pub use boolean::Bool;
 pub use bytes::Bytes;
 pub use circuit_type::{CircuitDefault, CircuitMarker, CircuitType};
 pub use compare::Compare;
-pub use labels::{ConstraintLabel, LabelKind, SynthesisShape, UnsatisfiedRow, VariableRole};
+pub use labels::{CircuitLabel, CircuitSize, FailedConstraint, LabelKind, VariableRole};
 pub use membership::{assert_in, is_in};
 pub use owner::{Owner, OwnerKey};
 pub use select::{one_hot, select_index, Select};
@@ -36,10 +36,10 @@ pub use var::{
 pub use zk_program_sdk_macros::{CircuitType, PublicInputs};
 
 pub use crate::circuit_lib::{hash_bytes, nonzero_hash_chain, poseidon};
-use crate::RelationError;
+use crate::CircuitError;
 
 pub trait Circuit: CircuitType {
     const MARKER: CircuitMarker;
 
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError>;
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError>;
 }

@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{value, Assert, Bool, CircuitSystem, CircuitVar, ConstraintSystem, Field, Uint},
     conversion::{Allocator, FromCircuit, ProofInput},
-    RelationError,
+    CircuitError,
 };
 
 fn native<const BITS: u32>(value: u64) -> Uint<BITS> {
@@ -32,11 +32,8 @@ fn cost<T>(cs: &CircuitSystem, operation: impl FnOnce() -> T) -> (usize, T) {
     (cs.num_constraints() - before, result)
 }
 
-fn violated<T: core::fmt::Debug>(result: Result<T, RelationError>) -> Option<&'static str> {
-    match result {
-        Err(RelationError::Violated(rule)) => Some(rule),
-        _ => None,
-    }
+fn violated<T: core::fmt::Debug>(result: Result<T, CircuitError>) -> Option<&'static str> {
+    result.err().as_ref().and_then(CircuitError::broken_rule)
 }
 
 #[test]
@@ -185,7 +182,7 @@ fn each_operation_costs_its_documented_constraints() {
 
 #[test]
 fn a_broken_rule_leaves_the_constraints_unsatisfied() {
-    let unsatisfied = |build: fn(&CircuitSystem) -> Result<(), RelationError>| {
+    let unsatisfied = |build: fn(&CircuitSystem) -> Result<(), CircuitError>| {
         let cs = ConstraintSystem::new_ref();
         build(&cs).unwrap();
         !cs.is_satisfied().unwrap()

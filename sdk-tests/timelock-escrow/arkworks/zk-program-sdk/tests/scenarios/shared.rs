@@ -4,7 +4,7 @@ use solana_signature::Signature;
 use zk_program_sdk::{
     circuit::{poseidon, Bool, CircuitVar, DataHash},
     conversion::{to_bytes, Allocator, Placeholder, ProofInput},
-    RelationError,
+    CircuitError,
 };
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::{random_blinding, P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey};
@@ -329,7 +329,7 @@ impl zk_program_sdk::circuit::CircuitType for CircuitMerklePath {}
 impl ProofInput for MerklePath {
     type Circuit = CircuitMerklePath;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitMerklePath, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitMerklePath, CircuitError> {
         Ok(CircuitMerklePath {
             siblings: self.siblings.instantiate(allocator)?,
             bits: self.bits.instantiate(allocator)?,
@@ -338,7 +338,7 @@ impl ProofInput for MerklePath {
 }
 
 impl Placeholder for MerklePath {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             siblings: Placeholder::placeholder()?,
             bits: Placeholder::placeholder()?,
@@ -347,7 +347,7 @@ impl Placeholder for MerklePath {
 }
 
 impl CircuitMerklePath {
-    pub fn root(&self, leaf: &CircuitVar) -> Result<CircuitVar, RelationError> {
+    pub fn root(&self, leaf: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         self.siblings
             .iter()
             .zip(&self.bits)

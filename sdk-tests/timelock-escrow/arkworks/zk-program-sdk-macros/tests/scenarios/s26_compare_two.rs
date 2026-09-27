@@ -2,7 +2,7 @@ use zk_program_sdk::{
     circuit,
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -34,7 +34,7 @@ struct CompareTwoPublicInputs {
 
 #[circuit]
 impl Circuit for CompareTwo {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;
         let second = DataUtxo::new_mut(&private.second_utxo, &private.second)?;

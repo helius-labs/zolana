@@ -2,11 +2,11 @@ use light_poseidon::{parameters::bn254_x5::get_poseidon_parameters, PoseidonPara
 
 use crate::{
     circuit::{labels::Scope, var::system_of, zero, CircuitVar, Field},
-    RelationError,
+    CircuitError, CircuitErrorKind,
 };
 
 #[track_caller]
-pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
+pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, CircuitError> {
     let _scope = Scope::open(&system_of(inputs), "a poseidon hash");
     let params = parameters(inputs.len())?;
     let width = params.width;
@@ -16,10 +16,11 @@ pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
         .chain(inputs.iter().cloned())
         .collect();
     for round in 0..params.full_rounds + params.partial_rounds {
-        let round_constants = params
-            .ark
-            .get(round * width..(round + 1) * width)
-            .ok_or(RelationError::PoseidonArity(inputs.len()))?;
+        let round_constants = params.ark.get(round * width..(round + 1) * width).ok_or(
+            CircuitErrorKind::UnsupportedHashInputCount {
+                inputs: inputs.len(),
+            },
+        )?;
         for (element, round_constant) in state.iter_mut().zip(round_constants) {
             *element = element.offset(*round_constant);
         }
@@ -42,23 +43,26 @@ pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
             })
             .collect();
     }
-    state
+    Ok(state
         .into_iter()
         .next()
-        .ok_or(RelationError::PoseidonArity(inputs.len()))
+        .ok_or(CircuitErrorKind::UnsupportedHashInputCount {
+            inputs: inputs.len(),
+        })?)
 }
 
-fn parameters(inputs: usize) -> Result<PoseidonParameters<Field>, RelationError> {
-    let width = u8::try_from(inputs + 1).map_err(|_| RelationError::PoseidonArity(inputs))?;
+fn parameters(inputs: usize) -> Result<PoseidonParameters<Field>, CircuitError> {
+    let width = u8::try_from(inputs + 1)
+        .map_err(|_| CircuitErrorKind::UnsupportedHashInputCount { inputs })?;
     let params = get_poseidon_parameters::<Field>(width)
-        .map_err(|_| RelationError::PoseidonArity(inputs))?;
+        .map_err(|_| CircuitErrorKind::UnsupportedHashInputCount { inputs })?;
     if params.alpha != 5 {
-        return Err(RelationError::PoseidonArity(inputs));
+        return Err(CircuitErrorKind::UnsupportedHashInputCount { inputs }.into());
     }
     Ok(params)
 }
 
-fn sbox(element: &CircuitVar) -> Result<CircuitVar, RelationError> {
+fn sbox(element: &CircuitVar) -> Result<CircuitVar, CircuitError> {
     let square = element.squared()?;
     Ok(square.squared()?.times(element))
 }

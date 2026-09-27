@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -22,7 +22,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Issuer {}
 impl ProofInput for Issuer {
     type Circuit = circuit::Issuer;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Issuer, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Issuer, CircuitError> {
         Ok(circuit::Issuer {
             issuer_hash: self.issuer_hash.instantiate(allocator)?,
             issued: self.issued.instantiate(allocator)?,
@@ -31,7 +31,7 @@ impl ProofInput for Issuer {
 }
 
 impl FromCircuit for Issuer {
-    fn from_circuit(circuit: &circuit::Issuer) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Issuer) -> Result<Self, CircuitError> {
         Ok(Self {
             issuer_hash: <[u8; 32]>::from_circuit(&circuit.issuer_hash)?,
             issued: u64::from_circuit(&circuit.issued)?,
@@ -40,7 +40,7 @@ impl FromCircuit for Issuer {
 }
 
 impl Placeholder for Issuer {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             issuer_hash: Placeholder::placeholder()?,
             issued: Placeholder::placeholder()?,
@@ -59,7 +59,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Credential {}
 impl ProofInput for Credential {
     type Circuit = circuit::Credential;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Credential, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Credential, CircuitError> {
         Ok(circuit::Credential {
             issuer_hash: self.issuer_hash.instantiate(allocator)?,
             attribute_commitment: self.attribute_commitment.instantiate(allocator)?,
@@ -68,7 +68,7 @@ impl ProofInput for Credential {
 }
 
 impl FromCircuit for Credential {
-    fn from_circuit(circuit: &circuit::Credential) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Credential) -> Result<Self, CircuitError> {
         Ok(Self {
             issuer_hash: <[u8; 32]>::from_circuit(&circuit.issuer_hash)?,
             attribute_commitment: <[u8; 32]>::from_circuit(&circuit.attribute_commitment)?,
@@ -77,7 +77,7 @@ impl FromCircuit for Credential {
 }
 
 impl Placeholder for Credential {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             issuer_hash: Placeholder::placeholder()?,
             attribute_commitment: Placeholder::placeholder()?,
@@ -107,7 +107,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CreateIssuer {}
 impl ProofInput for CreateIssuer {
     type Circuit = circuit::CreateIssuer;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreateIssuer, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CreateIssuer, CircuitError> {
         let private = &self.private;
         Ok(circuit::CreateIssuer {
             private: circuit::CreateIssuerPrivateInputs {
@@ -122,7 +122,7 @@ impl ProofInput for CreateIssuer {
 }
 
 impl Placeholder for CreateIssuer {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CreateIssuerPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -142,7 +142,7 @@ pub(crate) mod circuit {
             CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
             TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -161,7 +161,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Issuer {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[constant(1u64), self.issuer_hash.clone(), self.issued.var()])
         }
     }
@@ -186,7 +186,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for Credential {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 constant(2u64),
                 self.issuer_hash.clone(),
@@ -216,7 +216,7 @@ pub(crate) mod circuit {
     impl Circuit for CreateIssuer {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut issuer = DataUtxo::<Issuer>::new_init(&self.public.issuer, &Asset::sol());
@@ -230,7 +230,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for CreateIssuerPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.issuer.hash()?, transaction_hash.clone()])
         }
     }

@@ -12,7 +12,7 @@ use super::{
     var::system_of,
     zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Uint, Utxo, UtxoData,
 };
-use crate::RelationError;
+use crate::{CircuitError, CircuitErrorKind, SlotKind};
 
 #[derive(Clone, Debug)]
 pub struct TxContext {
@@ -23,7 +23,7 @@ pub struct TxContext {
 
 impl TxContext {
     #[track_caller]
-    fn output_tree_id(&self, first: &SpentInput) -> Result<CircuitVar, RelationError> {
+    fn output_tree_id(&self, first: &SpentInput) -> Result<CircuitVar, CircuitError> {
         self.uses_output_tree_id
             .or(&first.has_latest_tree_id)
             .var()
@@ -44,7 +44,7 @@ impl TxContext {
 fn private_tx_blinding(
     first_nullifier: &CircuitVar,
     blinding_seed: &CircuitVar,
-) -> Result<CircuitVar, RelationError> {
+) -> Result<CircuitVar, CircuitError> {
     poseidon(&[
         constant(u64::from(DOMAIN_PRIVATE_TX_BLINDING_V1)),
         first_nullifier.clone(),
@@ -55,7 +55,7 @@ fn private_tx_blinding(
 fn output_blinding_seed(
     first_nullifier: &CircuitVar,
     blinding_seed: &CircuitVar,
-) -> Result<CircuitVar, RelationError> {
+) -> Result<CircuitVar, CircuitError> {
     poseidon(&[
         constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1)),
         first_nullifier.clone(),
@@ -67,10 +67,10 @@ fn output_blinding(
     first_nullifier: &CircuitVar,
     output_blinding_seed: &CircuitVar,
     slot: usize,
-) -> Result<CircuitVar, RelationError> {
-    let slot = u64::try_from(slot).map_err(|_| RelationError::Slot {
-        kind: "output",
-        slot,
+) -> Result<CircuitVar, CircuitError> {
+    let slot = u64::try_from(slot).map_err(|_| CircuitErrorKind::Slot {
+        kind: SlotKind::Output,
+        index: slot,
         problem: "is outside the transaction",
     })?;
     poseidon(&[
@@ -82,7 +82,7 @@ fn output_blinding(
 }
 
 pub trait PublicInputs {
-    fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError>;
+    fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError>;
 }
 
 #[cfg_attr(not(feature = "client"), allow(dead_code))]
@@ -128,7 +128,7 @@ pub struct ConfidentialTransaction<'a, P> {
     outputs: Vec<Output>,
     public_transfers: Vec<PublicTransfer>,
     transferred: CircuitVar,
-    error: Option<RelationError>,
+    error: Option<CircuitError>,
 }
 
 impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
@@ -185,7 +185,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
     }
 
     #[track_caller]
-    pub fn check(self) -> Result<CheckedTransaction, RelationError> {
+    pub fn check(self) -> Result<CheckedTransaction, CircuitError> {
         if let Some(error) = self.error {
             return Err(error);
         }
@@ -201,7 +201,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             &zero(),
             "value leaves the transaction: a utxo was not added",
         )?;
-        let first = self.inputs.first().ok_or(RelationError::Violated(
+        let first = self.inputs.first().ok_or(CircuitErrorKind::RuleBroken(
             "a transaction spends at least one input",
         ))?;
         let first_nullifier = first.nullifier.clone();
@@ -229,7 +229,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
                 .hash()?;
                 Ok(CheckedOutput { output, hash })
             })
-            .collect::<Result<Vec<_>, RelationError>>()?;
+            .collect::<Result<Vec<_>, CircuitError>>()?;
         let input_hashes: Vec<CircuitVar> =
             self.inputs.iter().map(|input| input.hash.clone()).collect();
         let output_hashes: Vec<CircuitVar> =
@@ -255,7 +255,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         })
     }
 
-    fn record(&mut self, error: RelationError) {
+    fn record(&mut self, error: CircuitError) {
         self.error.get_or_insert(error);
     }
 }
@@ -263,7 +263,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
 fn transaction_hash(
     private_tx_hash: &CircuitVar,
     public_transfers: &[PublicTransfer],
-) -> Result<CircuitVar, RelationError> {
+) -> Result<CircuitVar, CircuitError> {
     if public_transfers.is_empty() {
         return Ok(private_tx_hash.clone());
     }

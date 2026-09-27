@@ -3,12 +3,12 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_transaction::Mint;
 
 use super::{Allocator, Placeholder, ProofInput};
-use crate::{circuit, client, RelationError};
+use crate::{circuit, client, CircuitError};
 
 impl ProofInput for Mint {
     type Circuit = circuit::Asset;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Asset, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Asset, CircuitError> {
         let asset_hash = hash_bytes(self.asset.as_array())?;
         allocator.record(|records| {
             records.mints.insert(asset_hash, *self);
@@ -17,17 +17,14 @@ impl ProofInput for Mint {
     }
 }
 
-pub(super) fn asset(
-    allocator: &Allocator,
-    mint: &Address,
-) -> Result<circuit::Asset, RelationError> {
+pub(super) fn asset(allocator: &Allocator, mint: &Address) -> Result<circuit::Asset, CircuitError> {
     Ok(circuit::Asset::new(
         client::Bytes(*mint.as_array()).instantiate(allocator)?,
     ))
 }
 
 impl Placeholder for Mint {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Mint::SOL)
     }
 }

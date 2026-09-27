@@ -5,7 +5,7 @@ use zk_program_sdk::{
         TokenUtxo, Utxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -39,7 +39,7 @@ struct SwapPublicInputs {
 }
 
 #[circuit]
-fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, RelationError> {
+fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, CircuitError> {
     let tokens = TokenUtxo::new_burn(inputs)?;
     tokens
         .owner()
@@ -50,7 +50,7 @@ fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, RelationError> {
 
 #[circuit]
 impl Circuit for Swap {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut tokens_a = leg(&private.token_utxos_asset_a, &private.party_a)?;

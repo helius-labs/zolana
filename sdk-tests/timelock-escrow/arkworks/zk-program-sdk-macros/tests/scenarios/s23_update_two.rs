@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs, Uint,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -38,7 +38,7 @@ struct UpdateTwoPublicInputs {
 
 #[circuit]
 impl Circuit for UpdateTwo {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let owner = self.public.owner.hash()?;
         let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;

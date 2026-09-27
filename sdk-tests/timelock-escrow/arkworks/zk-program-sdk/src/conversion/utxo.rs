@@ -8,16 +8,16 @@ use zolana_transaction::{
 use super::{asset::asset, owner::owner, Allocator, Placeholder, ProofInput};
 use crate::{
     circuit::{self, constant, labels::Scope, CircuitVar, Field, Uint, VariableRole},
-    client, RelationError,
+    client, CircuitError, CircuitErrorKind,
 };
 
 impl ProofInput for WalletUtxo {
     type Circuit = circuit::Utxo;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Utxo, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Utxo, CircuitError> {
         let _scope = Scope::open(&allocator.cs(), "a utxo proof input");
         let spp_input = SppProofInputUtxo::from(self);
-        let fields = ProofInputUtxo::try_from(&spp_input).map_err(RelationError::input)?;
+        let fields = ProofInputUtxo::try_from(&spp_input).map_err(CircuitErrorKind::InvalidUtxo)?;
         let domain = field(
             allocator,
             &fields.domain,
@@ -101,12 +101,12 @@ fn field(
     bytes: &[u8; 32],
     name: &'static str,
     role: VariableRole,
-) -> Result<CircuitVar, RelationError> {
+) -> Result<CircuitVar, CircuitError> {
     allocator.witness(super::field(bytes, name)?, name, role)
 }
 
 impl Placeholder for WalletUtxo {
-    fn placeholder() -> Result<Self, RelationError> {
-        WalletUtxo::dummy(0).map_err(RelationError::input)
+    fn placeholder() -> Result<Self, CircuitError> {
+        Ok(WalletUtxo::dummy(0).map_err(CircuitErrorKind::InvalidUtxo)?)
     }
 }

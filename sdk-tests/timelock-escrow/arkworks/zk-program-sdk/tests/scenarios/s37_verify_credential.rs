@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -44,7 +44,7 @@ impl ProofInput for VerifyCredential {
     fn instantiate(
         &self,
         allocator: &Allocator,
-    ) -> Result<circuit::VerifyCredential, RelationError> {
+    ) -> Result<circuit::VerifyCredential, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         Ok(circuit::VerifyCredential {
@@ -67,7 +67,7 @@ impl ProofInput for VerifyCredential {
 }
 
 impl Placeholder for VerifyCredential {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: VerifyCredentialPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -94,7 +94,7 @@ mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint,
             Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s35_create_issuer::circuit::Credential;
@@ -123,7 +123,7 @@ mod circuit {
     impl Circuit for VerifyCredential {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let credential = DataUtxo::new_mut(&private.credential_utxo, &private.credential)?;
@@ -151,7 +151,7 @@ mod circuit {
     }
 
     impl PublicInputs for VerifyCredentialPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.issuer.hash()?,
                 self.verification_id.var(),

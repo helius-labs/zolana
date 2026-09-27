@@ -5,14 +5,14 @@ use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 use super::{bytes::byte_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
     circuit::{self, Field, VariableRole},
-    client, RelationError,
+    client, CircuitError, CircuitErrorKind,
 };
 
 impl ProofInput for ShieldedAddress {
     type Circuit = circuit::Owner;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Owner, RelationError> {
-        let owner_hash = self.owner_hash().map_err(RelationError::input)?;
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Owner, CircuitError> {
+        let owner_hash = self.owner_hash().map_err(CircuitErrorKind::InvalidOwner)?;
         allocator.record(|records| {
             records.owners.insert(owner_hash, *self);
         });
@@ -23,13 +23,13 @@ impl ProofInput for ShieldedAddress {
 impl ProofInput for client::Owner {
     type Circuit = circuit::Owner;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Owner, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Owner, CircuitError> {
         owner(allocator, self, &Boolean::FALSE)
     }
 }
 
 impl FromCircuit for client::Owner {
-    fn from_circuit(circuit: &circuit::Owner) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::Owner) -> Result<Self, CircuitError> {
         Ok(Self {
             tag: byte_value(circuit.key().tag())?,
             key: client::Bytes::<32>::from_circuit(circuit.key().bytes())?.0,
@@ -42,7 +42,7 @@ pub(super) fn owner(
     allocator: &Allocator,
     owner: &client::Owner,
     skip_tag_check: &Boolean<Field>,
-) -> Result<circuit::Owner, RelationError> {
+) -> Result<circuit::Owner, CircuitError> {
     let tag = allocator.witness(
         Field::from(owner.tag),
         "an owner tag",
@@ -60,15 +60,15 @@ pub(super) fn owner(
 }
 
 impl Placeholder for ShieldedAddress {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[1u8; 32]))
             .and_then(|keypair| keypair.shielded_address())
-            .map_err(RelationError::input)
+            .map_err(|error| CircuitErrorKind::InvalidOwner(error).into())
     }
 }
 
 impl Placeholder for client::Owner {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             tag: SOLANA_OWNER_TAG,
             key: [0u8; 32],

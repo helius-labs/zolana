@@ -760,7 +760,7 @@ type, `CircuitVar` (`FpVar<Fr>`). Developers never see an arkworks generic:
 - **Constants run natively.** Proof inputs built from the SDK are `CircuitVar` constants, and
   every operation on constants folds to a constant. The client computes the output hashes,
   `private_tx_hash` and the public input with the exact code the circuit enforces, and a broken
-  rule fails with a named `RelationError` instead of an unsatisfied constraint.
+  rule fails with a named `CircuitError` that points at the circuit's line, instead of an unsatisfied constraint.
 - **Allocated variables are the R1CS circuit.** `ProofInput::allocate` turns the same values into
   private variables, and `ArkworksCircuit` runs the same relation over them. Poseidon is built
   from light-poseidon's own parameters, the source `zolana_hasher` uses natively.

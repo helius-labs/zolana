@@ -10,66 +10,66 @@ use crate::{
     },
     conversion::{to_bytes, FromCircuit},
     hasher::{DataHasher, Poseidon},
-    RelationError,
+    CircuitError, CircuitErrorKind,
 };
 
 pub trait DataHash {
-    fn hash(&self) -> Result<CircuitVar, RelationError>;
+    fn hash(&self) -> Result<CircuitVar, CircuitError>;
 }
 
 pub trait UtxoData: DataHash + Sized {
     type Client: FromCircuit<Circuit = Self> + BorshSerialize;
 
-    fn utxo_data(&self) -> Result<Vec<u8>, RelationError> {
-        borsh::to_vec(&Self::Client::from_circuit(self)?)
-            .map_err(|error| RelationError::StateEncoding(error.to_string()))
+    fn utxo_data(&self) -> Result<Vec<u8>, CircuitError> {
+        Ok(borsh::to_vec(&Self::Client::from_circuit(self)?)
+            .map_err(CircuitErrorKind::StateEncoding)?)
     }
 }
 
-pub fn checked_utxo_data<S>(state: &S) -> Result<Vec<u8>, RelationError>
+pub fn checked_utxo_data<S>(state: &S) -> Result<Vec<u8>, CircuitError>
 where
     S: UtxoData,
     S::Client: DataHasher,
 {
     let client = S::Client::from_circuit(state)?;
     if DataHasher::hash::<Poseidon>(&client)? != to_bytes(&DataHash::hash(state)?)? {
-        return Err(RelationError::DataHashMismatch);
+        return Err(CircuitErrorKind::DataHashMismatch.into());
     }
-    borsh::to_vec(&client).map_err(|error| RelationError::StateEncoding(error.to_string()))
+    Ok(borsh::to_vec(&client).map_err(CircuitErrorKind::StateEncoding)?)
 }
 
 impl DataHash for CircuitVar {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         Ok(self.clone())
     }
 }
 
 impl DataHash for Bool {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         Ok(self.var())
     }
 }
 
 impl<const BITS: u32> DataHash for Uint<BITS> {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         Ok(self.var())
     }
 }
 
 impl DataHash for Asset {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         Asset::hash(self)
     }
 }
 
 impl<const N: usize> DataHash for Bytes<N> {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         self.hash_bytes()
     }
 }
 
 impl<T: DataHash, const N: usize> DataHash for [T; N] {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
         poseidon(
             &self
                 .iter()
@@ -117,17 +117,17 @@ impl<S: Default> DataUtxo<S> {
 
 impl<S: DataHash + Clone> DataUtxo<S> {
     #[track_caller]
-    pub fn new_mut(input: &Utxo, state: &S) -> Result<Self, RelationError> {
+    pub fn new_mut(input: &Utxo, state: &S) -> Result<Self, CircuitError> {
         Self::spend(input, state, false)
     }
 
     #[track_caller]
-    pub fn new_burn(input: &Utxo, state: &S) -> Result<Self, RelationError> {
+    pub fn new_burn(input: &Utxo, state: &S) -> Result<Self, CircuitError> {
         Self::spend(input, state, true)
     }
 
     #[track_caller]
-    fn spend(input: &Utxo, state: &S, burn: bool) -> Result<Self, RelationError> {
+    fn spend(input: &Utxo, state: &S, burn: bool) -> Result<Self, CircuitError> {
         let _scope = Scope::open(&input.domain.cs(), "a data utxo's input");
         input
             .domain
@@ -166,7 +166,7 @@ impl<S> DataUtxo<S> {
 
 impl<S: DataHash> DataUtxo<S> {
     #[track_caller]
-    pub(crate) fn output(&self) -> Result<Option<Output>, RelationError> {
+    pub(crate) fn output(&self) -> Result<Option<Output>, CircuitError> {
         let balance = self.ledger.balance_var();
         if self.burn {
             balance.assert_equal(&zero(), "a burned data utxo leaves a balance")?;

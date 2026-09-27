@@ -5,7 +5,7 @@ use zk_program_sdk::{
         CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -39,7 +39,7 @@ struct ReadThresholdPublicInputs {
 
 #[circuit]
 impl Circuit for ReadThreshold {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
         self.public

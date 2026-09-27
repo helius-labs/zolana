@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
@@ -28,10 +28,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::MixerCommitment {}
 impl ProofInput for MixerCommitment {
     type Circuit = circuit::MixerCommitment;
 
-    fn instantiate(
-        &self,
-        allocator: &Allocator,
-    ) -> Result<circuit::MixerCommitment, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::MixerCommitment, CircuitError> {
         Ok(circuit::MixerCommitment {
             commitment: self.commitment.instantiate(allocator)?,
         })
@@ -39,7 +36,7 @@ impl ProofInput for MixerCommitment {
 }
 
 impl FromCircuit for MixerCommitment {
-    fn from_circuit(circuit: &circuit::MixerCommitment) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::MixerCommitment) -> Result<Self, CircuitError> {
         Ok(Self {
             commitment: <[u8; 32]>::from_circuit(&circuit.commitment)?,
         })
@@ -47,7 +44,7 @@ impl FromCircuit for MixerCommitment {
 }
 
 impl Placeholder for MixerCommitment {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             commitment: Placeholder::placeholder()?,
         })
@@ -79,7 +76,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::MixerDeposit {}
 impl ProofInput for MixerDeposit {
     type Circuit = circuit::MixerDeposit;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::MixerDeposit, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::MixerDeposit, CircuitError> {
         let private = &self.private;
         Ok(circuit::MixerDeposit {
             private: circuit::MixerDepositPrivateInputs {
@@ -97,7 +94,7 @@ impl ProofInput for MixerDeposit {
 }
 
 impl Placeholder for MixerDeposit {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: MixerDepositPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -120,7 +117,7 @@ pub(crate) mod circuit {
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
-        RelationError,
+        CircuitError,
     };
 
     #[derive(Clone, Debug)]
@@ -135,7 +132,7 @@ pub(crate) mod circuit {
     }
 
     impl DataHash for MixerCommitment {
-        fn hash(&self) -> Result<CircuitVar, RelationError> {
+        fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(std::slice::from_ref(&self.commitment))
         }
     }
@@ -164,7 +161,7 @@ pub(crate) mod circuit {
     impl Circuit for MixerDeposit {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut note = DataUtxo::<MixerCommitment>::new_init(&private.mixer, &tokens.asset());
@@ -180,7 +177,7 @@ pub(crate) mod circuit {
     }
 
     impl PublicInputs for MixerDepositPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[self.denomination.var(), transaction_hash.clone()])
         }
     }

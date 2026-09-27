@@ -1,8 +1,8 @@
 use crate::{
-    circuit::{labels, Circuit, ConstraintLabel, Field, LabelKind, VariableRole},
+    circuit::{labels, Circuit, CircuitLabel, Field, LabelKind, VariableRole},
     conversion::ProofInput,
     prover::ArkworksCircuit,
-    RelationError,
+    ProverError, ProverErrorKind,
 };
 
 const PUBLIC_HASH_VARIABLE: usize = 1;
@@ -18,7 +18,7 @@ pub enum Tamper {
 pub struct FreeVariable {
     pub variable: usize,
     pub role: VariableRole,
-    pub allocation: Option<ConstraintLabel>,
+    pub allocation: Option<CircuitLabel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,7 +29,7 @@ pub struct PrivateVariableReport {
     pub tolerated: Vec<FreeVariable>,
 }
 
-pub fn constraint_labels<P>(proof_inputs: &P) -> Result<Vec<ConstraintLabel>, RelationError>
+pub fn constraint_labels<P>(proof_inputs: &P) -> Result<Vec<CircuitLabel>, ProverError>
 where
     P: ProofInput,
     P::Circuit: Circuit,
@@ -40,7 +40,7 @@ where
         .into_labels())
 }
 
-pub fn check_tampered<P>(proof_inputs: &P, tamper: Tamper) -> Result<(), RelationError>
+pub fn check_tampered<P>(proof_inputs: &P, tamper: Tamper) -> Result<(), ProverError>
 where
     P: ProofInput,
     P::Circuit: Circuit,
@@ -52,17 +52,19 @@ where
         Tamper::PrivateVariable { index, value } if index < shape.witness_variables => {
             (shape.instance_variables + index, value)
         }
-        Tamper::PrivateVariable { index, .. } => return Err(RelationError::NoSuchVariable(index)),
+        Tamper::PrivateVariable { index, .. } => {
+            return Err(ProverErrorKind::NoSuchVariable(index).into())
+        }
     };
     let mut assignment = synthesized.assignment;
     let slot = assignment
         .get_mut(variable)
-        .ok_or(RelationError::ProofInputsForAnotherCircuit)?;
+        .ok_or(ProverErrorKind::ProofInputsForAnotherCircuit)?;
     *slot = value;
     synthesized.matrices.check(&assignment)
 }
 
-pub fn check_private_variables<P>(proof_inputs: &P) -> Result<PrivateVariableReport, RelationError>
+pub fn check_private_variables<P>(proof_inputs: &P) -> Result<PrivateVariableReport, ProverError>
 where
     P: ProofInput,
     P::Circuit: Circuit,

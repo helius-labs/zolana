@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -37,10 +37,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::MixerWithdrawal {}
 impl ProofInput for MixerWithdrawal {
     type Circuit = circuit::MixerWithdrawal;
 
-    fn instantiate(
-        &self,
-        allocator: &Allocator,
-    ) -> Result<circuit::MixerWithdrawal, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::MixerWithdrawal, CircuitError> {
         let private = &self.private;
         Ok(circuit::MixerWithdrawal {
             private: circuit::MixerWithdrawalPrivateInputs {
@@ -59,7 +56,7 @@ impl ProofInput for MixerWithdrawal {
 }
 
 impl Placeholder for MixerWithdrawal {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: MixerWithdrawalPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -82,7 +79,7 @@ mod circuit {
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s44_mixer_deposit::circuit::MixerCommitment;
@@ -108,7 +105,7 @@ mod circuit {
     impl Circuit for MixerWithdrawal {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut note = DataUtxo::new_burn(&private.note, &private.commitment)?;
@@ -129,7 +126,7 @@ mod circuit {
     }
 
     impl PublicInputs for MixerWithdrawalPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.recipient.hash()?,
                 self.nullifier_hash.clone(),

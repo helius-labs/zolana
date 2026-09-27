@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -38,7 +38,7 @@ impl ProofInput for AllowlistedPayment {
     fn instantiate(
         &self,
         allocator: &Allocator,
-    ) -> Result<circuit::AllowlistedPayment, RelationError> {
+    ) -> Result<circuit::AllowlistedPayment, CircuitError> {
         let private = &self.private;
         Ok(circuit::AllowlistedPayment {
             private: circuit::AllowlistedPaymentPrivateInputs {
@@ -56,7 +56,7 @@ impl ProofInput for AllowlistedPayment {
 }
 
 impl Placeholder for AllowlistedPayment {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: AllowlistedPaymentPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -78,7 +78,7 @@ mod circuit {
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::shared::CircuitMerklePath;
@@ -103,7 +103,7 @@ mod circuit {
     impl Circuit for AllowlistedPayment {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             private
@@ -122,7 +122,7 @@ mod circuit {
     }
 
     impl PublicInputs for AllowlistedPaymentPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.root.clone(),
                 self.recipient.hash()?,

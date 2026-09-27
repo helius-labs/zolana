@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    Owner, RelationError,
+    CircuitError, Owner,
 };
 
 use crate::circuit;
@@ -27,7 +27,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::EscrowTerms {}
 impl ProofInput for EscrowTerms {
     type Circuit = circuit::EscrowTerms;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::EscrowTerms, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::EscrowTerms, CircuitError> {
         Ok(circuit::EscrowTerms {
             creator: self.creator.instantiate(allocator)?,
             unlock: self.unlock.instantiate(allocator)?,
@@ -36,7 +36,7 @@ impl ProofInput for EscrowTerms {
 }
 
 impl FromCircuit for EscrowTerms {
-    fn from_circuit(circuit: &circuit::EscrowTerms) -> Result<Self, RelationError> {
+    fn from_circuit(circuit: &circuit::EscrowTerms) -> Result<Self, CircuitError> {
         Ok(Self {
             creator: Owner::from_circuit(&circuit.creator)?,
             unlock: u64::from_circuit(&circuit.unlock)?,
@@ -45,7 +45,7 @@ impl FromCircuit for EscrowTerms {
 }
 
 impl Placeholder for EscrowTerms {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             creator: Placeholder::placeholder()?,
             unlock: Placeholder::placeholder()?,

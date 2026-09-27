@@ -5,7 +5,7 @@ use zk_program_sdk::{
         PublicInputs,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -43,7 +43,7 @@ struct VerifyCredentialPublicInputs {
 
 #[circuit]
 impl Circuit for VerifyCredential {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let credential = DataUtxo::new_mut(&private.credential_utxo, &private.credential)?;

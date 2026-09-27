@@ -9,7 +9,9 @@ use zolana_transaction::{
     SppProofOutputUtxo,
 };
 
-use crate::{ProofResult, RelationError};
+use wasm_bindgen::JsValue;
+
+use crate::{ClientError, ClientErrorKind, ProofResult, ProverError};
 
 #[derive(Serialize, Tsify)]
 #[serde(rename_all = "camelCase")]
@@ -24,9 +26,9 @@ pub struct ProgramTransaction {
 }
 
 impl TryFrom<&crate::ProgramTransaction> for ProgramTransaction {
-    type Error = RelationError;
+    type Error = JsValue;
 
-    fn try_from(transaction: &crate::ProgramTransaction) -> Result<Self, RelationError> {
+    fn try_from(transaction: &crate::ProgramTransaction) -> Result<Self, JsValue> {
         Ok(Self {
             finalized_tx: FinalizedTransaction::try_from(&transaction.finalized)?,
             proof_inputs: transaction.proof_inputs.to_bytes()?,
@@ -65,15 +67,15 @@ pub struct FinalizedTransaction {
 }
 
 impl TryFrom<&transact::FinalizedTransaction> for FinalizedTransaction {
-    type Error = RelationError;
+    type Error = ClientError;
 
-    fn try_from(finalized: &transact::FinalizedTransaction) -> Result<Self, RelationError> {
+    fn try_from(finalized: &transact::FinalizedTransaction) -> Result<Self, ClientError> {
         Ok(Self {
             input_utxos: finalized.input_utxos().to_vec(),
             output_utxos: finalized.output_utxos().to_vec(),
             output_hashes: finalized
                 .output_hashes()
-                .map_err(RelationError::spp)?
+                .map_err(ClientErrorKind::Transaction)?
                 .into_iter()
                 .map(ByteArray::new)
                 .collect(),
@@ -83,14 +85,16 @@ impl TryFrom<&transact::FinalizedTransaction> for FinalizedTransaction {
                 .map(ResolvedOwnerTag::from)
                 .collect(),
             interface_transfers: finalized.interface_transfers().to_vec(),
-            first_nullifier: finalized.first_nullifier().map_err(RelationError::spp)?,
+            first_nullifier: finalized
+                .first_nullifier()
+                .map_err(ClientErrorKind::Transaction)?,
             blinding_seed: *finalized.blinding_seed(),
             private_tx_blinding: finalized
                 .private_tx_blinding()
-                .map_err(RelationError::spp)?,
+                .map_err(ClientErrorKind::Transaction)?,
             padding_independent_private_tx_hash: finalized
                 .padding_independent_private_tx_hash()
-                .map_err(RelationError::spp)?,
+                .map_err(ClientErrorKind::Transaction)?,
             output_tree_id: finalized.output_tree_id(),
             payer: finalized.payer(),
             sender: *finalized.sender(),
@@ -143,9 +147,9 @@ pub struct ProgramProof {
 }
 
 impl TryFrom<&ProofResult> for ProgramProof {
-    type Error = RelationError;
+    type Error = ProverError;
 
-    fn try_from(result: &ProofResult) -> Result<Self, RelationError> {
+    fn try_from(result: &ProofResult) -> Result<Self, ProverError> {
         let compressed = result.compressed()?;
         Ok(Self {
             proof: Groth16Proof {

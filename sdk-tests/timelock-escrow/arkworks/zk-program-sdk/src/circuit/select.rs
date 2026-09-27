@@ -1,5 +1,5 @@
 use super::{constant, field, var::collect_array, Assert, Bool, CircuitVar, Field};
-use crate::RelationError;
+use crate::{CircuitError, CircuitErrorKind};
 
 pub trait Select: Clone {
     fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self;
@@ -22,7 +22,7 @@ impl<T: Select, const N: usize> Select for [T; N] {
 }
 
 #[track_caller]
-pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], RelationError> {
+pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], CircuitError> {
     let mut flags = Vec::with_capacity(N);
     for position in 0..N {
         flags.push(index.is_equal(&constant(Field::from(position as u64)))?);
@@ -31,9 +31,11 @@ pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], Relation
     let vars: Vec<CircuitVar> = flags.iter().map(Bool::var).collect();
     field::sum(&vars)
         .assert_equal(&constant(1u64), "the index is inside the array")
-        .map_err(|error| match error {
-            RelationError::Violated(_) => RelationError::IndexOutOfBounds(N),
-            error => error,
+        .map_err(|error| match error.kind() {
+            CircuitErrorKind::RuleBroken(_) => {
+                error.replace_kind(CircuitErrorKind::IndexOutOfBounds { len: N })
+            }
+            _ => error,
         })?;
     Ok(flags)
 }
@@ -42,12 +44,12 @@ pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], Relation
 pub fn select_index<T: Select, const N: usize>(
     items: &[T; N],
     index: &CircuitVar,
-) -> Result<T, RelationError> {
+) -> Result<T, CircuitError> {
     let flags = one_hot::<N>(index)?;
     let mut candidates = items.iter().zip(&flags);
     let (first, _) = candidates
         .next()
-        .ok_or(RelationError::IndexOutOfBounds(N))?;
+        .ok_or(CircuitErrorKind::IndexOutOfBounds { len: N })?;
     Ok(candidates.fold(first.clone(), |selected, (item, flag)| {
         T::select(flag, item, &selected)
     }))

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -38,7 +38,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Swap {}
 impl ProofInput for Swap {
     type Circuit = circuit::Swap;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Swap, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Swap, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         Ok(circuit::Swap {
@@ -60,7 +60,7 @@ impl ProofInput for Swap {
 }
 
 impl Placeholder for Swap {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: SwapPrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -86,7 +86,7 @@ mod circuit {
             CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
             Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     pub struct Swap {
@@ -109,7 +109,7 @@ mod circuit {
         pub amount_b: Uint<64>,
     }
 
-    fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, RelationError> {
+    fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, CircuitError> {
         let tokens = TokenUtxo::new_burn(inputs)?;
         tokens
             .owner()
@@ -121,7 +121,7 @@ mod circuit {
     impl Circuit for Swap {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut tokens_a = leg(&private.token_utxos_asset_a, &private.party_a)?;
@@ -141,7 +141,7 @@ mod circuit {
     }
 
     impl PublicInputs for SwapPublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.mint_a.hash()?,
                 self.amount_a.var(),

@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, cmp::Ordering, fmt, panic::Location};
+use std::{cell::OnceCell, cmp::Ordering, fmt};
 
 use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, Field as _, One, PrimeField, Zero};
@@ -6,7 +6,7 @@ use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar, R1CSVar};
 use ark_relations::r1cs::ConstraintSystemRef;
 
 use super::{labels, Bool};
-use crate::RelationError;
+use crate::{CircuitError, CircuitErrorKind};
 
 pub type Field = Fr;
 pub type CircuitSystem = ConstraintSystemRef<Field>;
@@ -34,9 +34,10 @@ pub fn zero() -> CircuitVar {
 }
 
 #[track_caller]
-pub fn value(var: &CircuitVar) -> Result<Field, RelationError> {
-    var.constant_value()
-        .ok_or(RelationError::ValueOfVariable(Location::caller()))
+pub fn value(var: &CircuitVar) -> Result<Field, CircuitError> {
+    Ok(var
+        .constant_value()
+        .ok_or(CircuitErrorKind::ReadsVariableValue)?)
 }
 
 pub(crate) fn system_of<'a>(vars: impl IntoIterator<Item = &'a CircuitVar>) -> CircuitSystem {
@@ -55,8 +56,8 @@ pub fn from_bits_le(bits: &[Bool]) -> CircuitVar {
 
 pub(crate) fn cached(
     cell: &OnceCell<CircuitVar>,
-    compute: impl FnOnce() -> Result<CircuitVar, RelationError>,
-) -> Result<CircuitVar, RelationError> {
+    compute: impl FnOnce() -> Result<CircuitVar, CircuitError>,
+) -> Result<CircuitVar, CircuitError> {
     if let Some(value) = cell.get() {
         return Ok(value.clone());
     }
@@ -66,45 +67,48 @@ pub(crate) fn cached(
 
 pub(crate) fn collect_array<T, const N: usize>(
     items: impl IntoIterator<Item = T>,
-) -> Result<[T; N], RelationError> {
-    items
+) -> Result<[T; N], CircuitError> {
+    Ok(items
         .into_iter()
         .collect::<Vec<_>>()
         .try_into()
-        .map_err(|_| RelationError::Violated("an array has its own length"))
+        .map_err(|_| CircuitErrorKind::WrongLength("an array has its own length"))?)
 }
 
 pub trait Assert: Sized {
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError>;
+    #[track_caller]
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError>;
 
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError>;
+    #[track_caller]
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError>;
 
+    #[track_caller]
     fn assert_equal_if(
         &self,
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError>;
+    ) -> Result<(), CircuitError>;
 
     #[track_caller]
-    fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         self.is_equal(other)?.assert_false(rule)
     }
 }
 
 impl Assert for CircuitVar {
     #[track_caller]
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         Bool::of_equality(self, other)
     }
 
     #[track_caller]
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         if let (Some(left), Some(right)) = (self.constant_value(), other.constant_value()) {
             return if left == right {
                 Ok(())
             } else {
-                Err(RelationError::Violated(rule))
+                Err(CircuitError::rule_broken(rule))
             };
         }
         labels::check(&self.cs().or(other.cs()), rule, || {
@@ -118,7 +122,7 @@ impl Assert for CircuitVar {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         let difference = self.minus(other);
         let condition = condition.var();
         match (difference.constant_value(), condition.constant_value()) {
@@ -132,12 +136,12 @@ impl Assert for CircuitVar {
     }
 
     #[track_caller]
-    fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         if let (Some(left), Some(right)) = (self.constant_value(), other.constant_value()) {
             return if left != right {
                 Ok(())
             } else {
-                Err(RelationError::Violated(rule))
+                Err(CircuitError::rule_broken(rule))
             };
         }
         let cs = self.cs().or(other.cs());
@@ -153,12 +157,12 @@ impl Assert for CircuitVar {
 
 impl<T: Assert, const N: usize> Assert for [T; N] {
     #[track_caller]
-    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+    fn is_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         all_equal(self, other)
     }
 
     #[track_caller]
-    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         assert_all_equal(self, other, rule)
     }
 
@@ -168,13 +172,13 @@ impl<T: Assert, const N: usize> Assert for [T; N] {
         other: &Self,
         condition: &Bool,
         rule: &'static str,
-    ) -> Result<(), RelationError> {
+    ) -> Result<(), CircuitError> {
         assert_all_equal_if(self, other, condition, rule)
     }
 }
 
 #[track_caller]
-pub(crate) fn all_equal<T: Assert>(left: &[T], right: &[T]) -> Result<Bool, RelationError> {
+pub(crate) fn all_equal<T: Assert>(left: &[T], right: &[T]) -> Result<Bool, CircuitError> {
     let mut flags = Vec::with_capacity(left.len());
     for (left, right) in left.iter().zip(right) {
         flags.push(left.is_equal(right)?);
@@ -187,7 +191,7 @@ pub(crate) fn assert_all_equal<T: Assert>(
     left: &[T],
     right: &[T],
     rule: &'static str,
-) -> Result<(), RelationError> {
+) -> Result<(), CircuitError> {
     for (left, right) in left.iter().zip(right) {
         left.assert_equal(right, rule)?;
     }
@@ -200,7 +204,7 @@ pub(crate) fn assert_all_equal_if<T: Assert>(
     right: &[T],
     condition: &Bool,
     rule: &'static str,
-) -> Result<(), RelationError> {
+) -> Result<(), CircuitError> {
     for (left, right) in left.iter().zip(right) {
         left.assert_equal_if(right, condition, rule)?;
     }
@@ -208,26 +212,29 @@ pub(crate) fn assert_all_equal_if<T: Assert>(
 }
 
 pub trait Bits {
-    fn check_bits(&self, bits: usize) -> Result<(), RelationError>;
+    #[track_caller]
+    fn check_bits(&self, bits: usize) -> Result<(), CircuitError>;
 
-    fn check_is_bool(&self) -> Result<(), RelationError>;
+    #[track_caller]
+    fn check_is_bool(&self) -> Result<(), CircuitError>;
 
-    fn to_bits_le<const N: usize>(&self) -> Result<[Bool; N], RelationError>;
+    #[track_caller]
+    fn to_bits_le<const N: usize>(&self) -> Result<[Bool; N], CircuitError>;
 }
 
 impl Bits for CircuitVar {
     #[track_caller]
-    fn check_bits(&self, bits: usize) -> Result<(), RelationError> {
+    fn check_bits(&self, bits: usize) -> Result<(), CircuitError> {
         range_check(self, bits, "a value does not fit in its bit width")
     }
 
     #[track_caller]
-    fn check_is_bool(&self) -> Result<(), RelationError> {
+    fn check_is_bool(&self) -> Result<(), CircuitError> {
         assert_bool(self, "a value is neither 0 nor 1")
     }
 
     #[track_caller]
-    fn to_bits_le<const N: usize>(&self) -> Result<[Bool; N], RelationError> {
+    fn to_bits_le<const N: usize>(&self) -> Result<[Bool; N], CircuitError> {
         let bits = labels::check(&self.cs(), "a value does not fit in its bit width", || {
             bits_le(self, N)
         })?;
@@ -236,12 +243,12 @@ impl Bits for CircuitVar {
 }
 
 #[track_caller]
-pub(crate) fn assert_bool(var: &CircuitVar, rule: &'static str) -> Result<(), RelationError> {
+pub(crate) fn assert_bool(var: &CircuitVar, rule: &'static str) -> Result<(), CircuitError> {
     if let Some(value) = var.constant_value() {
         return if value.is_zero() || value.is_one() {
             Ok(())
         } else {
-            Err(RelationError::NotBool)
+            Err(CircuitErrorKind::NotZeroOrOne.into())
         };
     }
     labels::check(&var.cs(), rule, || {
@@ -254,18 +261,18 @@ pub(crate) fn range_check(
     var: &CircuitVar,
     bits: usize,
     rule: &'static str,
-) -> Result<(), RelationError> {
+) -> Result<(), CircuitError> {
     labels::check(&var.cs(), rule, || bits_le(var, bits).map(|_| ()))
 }
 
-pub(crate) fn bits_le(var: &CircuitVar, bits: usize) -> Result<Vec<CircuitVar>, RelationError> {
+pub(crate) fn bits_le(var: &CircuitVar, bits: usize) -> Result<Vec<CircuitVar>, CircuitError> {
     if bits >= Field::MODULUS_BIT_SIZE as usize {
-        return Err(RelationError::RangeTooWide(bits));
+        return Err(CircuitErrorKind::BitWidthTooLarge { bits }.into());
     }
     if let Some(value) = var.constant_value() {
         let value = value.into_bigint();
         if value.num_bits() as usize > bits {
-            return Err(RelationError::OutOfRange(bits));
+            return Err(CircuitErrorKind::ValueTooLarge { bits }.into());
         }
         return Ok((0..bits)
             .map(|index| constant(u64::from(value.get_bit(index))))
@@ -284,7 +291,7 @@ pub(crate) fn assert_equal_unless(
     right: &CircuitVar,
     skip: &Boolean<Field>,
     rule: &'static str,
-) -> Result<(), RelationError> {
+) -> Result<(), CircuitError> {
     if let Boolean::Constant(skip) = skip {
         return if *skip {
             Ok(())

@@ -1,5 +1,5 @@
 use super::{constant, poseidon, Asset, Bytes, CircuitVar, Uint};
-use crate::RelationError;
+use crate::CircuitError;
 
 #[derive(Clone, Debug)]
 pub(crate) struct PublicTransfer {
@@ -10,7 +10,7 @@ pub(crate) struct PublicTransfer {
 }
 
 impl PublicTransfer {
-    pub(crate) fn hash(&self) -> Result<CircuitVar, RelationError> {
+    pub(crate) fn hash(&self) -> Result<CircuitVar, CircuitError> {
         poseidon(&[
             self.asset.hash()?,
             self.amount.var(),

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -38,7 +38,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::Take {}
 impl ProofInput for Take {
     type Circuit = circuit::Take;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Take, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Take, CircuitError> {
         let private = &self.private;
         Ok(circuit::Take {
             private: circuit::TakePrivateInputs {
@@ -57,7 +57,7 @@ impl ProofInput for Take {
 }
 
 impl Placeholder for Take {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: TakePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -81,7 +81,7 @@ mod circuit {
             CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo,
             TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::s31_order_make::circuit::OrderTerms;
@@ -107,7 +107,7 @@ mod circuit {
     impl Circuit for Take {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;
@@ -138,7 +138,7 @@ mod circuit {
     }
 
     impl PublicInputs for TakePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.ask_asset.hash()?,
                 self.ask_amount.var(),

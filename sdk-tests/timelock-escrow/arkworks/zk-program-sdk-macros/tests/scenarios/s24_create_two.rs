@@ -5,7 +5,7 @@ use zk_program_sdk::{
         TokenUtxo,
     },
     conversion::ProofInput,
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
@@ -40,7 +40,7 @@ use crate::s22_create_and_update::{BadgeCircuit, ProfileCircuit};
 
 #[circuit]
 impl Circuit for CreateTwo {
-    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut profile = DataUtxo::<ProfileCircuit>::new_init(&self.public.owner, &Asset::sol());

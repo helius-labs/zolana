@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Groth16Prover, RelationError, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::ShieldedAddress;
@@ -41,7 +41,7 @@ impl zk_program_sdk::circuit::CircuitType for circuit::CastVote {}
 impl ProofInput for CastVote {
     type Circuit = circuit::CastVote;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CastVote, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::CastVote, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         Ok(circuit::CastVote {
@@ -64,7 +64,7 @@ impl ProofInput for CastVote {
 }
 
 impl Placeholder for CastVote {
-    fn placeholder() -> Result<Self, RelationError> {
+    fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             private: CastVotePrivateInputs {
                 tx_context: Placeholder::placeholder()?,
@@ -90,7 +90,7 @@ mod circuit {
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
-        RelationError,
+        CircuitError,
     };
 
     use crate::{s42_create_poll::circuit::Poll, shared::CircuitMerklePath};
@@ -119,7 +119,7 @@ mod circuit {
     impl Circuit for CastVote {
         const MARKER: CircuitMarker = CircuitMarker;
 
-        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut poll = DataUtxo::new_mut(&private.poll, &private.state)?;
@@ -155,7 +155,7 @@ mod circuit {
     }
 
     impl PublicInputs for CastVotePublicInputs {
-        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.poll_id.var(),
                 self.root.clone(),

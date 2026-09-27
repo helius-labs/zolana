@@ -2,12 +2,12 @@ use ark_ff::{BigInt, BigInteger, PrimeField};
 #[cfg(feature = "setup")]
 use ark_relations::r1cs::ConstraintMatrices;
 
-use crate::{circuit::Field, RelationError};
+use crate::{circuit::Field, ProverError, ProverErrorKind};
 
 const FIELD_BYTES: u32 = 32;
 
 #[cfg(feature = "setup")]
-pub(crate) fn r1cs(matrices: &ConstraintMatrices<Field>) -> Result<Vec<u8>, RelationError> {
+pub(crate) fn r1cs(matrices: &ConstraintMatrices<Field>) -> Result<Vec<u8>, ProverError> {
     let variables = matrices.num_instance_variables + matrices.num_witness_variables;
 
     let mut header = Vec::new();
@@ -27,9 +27,10 @@ pub(crate) fn r1cs(matrices: &ConstraintMatrices<Field>) -> Result<Vec<u8>, Rela
         .iter()
         .all(|rows| rows.len() == matrices.num_constraints);
     if !complete {
-        return Err(RelationError::Conversion(
+        return Err(ProverErrorKind::ExportFailed(
             "the constraint matrices do not hold every constraint",
-        ));
+        )
+        .into());
     }
 
     let mut constraints = Vec::new();
@@ -52,7 +53,7 @@ pub(crate) fn r1cs(matrices: &ConstraintMatrices<Field>) -> Result<Vec<u8>, Rela
     binary_file(b"r1cs", 1, &[(1, &header), (2, &constraints), (3, &labels)])
 }
 
-pub(crate) fn wtns(assignment: &[Field]) -> Result<Vec<u8>, RelationError> {
+pub(crate) fn wtns(assignment: &[Field]) -> Result<Vec<u8>, ProverError> {
     let mut header = Vec::new();
     header.extend_from_slice(&FIELD_BYTES.to_le_bytes());
     header.extend_from_slice(&Field::MODULUS.to_bytes_le());
@@ -66,13 +67,13 @@ pub(crate) fn wtns(assignment: &[Field]) -> Result<Vec<u8>, RelationError> {
     binary_file(b"wtns", 2, &[(1, &header), (2, &values)])
 }
 
-pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, RelationError> {
+pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, ProverError> {
     let mut file = Cursor::new(bytes);
     if file.take(4)? != b"wtns" {
-        return Err(invalid("the bytes are not a wtns file"));
+        return Err(invalid("the bytes are not a wtns file").into());
     }
     if file.u32()? != 2 {
-        return Err(invalid("the wtns version is not 2"));
+        return Err(invalid("the wtns version is not 2").into());
     }
     let mut header = None;
     let mut values = None;
@@ -83,10 +84,10 @@ pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, RelationError> {
         let section = match kind {
             1 => &mut header,
             2 => &mut values,
-            _ => return Err(invalid("the file has an unknown section")),
+            _ => return Err(invalid("the file has an unknown section").into()),
         };
         if section.replace(payload).is_some() {
-            return Err(invalid("a section is repeated"));
+            return Err(invalid("a section is repeated").into());
         }
     }
     file.finish()?;
@@ -95,16 +96,16 @@ pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, RelationError> {
     let over_scalar_field = header.u32()? == FIELD_BYTES
         && header.take(FIELD_BYTES as usize)? == Field::MODULUS.to_bytes_le().as_slice();
     if !over_scalar_field {
-        return Err(invalid("the values are not over the BN254 scalar field"));
+        return Err(invalid("the values belong to another proof system").into());
     }
     let count = usize::try_from(header.u32()?).map_err(|_| invalid("the count is too large"))?;
     header.finish()?;
 
     let values = values.ok_or(invalid("the values section is missing"))?;
     if count.checked_mul(FIELD_BYTES as usize) != Some(values.len()) {
-        return Err(invalid("the count does not match the values section"));
+        return Err(invalid("the count does not match the values section").into());
     }
-    values
+    Ok(values
         .as_chunks::<32>()
         .0
         .iter()
@@ -113,14 +114,13 @@ pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, RelationError> {
             for (limb, bytes) in limbs.iter_mut().zip(chunk.as_chunks::<8>().0) {
                 *limb = u64::from_le_bytes(*bytes);
             }
-            Field::from_bigint(BigInt::new(limbs))
-                .ok_or(RelationError::NonCanonical("a proof input"))
+            Field::from_bigint(BigInt::new(limbs)).ok_or(ProverErrorKind::ProofInputTooLarge)
         })
-        .collect()
+        .collect::<Result<_, _>>()?)
 }
 
-fn invalid(problem: &'static str) -> RelationError {
-    RelationError::InvalidProofInputs(problem)
+fn invalid(problem: &'static str) -> ProverErrorKind {
+    ProverErrorKind::InvalidProofInputs(problem)
 }
 
 struct Cursor<'a> {
@@ -132,34 +132,35 @@ impl<'a> Cursor<'a> {
         Self { bytes }
     }
 
-    fn take(&mut self, count: usize) -> Result<&'a [u8], RelationError> {
+    fn take(&mut self, count: usize) -> Result<&'a [u8], ProverError> {
         if count > self.bytes.len() {
-            return Err(invalid("the file ends early"));
+            return Err(invalid("the file ends early").into());
         }
         let (taken, rest) = self.bytes.split_at(count);
         self.bytes = rest;
         Ok(taken)
     }
 
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], RelationError> {
-        self.take(N)?
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], ProverError> {
+        Ok(self
+            .take(N)?
             .try_into()
-            .map_err(|_| invalid("the file ends early"))
+            .map_err(|_| invalid("the file ends early"))?)
     }
 
-    fn u32(&mut self) -> Result<u32, RelationError> {
+    fn u32(&mut self) -> Result<u32, ProverError> {
         Ok(u32::from_le_bytes(self.array()?))
     }
 
-    fn u64(&mut self) -> Result<u64, RelationError> {
+    fn u64(&mut self) -> Result<u64, ProverError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
-    fn finish(&self) -> Result<(), RelationError> {
+    fn finish(&self) -> Result<(), ProverError> {
         if self.bytes.is_empty() {
             Ok(())
         } else {
-            Err(invalid("a section has trailing bytes"))
+            Err(invalid("a section has trailing bytes").into())
         }
     }
 }
@@ -168,7 +169,7 @@ fn binary_file(
     magic: &[u8; 4],
     version: u32,
     sections: &[(u32, &[u8])],
-) -> Result<Vec<u8>, RelationError> {
+) -> Result<Vec<u8>, ProverError> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(magic);
     bytes.extend_from_slice(&version.to_le_bytes());
@@ -181,14 +182,14 @@ fn binary_file(
     Ok(bytes)
 }
 
-fn put_u32(bytes: &mut Vec<u8>, value: usize) -> Result<(), RelationError> {
+fn put_u32(bytes: &mut Vec<u8>, value: usize) -> Result<(), ProverError> {
     let value = u32::try_from(value)
-        .map_err(|_| RelationError::Conversion("an r1cs count does not fit in 32 bits"))?;
+        .map_err(|_| ProverErrorKind::ExportTooLarge("an r1cs count does not fit in 32 bits"))?;
     bytes.extend_from_slice(&value.to_le_bytes());
     Ok(())
 }
 
-fn u64_of(value: usize) -> Result<u64, RelationError> {
-    u64::try_from(value)
-        .map_err(|_| RelationError::Conversion("an r1cs size does not fit in 64 bits"))
+fn u64_of(value: usize) -> Result<u64, ProverError> {
+    Ok(u64::try_from(value)
+        .map_err(|_| ProverErrorKind::ExportTooLarge("an r1cs size does not fit in 64 bits"))?)
 }

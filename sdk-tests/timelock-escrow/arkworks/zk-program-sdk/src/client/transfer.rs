@@ -5,7 +5,9 @@ use zolana_transaction::{
 };
 
 use super::transaction::SppTransactionBuilder;
-use crate::{conversion::FromCircuit, program::PublicTransfer, RelationError};
+use crate::{
+    conversion::FromCircuit, program::PublicTransfer, ClientError, ClientErrorKind, SlotKind,
+};
 
 impl From<SettlementTransfer> for PublicTransfer {
     fn from(transfer: SettlementTransfer) -> Self {
@@ -36,15 +38,15 @@ impl From<SettlementTransfer> for PublicTransfer {
 }
 
 impl SppTransactionBuilder<'_> {
-    pub(super) fn public_transfers(&self) -> Result<Vec<PublicTransferRequest>, RelationError> {
+    pub(super) fn public_transfers(&self) -> Result<Vec<PublicTransferRequest>, ClientError> {
         self.checked
             .public_transfers
             .iter()
             .enumerate()
             .map(|(slot, transfer)| {
-                let problem = |problem| RelationError::Slot {
-                    kind: "public transfer",
-                    slot,
+                let problem = |problem| ClientErrorKind::Slot {
+                    kind: SlotKind::PublicTransfer,
+                    index: slot,
                     problem,
                 };
                 let asset = self
