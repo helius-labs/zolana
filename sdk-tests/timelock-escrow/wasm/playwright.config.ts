@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = Number(process.env.ESCROW_WASM_TEST_PORT ?? 4327);
+const PORT =
+  Number(process.env.ESCROW_WASM_TEST_PORT ?? 4327) + Number(process.env.ZOLANA_PORT_OFFSET ?? 0);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
@@ -24,7 +25,7 @@ export default defineConfig({
     command: "node tools/serve.mjs",
     env: { PORT: String(PORT) },
     url: `${BASE_URL}/index.html`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 20_000,
     stdout: "pipe",
     stderr: "pipe",

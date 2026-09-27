@@ -13,18 +13,32 @@ for (const program of programs) {
         window.escrow.transaction(program, data.inputs, data.sender, data.payer),
       { program, data },
     );
-    const { proofInputs: _proofInputs, ...transaction } = result.transaction;
+    const transaction = {
+      finalizedTx: result.transaction.finalizedTx,
+      publicHash: result.transaction.publicHash,
+    };
 
     expect({
       transaction,
       proofInputsSha256: result.proofInputsSha256,
-      amountType: result.amountType,
-      proofInputsType: result.proofInputsType,
+      encoding: result.encoding,
     }).toEqual({
       transaction: data.transaction,
       proofInputsSha256: data.proofInputsSha256,
-      amountType: "bigint",
-      proofInputsType: "Uint8Array",
+      encoding: {
+        proofInputs: "Uint8Array",
+        publicHash: "Uint8Array",
+        outputHash: "Uint8Array",
+        outputAmount: "bigint",
+        outputBlinding: "Uint8Array",
+        inputLeafIndex: "bigint",
+        inputAssetId: "bigint",
+        inputOwner: "Uint8Array",
+        resolvedOwnerTag: "Uint8Array",
+        sender: "Uint8Array",
+        payer: "string",
+        outputTreeId: "number",
+      },
     });
   });
 }

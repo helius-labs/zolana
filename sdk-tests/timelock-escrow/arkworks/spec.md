@@ -194,8 +194,8 @@ Proof inputs use plain Rust types that implement `ProofInput`:
   that could wrap around the field does not compile. A computed value that must fit a width
   gets `narrow`, `checked_sub` or a comparison, each with a named rule.
 - A computed `CircuitVar` that needs a bound gets an explicit check in `circuit`:
-  `check_bits(bits)` or `check_is_bool` from `Bits`, or a `Compare` or `Arithmetic`
-  gadget, which range-checks its operands itself.
+  `check_bits(bits)` or `check_is_bool` from `Bits`, or `Uint::from_var`, which
+  range-checks it into a `Uint<BITS>`.
 - `CircuitVar` is opaque: it has no arithmetic or comparison operators, a circuit cannot
   allocate one, and `value` reads only a constant. Reading a variable fails in both runs with
   the line of the read.

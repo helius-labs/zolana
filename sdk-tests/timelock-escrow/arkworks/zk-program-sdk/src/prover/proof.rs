@@ -1,4 +1,4 @@
-use ark_bn254::{G1Affine, G1Projective, G2Affine, G2Projective};
+use ark_bn254::G1Projective;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{BigInteger256, PrimeField, Zero};
 use ark_groth16::r1cs_to_qap::R1CSToQAP;
@@ -45,11 +45,11 @@ pub(crate) fn create_proof(
             join(
                 || {
                     join(
-                        || query_msm_g1(&proving_key.a_query, assignment),
-                        || query_msm_g1(&proving_key.b_g1_query, assignment),
+                        || query_msm(&proving_key.a_query, assignment),
+                        || query_msm(&proving_key.b_g1_query, assignment),
                     )
                 },
-                || query_msm_g2(&proving_key.b_g2_query, assignment),
+                || query_msm(&proving_key.b_g2_query, assignment),
             )
         },
     );
@@ -81,20 +81,13 @@ fn first<G: AffineRepr>(query: &[G]) -> Result<G, RelationError> {
         .ok_or(RelationError::Synthesis(SynthesisError::AssignmentMissing))
 }
 
-fn query_msm_g1(
-    query: &[G1Affine],
-    assignment: &[BigInteger256],
-) -> Result<G1Projective, RelationError> {
+fn query_msm<G>(query: &[G], assignment: &[BigInteger256]) -> Result<G::Group, RelationError>
+where
+    G: AffineRepr<ScalarField = Field>,
+    G::Group: VariableBaseMSM<MulBase = G>,
+{
     let bases = query.get(1..).ok_or(SynthesisError::AssignmentMissing)?;
-    Ok(G1Projective::msm_bigint(bases, assignment))
-}
-
-fn query_msm_g2(
-    query: &[G2Affine],
-    assignment: &[BigInteger256],
-) -> Result<G2Projective, RelationError> {
-    let bases = query.get(1..).ok_or(SynthesisError::AssignmentMissing)?;
-    Ok(G2Projective::msm_bigint(bases, assignment))
+    Ok(G::Group::msm_bigint(bases, assignment))
 }
 
 #[cfg(feature = "parallel")]

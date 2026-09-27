@@ -97,6 +97,7 @@ impl ProgramOwner {
             slot: 0,
             tx_signature: Signature::default(),
             slot_index: 0,
+            tx_viewing_key: None,
         })
     }
 }

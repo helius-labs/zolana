@@ -22,6 +22,7 @@ use crate::{RelationError, ZkProgram};
 pub mod __private {
     pub use js_sys;
     pub use serde_wasm_bindgen;
+    pub use tsify;
     pub use wasm_bindgen;
 }
 
@@ -155,6 +156,9 @@ pub fn verify_proof(
     use groth16_solana::{groth16::Groth16Verifier, vk::gnark::parse_gnark_vk_bytes};
 
     let proof: ProgramProof = from_js(proof)?;
+    if !compressed_matches(&proof) {
+        return Ok(false);
+    }
     let verifying_key = parse_gnark_vk_bytes(verifying_key)
         .map_err(|error| js_error(RelationError::keys(format!("{error:?}"))))?;
     let verifying_key = verifying_key.as_borrowed();
@@ -168,4 +172,15 @@ pub fn verify_proof(
     )
     .and_then(|mut verifier| verifier.verify())
     .is_ok())
+}
+
+#[cfg(feature = "wasm-verify")]
+fn compressed_matches(proof: &ProgramProof) -> bool {
+    use solana_bn254::compression::prelude::{
+        alt_bn128_g1_decompress_be, alt_bn128_g2_decompress_be,
+    };
+
+    alt_bn128_g1_decompress_be(&proof.compressed_proof.a).is_ok_and(|a| a == proof.proof.a)
+        && alt_bn128_g2_decompress_be(&proof.compressed_proof.b).is_ok_and(|b| b == proof.proof.b)
+        && alt_bn128_g1_decompress_be(&proof.compressed_proof.c).is_ok_and(|c| c == proof.proof.c)
 }

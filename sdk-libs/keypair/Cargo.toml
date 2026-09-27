@@ -31,8 +31,8 @@ serde = ["dep:serde", "dep:serde_bytes"]
 tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.2.17", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
 
 [dev-dependencies]
 hex = { workspace = true }

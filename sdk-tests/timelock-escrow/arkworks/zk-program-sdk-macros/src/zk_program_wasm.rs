@@ -32,6 +32,11 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
             use #wasm::__private::wasm_bindgen;
             use wasm_bindgen::prelude::*;
 
+            const _: fn() = || {
+                fn declared_for_typescript<T: #wasm::__private::tsify::Tsify>() {}
+                declared_for_typescript::<super::#ident>();
+            };
+
             #[wasm_bindgen(
                 wasm_bindgen = #wasm::__private::wasm_bindgen,
                 js_name = #transaction_js,

@@ -10,8 +10,7 @@
     "check:dts": "node tools/check-dts.mjs",
     "test": "playwright test --grep-invert @bench",
     "bench": "playwright test --grep @bench --reporter=list",
-    "serve": "node tools/serve.mjs",
-    "profile": "node tools/profile.mjs"
+    "serve": "node tools/serve.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

@@ -675,13 +675,16 @@ fn the_wasm_transaction_carries_every_slot_and_owner_tag() {
 
 #[test]
 fn malformed_proof_inputs_are_rejected_with_named_errors() {
-    const VALUES_OFFSET: usize = 76;
+    const FILE_HEADER: usize = 4 + 4 + 4;
+    const SECTION_HEADER: usize = 4 + 8;
+    const FIELD_HEADER: usize = 4 + 32 + 4;
+    const VALUES_OFFSET: usize = FILE_HEADER + SECTION_HEADER + FIELD_HEADER + SECTION_HEADER;
     let payment = two_input_payment();
     let bytes = payment.export_assignment().unwrap();
     let edited = |edit: &dyn Fn(&mut Vec<u8>)| {
         let mut bytes = bytes.clone();
         edit(&mut bytes);
-        ProofInputs::from_bytes(&bytes).err().map(|e| e.name())
+        ProofInputs::from_bytes(&bytes).err().map(|e| e.to_string())
     };
     let prover = Groth16Prover::<Payment>::new_with_test_setup().unwrap();
     let other_circuit = Groth16Prover::<Register>::new_with_test_setup().unwrap();
@@ -715,10 +718,13 @@ fn malformed_proof_inputs_are_rejected_with_named_errors() {
             other_circuit.prove_inputs(&valid).err().map(|e| e.name()),
         ),
         (
-            Some("InvalidProofInputs"),
-            Some("InvalidProofInputs"),
-            Some("InvalidProofInputs"),
-            Some("NonCanonical"),
+            Some("the proof inputs are malformed: the file ends early".to_string()),
+            Some("the proof inputs are malformed: the bytes are not a wtns file".to_string()),
+            Some(
+                "the proof inputs are malformed: the first value is not the constant one"
+                    .to_string()
+            ),
+            Some("a proof input is not a canonical field element".to_string()),
             Some("Unsatisfied"),
             Some("ProofInputsForAnotherCircuit"),
         )

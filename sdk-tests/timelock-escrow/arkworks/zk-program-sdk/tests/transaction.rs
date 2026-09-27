@@ -63,6 +63,7 @@ fn wallet_input(
         .unwrap();
     WalletUtxo {
         nullifier: owner.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+        tx_viewing_key: None,
         utxo,
         nullifier_pubkey: address.nullifier_pubkey,
         utxo_hash,

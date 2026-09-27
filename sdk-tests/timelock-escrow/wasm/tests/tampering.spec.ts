@@ -1,7 +1,7 @@
 import { expect, test } from "./harness";
 import { fixture, keyUrl } from "./fixtures";
 
-test("a proof with A and C swapped, or checked against another public hash, fails", async ({
+test("a proof with A and C swapped in either form, or checked against another public hash, fails", async ({
   harness,
 }) => {
   const data = fixture("escrow");
@@ -15,6 +15,14 @@ test("a proof with A and C swapped, or checked against another public hash, fail
       );
       const proof = await window.escrow.prove("escrow", "arkworks", url, transaction.proofInputs);
       const swapped = { ...proof, proof: { a: proof.proof.c, b: proof.proof.b, c: proof.proof.a } };
+      const compressedSwapped = {
+        ...proof,
+        compressedProof: {
+          a: proof.compressedProof.c,
+          b: proof.compressedProof.b,
+          c: proof.compressedProof.a,
+        },
+      };
       const otherHash = {
         ...proof,
         publicHash: proof.publicHash.map((byte, index) => (index === 31 ? byte ^ 1 : byte)),
@@ -22,11 +30,17 @@ test("a proof with A and C swapped, or checked against another public hash, fail
       return {
         valid: await window.escrow.verify(data.verifyingKey, proof),
         swapped: await window.escrow.verify(data.verifyingKey, swapped),
+        compressedSwapped: await window.escrow.verify(data.verifyingKey, compressedSwapped),
         otherHash: await window.escrow.verify(data.verifyingKey, otherHash),
       };
     },
     { url: keyUrl("escrow", "arkworks"), data },
   );
 
-  expect(result).toEqual({ valid: true, swapped: false, otherHash: false });
+  expect(result).toEqual({
+    valid: true,
+    swapped: false,
+    compressedSwapped: false,
+    otherHash: false,
+  });
 });

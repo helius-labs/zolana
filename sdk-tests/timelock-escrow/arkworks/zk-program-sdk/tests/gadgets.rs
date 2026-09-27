@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
         assert_in, constant, from_bits_le, is_in, one_hot, select_index, value, Arithmetic, Assert,
-        Asset, Bits, Bool, Bytes, CircuitVar, Compare, ConstraintSystem, Field,
+        Asset, Bits, Bool, Bytes, CircuitVar, Compare, ConstraintSystem, Field, Uint,
     },
     conversion::{Allocator, ProofInput},
     RelationError,
@@ -100,6 +100,21 @@ fn minus(value: u64) -> Field {
     -f(value)
 }
 
+fn uint<const BITS: u32>(var: &CircuitVar) -> Result<Uint<BITS>, RelationError> {
+    Uint::from_var(var, "an operand fits in its width")
+}
+
+fn uint_operands<const BITS: u32>(
+    inputs: &[CircuitVar],
+) -> Result<(Uint<BITS>, Uint<BITS>), RelationError> {
+    let (left, right) = operands(inputs);
+    Ok((uint(&left)?, uint(&right)?))
+}
+
+fn widest_ordered() -> Field {
+    (0..252).fold(f(1), |power, _| power + power) - f(1)
+}
+
 #[test]
 fn comparisons_follow_integer_order() {
     let pairs = [
@@ -114,14 +129,14 @@ fn comparisons_follow_integer_order() {
         .iter()
         .map(|(left, right)| {
             run(&fs(&[*left, *right]), &|inputs| {
-                let (left, right) = operands(inputs);
+                let (left, right) = uint_operands::<64>(inputs)?;
                 Ok(vec![
-                    left.is_less_than(&right, 64)?.var(),
-                    left.is_less_or_equal(&right, 64)?.var(),
-                    left.is_greater_than(&right, 64)?.var(),
-                    left.is_greater_or_equal(&right, 64)?.var(),
-                    left.min(&right, 64)?,
-                    left.max(&right, 64)?,
+                    left.is_less_than(&right)?.var(),
+                    left.is_less_or_equal(&right)?.var(),
+                    right.is_less_than(&left)?.var(),
+                    right.is_less_or_equal(&left)?.var(),
+                    left.min(&right)?.var(),
+                    left.max(&right)?.var(),
                 ])
             })
         })
@@ -144,30 +159,56 @@ fn comparisons_follow_integer_order() {
 }
 
 #[test]
-fn comparisons_refuse_operands_wider_than_the_range() {
+fn operands_outside_the_width_are_refused() {
     let less_than = |inputs: &[CircuitVar]| {
-        let (left, right) = operands(inputs);
-        Ok(vec![left.is_less_than(&right, 64)?.var()])
+        let (left, right) = uint_operands::<64>(inputs)?;
+        Ok(vec![left.is_less_than(&right)?.var()])
     };
 
     assert_eq!(
         (
             run(&[f(u64::MAX) + f(1), f(0)], &less_than),
             run(&[f(0), minus(1)], &less_than),
-            run(&[f(0), f(0)], &|inputs| {
-                let (left, right) = operands(inputs);
-                Ok(vec![left.is_less_than(&right, 252)?.var()])
+        ),
+        (
+            violated("an operand fits in its width"),
+            violated("an operand fits in its width"),
+        )
+    );
+}
+
+#[test]
+fn ordering_holds_at_the_widest_ordered_width() {
+    let top = widest_ordered();
+
+    assert_eq!(
+        (
+            run(&[top, f(0)], &|inputs| {
+                let (left, right) = uint_operands::<252>(inputs)?;
+                Ok(vec![
+                    left.is_less_than(&right)?.var(),
+                    right.is_less_than(&left)?.var(),
+                ])
             }),
-            run(&[f(0), f(0)], &|inputs| {
-                let (left, right) = operands(inputs);
-                Ok(vec![left.is_less_than(&right, 253)?.var()])
+            run(&[f(0), top], &|inputs| {
+                let (left, right) = uint_operands::<252>(inputs)?;
+                Ok(vec![left.checked_sub(&right, "no underflow")?.var()])
+            }),
+            run(&[top, f(0)], &|inputs| {
+                let (left, right) = uint_operands::<252>(inputs)?;
+                left.assert_less_or_equal(&right, "at most")?;
+                Ok(vec![])
+            }),
+            run(&[top, top], &|inputs| {
+                let (left, right) = uint_operands::<252>(inputs)?;
+                Ok(vec![left.add::<253>(&right).var()])
             }),
         ),
         (
-            violated("a value does not fit in 64 bits"),
-            violated("a value does not fit in 64 bits"),
-            holds(&[f(0)]),
-            refused("a range check over 253 bits covers the whole field"),
+            holds(&fs(&[0, 1])),
+            violated("no underflow"),
+            violated("at most"),
+            holds(&[top + top]),
         )
     );
 }
@@ -175,12 +216,12 @@ fn comparisons_refuse_operands_wider_than_the_range() {
 #[test]
 fn comparison_asserts_hold_exactly_on_their_relation() {
     let check = |inputs: &[CircuitVar], index: usize| -> Result<Vec<CircuitVar>, RelationError> {
-        let (left, right) = operands(inputs);
+        let (left, right) = uint_operands::<64>(inputs)?;
         match index {
-            0 => left.assert_less_than(&right, 64, "less than"),
-            1 => left.assert_less_or_equal(&right, 64, "less or equal"),
-            2 => left.assert_greater_than(&right, 64, "greater than"),
-            _ => left.assert_greater_or_equal(&right, 64, "greater or equal"),
+            0 => left.assert_less_than(&right, "less than"),
+            1 => left.assert_less_or_equal(&right, "less or equal"),
+            2 => right.assert_less_than(&left, "greater than"),
+            _ => right.assert_less_or_equal(&left, "greater or equal"),
         }?;
         Ok(vec![])
     };
@@ -220,39 +261,11 @@ fn comparison_asserts_hold_exactly_on_their_relation() {
 }
 
 #[test]
-fn comparison_asserts_reject_wrapped_operands() {
-    assert_eq!(
-        (
-            run(&[f(5), minus(1)], &|inputs| {
-                let (left, right) = operands(inputs);
-                left.assert_less_or_equal(&right, 64, "at most")?;
-                Ok(vec![])
-            }),
-            run(&[minus(1), f(0)], &|inputs| {
-                let (left, right) = operands(inputs);
-                right.assert_greater_or_equal(&left, 64, "at least")?;
-                Ok(vec![])
-            }),
-            run(&[f(u64::MAX), f(u64::MAX)], &|inputs| {
-                let (left, right) = operands(inputs);
-                left.assert_less_than(&right.checked_add(&constant(1u64), 65)?, 64, "below")?;
-                Ok(vec![])
-            }),
-        ),
-        (
-            violated("at most"),
-            violated("a value does not fit in 64 bits"),
-            holds(&[]),
-        )
-    );
-}
-
-#[test]
 fn assert_in_range_is_inclusive() {
     let in_range = |value: u64| {
         run(&fs(&[value]), &|inputs| {
-            let value = only(inputs);
-            value.assert_in_range(&constant(5u64), &constant(9u64), 64, "in 5..=9")?;
+            let value = uint::<64>(&only(inputs))?;
+            value.assert_in_range(&Uint::constant(5)?, &Uint::constant(9)?, "in 5..=9")?;
             Ok(vec![])
         })
     };
@@ -284,21 +297,21 @@ fn comparisons_cost_one_decomposition_per_range() {
     assert_eq!(
         (
             count(&|inputs| {
-                let (left, right) = operands(inputs);
-                Ok(vec![left.is_less_than(&right, 64)?.var()])
+                let (left, right) = uint_operands::<64>(inputs)?;
+                Ok(vec![left.is_less_than(&right)?.var()])
             }),
             count(&|inputs| {
-                let (left, right) = operands(inputs);
-                left.assert_less_than(&right, 64, "less than")?;
+                let (left, right) = uint_operands::<64>(inputs)?;
+                left.assert_less_than(&right, "less than")?;
                 Ok(vec![])
             }),
             count(&|inputs| {
-                let (left, _) = operands(inputs);
-                left.assert_less_than(&constant(9u64), 64, "less than")?;
+                let left = uint::<64>(&only(inputs))?;
+                left.assert_less_than(&Uint::constant(9)?, "less than")?;
                 Ok(vec![])
             }),
         ),
-        ((true, 65 + 65 + 66), (true, 65 + 65), (true, 65 + 65))
+        ((true, 65 + 65 + 66), (true, 65 + 65 + 65), (true, 65 + 65))
     );
 }
 
@@ -517,17 +530,21 @@ fn bytes_convert_to_and_from_a_var() {
 }
 
 #[test]
-fn integer_arithmetic_refuses_overflow_underflow_and_zero_divisors() {
+fn integer_arithmetic_refuses_underflow_narrowing_and_zero_divisors() {
     let binary = |left: u64, right: u64, operation: usize| {
         run(&fs(&[left, right]), &move |inputs| {
-            let (left, right) = operands(inputs);
+            let (left, right) = uint_operands::<64>(inputs)?;
             Ok(match operation {
-                0 => vec![left.checked_add(&right, 64)?],
-                1 => vec![left.checked_sub(&right, 64)?],
-                2 => vec![left.checked_mul(&right, 64)?],
+                0 => vec![left.add::<65>(&right).var()],
+                1 => vec![left.checked_sub(&right, "no underflow")?.var()],
+                2 => vec![left.mul::<128>(&right).var()],
+                3 => vec![left
+                    .add::<65>(&right)
+                    .narrow::<64>("fits in 64 bits")?
+                    .var()],
                 _ => {
-                    let (quotient, remainder) = left.div_rem(&right, 64)?;
-                    vec![quotient, remainder]
+                    let (quotient, remainder) = left.div_rem::<64, 64>(&right, "divides")?;
+                    vec![quotient.var(), remainder.var()]
                 }
             })
         })
@@ -535,31 +552,26 @@ fn integer_arithmetic_refuses_overflow_underflow_and_zero_divisors() {
 
     assert_eq!(
         (
-            binary(u64::MAX - 1, 1, 0),
-            binary(u64::MAX, 1, 0),
+            binary(u64::MAX, u64::MAX, 0),
             binary(5, 3, 1),
             binary(3, 5, 1),
-            binary(1 << 32, 1 << 31, 2),
             binary(1 << 32, 1 << 32, 2),
-            binary(17, 5, 3),
+            binary(u64::MAX - 1, 1, 3),
             binary(u64::MAX, 1, 3),
-            binary(17, 0, 3),
-            constant(0u64)
-                .checked_mul(&constant(0u64), 127)
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
+            binary(17, 5, 4),
+            binary(u64::MAX, 1, 4),
+            binary(17, 0, 4),
         ),
         (
-            holds(&[f(u64::MAX)]),
-            violated("an operation on 64-bit integers overflows"),
+            holds(&[f(u64::MAX) + f(u64::MAX)]),
             holds(&[f(2)]),
-            violated("a subtraction on 64-bit integers underflows"),
-            holds(&[f(1 << 63)]),
-            violated("an operation on 64-bit integers overflows"),
+            violated("no underflow"),
+            holds(&[f(1 << 32) * f(1 << 32)]),
+            holds(&[f(u64::MAX)]),
+            violated("fits in 64 bits"),
             holds(&fs(&[3, 2])),
             holds(&fs(&[u64::MAX, 0])),
-            refused("a division by zero"),
-            Err("a range check over 127 bits covers the whole field".to_string()),
+            violated("divides"),
         )
     );
 }

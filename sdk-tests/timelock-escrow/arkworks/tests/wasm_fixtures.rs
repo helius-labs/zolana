@@ -5,8 +5,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_signature::Signature;
 use timelock_escrow_arkworks::{
-    escrow_authority, escrow_input, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms,
-    Withdraw, WithdrawPrivateInputs, WithdrawPublicInputs,
+    escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
+    WithdrawPrivateInputs, WithdrawPublicInputs,
 };
 use timelock_escrow_program::instructions::escrow::slot;
 use zk_program_sdk::{wasm, Groth16Prover, Owner, TxContext, ZkProgram};
@@ -19,7 +19,6 @@ use zolana_transaction::{
 };
 
 #[cfg(feature = "snarkjs")]
-#[allow(dead_code)]
 mod ceremony;
 
 const TREE_ID: u16 = 3;
@@ -111,6 +110,7 @@ fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64, blinding: 
         nullifier: owner
             .nullifier(&utxo_hash, &utxo.blinding)
             .expect("nullifier"),
+        tx_viewing_key: None,
         utxo,
         nullifier_pubkey: address.nullifier_pubkey,
         utxo_hash,
@@ -132,6 +132,7 @@ fn dummy_input(blinding: u8) -> WalletUtxo {
         nullifier_pubkey: dummy.nullifier_pubkey,
         utxo_hash: dummy.utxo_hash,
         nullifier: dummy.nullifier,
+        tx_viewing_key: None,
         data_hash: dummy.data_hash,
         ring_data_hash: dummy.ring_data_hash,
         tree_id: dummy.tree_id,
@@ -178,15 +179,16 @@ fn withdraw() -> Fixture<Withdraw> {
         .program
         .create_finalized_transaction(&address, address.solana_address().expect("payer"))
         .expect("escrow transaction");
-    let escrow_utxo = escrow_input(
-        finalized
-            .output_utxos()
-            .get(slot::ESCROW)
-            .expect("escrow output"),
-        finalized.output_tree_id(),
-        2,
-    )
-    .expect("escrow input");
+    let escrow_utxo = escrow_authority()
+        .input(
+            finalized
+                .output_utxos()
+                .get(slot::ESCROW)
+                .expect("escrow output"),
+            finalized.output_tree_id(),
+            2,
+        )
+        .expect("escrow input");
     Fixture {
         name: "withdraw",
         program: Withdraw {
@@ -232,7 +234,7 @@ fn committed(name: &str) -> Value {
     serde_json::from_str(&text).expect("fixture json")
 }
 
-fn write<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
+fn write_keys<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
     let prover = Groth16Prover::<P>::new_with_test_setup().expect("seeded setup");
     std::fs::create_dir_all(keys_dir()).expect("keys directory");
     prover
@@ -244,14 +246,18 @@ fn write<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
         fixture.program.export_assignment().expect("proof inputs"),
     )
     .expect("wtns");
+    #[cfg(feature = "snarkjs")]
+    write_zkey::<P>(fixture.name);
+}
+
+fn write_json<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
+    let prover = Groth16Prover::<P>::new_with_test_setup().expect("seeded setup");
     std::fs::create_dir_all(committed_dir()).expect("fixtures directory");
     std::fs::write(
         committed_dir().join(format!("{}.json", fixture.name)),
         serde_json::to_string_pretty(&fixture.json(&prover)).expect("fixture text") + "\n",
     )
     .expect("fixture");
-    #[cfg(feature = "snarkjs")]
-    write_zkey::<P>(fixture.name);
 }
 
 #[cfg(feature = "snarkjs")]
@@ -275,10 +281,17 @@ fn write_zkey<P: ZkProgram>(name: &str) {
 }
 
 #[test]
-#[ignore = "regenerates the escrow wasm fixtures: just regen-escrow-wasm-fixtures"]
+#[ignore = "writes the escrow proving keys the wasm tests load: just regen-escrow-wasm-fixtures"]
+fn write_wasm_keys() {
+    write_keys(&escrow());
+    write_keys(&withdraw());
+}
+
+#[test]
+#[ignore = "regenerates the committed escrow wasm fixtures: just regen-escrow-wasm-fixtures"]
 fn write_wasm_fixtures() {
-    write(&escrow());
-    write(&withdraw());
+    write_json(&escrow());
+    write_json(&withdraw());
 }
 
 #[test]

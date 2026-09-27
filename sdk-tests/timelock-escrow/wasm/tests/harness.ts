@@ -14,6 +14,7 @@ export const test = base.extend<{ harness: Harness }, { escrowPage: Harness }>({
       ).toBe(true);
       const info = await page.evaluate(() => window.escrow.workerInfo());
       expect(info.crossOriginIsolated, "the prover worker is not cross-origin isolated").toBe(true);
+      expect(info.threads, "the prover runs single-threaded: build with --threads").toBeGreaterThan(1);
       await use({ page, threads: info.threads });
       await page.close();
     },

@@ -20,7 +20,11 @@ mod iden3;
 mod programs;
 mod shared;
 
-use ceremony::{ceremony, path, run_snarkjs, snarkjs, snarkjs_dir};
+use ceremony::{ceremony, path, snarkjs, snarkjs_dir, snarkjs_output};
+
+fn run_snarkjs(args: &[&str]) -> bool {
+    snarkjs_output(args).0
+}
 
 fn decimal<F: PrimeField>(value: &F) -> String {
     value.into_bigint().to_string()

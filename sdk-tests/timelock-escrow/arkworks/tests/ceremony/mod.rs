@@ -49,10 +49,6 @@ pub(crate) fn snarkjs_output(args: &[&str]) -> (bool, String) {
     (output.status.success() && !log.contains("[ERROR]"), log)
 }
 
-pub(crate) fn run_snarkjs(args: &[&str]) -> bool {
-    snarkjs_output(args).0
-}
-
 pub(crate) fn snarkjs(args: &[&str]) {
     let (success, log) = snarkjs_output(args);
     assert!(success, "snarkjs {args:?} failed:\n{log}");

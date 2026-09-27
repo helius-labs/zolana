@@ -1,7 +1,7 @@
 import { expect, test } from "./harness";
 import { fixture, keyUrl } from "./fixtures";
 
-test("proof inputs built on the main thread prove in a worker, twice with fresh randomness", async ({
+test("proof inputs built on the main thread prove in the worker, twice with fresh randomness", async ({
   harness,
 }) => {
   const data = fixture("escrow");
@@ -13,13 +13,13 @@ test("proof inputs built on the main thread prove in a worker, twice with fresh 
         data.sender,
         data.payer,
       );
-      const first = await window.escrow.proveInWorker(
+      const first = await window.escrow.prove(
         "escrow",
         "arkworks",
         url,
         transaction.proofInputs,
       );
-      const second = await window.escrow.proveInWorker(
+      const second = await window.escrow.prove(
         "escrow",
         "arkworks",
         url,

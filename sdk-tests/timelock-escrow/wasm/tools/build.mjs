@@ -46,6 +46,8 @@ const env = {
     threads ? "wasm-threads" : inputsOnly ? "wasm-inputs" : "wasm-single",
   ),
 };
+delete env.RUSTFLAGS;
+delete env.CARGO_ENCODED_RUSTFLAGS;
 if (threads) {
   env.RUSTUP_TOOLCHAIN = NIGHTLY;
 }
@@ -62,6 +64,10 @@ const result = spawnSync(
   ["build", "--release", "--target", "web", "--out-dir", outDir, "--", ...cargoArgs],
   { cwd: PACKAGE_ROOT, env, stdio: "inherit" },
 );
+if (result.error) {
+  console.error(`wasm-pack could not run: ${result.error.message}`);
+  process.exit(1);
+}
 if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }

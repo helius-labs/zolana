@@ -8,7 +8,8 @@ const PACKAGE_ROOT = resolve(HERE, "..");
 const REPO_ROOT = resolve(PACKAGE_ROOT, "../../..");
 const WEB_ROOT = join(PACKAGE_ROOT, "web");
 const FIXTURE_ROOT = join(PACKAGE_ROOT, "tests", "fixtures");
-const KEY_ROOT = join(REPO_ROOT, "target", "escrow-wasm-fixtures");
+const TARGET_ROOT = resolve(REPO_ROOT, process.env.CARGO_TARGET_DIR ?? "target");
+const KEY_ROOT = join(TARGET_ROOT, "escrow-wasm-fixtures");
 const PORT = Number(process.env.PORT ?? 4327);
 
 const CONTENT_TYPES = {
@@ -30,8 +31,19 @@ const MOUNTS = [
   ["/vendor/", join(PACKAGE_ROOT, "node_modules")],
 ];
 
+function decodePath(pathname) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
 function resolveRequest(pathname) {
-  const decoded = decodeURIComponent(pathname);
+  const decoded = decodePath(pathname);
+  if (decoded === null) {
+    return null;
+  }
   if (decoded === "/") {
     return join(WEB_ROOT, "index.html");
   }

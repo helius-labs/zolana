@@ -90,6 +90,7 @@ fn wallet_utxo(
         nullifier: owner
             .nullifier(&utxo_hash, &utxo.blinding)
             .expect("nullifier"),
+        tx_viewing_key: None,
         utxo,
         nullifier_pubkey: address.nullifier_pubkey,
         utxo_hash,

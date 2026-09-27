@@ -174,6 +174,27 @@ impl<const BITS: u32> Uint<BITS> {
     }
 
     #[track_caller]
+    pub fn assert_in_range(
+        &self,
+        low: &Self,
+        high: &Self,
+        rule: &'static str,
+    ) -> Result<(), RelationError> {
+        low.assert_less_or_equal(self, rule)?;
+        self.assert_less_or_equal(high, rule)
+    }
+
+    #[track_caller]
+    pub fn min(&self, other: &Self) -> Result<Self, RelationError> {
+        Ok(self.is_less_than(other)?.select(self, other))
+    }
+
+    #[track_caller]
+    pub fn max(&self, other: &Self) -> Result<Self, RelationError> {
+        Ok(self.is_less_than(other)?.select(other, self))
+    }
+
+    #[track_caller]
     pub fn assert_equal<const OTHER: u32>(
         &self,
         other: &Uint<OTHER>,

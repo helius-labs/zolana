@@ -13,7 +13,7 @@ pub const ESCROW_TOKEN_INPUTS: usize = 5;
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[cfg_attr(feature = "wasm", derive(zk_program_sdk::wasm::ZkProgramWasm))]
@@ -26,7 +26,7 @@ pub struct Escrow {
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(
     feature = "tsify",
@@ -44,7 +44,7 @@ pub struct EscrowPrivateInputs {
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct EscrowPublicInputs {

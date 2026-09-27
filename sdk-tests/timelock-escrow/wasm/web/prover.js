@@ -6,12 +6,15 @@ export const PROVERS = { escrow: wasm.EscrowProver, withdraw: wasm.WithdrawProve
 export function createProvers() {
   const cache = new Map();
   return {
-    async load(program, format, url) {
+    load(program, format, url) {
       const key = `${program}:${format}:${url}`;
       if (!cache.has(key)) {
         const Prover = PROVERS[program];
-        const bytes = await fetchBytes(url);
-        cache.set(key, format === "zkey" ? Prover.fromZkey(bytes) : Prover.fromKey(bytes));
+        const loading = fetchBytes(url).then((bytes) =>
+          format === "zkey" ? Prover.fromZkey(bytes) : Prover.fromKey(bytes),
+        );
+        loading.catch(() => cache.delete(key));
+        cache.set(key, loading);
       }
       return cache.get(key);
     },

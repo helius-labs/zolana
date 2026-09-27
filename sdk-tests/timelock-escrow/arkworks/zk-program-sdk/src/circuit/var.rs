@@ -2,8 +2,8 @@ use std::{cell::OnceCell, cmp::Ordering, fmt, panic::Location};
 
 use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, Field as _, One, PrimeField, Zero};
-use ark_r1cs_std::{alloc::AllocVar, boolean::Boolean, fields::fp::FpVar, R1CSVar};
-use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
+use ark_r1cs_std::{boolean::Boolean, fields::fp::FpVar, R1CSVar};
+use ark_relations::r1cs::ConstraintSystemRef;
 
 use super::{labels, Bool};
 use crate::RelationError;
@@ -258,19 +258,6 @@ pub(crate) fn range_check(
     labels::check(&var.cs(), rule, || bits_le(var, bits).map(|_| ()))
 }
 
-#[track_caller]
-pub(crate) fn fits_or(
-    var: &CircuitVar,
-    bits: usize,
-    rule: &'static str,
-    error: RelationError,
-) -> Result<(), RelationError> {
-    range_check(var, bits, rule).map_err(|found| match found {
-        RelationError::OutOfRange(_) => error,
-        found => found,
-    })
-}
-
 pub(crate) fn bits_le(var: &CircuitVar, bits: usize) -> Result<Vec<CircuitVar>, RelationError> {
     if bits >= Field::MODULUS_BIT_SIZE as usize {
         return Err(RelationError::RangeTooWide(bits));
@@ -284,23 +271,11 @@ pub(crate) fn bits_le(var: &CircuitVar, bits: usize) -> Result<Vec<CircuitVar>, 
             .map(|index| constant(u64::from(value.get_bit(index))))
             .collect());
     }
-    let cs = var.cs();
-    let value = var.assigned().ok();
-    let mut sum = zero();
-    let mut weight = Field::one();
-    let mut decomposed = Vec::with_capacity(bits);
-    for index in 0..bits {
-        let bit = CircuitVar::from_boolean(Boolean::new_witness(cs.clone(), || {
-            value
-                .map(|value| value.into_bigint().get_bit(index))
-                .ok_or(SynthesisError::AssignmentMissing)
-        })?);
-        sum = sum.plus(&bit.scaled(weight));
-        weight.double_in_place();
-        decomposed.push(bit);
-    }
-    sum.enforce_equal(var)?;
-    Ok(decomposed)
+    let (decomposed, _) = var.0.to_bits_le_with_top_bits_zero(bits)?;
+    Ok(decomposed
+        .into_iter()
+        .map(CircuitVar::from_boolean)
+        .collect())
 }
 
 #[track_caller]
@@ -326,7 +301,7 @@ mod rules {
     #[diagnostic::on_unimplemented(
         message = "a circuit does no field arithmetic on `CircuitVar`",
         label = "field arithmetic wraps around the modulus, so it proves nothing about integers",
-        note = "turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the named operations of `Arithmetic` and `Compare`"
+        note = "turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`"
     )]
     pub trait ArithmeticNeedsUint {
         fn impossible(self) -> !;
@@ -335,7 +310,7 @@ mod rules {
     #[diagnostic::on_unimplemented(
         message = "a circuit does not compare `CircuitVar` values with Rust operators",
         label = "a Rust comparison only sees the native run, never the constraints",
-        note = "use `assert_equal`, `assert_not_equal`, `is_equal` or `Compare`, or the comparisons of `Uint<BITS>`"
+        note = "use `assert_equal`, `assert_not_equal`, `is_equal` or the zero checks of `Compare`, or the comparisons of `Uint<BITS>`"
     )]
     pub trait ComparisonNeedsAssertOrUint {
         fn impossible(&self) -> !;

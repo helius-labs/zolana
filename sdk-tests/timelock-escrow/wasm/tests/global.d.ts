@@ -23,16 +23,9 @@ interface EscrowHarness {
   ): Promise<{
     transaction: PlainTransaction;
     proofInputsSha256: string;
-    amountType: string;
-    proofInputsType: string;
+    encoding: Record<string, string>;
   }>;
   prove(program: string, format: string, url: string, proofInputs: number[]): Promise<PlainProof>;
-  proveInWorker(
-    program: string,
-    format: string,
-    url: string,
-    proofInputs: number[],
-  ): Promise<PlainProof>;
   verify(source: string | number[], proof: PlainProof): Promise<boolean>;
   dummyWalletUtxo(treeId: number): Record<string, unknown>;
   attempt<T>(method: string, ...args: unknown[]): Promise<Attempt<T>>;

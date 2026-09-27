@@ -1,7 +1,7 @@
 use solana_signature::Signature;
 use timelock_escrow_arkworks::escrow_authority;
 use timelock_escrow_arkworks::{
-    escrow_input, Escrow, EscrowPrivateInputs, EscrowPublicInputs, ESCROW_TOKEN_INPUTS,
+    Escrow, EscrowPrivateInputs, EscrowPublicInputs, ESCROW_TOKEN_INPUTS,
 };
 use timelock_escrow_program::instructions::escrow::slot;
 use zk_program_sdk::{TxContext, ZkProgram};
@@ -31,6 +31,7 @@ pub fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64) -> Wal
         nullifier: owner
             .nullifier(&utxo_hash, &utxo.blinding)
             .expect("nullifier"),
+        tx_viewing_key: None,
         utxo,
         nullifier_pubkey: address.nullifier_pubkey,
         utxo_hash,
@@ -76,5 +77,7 @@ pub fn escrow_utxo(creator: &ShieldedKeypair, amount: u64, unlock: u64) -> Walle
         .output_utxos
         .get(slot::ESCROW)
         .expect("escrow output");
-    escrow_input(output, spp_proof_inputs.output_tree_id, 2).expect("escrow input")
+    escrow_authority()
+        .input(output, spp_proof_inputs.output_tree_id, 2)
+        .expect("escrow input")
 }

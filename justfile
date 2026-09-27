@@ -837,18 +837,24 @@ build-escrow-wasm:
 regen-escrow-wasm-fixtures:
     cargo test --release -p timelock-escrow-arkworks --features snarkjs,wasm --test wasm_fixtures -- --ignored --nocapture
 
-# Runs the escrow wasm module's Playwright tests in Chromium: builds the
-# threaded module with its test-only verifier and the prover-free
-# proof-inputs module, checks the generated types, proves in the worker, and
-# compares against the native fixtures and snarkjs.
-test-escrow-wasm: regen-escrow-wasm-fixtures
-    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run build:inputs && npm run check:dts && npm test
+# Writes only the uncommitted keys the escrow wasm tests load.
+_escrow-wasm-keys:
+    cargo test --release -p timelock-escrow-arkworks --features snarkjs,wasm --test wasm_fixtures -- --ignored --exact write_wasm_keys
 
-# Measures proving time (witness generation + proof), key load and module
-# size of the escrow wasm module in Chromium, against snarkjs proving the
-# same Rust-generated proof inputs.
-bench-escrow-wasm: regen-escrow-wasm-fixtures
-    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run build:inputs && npm run bench
+# Runs the escrow wasm module's Playwright tests in Chromium: checks that the
+# committed fixtures still match the native path, builds the threaded module
+# with its test-only verifier and the prover-free proof-inputs module, checks
+# the generated types, proves in the worker, and compares against the native
+# fixtures and snarkjs.
+test-escrow-wasm: _escrow-wasm-keys
+    cargo test --release -p timelock-escrow-arkworks --features wasm --test wasm_fixtures
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npx playwright install chromium && npm run build:test && npm run build:inputs && npm run check:dts && npm test
+
+# Measures proving time (proof inputs + proof), key load and module size of
+# the escrow wasm module in Chromium, against snarkjs proving the same
+# Rust-generated proof inputs.
+bench-escrow-wasm: _escrow-wasm-keys
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npx playwright install chromium && npm run build:test && npm run build:inputs && npm run bench
 
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in

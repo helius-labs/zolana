@@ -1,8 +1,8 @@
 use borsh::BorshDeserialize;
 use timelock_escrow_arkworks::escrow_authority;
 use timelock_escrow_arkworks::{
-    escrow_input, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
-    WithdrawPrivateInputs, WithdrawPublicInputs,
+    Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw, WithdrawPrivateInputs,
+    WithdrawPublicInputs,
 };
 use timelock_escrow_program::instructions::{
     escrow::slot,
@@ -68,7 +68,8 @@ fn escrow_then_withdraw_prove_and_verify() {
         .output_utxos
         .get(slot::ESCROW)
         .expect("escrow output");
-    let escrow_utxo = escrow_input(escrow_output, escrow_spp_proof_inputs.output_tree_id, 2)
+    let escrow_utxo = escrow_authority()
+        .input(escrow_output, escrow_spp_proof_inputs.output_tree_id, 2)
         .expect("escrow input");
     let terms = EscrowTerms::try_from_slice(escrow_output.data.utxo_data().expect("escrow data"))
         .expect("escrow terms");

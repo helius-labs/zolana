@@ -13,6 +13,7 @@ const moduleLoadMs = performance.now() - moduleStart;
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 const pending = new Map();
 let nextId = 0;
+let workerFailure = null;
 
 worker.addEventListener("message", ({ data }) => {
   const request = pending.get(data.id);
@@ -25,19 +26,29 @@ worker.addEventListener("message", ({ data }) => {
     request?.resolve(data.result);
   }
 });
-worker.addEventListener("error", (event) => {
+function failWorker(message) {
+  workerFailure = new Error(`the prover worker failed: ${message}`);
   for (const request of pending.values()) {
-    request.reject(new Error(`the prover worker failed: ${event.message}`));
+    request.reject(workerFailure);
   }
   pending.clear();
-});
+}
+worker.addEventListener("error", (event) => failWorker(event.message));
+worker.addEventListener("messageerror", () => failWorker("a message could not be deserialized"));
 
 function callWorker(method, ...args) {
+  if (workerFailure !== null) {
+    return Promise.reject(workerFailure);
+  }
   const id = nextId++;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
     worker.postMessage({ id, method, args });
   });
+}
+
+function kind(value) {
+  return value instanceof Uint8Array ? "Uint8Array" : typeof value;
 }
 
 async function sha256(bytes) {
@@ -50,17 +61,27 @@ const api = {
   workerInfo: () => callWorker("info"),
   async transaction(program, inputs, sender, payer) {
     const transaction = TRANSACTIONS[program](inputs, toBytes(sender), payer);
+    const finalized = transaction.finalizedTx;
     return {
       transaction: plain(transaction),
       proofInputsSha256: await sha256(transaction.proofInputs),
-      amountType: typeof transaction.finalizedTx.outputUtxos[0]?.amount,
-      proofInputsType: transaction.proofInputs.constructor.name,
+      encoding: {
+        proofInputs: kind(transaction.proofInputs),
+        publicHash: kind(transaction.publicHash),
+        outputHash: kind(finalized.outputHashes[0]),
+        outputAmount: kind(finalized.outputUtxos[0]?.amount),
+        outputBlinding: kind(finalized.outputUtxos[0]?.blinding),
+        inputLeafIndex: kind(finalized.inputUtxos[0]?.leafIndex),
+        inputAssetId: kind(finalized.inputUtxos[0]?.utxo.asset.assetId),
+        inputOwner: kind(finalized.inputUtxos[0]?.utxo.owner),
+        resolvedOwnerTag: kind(finalized.ownerTags[0]?.resolved),
+        sender: kind(finalized.sender),
+        payer: kind(finalized.payer),
+        outputTreeId: kind(finalized.outputTreeId),
+      },
     };
   },
   prove(program, format, url, proofInputs) {
-    return callWorker("prove", program, format, url, proofInputs);
-  },
-  proveInWorker(program, format, url, proofInputs) {
     return callWorker("prove", program, format, url, proofInputs);
   },
   verify(source, proof) {

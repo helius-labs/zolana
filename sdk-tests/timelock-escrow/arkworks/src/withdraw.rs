@@ -2,15 +2,15 @@ use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
     RelationError, TxContext,
 };
-use zolana_transaction::{SppProofOutputUtxo, WalletUtxo};
+use zolana_transaction::WalletUtxo;
 
-use crate::{circuit, escrow_authority, EscrowTerms};
+use crate::{circuit, EscrowTerms};
 
 #[derive(Clone)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[cfg_attr(feature = "wasm", derive(zk_program_sdk::wasm::ZkProgramWasm))]
@@ -23,7 +23,7 @@ pub struct Withdraw {
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct WithdrawPrivateInputs {
@@ -36,7 +36,7 @@ pub struct WithdrawPrivateInputs {
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(
     feature = "tsify",
@@ -88,12 +88,4 @@ impl Placeholder for Withdraw {
             },
         })
     }
-}
-
-pub fn escrow_input(
-    output: &SppProofOutputUtxo,
-    tree_id: u16,
-    leaf_index: u64,
-) -> Result<WalletUtxo, RelationError> {
-    escrow_authority().input(output, tree_id, leaf_index)
 }
