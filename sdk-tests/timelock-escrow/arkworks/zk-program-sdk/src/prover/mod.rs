@@ -22,4 +22,4 @@ pub use groth16::{SetupKind, VerifyingKeyExport};
 #[cfg(feature = "client")]
 pub use proof_inputs::ProofInputs;
 #[cfg(feature = "client")]
-pub(crate) use synthesis::ArkworksCircuit;
+pub(crate) use synthesis::{ArkworksCircuit, Statement};

@@ -1,7 +1,7 @@
 use crate::{
-    circuit::{labels, Circuit, CircuitLabel, Field, LabelKind, VariableRole},
+    circuit::{labels, CircuitLabel, Field, LabelKind, VariableRole},
     conversion::ProofInput,
-    prover::ArkworksCircuit,
+    prover::{ArkworksCircuit, Statement},
     ProverError, ProverErrorKind,
 };
 
@@ -29,26 +29,29 @@ pub struct PrivateVariableReport {
     pub tolerated: Vec<FreeVariable>,
 }
 
-pub fn constraint_labels<P>(proof_inputs: &P) -> Result<Vec<CircuitLabel>, ProverError>
+pub fn constraint_labels<P, S>(proof_inputs: &P) -> Result<Vec<CircuitLabel>, ProverError>
 where
     P: ProofInput,
-    P::Circuit: Circuit,
+    P::Circuit: Statement<S>,
 {
-    Ok(ArkworksCircuit::new(proof_inputs)?
+    Ok(ArkworksCircuit::<P, S>::new(proof_inputs)?
         .synthesized()?
         .matrices
         .into_labels())
 }
 
-pub fn check_tampered<P>(proof_inputs: &P, tamper: Tamper) -> Result<(), ProverError>
+pub fn check_tampered<P, S>(proof_inputs: &P, tamper: Tamper) -> Result<(), ProverError>
 where
     P: ProofInput,
-    P::Circuit: Circuit,
+    P::Circuit: Statement<S>,
 {
-    let synthesized = ArkworksCircuit::new(proof_inputs)?.synthesized()?;
+    let synthesized = ArkworksCircuit::<P, S>::new(proof_inputs)?.synthesized()?;
     let shape = synthesized.matrices.shape();
     let (variable, value) = match tamper {
-        Tamper::PublicHash(value) => (PUBLIC_HASH_VARIABLE, value),
+        Tamper::PublicHash(value) if PUBLIC_HASH_VARIABLE < shape.instance_variables => {
+            (PUBLIC_HASH_VARIABLE, value)
+        }
+        Tamper::PublicHash(_) => return Err(ProverErrorKind::WrongPublicInputCount.into()),
         Tamper::PrivateVariable { index, value } if index < shape.witness_variables => {
             (shape.instance_variables + index, value)
         }
@@ -64,12 +67,12 @@ where
     synthesized.matrices.check(&assignment)
 }
 
-pub fn check_private_variables<P>(proof_inputs: &P) -> Result<PrivateVariableReport, ProverError>
+pub fn check_private_variables<P, S>(proof_inputs: &P) -> Result<PrivateVariableReport, ProverError>
 where
     P: ProofInput,
-    P::Circuit: Circuit,
+    P::Circuit: Statement<S>,
 {
-    let synthesized = ArkworksCircuit::new(proof_inputs)?.synthesized()?;
+    let synthesized = ArkworksCircuit::<P, S>::new(proof_inputs)?.synthesized()?;
     let matrices = &synthesized.matrices;
     let (tolerated, free) = matrices
         .unconstrained_private_variables(&synthesized.assignment, PERTURBATION_SEED)?

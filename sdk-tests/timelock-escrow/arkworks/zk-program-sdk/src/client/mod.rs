@@ -7,6 +7,8 @@ mod transaction;
 mod transfer;
 #[cfg(feature = "client")]
 mod utxo;
+#[cfg(feature = "client")]
+mod zk_circuit;
 
 use zolana_keypair::random_blinding;
 
@@ -16,6 +18,8 @@ pub use program_owner::ProgramOwner;
 
 #[cfg(feature = "client")]
 pub use transaction::{ProgramTransaction, ZkProgram};
+#[cfg(feature = "client")]
+pub use zk_circuit::ZkCircuit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(

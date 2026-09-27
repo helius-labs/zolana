@@ -15,7 +15,7 @@ use super::ProofInputs;
 use crate::{
     circuit::{
         labels, value, Circuit, CircuitLabel, CircuitSize, CircuitSystem, CircuitVar,
-        ConstraintSystem,
+        ConstraintSystem, Constraints,
     },
     conversion::{Allocator, ProofInput},
     CircuitError, CircuitErrorKind, ProverError, ProverErrorKind,
@@ -225,8 +225,8 @@ fn evaluate(row: &[(Fr, usize)], assignment: &[Fr]) -> Result<Fr, ProverErrorKin
         .ok_or(ProverErrorKind::ProofInputsForAnotherCircuit)
 }
 
-fn one_public_input(instance_variables: usize) -> Result<(), ProverError> {
-    if instance_variables != 2 {
+fn check_public_inputs(instance_variables: usize, public_inputs: usize) -> Result<(), ProverError> {
+    if instance_variables != public_inputs + 1 {
         return Err(ProverErrorKind::WrongPublicInputCount.into());
     }
     Ok(())
@@ -239,7 +239,10 @@ fn constraint_system(mode: SynthesisMode) -> CircuitSystem {
     cs
 }
 
-fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> {
+fn circuit_matrices(
+    cs: &CircuitSystem,
+    public_inputs: usize,
+) -> Result<CircuitMatrices, ProverError> {
     cs.finalize();
     // The circuits synthesize R1CS constraints only, so the R1CS predicate is
     // the only entry in the map and holds exactly the a, b and c matrices.
@@ -257,7 +260,7 @@ fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> 
         num_witness_variables: cs.num_witness_variables(),
         num_constraints: cs.num_constraints(),
     };
-    one_public_input(matrices.num_instance_variables)?;
+    check_public_inputs(matrices.num_instance_variables, public_inputs)?;
     Ok(CircuitMatrices {
         matrices,
         labels: labels::take(cs),
@@ -266,11 +269,7 @@ fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> 
 
 fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Fr>, CircuitError> {
     let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
-    Ok([
-        system.instance_assignment()?,
-        system.witness_assignment()?,
-    ]
-    .concat())
+    Ok([system.instance_assignment()?, system.witness_assignment()?].concat())
 }
 
 pub(crate) struct Synthesized {
@@ -278,50 +277,128 @@ pub(crate) struct Synthesized {
     pub(crate) assignment: Vec<Fr>,
 }
 
-pub(crate) struct ArkworksCircuit<'a, P> {
-    proof_inputs: &'a P,
-    public_hash: Fr,
+#[derive(Clone, Copy)]
+pub struct PublicHash(Fr);
+
+#[derive(Clone, Copy)]
+pub struct NoPublicInputs;
+
+/// Public only so that `testing` can bound on it; the private module keeps it
+/// unnameable outside the crate.
+pub trait Statement<S>: Sized {
+    const PUBLIC_INPUTS: usize;
+
+    fn setup() -> S;
+
+    fn native<P: ProofInput<Circuit = Self>>(proof_inputs: &P) -> Result<S, CircuitError>;
+
+    fn constrain(
+        cs: &CircuitSystem,
+        statement: &S,
+        instantiate: impl FnOnce() -> Result<Self, CircuitError>,
+    ) -> Result<(), CircuitError>;
 }
 
-impl<P> Clone for ArkworksCircuit<'_, P> {
-    fn clone(&self) -> Self {
-        *self
+impl<C: Circuit> Statement<PublicHash> for C {
+    const PUBLIC_INPUTS: usize = 1;
+
+    fn setup() -> PublicHash {
+        PublicHash(Fr::zero())
     }
-}
 
-impl<P> Copy for ArkworksCircuit<'_, P> {}
-
-impl<'a, P> ArkworksCircuit<'a, P>
-where
-    P: ProofInput,
-    P::Circuit: Circuit,
-{
-    pub(crate) fn new(proof_inputs: &'a P) -> Result<Self, CircuitError> {
+    fn native<P: ProofInput<Circuit = Self>>(proof_inputs: &P) -> Result<PublicHash, CircuitError> {
         let public_hash = value(
             proof_inputs
                 .instantiate(&Allocator::native())?
                 .circuit()?
                 .public_hash(),
         )?;
-        Ok(Self::with_public_hash(proof_inputs, public_hash.into()))
+        Ok(PublicHash(public_hash.into()))
     }
 
+    fn constrain(
+        cs: &CircuitSystem,
+        statement: &PublicHash,
+        instantiate: impl FnOnce() -> Result<Self, CircuitError>,
+    ) -> Result<(), CircuitError> {
+        let public_input = CircuitVar::input(cs, || Ok(statement.0))?;
+        let checked = instantiate()?.circuit()?;
+        labels::check(
+            cs,
+            "the circuit's public hash is not the proof's public input",
+            || checked.public_hash().enforce_equal(&public_input),
+        )
+    }
+}
+
+impl<C: Constraints> Statement<NoPublicInputs> for C {
+    const PUBLIC_INPUTS: usize = 0;
+
+    fn setup() -> NoPublicInputs {
+        NoPublicInputs
+    }
+
+    fn native<P: ProofInput<Circuit = Self>>(
+        proof_inputs: &P,
+    ) -> Result<NoPublicInputs, CircuitError> {
+        proof_inputs
+            .instantiate(&Allocator::native())?
+            .constraints()?;
+        Ok(NoPublicInputs)
+    }
+
+    fn constrain(
+        _cs: &CircuitSystem,
+        _statement: &NoPublicInputs,
+        instantiate: impl FnOnce() -> Result<Self, CircuitError>,
+    ) -> Result<(), CircuitError> {
+        instantiate()?.constraints()
+    }
+}
+
+pub(crate) struct ArkworksCircuit<'a, P, S> {
+    proof_inputs: &'a P,
+    statement: S,
+}
+
+impl<P, S: Copy> Clone for ArkworksCircuit<'_, P, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<P, S: Copy> Copy for ArkworksCircuit<'_, P, S> {}
+
+impl<'a, P> ArkworksCircuit<'a, P, PublicHash> {
     pub(crate) fn with_public_hash(proof_inputs: &'a P, public_hash: Fr) -> Self {
         Self {
             proof_inputs,
-            public_hash,
+            statement: PublicHash(public_hash),
         }
+    }
+}
+
+impl<'a, P, S> ArkworksCircuit<'a, P, S>
+where
+    P: ProofInput,
+    P::Circuit: Statement<S>,
+{
+    pub(crate) fn new(proof_inputs: &'a P) -> Result<Self, CircuitError> {
+        Ok(Self {
+            proof_inputs,
+            statement: <P::Circuit as Statement<S>>::native(proof_inputs)?,
+        })
     }
 
     pub(crate) fn for_setup(placeholder: &'a P) -> Self {
         Self {
             proof_inputs: placeholder,
-            public_hash: Fr::zero(),
+            statement: <P::Circuit as Statement<S>>::setup(),
         }
     }
 
     pub(crate) fn check_constraints(&self, placeholder: &P) -> Result<usize, ProverError> {
-        let setup = ArkworksCircuit::for_setup(placeholder).matrices()?;
+        let setup = ArkworksCircuit::<P, S>::for_setup(placeholder).matrices()?;
         let synthesized = self.synthesized()?;
         let (setup_shape, proof_shape) = (
             setup.synthesis_shape(),
@@ -354,7 +431,7 @@ where
             }
             _ => ProverError::from(error),
         })?;
-        circuit_matrices(&cs)
+        circuit_matrices(&cs, <P::Circuit as Statement<S>>::PUBLIC_INPUTS)
     }
 
     pub(crate) fn synthesized(&self) -> Result<Synthesized, ProverError> {
@@ -365,7 +442,7 @@ where
         self.synthesize(&cs)?;
         let assignment = assignment_of(&cs)?;
         Ok(Synthesized {
-            matrices: circuit_matrices(&cs)?,
+            matrices: circuit_matrices(&cs, <P::Circuit as Statement<S>>::PUBLIC_INPUTS)?,
             assignment,
         })
     }
@@ -384,23 +461,16 @@ where
     }
 
     fn synthesize(&self, cs: &CircuitSystem) -> Result<(), CircuitError> {
-        let public_input = CircuitVar::input(cs, || Ok(self.public_hash))?;
-        let checked = self
-            .proof_inputs
-            .instantiate(&Allocator::R1cs(cs.clone()))?
-            .circuit()?;
-        labels::check(
-            cs,
-            "the circuit's public hash is not the proof's public input",
-            || checked.public_hash().enforce_equal(&public_input),
-        )
+        <P::Circuit as Statement<S>>::constrain(cs, &self.statement, || {
+            self.proof_inputs.instantiate(&Allocator::R1cs(cs.clone()))
+        })
     }
 }
 
-impl<P> ConstraintSynthesizer<Fr> for ArkworksCircuit<'_, P>
+impl<P, S> ConstraintSynthesizer<Fr> for ArkworksCircuit<'_, P, S>
 where
     P: ProofInput,
-    P::Circuit: Circuit,
+    P::Circuit: Statement<S>,
 {
     fn generate_constraints(self, cs: CircuitSystem) -> Result<(), SynthesisError> {
         self.synthesize(&cs).map_err(flatten)

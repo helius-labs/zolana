@@ -12,7 +12,7 @@ pub mod wasm;
 
 pub use client::{Bytes, Owner, ProgramOwner, TxContext};
 #[cfg(feature = "client")]
-pub use client::{ProgramTransaction, ZkProgram};
+pub use client::{ProgramTransaction, ZkCircuit, ZkProgram};
 pub use error::{
     CircuitError, CircuitErrorKind, ClientError, ClientErrorKind, ProverError, ProverErrorKind,
     SlotKind, SourceLocation,

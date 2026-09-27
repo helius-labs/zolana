@@ -51,6 +51,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `Owner` | An owner preimage: the tag (`S` for Ed25519 and PDA keys, `P` for P256), the key bytes and the nullifier key. From a `ShieldedAddress`, or a signing key and nullifier key. |
 | `Bytes<N>` | A byte string the circuit sees byte by byte. |
 | `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
+| `ZkCircuit` | Feature `client`. A circuit with no transaction and no public input, for testing a builtin on its own. Implemented for every input that implements `Placeholder` and whose circuit type implements `Constraints`. `check_constraints` runs the constraints natively and in R1CS and compares the proof's synthesis with the placeholder's, as `ZkProgram`'s does. `export_r1cs` (feature `setup`) and `export_assignment` write the iden3 `.r1cs` and `.wtns` files, with 0 public inputs. There is no Groth16 prover for one yet; snarkjs proves one from those files. |
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof`, `CompressedProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`, and the 128-byte form an instruction contains, from `CompressedProof::try_from(&proof)`. `CompressedProof::verify` decompresses and verifies it. |
@@ -112,6 +113,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, and computes `private_tx_hash` and the public hash. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
 | `Circuit` | The `circuit` method of a circuit type. |
+| `Constraints` | The `constraints` method of a circuit type that only asserts rules, with no transaction and no public hash. `ZkCircuit` runs it. |
 
 **Diagnostics**
 
@@ -126,7 +128,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | Name | What it is good for |
 | --- | --- |
 | `constraint_labels` | The labels of a proof input's synthesis. |
-| `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. |
+| `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. A `ZkCircuit` has no public hash, so `Tamper::PublicHash` on one is `WrongPublicInputCount`. |
 | `check_private_variables`, `PrivateVariableReport`, `FreeVariable` | Perturbs each private variable in turn and lists the ones no constraint refuses. A free variable is an under-constrained circuit, except equality hints (`Multiplier`) and the unused inputs' nullifier and latest tree, which the SPP proof constrains (`Carried`). Both scenario suites and the escrow run it on every proof. |
 
 ### `zk_program_sdk::conversion`: between the two

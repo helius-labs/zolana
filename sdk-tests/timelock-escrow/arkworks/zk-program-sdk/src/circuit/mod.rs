@@ -22,3 +22,7 @@ use crate::CircuitError;
 pub trait Circuit: CircuitType {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError>;
 }
+
+pub trait Constraints: CircuitType {
+    fn constraints(&self) -> Result<(), CircuitError>;
+}
