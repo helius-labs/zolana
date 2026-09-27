@@ -7,6 +7,7 @@ mod var;
 
 use std::{cell::RefCell, collections::HashMap};
 
+use ark_bn254::Fr;
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -18,7 +19,7 @@ pub use var::{field, field_bytes, to_bytes, var};
 pub use zk_program_sdk_macros::ProofInput;
 
 use crate::{
-    circuit::{constant, labels, CircuitSystem, CircuitType, CircuitVar, Field, VariableRole},
+    circuit::{constant, labels, CircuitSystem, CircuitType, CircuitVar, VariableRole},
     CircuitError,
 };
 
@@ -56,7 +57,7 @@ impl Allocator {
     #[track_caller]
     pub(crate) fn witness(
         &self,
-        value: Field,
+        value: Fr,
         text: &'static str,
         role: VariableRole,
     ) -> Result<CircuitVar, CircuitError> {

@@ -1,3 +1,4 @@
+use ark_bn254::Fr;
 use zolana_hasher::primitives::PACK_BE_CHUNK_BYTES;
 
 use crate::{
@@ -7,7 +8,7 @@ use crate::{
             gadgets::hash_bytes::packed,
             ops::assert::{all_equal, assert_all_equal, assert_all_equal_if},
         },
-        constant, hash_bytes, zero, Assert, Bool, CircuitVar, Field, Select,
+        constant, hash_bytes, zero, Assert, Bool, CircuitVar, Select,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -24,19 +25,6 @@ impl<const N: usize> Bytes<N> {
         }
     }
 
-    pub fn from_var(var: &CircuitVar) -> Result<Self, CircuitError> {
-        let bits = bits_le(var, 8 * N)?;
-        let bytes = bits.chunks(8).rev().map(|chunk| {
-            chunk
-                .iter()
-                .rev()
-                .fold(zero(), |byte, bit| byte.scaled(Field::from(2u64)).plus(bit))
-        });
-        Ok(Self {
-            bytes: collect_array(bytes)?,
-        })
-    }
-
     pub(crate) fn from_checked(bytes: [CircuitVar; N]) -> Self {
         Self { bytes }
     }
@@ -45,15 +33,56 @@ impl<const N: usize> Bytes<N> {
         &self.bytes
     }
 
-    pub fn to_var(&self) -> Result<CircuitVar, CircuitError> {
+    pub fn hash_bytes(&self) -> Result<CircuitVar, CircuitError> {
+        hash_bytes(&self.bytes)
+    }
+}
+
+impl<const N: usize> TryFrom<&CircuitVar> for Bytes<N> {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(var: &CircuitVar) -> Result<Self, CircuitError> {
+        let bits = bits_le(var, 8 * N)?;
+        let bytes = bits.chunks(8).rev().map(|chunk| {
+            chunk
+                .iter()
+                .rev()
+                .fold(zero(), |byte, bit| byte.scaled(Fr::from(2u64)).plus(bit))
+        });
+        Ok(Self {
+            bytes: collect_array(bytes)?,
+        })
+    }
+}
+
+impl<const N: usize> TryFrom<CircuitVar> for Bytes<N> {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(var: CircuitVar) -> Result<Self, CircuitError> {
+        Self::try_from(&var)
+    }
+}
+
+impl<const N: usize> TryFrom<&Bytes<N>> for CircuitVar {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(bytes: &Bytes<N>) -> Result<Self, CircuitError> {
         if N > PACK_BE_CHUNK_BYTES {
             return Err(CircuitErrorKind::BitWidthTooLarge { bits: 8 * N }.into());
         }
-        Ok(packed(&self.bytes).into_iter().next().unwrap_or_else(zero))
+        Ok(packed(&bytes.bytes).into_iter().next().unwrap_or_else(zero))
     }
+}
 
-    pub fn hash_bytes(&self) -> Result<CircuitVar, CircuitError> {
-        hash_bytes(&self.bytes)
+impl<const N: usize> TryFrom<Bytes<N>> for CircuitVar {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(bytes: Bytes<N>) -> Result<Self, CircuitError> {
+        Self::try_from(&bytes)
     }
 }
 

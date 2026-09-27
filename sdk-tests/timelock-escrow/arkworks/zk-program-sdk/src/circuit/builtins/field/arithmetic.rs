@@ -3,20 +3,9 @@ use ark_ff::{Field as _, Zero};
 use super::var::{constant, CircuitVar};
 use crate::{CircuitError, CircuitErrorKind};
 
-pub trait Arithmetic: Sized {
+impl CircuitVar {
     #[track_caller]
-    fn inverse(&self) -> Result<Self, CircuitError>;
-
-    #[track_caller]
-    fn div(&self, divisor: &Self) -> Result<Self, CircuitError>;
-
-    #[track_caller]
-    fn pow(&self, exponent: u64) -> Result<Self, CircuitError>;
-}
-
-impl Arithmetic for CircuitVar {
-    #[track_caller]
-    fn inverse(&self) -> Result<Self, CircuitError> {
+    pub fn inverse(&self) -> Result<Self, CircuitError> {
         if let Some(value) = self.constant_value() {
             return value
                 .inverse()
@@ -30,12 +19,12 @@ impl Arithmetic for CircuitVar {
     }
 
     #[track_caller]
-    fn div(&self, divisor: &Self) -> Result<Self, CircuitError> {
-        Ok(self.times(&Arithmetic::inverse(divisor)?))
+    pub fn div(&self, divisor: &Self) -> Result<Self, CircuitError> {
+        Ok(self.times(&divisor.inverse()?))
     }
 
     #[track_caller]
-    fn pow(&self, exponent: u64) -> Result<Self, CircuitError> {
+    pub fn pow(&self, exponent: u64) -> Result<Self, CircuitError> {
         self.power(exponent)
     }
 }

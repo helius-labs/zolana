@@ -189,16 +189,27 @@ Proof inputs use plain Rust types that implement `ProofInput`:
   `[u8; 32]`, `Bytes<N>`, `Owner` and arrays of them implement it, and a state's client form
   implements it field by field. A `ShieldedAddress`, a `Mint` or a spent UTXO cannot come
   back: the viewing key, the asset id and the indexer context are not in the circuit.
-- Integers are `Uint<BITS>`, a value below `2^BITS`. `add`, `mul`, `sum` and `widen` return
-  a wider type, and the width checks run when the circuit is built, so a sum or a product
-  that could wrap around the field does not compile. A computed value that must fit a width
-  gets `narrow`, `checked_sub` or a comparison, each with a named rule.
+- Integers are `Uint<BITS>`, a value below `2^BITS`, with the aliases `U8`, `U16`, `U32`,
+  `U64` and `U128`. `add`, `mul` and `sum` return a wider type, and the width checks run when
+  the circuit is built, so a sum or a product that could wrap around the field does not
+  compile. `From` widens between the aliases and from a `Bool`. A computed value that must
+  fit a width gets `checked_add`, `checked_mul`, `checked_sub` or a comparison, each with a
+  named rule, or `TryFrom` into a narrower alias, which range-checks it.
 - A computed `CircuitVar` that needs a bound gets an explicit check in `circuit`:
-  `check_bits(bits)` or `check_is_bool` from `Bits`, or `Uint::from_var`, which
-  range-checks it into a `Uint<BITS>`.
-- `CircuitVar` is opaque: it has no arithmetic or comparison operators, a circuit cannot
-  allocate one, and `value` reads only a constant. Reading a variable fails in both runs with
-  the line of the read.
+  `check_bits(bits)` or `check_is_bool` from `Bits`, or `Uint::try_from(&var)`, which
+  range-checks it into a `Uint<BITS>`. `Bool::try_from(&var)` checks a 0 or 1 value and
+  `Bytes::<N>::try_from(&var)` splits one into bytes; `CircuitVar::from` turns a `Bool` or a
+  `Uint<BITS>` back into a value, and `CircuitVar::try_from(&bytes)` packs bytes.
+- `CircuitVar` is a field element. `+`, `-`, `*`, unary `-`, `+=`, `-=` and `*=` wrap around
+  the modulus: a sum and a product by a constant are free, and a product of two variables
+  costs one constraint. `inverse`, `div` and `pow` (by a constant exponent) are methods;
+  `inverse` and `div` refuse a zero divisor. `/`, `%`, `==` and `<` do not compile: the `/`
+  and `%` errors point to `Uint::div_rem` and `CircuitVar::div`, and the `==` and `<` errors
+  name the rules `UseAssertEqual` and `UseUintComparison`, for `assert_equal` or `is_equal`
+  and the `Uint` comparisons. Equality and zero checks go through `Assert`: `is_equal(&zero())`,
+  `assert_equal` and `assert_not_equal`.
+- A circuit cannot allocate a `CircuitVar`, and `value` reads only a constant. Reading a
+  variable fails in both runs with the line of the read.
 - The SPP proof range-checks UTXO amounts, so a spent UTXO's amount is a trusted `Uint<64>`
   that a circuit reads through `Balance`. The circuit range-checks its inputs and the computed
   values its logic relies on, such as the operands of a comparison.
@@ -423,7 +434,7 @@ zk-program-sdk follows the same split:
 | Path | Contents |
 | --- | --- |
 | `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `CircuitError`, `ClientError`, `ProverError`, their kinds and `SourceLocation`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `Unsigned`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Compare`, `Arithmetic`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
 | `zk_program_sdk::testing` | Feature `client`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 

@@ -159,8 +159,8 @@ pub(crate) mod circuit {
             poseidon(&[
                 self.maker_hash.clone(),
                 self.ask_asset_hash.clone(),
-                self.ask_amount.var(),
-                self.expiry.var(),
+                self.ask_amount.clone().into(),
+                self.expiry.clone().into(),
             ])
         }
     }
@@ -210,7 +210,7 @@ pub(crate) mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.order_owner.hash()?,
-                self.expiry.var(),
+                self.expiry.clone().into(),
                 transaction_hash.clone(),
             ])
         }

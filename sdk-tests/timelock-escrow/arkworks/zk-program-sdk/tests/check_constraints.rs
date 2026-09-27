@@ -56,7 +56,7 @@ struct Peeking {
 impl Circuit for Peeking {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        if value(&private.amount.var())? == Field::from(0u64) {
+        if value(&private.amount.clone().into())? == Field::from(0u64) {
             return Err(CircuitError::rule_broken("the payment moves nothing"));
         }
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

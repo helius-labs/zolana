@@ -148,7 +148,7 @@ fn a_tag_outside_s_and_p_and_a_byte_above_255_are_refused() {
         let byte = Field::from(256u64)
             .instantiate(&Allocator::R1cs(cs.clone()))
             .unwrap();
-        let _byte = Uint::<8>::from_var(&byte, "a byte fits in 8 bits").unwrap();
+        let _byte = Uint::<8>::try_from(&byte).unwrap();
         cs.is_satisfied().unwrap()
     };
 

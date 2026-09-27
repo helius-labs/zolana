@@ -108,7 +108,7 @@ impl FromCircuit for Tally {
 
 impl DataHash for TallyCircuit {
     fn hash(&self) -> Result<CircuitVar, CircuitError> {
-        poseidon(&[self.count.var()])
+        poseidon(&[CircuitVar::from(self.count.clone())])
     }
 }
 
@@ -154,7 +154,7 @@ impl FromCircuit for SkewedTally {
 
 impl DataHash for SkewedTallyCircuit {
     fn hash(&self) -> Result<CircuitVar, CircuitError> {
-        poseidon(&[self.count.var()])
+        poseidon(&[CircuitVar::from(self.count.clone())])
     }
 }
 

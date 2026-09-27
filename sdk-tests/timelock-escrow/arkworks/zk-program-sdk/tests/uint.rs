@@ -12,11 +12,11 @@ fn native<const BITS: u32>(value: u64) -> Uint<BITS> {
 }
 
 fn number<const BITS: u32>(uint: &Uint<BITS>) -> Field {
-    value(&uint.var()).unwrap()
+    value(&CircuitVar::from(uint.clone())).unwrap()
 }
 
 fn truth(bool: &Bool) -> Field {
-    value(&bool.var()).unwrap()
+    value(&CircuitVar::from(bool.clone())).unwrap()
 }
 
 fn allocated(cs: &CircuitSystem, value: u64) -> CircuitVar {
@@ -26,7 +26,7 @@ fn allocated(cs: &CircuitSystem, value: u64) -> CircuitVar {
 }
 
 fn uint<const BITS: u32>(cs: &CircuitSystem, value: u64) -> Uint<BITS> {
-    Uint::from_var(&allocated(cs, value), "the test value is in range").unwrap()
+    Uint::try_from(&allocated(cs, value)).unwrap()
 }
 
 fn cost<T>(cs: &CircuitSystem, operation: impl FnOnce() -> T) -> (usize, T) {
@@ -210,7 +210,7 @@ fn a_broken_rule_leaves_the_constraints_unsatisfied() {
             unsatisfied(|cs| {
                 let too_large = (Field::from(u64::MAX) + Field::from(1u64))
                     .instantiate(&Allocator::R1cs(cs.clone()))?;
-                Uint::<64>::from_var(&too_large, "fits in 64 bits").map(|_| ())
+                Uint::<64>::try_from(&too_large).map(|_| ())
             }),
             unsatisfied(|cs| {
                 uint::<64>(cs, 200)

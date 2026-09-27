@@ -51,7 +51,7 @@ impl Circuit for Withdraw {
 impl PublicInputs for WithdrawPublicInputs {
     fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         poseidon(&[
-            self.unlock.var(),
+            self.unlock.clone().into(),
             self.owner_identity.clone(),
             private_tx_hash.clone(),
         ])

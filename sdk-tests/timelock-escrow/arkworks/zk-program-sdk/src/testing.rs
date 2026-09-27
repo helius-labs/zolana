@@ -60,7 +60,7 @@ where
     let slot = assignment
         .get_mut(variable)
         .ok_or(ProverErrorKind::ProofInputsForAnotherCircuit)?;
-    *slot = value;
+    *slot = value.into();
     synthesized.matrices.check(&assignment)
 }
 

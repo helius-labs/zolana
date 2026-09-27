@@ -1,7 +1,8 @@
+use ark_bn254::Fr;
 use light_poseidon::{parameters::bn254_x5::get_poseidon_parameters, PoseidonParameters};
 
 use crate::{
-    circuit::{builtins::field::var::system_of, labels::Scope, zero, CircuitVar, Field},
+    circuit::{builtins::field::var::system_of, labels::Scope, zero, CircuitVar},
     CircuitError, CircuitErrorKind,
 };
 
@@ -51,10 +52,10 @@ pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, CircuitError> {
         })?)
 }
 
-fn parameters(inputs: usize) -> Result<PoseidonParameters<Field>, CircuitError> {
+fn parameters(inputs: usize) -> Result<PoseidonParameters<Fr>, CircuitError> {
     let width = u8::try_from(inputs + 1)
         .map_err(|_| CircuitErrorKind::UnsupportedHashInputCount { inputs })?;
-    let params = get_poseidon_parameters::<Field>(width)
+    let params = get_poseidon_parameters::<Fr>(width)
         .map_err(|_| CircuitErrorKind::UnsupportedHashInputCount { inputs })?;
     if params.alpha != 5 {
         return Err(CircuitErrorKind::UnsupportedHashInputCount { inputs }.into());

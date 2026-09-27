@@ -127,7 +127,7 @@ mod circuit {
 
     impl PublicInputs for TypedUpdatePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.count.var(), transaction_hash.clone()])
+            poseidon(&[self.count.clone().into(), transaction_hash.clone()])
         }
     }
 }

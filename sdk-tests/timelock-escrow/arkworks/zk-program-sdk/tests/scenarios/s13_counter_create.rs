@@ -118,7 +118,7 @@ pub(crate) mod circuit {
 
     impl DataHash for Counter {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.count.var()])
+            poseidon(&[self.count.clone().into()])
         }
     }
 

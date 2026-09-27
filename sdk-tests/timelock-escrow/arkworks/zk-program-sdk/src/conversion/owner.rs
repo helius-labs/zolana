@@ -1,10 +1,11 @@
+use ark_bn254::Fr;
 use ark_r1cs_std::boolean::Boolean;
 use zolana_hasher::primitives::SOLANA_OWNER_TAG;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 
 use super::{bytes::byte_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, Field, VariableRole},
+    circuit::{self, VariableRole},
     client, CircuitError, CircuitErrorKind,
 };
 
@@ -41,10 +42,10 @@ impl FromCircuit for client::Owner {
 pub(super) fn owner(
     allocator: &Allocator,
     owner: &client::Owner,
-    skip_tag_check: &Boolean<Field>,
+    skip_tag_check: &Boolean<Fr>,
 ) -> Result<circuit::Owner, CircuitError> {
     let tag = allocator.witness(
-        Field::from(owner.tag),
+        Fr::from(owner.tag),
         "an owner tag",
         VariableRole::Constrained,
     )?;

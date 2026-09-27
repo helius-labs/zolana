@@ -1,3 +1,4 @@
+use ark_bn254::Fr;
 use ark_r1cs_std::{
     alloc::AllocVar,
     boolean::Boolean,
@@ -7,7 +8,7 @@ use ark_r1cs_std::{
 };
 use ark_relations::r1cs::SynthesisError;
 
-use super::var::{CircuitSystem, CircuitVar, Field};
+use super::var::{CircuitSystem, CircuitVar};
 use crate::{
     circuit::labels::{self, VariableRole},
     CircuitError,
@@ -22,20 +23,20 @@ impl CircuitVar {
         self.0.is_constant()
     }
 
-    pub(crate) fn constant_value(&self) -> Option<Field> {
+    pub(crate) fn constant_value(&self) -> Option<Fr> {
         match &self.0 {
             FpVar::Constant(value) => Some(*value),
             FpVar::Var(_) => None,
         }
     }
 
-    pub(crate) fn assigned(&self) -> Result<Field, SynthesisError> {
+    pub(crate) fn assigned(&self) -> Result<Fr, SynthesisError> {
         self.0.value()
     }
 
     pub(crate) fn witness(
         cs: &CircuitSystem,
-        value: impl FnOnce() -> Result<Field, SynthesisError>,
+        value: impl FnOnce() -> Result<Fr, SynthesisError>,
     ) -> Result<Self, CircuitError> {
         Ok(Self(FpVar::new_witness(cs.clone(), value)?))
     }
@@ -43,12 +44,12 @@ impl CircuitVar {
     #[cfg(feature = "client")]
     pub(crate) fn input(
         cs: &CircuitSystem,
-        value: impl FnOnce() -> Result<Field, SynthesisError>,
+        value: impl FnOnce() -> Result<Fr, SynthesisError>,
     ) -> Result<Self, CircuitError> {
         Ok(Self(FpVar::new_input(cs.clone(), value)?))
     }
 
-    pub(crate) fn from_boolean(bit: Boolean<Field>) -> Self {
+    pub(crate) fn from_boolean(bit: Boolean<Fr>) -> Self {
         Self(FpVar::from(bit))
     }
 
@@ -64,11 +65,11 @@ impl CircuitVar {
         Self(self.0.clone() * &other.0)
     }
 
-    pub(crate) fn scaled(&self, factor: Field) -> Self {
+    pub(crate) fn scaled(&self, factor: Fr) -> Self {
         Self(self.0.clone() * factor)
     }
 
-    pub(crate) fn offset(&self, addend: Field) -> Self {
+    pub(crate) fn offset(&self, addend: Fr) -> Self {
         Self(self.0.clone() + addend)
     }
 
@@ -85,7 +86,7 @@ impl CircuitVar {
     }
 
     #[track_caller]
-    pub(crate) fn equals(&self, other: &Self) -> Result<Boolean<Field>, CircuitError> {
+    pub(crate) fn equals(&self, other: &Self) -> Result<Boolean<Fr>, CircuitError> {
         let cs = self.cs().or(other.cs());
         let first = cs.num_witness_variables();
         let equal = self.0.is_eq(&other.0)?;
@@ -99,8 +100,8 @@ impl CircuitVar {
     }
 
     #[track_caller]
-    pub(crate) fn equals_zero(&self) -> Result<Boolean<Field>, CircuitError> {
-        self.equals(&CircuitVar(FpVar::Constant(Field::from(0u64))))
+    pub(crate) fn equals_zero(&self) -> Result<Boolean<Fr>, CircuitError> {
+        self.equals(&CircuitVar(FpVar::Constant(Fr::from(0u64))))
     }
 
     pub(crate) fn enforce_equal(&self, other: &Self) -> Result<(), CircuitError> {
@@ -110,7 +111,7 @@ impl CircuitVar {
     pub(crate) fn enforce_equal_if(
         &self,
         other: &Self,
-        condition: &Boolean<Field>,
+        condition: &Boolean<Fr>,
     ) -> Result<(), CircuitError> {
         Ok(self.0.conditional_enforce_equal(&other.0, condition)?)
     }
@@ -123,6 +124,6 @@ impl CircuitVar {
 pub(crate) fn sum<'a>(vars: impl IntoIterator<Item = &'a CircuitVar>) -> CircuitVar {
     CircuitVar(
         vars.into_iter()
-            .fold(FpVar::Constant(Field::from(0u64)), |sum, var| sum + &var.0),
+            .fold(FpVar::Constant(Fr::from(0u64)), |sum, var| sum + &var.0),
     )
 }

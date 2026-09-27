@@ -205,11 +205,11 @@ mod circuit {
     impl DataHash for Limits {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.daily.var(),
-                self.weekly.var(),
-                self.per_transfer.var(),
-                self.frozen.var(),
-                self.tier.var(),
+                self.daily.clone().into(),
+                self.weekly.clone().into(),
+                self.per_transfer.clone().into(),
+                self.frozen.clone().into(),
+                self.tier.clone().into(),
             ])
         }
     }
@@ -239,7 +239,7 @@ mod circuit {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.owner_hash.clone(),
-                self.nonce.var(),
+                self.nonce.clone().into(),
                 self.limits.hash()?,
                 self.balances.hash()?,
                 self.labels.hash()?,

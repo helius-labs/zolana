@@ -176,7 +176,7 @@ pub(crate) mod circuit {
 
     impl PublicInputs for MixerDepositPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.denomination.var(), transaction_hash.clone()])
+            poseidon(&[self.denomination.clone().into(), transaction_hash.clone()])
         }
     }
 }

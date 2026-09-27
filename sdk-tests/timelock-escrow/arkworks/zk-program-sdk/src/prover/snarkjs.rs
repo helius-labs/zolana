@@ -1,18 +1,19 @@
+use ark_bn254::Fr;
 use ark_ff::{BigInt, BigInteger, PrimeField};
 #[cfg(feature = "setup")]
 use ark_relations::r1cs::ConstraintMatrices;
 
-use crate::{circuit::Field, ProverError, ProverErrorKind};
+use crate::{ProverError, ProverErrorKind};
 
 const FIELD_BYTES: u32 = 32;
 
 #[cfg(feature = "setup")]
-pub(crate) fn r1cs(matrices: &ConstraintMatrices<Field>) -> Result<Vec<u8>, ProverError> {
+pub(crate) fn r1cs(matrices: &ConstraintMatrices<Fr>) -> Result<Vec<u8>, ProverError> {
     let variables = matrices.num_instance_variables + matrices.num_witness_variables;
 
     let mut header = Vec::new();
     header.extend_from_slice(&FIELD_BYTES.to_le_bytes());
-    header.extend_from_slice(&Field::MODULUS.to_bytes_le());
+    header.extend_from_slice(&Fr::MODULUS.to_bytes_le());
     put_u32(&mut header, variables)?;
     put_u32(&mut header, 0)?;
     put_u32(
@@ -53,10 +54,10 @@ pub(crate) fn r1cs(matrices: &ConstraintMatrices<Field>) -> Result<Vec<u8>, Prov
     binary_file(b"r1cs", 1, &[(1, &header), (2, &constraints), (3, &labels)])
 }
 
-pub(crate) fn wtns(assignment: &[Field]) -> Result<Vec<u8>, ProverError> {
+pub(crate) fn wtns(assignment: &[Fr]) -> Result<Vec<u8>, ProverError> {
     let mut header = Vec::new();
     header.extend_from_slice(&FIELD_BYTES.to_le_bytes());
-    header.extend_from_slice(&Field::MODULUS.to_bytes_le());
+    header.extend_from_slice(&Fr::MODULUS.to_bytes_le());
     put_u32(&mut header, assignment.len())?;
 
     let mut values = Vec::new();
@@ -67,7 +68,7 @@ pub(crate) fn wtns(assignment: &[Field]) -> Result<Vec<u8>, ProverError> {
     binary_file(b"wtns", 2, &[(1, &header), (2, &values)])
 }
 
-pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, ProverError> {
+pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Fr>, ProverError> {
     let mut file = Cursor::new(bytes);
     if file.take(4)? != b"wtns" {
         return Err(invalid("the bytes are not a wtns file").into());
@@ -94,7 +95,7 @@ pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, ProverError> {
 
     let mut header = Cursor::new(header.ok_or(invalid("the header section is missing"))?);
     let over_scalar_field = header.u32()? == FIELD_BYTES
-        && header.take(FIELD_BYTES as usize)? == Field::MODULUS.to_bytes_le().as_slice();
+        && header.take(FIELD_BYTES as usize)? == Fr::MODULUS.to_bytes_le().as_slice();
     if !over_scalar_field {
         return Err(invalid("the values belong to another proof system").into());
     }
@@ -114,7 +115,7 @@ pub(crate) fn read_wtns(bytes: &[u8]) -> Result<Vec<Field>, ProverError> {
             for (limb, bytes) in limbs.iter_mut().zip(chunk.as_chunks::<8>().0) {
                 *limb = u64::from_le_bytes(*bytes);
             }
-            Field::from_bigint(BigInt::new(limbs)).ok_or(ProverErrorKind::ProofInputTooLarge)
+            Fr::from_bigint(BigInt::new(limbs)).ok_or(ProverErrorKind::ProofInputTooLarge)
         })
         .collect::<Result<_, _>>()?)
 }

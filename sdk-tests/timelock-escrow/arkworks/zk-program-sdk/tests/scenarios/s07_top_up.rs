@@ -101,7 +101,7 @@ mod circuit {
 
     impl PublicInputs for TopUpPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.amount.var(), transaction_hash.clone()])
+            poseidon(&[self.amount.clone().into(), transaction_hash.clone()])
         }
     }
 }

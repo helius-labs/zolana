@@ -162,7 +162,11 @@ pub(crate) mod circuit {
 
     impl DataHash for Issuer {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[constant(1u64), self.issuer_hash.clone(), self.issued.var()])
+            poseidon(&[
+                constant(1u64),
+                self.issuer_hash.clone(),
+                self.issued.clone().into(),
+            ])
         }
     }
 

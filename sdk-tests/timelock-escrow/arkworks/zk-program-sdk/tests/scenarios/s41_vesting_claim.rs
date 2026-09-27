@@ -165,10 +165,10 @@ mod circuit {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.beneficiary_hash.clone(),
-                self.total.var(),
-                self.claimed.var(),
-                self.start.var(),
-                self.end.var(),
+                self.total.clone().into(),
+                self.claimed.clone().into(),
+                self.start.clone().into(),
+                self.end.clone().into(),
             ])
         }
     }
@@ -251,9 +251,9 @@ mod circuit {
     impl PublicInputs for VestingClaimPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.now.var(),
-                self.start.var(),
-                self.end.var(),
+                self.now.clone().into(),
+                self.start.clone().into(),
+                self.end.clone().into(),
                 transaction_hash.clone(),
             ])
         }

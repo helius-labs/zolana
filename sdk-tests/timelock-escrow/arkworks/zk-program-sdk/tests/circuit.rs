@@ -365,7 +365,10 @@ mod circuit {
 
     impl PublicInputs for RegisterPublicInputs {
         fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.label.var(), private_tx_hash.clone()])
+            poseidon(&[
+                CircuitVar::from(self.label.clone()),
+                private_tx_hash.clone(),
+            ])
         }
     }
 

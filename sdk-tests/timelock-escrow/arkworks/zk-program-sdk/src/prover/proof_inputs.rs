@@ -1,16 +1,17 @@
+use ark_bn254::Fr;
 use ark_ff::One;
 
 use super::snarkjs;
-use crate::{circuit::Field, conversion::field_bytes, ProverError, ProverErrorKind};
+use crate::{conversion::be_bytes, ProverError, ProverErrorKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProofInputs {
-    values: Vec<Field>,
+    values: Vec<Fr>,
 }
 
 impl ProofInputs {
-    pub(crate) fn new(values: Vec<Field>) -> Result<Self, ProverError> {
-        if values.first() != Some(&Field::one()) {
+    pub(crate) fn new(values: Vec<Fr>) -> Result<Self, ProverError> {
+        if values.first() != Some(&Fr::one()) {
             return Err(ProverErrorKind::InvalidProofInputs(
                 "the first value is not the constant one",
             )
@@ -24,7 +25,7 @@ impl ProofInputs {
         Ok(Self { values })
     }
 
-    pub(crate) fn from_assignment(values: Vec<Field>) -> Self {
+    pub(crate) fn from_assignment(values: Vec<Fr>) -> Self {
         Self { values }
     }
 
@@ -40,13 +41,13 @@ impl ProofInputs {
         Ok(self
             .values
             .get(1)
-            .map(field_bytes)
+            .map(be_bytes)
             .ok_or(ProverErrorKind::InvalidProofInputs(
                 "the values hold no public hash",
             ))?)
     }
 
-    pub(crate) fn values(&self) -> &[Field] {
+    pub(crate) fn values(&self) -> &[Fr] {
         &self.values
     }
 }

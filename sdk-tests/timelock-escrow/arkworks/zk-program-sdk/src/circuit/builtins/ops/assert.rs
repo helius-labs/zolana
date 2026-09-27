@@ -1,8 +1,9 @@
+use ark_bn254::Fr;
 use ark_ff::{Field as _, Zero};
 use ark_r1cs_std::{boolean::Boolean, R1CSVar};
 
 use crate::{
-    circuit::{constant, labels, zero, Bool, CircuitVar, Field},
+    circuit::{constant, labels, zero, Bool, CircuitVar},
     CircuitError,
 };
 
@@ -146,7 +147,7 @@ pub(crate) fn assert_all_equal_if<T: Assert>(
 pub(crate) fn assert_equal_unless(
     left: &CircuitVar,
     right: &CircuitVar,
-    skip: &Boolean<Field>,
+    skip: &Boolean<Fr>,
     rule: &'static str,
 ) -> Result<(), CircuitError> {
     if let Boolean::Constant(skip) = skip {

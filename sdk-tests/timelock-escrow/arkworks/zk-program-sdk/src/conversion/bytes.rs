@@ -1,8 +1,9 @@
+use ark_bn254::Fr;
 use solana_address::Address;
 
 use super::{var::integer_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, builtins::field::bits::range_check, Field, VariableRole},
+    circuit::{self, builtins::field::bits::range_check, VariableRole},
     client, CircuitError, CircuitErrorKind,
 };
 
@@ -15,7 +16,7 @@ impl<const N: usize> ProofInput for client::Bytes<N> {
             .iter()
             .map(|byte| {
                 let var = allocator.witness(
-                    Field::from(*byte),
+                    Fr::from(*byte),
                     "a byte proof input",
                     VariableRole::Constrained,
                 )?;

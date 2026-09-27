@@ -175,10 +175,10 @@ pub(crate) mod circuit {
     impl DataHash for TypedState {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.amount.var(),
-                self.count.var(),
-                self.kind.var(),
-                self.active.var(),
+                self.amount.clone().into(),
+                self.count.clone().into(),
+                self.kind.clone().into(),
+                self.active.clone().into(),
                 self.tag.clone(),
                 self.owner_hash.clone(),
                 self.asset_hash.clone(),
@@ -232,7 +232,7 @@ pub(crate) mod circuit {
 
     impl PublicInputs for TypedCreatePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.amount.var(), transaction_hash.clone()])
+            poseidon(&[self.amount.clone().into(), transaction_hash.clone()])
         }
     }
 }

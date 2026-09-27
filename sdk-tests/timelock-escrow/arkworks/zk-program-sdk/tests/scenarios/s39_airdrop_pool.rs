@@ -140,7 +140,7 @@ pub(crate) mod circuit {
 
     impl DataHash for Pool {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.root.clone(), self.airdrop_id.var()])
+            poseidon(&[self.root.clone(), self.airdrop_id.clone().into()])
         }
     }
 
@@ -185,7 +185,7 @@ pub(crate) mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.root.clone(),
-                self.airdrop_id.var(),
+                self.airdrop_id.clone().into(),
                 transaction_hash.clone(),
             ])
         }

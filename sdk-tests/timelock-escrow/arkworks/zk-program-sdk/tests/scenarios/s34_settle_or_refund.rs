@@ -144,7 +144,10 @@ mod circuit {
 
     impl DataHash for Reservation {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.limit_price.var(), self.fill_price.var()])
+            poseidon(&[
+                self.limit_price.clone().into(),
+                self.fill_price.clone().into(),
+            ])
         }
     }
 
@@ -208,7 +211,10 @@ mod circuit {
 
     impl PublicInputs for SettlePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.execution_price.var(), transaction_hash.clone()])
+            poseidon(&[
+                self.execution_price.clone().into(),
+                transaction_hash.clone(),
+            ])
         }
     }
 }

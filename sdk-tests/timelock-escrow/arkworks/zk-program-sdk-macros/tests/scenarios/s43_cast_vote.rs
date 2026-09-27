@@ -63,7 +63,7 @@ impl Circuit for CastVote {
             .path
             .root(&poseidon(std::slice::from_ref(&private.secret_key))?)?
             .assert_equal(&public.root, "the voter is not registered")?;
-        poseidon(&[public.poll_id.var(), private.secret_key.clone()])?
+        poseidon(&[public.poll_id.clone().into(), private.secret_key.clone()])?
             .assert_equal(&public.nullifier, "the nullifier is not the voter's")?;
         for (tally, option) in poll.tally.iter_mut().zip(0u64..) {
             let voted = choice.is_equal(&Uint::<64>::constant(option)?)?;

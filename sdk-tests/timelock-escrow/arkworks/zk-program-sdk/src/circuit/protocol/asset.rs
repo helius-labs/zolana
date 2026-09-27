@@ -1,5 +1,6 @@
 use std::{cell::OnceCell, rc::Rc};
 
+use ark_bn254::Fr;
 use ark_r1cs_std::boolean::Boolean;
 use solana_address::Address;
 use zolana_transaction::SOL_MINT;
@@ -11,7 +12,7 @@ use crate::{
             gadgets::hash_bytes::packed,
             ops::assert::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless},
         },
-        Assert, Bool, Bytes, CircuitVar, Field, Select,
+        Assert, Bool, Bytes, CircuitVar, Select,
     },
     CircuitError,
 };
@@ -50,7 +51,7 @@ impl Asset {
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,
-        skip: &Boolean<Field>,
+        skip: &Boolean<Fr>,
         rule: &'static str,
     ) -> Result<(), CircuitError> {
         for (left, right) in packed(self.bytes.bytes())

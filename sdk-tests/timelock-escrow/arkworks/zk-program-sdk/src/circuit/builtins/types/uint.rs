@@ -1,3 +1,4 @@
+use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, One, PrimeField};
 use ark_relations::r1cs::SynthesisError;
 
@@ -10,7 +11,7 @@ use crate::{
         },
         constant,
         labels::{self, Scope},
-        zero, Assert, Bool, CircuitVar, Field, Select,
+        zero, Assert, Bool, CircuitVar, Select,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -30,26 +31,6 @@ pub type U16 = Uint<16>;
 pub type U32 = Uint<32>;
 pub type U64 = Uint<64>;
 pub type U128 = Uint<128>;
-
-mod sealed {
-    pub trait Sealed {}
-}
-
-pub trait Unsigned: sealed::Sealed {
-    const BITS: u32;
-
-    fn var(&self) -> CircuitVar;
-}
-
-impl<const BITS: u32> sealed::Sealed for Uint<BITS> {}
-
-impl<const BITS: u32> Unsigned for Uint<BITS> {
-    const BITS: u32 = BITS;
-
-    fn var(&self) -> CircuitVar {
-        self.var.clone()
-    }
-}
 
 impl<const BITS: u32> Uint<BITS> {
     const VALID: () = assert!(
@@ -76,7 +57,7 @@ impl<const BITS: u32> Uint<BITS> {
     }
 
     #[track_caller]
-    pub fn from_var(var: &CircuitVar, rule: &'static str) -> Result<Self, CircuitError> {
+    pub(crate) fn from_var(var: &CircuitVar, rule: &'static str) -> Result<Self, CircuitError> {
         let () = Self::VALID;
         fits(var, BITS, rule)?;
         Ok(Self { var: var.clone() })
@@ -87,7 +68,7 @@ impl<const BITS: u32> Uint<BITS> {
         Self { var }
     }
 
-    pub fn var(&self) -> CircuitVar {
+    pub(crate) fn var(&self) -> CircuitVar {
         self.var.clone()
     }
 
@@ -174,23 +155,19 @@ impl<const BITS: u32> Uint<BITS> {
     #[track_caller]
     pub fn assert_less_than(&self, other: &Self, rule: &'static str) -> Result<(), CircuitError> {
         let () = Self::ORDERED;
-        fits(
-            &other.var.minus(&self.var).offset(-Field::one()),
-            BITS,
-            rule,
-        )
+        fits(&other.var.minus(&self.var).offset(-Fr::one()), BITS, rule)
     }
 
     #[track_caller]
     pub fn is_less_or_equal(&self, other: &Self) -> Result<Bool, CircuitError> {
         let () = Self::ORDERED;
-        self.ordered_below(other, Field::ZERO)
+        self.ordered_below(other, Fr::ZERO)
     }
 
     #[track_caller]
     pub fn is_less_than(&self, other: &Self) -> Result<Bool, CircuitError> {
         let () = Self::ORDERED;
-        self.ordered_below(other, Field::one())
+        self.ordered_below(other, Fr::one())
     }
 
     #[track_caller]
@@ -276,14 +253,14 @@ impl<const BITS: u32> Uint<BITS> {
                 .filter(|(quotient, _)| quotient.checked_shr(QUOTIENT).is_none_or(|high| high == 0))
                 .ok_or(CircuitErrorKind::RuleBroken(rule))?;
             return Ok((
-                Uint::trusted(constant(Field::from(quotient))),
-                Uint::trusted(constant(Field::from(remainder))),
+                Uint::trusted(constant(quotient)),
+                Uint::trusted(constant(remainder)),
             ));
         }
         let _scope = Scope::open(&cs, "a division");
         let division = divide(&self.var, &divisor.var).unwrap_or((0, 0));
-        let quotient = CircuitVar::witness(&cs, || Ok(Field::from(division.0)))?;
-        let remainder = CircuitVar::witness(&cs, || Ok(Field::from(division.1)))?;
+        let quotient = CircuitVar::witness(&cs, || Ok(Fr::from(division.0)))?;
+        let remainder = CircuitVar::witness(&cs, || Ok(Fr::from(division.1)))?;
         let quotient = Uint::<QUOTIENT>::from_var(&quotient, rule)?;
         let remainder = Uint::<DIVISOR>::from_var(&remainder, rule)?;
         remainder.assert_less_than(divisor, rule)?;
@@ -301,7 +278,7 @@ impl<const BITS: u32> Uint<BITS> {
     );
 
     #[track_caller]
-    fn ordered_below(&self, other: &Self, gap: Field) -> Result<Bool, CircuitError> {
+    fn ordered_below(&self, other: &Self, gap: Fr) -> Result<Bool, CircuitError> {
         let offset = power_of_two(BITS) - gap;
         let shifted = other.var.minus(&self.var).offset(offset);
         if let Some(value) = shifted.constant_value() {
@@ -316,7 +293,33 @@ impl<const BITS: u32> Uint<BITS> {
 
 impl<const BITS: u32> From<Bool> for Uint<BITS> {
     fn from(bit: Bool) -> Self {
-        Uint::trusted(bit.var())
+        Uint::trusted(bit.into())
+    }
+}
+
+impl<const BITS: u32> From<Uint<BITS>> for CircuitVar {
+    fn from(value: Uint<BITS>) -> Self {
+        value.var
+    }
+}
+
+impl<const BITS: u32> TryFrom<CircuitVar> for Uint<BITS> {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(var: CircuitVar) -> Result<Self, CircuitError> {
+        let () = Self::VALID;
+        range_check(&var, BITS as usize, "a value does not fit in its bit width")?;
+        Ok(Self { var })
+    }
+}
+
+impl<const BITS: u32> TryFrom<&CircuitVar> for Uint<BITS> {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(var: &CircuitVar) -> Result<Self, CircuitError> {
+        Self::try_from(var.clone())
     }
 }
 
@@ -403,15 +406,15 @@ fn divide(dividend: &CircuitVar, divisor: &CircuitVar) -> Option<(u128, u128)> {
     ))
 }
 
-fn small(value: &Field) -> Option<u128> {
+fn small(value: &Fr) -> Option<u128> {
     let [low, high, rest @ ..] = value.into_bigint().0;
     rest.iter()
         .all(|limb| *limb == 0)
         .then_some(u128::from(low) | (u128::from(high) << 64))
 }
 
-fn power_of_two(bits: u32) -> Field {
-    (0..bits).fold(Field::one(), |power, _| power.double())
+fn power_of_two(bits: u32) -> Fr {
+    (0..bits).fold(Fr::one(), |power, _| power.double())
 }
 
 const fn ceil_log2(n: usize) -> u32 {

@@ -1,5 +1,6 @@
 use std::{cell::OnceCell, rc::Rc};
 
+use ark_bn254::Fr;
 use ark_r1cs_std::boolean::Boolean;
 use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
 
@@ -10,7 +11,7 @@ use crate::{
             gadgets::hash_bytes::packed,
             ops::assert::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless},
         },
-        hash_bytes, poseidon, zero, Assert, Bool, Bytes, CircuitVar, DataHash, Field, Select,
+        hash_bytes, poseidon, zero, Assert, Bool, Bytes, CircuitVar, DataHash, Select,
     },
     CircuitError,
 };
@@ -27,10 +28,10 @@ impl OwnerKey {
     pub(crate) fn new(
         tag: CircuitVar,
         bytes: Bytes<32>,
-        skip_tag_check: &Boolean<Field>,
+        skip_tag_check: &Boolean<Fr>,
     ) -> Result<Self, CircuitError> {
-        let solana = tag.offset(-Field::from(SOLANA_OWNER_TAG));
-        let p256 = tag.offset(-Field::from(P256_OWNER_TAG));
+        let solana = tag.offset(-Fr::from(SOLANA_OWNER_TAG));
+        let p256 = tag.offset(-Fr::from(P256_OWNER_TAG));
         assert_equal_unless(
             &solana.times(&p256),
             &zero(),
@@ -60,7 +61,7 @@ impl OwnerKey {
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,
-        skip: &Boolean<Field>,
+        skip: &Boolean<Fr>,
         rule: &'static str,
     ) -> Result<(), CircuitError> {
         for (left, right) in packed(&self.tagged()).iter().zip(&packed(&other.tagged())) {
@@ -120,7 +121,7 @@ impl Owner {
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,
-        skip: &Boolean<Field>,
+        skip: &Boolean<Fr>,
         rule: &'static str,
     ) -> Result<(), CircuitError> {
         self.key.assert_same_unless(&other.key, skip, rule)?;
@@ -130,7 +131,7 @@ impl Owner {
     #[track_caller]
     pub(crate) fn assert_no_nullifier_key_if(
         &self,
-        condition: &Boolean<Field>,
+        condition: &Boolean<Fr>,
         rule: &'static str,
     ) -> Result<(), CircuitError> {
         assert_equal_unless(&self.nullifier_pk, &zero(), &!condition, rule)

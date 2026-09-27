@@ -121,7 +121,7 @@ mod circuit {
     impl PublicInputs for WithdrawPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.unlock.var(),
+                self.unlock.clone().into(),
                 self.owner_identity.clone(),
                 transaction_hash.clone(),
             ])

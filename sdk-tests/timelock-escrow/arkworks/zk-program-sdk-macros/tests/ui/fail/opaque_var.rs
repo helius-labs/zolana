@@ -1,10 +1,10 @@
 use zk_program_sdk::circuit::{constant, CircuitSystem, CircuitVar, Field};
 
-fn arithmetic(left: CircuitVar, right: &CircuitVar) -> CircuitVar {
-    let sum = left.clone() + right;
-    let scaled = &sum * Field::from(2u64);
-    let mut total = scaled - right.clone();
-    total += right.clone();
+fn division(left: CircuitVar, right: &CircuitVar) -> CircuitVar {
+    let quotient = left.clone() / right;
+    let remainder = &quotient % Field::from(2u64);
+    let mut total = remainder;
+    total /= right.clone();
     total
 }
 
@@ -30,7 +30,7 @@ fn pattern(var: CircuitVar) -> Field {
 fn main() {
     let one = constant(1u64);
     let _ = (
-        arithmetic(one.clone(), &one),
+        division(one.clone(), &one),
         comparison(&one, &one),
         native_value(&one),
         allocation(CircuitSystem::None),

@@ -3,6 +3,8 @@ use core::marker::PhantomData;
 #[cfg(any(feature = "setup", not(target_arch = "wasm32")))]
 use std::path::Path;
 
+#[cfg(feature = "client")]
+use ark_bn254::Fr;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 #[cfg(feature = "client")]
@@ -20,7 +22,7 @@ use super::{
     zkey::Zkey,
 };
 #[cfg(feature = "client")]
-use crate::{circuit::Field, ZkProgram};
+use crate::ZkProgram;
 use crate::{conversion::be_bytes, ProverError, ProverErrorKind};
 
 pub type ProvingKey = ark_groth16::ProvingKey<Bn254>;
@@ -359,8 +361,8 @@ impl<P: ZkProgram> Groth16Prover<P> {
         self.matrices.check(assignment)?;
         let proof = SolanaProof::from(&create_proof(
             &self.keys.proving_key,
-            Field::rand(&mut OsRng),
-            Field::rand(&mut OsRng),
+            Fr::rand(&mut OsRng),
+            Fr::rand(&mut OsRng),
             self.matrices.matrices(),
             assignment,
         )?);

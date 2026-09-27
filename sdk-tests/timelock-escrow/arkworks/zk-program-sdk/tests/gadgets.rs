@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        assert_in, constant, from_bits_le, is_in, one_hot, select_index, value, Arithmetic, Assert,
-        Asset, Bits, Bool, Bytes, CircuitVar, Compare, ConstraintSystem, Field, Uint,
+        assert_in, constant, from_bits_le, is_in, one_hot, select_index, value, zero, Assert,
+        Asset, Bits, Bool, Bytes, CircuitVar, ConstraintSystem, Field, Uint,
     },
     conversion::{Allocator, ProofInput},
     CircuitError,
@@ -81,7 +81,7 @@ fn refused(message: &str) -> Outcome {
 }
 
 fn bools(flags: &[Bool]) -> Vec<CircuitVar> {
-    flags.iter().map(Bool::var).collect()
+    flags.iter().cloned().map(CircuitVar::from).collect()
 }
 
 fn operands(inputs: &[CircuitVar]) -> (CircuitVar, CircuitVar) {
@@ -101,7 +101,7 @@ fn minus(value: u64) -> Field {
 }
 
 fn uint<const BITS: u32>(var: &CircuitVar) -> Result<Uint<BITS>, CircuitError> {
-    Uint::from_var(var, "an operand fits in its width")
+    Uint::try_from(var)
 }
 
 fn uint_operands<const BITS: u32>(
@@ -131,12 +131,12 @@ fn comparisons_follow_integer_order() {
             run(&fs(&[*left, *right]), &|inputs| {
                 let (left, right) = uint_operands::<64>(inputs)?;
                 Ok(vec![
-                    left.is_less_than(&right)?.var(),
-                    left.is_less_or_equal(&right)?.var(),
-                    right.is_less_than(&left)?.var(),
-                    right.is_less_or_equal(&left)?.var(),
-                    left.min(&right)?.var(),
-                    left.max(&right)?.var(),
+                    CircuitVar::from(left.is_less_than(&right)?),
+                    CircuitVar::from(left.is_less_or_equal(&right)?),
+                    CircuitVar::from(right.is_less_than(&left)?),
+                    CircuitVar::from(right.is_less_or_equal(&left)?),
+                    CircuitVar::from(left.min(&right)?),
+                    CircuitVar::from(left.max(&right)?),
                 ])
             })
         })
@@ -162,7 +162,7 @@ fn comparisons_follow_integer_order() {
 fn operands_outside_the_width_are_refused() {
     let less_than = |inputs: &[CircuitVar]| {
         let (left, right) = uint_operands::<64>(inputs)?;
-        Ok(vec![left.is_less_than(&right)?.var()])
+        Ok(vec![CircuitVar::from(left.is_less_than(&right)?)])
     };
 
     assert_eq!(
@@ -171,8 +171,8 @@ fn operands_outside_the_width_are_refused() {
             run(&[f(0), minus(1)], &less_than),
         ),
         (
-            violated("an operand fits in its width"),
-            violated("an operand fits in its width"),
+            violated("a value does not fit in 64 bits"),
+            violated("a value does not fit in 64 bits"),
         )
     );
 }
@@ -186,13 +186,15 @@ fn ordering_holds_at_the_widest_ordered_width() {
             run(&[top, f(0)], &|inputs| {
                 let (left, right) = uint_operands::<252>(inputs)?;
                 Ok(vec![
-                    left.is_less_than(&right)?.var(),
-                    right.is_less_than(&left)?.var(),
+                    CircuitVar::from(left.is_less_than(&right)?),
+                    CircuitVar::from(right.is_less_than(&left)?),
                 ])
             }),
             run(&[f(0), top], &|inputs| {
                 let (left, right) = uint_operands::<252>(inputs)?;
-                Ok(vec![left.checked_sub(&right, "no underflow")?.var()])
+                Ok(vec![CircuitVar::from(
+                    left.checked_sub(&right, "no underflow")?,
+                )])
             }),
             run(&[top, f(0)], &|inputs| {
                 let (left, right) = uint_operands::<252>(inputs)?;
@@ -201,7 +203,7 @@ fn ordering_holds_at_the_widest_ordered_width() {
             }),
             run(&[top, top], &|inputs| {
                 let (left, right) = uint_operands::<252>(inputs)?;
-                Ok(vec![left.add::<253>(&right).var()])
+                Ok(vec![CircuitVar::from(left.add::<253>(&right))])
             }),
         ),
         (
@@ -298,7 +300,7 @@ fn comparisons_cost_one_decomposition_per_range() {
         (
             count(&|inputs| {
                 let (left, right) = uint_operands::<64>(inputs)?;
-                Ok(vec![left.is_less_than(&right)?.var()])
+                Ok(vec![CircuitVar::from(left.is_less_than(&right)?)])
             }),
             count(&|inputs| {
                 let (left, right) = uint_operands::<64>(inputs)?;
@@ -321,16 +323,16 @@ fn zero_checks() {
         (
             run(&fs(&[value]), &|inputs| {
                 let value = only(inputs);
-                Ok(vec![value.is_zero()?.var()])
+                Ok(vec![CircuitVar::from(value.is_equal(&zero())?)])
             }),
             run(&fs(&[value]), &|inputs| {
                 let value = only(inputs);
-                value.assert_zero("is zero")?;
+                value.assert_equal(&zero(), "is zero")?;
                 Ok(vec![])
             }),
             run(&fs(&[value]), &|inputs| {
                 let value = only(inputs);
-                value.assert_nonzero("is nonzero")?;
+                value.assert_not_equal(&zero(), "is nonzero")?;
                 Ok(vec![])
             }),
         )
@@ -352,7 +354,7 @@ fn conditional_asserts_only_bind_when_the_condition_holds() {
             let mut inputs = inputs.iter();
             let left = inputs.next().expect("left");
             let right = inputs.next().expect("right");
-            let condition = Bool::from_var(inputs.next().expect("condition"))?;
+            let condition = Bool::try_from(inputs.next().expect("condition"))?;
             left.assert_equal_if(right, &condition, "equal when set")?;
             Ok(vec![])
         })
@@ -360,7 +362,7 @@ fn conditional_asserts_only_bind_when_the_condition_holds() {
     let true_if = |flag: u64, condition: u64| {
         run(&fs(&[flag, condition]), &|inputs| {
             let (flag, condition) = operands(inputs);
-            Bool::from_var(&flag)?.assert_true_if(&Bool::from_var(&condition)?, "true when set")?;
+            Bool::try_from(&flag)?.assert_true_if(&Bool::try_from(&condition)?, "true when set")?;
             Ok(vec![])
         })
     };
@@ -392,8 +394,8 @@ fn bool_operations_follow_their_truth_tables() {
         .map(|(left, right)| {
             run(&fs(&[*left, *right]), &|inputs| {
                 let (left, right) = operands(inputs);
-                let left = Bool::from_var(&left)?;
-                let right = Bool::from_var(&right)?;
+                let left = Bool::try_from(&left)?;
+                let right = Bool::try_from(&right)?;
                 Ok(bools(&[
                     left.and(&right),
                     left.or(&right),
@@ -431,13 +433,13 @@ fn bools_are_checked_and_asserted() {
     let from_var = |value: u64| {
         run(&fs(&[value]), &|inputs| {
             let value = only(inputs);
-            Ok(vec![Bool::from_var(&value)?.var()])
+            Ok(vec![CircuitVar::from(Bool::try_from(&value)?)])
         })
     };
     let asserted = |value: u64| {
         run(&fs(&[value]), &|inputs| {
             let value = only(inputs);
-            let flag = Bool::from_var(&value)?;
+            let flag = Bool::try_from(&value)?;
             flag.assert_true("is true")?;
             flag.not().assert_false("is not false")?;
             Ok(vec![])
@@ -451,8 +453,8 @@ fn bools_are_checked_and_asserted() {
             asserted(1),
             asserted(0),
             (
-                value(&Bool::all(&[]).unwrap().var()).unwrap(),
-                value(&Bool::any(&[]).unwrap().var()).unwrap(),
+                value(&CircuitVar::from(Bool::all(&[]).unwrap())).unwrap(),
+                value(&CircuitVar::from(Bool::any(&[]).unwrap())).unwrap(),
             ),
         ),
         (
@@ -491,13 +493,13 @@ fn bytes_convert_to_and_from_a_var() {
     let from_var = |value: u64| {
         run(&fs(&[value]), &|inputs| {
             let value = only(inputs);
-            let bytes = Bytes::<2>::from_var(&value)?;
+            let bytes = Bytes::<2>::try_from(&value)?;
             Ok([
                 bytes.bytes().to_vec(),
                 vec![
-                    bytes.to_var()?,
-                    bytes.is_equal(&Bytes::constant(&[0x12, 0x34]))?.var(),
-                    bytes.is_equal(&Bytes::constant(&[0x12, 0x35]))?.var(),
+                    CircuitVar::try_from(&bytes)?,
+                    CircuitVar::from(bytes.is_equal(&Bytes::constant(&[0x12, 0x34]))?),
+                    CircuitVar::from(bytes.is_equal(&Bytes::constant(&[0x12, 0x35]))?),
                 ],
             ]
             .concat())
@@ -508,14 +510,13 @@ fn bytes_convert_to_and_from_a_var() {
         (
             from_var(0x1234),
             from_var(0x1_0000),
-            Bytes::<32>::default()
-                .to_var()
+            CircuitVar::try_from(&Bytes::<32>::default())
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
-            Bytes::<32>::from_var(&constant(0u64))
+            Bytes::<32>::try_from(&constant(0u64))
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
-            Bytes::<31>::from_var(&constant(0u64))
+            Bytes::<31>::try_from(&constant(0u64))
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
         ),
@@ -541,13 +542,15 @@ fn integer_arithmetic_refuses_underflow_narrowing_and_zero_divisors() {
         run(&fs(&[left, right]), &move |inputs| {
             let (left, right) = uint_operands::<64>(inputs)?;
             Ok(match operation {
-                0 => vec![left.add::<65>(&right).var()],
-                1 => vec![left.checked_sub(&right, "no underflow")?.var()],
-                2 => vec![left.mul::<128>(&right).var()],
-                3 => vec![left.checked_add(&right, "fits in 64 bits")?.var()],
+                0 => vec![CircuitVar::from(left.add::<65>(&right))],
+                1 => vec![CircuitVar::from(left.checked_sub(&right, "no underflow")?)],
+                2 => vec![CircuitVar::from(left.mul::<128>(&right))],
+                3 => vec![CircuitVar::from(
+                    left.checked_add(&right, "fits in 64 bits")?,
+                )],
                 _ => {
                     let (quotient, remainder) = left.div_rem::<64, 64>(&right, "divides")?;
-                    vec![quotient.var(), remainder.var()]
+                    vec![CircuitVar::from(quotient), CircuitVar::from(remainder)]
                 }
             })
         })
@@ -576,6 +579,66 @@ fn integer_arithmetic_refuses_underflow_narrowing_and_zero_divisors() {
             holds(&fs(&[u64::MAX, 0])),
             violated("divides"),
         )
+    );
+}
+
+#[test]
+fn field_operators_wrap_around_the_modulus() {
+    let binary = |left: u64, right: u64, operation: usize| {
+        run(&fs(&[left, right]), &move |inputs| {
+            let (left, right) = operands(inputs);
+            Ok(vec![match operation {
+                0 => &left + &right,
+                1 => &left - &right,
+                2 => &left * &right,
+                3 => -left,
+                4 => left * f(3),
+                _ => {
+                    let mut total = left;
+                    total += &right;
+                    total *= right;
+                    total
+                }
+            }])
+        })
+    };
+
+    assert_eq!(
+        (0..6)
+            .map(|operation| binary(3, 5, operation))
+            .collect::<Vec<_>>(),
+        vec![
+            holds(&[f(8)]),
+            holds(&[minus(2)]),
+            holds(&[f(15)]),
+            holds(&[minus(3)]),
+            holds(&[f(9)]),
+            holds(&[f(40)]),
+        ]
+    );
+}
+
+#[test]
+fn field_operators_cost_one_constraint_per_product() {
+    let cs = ConstraintSystem::new_ref();
+    let allocator = Allocator::R1cs(cs.clone());
+    let left = f(3).instantiate(&allocator).unwrap();
+    let right = f(5).instantiate(&allocator).unwrap();
+    let cost = |operation: &dyn Fn() -> CircuitVar| {
+        let before = cs.num_constraints();
+        let _ = operation();
+        cs.num_constraints() - before
+    };
+
+    assert_eq!(
+        [
+            cost(&|| &left + &right),
+            cost(&|| &left - &right),
+            cost(&|| -&left),
+            cost(&|| &left * f(3)),
+            cost(&|| &left * &right),
+        ],
+        [0, 0, 0, 0, 1]
     );
 }
 
@@ -616,7 +679,7 @@ fn select_picks_composite_values() {
     let selected = |condition: u64| {
         run(&fs(&[condition]), &|inputs| {
             let condition = only(inputs);
-            let condition = Bool::from_var(&condition)?;
+            let condition = Bool::try_from(&condition)?;
             let asset = condition.select(&Asset::constant(&mint.into()), &Asset::sol());
             let pair = condition.select(
                 &[constant(1u64), constant(2u64)],
@@ -625,10 +688,10 @@ fn select_picks_composite_values() {
             Ok([
                 vec![
                     asset.hash()?,
-                    asset.is_equal(&Asset::sol())?.var(),
-                    condition
-                        .select(&Bool::constant(false), &Bool::constant(true))
-                        .var(),
+                    CircuitVar::from(asset.is_equal(&Asset::sol())?),
+                    CircuitVar::from(
+                        condition.select(&Bool::constant(false), &Bool::constant(true)),
+                    ),
                 ],
                 pair.to_vec(),
             ]
@@ -678,7 +741,7 @@ fn membership_in_a_set() {
         (
             run(&fs(&[value]), &|inputs| {
                 let value = only(inputs);
-                Ok(vec![is_in(&value, &set)?.var()])
+                Ok(vec![CircuitVar::from(is_in(&value, &set)?)])
             }),
             run(&fs(&[value]), &|inputs| {
                 let value = only(inputs);
@@ -692,7 +755,10 @@ fn membership_in_a_set() {
         (
             member(20),
             member(25),
-            run(&[], &|_| Ok(vec![is_in(&constant(1u64), &[])?.var()]))
+            run(&[], &|_| Ok(vec![CircuitVar::from(is_in(
+                &constant(1u64),
+                &[]
+            )?)]))
         ),
         (
             (holds(&[f(1)]), holds(&[])),
@@ -712,7 +778,7 @@ fn arrays_compare_element_wise() {
             let right = [next(), next()];
             let flag = left.is_equal(&right)?;
             left.assert_not_equal(&[constant(0u64), constant(0u64)], "not all zero")?;
-            Ok(vec![flag.var()])
+            Ok(vec![CircuitVar::from(flag)])
         })
     };
 

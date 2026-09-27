@@ -1,4 +1,4 @@
-use ark_bn254::G1Projective;
+use ark_bn254::{Fr, G1Projective};
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{BigInteger256, PrimeField, Zero};
 use ark_groth16::r1cs_to_qap::R1CSToQAP;
@@ -12,17 +12,17 @@ use super::{
     groth16::{Proof, ProvingKey},
     reduction::CircomReduction,
 };
-use crate::{circuit::Field, ProverError, ProverErrorKind};
+use crate::{ProverError, ProverErrorKind};
 
 pub(crate) fn create_proof(
     proving_key: &ProvingKey,
-    r: Field,
-    s: Field,
-    matrices: &ConstraintMatrices<Field>,
-    full_assignment: &[Field],
+    r: Fr,
+    s: Fr,
+    matrices: &ConstraintMatrices<Fr>,
+    full_assignment: &[Fr],
 ) -> Result<Proof, ProverError> {
     let num_inputs = matrices.num_instance_variables;
-    let h = CircomReduction::witness_map_from_matrices::<Field, GeneralEvaluationDomain<Field>>(
+    let h = CircomReduction::witness_map_from_matrices::<Fr, GeneralEvaluationDomain<Fr>>(
         matrices,
         num_inputs,
         matrices.num_constraints,
@@ -70,7 +70,7 @@ pub(crate) fn create_proof(
     })
 }
 
-fn bigints(values: &[Field]) -> Vec<BigInteger256> {
+fn bigints(values: &[Fr]) -> Vec<BigInteger256> {
     cfg_iter!(values).map(|value| value.into_bigint()).collect()
 }
 
@@ -83,7 +83,7 @@ fn first<G: AffineRepr>(query: &[G]) -> Result<G, ProverError> {
 
 fn query_msm<G>(query: &[G], assignment: &[BigInteger256]) -> Result<G::Group, ProverError>
 where
-    G: AffineRepr<ScalarField = Field>,
+    G: AffineRepr<ScalarField = Fr>,
     G::Group: VariableBaseMSM<MulBase = G>,
 {
     let bases = query.get(1..).ok_or(SynthesisError::AssignmentMissing)?;

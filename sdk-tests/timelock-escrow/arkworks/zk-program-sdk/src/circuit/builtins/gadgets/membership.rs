@@ -1,11 +1,11 @@
 use crate::{
-    circuit::{constant, Bool, CircuitVar, Compare},
+    circuit::{constant, zero, Assert, Bool, CircuitVar},
     CircuitError,
 };
 
 #[track_caller]
 pub fn is_in(value: &CircuitVar, set: &[CircuitVar]) -> Result<Bool, CircuitError> {
-    distance_product(value, set).is_zero()
+    distance_product(value, set).is_equal(&zero())
 }
 
 #[track_caller]
@@ -14,7 +14,7 @@ pub fn assert_in(
     set: &[CircuitVar],
     rule: &'static str,
 ) -> Result<(), CircuitError> {
-    distance_product(value, set).assert_zero(rule)
+    distance_product(value, set).assert_equal(&zero(), rule)
 }
 
 fn distance_product(value: &CircuitVar, set: &[CircuitVar]) -> CircuitVar {

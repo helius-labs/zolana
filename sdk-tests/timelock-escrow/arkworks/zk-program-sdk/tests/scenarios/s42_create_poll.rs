@@ -143,7 +143,11 @@ pub(crate) mod circuit {
 
     impl DataHash for Poll {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.poll_id.var(), self.root.clone(), self.tally.hash()?])
+            poseidon(&[
+                self.poll_id.clone().into(),
+                self.root.clone(),
+                self.tally.hash()?,
+            ])
         }
     }
 
@@ -185,7 +189,7 @@ pub(crate) mod circuit {
     impl PublicInputs for CreatePollPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.poll_id.var(),
+                self.poll_id.clone().into(),
                 self.root.clone(),
                 transaction_hash.clone(),
             ])

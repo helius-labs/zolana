@@ -136,13 +136,13 @@ mod circuit {
                 .assert_equal(&public.airdrop_id, "the airdrop is not the pool's")?;
             let leaf = poseidon(&[
                 poseidon(std::slice::from_ref(&private.secret_key))?,
-                public.amount.var(),
+                public.amount.clone().into(),
             ])?;
             private
                 .path
                 .root(&leaf)?
                 .assert_equal(&public.root, "the claim is not in the airdrop")?;
-            poseidon(&[public.airdrop_id.var(), private.secret_key.clone()])?
+            poseidon(&[public.airdrop_id.clone().into(), private.secret_key.clone()])?
                 .assert_equal(&public.nullifier, "the nullifier is not the claim's")?;
             let mut claim = TokenUtxo::new_init(&public.recipient, &pool.asset());
             pool.transfer(&mut claim, &public.amount)?;
@@ -163,10 +163,10 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.root.clone(),
-                self.airdrop_id.var(),
+                self.airdrop_id.clone().into(),
                 self.nullifier.clone(),
                 self.recipient.hash()?,
-                self.amount.var(),
+                self.amount.clone().into(),
                 transaction_hash.clone(),
             ])
         }

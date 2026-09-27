@@ -1,3 +1,4 @@
+use ark_bn254::Fr;
 use ark_ff::{UniformRand, Zero};
 use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode,
@@ -13,7 +14,7 @@ use super::ProofInputs;
 use crate::{
     circuit::{
         labels, value, Circuit, CircuitLabel, CircuitSize, CircuitSystem, CircuitVar,
-        ConstraintSystem, Field,
+        ConstraintSystem,
     },
     conversion::{Allocator, ProofInput},
     CircuitError, CircuitErrorKind, ProverError, ProverErrorKind,
@@ -26,7 +27,7 @@ pub(crate) struct CircuitShape {
 }
 
 pub(crate) struct CircuitMatrices {
-    matrices: ConstraintMatrices<Field>,
+    matrices: ConstraintMatrices<Fr>,
     labels: Vec<CircuitLabel>,
 }
 
@@ -56,7 +57,7 @@ impl CircuitMatrices {
             .position(|(left, right)| left != right)
     }
 
-    pub(crate) fn matrices(&self) -> &ConstraintMatrices<Field> {
+    pub(crate) fn matrices(&self) -> &ConstraintMatrices<Fr> {
         &self.matrices
     }
 
@@ -75,7 +76,7 @@ impl CircuitMatrices {
 
     pub(crate) fn unconstrained_private_variables(
         &self,
-        assignment: &[Field],
+        assignment: &[Fr],
         seed: u64,
     ) -> Result<Vec<usize>, ProverError> {
         let instance = self.matrices.num_instance_variables;
@@ -106,8 +107,8 @@ impl CircuitMatrices {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut unconstrained = Vec::new();
         for (private_index, rows) in rows_of.iter().enumerate() {
-            let delta = match Field::rand(&mut rng) {
-                delta if delta.is_zero() => Field::from(1u64),
+            let delta = match Fr::rand(&mut rng) {
+                delta if delta.is_zero() => Fr::from(1u64),
                 delta => delta,
             };
             let variable = instance + private_index;
@@ -121,7 +122,7 @@ impl CircuitMatrices {
                 ) else {
                     return Err(ProverErrorKind::ProofInputsForAnotherCircuit.into());
                 };
-                let shifted = |value: &Field, entries: &[(Field, usize)]| {
+                let shifted = |value: &Fr, entries: &[(Fr, usize)]| {
                     *value + delta * coefficient(entries, variable)
                 };
                 if shifted(a, row_a) * shifted(b, row_b) != shifted(c, row_c) {
@@ -136,7 +137,7 @@ impl CircuitMatrices {
         Ok(unconstrained)
     }
 
-    pub(crate) fn check(&self, assignment: &[Field]) -> Result<(), ProverError> {
+    pub(crate) fn check(&self, assignment: &[Fr]) -> Result<(), ProverError> {
         let variables = self.matrices.num_instance_variables + self.matrices.num_witness_variables;
         if assignment.len() != variables {
             return Err(ProverErrorKind::ProofInputsForAnotherCircuit.into());
@@ -167,13 +168,9 @@ impl CircuitMatrices {
     }
 }
 
-type Row<'a> = (
-    &'a [(Field, usize)],
-    &'a [(Field, usize)],
-    &'a [(Field, usize)],
-);
+type Row<'a> = (&'a [(Fr, usize)], &'a [(Fr, usize)], &'a [(Fr, usize)]);
 
-fn rows(matrices: &ConstraintMatrices<Field>) -> impl Iterator<Item = Row<'_>> {
+fn rows(matrices: &ConstraintMatrices<Fr>) -> impl Iterator<Item = Row<'_>> {
     matrices
         .a
         .iter()
@@ -182,16 +179,16 @@ fn rows(matrices: &ConstraintMatrices<Field>) -> impl Iterator<Item = Row<'_>> {
         .map(|((a, b), c)| (a.as_slice(), b.as_slice(), c.as_slice()))
 }
 
-fn coefficient(entries: &[(Field, usize)], variable: usize) -> Field {
+fn coefficient(entries: &[(Fr, usize)], variable: usize) -> Fr {
     entries
         .iter()
         .filter(|(_, index)| *index == variable)
-        .fold(Field::zero(), |sum, (coefficient, _)| sum + coefficient)
+        .fold(Fr::zero(), |sum, (coefficient, _)| sum + coefficient)
 }
 
-fn evaluate(row: &[(Field, usize)], assignment: &[Field]) -> Result<Field, ProverErrorKind> {
+fn evaluate(row: &[(Fr, usize)], assignment: &[Fr]) -> Result<Fr, ProverErrorKind> {
     row.iter()
-        .try_fold(Field::zero(), |sum, (coefficient, variable)| {
+        .try_fold(Fr::zero(), |sum, (coefficient, variable)| {
             assignment
                 .get(*variable)
                 .map(|value| sum + *coefficient * value)
@@ -223,7 +220,7 @@ fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> 
     })
 }
 
-fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Field>, CircuitError> {
+fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Fr>, CircuitError> {
     let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
     Ok([
         system.instance_assignment.as_slice(),
@@ -234,12 +231,12 @@ fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Field>, CircuitError> {
 
 pub(crate) struct Synthesized {
     pub(crate) matrices: CircuitMatrices,
-    pub(crate) assignment: Vec<Field>,
+    pub(crate) assignment: Vec<Fr>,
 }
 
 pub(crate) struct ArkworksCircuit<'a, P> {
     proof_inputs: &'a P,
-    public_hash: Field,
+    public_hash: Fr,
 }
 
 impl<P> Clone for ArkworksCircuit<'_, P> {
@@ -262,10 +259,10 @@ where
                 .circuit()?
                 .public_hash(),
         )?;
-        Ok(Self::with_public_hash(proof_inputs, public_hash))
+        Ok(Self::with_public_hash(proof_inputs, public_hash.into()))
     }
 
-    pub(crate) fn with_public_hash(proof_inputs: &'a P, public_hash: Field) -> Self {
+    pub(crate) fn with_public_hash(proof_inputs: &'a P, public_hash: Fr) -> Self {
         Self {
             proof_inputs,
             public_hash,
@@ -275,7 +272,7 @@ where
     pub(crate) fn for_setup(placeholder: &'a P) -> Self {
         Self {
             proof_inputs: placeholder,
-            public_hash: Field::zero(),
+            public_hash: Fr::zero(),
         }
     }
 
@@ -332,7 +329,7 @@ where
         Ok(ProofInputs::from_assignment(self.assignment()?))
     }
 
-    fn assignment(&self) -> Result<Vec<Field>, CircuitError> {
+    fn assignment(&self) -> Result<Vec<Fr>, CircuitError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: false,
         });
@@ -354,7 +351,7 @@ where
     }
 }
 
-impl<P> ConstraintSynthesizer<Field> for ArkworksCircuit<'_, P>
+impl<P> ConstraintSynthesizer<Fr> for ArkworksCircuit<'_, P>
 where
     P: ProofInput,
     P::Circuit: Circuit,

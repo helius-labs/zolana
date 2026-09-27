@@ -166,7 +166,7 @@ fn an_inherent_impl_is_written_against_the_circuit_twin() {
         .instantiate(&Allocator::native())
         .expect("native instantiation");
     assert_eq!(
-        value(&doubler.doubled().var()).expect("doubled"),
+        value(&doubler.doubled().into()).expect("doubled"),
         Field::from(8u64)
     );
 }
@@ -191,7 +191,7 @@ fn the_attribute_renames_a_circuit_impl_to_its_twin() {
 fn compile_time_branches_loops_and_closures_run() {
     let values = [1, 2, 3].map(|value| Uint::<16>::constant(value).expect("constant"));
     assert_eq!(
-        value(&shaped_sum(&values).expect("sum").var()).expect("value"),
+        value(&shaped_sum(&values).expect("sum").into()).expect("value"),
         Field::from(16u64)
     );
 }

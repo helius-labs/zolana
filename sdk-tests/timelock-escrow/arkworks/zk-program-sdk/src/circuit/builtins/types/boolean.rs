@@ -1,7 +1,8 @@
+use ark_bn254::Fr;
+
 use crate::{
     circuit::{
-        builtins::field::primitive, constant, labels::Scope, Assert, Bits, CircuitVar, Compare,
-        Field, Select,
+        builtins::field::primitive, constant, labels::Scope, zero, Assert, Bits, CircuitVar, Select,
     },
     CircuitError,
 };
@@ -14,12 +15,6 @@ impl Bool {
         Self(constant(u64::from(value)))
     }
 
-    #[track_caller]
-    pub fn from_var(var: &CircuitVar) -> Result<Self, CircuitError> {
-        var.check_is_bool()?;
-        Ok(Self(var.clone()))
-    }
-
     pub(crate) fn from_checked(var: CircuitVar) -> Self {
         Self(var)
     }
@@ -30,7 +25,7 @@ impl Bool {
         Ok(Self(CircuitVar::from_boolean(left.equals(right)?)))
     }
 
-    pub fn var(&self) -> CircuitVar {
+    pub(crate) fn var(&self) -> CircuitVar {
         self.0.clone()
     }
 
@@ -50,7 +45,7 @@ impl Bool {
         Self(
             self.0
                 .plus(&other.0)
-                .minus(&self.0.times(&other.0).scaled(Field::from(2u64))),
+                .minus(&self.0.times(&other.0).scaled(Fr::from(2u64))),
         )
     }
 
@@ -76,7 +71,7 @@ impl Bool {
         match flags {
             [] => Ok(Self::constant(false)),
             [flag] => Ok(flag.clone()),
-            flags => Ok(sum(flags).is_zero()?.not()),
+            flags => Ok(sum(flags).is_equal(&zero())?.not()),
         }
     }
 
@@ -102,6 +97,31 @@ impl Bool {
 
 fn sum(flags: &[Bool]) -> CircuitVar {
     primitive::sum(flags.iter().map(|flag| &flag.0))
+}
+
+impl From<Bool> for CircuitVar {
+    fn from(bit: Bool) -> Self {
+        bit.0
+    }
+}
+
+impl TryFrom<CircuitVar> for Bool {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(var: CircuitVar) -> Result<Self, CircuitError> {
+        var.check_is_bool()?;
+        Ok(Self(var))
+    }
+}
+
+impl TryFrom<&CircuitVar> for Bool {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(var: &CircuitVar) -> Result<Self, CircuitError> {
+        Self::try_from(var.clone())
+    }
 }
 
 impl Assert for Bool {

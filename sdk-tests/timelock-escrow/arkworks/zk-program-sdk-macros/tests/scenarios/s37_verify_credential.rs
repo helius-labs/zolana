@@ -50,7 +50,7 @@ impl Circuit for VerifyCredential {
         credential
             .issuer_hash
             .assert_equal(&public.issuer.hash()?, "the credential is another issuer's")?;
-        poseidon(&[private.attribute.var(), private.salt.clone()])?.assert_equal(
+        poseidon(&[private.attribute.clone().into(), private.salt.clone()])?.assert_equal(
             &credential.attribute_commitment,
             "the attribute is not the committed one",
         )?;
@@ -58,7 +58,7 @@ impl Circuit for VerifyCredential {
             .threshold
             .assert_less_or_equal(&private.attribute, "the attribute is below the threshold")?;
         poseidon(&[
-            public.verification_id.var(),
+            public.verification_id.clone().into(),
             private.secret.clone(),
             DataHash::hash(&*credential)?,
         ])?

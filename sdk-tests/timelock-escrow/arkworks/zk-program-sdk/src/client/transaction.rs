@@ -50,7 +50,8 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         let public_hash = value(checked.public_hash())?;
         Ok(ProgramTransaction {
             finalized,
-            proof_inputs: ArkworksCircuit::with_public_hash(self, public_hash).proof_inputs()?,
+            proof_inputs: ArkworksCircuit::with_public_hash(self, public_hash.into())
+                .proof_inputs()?,
             public_hash: field_bytes(&public_hash),
         })
     }

@@ -59,7 +59,7 @@ impl Circuit for IssueCredential {
         let mut credential = DataUtxo::<CredentialCircuit>::new_init(&private.user, &Asset::sol());
         credential.issuer_hash = issuer_hash;
         credential.attribute_commitment =
-            poseidon(&[private.attribute.var(), private.salt.clone()])?;
+            poseidon(&[private.attribute.clone().into(), private.salt.clone()])?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(issuer)

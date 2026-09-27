@@ -110,7 +110,7 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
                 self.recipient.hash()?,
-                self.amount.var(),
+                self.amount.clone().into(),
                 transaction_hash.clone(),
             ])
         }

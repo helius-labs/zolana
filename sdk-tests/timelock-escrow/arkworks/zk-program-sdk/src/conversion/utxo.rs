@@ -1,3 +1,4 @@
+use ark_bn254::Fr;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::DUMMY_DOMAIN;
 use zolana_transaction::{
@@ -7,7 +8,7 @@ use zolana_transaction::{
 
 use super::{asset::asset, owner::owner, Allocator, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, constant, labels::Scope, CircuitVar, Field, Uint, VariableRole},
+    circuit::{self, constant, labels::Scope, CircuitVar, Uint, VariableRole},
     client, CircuitError, CircuitErrorKind,
 };
 
@@ -86,7 +87,7 @@ impl ProofInput for WalletUtxo {
                 VariableRole::Carried,
             )?,
             latest_tree_id: allocator.witness(
-                Field::from(self.latest_tree_id.unwrap_or(0)),
+                Fr::from(self.latest_tree_id.unwrap_or(0)),
                 "utxo latest tree id",
                 VariableRole::Carried,
             )?,
@@ -102,7 +103,7 @@ fn field(
     name: &'static str,
     role: VariableRole,
 ) -> Result<CircuitVar, CircuitError> {
-    allocator.witness(super::field(bytes, name)?, name, role)
+    allocator.witness(super::field(bytes, name)?.into(), name, role)
 }
 
 impl Placeholder for WalletUtxo {

@@ -85,7 +85,7 @@ fn uint(value: u64) -> Uint<64> {
 }
 
 fn balance_bytes(utxo: &impl Balance) -> [u8; 32] {
-    to_bytes(&utxo.balance().unwrap().var()).unwrap()
+    to_bytes(&CircuitVar::from(utxo.balance().unwrap())).unwrap()
 }
 
 fn error<T>(result: Result<T, CircuitError>) -> String {
@@ -124,7 +124,7 @@ fn a_data_utxo_follows_its_lifecycle() {
                 balance_bytes(&valueless),
                 to_bytes(&valueless.asset().hash().unwrap()).unwrap(),
             ),
-            to_bytes(&mutated.value.var()).unwrap(),
+            to_bytes(&CircuitVar::from(mutated.value.clone())).unwrap(),
             (
                 to_bytes(&payout.owner().hash().unwrap()).unwrap(),
                 balance_bytes(&payout),
@@ -184,7 +184,7 @@ fn a_data_utxo_moves_value_in_every_lifecycle() {
             other_asset,
             zero_deposit,
             empty_withdrawal,
-            to_bytes(&withdrawn.var()).unwrap(),
+            to_bytes(&CircuitVar::from(withdrawn)).unwrap(),
             balance_bytes(&burned),
         ),
         (
@@ -435,10 +435,12 @@ fn a_field_negative_value_cannot_become_a_uint64() {
 
     assert_eq!(
         natively_and_in_r1cs(|allocator| {
-            Uint::<64>::from_var(&negative.instantiate(allocator)?, "the amount is a u64")
-                .map(|_| ())
+            Uint::<64>::try_from(&negative.instantiate(allocator)?).map(|_| ())
         }),
-        (Err("the amount is a u64".to_string()), Ok(false))
+        (
+            Err("a value does not fit in 64 bits".to_string()),
+            Ok(false)
+        )
     );
 }
 

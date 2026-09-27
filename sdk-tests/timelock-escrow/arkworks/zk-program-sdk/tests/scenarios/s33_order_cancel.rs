@@ -129,7 +129,7 @@ mod circuit {
     impl PublicInputs for CancelPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.expiry.var(),
+                self.expiry.clone().into(),
                 self.maker_identity.clone(),
                 transaction_hash.clone(),
             ])

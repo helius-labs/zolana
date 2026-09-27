@@ -120,7 +120,7 @@ pub(crate) mod circuit {
 
     impl DataHash for Account {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.balance.var()])
+            poseidon(&[self.balance.clone().into()])
         }
     }
 
@@ -159,7 +159,7 @@ pub(crate) mod circuit {
 
     impl PublicInputs for ReadThresholdPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.threshold.var(), transaction_hash.clone()])
+            poseidon(&[self.threshold.clone().into(), transaction_hash.clone()])
         }
     }
 }

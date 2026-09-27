@@ -1,3 +1,4 @@
+use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 
 use super::{Allocator, FromCircuit, Placeholder, ProofInput};
@@ -10,7 +11,7 @@ use crate::{
 };
 
 pub fn field(bytes: &[u8; 32], name: &'static str) -> Result<Field, CircuitError> {
-    let field = Field::from_be_bytes_mod_order(bytes);
+    let field = Field::from(Fr::from_be_bytes_mod_order(bytes));
     if field_bytes(&field) == *bytes {
         Ok(field)
     } else {
@@ -23,7 +24,7 @@ pub fn var(bytes: &[u8; 32], name: &'static str) -> Result<CircuitVar, CircuitEr
 }
 
 pub fn field_bytes(field: &Field) -> [u8; 32] {
-    be_bytes(field)
+    be_bytes(&Fr::from(*field))
 }
 
 pub(crate) fn be_bytes(element: &impl PrimeField) -> [u8; 32] {
@@ -44,7 +45,11 @@ impl ProofInput for Field {
     type Circuit = CircuitVar;
 
     fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, CircuitError> {
-        allocator.witness(*self, "a field proof input", VariableRole::Constrained)
+        allocator.witness(
+            Fr::from(*self),
+            "a field proof input",
+            VariableRole::Constrained,
+        )
     }
 }
 
@@ -82,7 +87,7 @@ fn integer<const BITS: u32>(
     rule: &'static str,
 ) -> Result<Uint<BITS>, CircuitError> {
     Uint::from_var(
-        &allocator.witness(Field::from(value), text, VariableRole::Constrained)?,
+        &allocator.witness(Fr::from(value), text, VariableRole::Constrained)?,
         rule,
     )
 }
@@ -131,7 +136,7 @@ impl ProofInput for bool {
 
     fn instantiate(&self, allocator: &Allocator) -> Result<Bool, CircuitError> {
         let value = allocator.witness(
-            Field::from(*self),
+            Fr::from(*self),
             "a bool proof input",
             VariableRole::Constrained,
         )?;
@@ -145,7 +150,7 @@ impl ProofInput for [u8; 32] {
 
     fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, CircuitError> {
         allocator.witness(
-            field(self, "32-byte input")?,
+            field(self, "32-byte input")?.into(),
             "a 32-byte proof input",
             VariableRole::Constrained,
         )
@@ -166,7 +171,7 @@ impl<T: FromCircuit, const N: usize> FromCircuit for [T; N] {
 
 #[track_caller]
 pub(super) fn integer_value(var: &CircuitVar, bits: usize) -> Result<u64, CircuitError> {
-    let value = value(var)?.into_bigint();
+    let value = Fr::from(value(var)?).into_bigint();
     if value.num_bits() as usize > bits {
         return Err(CircuitErrorKind::ValueTooLarge { bits }.into());
     }

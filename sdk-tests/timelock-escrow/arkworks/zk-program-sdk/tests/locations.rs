@@ -147,7 +147,7 @@ fn an_assert_through_a_trait_impl_points_at_its_caller() {
 #[test]
 fn uint_asserts_point_at_their_caller() {
     let line = line!() + 1;
-    let result = Uint::<8>::from_var(&constant(300u64), "the value fits in a byte");
+    let result = Uint::<8>::try_from(&constant(300u64));
     assert_eq!(at_line(result, line), (true, line, line));
 
     let one = Uint::<16>::constant(1).unwrap();

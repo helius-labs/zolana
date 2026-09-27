@@ -1,11 +1,11 @@
-use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
+use ark_bn254::{Fq, Fq2, Fr, G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 use ark_ff::{BigInt, One, PrimeField, Zero};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_relations::r1cs::ConstraintMatrices;
 
 use super::groth16::{ProvingKey, VerifyingKey};
-use crate::{circuit::Field, ProverError, ProverErrorKind};
+use crate::{ProverError, ProverErrorKind};
 
 const G1_BYTES: usize = 64;
 const G2_BYTES: usize = 128;
@@ -28,7 +28,7 @@ struct Coefficient {
     matrix: u32,
     constraint: u32,
     variable: u32,
-    value: Field,
+    value: Fr,
 }
 
 impl Zkey {
@@ -43,7 +43,7 @@ impl Zkey {
 
         let mut groth = Reader::new(sections.get(2)?);
         groth.modulus(&Fq::MODULUS, "the zkey belongs to another proof system")?;
-        groth.modulus(&Field::MODULUS, "the zkey belongs to another proof system")?;
+        groth.modulus(&Fr::MODULUS, "the zkey belongs to another proof system")?;
         let variables = groth.usize()?;
         let public_inputs = groth.usize()?;
         let domain_size = groth.usize()?;
@@ -93,9 +93,9 @@ impl Zkey {
 
     pub(crate) fn check_circuit(
         &self,
-        matrices: &ConstraintMatrices<Field>,
+        matrices: &ConstraintMatrices<Fr>,
     ) -> Result<(), ProverError> {
-        let domain_size = GeneralEvaluationDomain::<Field>::new(
+        let domain_size = GeneralEvaluationDomain::<Fr>::new(
             matrices.num_constraints + matrices.num_instance_variables,
         )
         .ok_or(ProverErrorKind::KeysForAnotherCircuit)?
@@ -127,7 +127,7 @@ fn non_identity<P: AffineRepr>(point: P, name: &'static str) -> Result<P, Prover
 }
 
 fn circuit_coefficients(
-    matrices: &ConstraintMatrices<Field>,
+    matrices: &ConstraintMatrices<Fr>,
 ) -> Result<Vec<Coefficient>, ProverError> {
     let index =
         |value: usize| u32::try_from(value).map_err(|_| ProverErrorKind::KeysForAnotherCircuit);
@@ -151,7 +151,7 @@ fn circuit_coefficients(
             matrix: MATRIX_A,
             constraint: index(matrices.num_constraints + variable)?,
             variable: index(variable)?,
-            value: Field::one(),
+            value: Fr::one(),
         });
     }
     Ok(coefficients)
@@ -320,13 +320,13 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
-    fn coefficient(&mut self) -> Result<Field, ProverError> {
+    fn coefficient(&mut self) -> Result<Fr, ProverError> {
         let montgomery = self.bigint()?;
-        if montgomery >= Field::MODULUS {
+        if montgomery >= Fr::MODULUS {
             return Err(ProverErrorKind::InvalidZkey("a zkey coefficient is not canonical").into());
         }
-        Ok(Field::new_unchecked(
-            Field::new_unchecked(montgomery).into_bigint(),
+        Ok(Fr::new_unchecked(
+            Fr::new_unchecked(montgomery).into_bigint(),
         ))
     }
 

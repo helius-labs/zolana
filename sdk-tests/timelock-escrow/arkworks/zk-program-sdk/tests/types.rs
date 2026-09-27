@@ -33,7 +33,7 @@ fn plain_integers_and_bools_are_range_checked_in_r1cs() {
         let value = (Field::from(u64::MAX) + Field::from(1u64))
             .instantiate(&Allocator::R1cs(cs.clone()))
             .unwrap();
-        let _value = Uint::<64>::from_var(&value, "the value fits in 64 bits").unwrap();
+        let _value = Uint::<64>::try_from(&value).unwrap();
         cs.is_satisfied().unwrap()
     };
 
@@ -44,12 +44,9 @@ fn plain_integers_and_bools_are_range_checked_in_r1cs() {
             r1cs(&u16::MAX),
             r1cs(&true),
             over_64,
-            Uint::<64>::from_var(
-                &constant(Field::from(u64::MAX) + Field::from(1u64)),
-                "the value fits in 64 bits",
-            )
-            .err()
-            .map(|e| e.to_string()),
+            Uint::<64>::try_from(&constant(Field::from(u64::MAX) + Field::from(1u64)))
+                .err()
+                .map(|e| e.to_string()),
         ),
         (
             (true, 65),
@@ -57,7 +54,7 @@ fn plain_integers_and_bools_are_range_checked_in_r1cs() {
             (true, 17),
             (true, 1),
             false,
-            Some("the value fits in 64 bits".to_string()),
+            Some("a value does not fit in 64 bits".to_string()),
         )
     );
 }
@@ -171,12 +168,9 @@ fn circuit_values_convert_back_with_the_same_ranges() {
             <[u16; 2]>::from_circuit(&[Uint::constant(1).unwrap(), Uint::constant(2).unwrap()])
                 .ok(),
             from_circuit_error::<bool>(&true.instantiate(&Allocator::native()).unwrap()),
-            Uint::<64>::from_var(
-                &constant(Field::from(u64::MAX) + Field::from(1u64)),
-                "the value does not fit in 64 bits",
-            )
-            .err()
-            .map(|e| e.to_string()),
+            Uint::<64>::try_from(&constant(Field::from(u64::MAX) + Field::from(1u64)))
+                .err()
+                .map(|e| e.to_string()),
             Uint::<16>::constant(70_000).err().map(|e| e.to_string()),
         ),
         (
@@ -186,7 +180,7 @@ fn circuit_values_convert_back_with_the_same_ranges() {
             Some(field_bytes(&Field::from(7u64))),
             Some([1u16, 2]),
             None,
-            Some("the value does not fit in 64 bits".to_string()),
+            Some("a value does not fit in 64 bits".to_string()),
             Some("a value does not fit in 16 bits".to_string()),
         )
     );
@@ -197,9 +191,9 @@ fn a_bool_selects_and_combines_natively_and_in_r1cs() {
     let native = |bool: Bool| {
         (
             value(&bool.select(&constant(5u64), &constant(9u64))).unwrap(),
-            value(&bool.not().var()).unwrap(),
-            value(&bool.and(&Bool::constant(true)).var()).unwrap(),
-            value(&bool.or(&Bool::constant(false)).var()).unwrap(),
+            value(&bool.not().into()).unwrap(),
+            value(&bool.and(&Bool::constant(true)).into()).unwrap(),
+            value(&bool.or(&Bool::constant(false)).into()).unwrap(),
         )
     };
     let selects_in_r1cs = |input: bool, expected: u64| {
@@ -218,8 +212,8 @@ fn a_bool_selects_and_combines_natively_and_in_r1cs() {
         (
             native(Bool::constant(true)),
             native(Bool::constant(false)),
-            value(&constant(3u64).is_equal(&constant(3u64)).unwrap().var()).unwrap(),
-            value(&constant(3u64).is_equal(&constant(4u64)).unwrap().var()).unwrap(),
+            value(&constant(3u64).is_equal(&constant(3u64)).unwrap().into()).unwrap(),
+            value(&constant(3u64).is_equal(&constant(4u64)).unwrap().into()).unwrap(),
             [
                 selects_in_r1cs(true, 5),
                 selects_in_r1cs(true, 9),

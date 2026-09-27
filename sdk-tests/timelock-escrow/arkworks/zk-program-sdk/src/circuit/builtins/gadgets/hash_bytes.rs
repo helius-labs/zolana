@@ -1,7 +1,8 @@
+use ark_bn254::Fr;
 use zolana_hasher::primitives::PACK_BE_CHUNK_BYTES;
 
 use crate::{
-    circuit::{builtins::field::var::system_of, labels::Scope, poseidon, zero, CircuitVar, Field},
+    circuit::{builtins::field::var::system_of, labels::Scope, poseidon, zero, CircuitVar},
     CircuitError,
 };
 
@@ -24,7 +25,7 @@ pub(crate) fn packed(bytes: &[CircuitVar]) -> Vec<CircuitVar> {
         .chunks(PACK_BE_CHUNK_BYTES)
         .map(|chunk| {
             chunk.iter().fold(zero(), |packed, byte| {
-                packed.scaled(Field::from(256u64)).plus(byte)
+                packed.scaled(Fr::from(256u64)).plus(byte)
             })
         })
         .collect()

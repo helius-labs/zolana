@@ -105,7 +105,7 @@ mod circuit {
 
     impl PublicInputs for IncrementPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.step.var(), transaction_hash.clone()])
+            poseidon(&[self.step.clone().into(), transaction_hash.clone()])
         }
     }
 }

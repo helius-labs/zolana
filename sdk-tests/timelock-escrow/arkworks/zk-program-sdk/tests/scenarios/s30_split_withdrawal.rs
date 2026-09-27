@@ -136,10 +136,10 @@ mod circuit {
     impl PublicInputs for SplitWithdrawPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
             poseidon(&[
-                self.unlock.var(),
+                self.unlock.clone().into(),
                 self.owner_identity.clone(),
                 self.fee_recipient.hash()?,
-                self.fee.var(),
+                self.fee.clone().into(),
                 transaction_hash.clone(),
             ])
         }

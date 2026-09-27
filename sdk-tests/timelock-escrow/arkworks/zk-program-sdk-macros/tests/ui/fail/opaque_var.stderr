@@ -1,41 +1,32 @@
-error[E0277]: a circuit does no field arithmetic on `CircuitVar`
- --> tests/ui/fail/opaque_var.rs:4:28
+error[E0277]: `/` on `CircuitVar` multiplies by a field inverse, which is not integer division
+ --> tests/ui/fail/opaque_var.rs:4:33
   |
-4 |     let sum = left.clone() + right;
-  |                            ^ field arithmetic wraps around the modulus, so it proves nothing about integers
+4 |     let quotient = left.clone() / right;
+  |                                 ^ use `Uint::div_rem` for integer division
   |
-  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `&CircuitVar`
-  = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`
-  = note: required for `CircuitVar` to implement `Add<&CircuitVar>`
+  = help: the trait `circuit::builtins::field::var::rules::UseDivRem` is not implemented for `&CircuitVar`
+  = note: turn the value into a `Uint<BITS>` with `Uint::try_from` first
+  = note: for deliberate field division, use `CircuitVar::div`
+  = note: required for `CircuitVar` to implement `Div<&CircuitVar>`
 
-error[E0277]: a circuit does no field arithmetic on `CircuitVar`
- --> tests/ui/fail/opaque_var.rs:5:23
+error[E0277]: `%` on `CircuitVar` has no meaning in the field
+ --> tests/ui/fail/opaque_var.rs:5:31
   |
-5 |     let scaled = &sum * Field::from(2u64);
-  |                       ^ field arithmetic wraps around the modulus, so it proves nothing about integers
+5 |     let remainder = &quotient % Field::from(2u64);
+  |                               ^ use the remainder that `Uint::div_rem` returns
   |
-  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>`
-  = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`
-  = note: required for `&CircuitVar` to implement `Mul<ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>>`
+  = help: the trait `circuit::builtins::field::var::rules::UseRemOfDivRem` is not implemented for `zk_program_sdk::circuit::Field`
+  = note: turn the value into a `Uint<BITS>` with `Uint::try_from` first
+  = note: required for `&CircuitVar` to implement `Rem<zk_program_sdk::circuit::Field>`
 
-error[E0277]: a circuit does no field arithmetic on `CircuitVar`
- --> tests/ui/fail/opaque_var.rs:6:28
-  |
-6 |     let mut total = scaled - right.clone();
-  |                            ^ field arithmetic wraps around the modulus, so it proves nothing about integers
-  |
-  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
-  = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`
-  = note: required for `CircuitVar` to implement `Sub`
-
-error[E0277]: cannot add-assign `CircuitVar` to `CircuitVar`
+error[E0277]: cannot divide-assign `CircuitVar` by `CircuitVar`
  --> tests/ui/fail/opaque_var.rs:7:11
   |
-7 |     total += right.clone();
-  |           ^^ no implementation for `CircuitVar += CircuitVar`
+7 |     total /= right.clone();
+  |           ^^ no implementation for `CircuitVar /= CircuitVar`
   |
-  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
-  = note: required for `CircuitVar` to implement `AddAssign`
+  = help: the trait `circuit::builtins::field::var::rules::UseDivRem` is not implemented for `CircuitVar`
+  = note: required for `CircuitVar` to implement `DivAssign`
 
 error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
   --> tests/ui/fail/opaque_var.rs:12:10
@@ -43,7 +34,7 @@ error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
 12 |     left == right || left < right
    |          ^^ no implementation for `&CircuitVar == &CircuitVar`
    |
-   = help: the trait `circuit::builtins::field::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
+   = help: the trait `circuit::builtins::field::var::rules::UseAssertEqual` is not implemented for `CircuitVar`
    = note: required for `CircuitVar` to implement `PartialEq`
    = note: 1 redundant requirement hidden
    = note: required for `&CircuitVar` to implement `PartialEq<&CircuitVar>`
@@ -54,7 +45,7 @@ error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
 12 |     left == right || left < right
    |                           ^ no implementation for `&CircuitVar < &CircuitVar` and `&CircuitVar > &CircuitVar`
    |
-   = help: the trait `circuit::builtins::field::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
+   = help: the trait `circuit::builtins::field::var::rules::UseUintComparison` is not implemented for `CircuitVar`
    = note: required for `CircuitVar` to implement `PartialOrd`
    = note: 1 redundant requirement hidden
    = note: required for `&CircuitVar` to implement `PartialOrd<&CircuitVar>`

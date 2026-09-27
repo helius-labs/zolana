@@ -158,7 +158,7 @@ pub(crate) mod circuit {
 
     impl DataHash for Profile {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.score.var()])
+            poseidon(&[self.score.clone().into()])
         }
     }
 
@@ -181,7 +181,7 @@ pub(crate) mod circuit {
 
     impl DataHash for Badge {
         fn hash(&self) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[constant(1u64), self.level.var()])
+            poseidon(&[constant(1u64), self.level.clone().into()])
         }
     }
 

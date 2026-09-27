@@ -5,8 +5,8 @@ mod protocol;
 
 pub use builtins::{
     assert_in, constant, from_bits_le, hash_bytes, is_in, nonzero_hash_chain, one_hot, poseidon,
-    select_index, value, zero, Arithmetic, Assert, Bits, Bool, Bytes, CircuitSystem, CircuitVar,
-    Compare, ConstraintSystem, Field, Select, Uint, Unsigned, U128, U16, U32, U64, U8,
+    select_index, value, zero, Assert, Bits, Bool, Bytes, CircuitSystem, CircuitVar,
+    ConstraintSystem, Field, Select, Uint, U128, U16, U32, U64, U8,
 };
 pub use circuit_type::{CircuitDefault, CircuitType};
 pub use labels::{CircuitLabel, CircuitSize, FailedConstraint, LabelKind, VariableRole};

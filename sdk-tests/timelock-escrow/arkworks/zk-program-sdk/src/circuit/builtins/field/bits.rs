@@ -1,6 +1,7 @@
+use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, One, PrimeField, Zero};
 
-use super::var::{collect_array, constant, zero, CircuitVar, Field};
+use super::var::{collect_array, constant, zero, CircuitVar};
 use crate::{
     circuit::{labels, Bool},
     CircuitError, CircuitErrorKind,
@@ -38,7 +39,7 @@ impl Bits for CircuitVar {
 }
 
 pub fn from_bits_le(bits: &[Bool]) -> CircuitVar {
-    let mut weight = Field::one();
+    let mut weight = Fr::one();
     bits.iter().fold(zero(), |sum, bit| {
         let sum = sum.plus(&bit.var().scaled(weight));
         weight.double_in_place();
@@ -56,7 +57,7 @@ pub(crate) fn assert_bool(var: &CircuitVar, rule: &'static str) -> Result<(), Ci
         };
     }
     labels::check(&var.cs(), rule, || {
-        var.enforce_product(&var.offset(-Field::one()), &zero())
+        var.enforce_product(&var.offset(-Fr::one()), &zero())
     })
 }
 
@@ -70,7 +71,7 @@ pub(crate) fn range_check(
 }
 
 pub(crate) fn bits_le(var: &CircuitVar, bits: usize) -> Result<Vec<CircuitVar>, CircuitError> {
-    if bits >= Field::MODULUS_BIT_SIZE as usize {
+    if bits >= Fr::MODULUS_BIT_SIZE as usize {
         return Err(CircuitErrorKind::BitWidthTooLarge { bits }.into());
     }
     if let Some(value) = var.constant_value() {

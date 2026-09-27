@@ -116,7 +116,7 @@ mod circuit {
 
     impl PublicInputs for CompareTwoPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
-            poseidon(&[self.total.var(), transaction_hash.clone()])
+            poseidon(&[self.total.clone().into(), transaction_hash.clone()])
         }
     }
 }
