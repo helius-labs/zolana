@@ -1,0 +1,120 @@
+name: pr review
+
+# Advisory Codex review for each pushed PR head. Posts one PR comment and
+# updates it on later pushes. Not a required check.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: pr review / codex
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Fork PRs get no secrets; bot PRs are generated.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      review: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Codex runs read-only without network, so git history and GitHub API
+      # context are collected here.
+      - name: Collect review context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/review
+          git diff "$BASE...$HEAD" > .ci/review/diff.patch
+          git diff --name-only "$BASE...$HEAD" > .ci/review/files.txt
+          mapfile -t files < .ci/review/files.txt
+          git log --format='%h %ad %s' --date=short -n 30 "$BASE" -- "${files[@]}" > .ci/review/history.txt
+          git log --format=%H -n 20 "$BASE" -- "${files[@]}" \
+            | while read -r sha; do gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" -q '.[].number' || true; done \
+            | sort -un | tail -n 5 \
+            | while read -r n; do
+                echo "## PR #$n"
+                gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$n/comments" -q '.[] | "- \(.path): \(.body)"' || true
+              done > .ci/review/prior-comments.md
+
+      - name: Codex review
+        id: codex
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          prompt: |
+            Review a pull request to Zolana. Do not modify files. Do not use the network.
+
+            Precomputed context in `.ci/review/`:
+
+            - `files.txt`: changed files
+            - `diff.patch`: the PR diff against its base
+            - `history.txt`: recent commits that touched those files
+            - `prior-comments.md`: review comments from earlier PRs that touched those files
+
+            Review the change in five independent passes:
+
+            1. Instruction compliance: root `CLAUDE.md`, any `CLAUDE.md` in directories of changed files, and `NAMING.md`. Flag only rules the file states explicitly.
+            2. Bugs in the diff: focus on large ones, such as logic errors, missing account or signer checks, panics in onchain code, and serialization layout changes. Ignore nitpicks and likely false positives.
+            3. Protocol consistency: changes that contradict `docs/spec.md`, or that change protocol behavior without updating it.
+            4. History and prior review: changes that undo a recent deliberate fix in `history.txt`, and comments in `prior-comments.md` that also apply here.
+            5. Code comments in the changed files, and whether the change follows them.
+
+            Skip `Cargo.lock`, `package-lock.json`, generated files, and pre-existing issues. Skip anything rustfmt, clippy, cargo-machete, or the test suites already catch.
+
+            Score each candidate issue from 0 to 100 for confidence that it is real:
+
+            - 0: false positive or pre-existing issue
+            - 25: might be real, not verified
+            - 50: real but minor
+            - 75: verified, important, or explicitly called out in an instruction file
+            - 100: certain and frequent
+
+            Report only issues scoring 80 or higher. Output Markdown only: either "No issues found." or a numbered list where each item has one sentence, the reason (for example "CLAUDE.md: meaningful errors" or "bug"), and a `path:line` reference.
+
+  # Separate job so the write token never shares a runner with Codex or PR code.
+  comment:
+    name: pr review / comment
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post or update review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW: ${{ needs.review.outputs.review }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          marker='<!-- codex-pr-review -->'
+          body="$(printf '%s\n### Codex review for %s\n\n%s\n' "$marker" "${HEAD::7}" "$REVIEW")"
+          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            -q ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)"
+          if [[ -n "$id" ]]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body"
+          fi
