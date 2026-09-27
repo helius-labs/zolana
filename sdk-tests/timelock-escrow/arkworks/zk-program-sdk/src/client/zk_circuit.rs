@@ -16,6 +16,14 @@ pub trait ZkCircuit: ProofInput<Circuit: Constraints> + Placeholder {
         ArkworksCircuit::for_setup(&placeholder).matrices()?.r1cs()
     }
 
+    #[cfg(feature = "setup")]
+    fn export_picus_r1cs() -> Result<Vec<u8>, ProverError> {
+        let placeholder = Self::placeholder()?;
+        ArkworksCircuit::for_setup(&placeholder)
+            .matrices()?
+            .picus_r1cs()
+    }
+
     fn proof_inputs(&self) -> Result<ProofInputs, ProverError> {
         Ok(ArkworksCircuit::new(self)?.proof_inputs()?)
     }

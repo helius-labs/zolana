@@ -84,7 +84,7 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zk-program-sdk-unit
 
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
@@ -806,6 +806,15 @@ bench-zk-program-sdk:
 
 test-zk-program-sdk-macros:
     cargo test --release -p zk-program-sdk-macros
+
+# The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
+test-zk-program-sdk-unit:
+    cargo test -p zk-program-sdk --test unit
+
+# The ZK program SDK unit suite with the circom, snarkjs and Picus checks.
+# Needs `circom`, `snarkjs`, `run-picus` and the `cvc5` solver on PATH.
+test-zk-program-sdk-external:
+    cargo test -p zk-program-sdk --features external-tools --test unit
 
 # Runs a throwaway snarkjs ceremony on the exported escrow and withdraw r1cs
 # and proves from its zkeys. Needs `snarkjs` on PATH; the ptau and zkeys are

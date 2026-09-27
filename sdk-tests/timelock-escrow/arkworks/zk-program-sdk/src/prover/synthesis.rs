@@ -95,6 +95,11 @@ impl CircuitMatrices {
         super::snarkjs::r1cs(&self.matrices)
     }
 
+    #[cfg(feature = "setup")]
+    pub(crate) fn picus_r1cs(&self) -> Result<Vec<u8>, ProverError> {
+        super::snarkjs::picus_r1cs(self)
+    }
+
     pub(crate) fn labels(&self) -> &[CircuitLabel] {
         &self.labels
     }
@@ -437,7 +442,7 @@ where
     pub(crate) fn synthesized(&self) -> Result<Synthesized, ProverError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: true,
-            generate_lc_assignments: true,
+            generate_lc_assignments: false,
         });
         self.synthesize(&cs)?;
         let assignment = assignment_of(&cs)?;
@@ -454,7 +459,7 @@ where
     fn assignment(&self) -> Result<Vec<Fr>, CircuitError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: false,
-            generate_lc_assignments: true,
+            generate_lc_assignments: false,
         });
         self.synthesize(&cs)?;
         assignment_of(&cs)

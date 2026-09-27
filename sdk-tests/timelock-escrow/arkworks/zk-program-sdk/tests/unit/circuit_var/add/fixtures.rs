@@ -11,6 +11,14 @@ use super::vectors::Vector;
 pub const RULE: &str = "the sum is left plus right";
 pub const FILE: &str = file!();
 
+pub type Refusal = (&'static str, Option<&'static str>, &'static str);
+
+pub fn outcome<T>(result: Result<T, CircuitError>) -> Result<T, Refusal> {
+    result.map_err(|error| (error.name(), error.broken_rule(), error.location().file()))
+}
+
+pub const RULE_BROKEN: Refusal = ("CircuitError.RuleBroken", Some(RULE), FILE);
+
 type VariableForm = fn(&CircuitVar, &CircuitVar) -> CircuitVar;
 type ConstantForm = fn(&CircuitVar, Field) -> CircuitVar;
 

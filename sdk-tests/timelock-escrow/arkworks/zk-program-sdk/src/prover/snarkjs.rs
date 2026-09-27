@@ -2,7 +2,9 @@ use ark_bn254::Fr;
 use ark_ff::{BigInt, BigInteger, PrimeField};
 
 #[cfg(feature = "setup")]
-use super::synthesis::R1csMatrices;
+use super::synthesis::{CircuitMatrices, R1csMatrices};
+#[cfg(feature = "setup")]
+use crate::circuit::{labels, LabelKind, VariableRole};
 use crate::{ProverError, ProverErrorKind};
 
 const FIELD_BYTES: u32 = 32;
@@ -10,17 +12,67 @@ const FIELD_BYTES: u32 = 32;
 #[cfg(feature = "setup")]
 pub(crate) fn r1cs(matrices: &R1csMatrices) -> Result<Vec<u8>, ProverError> {
     let variables = matrices.num_instance_variables + matrices.num_witness_variables;
+    let wires: Vec<usize> = (0..variables).collect();
+    r1cs_in_wire_order(matrices, &wires, 0, matrices.num_witness_variables)
+}
+
+/// Picus checks that the outputs are fixed once the inputs are, so the
+/// witnesses gadgets allocate become the outputs, the proof inputs' witnesses
+/// the private inputs, and the equality tests' inverse hints, free by design
+/// when the sides are equal, come last where Picus leaves them unchecked.
+#[cfg(feature = "setup")]
+pub(crate) fn picus_r1cs(circuit: &CircuitMatrices) -> Result<Vec<u8>, ProverError> {
+    let matrices = circuit.matrices();
+    let instance = matrices.num_instance_variables;
+    let (mut outputs, mut inputs, mut hints) = (Vec::new(), Vec::new(), Vec::new());
+    for witness in 0..matrices.num_witness_variables {
+        let group = match labels::allocation_of(circuit.labels(), witness).map(|label| label.kind) {
+            Some(LabelKind::Allocation(VariableRole::Constrained | VariableRole::Carried)) => {
+                &mut inputs
+            }
+            Some(LabelKind::Allocation(VariableRole::Multiplier)) => &mut hints,
+            _ => &mut outputs,
+        };
+        group.push(instance + witness);
+    }
+    let wires: Vec<usize> = core::iter::once(0)
+        .chain(outputs.iter().copied())
+        .chain(1..instance)
+        .chain(inputs.iter().copied())
+        .chain(hints)
+        .collect();
+    r1cs_in_wire_order(matrices, &wires, outputs.len(), inputs.len())
+}
+
+/// `wires[wire]` is the variable at `wire`; the label of each wire is its
+/// variable, so a wire Picus reports maps back to the circuit's labels.
+#[cfg(feature = "setup")]
+fn r1cs_in_wire_order(
+    matrices: &R1csMatrices,
+    wires: &[usize],
+    outputs: usize,
+    private_inputs: usize,
+) -> Result<Vec<u8>, ProverError> {
+    let variables = wires.len();
+    let mut wire_of = vec![0; variables];
+    for (wire, variable) in wires.iter().enumerate() {
+        *wire_of
+            .get_mut(*variable)
+            .ok_or(ProverErrorKind::ExportFailed(
+                "a wire holds a variable the circuit does not have",
+            ))? = wire;
+    }
 
     let mut header = Vec::new();
     header.extend_from_slice(&FIELD_BYTES.to_le_bytes());
     header.extend_from_slice(&Fr::MODULUS.to_bytes_le());
     put_u32(&mut header, variables)?;
-    put_u32(&mut header, 0)?;
+    put_u32(&mut header, outputs)?;
     put_u32(
         &mut header,
         matrices.num_instance_variables.saturating_sub(1),
     )?;
-    put_u32(&mut header, matrices.num_witness_variables)?;
+    put_u32(&mut header, private_inputs)?;
     header.extend_from_slice(&u64_of(variables)?.to_le_bytes());
     put_u32(&mut header, matrices.num_constraints)?;
 
@@ -40,15 +92,18 @@ pub(crate) fn r1cs(matrices: &R1csMatrices) -> Result<Vec<u8>, ProverError> {
         for row in [a, b, c] {
             put_u32(&mut constraints, row.len())?;
             for (coefficient, variable) in row {
-                put_u32(&mut constraints, *variable)?;
+                let wire = wire_of.get(*variable).ok_or(ProverErrorKind::ExportFailed(
+                    "a constraint reads a variable no wire holds",
+                ))?;
+                put_u32(&mut constraints, *wire)?;
                 constraints.extend_from_slice(&coefficient.into_bigint().to_bytes_le());
             }
         }
     }
 
     let mut labels = Vec::new();
-    for variable in 0..variables {
-        labels.extend_from_slice(&u64_of(variable)?.to_le_bytes());
+    for variable in wires {
+        labels.extend_from_slice(&u64_of(*variable)?.to_le_bytes());
     }
 
     binary_file(b"r1cs", 1, &[(1, &header), (2, &constraints), (3, &labels)])

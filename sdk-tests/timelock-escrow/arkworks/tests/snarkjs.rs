@@ -193,7 +193,8 @@ fn a_libsnark_reduction_proof_does_not_verify_against_a_zkey() {
     let program = programs::withdraw();
     let keys = Groth16Keys::load_zkey::<Withdraw>(&ceremony.final_zkey()).expect("zkey");
     let r1cs = iden3::read_r1cs(&std::fs::read(ceremony.r1cs()).expect("r1cs"));
-    let matrices = r1cs.matrices();
+    // arkworks 0.6 takes the a, b and c matrices as one slice, the counts apart.
+    let abc = [r1cs.a.clone(), r1cs.b.clone(), r1cs.c.clone()];
     let assignment = iden3::read_wtns(&program.export_assignment().expect("assignment"));
     let public_hash: [u8; 32] = assignment
         .get(1)
@@ -207,9 +208,9 @@ fn a_libsnark_reduction_proof_does_not_verify_against_a_zkey() {
             keys.proving_key(),
             Fr::from(3u64),
             Fr::from(5u64),
-            &matrices.abc,
-            matrices.num_instance_variables,
-            matrices.num_constraints,
+            &abc,
+            r1cs.header.public_inputs + 1,
+            r1cs.header.constraints,
             &assignment,
         )
         .expect("libsnark proof")

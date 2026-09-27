@@ -8,16 +8,13 @@ use zk_program_sdk::{
 };
 
 use super::{
-    fixtures::{every_form, every_form_name, expected, per_vector, Operands, Visit, FILE, RULE},
+    fixtures::{
+        every_form, every_form_name, expected, outcome, per_vector, Operands, Refusal, Visit,
+        RULE_BROKEN,
+    },
     vectors::{INVALID, NON_CANONICAL, VALID},
 };
 use crate::harness::field::{be_bytes, canonical, field, integer, modulus};
-
-type Refusal = (&'static str, Option<&'static str>, &'static str);
-
-fn outcome<T>(result: Result<T, CircuitError>) -> Result<T, Refusal> {
-    result.map_err(|error| (error.name(), error.broken_rule(), error.location().file()))
-}
 
 struct Native;
 
@@ -67,11 +64,7 @@ fn every_valid_vector_holds_natively_in_every_form() {
 fn every_invalid_vector_breaks_exactly_the_fixture_rule_natively() {
     assert_eq!(
         per_vector(&INVALID, |fields| every_form(&Native, fields)),
-        expected(&INVALID, &every_form_name(), |_, _| Err((
-            "CircuitError.RuleBroken",
-            Some(RULE),
-            FILE
-        )))
+        expected(&INVALID, &every_form_name(), |_, _| Err(RULE_BROKEN))
     );
 }
 

@@ -65,6 +65,8 @@ tsify = [
 wasm = ["client", "tsify", "dep:js-sys", "dep:serde-wasm-bindgen"]
 wasm-prover = ["wasm"]
 wasm-verify = ["wasm", "groth16-solana/gnark-vk"]
+# Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
+external-tools = []
 
 [dev-dependencies]
 ark-circom = { version = "0.6.0", default-features = false }

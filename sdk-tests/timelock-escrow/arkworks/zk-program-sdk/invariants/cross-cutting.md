@@ -29,7 +29,7 @@ the only builtin is `CircuitVar +`, whose fixtures cover every entry below.
 ## Setup and proving shape
 
 - [x] **INV-XC-03: every fixture's setup and proving shapes match**
-  - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `every_valid_vector_checks_one_constraint_in_every_variable_form`; `tests/unit/circuit_var/add/r1cs.rs` `a_constant_other_than_the_placeholders_builds_another_constraint`; `tests/unit/circuit_var/add/r1cs.rs` `adding_allocates_no_variable_and_adds_no_constraint`
+  - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `every_valid_vector_checks_one_constraint_in_every_variable_form`; `tests/unit/circuit_var/add/r1cs.rs` `a_constant_other_than_the_placeholders_builds_a_different_row`; `tests/unit/circuit_var/add/r1cs.rs` `adding_allocates_no_variable_and_adds_no_constraint`
   - Kind: shape
   - Affects: `CircuitVar +` (the six variable operand forms, the unasserted fixture, and the three constant operand forms at the placeholder's constant 0)
   - Statement: for every fixture whose constants equal its placeholder's and every honest input, `check_constraints` returns exactly `Ok(<the fixture's constraint count>)`: the setup synthesis and the proving synthesis have the same shape and the same rows.

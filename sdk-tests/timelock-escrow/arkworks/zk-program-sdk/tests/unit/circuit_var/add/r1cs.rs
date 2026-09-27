@@ -201,7 +201,7 @@ fn every_valid_vector_checks_one_constraint_in_every_variable_form() {
 }
 
 #[test]
-fn a_constant_other_than_the_placeholders_builds_another_constraint() {
+fn a_constant_other_than_the_placeholders_builds_a_different_row() {
     assert_eq!(
         per_vector(&VALID, |fields| constant_forms(&CheckConstraints, fields)),
         expected(&VALID, &constant_form_names(), |vector, _| {
@@ -271,6 +271,37 @@ fn every_valid_vector_satisfies_the_row_and_a_tampered_sum_breaks_it() {
     assert_eq!(
         per_vector(&VALID, |fields| variable_forms(&ExportedRow, fields)),
         expected(&VALID, &variable_form_names(), |_, _| (None, Some(0)))
+    );
+}
+
+#[test]
+fn a_constant_fixed_in_the_circuit_exports_a_row_every_honest_witness_satisfies() {
+    let r1cs = exported::<PlusFive>();
+    let checked: Vec<_> = VALID
+        .iter()
+        .map(|vector| {
+            let a = field(vector.left);
+            let honest = assignment(&PlusFive {
+                a,
+                sum: a + Field::from(5u64),
+            });
+            let mut tampered = honest.clone();
+            if let Some(sum) = tampered.last_mut() {
+                *sum += Fr::one();
+            }
+            (
+                vector.name,
+                r1cs.first_unsatisfied(&honest),
+                r1cs.first_unsatisfied(&tampered),
+            )
+        })
+        .collect();
+    assert_eq!(
+        checked,
+        VALID
+            .iter()
+            .map(|vector| (vector.name, None, Some(0)))
+            .collect::<Vec<_>>()
     );
 }
 

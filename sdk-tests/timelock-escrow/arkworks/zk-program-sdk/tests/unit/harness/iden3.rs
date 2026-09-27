@@ -126,16 +126,59 @@ pub fn read_wtns(bytes: &[u8]) -> Vec<Fr> {
 pub fn write_wtns(witness: &[Fr]) -> Vec<u8> {
     let mut header = FIELD_SIZE.to_le_bytes().to_vec();
     header.extend_from_slice(&scalar_prime());
-    header.extend_from_slice(&u32::try_from(witness.len()).expect("count").to_le_bytes());
+    put_usize(&mut header, witness.len());
     let values: Vec<u8> = witness
         .iter()
         .flat_map(|value| value.into_bigint().to_bytes_le())
         .collect();
+    write_sections(b"wtns", 2, [(1, header), (2, values)])
+}
 
-    let mut bytes = b"wtns".to_vec();
-    bytes.extend_from_slice(&2u32.to_le_bytes());
-    bytes.extend_from_slice(&2u32.to_le_bytes());
-    for (kind, payload) in [(1u32, header), (2, values)] {
+pub fn write_r1cs(r1cs: &R1cs) -> Vec<u8> {
+    let header_fields = &r1cs.header;
+    let mut header = header_fields.field_size.to_le_bytes().to_vec();
+    header.extend_from_slice(&header_fields.prime);
+    for count in [
+        header_fields.variables,
+        header_fields.public_outputs,
+        header_fields.public_inputs,
+        header_fields.private_inputs,
+    ] {
+        put_usize(&mut header, count);
+    }
+    header.extend_from_slice(&header_fields.labels.to_le_bytes());
+    put_usize(&mut header, header_fields.constraints);
+
+    let mut constraints = Vec::new();
+    for row in r1cs.rows().flat_map(|(a, b, c)| [a, b, c]) {
+        put_usize(&mut constraints, row.len());
+        for (coefficient, variable) in row {
+            put_usize(&mut constraints, *variable);
+            constraints.extend_from_slice(&coefficient.into_bigint().to_bytes_le());
+        }
+    }
+
+    let labels = r1cs
+        .wire_labels
+        .iter()
+        .flat_map(|label| label.to_le_bytes())
+        .collect();
+    write_sections(b"r1cs", 1, [(1, header), (2, constraints), (3, labels)])
+}
+
+fn put_usize(bytes: &mut Vec<u8>, value: usize) {
+    bytes.extend_from_slice(&u32::try_from(value).expect("u32 count").to_le_bytes());
+}
+
+fn write_sections<const N: usize>(
+    magic: &[u8; 4],
+    version: u32,
+    sections: [(u32, Vec<u8>); N],
+) -> Vec<u8> {
+    let mut bytes = magic.to_vec();
+    bytes.extend_from_slice(&version.to_le_bytes());
+    put_usize(&mut bytes, N);
+    for (kind, payload) in sections {
         bytes.extend_from_slice(&kind.to_le_bytes());
         bytes.extend_from_slice(&u64::try_from(payload.len()).expect("size").to_le_bytes());
         bytes.extend_from_slice(&payload);

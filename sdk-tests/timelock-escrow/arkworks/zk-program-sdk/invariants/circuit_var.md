@@ -13,7 +13,9 @@ in `tests/unit/circuit_var/add/fixtures.rs` assert `<form> == sum` with the rule
 left plus right": `Variables<FORM>` takes `left`, `right` and `sum` as private inputs, and
 `WithConstant<FORM>` takes `right` as a constant whose placeholder is 0. The valid vectors
 are 0 + 0, 0 + x, 1 + (p - 1), (p - 1) + (p - 1), (p - 1) / 2 + (p + 1) / 2,
-(2^64 - 1) + 1, 2^253 + 2^253 and x + (-x); the invalid ones are 1 + 2 = 4 and the
+(2^64 - 1) + 1, 2^253 + 2^253 and x + (-x); the invalid ones are 1 + 2 = 4, the boundary
+claims 1 + (p - 1) = p - 1, (2^64 - 1) + 1 = 2^64 - 1, (2^64 - 1) + 1 = 2^64 + 1,
+2^253 + 2^253 = (2^254 - p) + 1, 5 + 7 = 5 and 3 + 4 = 0 (all canonical), and the
 non-canonical claim (p - 1) + 1 = p.
 
 ### Semantics
@@ -126,6 +128,14 @@ non-canonical claim (p - 1) + 1 = p.
   - Severity: High
   - Suggested test: positive + property; `tests/unit/circuit_var/add/r1cs.rs`, `tests/unit/circuit_var/add/properties.rs`
 
+- [x] **INV-CV-ADD-30: a constant fixed in the circuit exports a row every honest witness satisfies**
+  - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `a_constant_fixed_in_the_circuit_exports_a_row_every_honest_witness_satisfies`
+  - Kind: completeness
+  - Statement: for the left operand a of every valid vector, the exported assignment of `PlusFive { a, sum: a + 5 }` satisfies every row of `PlusFive`'s exported R1CS (`first_unsatisfied` is exactly `None`), and the same assignment with the sum increased by 1 leaves exactly row 0 unsatisfied. Unlike the `WithConstant` forms (INV-CV-ADD-17), the constant is part of the circuit, so the placeholder's export is the proof's.
+  - Location: `src/circuit/builtins/field/var.rs:241-255` (`impl Add<Field>` in `macro field_operators`), `src/prover/snarkjs.rs:12-17` (`fn r1cs`)
+  - Severity: High
+  - Suggested test: positive + negative; `tests/unit/circuit_var/add/r1cs.rs`
+
 ### Soundness
 
 - [x] **INV-CV-ADD-14: every wrong sum leaves some row unsatisfied**
@@ -139,10 +149,26 @@ non-canonical claim (p - 1) + 1 = p.
 - [x] **INV-CV-ADD-15: no private variable of the fixture is free**
   - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `no_private_variable_is_free_in_any_form`
   - Kind: soundness
-  - Statement: for every valid vector and every operand form, `check_private_variables` reports exactly 1 constraint, exactly the fixture's private variables (3, or 2 with a constant operand), no free variable and no tolerated variable.
+  - Statement: for every valid vector and every operand form, `check_private_variables` reports exactly 1 constraint, exactly the fixture's private variables (3, or 2 with a constant operand), no free variable and no tolerated variable. `check_private_variables` perturbs one private variable at a time with random values: it finds a variable no constraint binds, but it does not prove the witness unique. Variables that can move together are not detected; that needs a determinism checker such as Picus. For addition, INV-CV-ADD-32 closes that gap with Picus.
   - Location: `src/prover/synthesis.rs:106-167` (`fn unconstrained_private_variables`), `src/testing.rs:70-99` (`fn check_private_variables`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/circuit_var/add/r1cs.rs`
+
+- [x] **INV-CV-ADD-32: Picus proves every add fixture's sum fixed by its operands**
+  - Covered by: `tests/unit/circuit_var/add/picus.rs` `picus_finds_every_form_safe_and_the_sum_fixed_by_its_operands`; `tests/unit/circuit_var/add/picus.rs` `picus_finds_the_sum_of_a_plus_a_and_a_plus_five_fixed`
+  - Kind: soundness
+  - Statement: for every operand form, `run-picus --solver cvc5` reports exactly Safe for the `export_picus_r1cs` file, and exactly Safe once the sum is moved from the private inputs to the outputs: no two witnesses with the same left and right (or a, for `Double` and `PlusFive`) differ in the sum. This proves the witness unique given the operands, which the single-variable perturbation of INV-CV-ADD-15 does not.
+  - Location: `src/prover/snarkjs.rs:20-45` (`fn picus_r1cs`), `src/client/zk_circuit.rs:19-25` (`fn export_picus_r1cs`), `tests/unit/harness/picus.rs` (`fn verdict`, `fn promote`)
+  - Severity: Critical
+  - Suggested test: external (Picus); `tests/unit/circuit_var/add/picus.rs`
+
+- [x] **INV-CV-ADD-33: Picus reports an operand no constraint fixes as unsafe**
+  - Covered by: `tests/unit/circuit_var/add/picus.rs` `picus_finds_b_free_once_a_plus_b_minus_b_inlines_to_a`; `tests/unit/circuit_var/add/picus.rs` `picus_finds_an_operand_free_when_no_sum_is_asserted`
+  - Kind: soundness
+  - Statement: Picus distinguishes a free variable from a fixed one on the add fixtures: in `AddThenSubtract`, whose row inlines to a - sum = 0, a and the sum are each exactly Safe once moved to the outputs and b is exactly Unsafe; in the deliberately unasserted fixture, the export with no outputs is exactly Safe and `right` moved to the outputs is exactly Unsafe.
+  - Location: `src/prover/snarkjs.rs:20-45` (`fn picus_r1cs`), `tests/unit/harness/picus.rs` (`fn verdict`, `fn promote`)
+  - Severity: Critical
+  - Suggested test: external (Picus); `tests/unit/circuit_var/add/picus.rs`
 
 ### Shape
 
@@ -155,7 +181,7 @@ non-canonical claim (p - 1) + 1 = p.
   - Suggested test: positive + property; `tests/unit/circuit_var/add/r1cs.rs`, `tests/unit/circuit_var/add/properties.rs`
 
 - [x] **INV-CV-ADD-17: a constant operand is part of the circuit**
-  - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `a_constant_other_than_the_placeholders_builds_another_constraint`
+  - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `a_constant_other_than_the_placeholders_builds_a_different_row`
   - Kind: shape
   - Statement: for every valid vector and every constant operand form, `check_constraints` returns exactly `Ok(1)` when the constant equals the placeholder's (0), and otherwise exactly `ProverError.ConstraintsDiffer` at row 0 labelled with the fixture's rule.
   - Location: `src/prover/synthesis.rs:400-424` (`fn check_constraints`), `src/prover/synthesis.rs:83-87` (`fn first_differing_row`)
@@ -233,6 +259,14 @@ non-canonical claim (p - 1) + 1 = p.
   - Location: `src/prover/snarkjs.rs:10-69` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (circom); `tests/unit/circuit_var/add/external.rs`
+
+- [x] **INV-CV-ADD-31: with no gadget witness the Picus export is the snarkjs export**
+  - Covered by: `tests/unit/circuit_var/add/picus.rs` `with_no_gadget_witness_the_picus_export_is_the_snarkjs_export`
+  - Kind: equivalence
+  - Statement: for every operand form and for `Unasserted`, `Double`, `AddThenSubtract` and `PlusFive`, `export_picus_r1cs` is byte-identical to `export_r1cs`: none of them allocates a gadget witness, so the Picus wire order (outputs, then public inputs, then private inputs, then inverse hints) is the variable order and the header has 0 outputs.
+  - Location: `src/prover/snarkjs.rs:20-110` (`fn picus_r1cs`, `fn r1cs_in_wire_order`)
+  - Severity: High
+  - Suggested test: positive; `tests/unit/circuit_var/add/picus.rs`
 
 ### Interop
 

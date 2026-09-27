@@ -1,3 +1,5 @@
+#![cfg(feature = "external-tools")]
+
 use ark_bn254::Fr;
 use ark_ff::One;
 use serde_json::json;
@@ -11,7 +13,8 @@ use crate::harness::{
     circom::{self, Compiled},
     iden3::{read_r1cs, read_wtns, write_wtns},
     normalize::{constraints, Constraint},
-    snarkjs, WorkDir,
+    snarkjs::{self, WtnsCheck},
+    WorkDir,
 };
 
 type Sdk = Variables<3>;
@@ -120,7 +123,7 @@ fn snarkjs_accepts_the_sdk_pair_and_rejects_a_tampered_witness() {
         checked,
         VALID
             .iter()
-            .map(|vector| (vector.name, true, false))
+            .map(|vector| (vector.name, WtnsCheck::Accepted, WtnsCheck::Rejected))
             .collect::<Vec<_>>()
     );
 }
@@ -151,7 +154,7 @@ fn snarkjs_accepts_both_cross_pairs() {
         checked,
         VALID
             .iter()
-            .map(|vector| (vector.name, true, true))
+            .map(|vector| (vector.name, WtnsCheck::Accepted, WtnsCheck::Accepted))
             .collect::<Vec<_>>()
     );
 }

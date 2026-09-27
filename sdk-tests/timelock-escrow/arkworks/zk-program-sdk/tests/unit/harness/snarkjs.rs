@@ -1,3 +1,5 @@
+#![cfg(feature = "external-tools")]
+
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -27,8 +29,24 @@ pub fn run(args: &[&str]) {
     assert!(success, "snarkjs {args:?} failed:\n{log}");
 }
 
-pub fn wtns_check(r1cs: &Path, wtns: &Path) -> bool {
-    output(&["wtns", "check", path(r1cs), path(wtns)]).0
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WtnsCheck {
+    Accepted,
+    Rejected,
+    Failed(String),
+}
+
+pub fn wtns_check(r1cs: &Path, wtns: &Path) -> WtnsCheck {
+    let (success, log) = output(&["wtns", "check", path(r1cs), path(wtns)]);
+    if log.contains("[ERROR]") {
+        WtnsCheck::Failed(log)
+    } else if success && log.contains("WITNESS IS CORRECT") {
+        WtnsCheck::Accepted
+    } else if !success && log.contains("WITNESS IS NOT CORRECT") {
+        WtnsCheck::Rejected
+    } else {
+        WtnsCheck::Failed(log)
+    }
 }
 
 pub fn throwaway_ptau() -> PathBuf {

@@ -21,20 +21,20 @@ ID prefixes: `INV-CV-ADD`, `INV-XC`. IDs are stable once assigned -- never renum
 
 | Operation | File | Semantics | Constraint | Completeness | Soundness | Shape | Error | Equivalence | Interop | Properties |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `CircuitVar +`, `+=` | `circuit_var.md` | INV-CV-ADD-01..04 | INV-CV-ADD-05..12, INV-XC-04 | INV-CV-ADD-13 | INV-CV-ADD-14, INV-CV-ADD-15, INV-XC-01 | INV-CV-ADD-16, INV-CV-ADD-17, INV-XC-03 | INV-CV-ADD-18..20, INV-XC-05 | INV-CV-ADD-21..25 | INV-CV-ADD-26..29, INV-XC-02 | INV-CV-ADD-01, INV-CV-ADD-04, INV-CV-ADD-13, INV-CV-ADD-14, INV-CV-ADD-16, INV-CV-ADD-18, INV-CV-ADD-19, INV-XC-01 |
+| `CircuitVar +`, `+=` | `circuit_var.md` | INV-CV-ADD-01..04 | INV-CV-ADD-05..12, INV-XC-04 | INV-CV-ADD-13, INV-CV-ADD-30 | INV-CV-ADD-14, INV-CV-ADD-15, INV-CV-ADD-32, INV-CV-ADD-33, INV-XC-01 | INV-CV-ADD-16, INV-CV-ADD-17, INV-XC-03 | INV-CV-ADD-18..20, INV-XC-05 | INV-CV-ADD-21..25, INV-CV-ADD-31 | INV-CV-ADD-26..29, INV-XC-02 | INV-CV-ADD-01, INV-CV-ADD-04, INV-CV-ADD-13, INV-CV-ADD-14, INV-CV-ADD-16, INV-CV-ADD-18, INV-CV-ADD-19, INV-XC-01 |
 
 The Properties column lists the invariants a proptest in `properties.rs` also
 covers over random field elements.
 
 ## Summary
 
-- Total invariants: 34
-  - circuit_var.md: 29 (`CircuitVar +` 29)
+- Total invariants: 38
+  - circuit_var.md: 33 (`CircuitVar +` 33)
   - cross-cutting.md: 5
-- Critical (soundness: an under-constrained circuit or a wrong constraint): 7
-- High (semantics or shape): 19
+- Critical (soundness: an under-constrained circuit or a wrong constraint): 9
+- High (semantics or shape): 21
 - Medium (cost or diagnostics): 8
-- Covered: 34 / 34
+- Covered: 38 / 38
 - Partial: 0
 - SPEC_DIVERGENCE items: none. `../../spec.md` states that `+` and `+=` wrap
   around the modulus and that a sum is free; INV-CV-ADD-01, -05 and -06 pin
@@ -45,10 +45,23 @@ covers over random field elements.
 
 ## Test Coverage (2026-09-27)
 
-`cargo test -p zk-program-sdk --test unit` runs every covering test. The
-circom and snarkjs tests always run, so circom 2.2.3 and snarkjs 0.7.6 must be
-on PATH. The compiled circom output and the throwaway power-4 ptau are cached
-under `CARGO_TARGET_TMPDIR/zk-program-sdk-unit`, each behind a file lock.
+The suite runs in two lanes. `just test-zk-program-sdk-unit`
+(`cargo test -p zk-program-sdk --test unit`) needs nothing installed and runs
+every test except those that spawn an external tool. `just
+test-zk-program-sdk-external` adds the test-only `external-tools` feature,
+which compiles in `circuit_var/add/external.rs`, `circuit_var/add/picus.rs` and
+the circom, snarkjs and Picus harness modules; it needs circom 2.2.3, snarkjs
+0.7.6, `run-picus` and the cvc5 solver on PATH. The invariants those modules
+cover (INV-CV-ADD-21..29, -31..33 and the snarkjs half of INV-XC-02) are
+covered only in the external lane. The compiled circom output and the throwaway
+power-4 ptau are cached under `CARGO_TARGET_TMPDIR/zk-program-sdk-unit`, each
+behind a file lock.
+
+`testing::check_private_variables` (INV-CV-ADD-15) perturbs one private
+variable at a time with random values. It finds a variable no constraint
+binds, but it does not prove the witness unique: variables that can move
+together are not detected. That needs a determinism checker such as Picus;
+for `CircuitVar +`, INV-CV-ADD-32 closes the gap.
 
 What covering `CircuitVar +` found:
 
@@ -64,14 +77,21 @@ What covering `CircuitVar +` found:
   (p - 1) + 1 = p. The SDK refuses p at the byte boundary (INV-CV-ADD-20), and
   circom's wasm refuses it when passed unreduced (INV-CV-ADD-24).
 - A `Field` constant operand is part of the circuit: a proof input whose
-  constant differs from the placeholder's builds another row, which
-  `check_constraints` refuses (INV-CV-ADD-17).
+  constant differs from the placeholder's builds a different row, which
+  `check_constraints` refuses (INV-CV-ADD-17). A constant fixed in the
+  circuit, as in `PlusFive`, exports a row every honest witness satisfies
+  (INV-CV-ADD-30).
+- Picus proves the sum of every add fixture fixed by its operands, and flags
+  b in (a + b) - b and an operand of the unasserted fixture as free
+  (INV-CV-ADD-32, -33). The Picus export orders wires as outputs, public
+  inputs, private inputs, then inverse hints; with no gadget witness it is
+  byte-identical to the snarkjs export (INV-CV-ADD-31).
 
 ## Adding a builtin
 
 1. Run [`PROMPT.md`](PROMPT.md) for the builtin to add its section, with new IDs, to its type's file.
 2. Add a matrix row.
-3. Create `tests/unit/<type>/<op>/` with the same files as `tests/unit/circuit_var/add/`: `fixtures.rs`, `vectors.rs`, `<op>.circom`, `native.rs`, `r1cs.rs`, `external.rs` and `properties.rs`.
+3. Create `tests/unit/<type>/<op>/` with the same files as `tests/unit/circuit_var/add/`: `fixtures.rs`, `vectors.rs`, `<op>.circom`, `native.rs`, `r1cs.rs`, `external.rs`, `picus.rs` and `properties.rs`. Put `#![cfg(feature = "external-tools")]` first in every file that spawns an external tool.
 4. Tick each invariant, with its `Covered by:` line, as its test lands, and update the counts above.
 
 The harness (`tests/unit/harness/`) and `cross-cutting.md` stay shared.

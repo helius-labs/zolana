@@ -2,6 +2,7 @@ pub mod circom;
 pub mod field;
 pub mod iden3;
 pub mod normalize;
+pub mod picus;
 pub mod snarkjs;
 
 use std::{

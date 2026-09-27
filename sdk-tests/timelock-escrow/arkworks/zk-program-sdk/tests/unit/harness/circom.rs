@@ -1,3 +1,5 @@
+#![cfg(feature = "external-tools")]
+
 use std::{
     path::{Path, PathBuf},
     process::Command,

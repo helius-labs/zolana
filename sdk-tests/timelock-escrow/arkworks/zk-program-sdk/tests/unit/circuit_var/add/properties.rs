@@ -11,8 +11,8 @@ use zk_program_sdk::{
 };
 
 use super::fixtures::{
-    every_form, every_form_name, variable_form_names, variable_forms, Operands, Variables, Visit,
-    RULE,
+    every_form, every_form_name, outcome, variable_form_names, variable_forms, Operands, Refusal,
+    Variables, Visit, RULE, RULE_BROKEN,
 };
 use crate::harness::{
     field::random,
@@ -30,22 +30,21 @@ fn every<T: Clone>(forms: Vec<&'static str>, value: T) -> Vec<(&'static str, T)>
         .collect()
 }
 
-struct BrokenRule;
+struct Native;
 
-impl Visit for BrokenRule {
-    type Output = Option<&'static str>;
+impl Visit for Native {
+    type Output = Result<(), Refusal>;
 
     fn visit<F>(&self, fixture: F) -> Self::Output
     where
         F: ZkCircuit + Copy + Debug,
         F::Circuit: Operands,
     {
-        fixture
-            .instantiate(&Allocator::native())
-            .and_then(|circuit| circuit.constraints())
-            .err()
-            .map(|error| error.broken_rule())
-            .unwrap_or(None)
+        outcome(
+            fixture
+                .instantiate(&Allocator::native())
+                .and_then(|circuit| circuit.constraints()),
+        )
     }
 }
 
@@ -112,10 +111,10 @@ proptest! {
         honest in any::<bool>(),
     ) {
         let sum = if honest { left + right } else { claimed };
-        let broken = (sum != left + right).then_some(RULE);
+        let expected = if sum == left + right { Ok(()) } else { Err(RULE_BROKEN) };
         prop_assert_eq!(
-            every_form(&BrokenRule, (left, right, sum)),
-            every(every_form_name(), broken)
+            every_form(&Native, (left, right, sum)),
+            every(every_form_name(), expected)
         );
     }
 
@@ -141,12 +140,12 @@ proptest! {
         let witness = [Fr::one(), left.into(), right.into(), wrong.into()];
         prop_assert_eq!(
             (
-                every_form(&BrokenRule, (left, right, wrong)),
+                every_form(&Native, (left, right, wrong)),
                 every_form(&TamperSum(wrong), (left, right, left + right)),
                 r1cs.first_unsatisfied(&witness),
             ),
             (
-                every(every_form_name(), Some(RULE)),
+                every(every_form_name(), Err(RULE_BROKEN)),
                 every(every_form_name(), Some(RULE)),
                 Some(0),
             )
