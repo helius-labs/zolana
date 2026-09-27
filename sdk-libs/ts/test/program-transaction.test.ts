@@ -16,6 +16,7 @@ import {
   AssetRegistry,
   Data,
   LocalShieldedKeys,
+  createProofOutput,
   Utxo,
   decodeConfidential,
   decodeOutputData,
@@ -359,12 +360,19 @@ describe("program transaction decoding", () => {
   const wasm = programTransaction(escrow.transaction.finalizedTx);
   const [first, second] = wasm.ownerTags;
   const [firstOutput, secondOutput] = wasm.outputUtxos;
-  if (!first || !second || !firstOutput || !secondOutput) throw new Error("escrow fixture shape");
+  const [firstInput, ...otherInputs] = wasm.inputUtxos;
+  if (!first || !second || !firstOutput || !secondOutput || !firstInput) {
+    throw new Error("escrow fixture shape");
+  }
 
   it("seals a padding slot to the padding owner", async () => {
     const base = programTransaction(withdraw.transaction.finalizedTx);
     const padding = new Uint8Array(32).fill(7);
-    const hash = new Uint8Array(32).fill(9);
+    const hash = createProofOutput({
+      asset: address("11111111111111111111111111111111"),
+      amount: 0n,
+      blinding: checkedBytes<Bytes32>(padding, 32, "padding blinding"),
+    }).hash(base.outputTreeId);
     const decoded = await decodeProgramTransaction(
       {
         ...base,
@@ -464,6 +472,19 @@ describe("program transaction decoding", () => {
       "one output hash fewer than output slots",
       { ...wasm, outputHashes: wasm.outputHashes.slice(1) },
       { code: "TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH", details: { got: 1, expected: 2 } },
+    ],
+    [
+      "an output hash that is not the slot's commitment",
+      { ...wasm, outputHashes: [new Uint8Array(32).fill(9), ...wasm.outputHashes.slice(1)] },
+      { code: "TRANSACTION_OUTPUT_HASH_MISMATCH", details: { slotIndex: 0 } },
+    ],
+    [
+      "an input hash that is not the input's commitment",
+      {
+        ...wasm,
+        inputUtxos: [{ ...firstInput, utxoHash: new Uint8Array(32).fill(9) }, ...otherInputs],
+      },
+      { code: "TRANSACTION_INPUT_HASH_MISMATCH", details: { field: "inputUtxos[0]" } },
     ],
     [
       "a first nullifier that is not the first input's",

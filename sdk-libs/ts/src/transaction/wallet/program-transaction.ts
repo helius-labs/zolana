@@ -238,6 +238,12 @@ export async function decodeProgramTransaction(
       expected: outputs.length,
     });
   }
+  outputs.forEach((output, slotIndex) => {
+    const utxoHash = outputHashes[slotIndex];
+    if (utxoHash === undefined || !equal(output.hash(outputTreeId), utxoHash)) {
+      throw new TransactionError("TRANSACTION_OUTPUT_HASH_MISMATCH", { slotIndex });
+    }
+  });
   checkOwnerTags(outputs, tags, paddingOwner, payer);
 
   const ownerTags = Object.freeze(tags.map((entry) => entry.tag));
@@ -392,9 +398,9 @@ function checkOwnerTags(
 
 function proofInput(value: unknown, path: string, assets: AssetRegistry): ProofInputUtxo {
   const entry = exactRecord(value, path, INPUT_KEYS);
-  fixedBytes(entry["utxoHash"], 32, `${path}.utxoHash`);
+  const utxoHash = fixedBytes<Bytes32>(entry["utxoHash"], 32, `${path}.utxoHash`);
   u64(entry["leafIndex"], `${path}.leafIndex`);
-  return new ProofInputUtxo({
+  const input = new ProofInputUtxo({
     utxo: utxoValue(entry["utxo"], `${path}.utxo`, assets),
     nullifierPublicKey: fixedBytes<Bytes32>(
       entry["nullifierPubkey"],
@@ -411,6 +417,10 @@ function proofInput(value: unknown, path: string, assets: AssetRegistry): ProofI
     })),
     ...optional(entry, "cacheSlot", path, (item, field) => ({ cacheSlot: u8(item, field) })),
   });
+  if (!equal(input.hash(), utxoHash)) {
+    throw new TransactionError("TRANSACTION_INPUT_HASH_MISMATCH", { field: path });
+  }
+  return input;
 }
 
 function utxoValue(value: unknown, path: string, assets: AssetRegistry): Utxo {
@@ -514,7 +524,11 @@ function mint(value: unknown, path: string, assets: AssetRegistry): Address {
   const asset = decoder.address(entry["asset"], `${path}.asset`);
   const assetId = u64(entry["assetId"], `${path}.assetId`);
   if (assets.resolve(assetId) !== asset) {
-    throw new TransactionError("TRANSACTION_MINT_MISMATCH", { field: path, assetId, mint: asset });
+    throw new TransactionError("TRANSACTION_MINT_MISMATCH", {
+      field: path,
+      assetId: String(assetId),
+      mint: asset,
+    });
   }
   return asset;
 }
