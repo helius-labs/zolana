@@ -85,6 +85,100 @@ impl Groth16Keys {
         Self::from_bytes(&std::fs::read(path).map_err(|error| key_file(path, error))?)
     }
 
+    /// Writes the proving key in the memory-image format, the default format
+    /// for saving and loading keys. Loading an image is two orders of
+    /// magnitude faster than loading the canonical format because it skips
+    /// curve validation, Montgomery conversion and parsing: each section is
+    /// one memory copy. See `from_image_bytes` for the format.
+    ///
+    /// Always use this format; the canonical `save`/`load` pair exists only
+    /// where circom/snarkjs compatibility is required.
+    #[cfg(all(feature = "setup", target_endian = "little"))]
+    pub fn save_image(&self, path: &Path) -> Result<(), ProverError> {
+        Ok(std::fs::write(path, self.to_image_bytes()).map_err(|error| key_file(path, error))?)
+    }
+
+    /// The proving key in the memory-image format.
+    #[cfg(all(feature = "setup", target_endian = "little"))]
+    pub fn to_image_bytes(&self) -> Vec<u8> {
+        key_image::write(&self.proving_key)
+    }
+
+    /// Reads a proving key in the memory-image format, the exact in-memory
+    /// layout of the arkworks 0.6 BN254 points: Montgomery-form limbs, no
+    /// flags, the point at infinity is the origin. Every bit pattern is a
+    /// valid value of these types, so any bytes load; a corrupt image yields
+    /// proofs that fail verification, never a panic or unsoundness.
+    ///
+    /// The format is specific to one target and one arkworks version. Use it
+    /// as a local cache next to the canonical key, not for interchange, and
+    /// only for bytes whose integrity is established the same way as the
+    /// canonical key's (the proving-key lockfile's sha256): the loader runs
+    /// no curve or subgroup checks.
+    ///
+    /// Always load keys with this (or `load_image`); the canonical
+    /// `from_bytes`/`load` exists only where circom/snarkjs compatibility is
+    /// required.
+    #[cfg(all(feature = "client", target_endian = "little"))]
+    pub fn from_image_bytes(bytes: &[u8]) -> Result<Self, ProverError> {
+        Ok(Self::from(key_image::read(bytes)?))
+    }
+
+    /// Like `from_image_bytes`, but first verifies the bytes against their
+    /// sha256, the digest the proving-key lockfile pins. Fails closed on a
+    /// mismatch; on a match the bytes are authenticated, so skipping the
+    /// curve checks costs nothing.
+    #[cfg(all(feature = "client", target_endian = "little"))]
+    pub fn from_image_checked(bytes: &[u8], checksum: &[u8; 32]) -> Result<Self, ProverError> {
+        use sha2::{Digest, Sha256};
+
+        if Sha256::digest(bytes).as_slice() != checksum {
+            return Err(ProverErrorKind::KeyImageChecksumMismatch.into());
+        }
+        Self::from_image_bytes(bytes)
+    }
+
+    #[cfg(all(feature = "client", not(target_arch = "wasm32"), target_endian = "little"))]
+    pub fn load_image(path: &Path) -> Result<Self, ProverError> {
+        Self::from_image_bytes(&std::fs::read(path).map_err(|error| key_file(path, error))?)
+    }
+
+    /// Like `load_image`, but first verifies the file against its sha256.
+    /// See `from_image_checked`.
+    #[cfg(all(feature = "client", not(target_arch = "wasm32"), target_endian = "little"))]
+    pub fn load_image_checked(path: &Path, checksum: &[u8; 32]) -> Result<Self, ProverError> {
+        Self::from_image_checked(
+            &std::fs::read(path).map_err(|error| key_file(path, error))?,
+            checksum,
+        )
+    }
+
+    /// Converts a proving key in the canonical format to the memory-image
+    /// format, running the canonical key's curve validation once on the way
+    /// in. Every later load of the image skips it.
+    #[cfg(all(
+        feature = "client",
+        feature = "setup",
+        not(target_arch = "wasm32"),
+        target_endian = "little"
+    ))]
+    pub fn convert_to_image(canonical: &Path, image: &Path) -> Result<(), ProverError> {
+        Self::load(canonical)?.save_image(image)
+    }
+
+    /// Converts a snarkjs zkey to the memory-image format, running the full
+    /// zkey checks (the circuit's shape and A and B rows, the phase-2
+    /// contribution, point validation) once on the way in.
+    #[cfg(all(
+        feature = "client",
+        feature = "setup",
+        not(target_arch = "wasm32"),
+        target_endian = "little"
+    ))]
+    pub fn convert_zkey_to_image<P: ZkProgram>(zkey: &Path, image: &Path) -> Result<(), ProverError> {
+        Self::load_zkey::<P>(zkey)?.save_image(image)
+    }
+
     #[cfg(feature = "client")]
     pub fn from_zkey_bytes<P: ZkProgram>(bytes: &[u8]) -> Result<Self, ProverError> {
         Self::from_zkey_for(bytes, &circuit_matrices::<P>()?)
@@ -417,4 +511,146 @@ fn g2_bytes(point: &G2Affine) -> [u8; 128] {
         }
     }
     bytes
+}
+
+/// The memory-image proving-key format: the exact in-memory bytes of each
+/// point vector behind a magic and `u64` section lengths. `G1Affine` is 64
+/// bytes and `G2Affine` 128 (two coordinates of Montgomery-form limbs; the
+/// BN254 zero flag is the unit type and the point at infinity is the
+/// origin), so every bit pattern is a valid value and a section loads with
+/// one copy. Little-endian targets only.
+#[cfg(all(any(feature = "client", feature = "setup"), target_endian = "little"))]
+mod key_image {
+    use ark_bn254::{G1Affine, G2Affine};
+
+    use super::{ProvingKey, VerifyingKey};
+    use crate::{ProverError, ProverErrorKind};
+
+    const MAGIC: &[u8; 8] = b"PKIMG001";
+
+    #[cfg(feature = "setup")]
+    fn bytes_of<T>(values: &[T]) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(values.as_ptr() as *const u8, core::mem::size_of_val(values)) }
+    }
+
+    #[cfg(feature = "setup")]
+    pub fn write(key: &ProvingKey) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(MAGIC);
+        for point in [&key.vk.alpha_g1, &key.beta_g1, &key.delta_g1] {
+            out.extend_from_slice(bytes_of(core::slice::from_ref(point)));
+        }
+        for point in [&key.vk.beta_g2, &key.vk.gamma_g2, &key.vk.delta_g2] {
+            out.extend_from_slice(bytes_of(core::slice::from_ref(point)));
+        }
+        for vector in [
+            &key.vk.gamma_abc_g1,
+            &key.a_query,
+            &key.b_g1_query,
+            &key.h_query,
+        ] {
+            out.extend_from_slice(&(vector.len() as u64).to_le_bytes());
+            out.extend_from_slice(bytes_of(vector.as_slice()));
+        }
+        out.extend_from_slice(&(key.b_g2_query.len() as u64).to_le_bytes());
+        out.extend_from_slice(bytes_of(key.b_g2_query.as_slice()));
+        out.extend_from_slice(&(key.l_query.len() as u64).to_le_bytes());
+        out.extend_from_slice(bytes_of(key.l_query.as_slice()));
+        out
+    }
+
+    struct Cursor<'a> {
+        bytes: &'a [u8],
+        offset: usize,
+    }
+
+    impl<'a> Cursor<'a> {
+        fn take(&mut self, length: usize) -> Result<&'a [u8], ProverError> {
+            let end = self
+                .offset
+                .checked_add(length)
+                .filter(|end| *end <= self.bytes.len())
+                .ok_or(ProverErrorKind::InvalidKeyImage("a section is truncated"))?;
+            let slice = &self.bytes[self.offset..end];
+            self.offset = end;
+            Ok(slice)
+        }
+
+        fn section_len(&mut self) -> Result<usize, ProverError> {
+            let bytes: [u8; 8] = self
+                .take(8)?
+                .try_into()
+                .map_err(|_| ProverErrorKind::InvalidKeyImage("a length is truncated"))?;
+            let length = u64::from_le_bytes(bytes);
+            Ok(usize::try_from(length)
+                .map_err(|_| ProverErrorKind::InvalidKeyImage("a section is too long"))?)
+        }
+    }
+
+    /// Copies `length` values out of the cursor. Sound for the point types:
+    /// they are plain limb arrays, so any bytes are a valid value.
+    unsafe fn take_vec<T>(cursor: &mut Cursor, length: usize) -> Result<Vec<T>, ProverError> {
+        let bytes = cursor.take(
+            length
+                .checked_mul(core::mem::size_of::<T>())
+                .ok_or(ProverErrorKind::InvalidKeyImage("a section is too long"))?,
+        )?;
+        let mut vector: Vec<T> = Vec::with_capacity(length);
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), vector.as_mut_ptr() as *mut u8, bytes.len());
+            vector.set_len(length);
+        }
+        Ok(vector)
+    }
+
+    fn take_point<T>(cursor: &mut Cursor) -> Result<T, ProverError> {
+        Ok(unsafe { take_vec::<T>(cursor, 1) }?.remove(0))
+    }
+
+    fn take_section<T>(cursor: &mut Cursor) -> Result<Vec<T>, ProverError> {
+        let length = cursor.section_len()?;
+        unsafe { take_vec(cursor, length) }
+    }
+
+    #[cfg(feature = "client")]
+    pub fn read(bytes: &[u8]) -> Result<ProvingKey, ProverError> {
+        let magic = bytes
+            .get(..MAGIC.len())
+            .ok_or(ProverErrorKind::InvalidKeyImage("the magic is truncated"))?;
+        if magic != MAGIC {
+            return Err(ProverErrorKind::InvalidKeyImage("bad magic").into());
+        }
+        let mut cursor = Cursor {
+            bytes,
+            offset: MAGIC.len(),
+        };
+        // The section order must match `write`: the G1 singles, the G2
+        // singles, the G1 vectors, then the G2 vector and the L query.
+        let alpha_g1 = take_point(&mut cursor)?;
+        let beta_g1 = take_point(&mut cursor)?;
+        let delta_g1 = take_point(&mut cursor)?;
+        let beta_g2 = take_point(&mut cursor)?;
+        let gamma_g2 = take_point(&mut cursor)?;
+        let delta_g2 = take_point(&mut cursor)?;
+        let key = ProvingKey {
+            vk: VerifyingKey {
+                alpha_g1,
+                beta_g2,
+                gamma_g2,
+                delta_g2,
+                gamma_abc_g1: take_section::<G1Affine>(&mut cursor)?,
+            },
+            beta_g1,
+            delta_g1,
+            a_query: take_section::<G1Affine>(&mut cursor)?,
+            b_g1_query: take_section::<G1Affine>(&mut cursor)?,
+            h_query: take_section::<G1Affine>(&mut cursor)?,
+            b_g2_query: take_section::<G2Affine>(&mut cursor)?,
+            l_query: take_section::<G1Affine>(&mut cursor)?,
+        };
+        if cursor.offset != bytes.len() {
+            return Err(ProverErrorKind::InvalidKeyImage("trailing bytes").into());
+        }
+        Ok(key)
+    }
 }

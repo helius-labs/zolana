@@ -52,6 +52,18 @@ macro_rules! __zk_program_wasm_prover {
                 $crate::wasm::prover_from_zkey::<$program>(zkey).map(Self)
             }
 
+            /// Loads a key in the memory-image format: one copy, no curve
+            /// checks, no parsing. This is the format to use in the browser;
+            /// `fromKey` and `fromZkey` exist for circom/snarkjs
+            /// compatibility.
+            #[wasm_bindgen(js_name = fromKeyImage)]
+            pub fn from_key_image(
+                #[wasm_bindgen(js_name = keyImage)] key_image: &[u8],
+            ) -> ::core::result::Result<$prover, $crate::wasm::__private::wasm_bindgen::JsValue>
+            {
+                $crate::wasm::prover_from_key_image::<$program>(key_image).map(Self)
+            }
+
             #[wasm_bindgen(unchecked_return_type = "ProgramProof")]
             pub fn prove(
                 &self,
@@ -141,6 +153,14 @@ pub fn prover_from_key<P: ZkProgram>(proving_key: &[u8]) -> Result<Groth16Prover
 #[cfg(feature = "wasm-prover")]
 pub fn prover_from_zkey<P: ZkProgram>(zkey: &[u8]) -> Result<Groth16Prover<P>, JsValue> {
     Ok(Groth16Prover::from_zkey_bytes(zkey)?)
+}
+
+/// Builds a prover from a key in the memory-image format
+/// (`Groth16Keys::from_image_bytes`), the fastest way to load a proving key
+/// in a browser: one copy, no curve checks, no parsing.
+#[cfg(feature = "wasm-prover")]
+pub fn prover_from_key_image<P: ZkProgram>(key_image: &[u8]) -> Result<Groth16Prover<P>, JsValue> {
+    Ok(Groth16Keys::from_image_bytes(key_image).and_then(Groth16Prover::new)?)
 }
 
 #[cfg(feature = "wasm-prover")]

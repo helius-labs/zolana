@@ -24,6 +24,7 @@ solana-address = { workspace = true, features = ["curve25519"] }
 solana-bn254 = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde-wasm-bindgen = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 solana-signature = { workspace = true }
 thiserror = { workspace = true }
 tsify = { workspace = true, optional = true }
@@ -43,6 +44,7 @@ client = [
     "dep:ark-poly",
     "dep:ark-serialize",
     "dep:groth16-solana",
+    "dep:sha2",
     "dep:solana-bn254",
 ]
 setup = [

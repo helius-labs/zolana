@@ -241,6 +241,13 @@ fn write_keys<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
         .keys()
         .save(&keys_dir().join(format!("{}.pk", fixture.name)))
         .expect("proving key");
+    // The memory-image format is what the wasm tests should load: one copy,
+    // no curve checks. The canonical .pk above stays for circom/snarkjs
+    // compatibility.
+    prover
+        .keys()
+        .save_image(&keys_dir().join(format!("{}.pki", fixture.name)))
+        .expect("proving key image");
     std::fs::write(
         keys_dir().join(format!("{}.wtns", fixture.name)),
         fixture.program.export_assignment().expect("proof inputs"),

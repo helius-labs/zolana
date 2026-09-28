@@ -430,6 +430,12 @@ pub enum ProverErrorKind {
     #[error("the Groth16 keys cannot be read or written: {0}")]
     KeyEncoding(ark_serialize::SerializationError),
     #[cfg(any(feature = "client", feature = "setup"))]
+    #[error("the Groth16 key image is malformed: {0}")]
+    InvalidKeyImage(&'static str),
+    #[cfg(any(feature = "client", feature = "setup"))]
+    #[error("the Groth16 key image does not match its sha256 checksum")]
+    KeyImageChecksumMismatch,
+    #[cfg(any(feature = "client", feature = "setup"))]
     #[error("the Groth16 keys cannot be read or written: {0:?}")]
     VerifyingKeyExport(groth16_solana::errors::Groth16Error),
     #[cfg(any(feature = "client", feature = "setup"))]
@@ -474,6 +480,10 @@ impl ProverErrorKind {
             Self::KeyFile { .. } => "ProverError.KeyFile",
             #[cfg(any(feature = "client", feature = "setup"))]
             Self::KeyEncoding(_) => "ProverError.KeyEncoding",
+            #[cfg(any(feature = "client", feature = "setup"))]
+            Self::InvalidKeyImage(_) => "ProverError.InvalidKeyImage",
+            #[cfg(any(feature = "client", feature = "setup"))]
+            Self::KeyImageChecksumMismatch => "ProverError.KeyImageChecksumMismatch",
             #[cfg(any(feature = "client", feature = "setup"))]
             Self::VerifyingKeyExport(_) => "ProverError.VerifyingKeyExport",
             #[cfg(any(feature = "client", feature = "setup"))]

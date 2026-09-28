@@ -36,7 +36,10 @@ ark-ec = "0.6"
 ark-ff = "0.6"
 ark-groth16 = { version = "0.6", default-features = false, features = ["std"] }
 ark-relations = { version = "0.6", default-features = false, features = ["std"] }
+ark-serialize = "0.6"
 hex = { workspace = true }
+memmap2 = "0.6"
+rayon = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true }
