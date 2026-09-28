@@ -22,7 +22,6 @@ export interface CreateTreeData {
 
 export const SHIELDED_POOL_PROGRAM_ID = address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 export const USER_REGISTRY_PROGRAM_ID = address("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
-export const SECP256R1_PROGRAM_ID = address("Secp256r1SigVerify1111111111111111111111111");
 export const SOL_INTERFACE = encodeBase58(
   Uint8Array.from([
     25, 103, 86, 200, 133, 185, 152, 90, 206, 95, 120, 116, 156, 29, 95, 209, 115, 140, 160, 250,

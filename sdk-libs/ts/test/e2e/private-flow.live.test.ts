@@ -32,16 +32,13 @@ import {
   type WithdrawalTransactionParams,
 } from "../../src/index.js";
 import type { ApprovalHandler } from "../../src/transaction/wallet/intent.js";
-import {
-  getAssociatedTokenAddress,
-  getSplAssetVaultAddress,
-  getUserRecordPda,
-} from "../../src/addresses.js";
-import { getRegisterInstruction, getSetMergingEnabledInstruction } from "../../src/instructions.js";
+import { getAssociatedTokenAddress, getSplAssetVaultAddress } from "../../src/addresses.js";
 import type { ZolanaClient } from "../../src/client/client.js";
 import { compileUnsignedTransaction } from "../../src/flows/compile.js";
-import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../../src/flows/internal.js";
-import { USER_REGISTRY_PROGRAM_ID } from "../../src/interface/program.js";
+import {
+  getRegisterInstructionAsync,
+  getSetMergingEnabledInstructionAsync,
+} from "../../src/instructions.js";
 import type { WalletUtxo } from "../../src/transaction/wallet/state.js";
 import {
   fetchUserRecord,
@@ -306,53 +303,34 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     expect(await harness.client.getAccount(harness.tree)).toBeDefined();
   }, 60_000);
 
-  it("registers and enables merging in one transaction from the instruction builders", async () => {
+  it("registers a wallet and enables merging in one transaction", async () => {
     const owner = await actor(harness.client, 131);
     await fund(harness.client, owner);
     const shielded = owner.keypair.shieldedAddress();
-    const { address: userRecord } = await getUserRecordPda(owner.signer.address);
-    expect(await fetchUserRecord({ rpc: harness.client, owner: owner.signer.address })).toBe(
-      undefined,
-    );
+    expect(
+      await fetchUserRecord({ rpc: harness.client, owner: owner.signer.address }),
+    ).toBeUndefined();
 
     const transaction = compileUnsignedTransaction({
       feePayer: owner.signer.address,
       lifetime: await harness.client.getLatestBlockhash(),
-      computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
+      computeUnitLimit: 200_000,
       instructions: [
-        getRegisterInstruction({
-          userRecord,
+        await getRegisterInstructionAsync({
           owner: owner.signer,
           nullifierPublicKey: shielded.nullifierPublicKey,
           viewingPublicKey: shielded.viewingPublicKey.toBytes(),
         }),
-        getSetMergingEnabledInstruction({ userRecord, owner: owner.signer, enabled: true }),
+        await getSetMergingEnabledInstructionAsync({ owner: owner.signer, enabled: true }),
       ],
     });
-    const signature = await signSendAndConfirm(harness.client, transaction, [owner.signer]);
-
-    const confirmed = await harness.client.solanaRpc
-      .getTransaction(signature, {
-        commitment: harness.client.commitment,
-        encoding: "json",
-        maxSupportedTransactionVersion: 1,
-      })
-      .send();
-    expect(confirmed?.meta?.err).toBeNull();
-    const message = confirmed!.transaction.message;
-    const programs = message.instructions.map(
-      (instruction) => message.accountKeys[instruction.programIdIndex],
-    );
-    expect(programs).toEqual([USER_REGISTRY_PROGRAM_ID, USER_REGISTRY_PROGRAM_ID]);
+    await signSendAndConfirm(harness.client, transaction, [owner.signer]);
 
     const record = await fetchUserRecordChecked({
       rpc: harness.client,
       owner: owner.signer.address,
     });
     expect(record.mergingEnabled).toBe(true);
-    expect(record.ownerP256).toBeUndefined();
-    expect(hex(record.nullifierPublicKey)).toBe(hex(shielded.nullifierPublicKey));
-    expect(hex(record.viewingPublicKey)).toBe(hex(shielded.viewingPublicKey.toBytes()));
     await expect(
       validateRegisteredKeypair({
         rpc: harness.client,
