@@ -483,15 +483,17 @@ async function registrationInstruction(
   shieldedAddress: ShieldedAddress,
   existing: UserRecord | undefined,
 ): Promise<Instruction | undefined> {
-  if (existing !== undefined && publishedKeysMatch(existing, shieldedAddress)) return undefined;
   const keys = {
     owner,
     nullifierPublicKey: shieldedAddress.nullifierPublicKey,
     viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
   };
-  return existing === undefined
-    ? registerInstruction({ ...keys, payer })
-    : updateKeysInstruction(keys);
+  if (existing === undefined) return registerInstruction({ ...keys, payer });
+  if (publishedKeysMatch(existing, shieldedAddress)) return undefined;
+  if (!equalBytes(existing.nullifierPublicKey, keys.nullifierPublicKey)) {
+    throw new WalletError("WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH", { details: { owner } });
+  }
+  return updateKeysInstruction(keys);
 }
 
 export async function registerInstruction(

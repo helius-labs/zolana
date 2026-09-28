@@ -4,6 +4,7 @@ import {
   getAddressEncoder,
   getCompiledTransactionMessageDecoder,
   getInstructionsFromCompiledTransactionMessage,
+  type Address,
   type Blockhash,
   type Instruction,
   type Transaction,
@@ -18,6 +19,7 @@ import {
   ViewingKey,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
+  type ShieldedAddress,
 } from "../src/index.js";
 import { getUserRecordAddress } from "../src/addresses.js";
 import {
@@ -41,6 +43,23 @@ const emptyRegistry = { getAccount: vi.fn(async () => undefined), ...blockhashCl
 
 function signingKey(seed: number): SigningKey {
   return SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(seed) as Bytes32);
+}
+
+async function registryPublishing(owner: Address, published: ShieldedAddress) {
+  const { bump } = await internalUserRecordPda(owner);
+  const data = Uint8Array.of(
+    1,
+    ...getAddressEncoder().encode(owner),
+    bump,
+    0,
+    ...published.nullifierPublicKey,
+    ...published.viewingPublicKey.toBytes(),
+    0,
+  );
+  return {
+    getAccount: vi.fn(async () => ({ owner: USER_REGISTRY_PROGRAM_ID, data, lamports: 1n })),
+    ...blockhashClient,
+  };
 }
 
 function accountsOf(instruction: Instruction) {
@@ -194,26 +213,9 @@ describe("buildRegistrationTransaction", () => {
     const published = ShieldedKeypair.fromKeypair(signingKey(1)).shieldedAddress();
     const replacement = ShieldedKeypair.withViewingKey(signingKey(1), ViewingKey.generate());
     const owner = published.solanaAddress();
-    const pda = await internalUserRecordPda(owner);
-    const recordData = Uint8Array.of(
-      1,
-      ...getAddressEncoder().encode(owner),
-      pda.bump,
-      0,
-      ...published.nullifierPublicKey,
-      ...published.viewingPublicKey.toBytes(),
-      0,
-    );
 
     const transaction = await buildRegistrationTransaction({
-      client: {
-        getAccount: vi.fn(async () => ({
-          owner: USER_REGISTRY_PROGRAM_ID,
-          data: recordData,
-          lamports: 1n,
-        })),
-        ...blockhashClient,
-      },
+      client: await registryPublishing(owner, published),
       owner,
       address: replacement.shieldedAddress(),
     });
@@ -228,9 +230,39 @@ describe("buildRegistrationTransaction", () => {
       ),
     );
     expect(accountsOf(instruction)).toEqual([
-      { address: pda.address, role: AccountRole.WRITABLE },
+      { address: await getUserRecordAddress(owner), role: AccountRole.WRITABLE },
       { address: owner, role: AccountRole.WRITABLE_SIGNER },
     ]);
+  });
+
+  it("refuses a key update that changes the nullifier key", async () => {
+    const published = ShieldedKeypair.fromKeypair(signingKey(2)).shieldedAddress();
+    const replacement = ShieldedKeypair.fromKeypair(signingKey(3)).shieldedAddress();
+    const owner = published.solanaAddress();
+
+    await expect(
+      buildRegistrationTransaction({
+        client: await registryPublishing(owner, published),
+        owner,
+        address: replacement,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_REGISTRATION",
+      causeCode: "WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH",
+    });
+  });
+
+  it("builds nothing when the record already matches", async () => {
+    const published = ShieldedKeypair.fromKeypair(signingKey(6)).shieldedAddress();
+    const owner = published.solanaAddress();
+
+    await expect(
+      buildRegistrationTransaction({
+        client: await registryPublishing(owner, published),
+        owner,
+        address: published,
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 

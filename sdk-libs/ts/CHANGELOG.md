@@ -173,6 +173,11 @@ Added
 
 Fixed
 
+- `buildRegistrationTransaction` built a key update the user-registry program
+  rejects when the wallet's nullifier key differs from the published record,
+  it now throws `WALLET_BUILD_REGISTRATION` with cause
+  `WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH` before building anything → a
+  wallet with a new nullifier key registers under a new owner address.
 - `buildRingTransferTransaction` bound output commitments to the wrong tree on
   a client with a nonzero tree id, each output now commits to the selected
   destination tree.
