@@ -1,5 +1,5 @@
 use crate::{
-    circuit::{labels, CircuitLabel, Field, LabelKind, VariableRole},
+    circuit::{builtins::ops::hint::forge, labels, CircuitLabel, Field, LabelKind, VariableRole},
     conversion::ProofInput,
     prover::{ArkworksCircuit, Statement},
     ProverError, ProverErrorKind,
@@ -67,6 +67,27 @@ where
     synthesized.matrices.check(&assignment)
 }
 
+/// Synthesizes the proof with every hint labelled `hint` witnessing `values`,
+/// and everything computed from it recomputed. `Ok` means the forged hint
+/// satisfies every constraint.
+pub fn check_forged_hint<P, S>(
+    proof_inputs: &P,
+    hint: &'static str,
+    values: &[Field],
+) -> Result<(), ProverError>
+where
+    P: ProofInput,
+    P::Circuit: Statement<S>,
+{
+    let mut forged = None;
+    let synthesized = ArkworksCircuit::<P, S>::new(proof_inputs)?
+        .synthesized_with(|cs| forged = Some(forge(cs, hint, values)))?;
+    if !forged.is_some_and(|hit| hit.get()) {
+        return Err(ProverErrorKind::NoSuchHint(hint).into());
+    }
+    synthesized.matrices.check(&synthesized.assignment)
+}
+
 pub fn check_private_variables<P, S>(proof_inputs: &P) -> Result<PrivateVariableReport, ProverError>
 where
     P: ProofInput,
@@ -89,7 +110,7 @@ where
                 allocation,
             }
         })
-        .partition(|free| free.role != VariableRole::Constrained);
+        .partition(|free| matches!(free.role, VariableRole::Multiplier | VariableRole::Carried));
     Ok(PrivateVariableReport {
         constraints: matrices.constraint_count(),
         private_variables: matrices.shape().witness_variables,

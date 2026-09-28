@@ -82,5 +82,9 @@ wasmer = { version = "6.1", default-features = false }
 name = "unit"
 required-features = ["client", "setup"]
 
+[[test]]
+name = "external_gadget"
+required-features = ["client", "setup"]
+
 [lints.clippy]
 disallowed_types = "allow"

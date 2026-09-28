@@ -7,7 +7,7 @@ use crate::{
         builtins::field::{
             bits::{bits_le, range_check},
             primitive,
-            var::system_of,
+            var::{small, system_of},
         },
         constant,
         labels::{self, Scope},
@@ -404,13 +404,6 @@ fn divide(dividend: &CircuitVar, divisor: &CircuitVar) -> Option<(u128, u128)> {
         dividend.checked_div(divisor)?,
         dividend.checked_rem(divisor)?,
     ))
-}
-
-fn small(value: &Fr) -> Option<u128> {
-    let [low, high, rest @ ..] = value.into_bigint().0;
-    rest.iter()
-        .all(|limb| *limb == 0)
-        .then_some(u128::from(low) | (u128::from(high) << 64))
 }
 
 fn power_of_two(bits: u32) -> Fr {

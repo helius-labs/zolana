@@ -413,6 +413,10 @@ pub enum ProverErrorKind {
     WrongPublicInputCount,
     #[error("the circuit has no private variable {0}")]
     NoSuchVariable(usize),
+    #[error("the hint {0} is in no constraint")]
+    UnusedHint(Box<CircuitLabel>),
+    #[error("the circuit has no hint {0}")]
+    NoSuchHint(&'static str),
     #[error("the proof does not verify under these keys")]
     ProofRejected,
     #[error("the proof is corrupt")]
@@ -463,6 +467,8 @@ impl ProverErrorKind {
             Self::ReadsValueDuringSetup => "ProverError.ReadsValueDuringSetup",
             Self::WrongPublicInputCount => "ProverError.WrongPublicInputCount",
             Self::NoSuchVariable(_) => "ProverError.NoSuchVariable",
+            Self::UnusedHint(_) => "ProverError.UnusedHint",
+            Self::NoSuchHint(_) => "ProverError.NoSuchHint",
             Self::ProofRejected => "ProverError.ProofRejected",
             Self::CorruptProof => "ProverError.CorruptProof",
             Self::KeyFile { .. } => "ProverError.KeyFile",
@@ -489,6 +495,7 @@ impl ProverErrorKind {
         match self {
             Self::ProofInputsBreakRule(row) | Self::ConstraintsDiffer(row) => row.label.as_ref(),
             Self::ShapeDiffers { first_apart, .. } => first_apart.as_deref(),
+            Self::UnusedHint(label) => Some(label),
             _ => None,
         }
     }

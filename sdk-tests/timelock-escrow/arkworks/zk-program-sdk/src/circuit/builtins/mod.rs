@@ -14,7 +14,11 @@ pub use gadgets::{
     membership::{assert_in, is_in},
     poseidon::poseidon,
 };
-pub use ops::{assert::Assert, select::Select};
+pub use ops::{
+    assert::Assert,
+    hint::{hint, Unconstrained},
+    select::Select,
+};
 pub use types::{
     boolean::Bool,
     bytes::Bytes,

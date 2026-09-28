@@ -3,7 +3,7 @@ use ark_ff::{Field as _, Zero};
 use ark_r1cs_std::{boolean::Boolean, GR1CSVar};
 
 use crate::{
-    circuit::{constant, labels, zero, Bool, CircuitVar},
+    circuit::{builtins::field::var::system_of, constant, labels, zero, Bool, CircuitVar},
     CircuitError,
 };
 
@@ -83,6 +83,31 @@ impl Assert for CircuitVar {
                 Ok(difference.assigned()?.inverse().unwrap_or_default())
             })?;
             difference.enforce_product(&inverse, &constant(1u64))
+        })
+    }
+}
+
+impl CircuitVar {
+    #[track_caller]
+    pub fn assert_product(
+        &self,
+        other: &Self,
+        product: &Self,
+        rule: &'static str,
+    ) -> Result<(), CircuitError> {
+        if let (Some(left), Some(right), Some(expected)) = (
+            self.constant_value(),
+            other.constant_value(),
+            product.constant_value(),
+        ) {
+            return if left * right == expected {
+                Ok(())
+            } else {
+                Err(CircuitError::rule_broken(rule))
+            };
+        }
+        labels::check(&system_of([self, other, product]), rule, || {
+            self.enforce_product(other, product)
         })
     }
 }

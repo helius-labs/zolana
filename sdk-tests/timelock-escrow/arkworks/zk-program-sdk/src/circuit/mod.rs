@@ -4,9 +4,9 @@ pub(crate) mod labels;
 mod protocol;
 
 pub use builtins::{
-    assert_in, constant, from_bits_le, hash_bytes, is_in, nonzero_hash_chain, one_hot, poseidon,
-    select_index, value, zero, Assert, Bits, Bool, Bytes, CircuitSystem, CircuitVar,
-    ConstraintSystem, Field, Select, Uint, U128, U16, U32, U64, U8,
+    assert_in, constant, from_bits_le, hash_bytes, hint, is_in, nonzero_hash_chain, one_hot,
+    poseidon, select_index, value, zero, Assert, Bits, Bool, Bytes, CircuitSystem, CircuitVar,
+    ConstraintSystem, Field, Select, Uint, Unconstrained, U128, U16, U32, U64, U8,
 };
 pub use circuit_type::{CircuitDefault, CircuitType};
 pub use labels::{CircuitLabel, CircuitSize, FailedConstraint, LabelKind, VariableRole};

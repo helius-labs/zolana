@@ -6,6 +6,7 @@ use std::{
 };
 
 use ark_bn254::Fr;
+use ark_ff::{Field as _, PrimeField, Zero};
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::gr1cs::ConstraintSystemRef;
 
@@ -36,6 +37,55 @@ impl From<Field> for Fr {
     fn from(value: Field) -> Self {
         value.0
     }
+}
+
+impl Field {
+    pub fn is_zero(&self) -> bool {
+        self.0.is_zero()
+    }
+
+    pub fn inverse(&self) -> Option<Self> {
+        self.0.inverse().map(Self)
+    }
+
+    pub fn sqrt(&self) -> Option<Self> {
+        self.0.sqrt().map(Self)
+    }
+
+    pub fn pow(&self, exponent: u64) -> Self {
+        Self(self.0.pow([exponent]))
+    }
+}
+
+impl TryFrom<Field> for u128 {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(value: Field) -> Result<u128, CircuitError> {
+        match small(&value.0) {
+            Some(value) => Ok(value),
+            None => Err(CircuitErrorKind::ValueTooLarge { bits: 128 }.into()),
+        }
+    }
+}
+
+impl TryFrom<Field> for u64 {
+    type Error = CircuitError;
+
+    #[track_caller]
+    fn try_from(value: Field) -> Result<u64, CircuitError> {
+        match small(&value.0).map(u64::try_from) {
+            Some(Ok(value)) => Ok(value),
+            _ => Err(CircuitErrorKind::ValueTooLarge { bits: 64 }.into()),
+        }
+    }
+}
+
+pub(crate) fn small(value: &Fr) -> Option<u128> {
+    let [low, high, rest @ ..] = value.into_bigint().0;
+    rest.iter()
+        .all(|limb| *limb == 0)
+        .then_some(u128::from(low) | (u128::from(high) << 64))
 }
 
 impl Add for Field {
