@@ -15,7 +15,7 @@ spend it from there before the tree holds it.
 
 Breaking
 
-- `PROVING_KEY_SHA256S` pins the faster-loading prover keys → use the prover
+- `ZolanaClient` requires the new proving-key checksums → use the prover
   and programs built with the matching key manifest from this release.
 - `buildRegistrationTransaction` adds the `payer` account the user-registry
   program now requires for a first registration → rebuild any unsigned
