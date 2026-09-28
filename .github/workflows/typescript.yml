@@ -105,16 +105,6 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - name: Reproduce authenticated key images
-        # This also runs on draft PRs, before the new artifacts are published.
-        # Skip the unused multi-GB 250-element forester key to save memory and disk.
-        run: |
-          go build -C prover/server -o ../../target/convert-key-image ./cmd/convert-key-image
-          mapfile -t keys < <(python3 -c 'import json; print("\n".join(name for name in json.load(open("prover/server/scripts/key-image-source.lock"))["keys"] if name != "batch_address-append_40_250.key"))')
-          python3 prover/server/scripts/convert_key_images.py prover/server/proving-keys "${keys[@]}" \
-            --converter target/convert-key-image \
-            --expected-lock prover/server/prover/provingkeys/proving-keys.lock \
-            --discard-source
       # The e2e suite starts a localnet, whose backend is surfpool.
       - name: Cache surfpool
         id: surfpool-cache
