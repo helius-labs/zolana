@@ -237,17 +237,13 @@ fn committed(name: &str) -> Value {
 fn write_keys<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
     let prover = Groth16Prover::<P>::new_with_test_setup().expect("seeded setup");
     std::fs::create_dir_all(keys_dir()).expect("keys directory");
+    // The wasm prover loads keys with `Groth16Keys::from_image_bytes`, so
+    // the .pk the harness fetches is the memory image: one copy, no curve
+    // checks. Circom/snarkjs compatibility uses the zkeys written below.
     prover
         .keys()
-        .save(&keys_dir().join(format!("{}.pk", fixture.name)))
+        .save_image(&keys_dir().join(format!("{}.pk", fixture.name)))
         .expect("proving key");
-    // The memory-image format is what the wasm tests should load: one copy,
-    // no curve checks. The canonical .pk above stays for circom/snarkjs
-    // compatibility.
-    prover
-        .keys()
-        .save_image(&keys_dir().join(format!("{}.pki", fixture.name)))
-        .expect("proving key image");
     std::fs::write(
         keys_dir().join(format!("{}.wtns", fixture.name)),
         fixture.program.export_assignment().expect("proof inputs"),
