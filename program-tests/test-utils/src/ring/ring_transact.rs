@@ -3,14 +3,13 @@
 use anyhow::{anyhow, Result};
 use solana_account::Account;
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, ProofAuthority, ProofCompressed, ProverClient,
-    RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
+    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProofCompressed,
+    ProverClient, RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -37,7 +36,7 @@ use zolana_wallet::SyncWalletAuthority;
 
 use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{
-    localnet::send_transaction,
+    localnet::send_transaction_with_budget,
     spl::create_token_account,
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_transact, fetch_account,
@@ -519,13 +518,13 @@ impl RingHarness {
             data: data.clone(),
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let instructions = [compute_budget, transfer_ix.clone()];
-        let signature = send_transaction(
+        let instructions = [transfer_ix.clone()];
+        let signature = send_transaction_with_budget(
             &mut self.rpc,
             &instructions,
             &fee_payer.pubkey(),
             &[&fee_payer],
+            ComputeBudgetConfig::new(1_400_000),
         )?;
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
@@ -897,13 +896,13 @@ impl RingHarness {
             data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
-        match send_transaction(
+        match send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, transfer_ix],
+            &[transfer_ix],
             &fee_payer.pubkey(),
             &[&fee_payer],
+            ComputeBudgetConfig::new(1_400_000),
         ) {
             Ok(_) => Err(anyhow!(
                 "ring transfer with an invalid proof unexpectedly succeeded"

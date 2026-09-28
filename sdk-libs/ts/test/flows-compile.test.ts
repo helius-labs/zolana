@@ -1,13 +1,20 @@
 import {
   address,
+  compileTransaction,
+  createTransactionMessage,
   decompileTransactionMessage,
   getCompiledTransactionMessageDecoder,
+  pipe,
+  setTransactionMessageFeePayer,
+  setTransactionMessageLifetimeUsingBlockhash,
   type Blockhash,
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import { ClientError } from "../src/client/error.js";
 import {
   LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
+  assertVersion1Transaction,
   compileUnsignedTransaction,
 } from "../src/flows/compile.js";
 import { TRANSACTION_SIZE_LIMIT } from "../src/interface/transaction-size.js";
@@ -126,5 +133,16 @@ describe("transaction compiler", () => {
         instructions: [{ programAddress: PROGRAM }],
       }),
     ).toThrow("CLIENT_INVALID_INTEGER");
+  });
+
+  it("refuses a transaction that is not version 1", () => {
+    const legacy = compileTransaction(
+      pipe(
+        createTransactionMessage({ version: "legacy" }),
+        (tx) => setTransactionMessageFeePayer(PAYER, tx),
+        (tx) => setTransactionMessageLifetimeUsingBlockhash(LIFETIME, tx),
+      ),
+    );
+    expect(() => assertVersion1Transaction(legacy)).toThrow(ClientError);
   });
 });

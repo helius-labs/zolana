@@ -57,25 +57,25 @@ pub fn tree_root(rpc: &impl Rpc, tree: Address) -> Result<(u16, [u8; 32])> {
 pub fn send(
     env: &Environment,
     instruction: Instruction,
-    cu_price: Option<u64>,
+    priority_fee: Option<u64>,
 ) -> Result<Signature> {
-    send_from(env, instruction, &env.authority, cu_price)
+    send_from(env, instruction, &env.authority, priority_fee)
 }
 
 /// Submit as a transaction **v1** message, whose 4096-byte limit holds a
 /// proof-carrying compression instruction. The compute ceilings live in the
-/// message header instead of in a compute-budget instruction. A `cu_price` also
-/// makes an otherwise identical message distinct, which is what the replay
+/// message header instead of in a compute-budget instruction. A priority fee
+/// also makes an otherwise identical message distinct, which is what the replay
 /// negatives rely on.
 pub fn send_from(
     env: &Environment,
     instruction: Instruction,
     payer: &dyn Signer,
-    cu_price: Option<u64>,
+    priority_fee: Option<u64>,
 ) -> Result<Signature> {
     let budget = ComputeBudgetConfig::new(TRANSACT_CU_LIMIT);
-    let budget = match cu_price {
-        Some(price) => budget.with_compute_unit_price(price),
+    let budget = match priority_fee {
+        Some(fee) => budget.with_priority_fee(fee),
         None => budget,
     };
     Ok(env.localnet.client.create_and_send_transaction(

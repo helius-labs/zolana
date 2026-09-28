@@ -159,7 +159,10 @@ describe("ringEventInvokedIn", () => {
   });
 });
 
-function v0Transaction(): unknown {
+function confirmedTransaction(loadedAddresses: {
+  writable: readonly Address[];
+  readonly: readonly Address[];
+}): unknown {
   return {
     slot: 7,
     blockTime: null,
@@ -171,10 +174,9 @@ function v0Transaction(): unknown {
           numReadonlySignedAccounts: 0,
           numReadonlyUnsignedAccounts: 1,
         },
-        accountKeys: [PAYER, RING],
+        accountKeys: [PAYER, RING, OTHER, POOL],
         recentBlockhash: PAYER,
         instructions: [{ programIdIndex: 1, accounts: [0], data: "", stackHeight: null }],
-        addressTableLookups: [],
       },
     },
     meta: {
@@ -202,15 +204,21 @@ function v0Transaction(): unknown {
           ],
         },
       ],
-      loadedAddresses: { writable: [OTHER], readonly: [POOL] },
+      loadedAddresses,
     },
-    version: 0,
+    version: 1,
   };
 }
 
 describe("confirmedInstructionGroups", () => {
-  it("resolves v0 program ids from loadedAddresses", () => {
-    const groups = confirmedInstructionGroups(v0Transaction());
+  it("rejects a transaction that loaded accounts from a lookup table", () => {
+    expect(() =>
+      confirmedInstructionGroups(confirmedTransaction({ writable: [OTHER], readonly: [POOL] })),
+    ).toThrow(RingError);
+  });
+
+  it("reads program ids from the message account keys", () => {
+    const groups = confirmedInstructionGroups(confirmedTransaction({ writable: [], readonly: [] }));
     expect(groups).toEqual([
       {
         outer: { programId: RING, accounts: [PAYER], data: new Uint8Array() },
@@ -234,7 +242,9 @@ describe("confirmedInstructionGroups", () => {
   });
 
   it("refuses a transaction without inner instructions", () => {
-    const transaction = v0Transaction() as { meta: Record<string, unknown> };
+    const transaction = confirmedTransaction({ writable: [], readonly: [] }) as {
+      meta: Record<string, unknown>;
+    };
     delete transaction.meta["innerInstructions"];
     expect(() => confirmedInstructionGroups(transaction)).toThrow(RingError);
   });
@@ -460,7 +470,9 @@ function rpcWith(result: unknown | Error): ConstructorParameters<typeof RpcTrans
 
 describe("RpcTransactionOrigin", () => {
   it("walks the fetched transaction", async () => {
-    const origin = new RpcTransactionOrigin(rpcWith(v0Transaction()));
+    const origin = new RpcTransactionOrigin(
+      rpcWith(confirmedTransaction({ writable: [], readonly: [] })),
+    );
     await expect(origin.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
     await expect(origin.ringInvoked(SIGNATURE, 0, OTHER)).resolves.toBe(false);
   });

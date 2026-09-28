@@ -447,14 +447,10 @@ fn print_create_verifying_keys_help() {
 }
 
 fn tx_size(args: Vec<String>) {
-    use bincode;
     use solana_instruction::Instruction;
     use solana_keypair::Keypair;
-    use solana_message::Message;
-    use solana_packet::PACKET_DATA_SIZE;
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
-    use solana_transaction::Transaction;
     use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
     use zolana_interface::instruction::instruction_data::MERGE_SUPPORTED_INPUT_COUNTS;
     use zolana_interface::{
@@ -631,13 +627,6 @@ fn tx_size(args: Vec<String>) {
         d
     };
 
-    let legacy_tx_len = |ix: Instruction| -> usize {
-        let msg = Message::new(&[ix], Some(&payer_pk));
-        bincode::serialize(&Transaction::new_unsigned(msg))
-            .unwrap()
-            .len()
-    };
-
     let v1_tx_size = |instructions: &[Instruction]| -> TransactionSize {
         transaction_size(&payer_pk, instructions, ComputeBudgetConfig::new(1_400_000))
             .expect("compile the v1 message")
@@ -647,24 +636,17 @@ fn tx_size(args: Vec<String>) {
     // wire bytes and account addresses together: a wide spend adds a nullifier
     // PDA per input, and the 64-address cap is what binds first at those shapes
     // even while the bytes are comfortable.
-    let v1_cell = |legacy: usize, v1: TransactionSize| -> String {
-        // `OVER` means no format can carry the row. Between the two ceilings a
-        // row exceeds 1,232 bytes and is still perfectly sendable as v1, which
-        // is why the legacy column stays rather than the table collapsing to
-        // one number that would read as a verdict.
-        if legacy <= PACKET_DATA_SIZE || v1.fits() {
+    let v1_cell = |v1: TransactionSize| -> String {
+        if v1.fits() {
             format!("{}/{}", v1.bytes, v1.addresses)
         } else {
             format!("{}/{} OVER", v1.bytes, v1.addresses)
         }
     };
 
-    /// One measured shape, in both formats it could be sent in.
     struct ShapeSizes {
         ix_len: usize,
-        transfer_legacy: usize,
         transfer_v1: TransactionSize,
-        shield_legacy: usize,
         shield_v1: TransactionSize,
     }
 
@@ -711,60 +693,40 @@ fn tx_size(args: Vec<String>) {
 
         ShapeSizes {
             ix_len,
-            transfer_legacy: legacy_tx_len(transfer_ix.clone()),
             transfer_v1: v1_tx_size(std::slice::from_ref(&transfer_ix)),
-            shield_legacy: legacy_tx_len(shield_ix.clone()),
             shield_v1: v1_tx_size(std::slice::from_ref(&shield_ix)),
         }
     };
 
-    // The shape tables report both formats: legacy is the 1,232-byte ceiling
-    // the protocol was sized against, v1 the 4,096-byte / 64-address one it is
-    // sent under. A v1 cell is `bytes/addresses`.
+    // A cell is `bytes/addresses`. OVER means the row misses a v1 ceiling.
     let print_shape_header = || {
         println!(
-            "| {:<14} | N | M | {:>11} | {:>15} | {:>20} | {:>13} | {:>18} |",
-            "Circuit",
-            "ix data (B)",
-            "transfer legacy",
-            "transfer v1 (B/addr)",
-            "shield legacy",
-            "shield v1 (B/addr)",
+            "| {:<14} | N | M | {:>11} | {:>20} | {:>18} |",
+            "Circuit", "ix data (B)", "transfer v1 (B/addr)", "shield v1 (B/addr)",
         );
-        println!(
-            "|{:-<16}|---|---|{:-<13}|{:-<17}|{:-<22}|{:-<15}|{:-<20}|",
-            "", "", "", "", "", ""
-        );
+        println!("|{:-<16}|---|---|{:-<13}|{:-<22}|{:-<20}|", "", "", "", "");
     };
     let print_shape_row = |n: usize, m: usize, sizes: &ShapeSizes, transfer_applies: bool| {
         // A shape with no recipient position is not a transfer at all, so its
-        // transfer columns stay blank rather than reporting a meaningless size.
-        let (transfer_legacy, transfer_v1) = if transfer_applies {
-            (
-                sizes.transfer_legacy.to_string(),
-                v1_cell(sizes.transfer_legacy, sizes.transfer_v1),
-            )
+        // transfer column stays blank rather than reporting a meaningless size.
+        let transfer_v1 = if transfer_applies {
+            v1_cell(sizes.transfer_v1)
         } else {
-            ("—".to_string(), "—".to_string())
+            "—".to_string()
         };
         println!(
-            "| {:<14} | {} | {} | {:>11} | {:>15} | {:>20} | {:>13} | {:>18} |",
+            "| {:<14} | {} | {} | {:>11} | {:>20} | {:>18} |",
             format!("{n} in {m} out"),
             n,
             m,
             sizes.ix_len,
-            transfer_legacy,
             transfer_v1,
-            sizes.shield_legacy,
-            v1_cell(sizes.shield_legacy, sizes.shield_v1),
+            v1_cell(sizes.shield_v1),
         );
     };
 
-    // The two ceilings, stated once, because the protocol now sits between them:
-    // the wide shapes exceed the legacy packet and are still sendable as v1.
     println!(
-        "Ceilings: legacy {PACKET_DATA_SIZE} B; v1 {} B and {} addresses. \
-         OVER = fits neither, i.e. unsendable in any format.",
+        "Ceilings: v1 {} B and {} addresses. OVER = misses a ceiling.",
         solana_message::v1::MAX_TRANSACTION_SIZE,
         solana_message::v1::MAX_ADDRESSES,
     );
@@ -805,13 +767,10 @@ fn tx_size(args: Vec<String>) {
     println!();
     println!("Sender owner-tag sensitivity (3 in 3 out, eddsa rail, 2 change positions):");
     println!(
-        "| {:<16} | {:>9} | {:>11} | {:>15} | {:>20} |",
-        "sender tag", "tag B/pos", "ix data (B)", "transfer legacy", "transfer v1 (B/addr)",
+        "| {:<16} | {:>9} | {:>11} | {:>20} |",
+        "sender tag", "tag B/pos", "ix data (B)", "transfer v1 (B/addr)",
     );
-    println!(
-        "|{:-<18}|{:-<11}|{:-<13}|{:-<17}|{:-<22}|",
-        "", "", "", "", ""
-    );
+    println!("|{:-<18}|{:-<11}|{:-<13}|{:-<22}|", "", "", "", "");
     let sender_tag_kinds = [
         ("Account(0)", OwnerTag::Account(0), 2usize),
         ("Inline([u8;32])", OwnerTag::Inline([0u8; 32]), 33),
@@ -820,12 +779,11 @@ fn tx_size(args: Vec<String>) {
         let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
         let sizes = make_tx_sizes(&spec, 3, TransactProof::zeroed());
         println!(
-            "| {:<16} | {:>9} | {:>11} | {:>15} | {:>20} |",
+            "| {:<16} | {:>9} | {:>11} | {:>20} |",
             label,
             tag_bytes,
             sizes.ix_len,
-            sizes.transfer_legacy,
-            v1_cell(sizes.transfer_legacy, sizes.transfer_v1),
+            v1_cell(sizes.transfer_v1),
         );
     }
 
@@ -843,10 +801,10 @@ fn tx_size(args: Vec<String>) {
     println!();
     println!("Public-leg sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):");
     println!(
-        "| {:>19} | {:>17} | {:>19} | {:>17} |",
-        "interface transfers", "EdDSA ix data (B)", "EdDSA legacy tx (B)", "EdDSA v1 (B/addr)",
+        "| {:>19} | {:>17} | {:>17} |",
+        "interface transfers", "EdDSA ix data (B)", "EdDSA v1 (B/addr)",
     );
-    println!("|{:-<21}|{:-<19}|{:-<21}|{:-<19}|", "", "", "", "");
+    println!("|{:-<21}|{:-<19}|{:-<19}|", "", "", "");
     let spec = transfer_layout(
         3,
         OwnerTag::Account(0),
@@ -871,13 +829,11 @@ fn tx_size(args: Vec<String>) {
             accounts: repeated_spl_withdraw_accounts(leg_count),
             data: make_ix_bytes(&eddsa_data),
         };
-        let legacy = legacy_tx_len(eddsa_ix.clone());
         println!(
-            "| {:>19} | {:>17} | {:>19} | {:>17} |",
+            "| {:>19} | {:>17} | {:>17} |",
             leg_count,
             eddsa_ix.data.len(),
-            legacy,
-            v1_cell(legacy, v1_tx_size(std::slice::from_ref(&eddsa_ix))),
+            v1_cell(v1_tx_size(std::slice::from_ref(&eddsa_ix))),
         );
     }
 
@@ -888,24 +844,19 @@ fn tx_size(args: Vec<String>) {
     // addr` the distinct message addresses the 64 cap applies to.
     println!("Builder layouts with nullifier PDAs (one writable PDA per input):");
     println!(
-        "| {:<36} | {:>8} | {:>11} | {:>13} | {:>18} |",
-        "transaction", "accounts", "ix data (B)", "legacy tx (B)", "v1 tx (B/addr)",
+        "| {:<36} | {:>8} | {:>11} | {:>18} |",
+        "transaction", "accounts", "ix data (B)", "v1 tx (B/addr)",
     );
-    println!(
-        "|{:-<38}|{:-<10}|{:-<13}|{:-<15}|{:-<20}|",
-        "", "", "", "", ""
-    );
+    println!("|{:-<38}|{:-<10}|{:-<13}|{:-<20}|", "", "", "", "");
     let tree = Pubkey::new_unique();
     let ring_config = Pubkey::new_unique();
     let transact_row = |label: String, ix: Instruction| {
-        let legacy = legacy_tx_len(ix.clone());
         println!(
-            "| {:<36} | {:>8} | {:>11} | {:>13} | {:>18} |",
+            "| {:<36} | {:>8} | {:>11} | {:>18} |",
             label,
             ix.accounts.len(),
             ix.data.len(),
-            legacy,
-            v1_cell(legacy, v1_tx_size(std::slice::from_ref(&ix))),
+            v1_cell(v1_tx_size(std::slice::from_ref(&ix))),
         );
     };
     let transact_ix = |n: usize, m: usize, circuit: Option<CircuitId>| -> Instruction {
@@ -1020,46 +971,25 @@ fn tx_size(args: Vec<String>) {
         .instruction();
         let merge_ix_accounts = merge_ix.accounts.len();
         let merge_ix_data_len = merge_ix.data.len();
-        let direct_len = bincode::serialize(&Transaction::new_unsigned(Message::new(
-            std::slice::from_ref(&merge_ix),
-            Some(&payer_pk),
-        )))
-        .unwrap()
-        .len();
         let sync_ix = zolana_smart_account_client::execute_sync_ix(
             &settings,
             0,
             &[payer_pk],
             std::slice::from_ref(&merge_ix),
         );
-        // The legacy figure carries the compute-budget instruction the legacy
-        // format needed to raise its limit; the v1 figure does not, because a
-        // v1 message states its budget in the header and a compute-budget
-        // instruction there would only consume an instruction slot.
-        let compute_budget = Instruction {
-            program_id: Pubkey::from_str_const("ComputeBudget111111111111111111111111111111"),
-            accounts: Vec::new(),
-            data: [vec![2u8], 1_400_000u32.to_le_bytes().to_vec()].concat(),
-        };
-        let msg = Message::new(&[compute_budget, sync_ix.clone()], Some(&payer_pk));
-        let sync_legacy = bincode::serialize(&Transaction::new_unsigned(msg))
-            .unwrap()
-            .len();
         println!(
-            "| {:<36} | {:>8} | {:>11} | {:>13} | {:>18} |",
+            "| {:<36} | {:>8} | {:>11} | {:>18} |",
             format!("merge {input_count} in 1 out, direct"),
             merge_ix_accounts,
             merge_ix_data_len,
-            direct_len,
-            v1_cell(direct_len, v1_tx_size(std::slice::from_ref(&merge_ix))),
+            v1_cell(v1_tx_size(std::slice::from_ref(&merge_ix))),
         );
         println!(
-            "| {:<36} | {:>8} | {:>11} | {:>13} | {:>18} |",
-            format!("merge {input_count} in 1 out, execute_sync + cb"),
+            "| {:<36} | {:>8} | {:>11} | {:>18} |",
+            format!("merge {input_count} in 1 out, execute_sync"),
             sync_ix.accounts.len(),
             sync_ix.data.len(),
-            sync_legacy,
-            v1_cell(sync_legacy, v1_tx_size(std::slice::from_ref(&sync_ix))),
+            v1_cell(v1_tx_size(std::slice::from_ref(&sync_ix))),
         );
     }
 }

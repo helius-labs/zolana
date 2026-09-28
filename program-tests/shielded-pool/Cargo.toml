@@ -18,7 +18,6 @@ proofs = []
 anyhow = { workspace = true }
 forester = { path = "../../forester" }
 solana-instruction = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 solana-clock = { workspace = true }
 serial_test = { workspace = true }
 solana-address = { workspace = true }

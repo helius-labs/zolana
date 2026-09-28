@@ -2,10 +2,9 @@
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient, SpendProof};
+use zolana_client::{ComputeBudgetConfig, MergeProver, ProverClient, SpendProof};
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program::instruction::MergeTransact;
 use zolana_program_test::Rejection;
@@ -18,7 +17,7 @@ use zolana_user_registry_interface::{
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{pack_merge_proof, send_transaction, ZERO},
+    localnet::{pack_merge_proof, send_transaction, send_transaction_with_budget, ZERO},
     nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
@@ -182,13 +181,13 @@ impl LifecycleHarness {
             &[self.merge_key.pubkey()],
             &[merge_ix],
         );
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let merge_key = self.merge_key.insecure_clone();
-        let sig = send_transaction(
+        let sig = send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, sync_ix],
+            &[sync_ix],
             &merge_key.pubkey(),
             &[&merge_key],
+            ComputeBudgetConfig::new(1_400_000),
         )?;
         // A successful merge collects the tree's insertion fee from the inner payer:
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The

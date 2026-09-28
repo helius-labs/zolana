@@ -37,7 +37,7 @@ import type {
   KitRpcAccess,
   TransactionConfirmer,
 } from "../client/ports.js";
-import { LOADED_ACCOUNTS_DATA_SIZE_LIMIT } from "../flows/compile.js";
+import { assertVersion1Transaction, LOADED_ACCOUNTS_DATA_SIZE_LIMIT } from "../flows/compile.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
@@ -713,6 +713,7 @@ function transactionSender(
               );
               const signature = getSignatureFromTransaction(signed);
               signatures.push(signature);
+              assertVersion1Transaction(signed);
               await runKitRpc("sendTransaction", context, async (abortSignal) => {
                 try {
                   await sendTransaction(signed, {

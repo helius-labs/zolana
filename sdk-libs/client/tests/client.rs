@@ -226,7 +226,7 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
         AsyncZolanaIndexer::new(server.url()),
         AsyncProverClient::new("http://unused.invalid".to_string()),
     )
-    .with_compute_unit_price(25_000);
+    .with_priority_fee(25_000);
 
     let blockhash = Hash::default();
     let message = client
@@ -374,7 +374,7 @@ fn a_client_writes_its_configured_ceilings_into_the_header() {
         )
         .with_compute_unit_limit(1_000_000);
         match price {
-            Some(price) => base.with_compute_unit_price(price),
+            Some(fee) => base.with_priority_fee(fee),
             None => base,
         }
     };

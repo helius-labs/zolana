@@ -15,6 +15,9 @@ spend it from there before the tree holds it.
 
 Breaking
 
+- `confirmedInstructionGroups` rejects a transaction that loaded accounts from
+  an address lookup table → pass a version 1 transaction, which lists every
+  account in the message.
 - `buildRegistrationTransaction` adds the `payer` account the user-registry
   program now requires for a first registration → rebuild any unsigned
   registration transaction an earlier release built, the program rejects it.

@@ -11,14 +11,11 @@ swap-program = { path = "../program" }
 swap-prover = { path = "../prover" }
 swap-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
-solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-solana-transaction = { workspace = true, features = ["serde"] }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }

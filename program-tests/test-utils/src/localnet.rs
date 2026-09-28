@@ -32,83 +32,39 @@ pub fn pack_merge_proof(proof: &Proof) -> Result<MergeProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
 }
 
-/// Borsh discriminants of the two `ComputeBudgetInstruction` variants that have
-/// a v1 message-header equivalent.
-const COMPUTE_BUDGET_SET_UNIT_LIMIT: u8 = 2;
-const COMPUTE_BUDGET_SET_UNIT_PRICE: u8 = 3;
-
-/// Lift a caller's compute-budget instructions into the budget a v1 message
-/// header carries.
-///
-/// v1 states its ceilings in the header, so a compute-budget instruction left
-/// in the list would buy nothing while still occupying an instruction slot and
-/// shifting every later instruction's index. A list carrying none keeps the
-/// budget the runtime granted a legacy transaction implicitly.
-#[track_caller]
-pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, ComputeBudgetConfig) {
-    let mut compute_unit_limit = None;
-    let mut compute_unit_price = None;
-    let mut kept: Vec<Instruction> = Vec::with_capacity(ixs.len());
-    for instruction in ixs {
-        if instruction.program_id != solana_compute_budget_interface::ID {
-            kept.push(instruction.clone());
-            continue;
-        }
-        let (discriminant, value) = instruction
-            .data
-            .split_first()
-            .expect("a compute-budget instruction carries a discriminant");
-        match *discriminant {
-            COMPUTE_BUDGET_SET_UNIT_LIMIT => {
-                compute_unit_limit = Some(
-                    value
-                        .get(..4)
-                        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-                        .map(u32::from_le_bytes)
-                        .expect("set_compute_unit_limit carries a u32"),
-                )
-            }
-            COMPUTE_BUDGET_SET_UNIT_PRICE => {
-                compute_unit_price = Some(
-                    value
-                        .get(..8)
-                        .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
-                        .map(u64::from_le_bytes)
-                        .expect("set_compute_unit_price carries a u64"),
-                )
-            }
-            other => panic!("compute-budget instruction {other} has no v1 header field"),
-        }
-    }
-    let budget = match compute_unit_limit {
-        Some(limit) => ComputeBudgetConfig::new(limit),
-        None => ComputeBudgetConfig::for_instruction_count(kept.len()),
-    };
-    let budget = match compute_unit_price {
-        Some(price) => budget.with_compute_unit_price(price),
-        None => budget,
-    };
-    (kept, budget)
-}
-
 /// Send as a transaction **v1** message, the only format whose 4 KB limit fits
 /// a large transact shape.
 ///
-/// Deliberately no address lookup table: v1 has none, and a large shape's
-/// instruction data alone exceeds the legacy 1232-byte limit, so a table would
-/// not have rescued it either.
+/// The header states the ceiling a caller that does not name one used to
+/// receive. v1 has no address lookup table.
 pub fn send_transaction(
     rpc: &mut SolanaRpc,
     ixs: &[Instruction],
     payer: &Pubkey,
     signers: &[&Keypair],
 ) -> std::result::Result<Signature, ClientError> {
-    let (instructions, budget) = split_compute_budget(ixs);
+    send_transaction_with_budget(
+        rpc,
+        ixs,
+        payer,
+        signers,
+        ComputeBudgetConfig::for_instruction_count(ixs.len()),
+    )
+}
+
+/// [`send_transaction`] with the compute ceiling written into the v1 header.
+pub fn send_transaction_with_budget(
+    rpc: &mut SolanaRpc,
+    ixs: &[Instruction],
+    payer: &Pubkey,
+    signers: &[&Keypair],
+    budget: ComputeBudgetConfig,
+) -> std::result::Result<Signature, ClientError> {
     let signers: Vec<&dyn Signer> = signers
         .iter()
         .map(|signer| *signer as &dyn Signer)
         .collect();
-    rpc.create_and_send_transaction(&instructions, *payer, &signers, budget)
+    rpc.create_and_send_transaction(ixs, *payer, &signers, budget)
 }
 
 /// Normalized paths to build products and test data rooted at the workspace.

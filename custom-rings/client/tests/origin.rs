@@ -3,6 +3,7 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
+use zolana_client::ClientError;
 use zolana_event::tag;
 use zolana_event_parser::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
@@ -80,10 +81,10 @@ fn stack_height_without_a_parent_is_an_error() {
     ));
 }
 
-/// The pool program id arrives through a lookup table, so it is absent from
-/// the static account keys and is resolved from `loadedAddresses`.
+/// A version 0 transaction resolves later account indexes through a lookup
+/// table. That list is rejected rather than appended.
 #[test]
-fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
+fn a_lookup_table_is_rejected() {
     let payer = Address::new_from_array([1u8; 32]);
     let json = serde_json::json!({
         "slot": 7,
@@ -138,13 +139,16 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
     });
     let transaction: EncodedConfirmedTransactionWithStatusMeta =
         serde_json::from_value(json).expect("rpc shape");
-    let invoked = ConfirmedTransaction {
+    let error = ConfirmedTransaction {
         signature: Signature::from([6u8; 64]),
         transaction,
     }
     .ring_invoked(0, RING)
-    .expect("walk");
-    assert!(invoked);
+    .expect_err("lookup table");
+    assert!(matches!(
+        error,
+        OriginError::Decode(ClientError::AddressLookupTable)
+    ));
 }
 
 #[test]

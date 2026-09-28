@@ -126,6 +126,12 @@ pub enum ClientError {
     #[error("compiling the v1 transaction message failed: {0}")]
     TransactionCompile(String),
 
+    #[error("only transaction version 1 is supported")]
+    UnsupportedTransactionVersion,
+
+    #[error("address lookup tables are not supported")]
+    AddressLookupTable,
+
     #[error(
         "tree is required: wallet holds unspent asset {asset:?} across {tree_count} pool trees"
     )]

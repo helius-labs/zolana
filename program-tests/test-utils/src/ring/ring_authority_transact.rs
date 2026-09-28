@@ -2,12 +2,11 @@
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, ProofAuthority, ProverClient, PublicTransfers,
-    RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
+    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProverClient,
+    PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -28,7 +27,7 @@ use zolana_transaction::{
 
 use super::RingHarness;
 use crate::{
-    localnet::{send_transaction, ZERO},
+    localnet::{send_transaction_with_budget, ZERO},
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_transact, fetch_account,
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -75,12 +74,12 @@ impl RingHarness {
             data: ix_data.clone(),
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let signature = send_transaction(
+        let signature = send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, transfer_ix],
+            &[transfer_ix],
             &payer.pubkey(),
             &[&payer],
+            ComputeBudgetConfig::new(1_400_000),
         )?;
         self.commit_ring_authority_spend(name, &consumed_input)?;
 
@@ -382,12 +381,12 @@ impl RingHarness {
             data: ix_data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        match send_transaction(
+        match send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, transfer_ix],
+            &[transfer_ix],
             &payer.pubkey(),
             &[&payer],
+            ComputeBudgetConfig::new(1_400_000),
         ) {
             Ok(_) => Err(anyhow!(
                 "disabled ring-authority transfer unexpectedly succeeded"
@@ -430,12 +429,12 @@ impl RingHarness {
             data: ix_data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        match send_transaction(
+        match send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, transfer_ix],
+            &[transfer_ix],
             &payer.pubkey(),
             &[&payer],
+            ComputeBudgetConfig::new(1_400_000),
         ) {
             Ok(_) => Err(anyhow!(
                 "bad-proof ring-authority transfer unexpectedly succeeded"
