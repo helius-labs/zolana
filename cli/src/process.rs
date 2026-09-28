@@ -213,6 +213,41 @@ fn process_identity(pid: &str) -> Option<String> {
     if !valid_pid(pid) {
         return None;
     }
+    os_process_identity(pid)
+}
+
+/// The start time in clock ticks since boot, plus the command line, from /proc.
+///
+/// Not `ps -o lstart`: on Linux that adds the ticks to /proc/stat's boot time,
+/// which the kernel derives from the wall clock, so it moves whenever the clock
+/// is stepped -- as NTP does early in a freshly booted CI VM. Two reads of one
+/// live process could then disagree by a second and read as two processes.
+/// Ticks since boot do not move.
+#[cfg(target_os = "linux")]
+fn os_process_identity(pid: &str) -> Option<String> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let started = start_ticks(&stat)?;
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    // A zombie has an empty command line, and is not a live service.
+    let command = String::from_utf8_lossy(&cmdline)
+        .split('\0')
+        .filter(|arg| !arg.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!command.is_empty()).then(|| format!("{started} {command}"))
+}
+
+/// Field 22 of /proc/<pid>/stat. The command name (field 2) is parenthesized
+/// and may itself contain spaces and parentheses, so count from the last `)`.
+#[cfg(any(target_os = "linux", test))]
+fn start_ticks(stat: &str) -> Option<&str> {
+    let (_, fields) = stat.rsplit_once(')')?;
+    fields.split_whitespace().nth(19)
+}
+
+/// macOS `ps` reads the start time from the kernel as an absolute time.
+#[cfg(not(target_os = "linux"))]
+fn os_process_identity(pid: &str) -> Option<String> {
     let output = Command::new("ps")
         .args(["-p", pid, "-o", "lstart=", "-o", "command="])
         .stderr(Stdio::null())
@@ -432,6 +467,25 @@ mod scope_tests {
         ));
         std::fs::create_dir(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn start_ticks_count_fields_from_the_last_parenthesis() {
+        let stat = "4242 (sleep (x) 1) S 1 4242 4242 0 -1 4194304 90 0 0 0 0 0 0 0 20 0 1 0 987654 5779456 190";
+        assert_eq!(start_ticks(stat), Some("987654"));
+        assert_eq!(start_ticks("no parenthesis here"), None);
+    }
+
+    #[test]
+    fn a_live_process_keeps_one_identity() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id().to_string();
+        let first = process_identity(&pid).expect("a live process has an identity");
+        for _ in 0..50 {
+            assert_eq!(process_identity(&pid).as_deref(), Some(first.as_str()));
+        }
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]
