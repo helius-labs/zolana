@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"zolana/prover/prover/keyimage"
 
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
@@ -160,7 +161,7 @@ func (ps *ProofSystem) WriteTo(w io.Writer) (int64, error) {
 		}
 	}
 
-	n, err := ps.ProvingKey.WriteTo(w)
+	n, err := keyimage.Write(w, ps.ProvingKey)
 	total += n
 	if err != nil {
 		return total, err
@@ -199,7 +200,7 @@ func (ps *ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	ps.RequiresP256 = requiresP256 != 0
 
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	n, err := ps.ProvingKey.UnsafeReadFrom(r)
+	n, err := keyimage.Read(r, ps.ProvingKey)
 	total += n
 	if err != nil {
 		return total, err

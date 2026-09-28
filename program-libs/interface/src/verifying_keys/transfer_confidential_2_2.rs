@@ -72,7 +72,7 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
 /// SHA-256 of the proving key file this verifying key was generated with.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [54u8, 61u8, 80u8, 169u8, 163u8, 30u8, 133u8, 232u8, 57u8, 34u8, 66u8, 123u8, 224u8, 49u8, 28u8, 171u8, 157u8, 65u8, 3u8, 77u8, 165u8, 243u8, 114u8, 58u8, 70u8, 77u8, 199u8, 254u8, 12u8, 43u8, 210u8, 49u8];
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [3u8, 154u8, 110u8, 110u8, 150u8, 218u8, 128u8, 79u8, 221u8, 223u8, 124u8, 97u8, 6u8, 31u8, 110u8, 145u8, 158u8, 47u8, 79u8, 221u8, 210u8, 51u8, 142u8, 59u8, 5u8, 70u8, 243u8, 11u8, 236u8, 121u8, 119u8, 177u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -84,6 +84,6 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_4f0e705acf6a1ac0")]
+#[unsafe(export_name = "groth16_solana_vk_setup_036226aa5dc8acd9")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00363d50a9a31e85e83922427be0311cab9d41034da5f3723a464dc7fe0c2bd231\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00039a6e6e96da804fdddf7c61061f6e919e2f4fddd2338e3b0546f30bec7977b1\x00=======END GROTH16 VK SETUP V1=======\x00";
