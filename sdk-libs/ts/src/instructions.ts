@@ -20,6 +20,10 @@ export {
   type SignerAccount,
 } from "./interface/instructions/index.js";
 export {
+  registerInstruction as getRegisterInstructionAsync,
+  setMergingEnabledInstruction as getSetMergingEnabledInstructionAsync,
+} from "./wallet/registry.js";
+export {
   DepositAsset,
   TransactWithdrawal,
   type AssetDeposit,

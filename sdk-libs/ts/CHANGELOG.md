@@ -96,6 +96,11 @@ Added
 
 - `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
   rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
+- `getRegisterInstructionAsync` and `getSetMergingEnabledInstructionAsync`
+  from `@heliuslabs/zolana/instructions` build the user-registry instructions
+  for an Ed25519 owner and derive the owner's record, so one transaction can
+  register a wallet and enable merging. `getUserRecordAddress` from
+  `@heliuslabs/zolana/addresses` returns that record's address.
 - `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and close
   a ring's co-signer, a second Solana key that must sign the transfers,
   deposits or withdrawals in its scope, every ring builder takes `cosigner`
@@ -168,6 +173,11 @@ Added
 
 Fixed
 
+- `buildRegistrationTransaction` built a key update the user-registry program
+  rejects when the wallet's nullifier key differs from the published record,
+  it now throws `WALLET_BUILD_REGISTRATION` with cause
+  `WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH` before building anything → a
+  wallet with a new nullifier key registers under a new owner address.
 - `buildRingTransferTransaction` bound output commitments to the wrong tree on
   a client with a nonzero tree id, each output now commits to the selected
   destination tree.

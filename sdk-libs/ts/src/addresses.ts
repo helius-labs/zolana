@@ -10,3 +10,4 @@ export {
   splAssetVaultAddress as getSplAssetVaultAddress,
   treeAddress as getTreeAddress,
 } from "./interface/pda/index.js";
+export { internalUserRecordAddress as getUserRecordAddress } from "./wallet/registry.js";
