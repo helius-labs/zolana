@@ -13,7 +13,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s35_create_issuer::Credential,
-    shared::{data_hash, data_input, keypair, poseidon_bytes},
+    shared::{data_input, keypair, poseidon_bytes, state_hash},
 };
 
 #[derive(Clone, ProofInput)]
@@ -85,7 +85,7 @@ fn verify_credential_prove_and_verify() {
     let nullifier = poseidon_bytes(&[
         right_align(&77u64.to_be_bytes()),
         secret,
-        data_hash(&credential),
+        state_hash(&credential),
     ]);
 
     let verify = VerifyCredential {

@@ -108,8 +108,10 @@ pub enum CircuitErrorKind {
     StateEncoding(std::io::Error),
     #[error("a state's byte hash differs from its circuit hash")]
     DataHashMismatch,
-    #[error("a burned utxo receives no transfer")]
-    TransferToBurnedUtxo,
+    #[error("a closed utxo receives no transfer")]
+    TransferToClosedUtxo,
+    #[error("a data utxo takes an asset only while it is new and holds nothing")]
+    AssetOfUsedUtxo,
     #[error("{0}")]
     Hash(HasherError),
     #[error("{0}")]
@@ -133,7 +135,8 @@ impl CircuitErrorKind {
             Self::InvalidUtxo(_) => "CircuitError.InvalidUtxo",
             Self::StateEncoding(_) => "CircuitError.StateEncoding",
             Self::DataHashMismatch => "CircuitError.DataHashMismatch",
-            Self::TransferToBurnedUtxo => "CircuitError.TransferToBurnedUtxo",
+            Self::TransferToClosedUtxo => "CircuitError.TransferToClosedUtxo",
+            Self::AssetOfUsedUtxo => "CircuitError.AssetOfUsedUtxo",
             Self::Hash(_) => "CircuitError.Hash",
             Self::Internal(_) => "CircuitError.Internal",
         }
@@ -257,6 +260,8 @@ pub enum ClientErrorKind {
     },
     #[error("a transaction spends at least one input")]
     NoInputs,
+    #[error("the transaction creates an address, which the SPP transaction builder does not support yet")]
+    UnsupportedAddressCreation,
     #[error("{0}")]
     TransactionMismatch(&'static str),
     #[error("{0}")]
@@ -288,6 +293,7 @@ impl ClientErrorKind {
             Self::NotProgramOutput => "ClientError.NotProgramOutput",
             Self::Slot { .. } => "ClientError.Slot",
             Self::NoInputs => "ClientError.NoInputs",
+            Self::UnsupportedAddressCreation => "ClientError.UnsupportedAddressCreation",
             Self::TransactionMismatch(_) => "ClientError.TransactionMismatch",
             Self::Hash(_) => "ClientError.Hash",
             #[cfg(feature = "wasm")]

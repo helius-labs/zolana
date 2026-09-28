@@ -71,10 +71,13 @@ impl SppTransactionBuilder<'_> {
                 let utxo = SppProofOutputUtxo::new(asset, amount, owner)
                     .map_err(ClientErrorKind::Transaction)?;
                 let data_hash = to_bytes(&output.data_hash)?;
-                Ok(if data_hash == [0u8; 32] {
-                    utxo
-                } else {
-                    utxo.with_utxo_data(output.data.clone().unwrap_or_default(), data_hash)
+                Ok(match output.data.clone() {
+                    _ if data_hash == [0u8; 32] => utxo,
+                    Some(data) => utxo.with_utxo_data(data, data_hash),
+                    None => SppProofOutputUtxo {
+                        data_hash: Some(data_hash),
+                        ..utxo
+                    },
                 })
             })
             .collect()

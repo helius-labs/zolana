@@ -3,7 +3,7 @@ use zolana_transaction::Mint;
 
 use super::{
     fixtures::{
-        accessors, deposits, into_burned, ledger, pairs, sources, Ledger, ANOTHER_ASSET, BALANCES,
+        accessors, deposits, into_closed, ledger, pairs, sources, Ledger, ANOTHER_ASSET, BALANCES,
         BALANCE_FITS, DATA, NONZERO, PAIRS, SOURCES, TOKEN, TRANSFER, TRANSFER_ALL,
         TRANSFER_EXCEEDS, WITHDRAW, WITHDRAWAL_EXCEEDS, WITHDRAWN, WITHDRAW_ALL,
     },
@@ -315,23 +315,23 @@ fn balance_reads_no_owner_so_only_the_nullifier_keys_are_free() {
 }
 
 #[test]
-fn a_transfer_into_a_burned_utxo_is_refused_before_any_row() {
+fn a_transfer_into_a_closed_utxo_is_refused_before_any_row() {
     let refusal = |result: Result<Vec<u8>, zk_program_sdk::ProverError>| {
         result.map(|_| ()).map_err(|error| error.name())
     };
-    let burned = "CircuitError.TransferToBurnedUtxo";
+    let closed = "CircuitError.TransferToClosedUtxo";
     assert_eq!(
         (
-            refusal(super::fixtures::IntoBurned::<TOKEN, false>::export_r1cs()),
-            refusal(super::fixtures::IntoBurned::<DATA, true>::export_r1cs()),
-            check_constraints(&into_burned::<TOKEN, true>()),
-            check_constraints(&into_burned::<DATA, false>()),
+            refusal(super::fixtures::IntoClosed::<TOKEN, false>::export_r1cs()),
+            refusal(super::fixtures::IntoClosed::<DATA, true>::export_r1cs()),
+            check_constraints(&into_closed::<TOKEN, true>()),
+            check_constraints(&into_closed::<DATA, false>()),
         ),
         (
-            Err(burned),
-            Err(burned),
-            Err((burned, None, None)),
-            Err((burned, None, None)),
+            Err(closed),
+            Err(closed),
+            Err((closed, None, None)),
+            Err((closed, None, None)),
         )
     );
 }

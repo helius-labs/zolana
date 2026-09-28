@@ -8,4 +8,6 @@ pub use asset::Asset;
 pub use owner::{Owner, OwnerKey};
 pub use transaction::{CheckedTransaction, ConfidentialTransaction, PublicInputs, TxContext};
 pub(crate) use transfer::PublicTransfer;
-pub use utxo::{checked_utxo_data, Balance, DataHash, DataUtxo, TokenUtxo, Utxo, UtxoData};
+pub use utxo::{
+    checked_utxo_data, Balance, DataHash, DataUtxo, TokenUtxo, UniqueDataUtxo, Utxo, UtxoData,
+};

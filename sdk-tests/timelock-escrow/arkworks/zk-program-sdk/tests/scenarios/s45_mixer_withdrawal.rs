@@ -106,7 +106,7 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
-            let mut note = DataUtxo::new_burn(&private.note, &private.commitment)?;
+            let mut note = DataUtxo::new_close(&private.note, &private.commitment)?;
             poseidon(&[private.nullifier_secret.clone(), private.secret.clone()])?
                 .assert_equal(&note.commitment, "the secrets do not open the commitment")?;
             poseidon(std::slice::from_ref(&private.nullifier_secret))?.assert_equal(

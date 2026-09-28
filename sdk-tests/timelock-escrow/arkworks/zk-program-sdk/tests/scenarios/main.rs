@@ -50,3 +50,4 @@ mod s46_another_output_tree;
 mod s47_inputs_from_two_trees;
 mod s48_program_chosen_blinding_seed;
 mod s49_no_public_fields;
+mod s50_unique_counter_create;

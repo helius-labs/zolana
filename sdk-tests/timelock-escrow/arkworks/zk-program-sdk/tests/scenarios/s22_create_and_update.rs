@@ -136,9 +136,8 @@ impl Placeholder for CreateAndUpdate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Asset, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint,
-            Utxo, UtxoData,
+            constant, poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -212,7 +211,7 @@ pub(crate) mod circuit {
             profile.score = profile
                 .score
                 .checked_add(&Uint::<64>::constant(1)?, "the score overflows")?;
-            let mut badge = DataUtxo::<Badge>::new_init(&self.public.badge_owner, &Asset::sol());
+            let mut badge = DataUtxo::<Badge>::new_init(&self.public.badge_owner);
             badge.level = private.level.clone();
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

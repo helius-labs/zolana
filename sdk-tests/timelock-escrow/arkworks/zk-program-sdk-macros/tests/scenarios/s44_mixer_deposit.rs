@@ -90,8 +90,8 @@ impl Circuit for <MixerDeposit as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut note =
-            DataUtxo::<MixerCommitmentCircuit>::new_init(&private.mixer, &tokens.asset());
+        let mut note = DataUtxo::<MixerCommitmentCircuit>::new_init(&private.mixer)
+            .with_asset(&tokens.asset())?;
         tokens.transfer(&mut note, &self.public.denomination)?;
         note.commitment = poseidon(&[private.nullifier_secret.clone(), private.secret.clone()])?;
 

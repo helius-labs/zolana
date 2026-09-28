@@ -37,7 +37,7 @@ pub(crate) struct ClosePublicInputs {
 impl Circuit for <Close as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let counter = DataUtxo::new_burn(&private.counter, &private.state)?;
+        let counter = DataUtxo::new_close(&private.counter, &private.state)?;
         counter
             .owner()
             .hash()?

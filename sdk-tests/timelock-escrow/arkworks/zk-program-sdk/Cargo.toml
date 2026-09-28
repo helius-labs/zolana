@@ -79,6 +79,7 @@ proptest = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 wasmer = { version = "6.1", default-features = false }
+zolana-program = { workspace = true, features = ["compression"] }
 
 [[test]]
 name = "unit"

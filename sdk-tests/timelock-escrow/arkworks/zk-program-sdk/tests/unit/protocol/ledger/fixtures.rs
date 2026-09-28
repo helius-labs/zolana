@@ -1,10 +1,11 @@
 use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
-        constant, Assert, Asset, Balance, Bytes, CircuitVar, Constraints, DataHash, DataUtxo,
-        Field, Owner, TokenUtxo, Uint, Utxo,
+        constant, poseidon, Assert, Asset, Balance, Bytes, CircuitVar, Constraints, DataHash,
+        DataUtxo, Field, Owner, TokenUtxo, Uint, Utxo,
     },
     conversion::ProofInput,
+    hasher::DATA_HASH_DOMAIN,
     CircuitError,
 };
 use zolana_hasher::primitives::hash_bytes;
@@ -102,7 +103,7 @@ macro_rules! with_holder {
                 $body
             }
             _ => {
-                let $holder = DataUtxo::<CounterState>::new_init($owner, $asset);
+                let $holder = DataUtxo::<CounterState>::new_init($owner).with_asset($asset)?;
                 $body
             }
         }
@@ -248,17 +249,17 @@ pub fn spendable_constant() -> Utxo {
     utxo
 }
 
-/// A transfer from a funded token holder into a burned `DESTINATION`: a
-/// `TokenUtxo::new_burn` or a `DataUtxo::new_burn` of a constant input.
+/// A transfer from a funded token holder into a closed `DESTINATION`: a
+/// `TokenUtxo::new_close` or a `DataUtxo::new_close` of a constant input.
 #[derive(Clone, Copy, Debug, ProofInput)]
-pub struct IntoBurned<const DESTINATION: usize, const ALL: bool> {
+pub struct IntoClosed<const DESTINATION: usize, const ALL: bool> {
     pub owner: ShieldedAddress,
     pub account: Address,
     pub deposit: u64,
     pub amount: u64,
 }
 
-impl<const DESTINATION: usize, const ALL: bool> IntoBurnedCircuit<DESTINATION, ALL> {
+impl<const DESTINATION: usize, const ALL: bool> IntoClosedCircuit<DESTINATION, ALL> {
     #[track_caller]
     fn into(&self, destination: &mut impl Balance) -> Result<(), CircuitError> {
         let mut source = TokenUtxo::new_init(&self.owner, &Asset::sol());
@@ -272,17 +273,18 @@ impl<const DESTINATION: usize, const ALL: bool> IntoBurnedCircuit<DESTINATION, A
 }
 
 impl<const DESTINATION: usize, const ALL: bool> Constraints
-    for IntoBurnedCircuit<DESTINATION, ALL>
+    for IntoClosedCircuit<DESTINATION, ALL>
 {
     fn constraints(&self) -> Result<(), CircuitError> {
         let input = spendable_constant();
         match DESTINATION {
-            TOKEN => self.into(&mut TokenUtxo::new_burn(&[input])?),
+            TOKEN => self.into(&mut TokenUtxo::new_close(&[input])?),
             _ => {
                 let state = CounterState::default();
                 let mut input = input;
-                input.data_hash = state.hash()?;
-                self.into(&mut DataUtxo::new_burn(&input, &state)?)
+                input.data_hash =
+                    poseidon(&[constant(u64::from(DATA_HASH_DOMAIN)), state.hash()?])?;
+                self.into(&mut DataUtxo::new_close(&input, &state)?)
             }
         }
     }
@@ -349,8 +351,8 @@ pub fn deposits<const K: usize, const ALL: bool>(
     }
 }
 
-pub fn into_burned<const DESTINATION: usize, const ALL: bool>() -> IntoBurned<DESTINATION, ALL> {
-    IntoBurned {
+pub fn into_closed<const DESTINATION: usize, const ALL: bool>() -> IntoClosed<DESTINATION, ALL> {
+    IntoClosed {
         owner: address(SENDER),
         account: ACCOUNT,
         deposit: 5,

@@ -42,7 +42,7 @@ impl Circuit for <Take as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
-        let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;
+        let mut order = DataUtxo::new_close(&private.order, &private.terms)?;
         private
             .maker
             .hash()?

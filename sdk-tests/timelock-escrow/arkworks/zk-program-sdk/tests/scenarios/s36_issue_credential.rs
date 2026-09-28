@@ -77,7 +77,7 @@ impl Placeholder for IssueCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -118,7 +118,7 @@ mod circuit {
             issuer.issued = issuer
                 .issued
                 .checked_add(&Uint::<64>::constant(1)?, "the issued count overflows")?;
-            let mut credential = DataUtxo::<Credential>::new_init(&private.user, &Asset::sol());
+            let mut credential = DataUtxo::<Credential>::new_init(&private.user);
             credential.issuer_hash = issuer_hash;
             credential.attribute_commitment =
                 poseidon(&[private.attribute.clone().into(), private.salt.clone()])?;

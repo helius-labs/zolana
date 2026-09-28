@@ -55,7 +55,7 @@ impl Circuit for <VestingClaim as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
-        let mut vesting = DataUtxo::new_burn(&private.vesting, &private.state)?;
+        let mut vesting = DataUtxo::new_close(&private.vesting, &private.state)?;
         private.beneficiary.hash()?.assert_equal(
             &vesting.beneficiary_hash,
             "the claimant is not the beneficiary",
@@ -87,8 +87,8 @@ impl Circuit for <VestingClaim as ProofInput>::Circuit {
         )?;
         let mut paid = TokenUtxo::new_init(&private.beneficiary, &vesting.asset());
         vesting.transfer(&mut paid, &payout)?;
-        let mut next =
-            DataUtxo::<VestingCircuit>::new_init(&private.vesting_owner, &vesting.asset());
+        let mut next = DataUtxo::<VestingCircuit>::new_init(&private.vesting_owner)
+            .with_asset(&vesting.asset())?;
         vesting.transfer_all(&mut next)?;
         next.beneficiary_hash = vesting.beneficiary_hash.clone();
         next.total = vesting.total.clone();

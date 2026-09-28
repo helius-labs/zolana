@@ -23,7 +23,7 @@ pub struct Utxo {
     pub latest_tree_id: CircuitVar,
     pub has_latest_tree_id: Bool,
 }
-
+// TODO: UTXOMeta
 #[derive(Clone, Debug)]
 pub(crate) struct SpentInput {
     pub(crate) hash: CircuitVar,

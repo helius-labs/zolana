@@ -61,7 +61,7 @@ impl NativeOutput {
     fn utxo(&self) -> SppProofOutputUtxo {
         let output = SppProofOutputUtxo::new(self.mint, self.amount, self.owner).expect("output");
         match &self.state {
-            Some(state) => output.with_utxo_data(state.bytes(), state.native_hash()),
+            Some(state) => output.with_utxo_data(state.bytes(), state.data_hash()),
             None => output,
         }
     }

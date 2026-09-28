@@ -35,13 +35,14 @@ pub(crate) struct PaymentPublicInputs {
 impl Circuit for <Payment as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
-        tokens.transfer(&mut payment, &private.amount)?;
+        // What if all utxos are spent. Then it should not create any outputs. Does that make sense?
+        let mut user_a_tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let mut user_b_tokens = TokenUtxo::new_init(&self.public.recipient, &user_a_tokens.asset());
+        user_a_tokens.transfer(&mut user_b_tokens, &private.amount)?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
-            .with_token_utxos(tokens)
-            .with_token_utxos(payment)
+            .with_token_utxos(user_a_tokens)
+            .with_token_utxos(user_b_tokens)
             .check()
     }
 }

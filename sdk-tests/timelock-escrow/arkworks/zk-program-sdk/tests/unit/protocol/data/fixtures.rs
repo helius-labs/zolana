@@ -26,17 +26,17 @@ pub const FILE: &str = file!();
 pub const COMMITS: &str = "the input does not commit to its program state";
 pub const RING: &str = "the utxo is in a ring";
 pub const NOT_SPENDABLE: &str = "the utxo is not a spendable utxo";
-pub const BURN_LEAVES: &str = "a burned data utxo leaves a balance";
+pub const CLOSE_LEAVES: &str = "a closed data utxo leaves a balance";
 
 pub const fn broken(rule: &'static str) -> Refusal {
     rule_broken(rule, FILE)
 }
 
-/// `DataUtxo::new_mut`, or `new_burn` when `BURN`, of the input and its
+/// `DataUtxo::new_mut`, or `new_close` when `CLOSE`, of the input and its
 /// state, then the count, the balance, the owner hash and the asset hash
 /// asserted equal to the native values.
 #[derive(Clone, Debug, ProofInput)]
-pub struct Held<const BURN: bool> {
+pub struct Held<const CLOSE: bool> {
     pub input: WalletUtxo,
     pub state: Counter,
     pub count: Field,
@@ -45,10 +45,10 @@ pub struct Held<const BURN: bool> {
     pub asset_hash: Field,
 }
 
-impl<const BURN: bool> Constraints for HeldCircuit<BURN> {
+impl<const CLOSE: bool> Constraints for HeldCircuit<CLOSE> {
     fn constraints(&self) -> Result<(), CircuitError> {
-        let counter = if BURN {
-            DataUtxo::new_burn(&self.input, &self.state)?
+        let counter = if CLOSE {
+            DataUtxo::new_close(&self.input, &self.state)?
         } else {
             DataUtxo::new_mut(&self.input, &self.state)?
         };
@@ -65,7 +65,7 @@ impl<const BURN: bool> Constraints for HeldCircuit<BURN> {
     }
 }
 
-pub fn held<const BURN: bool>(input: WalletUtxo, state: Counter) -> Held<BURN> {
+pub fn held<const CLOSE: bool>(input: WalletUtxo, state: Counter) -> Held<CLOSE> {
     Held {
         count: Field::from(state.count),
         balance: Field::from(input.utxo.amount),
@@ -92,7 +92,7 @@ pub struct Fresh {
 
 impl Constraints for FreshCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
-        let counter = DataUtxo::<CounterState>::new_init(&self.owner, &self.mint);
+        let counter = DataUtxo::<CounterState>::new_init(&self.owner).with_asset(&self.mint)?;
         CircuitVar::from(counter.count.clone()).assert_equal(&self.count, COUNT)?;
         CircuitVar::from(counter.balance()?).assert_equal(&self.balance, BALANCE)?;
         counter
@@ -129,10 +129,10 @@ impl Constraints for EncodedCircuit {
     }
 }
 
-/// A burned data input in a transaction: its balance is withdrawn whole when
-/// `ALL`, and otherwise left in the burned UTXO.
+/// A closed data input in a transaction: its balance is withdrawn whole when
+/// `ALL`, and otherwise left in the closed UTXO.
 #[derive(Clone, Debug, ProofInput)]
-pub struct Burned<const ALL: bool> {
+pub struct Closed<const ALL: bool> {
     pub tx_context: TxContext,
     pub input: WalletUtxo,
     pub state: Counter,
@@ -140,9 +140,9 @@ pub struct Burned<const ALL: bool> {
     pub public: NoFields,
 }
 
-impl<const ALL: bool> Constraints for BurnedCircuit<ALL> {
+impl<const ALL: bool> Constraints for ClosedCircuit<ALL> {
     fn constraints(&self) -> Result<(), CircuitError> {
-        let mut counter = DataUtxo::new_burn(&self.input, &self.state)?;
+        let mut counter = DataUtxo::new_close(&self.input, &self.state)?;
         if ALL {
             let _ = counter.withdraw_all(&self.account)?;
         }

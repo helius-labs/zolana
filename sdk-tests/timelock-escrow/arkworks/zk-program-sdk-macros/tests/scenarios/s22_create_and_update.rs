@@ -1,8 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
-        Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, Uint,
+        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
+        Uint,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -52,7 +52,7 @@ impl Circuit for <CreateAndUpdate as ProofInput>::Circuit {
         profile.score = profile
             .score
             .checked_add(&Uint::<64>::constant(1)?, "the score overflows")?;
-        let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.badge_owner, &Asset::sol());
+        let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.badge_owner);
         badge.level = private.level.clone();
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

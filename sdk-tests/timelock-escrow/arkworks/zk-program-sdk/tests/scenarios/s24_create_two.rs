@@ -71,8 +71,8 @@ impl Placeholder for CreateTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Asset, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
+            Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -99,9 +99,9 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut profile = DataUtxo::<Profile>::new_init(&self.public.owner, &Asset::sol());
+            let mut profile = DataUtxo::<Profile>::new_init(&self.public.owner);
             profile.score = private.score.clone();
-            let mut badge = DataUtxo::<Badge>::new_init(&self.public.owner, &Asset::sol());
+            let mut badge = DataUtxo::<Badge>::new_init(&self.public.owner);
             badge.level = private.level.clone();
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

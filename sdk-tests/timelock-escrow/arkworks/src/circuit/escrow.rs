@@ -30,8 +30,8 @@ impl Circuit for Escrow {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut escrow =
-            DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner, &tokens.asset());
+        let mut escrow = DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner)
+            .with_asset(&tokens.asset())?;
         tokens.transfer(&mut escrow, &private.amount)?;
         escrow.creator = tokens.owner();
         escrow.unlock = private.unlock.clone();

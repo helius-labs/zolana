@@ -71,7 +71,8 @@ fn meta(tree_context: TreeContext) -> CompressedAccountMeta {
 }
 
 fn create(owner: &PdaOwner, count: u8) -> CompressedAccount<'_, CounterState> {
-    let address = NewAddress::derive(owner, AddressSeed::owner(owner), ADDRESS_TREE_ID).unwrap();
+    let address =
+        NewAddress::derive_with_tree_id(owner, AddressSeed::owner(owner), ADDRESS_TREE_ID).unwrap();
     let mut account: CompressedAccount<'_, CounterState> =
         CompressedAccount::new_init(owner, address, ADDRESS_CONTEXT);
     account.count = count;
@@ -154,7 +155,9 @@ fn published_states(ix: &TransactIxData) -> Vec<CounterState> {
 #[test]
 fn new_init_starts_from_the_default_state_at_the_address() {
     let owner = owner(4);
-    let address = NewAddress::derive(&owner, AddressSeed::owner(&owner), ADDRESS_TREE_ID).unwrap();
+    let address =
+        NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), ADDRESS_TREE_ID)
+            .unwrap();
     let account: CompressedAccount<'_, CounterState> =
         CompressedAccount::new_init(&owner, address, ADDRESS_CONTEXT);
 

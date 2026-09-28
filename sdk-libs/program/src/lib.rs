@@ -47,3 +47,5 @@ pub use external_data::{
     ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
 };
 pub use private_tx::PrivateTxHash;
+
+pub const ADDRESS_TREE_ID: u16 = 0;

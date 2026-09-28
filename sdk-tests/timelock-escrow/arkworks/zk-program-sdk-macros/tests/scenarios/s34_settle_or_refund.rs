@@ -50,7 +50,7 @@ impl Circuit for <Settle as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let price = &self.public.execution_price;
-        let mut order = DataUtxo::new_burn(&private.order, &private.terms)?;
+        let mut order = DataUtxo::new_close(&private.order, &private.terms)?;
         private
             .maker
             .hash()?

@@ -14,9 +14,10 @@ use crate::{
 #[must_use]
 #[derive(Debug)]
 pub struct TokenUtxo {
+    // rename to TokenUtxos
     ledger: Ledger,
     spent_inputs: Vec<SpentInput>,
-    burn: bool,
+    close: bool,
 }
 
 impl HasLedger for TokenUtxo {
@@ -28,8 +29,8 @@ impl HasLedger for TokenUtxo {
         &mut self.ledger
     }
 
-    fn is_burned(&self) -> bool {
-        self.burn
+    fn is_closed(&self) -> bool {
+        self.close
     }
 }
 
@@ -40,7 +41,7 @@ impl TokenUtxo {
         Self {
             ledger: Ledger::new(owner.clone(), asset.clone(), Accumulator::zero()),
             spent_inputs: Vec::new(),
-            burn: false,
+            close: false,
         }
     }
 
@@ -50,7 +51,7 @@ impl TokenUtxo {
     }
 
     #[track_caller]
-    pub fn new_burn<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, CircuitError> {
+    pub fn new_close<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, CircuitError> {
         Self::spend(inputs, true)
     }
 
@@ -69,8 +70,8 @@ impl TokenUtxo {
     #[track_caller]
     pub(crate) fn change(&self) -> Result<Option<Output>, CircuitError> {
         let balance = self.ledger.balance_var();
-        if self.burn {
-            balance.assert_equal(&zero(), "a burned token utxo leaves a balance")?;
+        if self.close {
+            balance.assert_equal(&zero(), "a closed token utxo leaves a balance")?;
             return Ok(None);
         }
         Ok(Some(Output {
@@ -83,7 +84,7 @@ impl TokenUtxo {
     }
 
     #[track_caller]
-    fn spend(inputs: &[Utxo], burn: bool) -> Result<Self, CircuitError> {
+    fn spend(inputs: &[Utxo], close: bool) -> Result<Self, CircuitError> {
         let _scope = Scope::open(
             &system_of(inputs.iter().map(|input| &input.domain)),
             "a token utxo's inputs",
@@ -137,7 +138,7 @@ impl TokenUtxo {
                 Accumulator::sum(&amounts),
             ),
             spent_inputs,
-            burn,
+            close,
         })
     }
 }

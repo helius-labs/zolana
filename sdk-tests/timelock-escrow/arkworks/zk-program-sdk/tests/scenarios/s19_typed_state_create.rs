@@ -214,7 +214,7 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut state = DataUtxo::<TypedState>::new_init(&private.owner, &Asset::sol());
+            let mut state = DataUtxo::<TypedState>::new_init(&private.owner);
             state.amount = self.public.amount.clone();
             state.count = private.count.clone();
             state.kind = private.kind.clone();

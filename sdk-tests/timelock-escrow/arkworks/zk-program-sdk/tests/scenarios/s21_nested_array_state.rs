@@ -174,9 +174,8 @@ impl Placeholder for PortfolioCreate {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            poseidon, zero, Bool, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -273,7 +272,7 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut portfolio = DataUtxo::<Portfolio>::new_init(&self.public.owner, &Asset::sol());
+            let mut portfolio = DataUtxo::<Portfolio>::new_init(&self.public.owner);
             portfolio.owner_hash = self.public.owner.hash()?;
             portfolio.nonce = private.nonce.clone();
             portfolio.limits = private.limits.clone();

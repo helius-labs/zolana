@@ -78,7 +78,7 @@ impl CompressedAccountData for CountState {
 }
 
 fn cpi(owner: &PdaOwner) -> SppTransactCpi<'_> {
-    let address = NewAddress::derive(owner, AddressSeed::owner(owner), 1).unwrap();
+    let address = NewAddress::derive_with_tree_id(owner, AddressSeed::owner(owner), 1).unwrap();
     let mut account: CompressedAccount<'_, CountState> = CompressedAccount::new_init(
         owner,
         address,

@@ -169,8 +169,7 @@ pub struct Unspent {
 
 impl Circuit for UnspentCircuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut counter =
-            DataUtxo::<CounterState>::new_init(&self.owner, &zk_program_sdk::circuit::Asset::sol());
+        let mut counter = DataUtxo::<CounterState>::new_init(&self.owner);
         counter.deposit(&self.deposit, &self.account)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
             .with_data_utxo(counter)
@@ -178,8 +177,8 @@ impl Circuit for UnspentCircuit {
     }
 }
 
-/// A burned token input: its balance is withdrawn whole when `ALL`, and
-/// otherwise left in the burned UTXO.
+/// A closed token input: its balance is withdrawn whole when `ALL`, and
+/// otherwise left in the closed UTXO.
 #[derive(Clone, Debug, ProofInput)]
 pub struct Swept<const ALL: bool> {
     pub tx_context: TxContext,
@@ -190,7 +189,7 @@ pub struct Swept<const ALL: bool> {
 
 impl<const ALL: bool> Circuit for SweptCircuit<ALL> {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut tokens = TokenUtxo::new_burn(&self.tokens)?;
+        let mut tokens = TokenUtxo::new_close(&self.tokens)?;
         if ALL {
             let _ = tokens.withdraw_all(&self.account)?;
         }

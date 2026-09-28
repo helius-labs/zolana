@@ -2,7 +2,7 @@ use solana_address::Address;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use super::{
-    fixtures::{held, Burned, Held},
+    fixtures::{held, Closed, Held},
     state::Counter,
 };
 use crate::protocol::transaction::{
@@ -16,7 +16,7 @@ pub type Named<T> = Vec<(&'static str, T)>;
 pub fn counter(mint: Mint, amount: u64, count: u64, leaf_index: u64) -> WalletUtxo {
     let state = Counter { count };
     Spent::token(SENDER, mint, amount, leaf_index)
-        .with_state(state.bytes(), state.native_hash())
+        .with_state(state.bytes(), state.data_hash())
         .wallet_utxo()
 }
 
@@ -52,7 +52,7 @@ pub fn a_ring_input() -> Held<false> {
     let state = Counter { count: 5 };
     held(
         Spent::token(SENDER, Mint::SOL, 300, 0)
-            .with_state(state.bytes(), state.native_hash())
+            .with_state(state.bytes(), state.data_hash())
             .with_ring(blinding(22), Address::new_from_array([23u8; 32]))
             .wallet_utxo(),
         state,
@@ -65,8 +65,8 @@ pub fn a_dummy_input() -> Held<false> {
     fixture
 }
 
-pub fn burned<const ALL: bool>(amount: u64) -> Burned<ALL> {
-    Burned {
+pub fn closed<const ALL: bool>(amount: u64) -> Closed<ALL> {
+    Closed {
         tx_context: tx_context(Some(0)),
         input: counter(Mint::SOL, amount, 5, 0),
         state: Counter { count: 5 },

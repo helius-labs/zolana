@@ -2,7 +2,7 @@ use zolana_transaction::Mint;
 
 use super::{
     fixtures::{
-        accessors, broken, deposits, into_burned, ledger, pairs, sources, Empty, ANOTHER_ASSET,
+        accessors, broken, deposits, into_closed, ledger, pairs, sources, Empty, ANOTHER_ASSET,
         BALANCES, BALANCE_FITS, DATA, FILE, NONZERO, PAIRS, SOURCES, TOKEN, TRANSFER, TRANSFER_ALL,
         TRANSFER_EXCEEDS, WITHDRAW, WITHDRAWAL_EXCEEDS, WITHDRAW_ALL,
     },
@@ -16,7 +16,7 @@ use crate::{
     protocol::transaction::wallets::{address, ACCOUNT, RECIPIENT, SENDER, USDC},
 };
 
-const BURNED: Refusal = ("CircuitError.TransferToBurnedUtxo", None, FILE);
+const CLOSED: Refusal = ("CircuitError.TransferToClosedUtxo", None, FILE);
 
 fn off_by_one(vectors: &[Vector]) -> Vec<Vector> {
     vectors.iter().map(Vector::off_by_one).collect()
@@ -157,15 +157,15 @@ fn a_destination_holding_another_asset_breaks_exactly_that_rule() {
 }
 
 #[test]
-fn a_transfer_into_a_burned_utxo_is_a_structural_error() {
+fn a_transfer_into_a_closed_utxo_is_a_structural_error() {
     assert_eq!(
         (
-            native(&into_burned::<TOKEN, false>()),
-            native(&into_burned::<TOKEN, true>()),
-            native(&into_burned::<DATA, false>()),
-            native(&into_burned::<DATA, true>()),
+            native(&into_closed::<TOKEN, false>()),
+            native(&into_closed::<TOKEN, true>()),
+            native(&into_closed::<DATA, false>()),
+            native(&into_closed::<DATA, true>()),
         ),
-        (Err(BURNED), Err(BURNED), Err(BURNED), Err(BURNED))
+        (Err(CLOSED), Err(CLOSED), Err(CLOSED), Err(CLOSED))
     );
 }
 

@@ -129,6 +129,9 @@ pub(super) struct SppTransactionBuilder<'a> {
 
 impl SppTransactionBuilder<'_> {
     fn build(self, sender: &ShieldedAddress) -> Result<FinalizedTransaction, ClientError> {
+        if !self.checked.addresses.is_empty() {
+            return Err(ClientErrorKind::UnsupportedAddressCreation.into());
+        }
         let first_nullifier = to_bytes(&self.checked.first_nullifier)?;
         let blinding_seed = to_bytes(&self.checked.blinding_seed)?;
         let output_tree_id = u16_value(&self.checked.output_tree_id)?;

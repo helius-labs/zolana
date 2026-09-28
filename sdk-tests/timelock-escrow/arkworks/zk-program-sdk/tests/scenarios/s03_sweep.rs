@@ -86,7 +86,7 @@ mod circuit {
     impl Circuit for Sweep {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
+            let mut tokens = TokenUtxo::new_close(&private.token_utxos_asset_a)?;
             let mut sweep = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
             tokens.transfer_all(&mut sweep)?;
 

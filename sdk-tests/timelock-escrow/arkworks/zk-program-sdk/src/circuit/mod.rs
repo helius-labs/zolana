@@ -13,7 +13,7 @@ pub use labels::{CircuitLabel, CircuitSize, FailedConstraint, LabelKind, Variabl
 pub(crate) use protocol::PublicTransfer;
 pub use protocol::{
     checked_utxo_data, Asset, Balance, CheckedTransaction, ConfidentialTransaction, DataHash,
-    DataUtxo, Owner, OwnerKey, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+    DataUtxo, Owner, OwnerKey, PublicInputs, TokenUtxo, TxContext, UniqueDataUtxo, Utxo, UtxoData,
 };
 pub use zk_program_sdk_macros::{CircuitType, PublicInputs};
 

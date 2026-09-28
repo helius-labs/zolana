@@ -55,7 +55,7 @@ impl Circuit for <Claim as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
-        let mut pool = DataUtxo::new_burn(&private.pool, &private.state)?;
+        let mut pool = DataUtxo::new_close(&private.pool, &private.state)?;
         private
             .pool_owner
             .hash()?
@@ -76,7 +76,8 @@ impl Circuit for <Claim as ProofInput>::Circuit {
             .assert_equal(&public.nullifier, "the nullifier is not the claim's")?;
         let mut claim = TokenUtxo::new_init(&public.recipient, &pool.asset());
         pool.transfer(&mut claim, &public.amount)?;
-        let mut next_pool = DataUtxo::<PoolCircuit>::new_init(&private.pool_owner, &pool.asset());
+        let mut next_pool =
+            DataUtxo::<PoolCircuit>::new_init(&private.pool_owner).with_asset(&pool.asset())?;
         pool.transfer_all(&mut next_pool)?;
         next_pool.root = pool.root.clone();
         next_pool.airdrop_id = pool.airdrop_id.clone();

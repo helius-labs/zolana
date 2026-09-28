@@ -1,7 +1,6 @@
 use zk_program_sdk::{
     circuit::{
-        Asset, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxo,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -42,9 +41,9 @@ impl Circuit for <CreateTwo as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut profile = DataUtxo::<ProfileCircuit>::new_init(&self.public.owner, &Asset::sol());
+        let mut profile = DataUtxo::<ProfileCircuit>::new_init(&self.public.owner);
         profile.score = private.score.clone();
-        let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.owner, &Asset::sol());
+        let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.owner);
         badge.level = private.level.clone();
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

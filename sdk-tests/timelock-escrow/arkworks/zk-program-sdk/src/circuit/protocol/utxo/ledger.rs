@@ -14,6 +14,7 @@ const MAX_BOUNDED_BITS: u32 = 253;
 const NONZERO: &str = "a public transfer moves a nonzero amount";
 const BALANCE_FITS: &str = "the balance does not fit in 64 bits";
 
+// TODO: check whether we can use Uint 64 abstraction
 #[derive(Clone, Debug)]
 pub(crate) struct Accumulator {
     var: CircuitVar,
@@ -129,6 +130,14 @@ impl Ledger {
         self.balance.var()
     }
 
+    pub(super) fn is_untouched(&self) -> bool {
+        self.balance.bits == 0 && self.public_transfers.is_empty()
+    }
+
+    pub(super) fn set_asset(&mut self, asset: &Asset) {
+        self.asset = asset.clone();
+    }
+
     fn cs(&self, amount: &Uint<64>) -> CircuitSystem {
         amount.var().cs().or(self.balance.var.cs())
     }
@@ -150,8 +159,8 @@ impl Ledger {
 
 #[track_caller]
 fn check_destination(asset: &Asset, destination: &impl HasLedger) -> Result<(), CircuitError> {
-    if destination.is_burned() {
-        return Err(CircuitErrorKind::TransferToBurnedUtxo.into());
+    if destination.is_closed() {
+        return Err(CircuitErrorKind::TransferToClosedUtxo.into());
     }
     let held = &destination.ledger().asset;
     if asset.is_clone_of(held) {
@@ -160,12 +169,13 @@ fn check_destination(asset: &Asset, destination: &impl HasLedger) -> Result<(), 
     asset.assert_same_unless(held, &Boolean::FALSE, "the destination holds another asset")
 }
 
+// TODO: rename Ledger to Balance
 pub trait HasLedger {
     fn ledger(&self) -> &Ledger;
 
     fn ledger_mut(&mut self) -> &mut Ledger;
 
-    fn is_burned(&self) -> bool;
+    fn is_closed(&self) -> bool;
 }
 
 pub trait Balance: HasLedger {

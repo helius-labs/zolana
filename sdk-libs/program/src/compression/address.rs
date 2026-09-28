@@ -5,6 +5,7 @@ use zolana_hasher::{
 use zolana_interface::ADDRESS_DOMAIN;
 
 use super::{CompressedAccountError, PdaOwner, NO_RING_HASH};
+use crate::ADDRESS_TREE_ID;
 
 /// The blinding of an address slot. An owner reserves one address per seed and
 /// tree, so a PDA owns as many addresses as it has seeds.
@@ -50,7 +51,11 @@ pub struct NewAddress {
 }
 
 impl NewAddress {
-    pub fn derive(
+    pub fn derive(owner: &PdaOwner, seed: AddressSeed) -> Result<Self, CompressedAccountError> {
+        Self::derive_with_tree_id(owner, seed, ADDRESS_TREE_ID)
+    }
+
+    pub fn derive_with_tree_id(
         owner: &PdaOwner,
         seed: AddressSeed,
         tree_id: u16,

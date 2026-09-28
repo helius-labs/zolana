@@ -59,9 +59,9 @@ fn every_shape_has_exactly_the_pinned_size_and_digest() {
                 "a2485a7aeee9d844f2c9a33a52bd07c9b6f092f5b2de4ec79d7652cba8c6e1ea"
             ),
             pinned(
-                8847,
-                8855,
-                "f0f807153c7b5ed10b3352a0806041494ab01266e84b5afcce5d7506738bccc8"
+                9321,
+                9329,
+                "86c3dc9c2758a14cc77f8d7aab996ea687f35fdbe0d2516bcb31873eb7f0e63f"
             ),
             pinned(
                 6870,
@@ -91,7 +91,7 @@ fn every_refresh_and_one_of_each_other_shape_checks_exactly_the_pinned_count() {
                 .into_iter()
                 .map(|(name, _)| (name, Ok(4600)))
                 .collect::<Vec<_>>(),
-            [Ok(10072), Ok(8847), Ok(6870)],
+            [Ok(10072), Ok(9321), Ok(6870)],
         )
     );
 }
@@ -128,7 +128,7 @@ fn the_balance_and_tree_rules_own_rows_only_where_a_value_is_variable() {
         (
             [vec![], vec![2189..2190]],
             [vec![5520..5521], vec![5522..5523]],
-            [vec![5042..5043], vec![5044..5045]],
+            [vec![5516..5517], vec![5518..5519]],
             [vec![], vec![2674..2675]],
         )
     );

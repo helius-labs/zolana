@@ -97,7 +97,7 @@ mod circuit {
     impl Circuit for Withdraw {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
+            let mut escrow = DataUtxo::new_close(&private.escrow, &private.terms)?;
             escrow
                 .balance()?
                 .assert_not_zero("the escrow utxo holds nothing")?;

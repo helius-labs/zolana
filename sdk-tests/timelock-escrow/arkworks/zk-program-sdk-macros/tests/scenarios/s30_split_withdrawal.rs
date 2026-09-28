@@ -42,7 +42,7 @@ impl Circuit for <SplitWithdraw as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
-        let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
+        let mut escrow = DataUtxo::new_close(&private.escrow, &private.terms)?;
         escrow
             .balance()?
             .assert_not_zero("the escrow utxo holds nothing")?;

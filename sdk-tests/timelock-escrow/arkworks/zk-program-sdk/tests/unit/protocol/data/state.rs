@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{poseidon, CircuitType, CircuitVar, DataHash, Uint, UtxoData},
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
-    hasher::{DataHasher, Hasher, HasherError, Poseidon, ToByteArray},
+    hasher::{data_hash, DataHasher, Hasher, HasherError, Poseidon, ToByteArray},
     CircuitError,
 };
 
@@ -26,6 +26,10 @@ impl Counter {
 
     pub fn native_hash(&self) -> [u8; 32] {
         DataHasher::hash::<Poseidon>(self).expect("counter hash")
+    }
+
+    pub fn data_hash(&self) -> [u8; 32] {
+        data_hash(&self.native_hash()).expect("counter data hash")
     }
 }
 

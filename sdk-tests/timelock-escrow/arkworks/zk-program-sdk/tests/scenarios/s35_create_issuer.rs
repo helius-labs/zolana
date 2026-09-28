@@ -138,7 +138,7 @@ impl Placeholder for CreateIssuer {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
+            constant, poseidon, zero, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
@@ -221,7 +221,7 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut issuer = DataUtxo::<Issuer>::new_init(&self.public.issuer, &Asset::sol());
+            let mut issuer = DataUtxo::<Issuer>::new_init(&self.public.issuer);
             issuer.issuer_hash = self.public.issuer.hash()?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

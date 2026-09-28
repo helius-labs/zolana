@@ -84,7 +84,7 @@ pub fn fund(tokens: u64, held: u64, count: u64, amount: u64) -> Fund {
         tx_context: tx_context(Some(0)),
         tokens: [token_input(SENDER, Mint::SOL, tokens, 0)],
         counter: Spent::token(SENDER, Mint::SOL, held, 1)
-            .with_state(state.bytes(), state.native_hash())
+            .with_state(state.bytes(), state.data_hash())
             .wallet_utxo(),
         state,
         amount,

@@ -15,7 +15,7 @@ use super::{
 };
 use crate::harness::fixture::{native, rule_broken, Refusal};
 
-const BURN_LEAVES: &str = "a burned token utxo leaves a balance";
+const CLOSE_LEAVES: &str = "a closed token utxo leaves a balance";
 
 fn honest<P: Shape>(named: Named<P>) -> Vec<(&'static str, Result<(), Refusal>)>
 where
@@ -161,7 +161,7 @@ fn a_malformed_transaction_breaks_exactly_its_rule() {
             Err(broken(NO_INPUT)),
             Err(broken(NO_TREE)),
             Err(broken(COUNTER_OVERFLOWS)),
-            Err(rule_broken(BURN_LEAVES, super::fixtures::FILE)),
+            Err(rule_broken(CLOSE_LEAVES, super::fixtures::FILE)),
         ]
     );
 }

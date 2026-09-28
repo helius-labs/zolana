@@ -8,7 +8,8 @@ use super::utxo::{Output, SpentInput};
 use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
-        zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Uint, Utxo, UtxoData,
+        zero, Assert, Bool, CircuitVar, DataHash, DataUtxo, PublicTransfer, TokenUtxo, Uint,
+        UniqueDataUtxo, Utxo, UtxoData,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -94,6 +95,7 @@ pub struct CheckedTransaction {
     pub(crate) first_nullifier: CircuitVar,
     pub(crate) output_tree_id: CircuitVar,
     pub(crate) inputs: Vec<CircuitVar>,
+    pub(crate) addresses: Vec<CircuitVar>,
     pub(crate) outputs: Vec<CheckedOutput>,
     pub(crate) public_transfers: Vec<PublicTransfer>,
     pub(crate) private_tx_hash: CircuitVar,
@@ -119,8 +121,9 @@ impl CheckedTransaction {
 pub struct ConfidentialTransaction<'a, P> {
     tx_context: &'a TxContext,
     public: &'a P,
-    inputs: Vec<SpentInput>,
-    outputs: Vec<Output>,
+    inputs: Vec<SpentInput>, // Consider rename to Utxo
+    addresses: Vec<CircuitVar>,
+    outputs: Vec<Output>, // Consider rename to NewUtxo
     public_transfers: Vec<PublicTransfer>,
     transferred: CircuitVar,
     error: Option<CircuitError>,
@@ -132,6 +135,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             tx_context,
             public,
             inputs: Vec::new(),
+            addresses: Vec::new(),
             outputs: Vec::new(),
             public_transfers: Vec::new(),
             transferred: zero(),
@@ -155,17 +159,33 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
 
     #[track_caller]
     pub fn with_data_utxo<S: UtxoData>(mut self, utxo: DataUtxo<S>) -> Self {
-        if let Some(spent) = utxo.spent_input() {
-            self.inputs.push(spent);
-        }
+        self.add_data_utxo(&utxo, || utxo.utxo_data().map(Some));
+        self
+    }
+
+    #[track_caller]
+    pub fn with_unique_data_utxo<S: UtxoData>(mut self, utxo: UniqueDataUtxo<S>) -> Self {
+        self.addresses.extend(utxo.created_address());
+        self.add_data_utxo(utxo.data_utxo(), || utxo.utxo_data());
+        self
+    }
+
+    #[track_caller]
+    fn add_data_utxo<S: DataHash>(
+        &mut self,
+        utxo: &DataUtxo<S>,
+        data: impl FnOnce() -> Result<Option<Vec<u8>>, CircuitError>,
+    ) {
+        self.inputs.extend(utxo.spent_input());
         self.public_transfers
             .extend(utxo.public_transfers().iter().cloned());
         self.transferred = self.transferred.plus(utxo.transferred());
+        let native = self.tx_context.is_native();
         let output = utxo.output().and_then(|output| {
             output
                 .map(|mut output| {
-                    if self.tx_context.is_native() {
-                        output.data = Some(utxo.utxo_data()?);
+                    if native {
+                        output.data = data()?;
                     }
                     Ok(output)
                 })
@@ -176,7 +196,6 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             Ok(None) => {}
             Err(error) => self.record(error),
         }
-        self
     }
 
     #[track_caller]
@@ -184,11 +203,17 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         if let Some(error) = self.error {
             return Err(error);
         }
+        let inputs: Vec<SpentInput> = self
+            .addresses
+            .iter()
+            .map(address_slot)
+            .chain(self.inputs)
+            .collect();
         let _scope = Scope::open(
             &system_of(
                 [&self.tx_context.blinding_seed, &self.transferred]
                     .into_iter()
-                    .chain(self.inputs.iter().map(|input| &input.hash)),
+                    .chain(inputs.iter().map(|input| &input.hash)),
             ),
             "the transaction's outputs and hashes",
         );
@@ -196,7 +221,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             &zero(),
             "value leaves the transaction: a utxo was not added",
         )?;
-        let first = self.inputs.first().ok_or(CircuitErrorKind::RuleBroken(
+        let first = inputs.first().ok_or(CircuitErrorKind::RuleBroken(
             "a transaction spends at least one input",
         ))?;
         let first_nullifier = first.nullifier.clone();
@@ -225,14 +250,13 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
                 Ok(CheckedOutput { output, hash })
             })
             .collect::<Result<Vec<_>, CircuitError>>()?;
-        let input_hashes: Vec<CircuitVar> =
-            self.inputs.iter().map(|input| input.hash.clone()).collect();
+        let input_hashes: Vec<CircuitVar> = inputs.iter().map(|input| input.hash.clone()).collect();
         let output_hashes: Vec<CircuitVar> =
             outputs.iter().map(|output| output.hash.clone()).collect();
         let private_tx_hash = poseidon(&[
             nonzero_hash_chain(&input_hashes)?,
             nonzero_hash_chain(&output_hashes)?,
-            nonzero_hash_chain(&[])?,
+            nonzero_hash_chain(&self.addresses)?,
             private_tx_blinding(&first_nullifier, &blinding_seed)?,
         ])?;
         let transaction_hash = transaction_hash(&private_tx_hash, &self.public_transfers)?;
@@ -242,6 +266,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             first_nullifier,
             output_tree_id,
             inputs: input_hashes,
+            addresses: self.addresses,
             outputs,
             public_transfers: self.public_transfers,
             private_tx_hash,
@@ -252,6 +277,15 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
 
     fn record(&mut self, error: CircuitError) {
         self.error.get_or_insert(error);
+    }
+}
+
+fn address_slot(address: &CircuitVar) -> SpentInput {
+    SpentInput {
+        hash: zero(),
+        nullifier: address.clone(),
+        latest_tree_id: zero(),
+        has_latest_tree_id: Bool::constant(false),
     }
 }
 

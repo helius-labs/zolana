@@ -109,7 +109,7 @@ mod circuit {
     }
 
     fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, CircuitError> {
-        let tokens = TokenUtxo::new_burn(inputs)?;
+        let tokens = TokenUtxo::new_close(inputs)?;
         tokens
             .owner()
             .hash()?

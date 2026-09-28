@@ -1,8 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
-        Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxo,
+        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxo,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -55,7 +55,7 @@ impl Circuit for <TypedCreate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut state = DataUtxo::<TypedStateCircuit>::new_init(&private.owner, &Asset::sol());
+        let mut state = DataUtxo::<TypedStateCircuit>::new_init(&private.owner);
         state.amount = self.public.amount.clone();
         state.count = private.count.clone();
         state.kind = private.kind.clone();

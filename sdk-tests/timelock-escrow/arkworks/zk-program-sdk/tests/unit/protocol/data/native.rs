@@ -7,11 +7,11 @@ use zolana_transaction::Mint;
 
 use super::{
     fixtures::{
-        broken, fresh, Encoded, Held, ASSET, BALANCE, BURN_LEAVES, COMMITS, COUNT, NOT_SPENDABLE,
+        broken, fresh, Encoded, Held, ASSET, BALANCE, CLOSE_LEAVES, COMMITS, COUNT, NOT_SPENDABLE,
         OWNER, RING,
     },
     state::{Counter, Skewed},
-    vectors::{a_dummy_input, a_ring_input, a_token_input, another_state, burned, holds},
+    vectors::{a_dummy_input, a_ring_input, a_token_input, another_state, closed, holds},
 };
 use crate::{
     harness::fixture::{native, rule_broken, Refusal},
@@ -29,7 +29,7 @@ fn names<T>(
 
 #[test]
 fn every_held_counter_keeps_its_native_count_balance_owner_and_asset() {
-    let burned_holds: Vec<_> = holds()
+    let closed_holds: Vec<_> = holds()
         .into_iter()
         .map(|(name, fixture)| {
             let Held {
@@ -59,7 +59,7 @@ fn every_held_counter_keeps_its_native_count_balance_owner_and_asset() {
                 .iter()
                 .map(|(name, fixture)| (*name, native(fixture)))
                 .collect::<Vec<_>>(),
-            burned_holds
+            closed_holds
                 .iter()
                 .map(|(name, fixture)| (*name, native(fixture)))
                 .collect::<Vec<_>>(),
@@ -170,16 +170,16 @@ fn checked_utxo_data_runs_natively_only() {
 }
 
 #[test]
-fn a_burned_counter_must_leave_nothing_and_withdraw_all_empties_it() {
+fn a_closed_counter_must_leave_nothing_and_withdraw_all_empties_it() {
     assert_eq!(
         [
-            native(&burned::<false>(300)),
-            native(&burned::<true>(300)),
-            native(&burned::<false>(0)),
-            native(&burned::<true>(0)),
+            native(&closed::<false>(300)),
+            native(&closed::<true>(300)),
+            native(&closed::<false>(0)),
+            native(&closed::<true>(0)),
         ],
         [
-            Err(broken(BURN_LEAVES)),
+            Err(broken(CLOSE_LEAVES)),
             Ok(()),
             Ok(()),
             Err(rule_broken(NONZERO, super::fixtures::FILE)),

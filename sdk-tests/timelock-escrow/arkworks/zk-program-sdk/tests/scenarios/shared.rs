@@ -120,11 +120,15 @@ pub fn dummy() -> WalletUtxo {
     WalletUtxo::dummy(TREE_ID).expect("dummy")
 }
 
-pub fn data_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
+pub fn state_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
     let circuit = state
         .instantiate(&Allocator::native())
         .expect("native state");
     to_bytes(&circuit.hash().expect("state hash")).expect("state hash bytes")
+}
+
+pub fn data_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
+    zk_program_sdk::hasher::data_hash(&state_hash(state)).expect("data hash")
 }
 
 pub fn on_large_stack(run: impl FnOnce() + Send + 'static) {
