@@ -1493,10 +1493,10 @@ fn finalized_transaction_encrypts_like_the_one_shot_path() {
     let finalized_private_tx_hash = finalized.padding_independent_private_tx_hash().unwrap();
     let finalized_transfers = finalized.interface_transfers().to_vec();
     error(
-        finalized.clone().encrypt(&keypair(2)),
+        finalized.clone().encrypt_with_keys(&keypair(2)),
         E::SenderAddressMismatch,
     );
-    let encrypted = finalized.clone().encrypt(&owner).unwrap();
+    let encrypted = finalized.clone().encrypt_with_keys(&owner).unwrap();
 
     let ciphertext_independent = |proof: &SppProofInputs| {
         (

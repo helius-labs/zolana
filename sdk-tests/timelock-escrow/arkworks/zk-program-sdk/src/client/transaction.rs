@@ -65,6 +65,18 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
     }
 
     #[cfg(feature = "encrypt")]
+    fn create_and_encrypt(
+        &self,
+        sender: &ShieldedAddress,
+        payer: Address,
+    ) -> Result<SppProofInputs, ClientError> {
+        Ok(self
+            .create_finalized_transaction(sender, payer)?
+            .encrypt()
+            .map_err(ClientErrorKind::Transaction)?)
+    }
+
+    #[cfg(feature = "encrypt")]
     fn create_proof_inputs_and_encrypt(
         &self,
         shielded_keys: &impl ShieldedKeys,
@@ -76,7 +88,7 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
             .map_err(ClientErrorKind::Transaction)?;
         let mut spp_proof_inputs = self
             .create_finalized_transaction(&sender, payer)?
-            .encrypt(shielded_keys)
+            .encrypt_with_keys(shielded_keys)
             .map_err(ClientErrorKind::Transaction)?;
         spp_proof_inputs.external_data.expiry_unix_ts = expiry_unix_ts;
         Ok(spp_proof_inputs)

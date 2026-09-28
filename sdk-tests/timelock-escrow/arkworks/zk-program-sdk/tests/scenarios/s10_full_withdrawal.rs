@@ -127,7 +127,7 @@ fn full_withdrawal_prove_and_verify() {
         public: WithdrawalPublicInputs { amount: 300 },
     };
     let spp_proof_inputs = withdrawal
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("withdrawal proof inputs");
     let padding_tag = spp_proof_inputs
         .external_data

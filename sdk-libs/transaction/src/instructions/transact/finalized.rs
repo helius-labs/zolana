@@ -12,10 +12,10 @@ use crate::{
 };
 
 /// A transaction with its final slots, output blindings, owner tags and public
-/// transfers, prepared without key material. Every commitment and the
-/// padding-independent private transaction hash are fixed; only the output
-/// ciphertexts and the transaction viewing key are missing. The key holder
-/// completes it with [`encrypt`](Self::encrypt).
+/// transfers. Every commitment and the padding-independent private transaction
+/// hash are fixed. [`encrypt`](Self::encrypt) uses the first input's cached
+/// transaction viewing key; [`encrypt_with_keys`](Self::encrypt_with_keys)
+/// can request a key from its holder when none was cached.
 #[derive(Clone)]
 pub struct FinalizedTransaction {
     pub(super) input_utxos: Vec<SppProofInputUtxo>,

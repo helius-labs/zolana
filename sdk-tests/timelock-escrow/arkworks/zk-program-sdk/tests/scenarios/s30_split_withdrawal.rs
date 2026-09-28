@@ -9,7 +9,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s27_escrow::{escrow_utxo, EscrowTerms},
-    shared::keypair,
+    shared::{keypair, with_transaction_key},
 };
 
 #[derive(Clone)]
@@ -159,7 +159,7 @@ fn split_withdrawal_prove_and_verify() {
     let withdraw = SplitWithdraw {
         private: SplitWithdrawPrivateInputs {
             tx_context: TxContext::new(),
-            escrow,
+            escrow: with_transaction_key(&creator, escrow),
             terms,
         },
         public: SplitWithdrawPublicInputs {
@@ -170,7 +170,7 @@ fn split_withdrawal_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdraw
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("split withdraw proof inputs");
     assert_eq!(
         spp_proof_inputs

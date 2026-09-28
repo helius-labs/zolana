@@ -242,6 +242,16 @@ fn a_transfer_encrypts_with_the_synced_key_of_its_first_input() {
 
     let mut transaction = ConfidentialTransaction::new(vec![input], payer).unwrap();
     transaction.transfer_sol(&receiver, 2).unwrap();
+    let synced_proof_inputs = transaction
+        .clone()
+        .finalize(&owner.shielded_address().unwrap())
+        .unwrap()
+        .encrypt()
+        .unwrap();
+    assert_eq!(
+        synced_proof_inputs.external_data.tx_viewing_pk,
+        *synced_key.pubkey().as_bytes()
+    );
     let proof_inputs = transaction.encrypt(&keys).unwrap();
 
     assert_eq!(
@@ -263,6 +273,15 @@ fn a_transfer_without_a_synced_key_requests_one_for_its_first_input() {
     let mut transaction =
         ConfidentialTransaction::new(vec![input], sender.solana_address().unwrap()).unwrap();
     transaction.transfer_sol(&receiver, 2).unwrap();
+    assert_eq!(
+        transaction
+            .clone()
+            .finalize(&sender)
+            .unwrap()
+            .encrypt()
+            .err(),
+        Some(TransactionError::MissingSyncedTransactionKey)
+    );
     let proof_inputs = transaction.encrypt(&keys).unwrap();
 
     assert_eq!(
@@ -288,10 +307,7 @@ fn a_synced_transfer_needs_no_key_request_after_sync() {
     let receiver = keypair(50).shielded_address().unwrap();
     let payer = owner.shielded_address().unwrap().solana_address().unwrap();
     let keys = CountingKeys::new(&owner);
-    let transactions = vec![published(
-        &owner,
-        &wallet_utxo(&owner, Mint::SOL, 9, 3, 1),
-    )];
+    let transactions = vec![published(&owner, &wallet_utxo(&owner, Mint::SOL, 9, 3, 1))];
 
     let synced = keys
         .spendable_utxos(&transactions, &AssetRegistry::default())
@@ -331,7 +347,10 @@ fn a_merge_encrypts_with_the_synced_key_of_its_first_input() {
         first.tx_viewing_key = Some(*synced_key.secret_bytes());
     }
 
-    let merged = MergeTransaction::new(inputs).unwrap().encrypt(&keys).unwrap();
+    let merged = MergeTransaction::new(inputs)
+        .unwrap()
+        .encrypt(&keys)
+        .unwrap();
 
     assert_eq!(merged.tx_viewing_pk, *synced_key.pubkey().as_bytes());
     assert!(keys.calls().is_empty());

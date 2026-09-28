@@ -136,7 +136,7 @@ fn spl_payment_prove_and_verify() {
         },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("spl payment proof inputs");
     assert_eq!(
         spp_proof_inputs
@@ -157,10 +157,8 @@ fn spl_payment_prove_and_verify() {
 #[test]
 fn spl_payment_encrypts_with_the_synced_key_of_its_first_input() {
     let sender = keypair(5);
-    let payer = sender
-        .shielded_address()
-        .and_then(|address| address.solana_address())
-        .expect("payer");
+    let address = sender.shielded_address().expect("sender address");
+    let payer = address.solana_address().expect("payer");
     let recipient = keypair(6).shielded_address().expect("recipient address");
     let synced_key = keypair(7).viewing_key;
     let mut input = token_input(&sender, USDC, 500, 0);
@@ -178,7 +176,7 @@ fn spl_payment_encrypts_with_the_synced_key_of_its_first_input() {
         },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("spl payment proof inputs");
 
     assert_eq!(

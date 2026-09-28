@@ -86,23 +86,34 @@ fn wallet_utxo(
             tree_id,
         )
         .expect("utxo hash");
-    WalletUtxo {
-        nullifier: owner
-            .nullifier(&utxo_hash, &utxo.blinding)
-            .expect("nullifier"),
-        tx_viewing_key: None,
-        utxo,
-        nullifier_pubkey: address.nullifier_pubkey,
-        utxo_hash,
-        data_hash,
-        ring_data_hash: None,
-        tree_id,
-        leaf_index,
-        latest_tree_id: None,
-        slot: 0,
-        tx_signature: Signature::default(),
-        slot_index: 0,
-    }
+    with_transaction_key(
+        owner,
+        WalletUtxo {
+            nullifier: owner
+                .nullifier(&utxo_hash, &utxo.blinding)
+                .expect("nullifier"),
+            tx_viewing_key: None,
+            utxo,
+            nullifier_pubkey: address.nullifier_pubkey,
+            utxo_hash,
+            data_hash,
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+            latest_tree_id: None,
+            slot: 0,
+            tx_signature: Signature::default(),
+            slot_index: 0,
+        },
+    )
+}
+
+pub fn with_transaction_key(keys: &ShieldedKeypair, mut input: WalletUtxo) -> WalletUtxo {
+    let transaction_key = keys
+        .get_transaction_viewing_key(&input.nullifier)
+        .expect("synced transaction key");
+    input.tx_viewing_key = Some(*transaction_key.secret_bytes());
+    input
 }
 
 pub fn dummy() -> WalletUtxo {
@@ -225,7 +236,7 @@ fn placed(keys: &ShieldedKeypair, mut utxo: WalletUtxo, data_hash: [u8; 32]) -> 
     utxo.nullifier = keys
         .nullifier(&utxo.utxo_hash, &utxo.utxo.blinding)
         .expect("nullifier");
-    utxo
+    with_transaction_key(keys, utxo)
 }
 
 #[derive(Clone, Copy, Debug)]

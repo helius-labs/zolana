@@ -129,7 +129,7 @@ fn counter_close_prove_and_verify() {
         public: ClosePublicInputs { owner: address },
     };
     let spp_proof_inputs = close
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("close proof inputs");
     assert_eq!(
         spp_proof_inputs

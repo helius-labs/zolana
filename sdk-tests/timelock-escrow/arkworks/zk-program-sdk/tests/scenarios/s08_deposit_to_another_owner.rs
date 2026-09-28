@@ -137,7 +137,7 @@ fn deposit_to_another_owner_prove_and_verify() {
         },
     };
     let spp_proof_inputs = deposit
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("deposit proof inputs");
     assert_eq!(
         (

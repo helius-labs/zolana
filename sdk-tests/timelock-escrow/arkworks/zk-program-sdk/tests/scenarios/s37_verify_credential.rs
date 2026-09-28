@@ -196,7 +196,7 @@ fn verify_credential_prove_and_verify() {
         },
     };
     let spp_proof_inputs = verify
-        .create_proof_inputs_and_encrypt(&user, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("verify credential proof inputs");
     assert_eq!(
         spp_proof_inputs

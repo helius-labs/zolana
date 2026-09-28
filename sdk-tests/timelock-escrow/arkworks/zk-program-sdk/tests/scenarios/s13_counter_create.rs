@@ -175,7 +175,7 @@ fn counter_create_prove_and_verify() {
         public: CounterCreatePublicInputs { owner: address },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("counter create proof inputs");
     assert_eq!(
         spp_proof_inputs

@@ -181,7 +181,7 @@ fn read_with_threshold_prove_and_verify() {
         public: ReadThresholdPublicInputs { threshold: 500 },
     };
     let spp_proof_inputs = read
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("read proof inputs");
     assert_eq!(
         spp_proof_inputs

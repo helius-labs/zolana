@@ -145,7 +145,7 @@ fn two_asset_payment_prove_and_verify() {
         public: TwoAssetPaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("two-asset payment proof inputs");
     assert_eq!(
         (

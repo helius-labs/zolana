@@ -26,7 +26,7 @@ impl ConfidentialTransaction {
     ///
     /// Steps:
     /// 1. Get the sender address from `shielded_keys`.
-    /// 2. Delegate to [`Self::finalize`] and [`FinalizedTransaction::encrypt`].
+    /// 2. Delegate to [`Self::finalize`] and [`FinalizedTransaction::encrypt_with_keys`].
     pub fn encrypt<K: ShieldedKeys + ?Sized>(
         self,
         shielded_keys: &K,
@@ -117,7 +117,7 @@ impl FinalizedTransaction {
     ///    finalized for.
     /// 2. Derive the transaction viewing key from the first nullifier.
     /// 3. Delegate to [`Self::encrypt_with_viewing_key`].
-    pub fn encrypt<K: ShieldedKeys + ?Sized>(
+    pub fn encrypt_with_keys<K: ShieldedKeys + ?Sized>(
         self,
         shielded_keys: &K,
     ) -> Result<SppProofInputs, TransactionError> {
@@ -127,6 +127,14 @@ impl FinalizedTransaction {
         }
         // 2.-3. Derive the transaction viewing key and encrypt.
         self.encrypt_with_sender_keys(shielded_keys)
+    }
+
+    pub fn encrypt(self) -> Result<SppProofInputs, TransactionError> {
+        let secret = self
+            .tx_viewing_key
+            .ok_or(TransactionError::MissingSyncedTransactionKey)?;
+        let key = ViewingKey::from_bytes(&secret)?;
+        self.encrypt_with_viewing_key(&key)
     }
 
     fn encrypt_with_sender_keys<K: ShieldedKeys + ?Sized>(

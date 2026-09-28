@@ -248,7 +248,7 @@ fn create_and_update_prove_and_verify() {
         public: CreateAndUpdatePublicInputs { badge_owner },
     };
     let spp_proof_inputs = create_and_update
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("create and update proof inputs");
     assert_eq!(
         spp_proof_inputs

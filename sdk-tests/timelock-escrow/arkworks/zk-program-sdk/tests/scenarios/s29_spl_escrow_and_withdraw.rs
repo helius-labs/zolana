@@ -8,7 +8,7 @@ use crate::{
         escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, ESCROW_SLOT,
     },
     s28_escrow_withdraw::{Withdraw, WithdrawPrivateInputs, WithdrawPublicInputs},
-    shared::{keypair, token_input, USDC},
+    shared::{keypair, token_input, with_transaction_key, USDC},
 };
 
 #[test]
@@ -30,7 +30,7 @@ fn spl_escrow_then_withdraw_prove_and_verify() {
         public: EscrowPublicInputs { escrow_owner },
     };
     let escrow_spp_proof_inputs = escrow
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("escrow proof inputs");
     let escrow_prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
     let escrow_result = prove(&escrow_prover, &escrow, "escrow proof");
@@ -50,7 +50,7 @@ fn spl_escrow_then_withdraw_prove_and_verify() {
     let withdraw = Withdraw {
         private: WithdrawPrivateInputs {
             tx_context: TxContext::new(),
-            escrow: escrow_utxo,
+            escrow: with_transaction_key(&creator, escrow_utxo),
             terms: terms.clone(),
         },
         public: WithdrawPublicInputs {
@@ -59,7 +59,7 @@ fn spl_escrow_then_withdraw_prove_and_verify() {
         },
     };
     let withdraw_spp_proof_inputs = withdraw
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("withdraw proof inputs");
     let withdraw_prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
     let withdraw_result = prove(&withdraw_prover, &withdraw, "withdraw proof");

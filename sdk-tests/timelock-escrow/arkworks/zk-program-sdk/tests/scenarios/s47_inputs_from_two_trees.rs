@@ -29,7 +29,7 @@ fn inputs_from_two_trees_prove_and_verify() {
         public: PaymentPublicInputs { recipients },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("payment proof inputs");
     let [first_recipient, second_recipient, third_recipient] = recipients;
     assert_eq!(

@@ -8,7 +8,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
-    shared::{keypair, ProgramOwner},
+    shared::{keypair, with_transaction_key, ProgramOwner},
 };
 
 fn vesting_authority() -> ProgramOwner {
@@ -278,7 +278,7 @@ fn vesting_claim_prove_and_verify() {
     let claim = VestingClaim {
         private: VestingClaimPrivateInputs {
             tx_context: TxContext::new(),
-            vesting,
+            vesting: with_transaction_key(&beneficiary, vesting),
             state: state.clone(),
             beneficiary: address,
             vesting_owner,
@@ -290,7 +290,7 @@ fn vesting_claim_prove_and_verify() {
         },
     };
     let spp_proof_inputs = claim
-        .create_proof_inputs_and_encrypt(&beneficiary, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("vesting claim proof inputs");
     assert_eq!(
         spp_proof_inputs

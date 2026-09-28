@@ -53,7 +53,7 @@ impl<P: ZkProgram + Serialize> Fixture<P> {
         let external_data = transaction
             .finalized
             .clone()
-            .encrypt(&self.keypair)
+            .encrypt_with_keys(&self.keypair)
             .expect("encrypted transaction")
             .external_data;
         json!({

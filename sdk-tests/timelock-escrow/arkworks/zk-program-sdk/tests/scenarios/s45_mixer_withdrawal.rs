@@ -8,7 +8,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s44_mixer_deposit::{commitment_utxo, MixerCommitment, DENOMINATION},
-    shared::{keypair, poseidon_bytes},
+    shared::{keypair, poseidon_bytes, with_transaction_key},
 };
 
 #[derive(Clone)]
@@ -146,7 +146,7 @@ fn mixer_withdrawal_prove_and_verify() {
     let withdrawal = MixerWithdrawal {
         private: MixerWithdrawalPrivateInputs {
             tx_context: TxContext::new(),
-            note,
+            note: with_transaction_key(&recipient, note),
             commitment,
             nullifier_secret,
             secret,
@@ -157,7 +157,7 @@ fn mixer_withdrawal_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdrawal
-        .create_proof_inputs_and_encrypt(&recipient, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("mixer withdrawal proof inputs");
     assert_eq!(
         spp_proof_inputs

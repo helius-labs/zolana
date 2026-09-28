@@ -9,7 +9,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s42_create_poll::{poll_authority, poll_utxo, Poll},
-    shared::{keypair, poseidon_bytes, MerklePath, MerkleTree},
+    shared::{keypair, poseidon_bytes, with_transaction_key, MerklePath, MerkleTree},
 };
 
 #[derive(Clone)]
@@ -181,7 +181,7 @@ fn cast_vote_prove_and_verify() {
     let vote = CastVote {
         private: CastVotePrivateInputs {
             tx_context: TxContext::new(),
-            poll,
+            poll: with_transaction_key(&voter, poll),
             state: state.clone(),
             poll_owner,
             choice: 1,
@@ -195,7 +195,7 @@ fn cast_vote_prove_and_verify() {
         },
     };
     let spp_proof_inputs = vote
-        .create_proof_inputs_and_encrypt(&voter, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("vote proof inputs");
     assert_eq!(
         spp_proof_inputs

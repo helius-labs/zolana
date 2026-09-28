@@ -5,7 +5,7 @@ use crate::{
     benchmark::prove,
     s31_order_make::order_utxo,
     s32_order_take::{Take, TakePrivateInputs, TakePublicInputs},
-    shared::{keypair, token_input, USDC},
+    shared::{keypair, token_input, with_transaction_key, USDC},
 };
 
 #[test]
@@ -22,7 +22,7 @@ fn program_chosen_blinding_seed_prove_and_verify() {
     let take = Take {
         private: TakePrivateInputs {
             tx_context: TxContext::new().with_blinding_seed(blinding_seed),
-            order,
+            order: with_transaction_key(&taker, order),
             terms,
             maker: maker_address,
             token_utxos_asset_b: [token_input(&taker, USDC, 100, 3)],
@@ -33,7 +33,7 @@ fn program_chosen_blinding_seed_prove_and_verify() {
         },
     };
     let spp_proof_inputs = take
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_and_encrypt(&taker_address, payer)
         .expect("take proof inputs");
     let output_blinding_seed =
         derive_output_blinding_seed(&first_nullifier, &blinding_seed).expect("output seed");

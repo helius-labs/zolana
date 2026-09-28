@@ -9,7 +9,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s31_order_make::{order_utxo, OrderTerms},
-    shared::{keypair, token_input, USDC},
+    shared::{keypair, token_input, with_transaction_key, USDC},
 };
 
 #[derive(Clone)]
@@ -158,7 +158,7 @@ fn order_take_prove_and_verify() {
     let take = Take {
         private: TakePrivateInputs {
             tx_context: TxContext::new(),
-            order,
+            order: with_transaction_key(&taker, order),
             terms,
             maker: maker_address,
             token_utxos_asset_b: [token_input(&taker, USDC, 100, 3)],
@@ -169,7 +169,7 @@ fn order_take_prove_and_verify() {
         },
     };
     let spp_proof_inputs = take
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_and_encrypt(&taker_address, payer)
         .expect("take proof inputs");
     assert_eq!(
         (

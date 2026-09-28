@@ -258,7 +258,7 @@ fn typed_state_create_prove_and_verify() {
         public: TypedCreatePublicInputs { amount: 1_000 },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("typed create proof inputs");
     let state = TypedState {
         amount: 1_000,

@@ -2,7 +2,7 @@ use zk_program_sdk::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgram,
 };
-use zolana_keypair::ShieldedAddress;
+use zolana_keypair::{ShieldedAddress, ViewingKey};
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
@@ -116,6 +116,10 @@ fn sol_payment_prove_and_verify() {
     let recipient = keypair(6).shielded_address().expect("recipient address");
     let first = token_input(&sender, Mint::SOL, 300, 0);
     let second = token_input(&sender, Mint::SOL, 200, 1);
+    let transaction_key =
+        ViewingKey::from_bytes(&first.tx_viewing_key.expect("synced transaction key"))
+            .expect("valid transaction key");
+    drop(sender);
 
     let payment = Payment {
         private: PaymentPrivateInputs {
@@ -126,8 +130,12 @@ fn sol_payment_prove_and_verify() {
         public: PaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("payment proof inputs");
+    assert_eq!(
+        spp_proof_inputs.external_data.tx_viewing_pk,
+        *transaction_key.pubkey().as_bytes()
+    );
     assert_eq!(
         spp_proof_inputs
             .output_utxos

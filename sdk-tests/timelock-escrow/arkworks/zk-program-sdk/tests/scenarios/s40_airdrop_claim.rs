@@ -9,7 +9,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s39_airdrop_pool::{airdrop_authority, pool_utxo, Pool},
-    shared::{keypair, poseidon_bytes, MerklePath, MerkleTree},
+    shared::{keypair, poseidon_bytes, with_transaction_key, MerklePath, MerkleTree},
 };
 
 #[derive(Clone)]
@@ -199,7 +199,7 @@ fn airdrop_claim_prove_and_verify() {
     let claim = Claim {
         private: ClaimPrivateInputs {
             tx_context: TxContext::new(),
-            pool,
+            pool: with_transaction_key(&claimant, pool),
             state: state.clone(),
             pool_owner,
             secret_key,
@@ -214,7 +214,7 @@ fn airdrop_claim_prove_and_verify() {
         },
     };
     let spp_proof_inputs = claim
-        .create_proof_inputs_and_encrypt(&claimant, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("claim proof inputs");
     assert_eq!(
         spp_proof_inputs

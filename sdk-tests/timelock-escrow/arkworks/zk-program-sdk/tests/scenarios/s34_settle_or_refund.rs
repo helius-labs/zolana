@@ -10,7 +10,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s31_order_make::{order_utxo, OrderTerms},
-    shared::{data_input, keypair},
+    shared::{data_input, keypair, with_transaction_key},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -236,7 +236,7 @@ fn settle_or_refund_prove_and_verify() {
         Settle {
             private: SettlePrivateInputs {
                 tx_context: TxContext::new(),
-                order,
+                order: with_transaction_key(&taker, order),
                 terms,
                 maker: maker_address,
                 reservation_utxo,
@@ -250,7 +250,7 @@ fn settle_or_refund_prove_and_verify() {
 
     let settled = settle(95, true);
     let settled_spp_proof_inputs = settled
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_and_encrypt(&taker_address, payer)
         .expect("settle proof inputs");
     let settled_result = prove(&prover, &settled, "settle proof");
     prover
@@ -259,7 +259,7 @@ fn settle_or_refund_prove_and_verify() {
 
     let refunded = settle(105, false);
     let refunded_spp_proof_inputs = refunded
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_and_encrypt(&taker_address, payer)
         .expect("refund proof inputs");
     let refunded_result = prove(&prover, &refunded, "refund proof");
     prover

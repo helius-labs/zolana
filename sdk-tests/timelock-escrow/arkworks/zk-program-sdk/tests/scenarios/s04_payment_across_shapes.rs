@@ -164,7 +164,7 @@ fn payment_prove_and_verify<const N: usize, const R: usize>(
         },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("payment proof inputs");
 
     let prover = Groth16Prover::<Payment<N, R>>::new_with_test_setup().expect("payment setup");

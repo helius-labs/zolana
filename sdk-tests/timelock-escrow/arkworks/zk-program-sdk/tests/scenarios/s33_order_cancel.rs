@@ -9,7 +9,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s31_order_make::{order_utxo, OrderTerms},
-    shared::keypair,
+    shared::{keypair, with_transaction_key},
 };
 
 #[derive(Clone)]
@@ -147,7 +147,7 @@ fn order_cancel_prove_and_verify() {
     let cancel = Cancel {
         private: CancelPrivateInputs {
             tx_context: TxContext::new(),
-            order,
+            order: with_transaction_key(&maker, order),
             terms,
             maker: address,
         },
@@ -157,7 +157,7 @@ fn order_cancel_prove_and_verify() {
         },
     };
     let spp_proof_inputs = cancel
-        .create_proof_inputs_and_encrypt(&maker, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("cancel proof inputs");
     assert_eq!(
         spp_proof_inputs

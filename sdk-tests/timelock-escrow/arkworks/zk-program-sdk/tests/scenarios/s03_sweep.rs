@@ -120,7 +120,7 @@ fn sweep_prove_and_verify() {
         public: SweepPublicInputs { recipient },
     };
     let spp_proof_inputs = sweep
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("sweep proof inputs");
     assert_eq!(
         (

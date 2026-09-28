@@ -161,7 +161,7 @@ fn typed_state_update_prove_and_verify() {
         public: TypedUpdatePublicInputs { count: 9 },
     };
     let spp_proof_inputs = update
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_and_encrypt(&address, payer)
         .expect("typed update proof inputs");
     let updated = TypedState {
         amount: 1_250,
