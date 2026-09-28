@@ -27,7 +27,7 @@ fn another_output_tree_prove_and_verify() {
         public: PaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("payment proof inputs");
     assert_eq!(
         (

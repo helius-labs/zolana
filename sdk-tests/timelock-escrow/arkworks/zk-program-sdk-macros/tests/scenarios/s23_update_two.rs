@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, Uint,
@@ -17,7 +16,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct UpdateTwo {
+pub struct UpdateTwo {
     private: UpdateTwoPrivateInputs,
     public: UpdateTwoPublicInputs,
 }
@@ -36,8 +35,8 @@ struct UpdateTwoPublicInputs {
     owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for UpdateTwo {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <UpdateTwo as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let owner = self.public.owner.hash()?;
@@ -86,7 +85,7 @@ fn update_two_prove_and_verify() {
         public: UpdateTwoPublicInputs { owner: address },
     };
     let spp_proof_inputs = update_two
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("update two proof inputs");
     assert_eq!(
         spp_proof_inputs

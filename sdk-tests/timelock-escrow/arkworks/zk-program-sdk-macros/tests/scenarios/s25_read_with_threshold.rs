@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
     },
@@ -20,7 +19,7 @@ pub struct Account {
 }
 
 #[derive(Clone, ProofInput)]
-struct ReadThreshold {
+pub struct ReadThreshold {
     private: ReadThresholdPrivateInputs,
     public: ReadThresholdPublicInputs,
 }
@@ -37,8 +36,8 @@ struct ReadThresholdPublicInputs {
     threshold: u64,
 }
 
-#[circuit]
-impl Circuit for ReadThreshold {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <ReadThreshold as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
@@ -69,7 +68,7 @@ fn read_with_threshold_prove_and_verify() {
         public: ReadThresholdPublicInputs { threshold: 500 },
     };
     let spp_proof_inputs = read
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("read proof inputs");
     assert_eq!(
         spp_proof_inputs

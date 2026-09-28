@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -13,7 +12,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct CompareTwo {
+pub struct CompareTwo {
     private: CompareTwoPrivateInputs,
     public: CompareTwoPublicInputs,
 }
@@ -32,8 +31,8 @@ struct CompareTwoPublicInputs {
     total: u64,
 }
 
-#[circuit]
-impl Circuit for CompareTwo {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CompareTwo as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;
@@ -71,7 +70,7 @@ fn compare_two_prove_and_verify() {
         public: CompareTwoPublicInputs { total: 1_000 },
     };
     let spp_proof_inputs = compare
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("compare proof inputs");
     assert_eq!(
         spp_proof_inputs

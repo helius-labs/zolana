@@ -807,14 +807,25 @@ bench-zk-program-sdk:
 test-zk-program-sdk-macros:
     cargo test --release -p zk-program-sdk-macros
 
+# Full SDK validation: crate checks, hermetic units, two external runs, release tests.
+# External tool requirements are listed on test-zk-program-sdk-external below.
+test-zk-program-sdk:
+    cargo check --tests --all-features -p zk-program-sdk -p zk-program-sdk-macros -p timelock-escrow-arkworks -p timelock-escrow-program
+    just test-zk-program-sdk-unit
+    just test-zk-program-sdk-external
+    just test-zk-program-sdk-external
+    cargo test --release -p zk-program-sdk -p zk-program-sdk-macros -p timelock-escrow-arkworks -- --test-threads=4
+
 # The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
-test-zk-program-sdk-unit:
-    cargo test -p zk-program-sdk --test unit
+test-zk-program-sdk-unit filter="":
+    cargo test -p zk-program-sdk --test unit "{{filter}}"
 
 # The ZK program SDK unit suite with the circom, snarkjs and Picus checks.
-# Needs `circom`, `snarkjs`, `run-picus` and the `cvc5` solver on PATH.
-test-zk-program-sdk-external:
-    cargo test -p zk-program-sdk --features external-tools --test unit
+# Needs circom, snarkjs, run-picus, Racket and cvc5 on PATH, plus ps/kill access.
+# CIRCOMLIB_DIR may name a clean checkout of the pinned circomlib revision.
+# An optional test filter also supports focused checks, such as harness::picus::timeout_cleanup.
+test-zk-program-sdk-external filter="":
+    cargo test --release -p zk-program-sdk --features external-tools --test unit "{{filter}}" -- --test-threads=4
 
 # Runs a throwaway snarkjs ceremony on the exported escrow and withdraw r1cs
 # and proves from its zkeys. Needs `snarkjs` on PATH; the ptau and zkeys are

@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
         Uint,
@@ -18,7 +17,7 @@ use crate::{
 const RECIPIENTS: usize = 7;
 
 #[derive(Clone, ProofInput)]
-struct FanOut {
+pub struct FanOut {
     private: FanOutPrivateInputs,
     public: FanOutPublicInputs,
 }
@@ -36,8 +35,8 @@ struct FanOutPublicInputs {
     total: u64,
 }
 
-#[circuit]
-impl Circuit for FanOut {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <FanOut as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         Uint::<64>::sum::<67, _>(&private.amounts)
@@ -86,7 +85,7 @@ fn fan_out_prove_and_verify() {
         public: FanOutPublicInputs { total: 280 },
     };
     let spp_proof_inputs = fan_out
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("fan-out proof inputs");
     assert_eq!(
         spp_proof_inputs

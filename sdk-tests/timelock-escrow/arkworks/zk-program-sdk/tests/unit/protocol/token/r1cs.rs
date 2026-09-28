@@ -185,3 +185,76 @@ fn the_carried_nullifiers_are_tolerated_and_no_other_variable_is_free() {
         (vec![Ok(()); 2], (0, 4), (0, 6), 1)
     );
 }
+
+#[test]
+fn variable_skip_row_binds_the_trailing_asset_byte_exactly_when_the_input_is_not_dummy() {
+    use ark_bn254::Fr;
+    use ark_ff::{One, Zero};
+
+    use crate::harness::{
+        fixture::{assignment, exported},
+        iden3::Row,
+    };
+
+    let fixtures = twos();
+    let (_, fixture) = fixtures.first().expect("two real inputs");
+    let rows = exported::<Spend<2, AS_GIVEN>>();
+    let ranges = checks(fixture, DIFFERENT_ASSETS);
+    assert_eq!(ranges.len(), 2, "two packed components of a mint");
+    let evaluate = |row: &Row, witness: &[Fr]| {
+        row.iter().fold(Fr::zero(), |sum, (coefficient, wire)| {
+            sum + coefficient * witness.get(*wire).expect("row wire")
+        })
+    };
+    let honest = assignment(fixture);
+    {
+        let range = ranges.last().expect("trailing byte equality");
+        assert_eq!(
+            range.len(),
+            1,
+            "one conditional equality for the trailing byte"
+        );
+        let (a, b, c) = rows.rows().nth(range.start).expect("asset equality row");
+        let [(left_coefficient, left), (right_coefficient, right)] = a.as_slice() else {
+            panic!("the equality row must contain exactly two operands: {a:?}");
+        };
+        let [(enabled_coefficient, enabled)] = b.as_slice() else {
+            panic!("the condition must be one outlined enable variable: {b:?}");
+        };
+        assert_eq!(
+            (
+                *left_coefficient,
+                *right_coefficient,
+                *enabled_coefficient,
+                c
+            ),
+            (-Fr::one(), Fr::one(), Fr::one(), &vec![]),
+        );
+        let (_, with_dummy) = fixtures.get(1).expect("real and dummy inputs");
+        assert_eq!(
+            (
+                honest.get(*enabled).copied(),
+                assignment(with_dummy).get(*enabled).copied()
+            ),
+            (Some(Fr::one()), Some(Fr::zero())),
+        );
+        assert_ne!(left, right);
+        assert_ne!(left, enabled);
+        assert_ne!(right, enabled);
+        for l in [Fr::zero(), Fr::one(), -Fr::one(), Fr::from(u64::MAX)] {
+            for r in [Fr::zero(), Fr::one(), -Fr::one(), Fr::from(u64::MAX)] {
+                for skip_value in [false, true] {
+                    let mut witness = honest.clone();
+                    *witness.get_mut(*left).expect("left component") = l;
+                    *witness.get_mut(*right).expect("right component") = r;
+                    *witness.get_mut(*enabled).expect("enable flag") =
+                        Fr::from(u64::from(!skip_value));
+                    assert_eq!(
+                        evaluate(a, &witness) * evaluate(b, &witness) == evaluate(c, &witness),
+                        skip_value || l == r,
+                    );
+                }
+            }
+        }
+    }
+}

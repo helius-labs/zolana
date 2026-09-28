@@ -212,7 +212,7 @@ pub(crate) fn poll_utxo(
         },
         public: CreatePollPublicInputs { poll_id, root },
     }
-    .create_and_encrypt(&address, address.solana_address().expect("payer"))
+    .create_proof_inputs_and_encrypt(&address, address.solana_address().expect("payer"))
     .expect("create poll proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -244,7 +244,7 @@ fn create_poll_prove_and_verify() {
         public: CreatePollPublicInputs { poll_id: 3, root },
     };
     let spp_proof_inputs = create
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("create poll proof inputs");
     assert_eq!(
         spp_proof_inputs

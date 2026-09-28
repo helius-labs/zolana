@@ -67,3 +67,30 @@ fn snarkjs_proves_and_verifies_the_utxo_hash_circuit_for_a_data_utxo_in_a_ring()
     );
     assert_eq!(snarkjs::groth16(&work, &r1cs, &wtns), (true, json!([])));
 }
+
+#[test]
+fn snarkjs_proves_the_native_dummy_commitment_and_rejects_hashed_dummy_preimages() {
+    use super::{
+        fixtures::hashed_dummy_preimages_commitment,
+        vectors::{blinding, dummy},
+    };
+    use crate::protocol::asset::vectors::field_of;
+    let work = WorkDir::new("snarkjs-utxo-dummy");
+    let wallet = dummy(blinding(1), u16::MAX);
+    let incorrect = hashed_dummy_preimages_commitment(&wallet);
+    let fixture = UtxoHash {
+        hash: field_of(&wallet.utxo_hash),
+        utxo: wallet,
+    };
+    assert_ne!(fixture.hash, incorrect);
+    let r1cs = work.write("utxo.r1cs", &export::<UtxoHash>());
+    let honest = assignment(&fixture);
+    let wtns = work.write("dummy.wtns", &write_wtns(&honest));
+    let wrong = work.write(
+        "incorrect.wtns",
+        &write_wtns(&with_wires(honest, &[(CLAIM_WIRE, incorrect.into())])),
+    );
+    assert_eq!(snarkjs::wtns_check(&r1cs, &wtns), WtnsCheck::Accepted);
+    assert_eq!(snarkjs::wtns_check(&r1cs, &wrong), WtnsCheck::Rejected);
+    assert_eq!(snarkjs::groth16(&work, &r1cs, &wtns), (true, json!([])));
+}

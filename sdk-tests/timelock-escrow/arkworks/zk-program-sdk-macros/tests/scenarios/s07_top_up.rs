@@ -1,6 +1,5 @@
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
@@ -15,7 +14,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct TopUp {
+pub struct TopUp {
     private: TopUpPrivateInputs,
     public: TopUpPublicInputs,
 }
@@ -32,8 +31,8 @@ struct TopUpPublicInputs {
     amount: u64,
 }
 
-#[circuit]
-impl Circuit for TopUp {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <TopUp as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -61,7 +60,7 @@ fn top_up_prove_and_verify() {
         public: TopUpPublicInputs { amount: 50 },
     };
     let spp_proof_inputs = top_up
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("top-up proof inputs");
     assert_eq!(
         (

@@ -136,7 +136,7 @@ fn spl_payment_prove_and_verify() {
         },
     };
     let spp_proof_inputs = payment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("spl payment proof inputs");
     assert_eq!(
         spp_proof_inputs
@@ -176,7 +176,7 @@ fn spl_payment_encrypts_with_the_synced_key_of_its_first_input() {
         },
     };
     let spp_proof_inputs = payment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("spl payment proof inputs");
 
     assert_eq!(

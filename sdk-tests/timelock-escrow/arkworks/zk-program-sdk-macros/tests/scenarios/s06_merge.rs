@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs,
         TokenUtxo,
@@ -19,7 +18,7 @@ use crate::{
 const MERGED_INPUTS: usize = 36;
 
 #[derive(Clone, ProofInput)]
-struct Merge {
+pub struct Merge {
     private: MergePrivateInputs,
     public: MergePublicInputs,
 }
@@ -35,8 +34,8 @@ struct MergePublicInputs {
     owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for Merge {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Merge as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
@@ -74,7 +73,7 @@ fn merge_prove_and_verify() {
             public: MergePublicInputs { owner: address },
         };
         let spp_proof_inputs = merge
-            .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+            .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
             .expect("merge proof inputs");
         assert_eq!(
             (

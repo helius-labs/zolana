@@ -860,7 +860,7 @@ Acceptance criteria:
 ## 11. One `circuit` fn for client and prover
 
 2026-09-25. Implement the updated [`arkworks/spec.md`](arkworks/spec.md): plain Rust proof inputs,
-records from the native run, `ZkProgram::create_proof_inputs_and_encrypt`, and the `client` /
+records from the native run, `ZkProgram::create_proof_inputs_and_encrypt_with_keys`, and the `client` /
 `setup` features. Starting point: commit `997691713`. Todos one at a time, each tested before
 the next. The program stays unchanged.
 
@@ -870,7 +870,7 @@ Decisions made while planning:
 - A spent UTXO has no viewing key, so every output owner, change included, comes from a
   `ShieldedAddress` input.
 - `TxContext::new(first_nullifier, output_tree_id)` picks the blinding seed.
-  `create_proof_inputs_and_encrypt` takes the inputs by value and returns them with the
+  `create_proof_inputs_and_encrypt_with_keys` takes the inputs by value and returns them with the
   `SppTransaction`.
 - `setup` writes the arkworks verifying key in gnark's raw layout and exports it with
   groth16-solana's `generate_bsb22_vk_file`, the generator the program's keys come from.
@@ -949,7 +949,7 @@ Todos:
 
 ## 14. Encrypt through the transaction crate
 
-2026-09-25. `create_proof_inputs_and_encrypt` builds `zolana_transaction::ConfidentialTransaction`
+2026-09-25. `create_proof_inputs_and_encrypt_with_keys` builds `zolana_transaction::ConfidentialTransaction`
 from the resolved slots and encrypts with it, as the updated
 [`arkworks/spec.md`](arkworks/spec.md) describes. The transaction crate gains the protocol
 assumption's hash. Todos one at a time, each tested before the next.
@@ -972,7 +972,7 @@ Todos:
 2. Circuit: `TxContext` gains `sender`, and `check` pads unused output slots to it. Verify:
    zk-program-sdk tests. Done.
 3. Conversion and client: `ProofInput for WalletUtxo` replaces the `SppProofInputUtxo` one,
-   records hold `WalletUtxo`s, and `create_proof_inputs_and_encrypt` takes `ShieldedKeys` and
+   records hold `WalletUtxo`s, and `create_proof_inputs_and_encrypt_with_keys` takes `ShieldedKeys` and
    encrypts through `ConfidentialTransaction`. Our own ciphertext and external data code goes.
    Verify: zk-program-sdk tests, including the hash cross-check. Done.
 4. Example crate: `WalletUtxo` inputs and `escrow_input`. Verify: example tests. Done.
@@ -1073,7 +1073,7 @@ Decisions:
   compressed proof.
 - `Placeholder` gives every input type a value that instantiates. Setup runs in arkworks setup
   mode, which evaluates no values, so a circuit's structure must not depend on them.
-- `create_proof_inputs_and_encrypt` borrows the inputs and returns only the `SppProofInputs`.
+- `create_proof_inputs_and_encrypt_with_keys` borrows the inputs and returns only the `SppProofInputs`.
   `ZkProgram::check_constraints` replaces `ArkworksCircuit::check_constraints`.
 - `ArkworksCircuit` is crate-internal, and the `rand` re-export is gone: no public API takes an
   rng.

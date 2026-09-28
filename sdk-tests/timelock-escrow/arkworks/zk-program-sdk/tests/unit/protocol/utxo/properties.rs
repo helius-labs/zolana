@@ -77,3 +77,23 @@ proptest! {
         );
     }
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(12))]
+    #[test]
+    fn every_random_dummy_has_its_native_commitment_and_rejects_the_unmasked_preimages(
+        blinding in canonical(), tree_id in any::<u16>(),
+    ) {
+        use super::{fixtures::hashed_dummy_preimages_commitment, r1cs::HASH_SIZE, vectors::dummy};
+        use crate::{harness::fixture::{check_constraints, check_tampered, breaks_rule}, protocol::asset::vectors::field_of};
+        let wallet = dummy(blinding,tree_id);
+        let incorrect = hashed_dummy_preimages_commitment(&wallet);
+        let fixture = UtxoHash { hash:field_of(&wallet.utxo_hash),utxo:wallet.clone() };
+        prop_assert_eq!(native(&fixture),Ok(()));
+        prop_assert_eq!(check_constraints(&fixture),Ok(HASH_SIZE.constraints));
+        prop_assert_eq!(first_unsatisfied::<UtxoHash>(&assignment(&fixture)),None);
+        prop_assert_ne!(incorrect,fixture.hash);
+        prop_assert_eq!(native(&UtxoHash { hash:incorrect,utxo:wallet }),Err(HASH_BROKEN));
+        prop_assert_eq!(check_tampered(&fixture,CLAIM_WIRE,incorrect),Err(breaks_rule(HASH_ROW,super::fixtures::HASH_RULE)));
+    }
+}

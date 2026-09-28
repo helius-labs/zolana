@@ -338,14 +338,49 @@ fn a_transfer_into_a_burned_utxo_is_refused_before_any_row() {
 
 #[test]
 fn a_balance_too_wide_to_check_is_refused_before_any_row() {
-    let too_wide = "CircuitError.BitWidthTooLarge";
+    let too_wide = ("CircuitError.BitWidthTooLarge", super::fixtures::FILE);
     assert_eq!(
         (
             super::fixtures::Deposits::<191, false>::export_r1cs()
                 .map(|_| ())
-                .map_err(|error| error.name()),
+                .map_err(|error| (error.name(), error.location().file())),
             check_constraints(&deposits::<190, false>([1; 190], 190)),
         ),
         (Err(too_wide), Ok(13472))
     );
+}
+
+#[test]
+fn oversized_accumulator_errors_keep_the_operation_location_through_the_prover() {
+    use super::fixtures::{oversized_operation, Oversized, BALANCE_READ, FILE};
+    fn check<const OP: usize>() {
+        let (line, _) = oversized_operation(OP);
+        let fixture = Oversized::<OP>;
+        for error in [
+            Oversized::<OP>::export_r1cs().expect_err("setup width limit"),
+            fixture
+                .export_assignment()
+                .expect_err("assignment width limit"),
+            fixture
+                .check_constraints()
+                .expect_err("proving width limit"),
+        ] {
+            assert!(matches!(
+                error.circuit_error().expect("wrapped circuit error").kind(),
+                zk_program_sdk::CircuitErrorKind::BitWidthTooLarge { bits: 254 }
+            ));
+            assert_eq!(
+                (
+                    error.name(),
+                    error.location().file(),
+                    error.location().line()
+                ),
+                ("CircuitError.BitWidthTooLarge", FILE, line),
+            );
+        }
+    }
+    check::<BALANCE_READ>();
+    check::<WITHDRAW_ALL>();
+    check::<WITHDRAW>();
+    check::<TRANSFER>();
 }

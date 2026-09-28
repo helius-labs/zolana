@@ -127,7 +127,7 @@ fn counter_increment_prove_and_verify() {
         public: IncrementPublicInputs { step: 3 },
     };
     let spp_proof_inputs = increment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("increment proof inputs");
     assert_eq!(
         spp_proof_inputs

@@ -15,7 +15,7 @@ use super::ProofInputs;
 use crate::{
     circuit::{
         labels, value, Circuit, CircuitLabel, CircuitSize, CircuitSystem, CircuitVar,
-        ConstraintSystem, Constraints, LabelKind, VariableRole,
+        ConstraintSystem, Constraints,
     },
     conversion::{Allocator, ProofInput},
     CircuitError, CircuitErrorKind, ProverError, ProverErrorKind,
@@ -266,36 +266,10 @@ fn circuit_matrices(
         num_constraints: cs.num_constraints(),
     };
     check_public_inputs(matrices.num_instance_variables, public_inputs)?;
-    let circuit = CircuitMatrices {
+    Ok(CircuitMatrices {
         matrices,
         labels: labels::take(cs),
-    };
-    check_hints_used(&circuit)?;
-    Ok(circuit)
-}
-
-fn check_hints_used(circuit: &CircuitMatrices) -> Result<(), ProverError> {
-    let instance = circuit.matrices.num_instance_variables;
-    let mut used = vec![false; circuit.matrices.num_witness_variables];
-    for (_, variable) in circuit.matrices.as_slice().iter().flatten().flatten() {
-        if let Some(slot) = variable
-            .checked_sub(instance)
-            .and_then(|private_index| used.get_mut(private_index))
-        {
-            *slot = true;
-        }
-    }
-    let unused = circuit.labels.iter().find(|label| {
-        label.kind == LabelKind::Allocation(VariableRole::Hint)
-            && label
-                .private_variables
-                .clone()
-                .any(|private_index| !used.get(private_index).copied().unwrap_or(false))
-    });
-    match unused {
-        Some(label) => Err(ProverErrorKind::UnusedHint(Box::new(label.clone())).into()),
-        None => Ok(()),
-    }
+    })
 }
 
 fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Fr>, CircuitError> {
@@ -466,19 +440,10 @@ where
     }
 
     pub(crate) fn synthesized(&self) -> Result<Synthesized, ProverError> {
-        self.synthesized_with(|_| ())
-    }
-
-    /// `prepare` runs on the fresh constraint system before the circuit does.
-    pub(crate) fn synthesized_with(
-        &self,
-        prepare: impl FnOnce(&CircuitSystem),
-    ) -> Result<Synthesized, ProverError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: true,
             generate_lc_assignments: false,
         });
-        prepare(&cs);
         self.synthesize(&cs)?;
         let assignment = assignment_of(&cs)?;
         Ok(Synthesized {

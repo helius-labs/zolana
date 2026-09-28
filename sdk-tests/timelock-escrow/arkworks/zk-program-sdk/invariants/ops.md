@@ -300,10 +300,10 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/ops/assert/r1cs.rs`
 
-- [ ] **INV-ASSERT-49: assert_equal_unless with a variable skip binds the sides exactly when skip is false**
-  - Partial coverage: not exercised here. The variable-`skip` branch (`enforce_equal_if(.., !skip)`) is crate-private and reached only through `WalletUtxo` instantiation (the owner tag check skipped for dummy inputs) and `TokenUtxo::new_mut`/`new_burn` (the domain, asset and owner checks of non-first inputs); its rows, soundness and errors are left to the protocol workstreams (`owner.md`, `utxo.md`).
+- [x] **INV-ASSERT-49: assert_equal_unless with a variable skip binds the sides exactly when skip is false**
+  - Covered by: `tests/unit/protocol/token/r1cs.rs` `variable_skip_row_binds_the_trailing_asset_byte_exactly_when_the_input_is_not_dummy`; `tests/unit/protocol/utxo/r1cs.rs` `the_tag_check_is_skipped_exactly_for_a_dummy_input`
   - Kind: soundness
-  - Statement: for every pair of variables and a variable `skip`, `assert_equal_unless` adds exactly one row `(left - right) * (1 - skip) = 0` labelled with the rule: every assignment with skip = 0 and left != right leaves that row unsatisfied, and every assignment with skip = 1 satisfies it.
+  - Statement: the trailing asset-byte comparison of the second token input exports exactly `(right - left) * non_dummy = 0` under the asset rule, where the existing equality-test witness is 1 for a real input and 0 for a dummy. The pinned row accepts all equal operands and all skipped operands, and refuses unequal operands when enabled; the owner-tag check accepts every byte-valued tag for a dummy and only S/P for a real input. No additional negation row is needed because the dummy test already stores the not-equal witness.
   - Location: `src/circuit/builtins/ops/assert.rs:160-162` (`fn assert_equal_unless`, the variable branch)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
@@ -653,3 +653,101 @@ branch vectors are 0 or 0, 0 or 1, 1 or 0, p - 1 or 1, (p - 1) / 2 or (p + 1) / 
   - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/ops/select/external.rs`
+
+## Product assertion (`CircuitVar::assert_product`)
+
+- [x] **INV-ASSERT-PRODUCT-01: native product relation**
+  - Covered by: `tests/unit/ops/product/mod.rs` `constant_and_variable_products_accept_exactly_the_independent_vectors`; `tests/unit/ops/product/mod.rs` `random_products_match_big_integer_arithmetic_and_bind_every_claim` (property)
+  - Kind: semantics
+  - Statement: for every independent boundary vector, the native assertion accepts exactly when the claim equals left times right modulo p.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: High
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-02: one product row without an intermediate**
+  - Covered by: `tests/unit/ops/product/mod.rs` `a_product_assertion_is_exactly_one_multiplication_row_without_an_intermediate`
+  - Kind: constraint
+  - Statement: the product assertion exports exactly four variables, zero public inputs, and the row A = {1: 1}, B = {2: 1}, C = {3: 1}, with no intermediate variable.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Critical
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-03: constant products allocate nothing**
+  - Covered by: `tests/unit/ops/product/mod.rs` `all_constant_products_add_nothing_and_wrong_constants_return_the_callers_rule`
+  - Kind: constraint
+  - Statement: the all-constant 2 * 3 = 6 fixture exports exactly one variable, zero rows, and the assignment [1].
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Medium
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-04: honest product witnesses satisfy the export**
+  - Covered by: `tests/unit/ops/product/mod.rs` `constant_and_variable_products_accept_exactly_the_independent_vectors`; `tests/unit/ops/product/mod.rs` `random_products_match_big_integer_arithmetic_and_bind_every_claim` (property)
+  - Kind: completeness
+  - Statement: every honest boundary vector and every generated canonical factor pair satisfies every exported row.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: High
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-05: wrong product claims fail the named row**
+  - Covered by: `tests/unit/ops/product/mod.rs` `constant_and_variable_products_accept_exactly_the_independent_vectors`; `tests/unit/ops/product/mod.rs` `random_products_match_big_integer_arithmetic_and_bind_every_claim` (property)
+  - Kind: soundness
+  - Statement: for every boundary vector, increasing the claimed product by one fails exactly row 0 with the product rule.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Critical
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-06: zero does not constrain the other factor**
+  - Covered by: `tests/unit/ops/product/mod.rs` `a_zero_factor_still_binds_the_product_while_leaving_the_other_factor_free`
+  - Kind: soundness
+  - Statement: for the assignment 0 * 9 = 0, changing the second factor to 0 leaves every row satisfied while changing the product to 1 fails exactly row 0.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: High
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-07: nonzero factors leave no variable free**
+  - Covered by: `tests/unit/ops/product/mod.rs` `a_product_assertion_is_exactly_one_multiplication_row_without_an_intermediate`
+  - Kind: soundness
+  - Statement: for the assignment 2 * 3 = 6, the private-variable report is exactly one constraint, three private variables, no free variables and no tolerated variables.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Critical
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-08: product setup and proving agree**
+  - Covered by: `tests/unit/ops/product/mod.rs` `random_products_match_big_integer_arithmetic_and_bind_every_claim` (property)
+  - Kind: shape
+  - Statement: every boundary vector and generated canonical factor pair checks exactly one constraint against the placeholder setup.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: High
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-09: wrong constants retain the rule and caller**
+  - Covered by: `tests/unit/ops/product/mod.rs` `all_constant_products_add_nothing_and_wrong_constants_return_the_callers_rule`
+  - Kind: error
+  - Statement: the native assertion 2 * 3 = 7 returns exactly CircuitError.RuleBroken with the product rule and the calling test file.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Medium
+  - Suggested test: positive + negative; `tests/unit/ops/product/mod.rs`
+
+- [x] **INV-ASSERT-PRODUCT-10: circom matches the product relation**
+  - Covered by: `tests/unit/ops/product/external.rs` `circom_has_the_same_product_relation_for_honest_and_wrong_boundary_claims`
+  - Kind: equivalence
+  - Statement: the SDK and circom exports normalize to exactly the same rows, accepting all honest boundary claims and rejecting every claim increased by one.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Critical
+  - Suggested test: external; `tests/unit/ops/product/external.rs`
+
+- [x] **INV-ASSERT-PRODUCT-11: snarkjs checks and proves the exported relation**
+  - Covered by: `tests/unit/ops/product/external.rs` `snarkjs_checks_the_relation_rejects_a_wrong_product_and_verifies_a_proof`
+  - Kind: interop
+  - Statement: snarkjs accepts the honest product witness, rejects its changed claim, and verifies the exported Groth16 proof with exactly zero public signals.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: High
+  - Suggested test: external; `tests/unit/ops/product/external.rs`
+
+- [x] **INV-ASSERT-PRODUCT-12: Picus proves the product fixed**
+  - Covered by: `tests/unit/ops/product/external.rs` `picus_proves_the_claimed_product_fixed_by_its_factors`
+  - Kind: soundness
+  - Statement: Picus reports exactly Safe for both SDK and circom exports with the claimed product promoted to an output.
+  - Location: `src/circuit/builtins/ops/assert.rs` (`CircuitVar::assert_product`)
+  - Severity: Critical
+  - Suggested test: external; `tests/unit/ops/product/external.rs`

@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -13,7 +12,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Decrement {
+pub struct Decrement {
     pub(crate) private: DecrementPrivateInputs,
     pub(crate) public: DecrementPublicInputs,
 }
@@ -30,8 +29,8 @@ pub(crate) struct DecrementPublicInputs {
     pub(crate) step: u64,
 }
 
-#[circuit]
-impl Circuit for Decrement {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Decrement as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
@@ -62,7 +61,7 @@ fn counter_decrement_prove_and_verify() {
         public: DecrementPublicInputs { step: 2 },
     };
     let spp_proof_inputs = decrement
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("decrement proof inputs");
     assert_eq!(
         spp_proof_inputs

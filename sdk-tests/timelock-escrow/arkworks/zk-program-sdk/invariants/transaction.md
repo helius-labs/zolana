@@ -187,3 +187,35 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
 
 INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX-13, Picus
 `Unknown` within its bound).
+
+- [x] **INV-TX-18: payment interoperability**
+  - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_a_payment_with_dummy_padding_and_rejects_changed_hashes`
+  - Kind: interop
+  - Statement: for the payment with two real inputs and a padded dummy, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `src/prover/snarkjs.rs`
+  - Severity: High
+  - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
+
+- [x] **INV-TX-19: data update interoperability**
+  - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_a_data_utxo_update_and_rejects_changed_hashes`
+  - Kind: interop
+  - Statement: for the counter update funded by a token input, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `src/prover/snarkjs.rs`
+  - Severity: High
+  - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
+
+- [x] **INV-TX-20: public transfer interoperability**
+  - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_public_deposit_and_withdrawal_and_rejects_changed_hashes`
+  - Kind: interop
+  - Statement: for the transaction containing a public deposit and withdrawal, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `src/prover/snarkjs.rs`
+  - Severity: High
+  - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
+
+- [ ] **INV-TX-21: Picus proves data updates and public settlements deterministic**
+  - Partial coverage: `tests/unit/protocol/transaction/picus.rs` `picus_checks_a_data_update_and_public_settlements_within_their_limits` rejects Unsafe under a 30-second bound per circuit, accepting Unknown without claiming a determinism proof.
+  - Kind: soundness
+  - Statement: Picus reports exactly Safe for both the funding and settlement Picus exports.
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`)
+  - Severity: Medium
+  - Suggested test: external (Picus); `tests/unit/protocol/transaction/picus.rs`

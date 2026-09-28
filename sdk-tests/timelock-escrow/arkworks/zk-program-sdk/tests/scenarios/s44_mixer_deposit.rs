@@ -200,7 +200,7 @@ pub(crate) fn commitment_utxo(
             denomination: DENOMINATION,
         },
     }
-    .create_and_encrypt(&address, address.solana_address().expect("payer"))
+    .create_proof_inputs_and_encrypt(&address, address.solana_address().expect("payer"))
     .expect("mixer deposit proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -237,7 +237,7 @@ fn mixer_deposit_prove_and_verify() {
         },
     };
     let spp_proof_inputs = deposit
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("mixer deposit proof inputs");
     assert_eq!(
         spp_proof_inputs

@@ -65,7 +65,7 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder + 'static {
     }
 
     #[cfg(feature = "encrypt")]
-    fn create_and_encrypt(
+    fn create_proof_inputs_and_encrypt(
         &self,
         sender: &ShieldedAddress,
         payer: Address,
@@ -77,7 +77,7 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder + 'static {
     }
 
     #[cfg(feature = "encrypt")]
-    fn create_proof_inputs_and_encrypt(
+    fn create_proof_inputs_and_encrypt_with_keys(
         &self,
         shielded_keys: &impl ShieldedKeys,
         payer: Address,

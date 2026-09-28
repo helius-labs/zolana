@@ -32,7 +32,7 @@ use std::{
     fs::File,
     os::unix::process::CommandExt,
     path::Path,
-    process::Command,
+    process::{Child, Command},
     thread,
     time::{Duration, Instant},
 };
@@ -77,10 +77,59 @@ pub fn circom_verdict(work: &WorkDir, name: &str, compiled: &Compiled, limit: Du
     run(name, &r1cs, limit)
 }
 
-// Picus runs as racket under a bash wrapper, with cvc5 below it: a timeout
-// kills the whole process group. Its output goes to files, not pipes, so a
-// long log cannot block it while the harness polls.
+// Picus gives cvc5 its own process group. Stop the parent group before
+// collecting descendants so that killing Racket cannot orphan the solver.
+fn process_parents() -> Vec<(u32, u32)> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,ppid="])
+        .output()
+        .expect("ps for Picus process cleanup");
+    assert!(
+        output.status.success(),
+        "Picus cleanup needs process-table access: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("ps output")
+        .lines()
+        .map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next().expect("pid").parse().expect("numeric pid");
+            let parent = fields.next().expect("ppid").parse().expect("numeric ppid");
+            assert_eq!(fields.next(), None, "only pid and ppid requested");
+            (pid, parent)
+        })
+        .collect()
+}
+
+fn terminate_tree(child: &mut Child) {
+    let group = format!("-{}", child.id());
+    // A process may have just exited between try_wait and this signal.
+    let _ = Command::new("kill").args(["-STOP", &group]).output();
+    let parents = process_parents();
+    let mut descendants = vec![child.id()];
+    let mut next = 0;
+    while let Some(parent) = descendants.get(next).copied() {
+        descendants.extend(
+            parents
+                .iter()
+                .filter_map(|(pid, ppid)| (*ppid == parent).then_some(*pid)),
+        );
+        next += 1;
+    }
+    for pid in descendants.iter().skip(1).rev() {
+        let _ = Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .output();
+    }
+    let _ = Command::new("kill").args(["-KILL", &group]).output();
+    child.wait().expect("terminated Picus process");
+}
+
+// Logs use files rather than pipes so a long log cannot block polling.
 fn run(name: &str, r1cs: &Path, limit: Duration) -> Verdict {
+    // Fail before starting a solver when a sandbox forbids process discovery.
+    drop(process_parents());
     let log = |stream: &str| r1cs.with_extension(format!("picus.{stream}"));
     let (stdout, stderr) = (log("stdout"), log("stderr"));
     let mut child = Command::new("run-picus")
@@ -96,9 +145,7 @@ fn run(name: &str, r1cs: &Path, limit: Duration) -> Verdict {
             break status;
         }
         if Instant::now() >= deadline {
-            let group = format!("-{}", child.id());
-            let _ = Command::new("kill").args(["-KILL", &group]).status();
-            let _ = child.wait();
+            terminate_tree(&mut child);
             return Verdict::Unknown;
         }
         thread::sleep(POLL);
@@ -112,6 +159,73 @@ fn run(name: &str, r1cs: &Path, limit: Duration) -> Verdict {
             std::fs::read_to_string(&stdout).unwrap_or_default(),
             std::fs::read_to_string(&stderr).unwrap_or_default()
         ),
+    }
+}
+
+#[test]
+fn timeout_cleanup_kills_a_solver_in_a_separate_process_group() {
+    drop(process_parents());
+    let work = WorkDir::new("picus-detached-solver-cleanup");
+    let pid_file = work.join("solver.pid");
+    let mut parent = Command::new("racket")
+        .args([
+            "-e",
+            r#"(begin
+                (subprocess-group-enabled #t)
+                (define-values (sp out in err)
+                    (subprocess #f #f #f "/bin/sh" "-c"
+                        "echo $$ > \"$ZK_SDK_TEST_SOLVER_PID\"; exec sleep 60"))
+                (close-output-port in)
+                (subprocess-wait sp))"#,
+        ])
+        .env("ZK_SDK_TEST_SOLVER_PID", &pid_file)
+        .process_group(0)
+        .spawn()
+        .expect("Racket used by Picus");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut solver_pid = None;
+    while Instant::now() < deadline {
+        solver_pid = std::fs::read_to_string(&pid_file)
+            .ok()
+            .filter(|text| text.ends_with('\n'))
+            .and_then(|text| text.trim().parse::<u32>().ok());
+        if solver_pid.is_some() {
+            break;
+        }
+        if parent.try_wait().expect("Racket status").is_some() {
+            break;
+        }
+        thread::sleep(POLL);
+    }
+    let solver_group = solver_pid.and_then(|pid| {
+        Command::new("ps")
+            .args(["-o", "pgid=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|text| text.trim().parse::<u32>().ok())
+    });
+    terminate_tree(&mut parent);
+    let pid = solver_pid.expect("detached solver published its complete pid");
+    let group = solver_group.expect("detached solver process group");
+    assert_ne!(group, parent.id(), "solver must escape the Picus group");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let exists = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .expect("solver liveness check")
+            .status
+            .success();
+        if !exists {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "detached solver {pid} survived timeout cleanup"
+        );
+        thread::sleep(POLL);
     }
 }
 

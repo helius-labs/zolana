@@ -33,7 +33,7 @@ fn program_chosen_blinding_seed_prove_and_verify() {
         },
     };
     let spp_proof_inputs = take
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&taker, payer, u64::MAX)
         .expect("take proof inputs");
     let output_blinding_seed =
         derive_output_blinding_seed(&first_nullifier, &blinding_seed).expect("output seed");

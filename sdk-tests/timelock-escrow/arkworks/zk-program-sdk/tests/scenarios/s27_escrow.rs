@@ -204,7 +204,7 @@ pub(crate) fn escrow_utxo(
             escrow_owner: escrow_authority().address(&address),
         },
     }
-    .create_and_encrypt(&address, address.solana_address().expect("payer"))
+    .create_proof_inputs_and_encrypt(&address, address.solana_address().expect("payer"))
     .expect("escrow proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -237,7 +237,7 @@ fn escrow_prove_and_verify() {
         public: EscrowPublicInputs { escrow_owner },
     };
     let spp_proof_inputs = escrow
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("escrow proof inputs");
     assert_eq!(
         spp_proof_inputs

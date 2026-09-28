@@ -10,17 +10,17 @@ use zolana_hasher::{
 };
 use zolana_interface::{tree_slot::tree_id_field, DUMMY_DOMAIN, UTXO_DOMAIN};
 use zolana_transaction::{
-    utxo::{ProofInputUtxo, SppProofOutputUtxo},
+    utxo::{ProofInputUtxo, SppProofInputUtxo, SppProofOutputUtxo},
     Mint, WalletUtxo,
 };
 
 use super::{
-    fixtures::{Carried, UtxoHash, CARRIED_BROKEN, HASH_BROKEN},
+    fixtures::{hashed_dummy_preimages_commitment, Carried, UtxoHash, CARRIED_BROKEN, HASH_BROKEN},
     vectors::{blinding, dummy, preimages, Preimage, TREE_ID},
 };
 use crate::{
     harness::{
-        field::{be_bytes, MODULUS},
+        field::{be_bytes, MODULUS, MODULUS_MINUS_1},
         fixture::{check_constraints, native, per_vector},
     },
     protocol::{asset::vectors::field_of, owner::keys},
@@ -157,7 +157,11 @@ fn changes() -> [Change; 8] {
         (
             "domain",
             |utxo| utxo.domain = constant(u64::from(DUMMY_DOMAIN)),
-            |fields| fields.domain = right_align(&DUMMY_DOMAIN.to_be_bytes()),
+            |fields| {
+                fields.domain = right_align(&DUMMY_DOMAIN.to_be_bytes());
+                fields.owner_hash = [0; 32];
+                fields.asset = [0; 32];
+            },
         ),
         (
             "tree id",
@@ -380,16 +384,40 @@ fn a_dummy_wallet_utxo_instantiates_with_an_all_zero_owner_preimage_and_skips_th
 }
 
 #[test]
-#[ignore = "FINDING: Utxo::hash of a dummy is not the native dummy commitment (hashes the zero owner and SOL preimages instead of zero fields)"]
 fn the_hash_of_a_dummy_is_the_native_dummy_commitment() {
-    let wallet = dummy(blinding(5), TREE_ID);
-    let mut constructed = Utxo::dummy();
-    constructed.blinding = var_of(&blinding(5));
-    constructed.tree_id = constant(u64::from(TREE_ID));
-    assert_eq!(
-        (hash_of(&circuit(&wallet)), hash_of(&constructed)),
-        (field_of(&wallet.utxo_hash), field_of(&wallet.utxo_hash))
-    );
+    for tree in [0, TREE_ID, u16::MAX] {
+        for blinding in [
+            [0; 32],
+            be_bytes("1"),
+            blinding(5),
+            be_bytes(MODULUS_MINUS_1),
+        ] {
+            let wallet = dummy(blinding, tree);
+            let mut constructed = Utxo::dummy();
+            constructed.blinding = var_of(&blinding);
+            constructed.tree_id = constant(u64::from(tree));
+            let expected = field_of(&wallet.utxo_hash);
+            let native_fields = ProofInputUtxo::try_from(&SppProofInputUtxo::from(&wallet))
+                .expect("native dummy fields");
+            assert_eq!(
+                expected,
+                field_of(&native_fields.hash().expect("native dummy commitment"))
+            );
+            assert_eq!(
+                (hash_of(&circuit(&wallet)), hash_of(&constructed)),
+                (expected, expected)
+            );
+            let incorrect = hashed_dummy_preimages_commitment(&wallet);
+            assert_ne!(incorrect, expected);
+            assert_eq!(
+                native(&UtxoHash {
+                    hash: incorrect,
+                    utxo: wallet
+                }),
+                Err(HASH_BROKEN)
+            );
+        }
+    }
 }
 
 #[test]

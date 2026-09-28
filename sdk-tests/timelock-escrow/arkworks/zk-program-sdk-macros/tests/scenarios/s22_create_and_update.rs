@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, Uint,
@@ -27,7 +26,7 @@ pub struct Badge {
 }
 
 #[derive(Clone, ProofInput)]
-struct CreateAndUpdate {
+pub struct CreateAndUpdate {
     private: CreateAndUpdatePrivateInputs,
     public: CreateAndUpdatePublicInputs,
 }
@@ -45,8 +44,8 @@ struct CreateAndUpdatePublicInputs {
     badge_owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for CreateAndUpdate {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CreateAndUpdate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
@@ -82,7 +81,7 @@ fn create_and_update_prove_and_verify() {
         public: CreateAndUpdatePublicInputs { badge_owner },
     };
     let spp_proof_inputs = create_and_update
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("create and update proof inputs");
     assert_eq!(
         spp_proof_inputs

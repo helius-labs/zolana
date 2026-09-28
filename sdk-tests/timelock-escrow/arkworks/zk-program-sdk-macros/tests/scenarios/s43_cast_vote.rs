@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         poseidon, Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, Uint,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct CastVote {
+pub struct CastVote {
     private: CastVotePrivateInputs,
     public: CastVotePublicInputs,
 }
@@ -41,8 +40,8 @@ struct CastVotePublicInputs {
     nullifier: [u8; 32],
 }
 
-#[circuit]
-impl Circuit for CastVote {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CastVote as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -109,7 +108,7 @@ fn cast_vote_prove_and_verify() {
         },
     };
     let spp_proof_inputs = vote
-        .create_proof_inputs_and_encrypt(&voter, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&voter, payer, u64::MAX)
         .expect("vote proof inputs");
     assert_eq!(
         spp_proof_inputs

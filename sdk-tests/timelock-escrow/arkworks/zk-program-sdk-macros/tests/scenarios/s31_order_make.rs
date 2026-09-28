@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -32,7 +31,7 @@ pub struct OrderTerms {
 }
 
 #[derive(Clone, ProofInput)]
-struct Make {
+pub struct Make {
     private: MakePrivateInputs,
     public: MakePublicInputs,
 }
@@ -73,7 +72,11 @@ pub(crate) fn order_utxo(
             expiry,
         },
     }
-    .create_proof_inputs_and_encrypt(maker, address.solana_address().expect("payer"), u64::MAX)
+    .create_proof_inputs_and_encrypt_with_keys(
+        maker,
+        address.solana_address().expect("payer"),
+        u64::MAX,
+    )
     .expect("make proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -87,8 +90,8 @@ pub(crate) fn order_utxo(
     )
 }
 
-#[circuit]
-impl Circuit for Make {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Make as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -130,7 +133,7 @@ fn order_make_prove_and_verify() {
         },
     };
     let spp_proof_inputs = make
-        .create_proof_inputs_and_encrypt(&maker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&maker, payer, u64::MAX)
         .expect("make proof inputs");
     let terms = OrderTerms {
         maker_hash: address.owner_hash().expect("maker hash"),

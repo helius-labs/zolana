@@ -54,7 +54,7 @@ fn escrow_then_withdraw_prove_and_verify() {
         },
     };
     let escrow_spp_proof_inputs = escrow
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
         .expect("escrow proof inputs");
     let escrow_prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
     let escrow_result = escrow_prover.prove(&escrow).expect("escrow proof");
@@ -87,7 +87,7 @@ fn escrow_then_withdraw_prove_and_verify() {
         },
     };
     withdraw
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
         .expect("withdraw proof inputs");
     let withdraw_prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
     let withdraw_result = withdraw_prover.prove(&withdraw).expect("withdraw proof");

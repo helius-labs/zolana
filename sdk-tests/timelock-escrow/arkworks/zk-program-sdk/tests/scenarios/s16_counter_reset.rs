@@ -130,7 +130,7 @@ fn counter_reset_prove_and_verify() {
         public: ResetPublicInputs { owner: address },
     };
     let spp_proof_inputs = reset
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("reset proof inputs");
     assert_eq!(
         spp_proof_inputs

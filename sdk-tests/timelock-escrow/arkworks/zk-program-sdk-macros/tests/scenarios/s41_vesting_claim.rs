@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
         DataUtxo, PublicInputs, TokenUtxo,
@@ -30,7 +29,7 @@ pub struct Vesting {
 }
 
 #[derive(Clone, ProofInput)]
-struct VestingClaim {
+pub struct VestingClaim {
     private: VestingClaimPrivateInputs,
     public: VestingClaimPublicInputs,
 }
@@ -51,8 +50,8 @@ struct VestingClaimPublicInputs {
     end: u64,
 }
 
-#[circuit]
-impl Circuit for VestingClaim {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <VestingClaim as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -135,7 +134,7 @@ fn vesting_claim_prove_and_verify() {
         },
     };
     let spp_proof_inputs = claim
-        .create_proof_inputs_and_encrypt(&beneficiary, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&beneficiary, payer, u64::MAX)
         .expect("vesting claim proof inputs");
     assert_eq!(
         spp_proof_inputs

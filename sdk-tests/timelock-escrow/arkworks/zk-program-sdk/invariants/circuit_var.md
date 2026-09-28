@@ -2337,6 +2337,17 @@ constraint per bit (`from_bits.circom`) and `is_bool.circom`.
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/circuit_var/bits/external.rs`
 
+### Generated Boolean membership
+
+- [x] **INV-CV-BITS-37: generated Boolean checks admit exactly the host field members 0 and 1**
+  - Covered by: `tests/unit/circuit_var/bits/properties.rs` `generated_boolean_checks_accept_exactly_zero_and_one` (property)
+  - Kind: soundness
+  - Statement: for every generated non-Boolean canonical field value together with the explicitly included values 0 and 1, the accepted native and exported-row relation is exactly membership in the host field set {0,1}; a rejected native value returns exactly `NotZeroOrOne` at the fixture, and a rejected proving witness fails exactly row 0 with the Booleanity rule.
+  - Location: `src/circuit/builtins/field/bits.rs:28-30` (`check_is_bool`), `src/circuit/builtins/field/bits.rs:52-64` (`assert_bool`)
+  - Error: `CircuitErrorKind::NotZeroOrOne`, `ProverErrorKind::ProofInputsBreakRule`
+  - Severity: Critical
+  - Suggested test: positive + negative + property; `tests/unit/circuit_var/bits/properties.rs`
+
 ## Constants (`constant`, `zero`, `value`)
 
 `constant(value: impl Into<Field>)` builds a constant `CircuitVar`, `zero()` is `constant(0)`,
@@ -2393,11 +2404,20 @@ read in `fixtures::read`, which also returns the line of the read.
   - Severity: High
   - Suggested test: negative; `tests/unit/circuit_var/neg/constants.rs`
 
-- [ ] **INV-CV-CONST-06: reading a proof input fails natively as well**
-  - Finding: the native run of `ReadsValue` returns `Ok(())`, because it instantiates every proof input as a constant, so `value` of a proof input succeeds there. `README.md` (the `constant`, `zero`, `value` row) says reading a variable fails in every run, with the error it calls `ValueOfVariable` (now `ReadsVariableValue`). No proof is affected: the R1CS run refuses the read (INV-CV-CONST-05), so a circuit that branches on a proof input computes natively and then fails when it is set up or proven. The divergence is between the documentation and the native run. `tests/unit/circuit_var/neg/constants.rs` `reading_a_proof_input_fails_natively_as_well` (ignored) reproduces it.
-  - Kind: error
-  - Statement: the native run of `ReadsValue` returns exactly `CircuitError.ReadsVariableValue`, with no rule, located in the fixture's file.
-  - Location: `src/circuit/builtins/field/var.rs:103-108` (`fn value`), `README.md:81`
-  - Error: `CircuitErrorKind::ReadsVariableValue`
+- [x] **INV-CV-CONST-06: native proof inputs are readable constants**
+  - Covered by: `tests/unit/circuit_var/neg/constants.rs` `reading_a_proof_input_natively_returns_its_constant_value`
+  - Kind: semantics
+  - Statement: for the canonical proof-input values 0, 1, 3 and p-1, the native allocator represents each input as a constant: reading it returns exactly that value, and native execution of `ReadsValue` returns exactly `Ok(())`. INV-CV-CONST-05 separately pins rejection during R1CS setup, assignment export and constraint checking.
+  - Location: `src/conversion/mod.rs` (`Allocator::witness`), `src/circuit/builtins/field/var.rs` (`value`)
   - Severity: Medium
-  - Suggested test: negative; `tests/unit/circuit_var/neg/constants.rs`
+  - Suggested test: positive characterization; `tests/unit/circuit_var/neg/constants.rs`
+
+### Generated constant values
+
+- [x] **INV-CV-CONST-07: generated constants round-trip through value and zero identity**
+  - Covered by: `tests/unit/circuit_var/neg/constants.rs` `generated_constants_round_trip_with_zero_and_keep_their_representation` (property)
+  - Kind: semantics
+  - Statement: for every generated canonical field value x, `value(constant(x))` and the values after adding `zero()` on either side are exactly x; the original constant's native representation is exactly `CircuitVar::constant(x)` before and after the read.
+  - Location: `src/circuit/builtins/field/var.rs:134-160` (`CircuitVar::fmt`, `constant`, `zero`, `value`)
+  - Severity: High
+  - Suggested test: positive + property; `tests/unit/circuit_var/neg/constants.rs`

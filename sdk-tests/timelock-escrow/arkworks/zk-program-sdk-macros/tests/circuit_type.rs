@@ -155,12 +155,12 @@ fn hex(bytes: &[u8]) -> String {
 
 #[test]
 fn the_discriminator_and_the_state_hash_are_pinned() {
-    assert_eq!(hex(&Limits::DISCRIMINATOR), "b15b5ef11321b302");
+    assert_eq!(hex(&Limits::DISCRIMINATOR), "f23695767619b981");
     let limits = Limits {
         daily: 1_000,
         frozen: true,
     };
-    let limits_hash = "22a26bb261e683e5911ed5a0de951aa45c21df8e1c02da1a8317e4b0e9f959c0";
+    let limits_hash = "2365ec38d7481dd3ce2a43ca09f796ead3aec510edace48d3c07065d69a37c14";
     assert_eq!(hex(&byte_hash(&limits)), limits_hash);
     assert_eq!(hex(&circuit_hash(&native(&limits))), limits_hash);
 }

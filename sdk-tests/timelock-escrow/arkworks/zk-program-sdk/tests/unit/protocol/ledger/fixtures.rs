@@ -2,7 +2,7 @@ use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
         constant, Assert, Asset, Balance, Bytes, CircuitVar, Constraints, DataHash, DataUtxo,
-        Field, Owner, TokenUtxo, Utxo,
+        Field, Owner, TokenUtxo, Uint, Utxo,
     },
     conversion::ProofInput,
     CircuitError,
@@ -44,6 +44,53 @@ pub const TRANSFER: usize = 0;
 pub const TRANSFER_ALL: usize = 1;
 pub const WITHDRAW: usize = 2;
 pub const WITHDRAW_ALL: usize = 3;
+pub const BALANCE_READ: usize = 4;
+
+/// Constant deposits reach the accumulator's structural width limit without
+/// allocating unrelated owner, asset or input range-check variables.
+#[derive(Clone, Copy, Debug, ProofInput)]
+pub struct Oversized<const OP: usize>;
+
+impl<const OP: usize> Constraints for OversizedCircuit<OP> {
+    fn constraints(&self) -> Result<(), CircuitError> {
+        oversized_operation(OP).1
+    }
+}
+
+/// Return the actual operation line separately from its error so the regression
+/// can detect a caller chain stopping anywhere inside the production SDK.
+pub fn oversized_operation(op: usize) -> (u32, Result<(), CircuitError>) {
+    let account = Bytes::constant(ACCOUNT.as_array());
+    let amount = Uint::<64>::constant(1).expect("one fits in an amount");
+    let mut holder = TokenUtxo::new_init(&Owner::default(), &Asset::sol());
+    for _ in 0..191 {
+        holder.deposit(&amount, &account).expect("nonzero deposit");
+    }
+    match op {
+        BALANCE_READ => {
+            let line = line!() + 1;
+            let result = holder.balance();
+            (line, result.map(drop))
+        }
+        WITHDRAW_ALL => {
+            let line = line!() + 1;
+            let result = holder.withdraw_all(&account);
+            (line, result.map(drop))
+        }
+        WITHDRAW => {
+            let line = line!() + 1;
+            let result = holder.withdraw(&amount, &account);
+            (line, result)
+        }
+        TRANSFER => {
+            let mut destination = TokenUtxo::new_init(&Owner::default(), &holder.asset());
+            let line = line!() + 1;
+            let result = holder.transfer(&mut destination, &amount);
+            (line, result)
+        }
+        _ => unreachable!("oversized fixture operation"),
+    }
+}
 
 /// Binds `new_init(owner, asset)` of a `TokenUtxo` or a
 /// `DataUtxo<CounterState>` to `holder`, so one body runs against either.

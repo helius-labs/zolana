@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
         DataUtxo, PublicInputs, TokenUtxo, Uint,
@@ -25,7 +24,7 @@ pub struct Reservation {
 }
 
 #[derive(Clone, ProofInput)]
-struct Settle {
+pub struct Settle {
     private: SettlePrivateInputs,
     public: SettlePublicInputs,
 }
@@ -46,8 +45,8 @@ struct SettlePublicInputs {
     execution_price: u64,
 }
 
-#[circuit]
-impl Circuit for Settle {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Settle as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let price = &self.public.execution_price;
@@ -112,7 +111,7 @@ fn settle_or_refund_prove_and_verify() {
 
     let settled = settle(95, true);
     let settled_spp_proof_inputs = settled
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&taker, payer, u64::MAX)
         .expect("settle proof inputs");
     let settled_result = prove(&prover, &settled, "settle proof");
     prover
@@ -121,7 +120,7 @@ fn settle_or_refund_prove_and_verify() {
 
     let refunded = settle(105, false);
     let refunded_spp_proof_inputs = refunded
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&taker, payer, u64::MAX)
         .expect("refund proof inputs");
     let refunded_result = prove(&prover, &refunded, "refund proof");
     prover

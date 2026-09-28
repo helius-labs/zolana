@@ -70,6 +70,7 @@ pub(crate) fn range_check(
     labels::check(&var.cs(), rule, || bits_le(var, bits).map(|_| ()))
 }
 
+#[track_caller]
 pub(crate) fn bits_le(var: &CircuitVar, bits: usize) -> Result<Vec<CircuitVar>, CircuitError> {
     if bits >= Fr::MODULUS_BIT_SIZE as usize {
         return Err(CircuitErrorKind::BitWidthTooLarge { bits }.into());

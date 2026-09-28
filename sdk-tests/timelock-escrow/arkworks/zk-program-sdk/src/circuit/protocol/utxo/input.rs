@@ -16,6 +16,9 @@ pub struct Utxo {
     pub ring_data_hash: CircuitVar,
     pub ring_program_id: CircuitVar,
     pub tree_id: CircuitVar,
+    /// Client-supplied nullifier metadata, not derived or verified by this circuit.
+    /// The first input is bound through transaction blinding; later nullifiers
+    /// need an authenticated link to SPP before use in application authorization.
     pub nullifier: CircuitVar,
     pub latest_tree_id: CircuitVar,
     pub has_latest_tree_id: Bool,
@@ -56,9 +59,13 @@ impl Utxo {
         }
     }
 
+    /// The native commitment, with zero owner/asset hash fields for a dummy.
     #[track_caller]
     pub fn hash(&self) -> Result<CircuitVar, CircuitError> {
-        self.hash_with(&self.owner.hash()?, &self.asset.hash()?)
+        let dummy = self.domain.is_equal(&constant(u64::from(DUMMY_DOMAIN)))?;
+        let owner = dummy.select(&zero(), &self.owner.hash()?);
+        let asset = dummy.select(&zero(), &self.asset.hash()?);
+        self.hash_with(&owner, &asset)
     }
 
     pub(crate) fn spent(&self, hash: CircuitVar) -> SpentInput {

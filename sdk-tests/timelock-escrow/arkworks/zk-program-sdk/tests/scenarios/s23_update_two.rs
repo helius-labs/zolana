@@ -154,7 +154,7 @@ fn update_two_prove_and_verify() {
         public: UpdateTwoPublicInputs { owner: address },
     };
     let spp_proof_inputs = update_two
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("update two proof inputs");
     assert_eq!(
         spp_proof_inputs

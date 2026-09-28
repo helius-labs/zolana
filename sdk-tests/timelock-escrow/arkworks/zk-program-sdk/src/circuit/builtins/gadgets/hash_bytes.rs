@@ -6,8 +6,12 @@ use crate::{
     CircuitError,
 };
 
+/// Internal packing for checked bytes and the fixed owner preimage. The owner
+/// path retains its conditional tag check for dummy slots.
 #[track_caller]
-pub fn hash_bytes(bytes: &[CircuitVar]) -> Result<CircuitVar, CircuitError> {
+pub(crate) fn hash_bytes<const N: usize>(
+    bytes: &[CircuitVar; N],
+) -> Result<CircuitVar, CircuitError> {
     let _scope = Scope::open(&system_of(bytes), "a hash of bytes");
     let mut chunks = packed(bytes).into_iter();
     let Some(first) = chunks.next() else {

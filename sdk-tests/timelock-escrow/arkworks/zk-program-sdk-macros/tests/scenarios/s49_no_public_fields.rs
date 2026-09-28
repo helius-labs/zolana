@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
@@ -16,7 +15,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct PrivateSweep {
+pub struct PrivateSweep {
     private: PrivateSweepPrivateInputs,
     public: NoPublicInputs,
 }
@@ -31,8 +30,8 @@ struct PrivateSweepPrivateInputs {
 #[derive(Clone, ProofInput, PublicInputs)]
 struct NoPublicInputs;
 
-#[circuit]
-impl Circuit for PrivateSweep {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <PrivateSweep as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
@@ -63,7 +62,7 @@ fn no_public_fields_prove_and_verify() {
         public: NoPublicInputs,
     };
     let spp_proof_inputs = sweep
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("sweep proof inputs");
     let private_tx_hash = spp_proof_inputs
         .padding_independent_private_tx_hash()

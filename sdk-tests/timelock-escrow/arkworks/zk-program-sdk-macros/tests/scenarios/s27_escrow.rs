@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -29,7 +28,7 @@ pub struct EscrowTerms {
 }
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Escrow {
+pub struct Escrow {
     pub(crate) private: EscrowPrivateInputs,
     pub(crate) public: EscrowPublicInputs,
 }
@@ -66,7 +65,11 @@ pub(crate) fn escrow_utxo(
             escrow_owner: escrow_authority().address(&address),
         },
     }
-    .create_proof_inputs_and_encrypt(creator, address.solana_address().expect("payer"), u64::MAX)
+    .create_proof_inputs_and_encrypt_with_keys(
+        creator,
+        address.solana_address().expect("payer"),
+        u64::MAX,
+    )
     .expect("escrow proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -80,8 +83,8 @@ pub(crate) fn escrow_utxo(
     )
 }
 
-#[circuit]
-impl Circuit for Escrow {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Escrow as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;
@@ -118,7 +121,7 @@ fn escrow_prove_and_verify() {
         public: EscrowPublicInputs { escrow_owner },
     };
     let spp_proof_inputs = escrow
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
         .expect("escrow proof inputs");
     assert_eq!(
         spp_proof_inputs

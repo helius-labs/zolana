@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -35,7 +34,7 @@ pub struct Portfolio {
 }
 
 #[derive(Clone, ProofInput)]
-struct PortfolioCreate {
+pub struct PortfolioCreate {
     private: PortfolioCreatePrivateInputs,
     public: PortfolioCreatePublicInputs,
 }
@@ -55,8 +54,8 @@ struct PortfolioCreatePublicInputs {
     owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for PortfolioCreate {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <PortfolioCreate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -102,7 +101,7 @@ fn nested_array_state_prove_and_verify() {
         public: PortfolioCreatePublicInputs { owner },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("portfolio create proof inputs");
     let portfolio = Portfolio {
         owner_hash: owner.owner_hash().expect("owner hash"),

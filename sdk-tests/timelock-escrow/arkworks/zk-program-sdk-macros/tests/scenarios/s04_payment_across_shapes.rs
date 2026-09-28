@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
@@ -68,7 +67,7 @@ fn payment_prove_and_verify<const N: usize, const R: usize>(
         },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("payment proof inputs");
 
     let prover = Groth16Prover::<Payment<N, R>>::new_with_test_setup().expect("payment setup");
@@ -87,8 +86,8 @@ fn payment_prove_and_verify<const N: usize, const R: usize>(
     )
 }
 
-#[circuit]
-impl<const N: usize, const R: usize> Circuit for Payment<N, R> {
+#[deny(clippy::disallowed_types)]
+impl<const N: usize, const R: usize> Circuit for PaymentCircuit<N, R> {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

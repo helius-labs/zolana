@@ -214,7 +214,7 @@ fn airdrop_claim_prove_and_verify() {
         },
     };
     let spp_proof_inputs = claim
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("claim proof inputs");
     assert_eq!(
         spp_proof_inputs

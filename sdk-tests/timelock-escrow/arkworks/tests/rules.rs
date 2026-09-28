@@ -72,7 +72,7 @@ fn encrypt<P: ZkProgram>(keys: &ShieldedKeypair, proof_inputs: P) -> Option<Stri
         .solana_address()
         .expect("payer");
     proof_inputs
-        .create_proof_inputs_and_encrypt(keys, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(keys, payer, u64::MAX)
         .err()
         .map(|e| e.to_string())
 }

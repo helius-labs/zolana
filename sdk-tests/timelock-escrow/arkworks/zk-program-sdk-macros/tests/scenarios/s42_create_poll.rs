@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -30,7 +29,7 @@ pub struct Poll {
 }
 
 #[derive(Clone, ProofInput)]
-struct CreatePoll {
+pub struct CreatePoll {
     private: CreatePollPrivateInputs,
     public: CreatePollPublicInputs,
 }
@@ -63,7 +62,11 @@ pub(crate) fn poll_utxo(
         },
         public: CreatePollPublicInputs { poll_id, root },
     }
-    .create_proof_inputs_and_encrypt(creator, address.solana_address().expect("payer"), u64::MAX)
+    .create_proof_inputs_and_encrypt_with_keys(
+        creator,
+        address.solana_address().expect("payer"),
+        u64::MAX,
+    )
     .expect("create poll proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -77,8 +80,8 @@ pub(crate) fn poll_utxo(
     )
 }
 
-#[circuit]
-impl Circuit for CreatePoll {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CreatePoll as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -111,7 +114,7 @@ fn create_poll_prove_and_verify() {
         public: CreatePollPublicInputs { poll_id: 3, root },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
         .expect("create poll proof inputs");
     assert_eq!(
         spp_proof_inputs

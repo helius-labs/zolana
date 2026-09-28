@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -29,7 +28,7 @@ pub struct TypedState {
 }
 
 #[derive(Clone, ProofInput)]
-struct TypedCreate {
+pub struct TypedCreate {
     private: TypedCreatePrivateInputs,
     public: TypedCreatePublicInputs,
 }
@@ -51,8 +50,8 @@ struct TypedCreatePublicInputs {
     amount: u64,
 }
 
-#[circuit]
-impl Circuit for TypedCreate {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <TypedCreate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -93,7 +92,7 @@ fn typed_state_create_prove_and_verify() {
         public: TypedCreatePublicInputs { amount: 1_000 },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("typed create proof inputs");
     let state = TypedState {
         amount: 1_000,

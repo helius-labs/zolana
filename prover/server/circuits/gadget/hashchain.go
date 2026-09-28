@@ -48,6 +48,27 @@ func RightHashChain(api frontend.API, inputs []frontend.Variable) frontend.Varia
 	return h
 }
 
+type NonZeroHashChainGadget struct {
+	Inputs []frontend.Variable
+}
+
+func (g NonZeroHashChainGadget) DefineGadget(api frontend.API) interface{} {
+	h := frontend.Variable(0)
+	for _, input := range g.Inputs {
+		next := PoseidonHash(api, []frontend.Variable{h, input})
+		h = api.Select(api.IsZero(input), h, next)
+	}
+	return h
+}
+
+func NonZeroHashChain(api frontend.API, inputs []frontend.Variable) frontend.Variable {
+	if len(inputs) == 0 {
+		return frontend.Variable(0)
+	}
+
+	return abstractor.Call(api, NonZeroHashChainGadget{Inputs: inputs})
+}
+
 // HashChain4Gadget folds Poseidon over the inputs three elements at a time:
 // h = inputs[0], then h = Poseidon(h, g0, g1, g2) for each group of up to three
 // consecutive elements of inputs[1:], zero-padding a short trailing group so

@@ -23,4 +23,3 @@ pub use prover::{CompressedProof, Groth16Prover, ProofInputs, ProofResult, Solan
 pub use prover::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
 #[cfg(feature = "setup")]
 pub use prover::{SetupKind, VerifyingKeyExport};
-pub use zk_program_sdk_macros::circuit;

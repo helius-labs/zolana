@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -29,7 +28,7 @@ pub struct Pool {
 }
 
 #[derive(Clone, ProofInput)]
-struct CreatePool {
+pub struct CreatePool {
     private: CreatePoolPrivateInputs,
     public: CreatePoolPublicInputs,
 }
@@ -65,7 +64,11 @@ pub(crate) fn pool_utxo(
         },
         public: CreatePoolPublicInputs { root, airdrop_id },
     }
-    .create_proof_inputs_and_encrypt(funder, address.solana_address().expect("payer"), u64::MAX)
+    .create_proof_inputs_and_encrypt_with_keys(
+        funder,
+        address.solana_address().expect("payer"),
+        u64::MAX,
+    )
     .expect("pool proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -79,8 +82,8 @@ pub(crate) fn pool_utxo(
     )
 }
 
-#[circuit]
-impl Circuit for CreatePool {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CreatePool as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -118,7 +121,7 @@ fn airdrop_pool_prove_and_verify() {
         },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&funder, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&funder, payer, u64::MAX)
         .expect("pool proof inputs");
     assert_eq!(
         spp_proof_inputs

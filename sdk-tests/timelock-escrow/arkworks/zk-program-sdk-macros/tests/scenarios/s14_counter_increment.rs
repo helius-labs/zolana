@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -13,7 +12,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Increment {
+pub struct Increment {
     pub(crate) private: IncrementPrivateInputs,
     pub(crate) public: IncrementPublicInputs,
 }
@@ -30,8 +29,8 @@ pub(crate) struct IncrementPublicInputs {
     pub(crate) step: u64,
 }
 
-#[circuit]
-impl Circuit for Increment {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Increment as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
@@ -62,7 +61,7 @@ fn counter_increment_prove_and_verify() {
         public: IncrementPublicInputs { step: 3 },
     };
     let spp_proof_inputs = increment
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("increment proof inputs");
     assert_eq!(
         spp_proof_inputs

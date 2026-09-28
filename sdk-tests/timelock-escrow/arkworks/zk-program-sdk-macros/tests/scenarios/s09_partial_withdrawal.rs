@@ -1,6 +1,5 @@
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
@@ -15,7 +14,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct Withdrawal {
+pub struct Withdrawal {
     private: WithdrawalPrivateInputs,
     public: WithdrawalPublicInputs,
 }
@@ -32,8 +31,8 @@ struct WithdrawalPublicInputs {
     amount: u64,
 }
 
-#[circuit]
-impl Circuit for Withdrawal {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Withdrawal as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -62,7 +61,7 @@ fn partial_withdrawal_prove_and_verify() {
         public: WithdrawalPublicInputs { amount: 120 },
     };
     let spp_proof_inputs = withdrawal
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("withdrawal proof inputs");
     assert_eq!(
         (

@@ -253,7 +253,7 @@ fn create_issuer_prove_and_verify() {
         public: CreateIssuerPublicInputs { issuer: address },
     };
     let spp_proof_inputs = create
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("create issuer proof inputs");
     let state = Issuer {
         issuer_hash: address.owner_hash().expect("issuer hash"),

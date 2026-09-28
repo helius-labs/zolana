@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -29,7 +28,7 @@ pub struct Credential {
 }
 
 #[derive(Clone, ProofInput)]
-struct CreateIssuer {
+pub struct CreateIssuer {
     private: CreateIssuerPrivateInputs,
     public: CreateIssuerPublicInputs,
 }
@@ -45,8 +44,8 @@ struct CreateIssuerPublicInputs {
     issuer: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for CreateIssuer {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CreateIssuer as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -75,7 +74,7 @@ fn create_issuer_prove_and_verify() {
         public: CreateIssuerPublicInputs { issuer: address },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&issuer, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&issuer, payer, u64::MAX)
         .expect("create issuer proof inputs");
     let state = Issuer {
         issuer_hash: address.owner_hash().expect("issuer hash"),

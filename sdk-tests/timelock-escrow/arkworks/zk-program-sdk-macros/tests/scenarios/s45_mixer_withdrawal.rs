@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         poseidon, Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -17,7 +16,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct MixerWithdrawal {
+pub struct MixerWithdrawal {
     private: MixerWithdrawalPrivateInputs,
     public: MixerWithdrawalPublicInputs,
 }
@@ -37,8 +36,8 @@ struct MixerWithdrawalPublicInputs {
     nullifier_hash: [u8; 32],
 }
 
-#[circuit]
-impl Circuit for MixerWithdrawal {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <MixerWithdrawal as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -82,7 +81,7 @@ fn mixer_withdrawal_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdrawal
-        .create_proof_inputs_and_encrypt(&recipient, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&recipient, payer, u64::MAX)
         .expect("mixer withdrawal proof inputs");
     assert_eq!(
         spp_proof_inputs

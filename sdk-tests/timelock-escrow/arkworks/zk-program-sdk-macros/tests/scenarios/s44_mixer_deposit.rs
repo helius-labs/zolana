@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         poseidon, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
         DataUtxo, PublicInputs, TokenUtxo,
@@ -29,7 +28,7 @@ pub struct MixerCommitment {
 }
 
 #[derive(Clone, ProofInput)]
-struct MixerDeposit {
+pub struct MixerDeposit {
     private: MixerDepositPrivateInputs,
     public: MixerDepositPublicInputs,
 }
@@ -67,7 +66,7 @@ pub(crate) fn commitment_utxo(
             denomination: DENOMINATION,
         },
     }
-    .create_proof_inputs_and_encrypt(
+    .create_proof_inputs_and_encrypt_with_keys(
         depositor,
         address.solana_address().expect("payer"),
         u64::MAX,
@@ -86,8 +85,8 @@ pub(crate) fn commitment_utxo(
     )
 }
 
-#[circuit]
-impl Circuit for MixerDeposit {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <MixerDeposit as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -125,7 +124,7 @@ fn mixer_deposit_prove_and_verify() {
         },
     };
     let spp_proof_inputs = deposit
-        .create_proof_inputs_and_encrypt(&depositor, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&depositor, payer, u64::MAX)
         .expect("mixer deposit proof inputs");
     assert_eq!(
         spp_proof_inputs

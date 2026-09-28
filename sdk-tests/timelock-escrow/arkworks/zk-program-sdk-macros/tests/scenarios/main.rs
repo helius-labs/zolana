@@ -1,3 +1,7 @@
+#![deny(unused_must_use, unused_variables, unused_assignments)]
+#![forbid(unsafe_code)]
+#![deny(clippy::let_underscore_must_use)]
+
 mod benchmark;
 mod shared;
 

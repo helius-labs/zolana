@@ -41,3 +41,4 @@ sdk-libs/transaction/type-lifecycle.md
 
 # Local TLA+ models of the cache account flow.
 /tla_plus/
+sdk-tests/timelock-escrow/arkworks/tests/arkworks_prepare_inputs.rs

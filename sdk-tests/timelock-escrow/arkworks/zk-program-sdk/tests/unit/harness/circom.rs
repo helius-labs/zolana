@@ -1,14 +1,19 @@
 #![cfg(feature = "external-tools")]
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Command,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use ark_bn254::Fr;
 use ark_circom::{Wasm, WitnessCalculator};
 use num_bigint::BigInt;
-use wasmer::{imports, Function, Instance, Memory, MemoryType, Module, RuntimeError, Store};
+use sha2::{Digest, Sha256};
+use wasmer::{
+    imports, Engine, Function, Instance, Memory, MemoryType, Module, RuntimeError, Store,
+};
 
 use super::{artifacts, iden3, locked, path};
 
@@ -61,8 +66,9 @@ impl Compiled {
         inputs: &[(&str, Vec<String>)],
         asserts: Asserts,
     ) -> Result<Vec<Fr>, String> {
-        let mut store = Store::default();
-        let mut calculator = calculator(&mut store, &self.wasm, asserts);
+        let (module, engine) = cached_module(&self.wasm);
+        let mut store = Store::new(engine);
+        let mut calculator = calculator(&mut store, &module, asserts);
         let inputs = inputs.iter().map(|(name, decimals)| {
             let values = decimals
                 .iter()
@@ -79,10 +85,33 @@ impl Compiled {
     }
 }
 
+// Only immutable compiled code and its compatible engine live for the test
+// process. Each digest has its own initializer: concurrent calculations of the
+// same bytes compile once, without serializing compilation of other modules.
+type ModuleSlot = Arc<OnceLock<(Module, Engine)>>;
+
+fn cached_module(wasm: &Path) -> (Module, Engine) {
+    static MODULES: OnceLock<Mutex<HashMap<[u8; 32], ModuleSlot>>> = OnceLock::new();
+    let bytes = std::fs::read(wasm).expect("circom wasm bytes");
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let slot = {
+        let mut modules = MODULES
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .expect("compiled wasm cache");
+        Arc::clone(modules.entry(digest).or_default())
+    };
+    slot.get_or_init(|| {
+        let engine = Engine::default();
+        let module = Module::new(&engine, &bytes).expect("circom wasm");
+        (module, engine)
+    })
+    .clone()
+}
+
 // ark-circom's own runtime ignores `exceptionHandler`, so a failed `===`
 // would still return a witness; circom's runtime aborts the calculation.
-fn calculator(store: &mut Store, wasm: &Path, asserts: Asserts) -> WitnessCalculator {
-    let module = Module::from_file(&*store, wasm).expect("circom wasm");
+fn calculator(store: &mut Store, module: &Module, asserts: Asserts) -> WitnessCalculator {
     let memory = Memory::new(store, MemoryType::new(2000, None, false)).expect("wasm memory");
     let exception_handler = match asserts {
         Asserts::Abort => Function::new_typed(store, |code: i32| {
@@ -109,7 +138,7 @@ fn calculator(store: &mut Store, wasm: &Path, asserts: Asserts) -> WitnessCalcul
             "writeBufferMessage" => Function::new_typed(store, || {}),
         }
     };
-    let instance = Instance::new(store, &module, &imports).expect("circom instance");
+    let instance = Instance::new(store, module, &imports).expect("circom instance");
     WitnessCalculator::new_from_wasm(store, Wasm::new(instance)).expect("witness calculator")
 }
 
@@ -180,4 +209,69 @@ pub fn compile_with(relative: &str, includes: &[PathBuf]) -> Compiled {
     std::fs::write(&copy, bytes).expect("compiled source copy");
     std::fs::write(&include_key, include_list).expect("compiled include list");
     compiled
+}
+
+#[test]
+fn cached_modules_keep_calculations_and_assertion_handlers_independent() {
+    let compiled = compile("circuit_var/add/add.circom");
+    let (module, engine) = cached_module(&compiled.wasm);
+    let signals = |left: u64, right: u64, sum: u64| {
+        vec![
+            ("left", vec![left.to_string()]),
+            ("right", vec![right.to_string()]),
+            ("sum", vec![sum.to_string()]),
+        ]
+    };
+    // Two callers exercise the same cached code concurrently. Within each
+    // sequence, an aborted or ignored assertion cannot affect the next run.
+    std::thread::scope(|scope| {
+        let runs: Vec<_> = (0..2)
+            .map(|offset| {
+                let compiled = &compiled;
+                let signals = &signals;
+                scope.spawn(move || {
+                    for repeat in 0..2 {
+                        let left = 2 + offset + repeat;
+                        let honest = signals(left, 3, left + 3);
+                        let dishonest = signals(left, 3, left + 4);
+                        assert_eq!(
+                            compiled.calculate(&honest, Asserts::Abort),
+                            Ok([1, left, 3, left + 3].map(Fr::from).to_vec())
+                        );
+                        assert_eq!(
+                            compiled.calculate(&dishonest, Asserts::Abort),
+                            Err("Assert Failed".to_string())
+                        );
+                        let ignored = compiled
+                            .calculate(&dishonest, Asserts::Ignore)
+                            .expect("assertions ignored");
+                        assert_eq!(ignored, [1, left, 3, left + 4].map(Fr::from));
+                        assert_eq!(compiled.read_r1cs().first_unsatisfied(&ignored), Some(0));
+                        let next = signals(left + 5, 7, left + 12);
+                        assert_eq!(
+                            compiled.calculate(&next, Asserts::Abort),
+                            Ok([1, left + 5, 7, left + 12].map(Fr::from).to_vec())
+                        );
+                    }
+                })
+            })
+            .collect();
+        for run in runs {
+            run.join().expect("independent witness calculations");
+        }
+    });
+
+    // Identical bytes at another path reuse the artifact, while replacing a
+    // file's bytes selects another entry. The reference artifact is untouched.
+    let work = super::WorkDir::new("circom-module-cache");
+    let bytes = std::fs::read(&compiled.wasm).expect("reference wasm");
+    let copied = work.write("same-name.wasm", &bytes);
+    let (reused, reused_engine) = cached_module(&copied);
+    assert_eq!((reused, reused_engine.id()), (module, engine.id()));
+    // This is the valid binary encoding of an empty WebAssembly module.
+    work.write("same-name.wasm", b"\0asm\x01\0\0\0");
+    let (_, replaced_engine) = cached_module(&copied);
+    assert_ne!(replaced_engine.id(), engine.id());
+    work.write("same-name.wasm", &bytes);
+    assert_eq!(cached_module(&copied).1.id(), engine.id());
 }

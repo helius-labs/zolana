@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Take {
+pub struct Take {
     pub(crate) private: TakePrivateInputs,
     pub(crate) public: TakePublicInputs,
 }
@@ -38,8 +37,8 @@ pub(crate) struct TakePublicInputs {
     pub(crate) ask_amount: u64,
 }
 
-#[circuit]
-impl Circuit for Take {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Take as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -93,7 +92,7 @@ fn order_take_prove_and_verify() {
         },
     };
     let spp_proof_inputs = take
-        .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&taker, payer, u64::MAX)
         .expect("take proof inputs");
     assert_eq!(
         (

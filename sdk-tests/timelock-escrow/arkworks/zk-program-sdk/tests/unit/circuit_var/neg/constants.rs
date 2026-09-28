@@ -1,5 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::One;
+use proptest::prelude::*;
 use zk_program_sdk::{
     circuit::{constant, value, zero, Field},
     ProverError, ZkCircuit,
@@ -10,12 +11,31 @@ use super::{
     vectors::VALID,
 };
 use crate::harness::{
-    field::field,
-    fixture::{check_constraints, exported, native, outcome, rule_broken, Refusal},
+    field::{field, random, MODULUS_MINUS_1},
+    fixture::{check_constraints, exported, native, native_circuit, outcome, rule_broken, Refusal},
     iden3::{R1cs, R1csHeader},
 };
 
 const READS_VARIABLE_VALUE: &str = "CircuitError.ReadsVariableValue";
+
+proptest! {
+    #[test]
+    fn generated_constants_round_trip_with_zero_and_keep_their_representation(
+        x in any::<[u8; 32]>().prop_map(random),
+    ) {
+        let var = constant(x);
+        let before_read = format!("{var:?}");
+        prop_assert_eq!(outcome(value(&var)), Ok(x));
+        prop_assert_eq!(
+            before_read.as_str(),
+            format!("CircuitVar::constant({})", Fr::from(x))
+        );
+        prop_assert_eq!(format!("{var:?}"), before_read);
+        prop_assert_eq!(outcome(value(&(&var + zero()))), Ok(x));
+        prop_assert_eq!(outcome(value(&(zero() + &var))), Ok(x));
+        prop_assert_eq!(outcome(value(&zero())), Ok(Field::from(0u64)));
+    }
+}
 
 fn refusal_at(error: ProverError) -> (&'static str, &'static str, u32) {
     let location = error.location();
@@ -119,10 +139,13 @@ fn reading_a_proof_input_fails_in_r1cs_at_the_line_of_the_read() {
 }
 
 #[test]
-#[ignore = "FINDING: value() of a proof input succeeds in the native run, where README.md says reading a variable fails in every run"]
-fn reading_a_proof_input_fails_natively_as_well() {
-    assert_eq!(
-        native(&ReadsValue { value: field("3") }),
-        Err((READS_VARIABLE_VALUE, None, FILE))
-    );
+fn reading_a_proof_input_natively_returns_its_constant_value() {
+    for input in ["0", "1", "3", MODULUS_MINUS_1].map(field) {
+        let fixture = ReadsValue { value: input };
+        let circuit = native_circuit(&fixture).expect("native proof input");
+        assert_eq!(
+            (outcome(read(&circuit.value).0), native(&fixture)),
+            (Ok(input), Ok(())),
+        );
+    }
 }

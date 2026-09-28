@@ -2,15 +2,17 @@ use ark_bn254::Fr;
 use ark_ff::One;
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit::{value, VariableRole},
-    conversion::{Allocator, ProofInput},
+    circuit::VariableRole,
     testing::{FreeVariable, PrivateVariableReport},
 };
 use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
 use zolana_transaction::Mint;
 
 use super::{
-    fixtures::{Carried, Instantiated, UtxoHash, CARRIED_RULE, CLAIM_WIRE, HASH_RULE},
+    fixtures::{
+        hashed_dummy_preimages_commitment, Carried, Instantiated, UtxoHash, CARRIED_RULE,
+        CLAIM_WIRE, HASH_RULE,
+    },
     vectors::{blinding, dummy, preimages, Preimage, TREE_ID},
 };
 use crate::{
@@ -32,11 +34,11 @@ use crate::{
 };
 
 pub const HASH_SIZE: Size = Size {
-    constraints: 2163,
-    variables: 2174,
+    constraints: 2167,
+    variables: 2178,
 };
-pub const HASH_ROW: usize = 2162;
-pub const HASH_DIGEST: &str = "f76c913eaaff70b612c7481df5c748fabf6c13703f2d96a922146a0fcb3c755a";
+pub const HASH_ROW: usize = 2166;
+pub const HASH_DIGEST: &str = "73266cfb46af8d8f6df5b458e37fe47823104d74d55f5719365733b9a2cf1dbe";
 
 fn fixture(preimage: &Preimage) -> UtxoHash {
     UtxoHash {
@@ -47,14 +49,7 @@ fn fixture(preimage: &Preimage) -> UtxoHash {
 
 fn dummy_fixture() -> UtxoHash {
     let wallet = dummy(blinding(5), TREE_ID);
-    let hash = value(
-        &wallet
-            .instantiate(&Allocator::native())
-            .expect("native dummy")
-            .hash()
-            .expect("dummy hash"),
-    )
-    .expect("constant hash");
+    let hash = field_of(&wallet.utxo_hash);
     UtxoHash { hash, utxo: wallet }
 }
 
@@ -271,13 +266,13 @@ fn every_preimage_wire_changed_alone_leaves_a_row_unsatisfied() {
             vec![
                 ("utxo domain", Some(0)),
                 ("an owner tag", Some(290)),
-                ("a 32-byte proof input", Some(824)),
-                ("utxo amount", Some(1790)),
-                ("utxo blinding", Some(1544)),
-                ("utxo data hash", Some(1793)),
-                ("utxo ring data hash", Some(1301)),
-                ("utxo ring program id", Some(1304)),
-                ("utxo tree id", Some(1784)),
+                ("a 32-byte proof input", Some(826)),
+                ("utxo amount", Some(1794)),
+                ("utxo blinding", Some(1548)),
+                ("utxo data hash", Some(1797)),
+                ("utxo ring data hash", Some(1305)),
+                ("utxo ring program id", Some(1308)),
+                ("utxo tree id", Some(1788)),
                 ("owner key byte 0", Some(10)),
                 ("owner key byte 31", Some(289)),
                 ("asset byte 0", Some(300)),
@@ -400,5 +395,67 @@ fn every_preimage_instantiates_to_the_dummy_placeholders_shape() {
             utxo: preimage.wallet()
         })),
         per_vector(&preimages, |_| Ok(581))
+    );
+}
+
+#[test]
+fn dummy_commitments_bind_the_tree_and_blinding_and_reject_hashed_dummy_preimages() {
+    let rows = exported::<UtxoHash>();
+    for tree in [0, TREE_ID, u16::MAX] {
+        for salt in [0u8, 5, 99] {
+            let wallet = dummy(blinding(salt), tree);
+            let fixture = UtxoHash {
+                hash: field_of(&wallet.utxo_hash),
+                utxo: wallet.clone(),
+            };
+            assert_eq!(check_constraints(&fixture), Ok(HASH_SIZE.constraints));
+            let honest = assignment(&fixture);
+            assert_eq!(rows.first_unsatisfied(&honest), None);
+            for wrong in [
+                hashed_dummy_preimages_commitment(&wallet),
+                field_of(&dummy(blinding(salt), tree ^ 1).utxo_hash),
+                field_of(&dummy(blinding(salt ^ 1), tree).utxo_hash),
+            ] {
+                assert_ne!(wrong, fixture.hash);
+                assert_eq!(
+                    check_tampered(&fixture, CLAIM_WIRE, wrong),
+                    Err(breaks_rule(HASH_ROW, HASH_RULE))
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_dummy_hash_has_no_free_wire_beyond_carried_fields_and_equality_inverse_hints() {
+    let report = check_private_variables(&dummy_fixture());
+    let tolerated: Vec<_> = report
+        .tolerated
+        .iter()
+        .map(|wire| (wire.role, wire.allocation.as_ref().map(|label| label.text)))
+        .collect();
+    assert!(
+        report.free.is_empty(),
+        "unexpected free wires: {:?}",
+        report.free
+    );
+    assert_eq!(
+        (report.constraints, report.private_variables),
+        (HASH_SIZE.constraints, HASH_SIZE.variables - 1)
+    );
+    assert_eq!(
+        tolerated,
+        vec![
+            (
+                VariableRole::Multiplier,
+                Some("the inverse hint of an equality test")
+            ),
+            (VariableRole::Carried, Some("utxo nullifier")),
+            (VariableRole::Carried, Some("utxo latest tree id")),
+            (
+                VariableRole::Multiplier,
+                Some("the inverse hint of an equality test")
+            ),
+        ]
     );
 }

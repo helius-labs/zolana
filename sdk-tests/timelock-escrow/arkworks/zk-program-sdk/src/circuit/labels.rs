@@ -15,7 +15,6 @@ pub enum VariableRole {
     Constrained,
     Multiplier,
     Carried,
-    Hint,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

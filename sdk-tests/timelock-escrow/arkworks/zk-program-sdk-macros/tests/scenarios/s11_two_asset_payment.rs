@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
@@ -16,7 +15,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct TwoAssetPayment {
+pub struct TwoAssetPayment {
     private: TwoAssetPaymentPrivateInputs,
     public: TwoAssetPaymentPublicInputs,
 }
@@ -35,8 +34,8 @@ struct TwoAssetPaymentPublicInputs {
     recipient: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for TwoAssetPayment {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <TwoAssetPayment as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let recipient = &self.public.recipient;
@@ -78,7 +77,7 @@ fn two_asset_payment_prove_and_verify() {
         public: TwoAssetPaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("two-asset payment proof inputs");
     assert_eq!(
         (

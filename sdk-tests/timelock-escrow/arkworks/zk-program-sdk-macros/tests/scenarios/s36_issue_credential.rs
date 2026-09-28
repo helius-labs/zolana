@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, ConfidentialTransaction,
         DataUtxo, PublicInputs, Uint,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct IssueCredential {
+pub struct IssueCredential {
     private: IssueCredentialPrivateInputs,
     public: IssueCredentialPublicInputs,
 }
@@ -40,8 +39,8 @@ struct IssueCredentialPublicInputs {
 
 use crate::s35_create_issuer::CredentialCircuit;
 
-#[circuit]
-impl Circuit for IssueCredential {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <IssueCredential as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let issuer_hash = self.public.issuer.hash()?;
@@ -94,7 +93,7 @@ fn issue_credential_prove_and_verify() {
         public: IssueCredentialPublicInputs { issuer: address },
     };
     let spp_proof_inputs = issue
-        .create_proof_inputs_and_encrypt(&issuer, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&issuer, payer, u64::MAX)
         .expect("issue credential proof inputs");
     let credential = Credential {
         issuer_hash,

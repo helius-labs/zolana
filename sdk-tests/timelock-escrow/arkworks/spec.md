@@ -166,18 +166,36 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 | `WalletUtxo` | a `Utxo` with its `Owner` and `Asset` | the owner and asset checks; the SPP proof range-checks the other fields |
 | a struct | its circuit type, field by field | its fields' checks |
 
+- Byte hashing is exposed through `Bytes<N>::hash_bytes()`, which accepts only
+  checked bytes with a type-level length. Every protocol hash domain fixes its N:
+  mint and account values are 32 bytes, tagged owner identities are 33 bytes,
+  and data byte fields use their declared `Bytes<N>` width. Leading zeroes and
+  all-zero values are valid. Length is not encoded in the resulting field value,
+  so hashes from different widths must not be used interchangeably in one domain.
+  Inputs of at most 31 bytes are packed directly; longer inputs fold packed
+  chunks through Poseidon. Raw field slices are not a public byte-hashing API.
+
 - Owners and assets are always preimages. The circuit hashes them itself, each once:
   `Asset::hash` is `hash_bytes(mint)`, `OwnerKey::identity` is `hash_bytes(tag || key)`,
   and `Owner::hash` is `Poseidon(identity, nullifier_pk)`. Two owners or two assets are
   compared on their packed preimage chunks, a few constraints and no hashing. A `TokenUtxo`
   checks that its later inputs match the first input's owner and asset this way, then hashes
   them with the first input's owner and asset hashes.
+- `Utxo::hash()` commits a dummy using zero owner and asset hash fields, matching
+  the native dummy commitment. Hashes of its zero owner and SOL mint preimages
+  are not substituted for those zero fields. The selection is constrained by
+  the UTXO domain, and the tree id/blinding remain part of the commitment.
 - The SPP proof checks dummy inputs. A dummy slot contributes 0 to the input chain, and its
   preimage is all zeros: the byte checks pass for zeros, and only the tag check is skipped
   for a slot whose domain is the dummy domain. Nothing hashes a dummy's owner, so a
   `TokenUtxo` asserts that a dummy's nullifier key is zero, one constraint per later input.
 
 - `circuit` is a method of the circuit type, so inside it every value is a `CircuitVar`.
+- Native instantiation represents proof inputs as constants, so `value` may
+  read them during client-side evaluation. R1CS instantiation allocates variables,
+  and reading a proof input then fails with `ReadsVariableValue`. Native success
+  is not a proof-readiness check; `check_constraints` also checks setup/proving.
+
 - Instantiation is the only way from a proof input to its circuit type, and it runs the
   checks: natively as a comparison that fails with a named `CircuitError`, in R1CS as
   constraints, for example a bit decomposition for a `u64`.
@@ -384,13 +402,13 @@ it in R1CS:
 impl ZkProgram for Escrow {}
 
 let spp_proof_inputs =
-    escrow.create_proof_inputs_and_encrypt(&shielded_keys, payer, expiry_unix_ts)?;
+    escrow.create_proof_inputs_and_encrypt_with_keys(&shielded_keys, payer, expiry_unix_ts)?;
 let prover = Groth16Prover::<Escrow>::new(Groth16Keys::load(proving_key_path)?)?;
 let result = prover.prove(&escrow)?;
 ```
 
 - `ZkProgram` requires the inputs to implement `ProofInput` and `Placeholder`, and
-  `ProofInput::Circuit` to implement `Circuit`. It provides `create_proof_inputs_and_encrypt`,
+  `ProofInput::Circuit` to implement `Circuit`. It provides `create_proof_inputs_and_encrypt_with_keys`,
   which:
   1. instantiates the inputs natively and runs `circuit`,
   2. resolves the slots against the records and converts each output amount to `u64`, with a
@@ -412,7 +430,7 @@ let result = prover.prove(&escrow)?;
 - Native instantiation records what a `CircuitVar` cannot hold, keyed by the hash the logic
   uses: `owner_hash → ShieldedAddress`, `asset_hash → Mint` and `utxo_hash → WalletUtxo`.
   R1CS instantiation records nothing.
-- `create_proof_inputs_and_encrypt` resolves the `CheckedTransaction` against these records:
+- `create_proof_inputs_and_encrypt_with_keys` resolves the `CheckedTransaction` against these records:
   each nonzero input hash to its `WalletUtxo`, and an output's owner and asset hashes to its
   address and `Mint`. It drops the circuit's dummies, since the transaction crate pads with
   its own. The first real input takes SPP input slot 0, and its nullifier is the one the
@@ -420,7 +438,7 @@ let result = prover.prove(&escrow)?;
   hash.
 - Every output owner comes from a `ShieldedAddress` input or the keys: a spent UTXO has its
   owner's signing and nullifier keys but not the viewing key the encryption needs.
-- Both proofs start from the result of `create_proof_inputs_and_encrypt` and run in
+- Both proofs start from the result of `create_proof_inputs_and_encrypt_with_keys` and run in
   parallel.
 - The client also holds what the circuit does not see: Merkle proofs and leaf indexes,
   nullifier data and owner signers, and recipient viewing keys.
@@ -434,7 +452,7 @@ zk-program-sdk follows the same split:
 | Path | Contents |
 | --- | --- |
 | `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `CircuitError`, `ClientError`, `ProverError`, their kinds and `SourceLocation`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
 | `zk_program_sdk::testing` | Feature `client`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 

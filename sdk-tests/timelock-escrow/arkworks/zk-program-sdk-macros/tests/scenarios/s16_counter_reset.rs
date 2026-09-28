@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, Uint,
@@ -17,7 +16,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Reset {
+pub struct Reset {
     pub(crate) private: ResetPrivateInputs,
     pub(crate) public: ResetPublicInputs,
 }
@@ -34,8 +33,8 @@ pub(crate) struct ResetPublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for Reset {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Reset as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
@@ -68,7 +67,7 @@ fn counter_reset_prove_and_verify() {
         public: ResetPublicInputs { owner: address },
     };
     let spp_proof_inputs = reset
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("reset proof inputs");
     assert_eq!(
         spp_proof_inputs

@@ -2,7 +2,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use solana_address::Address;
 use solana_signature::Signature;
 use zk_program_sdk::{
-    circuit,
     circuit::{poseidon, Circuit, CircuitVar, ConstraintSystem, DataHash},
     conversion::{to_bytes, Allocator, ProofInput},
     CircuitError, ZkProgram,
@@ -332,8 +331,8 @@ pub struct MerklePath {
     pub bits: [bool; MERKLE_DEPTH],
 }
 
-#[circuit]
-impl MerklePath {
+#[deny(clippy::disallowed_types)]
+impl MerklePathCircuit {
     pub fn root(&self, leaf: &CircuitVar) -> Result<CircuitVar, CircuitError> {
         self.siblings
             .iter()

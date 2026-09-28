@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Balance, CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs,
         TokenUtxo,
@@ -13,7 +12,7 @@ use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
-    gadgets::{forgetful, isqrt},
+    gadgets::assert_isqrt,
     shared::{keypair, spendable, TREE_ID},
 };
 
@@ -23,7 +22,7 @@ const SWEPT: u64 = 500;
 /// Sweeps the sender's tokens to a recipient and proves that the public root
 /// is the integer square root of a private square.
 #[derive(Clone, ProofInput)]
-struct SquareRootSweep {
+pub struct SquareRootSweep {
     private: SweepPrivateInputs,
     public: SquareRootSweepPublicInputs,
 }
@@ -41,36 +40,11 @@ struct SquareRootSweepPublicInputs {
     root: u32,
 }
 
-#[circuit]
-impl Circuit for SquareRootSweep {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <SquareRootSweep as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        isqrt(&private.square)?.assert_equal(&self.public.root, ROOT_RULE)?;
-        let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
-        let mut sweep = TokenUtxo::new_init(&private.recipient, &tokens.asset());
-        tokens.transfer_all(&mut sweep)?;
-        ConfidentialTransaction::new(&private.tx_context, &self.public)
-            .with_token_utxos(tokens)
-            .with_token_utxos(sweep)
-            .check()
-    }
-}
-
-/// The same sweep through a gadget that leaves its hint unconstrained.
-#[derive(Clone, ProofInput)]
-struct ForgetfulSweep {
-    private: SweepPrivateInputs,
-    public: ForgetfulSweepPublicInputs,
-}
-
-#[derive(Clone, ProofInput, PublicInputs)]
-struct ForgetfulSweepPublicInputs;
-
-#[circuit]
-impl Circuit for ForgetfulSweep {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let private = &self.private;
-        forgetful(&private.square.clone().into())?;
+        assert_isqrt(&private.square, &self.public.root, ROOT_RULE)?;
         let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
         let mut sweep = TokenUtxo::new_init(&private.recipient, &tokens.asset());
         tokens.transfer_all(&mut sweep)?;
@@ -108,7 +82,7 @@ fn a_program_using_an_external_gadget_proves_and_verifies() {
         public: SquareRootSweepPublicInputs { root: 4 },
     };
     let spp_proof_inputs = sweep
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("sweep proof inputs");
     let private_tx_hash = spp_proof_inputs
         .padding_independent_private_tx_hash()
@@ -158,15 +132,5 @@ fn a_wrong_public_root_breaks_the_program_rule() {
             error.location().file()
         )),
         Err(("CircuitError.RuleBroken", Some(ROOT_RULE), file!()))
-    );
-}
-
-#[test]
-fn setup_refuses_a_program_with_an_unused_hint() {
-    assert_eq!(
-        Groth16Prover::<ForgetfulSweep>::new_with_test_setup()
-            .err()
-            .map(|error| (error.name(), error.location().file())),
-        Some(("ProverError.UnusedHint", file!()))
     );
 }

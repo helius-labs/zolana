@@ -45,6 +45,8 @@ impl Records {
 }
 
 pub enum Allocator {
+    /// Evaluates proof inputs as constants for client-side execution.
+    /// Reads permitted here may still be refused by R1CS synthesis.
     Native(RefCell<Records>),
     R1cs(CircuitSystem),
 }

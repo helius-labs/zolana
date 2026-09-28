@@ -144,7 +144,8 @@ impl<S: DataHash + Clone> DataUtxo<S> {
                 Accumulator::amount(&input.amount),
             ),
             state: state.clone(),
-            spent: Some(input.spent(input.hash()?)),
+            // The domain check above already excludes dummies.
+            spent: Some(input.spent(input.hash_with(&input.owner.hash()?, &input.asset.hash()?)?)),
             burn,
         })
     }

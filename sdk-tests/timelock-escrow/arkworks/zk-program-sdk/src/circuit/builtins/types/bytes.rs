@@ -5,10 +5,10 @@ use crate::{
     circuit::{
         builtins::{
             field::{bits::bits_le, var::collect_array},
-            gadgets::hash_bytes::packed,
+            gadgets::hash_bytes::{hash_bytes, packed},
             ops::assert::{all_equal, assert_all_equal, assert_all_equal_if},
         },
-        constant, hash_bytes, zero, Assert, Bool, CircuitVar, Select,
+        constant, zero, Assert, Bool, CircuitVar, Select,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -33,6 +33,12 @@ impl<const N: usize> Bytes<N> {
         &self.bytes
     }
 
+    /// Commits checked bytes of the protocol's fixed length `N`.
+    ///
+    /// Leading zeroes are valid. Length is not part of the commitment, so
+    /// callers must use one fixed `N` per hash domain. Up to 31 bytes are
+    /// packed directly; longer values fold packed chunks through Poseidon.
+    #[track_caller]
     pub fn hash_bytes(&self) -> Result<CircuitVar, CircuitError> {
         hash_bytes(&self.bytes)
     }

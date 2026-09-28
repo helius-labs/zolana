@@ -59,6 +59,7 @@ impl Accumulator {
         };
     }
 
+    #[track_caller]
     fn bounded(&self) -> Result<(), CircuitError> {
         if self.bits > MAX_BOUNDED_BITS {
             return Err(CircuitErrorKind::BitWidthTooLarge {

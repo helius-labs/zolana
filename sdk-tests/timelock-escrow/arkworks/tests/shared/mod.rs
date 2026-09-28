@@ -71,7 +71,11 @@ pub fn escrow_utxo(creator: &ShieldedKeypair, amount: u64, unlock: u64) -> Walle
                 .expect("escrow owner"),
         },
     }
-    .create_proof_inputs_and_encrypt(creator, address.solana_address().expect("payer"), u64::MAX)
+    .create_proof_inputs_and_encrypt_with_keys(
+        creator,
+        address.solana_address().expect("payer"),
+        u64::MAX,
+    )
     .expect("escrow transaction");
     let output = spp_proof_inputs
         .output_utxos

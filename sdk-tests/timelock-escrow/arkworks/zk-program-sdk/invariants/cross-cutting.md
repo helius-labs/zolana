@@ -57,3 +57,21 @@ the only builtin is `CircuitVar +`, whose fixtures cover every entry below.
   - Error: `ProverErrorKind::WrongPublicInputCount`
   - Severity: Medium
   - Suggested test: negative; `tests/unit/<type>/<op>/r1cs.rs`
+
+## External harness execution
+
+- [x] **INV-XC-06: Picus timeout cleanup terminates detached solver descendants**
+  - Covered by: `tests/unit/harness/picus.rs` `timeout_cleanup_kills_a_solver_in_a_separate_process_group`
+  - Kind: interop
+  - Statement: when Racket launches a solver in a process group distinct from its own, timeout cleanup terminates that solver as well as the parent process.
+  - Location: `tests/unit/harness/picus.rs` (`terminate_tree`)
+  - Severity: Medium
+  - Suggested test: external (Racket, ps, kill); `tests/unit/harness/picus.rs`
+
+- [x] **INV-XC-07: Cached circom modules preserve independent witness executions**
+  - Covered by: `tests/unit/harness/circom.rs` `cached_modules_keep_calculations_and_assertion_handlers_independent`
+  - Kind: interop
+  - Statement: concurrent and repeated calculations on cached addition code accept exactly the honest claims, abort wrong claims in Abort mode, and return an unsatisfying witness in Ignore mode without affecting the next calculation; changing wasm bytes at the same path selects a new compiled artifact.
+  - Location: `tests/unit/harness/circom.rs` (`cached_module`, `Compiled::calculate`)
+  - Severity: Medium
+  - Suggested test: external (circom, Wasmer); `tests/unit/harness/circom.rs`

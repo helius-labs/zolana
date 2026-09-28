@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct Cancel {
+pub struct Cancel {
     private: CancelPrivateInputs,
     public: CancelPublicInputs,
 }
@@ -37,8 +36,8 @@ struct CancelPublicInputs {
     maker_identity: [u8; 32],
 }
 
-#[circuit]
-impl Circuit for Cancel {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Cancel as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -84,7 +83,7 @@ fn order_cancel_prove_and_verify() {
         },
     };
     let spp_proof_inputs = cancel
-        .create_proof_inputs_and_encrypt(&maker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&maker, payer, u64::MAX)
         .expect("cancel proof inputs");
     assert_eq!(
         spp_proof_inputs

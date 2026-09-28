@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         poseidon, Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct Claim {
+pub struct Claim {
     private: ClaimPrivateInputs,
     public: ClaimPublicInputs,
 }
@@ -51,8 +50,8 @@ fn eligibility_leaf(secret_key: [u8; 32], amount: u64) -> [u8; 32] {
 
 use crate::s39_airdrop_pool::PoolCircuit;
 
-#[circuit]
-impl Circuit for Claim {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Claim as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -124,7 +123,7 @@ fn airdrop_claim_prove_and_verify() {
         },
     };
     let spp_proof_inputs = claim
-        .create_proof_inputs_and_encrypt(&claimant, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&claimant, payer, u64::MAX)
         .expect("claim proof inputs");
     assert_eq!(
         spp_proof_inputs

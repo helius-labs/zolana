@@ -1,56 +1,48 @@
 use zk_program_sdk::{
-    circuit::{value, CircuitVar, Constraints, Field, LabelKind, VariableRole},
+    circuit::{constant, Assert, ConstraintSystem, Constraints, Field, VariableRole},
     conversion::{Allocator, ProofInput},
-    testing::{check_forged_hint, check_private_variables, constraint_labels, FreeVariable},
-    CircuitError, ProverError, ProverErrorKind, ZkCircuit,
+    testing::{check_private_variables, FreeVariable},
+    CircuitError, ProverError, ZkCircuit,
 };
 
-use crate::gadgets::{
-    field_sqrt, forgetful, isqrt, isqrt_without_upper_bound, FORGOTTEN_HINT, ISQRT_HINT,
-    ISQRT_RULE, NOT_A_SQUARE, SQRT_HINT, SQRT_RULE,
-};
+use crate::gadgets::{assert_field_sqrt, assert_isqrt, assert_isqrt_without_upper_bound};
+
+const ISQRT_RULE: &str = "the root is the integer square root";
+const SQRT_RULE: &str = "the root squares to the value";
 
 #[derive(Clone, Copy, Debug, ProofInput)]
 struct Isqrt {
     value: u64,
+    root: u32,
 }
 
 impl Constraints for IsqrtCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
-        isqrt(&self.value).map(|_| ())
+        assert_isqrt(&self.value, &self.root, ISQRT_RULE)
     }
 }
 
 #[derive(Clone, Copy, Debug, ProofInput)]
 struct IsqrtWithoutUpperBound {
     value: u64,
+    root: u32,
 }
 
 impl Constraints for IsqrtWithoutUpperBoundCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
-        isqrt_without_upper_bound(&self.value).map(|_| ())
+        assert_isqrt_without_upper_bound(&self.value, &self.root, ISQRT_RULE)
     }
 }
 
 #[derive(Clone, Copy, Debug, ProofInput)]
 struct FieldSqrt {
     value: Field,
+    root: Field,
 }
 
 impl Constraints for FieldSqrtCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
-        field_sqrt(&self.value).map(|_| ())
-    }
-}
-
-#[derive(Clone, Copy, Debug, ProofInput)]
-struct Forgetful {
-    value: Field,
-}
-
-impl Constraints for ForgetfulCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
-        forgetful(&self.value)
+        assert_field_sqrt(&self.value, &self.root, SQRT_RULE)
     }
 }
 
@@ -60,151 +52,178 @@ fn refusal(error: ProverError) -> Refusal {
     (error.name(), error.broken_rule())
 }
 
-const BREAKS_ISQRT_RULE: Refusal = ("ProverError.ProofInputsBreakRule", Some(ISQRT_RULE));
-
-fn native_isqrt(input: u64) -> Field {
-    let circuit = Isqrt { value: input }
-        .instantiate(&Allocator::native())
-        .expect("native isqrt input");
-    let root = isqrt(&circuit.value).expect("native isqrt");
-    value(&CircuitVar::from(root)).expect("native root")
-}
-
-fn native_sqrt(input: Field) -> Result<Field, CircuitError> {
-    let circuit = FieldSqrt { value: input }
-        .instantiate(&Allocator::native())
-        .expect("native sqrt input");
-    value(&field_sqrt(&circuit.value)?)
+/// Instantiate directly so native rejection cannot hide missing R1CS checks.
+fn r1cs_accepts<P: ZkCircuit>(inputs: &P) -> bool {
+    let cs = ConstraintSystem::new_ref();
+    inputs
+        .instantiate(&Allocator::R1cs(cs.clone()))
+        .expect("circuit inputs")
+        .constraints()
+        .expect("generate constraints");
+    cs.is_satisfied().expect("R1CS satisfaction")
 }
 
 #[test]
-fn isqrt_matches_the_integer_square_root_natively_and_in_r1cs() {
-    let values = [0, 1, 2, 15, 16, 17, u64::MAX];
-    let constraints = Isqrt { value: 0 }
+fn declared_integer_roots_check_natively_and_in_r1cs() {
+    let values = [0u64, 1, 2, 15, 16, 17, u64::MAX];
+    let constraints = Isqrt { value: 0, root: 0 }
         .check_constraints()
         .expect("isqrt constraints");
-    let checked: Vec<(Field, Result<usize, &str>)> = values
-        .iter()
-        .map(|&value| {
-            (
-                native_isqrt(value),
-                Isqrt { value }
-                    .check_constraints()
-                    .map_err(|error| error.name()),
-            )
-        })
-        .collect();
-    let expected: Vec<(Field, Result<usize, &str>)> = values
-        .iter()
-        .map(|&value| (Field::from(value.isqrt()), Ok(constraints)))
-        .collect();
-    assert_eq!(checked, expected);
+    let checked = values.map(|value| {
+        // Witness values are computed by the caller and passed as inputs.
+        Isqrt {
+            value,
+            root: u32::try_from(value.isqrt()).expect("32-bit root"),
+        }
+        .check_constraints()
+        .map_err(refusal)
+    });
+    assert_eq!(checked, [Ok(constraints); 7]);
 }
 
 #[test]
 fn isqrt_leaves_no_private_variable_free() {
-    let report = check_private_variables(&Isqrt { value: 17 }).expect("private variable report");
+    let report =
+        check_private_variables(&Isqrt { value: 17, root: 4 }).expect("private variable report");
     assert_eq!(report.free, Vec::<FreeVariable>::new());
 }
 
 #[test]
-fn the_hint_is_labelled_where_the_program_calls_the_gadget() {
-    let hints: Vec<_> = constraint_labels(&Isqrt { value: 17 })
-        .expect("isqrt labels")
-        .into_iter()
-        .filter(|label| label.kind == LabelKind::Allocation(VariableRole::Hint))
-        .map(|label| (label.text, label.file, label.private_variables.len()))
-        .collect();
-    assert_eq!(hints, vec![(ISQRT_HINT, file!(), 1)]);
-}
-
-#[test]
-fn a_forged_integer_root_breaks_the_rule() {
-    let forged = [3u64, 5].map(|root| {
-        check_forged_hint(&Isqrt { value: 17 }, ISQRT_HINT, &[Field::from(root)]).map_err(refusal)
-    });
-    assert_eq!(forged, [Err(BREAKS_ISQRT_RULE), Err(BREAKS_ISQRT_RULE)]);
-}
-
-#[test]
-fn a_missing_upper_bound_accepts_a_smaller_root() {
-    let forged = [(3u64, 17u64), (5, 17)].map(|(root, value)| {
-        check_forged_hint(
-            &IsqrtWithoutUpperBound { value },
-            ISQRT_HINT,
-            &[Field::from(root)],
+fn smaller_and_larger_integer_roots_are_rejected_by_native_and_r1cs_checks() {
+    let checked = [3, 5].map(|root| {
+        let inputs = Isqrt { value: 17, root };
+        (
+            inputs.check_constraints().map_err(refusal),
+            r1cs_accepts(&inputs),
         )
-        .map_err(refusal)
-    });
-    assert_eq!(forged, [Ok(()), Err(BREAKS_ISQRT_RULE)]);
-}
-
-#[test]
-fn field_sqrt_accepts_either_root_and_nothing_else() {
-    let nine = Field::from(9u64);
-    let root = native_sqrt(nine).expect("nine is a square");
-    let forged = [-root, root + Field::from(1u64)].map(|forged| {
-        check_forged_hint(&FieldSqrt { value: nine }, SQRT_HINT, &[forged]).map_err(refusal)
     });
     assert_eq!(
-        (
-            root * root,
-            FieldSqrt { value: nine }
-                .check_constraints()
-                .map(|_| ())
-                .map_err(refusal),
-            forged,
-        ),
-        (
-            nine,
-            Ok(()),
-            [
-                Ok(()),
-                Err(("ProverError.ProofInputsBreakRule", Some(SQRT_RULE)))
-            ],
-        )
+        checked,
+        [(Err(("CircuitError.RuleBroken", Some(ISQRT_RULE))), false); 2]
     );
 }
 
 #[test]
-fn a_non_square_breaks_the_rule_in_its_hint() {
-    let five = Field::from(5u64);
-    assert_eq!(
+fn a_missing_upper_bound_accepts_a_smaller_declared_root() {
+    let checked = [3, 5].map(|root| {
+        let inputs = IsqrtWithoutUpperBound { value: 17, root };
         (
-            native_sqrt(five).map_err(|error| (error.name(), error.broken_rule())),
-            FieldSqrt { value: five }
-                .check_constraints()
-                .map_err(refusal),
-        ),
-        (
-            Err(("CircuitError.RuleBroken", Some(NOT_A_SQUARE))),
-            Err(("CircuitError.RuleBroken", Some(NOT_A_SQUARE))),
+            inputs.check_constraints().map(|_| ()).map_err(refusal),
+            r1cs_accepts(&inputs),
         )
+    });
+    assert_eq!(
+        checked,
+        [
+            (Ok(()), true),
+            (Err(("CircuitError.RuleBroken", Some(ISQRT_RULE))), false),
+        ]
     );
 }
 
 #[test]
-fn synthesis_refuses_a_hint_no_constraint_reads() {
-    let error = Forgetful {
-        value: Field::from(7u64),
+fn field_sqrt_accepts_either_declared_root_and_rejects_an_incorrect_one() {
+    let root = Field::from(3u64);
+    let checked = [root, -root, root + Field::from(1u64)].map(|root| {
+        let inputs = FieldSqrt {
+            value: Field::from(9u64),
+            root,
+        };
+        (
+            inputs.check_constraints().map_err(refusal),
+            r1cs_accepts(&inputs),
+        )
+    });
+    assert_eq!(
+        checked,
+        [
+            (Ok(1), true),
+            (Ok(1), true),
+            (Err(("CircuitError.RuleBroken", Some(SQRT_RULE))), false),
+        ]
+    );
+}
+
+#[test]
+fn a_non_square_rejects_supplied_root_candidates_in_r1cs() {
+    let checked = [0u64, 1, 2, 3, u64::MAX].map(|root| {
+        let inputs = FieldSqrt {
+            value: Field::from(5u64),
+            root: Field::from(root),
+        };
+        (
+            inputs.check_constraints().map_err(refusal),
+            r1cs_accepts(&inputs),
+        )
+    });
+    assert_eq!(
+        checked,
+        [(Err(("CircuitError.RuleBroken", Some(SQRT_RULE))), false); 5]
+    );
+}
+
+const PRODUCT_RULE: &str = "(3a + 2)(b - 5) = result + 7";
+
+#[derive(Clone, Copy, Debug, ProofInput)]
+struct LinearProduct {
+    left: Field,
+    right: Field,
+    result: Field,
+}
+
+impl Constraints for LinearProductCircuit {
+    fn constraints(&self) -> Result<(), CircuitError> {
+        let left = &self.left * Field::from(3u64) + Field::from(2u64);
+        let right = &self.right - Field::from(5u64);
+        left.assert_product(&right, &(&self.result + Field::from(7u64)), PRODUCT_RULE)
     }
-    .check_constraints()
-    .expect_err("an unused hint");
-    let hint = match error.kind() {
-        ProverErrorKind::UnusedHint(label) => Some(label.text),
-        _ => None,
-    };
-    assert_eq!(
-        (error.name(), error.location().file(), hint),
-        ("ProverError.UnusedHint", file!(), Some(FORGOTTEN_HINT))
-    );
 }
 
 #[test]
-fn forging_a_hint_the_circuit_lacks_is_refused() {
+fn external_linear_combinations_constrain_declared_inputs_in_one_r1cs_row() {
+    let checked = [17u64, 18].map(|result| {
+        let inputs = LinearProduct {
+            left: Field::from(2u64),
+            right: Field::from(8u64),
+            result: Field::from(result),
+        };
+        (
+            inputs.check_constraints().map_err(refusal),
+            r1cs_accepts(&inputs),
+        )
+    });
     assert_eq!(
-        check_forged_hint(&Isqrt { value: 17 }, "no such hint", &[Field::from(1u64)])
-            .map_err(|error| error.name()),
-        Err("ProverError.NoSuchHint")
+        checked,
+        [
+            (Ok(1), true),
+            (Err(("CircuitError.RuleBroken", Some(PRODUCT_RULE))), false),
+        ]
     );
+}
+
+#[derive(Clone, Copy, Debug, ProofInput)]
+struct UnusedRoot {
+    value: Field,
+    root: Field,
+}
+
+impl Constraints for UnusedRootCircuit {
+    fn constraints(&self) -> Result<(), CircuitError> {
+        self.value.assert_equal(&constant(7u64), "value is seven")
+    }
+}
+
+#[test]
+fn existing_private_variable_checks_find_unused_declared_inputs() {
+    let report = check_private_variables(&UnusedRoot {
+        value: Field::from(7u64),
+        root: Field::from(3u64),
+    })
+    .expect("private variable report");
+    let free: Vec<_> = report
+        .free
+        .iter()
+        .map(|free| (free.variable, free.role))
+        .collect();
+    assert_eq!(free, vec![(1, VariableRole::Constrained)]);
 }

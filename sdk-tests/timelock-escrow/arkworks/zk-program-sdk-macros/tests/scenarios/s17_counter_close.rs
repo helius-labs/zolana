@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs,
@@ -17,7 +16,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Close {
+pub struct Close {
     pub(crate) private: ClosePrivateInputs,
     pub(crate) public: ClosePublicInputs,
 }
@@ -34,8 +33,8 @@ pub(crate) struct ClosePublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for Close {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Close as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let counter = DataUtxo::new_burn(&private.counter, &private.state)?;
@@ -67,7 +66,7 @@ fn counter_close_prove_and_verify() {
         public: ClosePublicInputs { owner: address },
     };
     let spp_proof_inputs = close
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("close proof inputs");
     assert_eq!(
         spp_proof_inputs

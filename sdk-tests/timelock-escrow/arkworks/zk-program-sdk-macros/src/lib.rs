@@ -1,7 +1,6 @@
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
-mod circuit;
 mod circuit_type;
 mod discriminator;
 mod paths;
@@ -32,11 +31,6 @@ pub fn derive_circuit_type(input: TokenStream) -> TokenStream {
 pub fn derive_zk_program_wasm(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     into_token_stream(zk_program_wasm::expand(&input))
-}
-
-#[proc_macro_attribute]
-pub fn circuit(attr: TokenStream, item: TokenStream) -> TokenStream {
-    circuit::expand(attr.into(), item.into()).into()
 }
 
 fn into_token_stream(result: syn::Result<proc_macro2::TokenStream>) -> TokenStream {

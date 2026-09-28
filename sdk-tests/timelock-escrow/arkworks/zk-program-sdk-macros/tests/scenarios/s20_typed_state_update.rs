@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         poseidon, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
         Uint,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct TypedUpdate {
+pub struct TypedUpdate {
     private: TypedUpdatePrivateInputs,
     public: TypedUpdatePublicInputs,
 }
@@ -38,8 +37,8 @@ struct TypedUpdatePublicInputs {
     count: u32,
 }
 
-#[circuit]
-impl Circuit for TypedUpdate {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <TypedUpdate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut state = DataUtxo::new_mut(&private.state_utxo, &private.state)?;
@@ -90,7 +89,7 @@ fn typed_state_update_prove_and_verify() {
         public: TypedUpdatePublicInputs { count: 9 },
     };
     let spp_proof_inputs = update
-        .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
         .expect("typed update proof inputs");
     let updated = TypedState {
         amount: 1_250,

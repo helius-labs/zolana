@@ -1,6 +1,5 @@
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs,
         TokenUtxo,
@@ -17,7 +16,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct Deposit {
+pub struct Deposit {
     private: DepositPrivateInputs,
     public: DepositPublicInputs,
 }
@@ -35,8 +34,8 @@ struct DepositPublicInputs {
     amount: u64,
 }
 
-#[circuit]
-impl Circuit for Deposit {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Deposit as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -70,7 +69,7 @@ fn deposit_to_another_owner_prove_and_verify() {
         },
     };
     let spp_proof_inputs = deposit
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("deposit proof inputs");
     assert_eq!(
         (

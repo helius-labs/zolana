@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, Owner, PublicInputs,
         TokenUtxo, Utxo,
@@ -16,7 +15,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct Swap {
+pub struct Swap {
     private: SwapPrivateInputs,
     public: SwapPublicInputs,
 }
@@ -38,7 +37,7 @@ struct SwapPublicInputs {
     amount_b: u64,
 }
 
-#[circuit]
+#[deny(clippy::disallowed_types)]
 fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, CircuitError> {
     let tokens = TokenUtxo::new_burn(inputs)?;
     tokens
@@ -48,8 +47,8 @@ fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, CircuitError> {
     Ok(tokens)
 }
 
-#[circuit]
-impl Circuit for Swap {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Swap as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let public = &self.public;
@@ -95,7 +94,7 @@ fn two_party_swap_prove_and_verify() {
         },
     };
     let spp_proof_inputs = swap
-        .create_proof_inputs_and_encrypt(&party_a, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&party_a, payer, u64::MAX)
         .expect("swap proof inputs");
     assert_eq!(
         spp_proof_inputs

@@ -157,7 +157,7 @@ fn mixer_withdrawal_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdrawal
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("mixer withdrawal proof inputs");
     assert_eq!(
         spp_proof_inputs

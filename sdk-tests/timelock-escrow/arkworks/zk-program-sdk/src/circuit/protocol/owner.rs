@@ -8,14 +8,16 @@ use crate::{
     circuit::{
         builtins::{
             field::var::cached,
-            gadgets::hash_bytes::packed,
+            gadgets::hash_bytes::{hash_bytes, packed},
             ops::assert::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless},
         },
-        hash_bytes, poseidon, zero, Assert, Bool, Bytes, CircuitVar, DataHash, Select,
+        poseidon, zero, Assert, Bool, Bytes, CircuitVar, DataHash, Select,
     },
     CircuitError,
 };
 
+/// A tagged signing key. Equality excludes the nullifier public key; use
+/// `Owner` equality when that key must also match.
 #[derive(Clone, Debug)]
 pub struct OwnerKey {
     tag: CircuitVar,
@@ -70,10 +72,12 @@ impl OwnerKey {
         Ok(())
     }
 
-    fn tagged(&self) -> Vec<CircuitVar> {
-        core::iter::once(self.tag.clone())
-            .chain(self.bytes.bytes().iter().cloned())
-            .collect()
+    fn tagged(&self) -> [CircuitVar; 33] {
+        let mut tagged: [CircuitVar; 33] = core::array::from_fn(|_| zero());
+        let [tag, key @ ..] = &mut tagged;
+        *tag = self.tag.clone();
+        key.clone_from(self.bytes.bytes());
+        tagged
     }
 }
 

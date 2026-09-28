@@ -54,7 +54,7 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
     };
 
     let spp = escrow
-        .create_proof_inputs_and_encrypt(
+        .create_proof_inputs_and_encrypt_with_keys(
             &creator,
             address.solana_address().expect("payer"),
             u64::MAX,
@@ -130,7 +130,7 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
     };
 
     let spp = withdraw
-        .create_proof_inputs_and_encrypt(
+        .create_proof_inputs_and_encrypt_with_keys(
             &creator,
             address.solana_address().expect("payer"),
             u64::MAX,

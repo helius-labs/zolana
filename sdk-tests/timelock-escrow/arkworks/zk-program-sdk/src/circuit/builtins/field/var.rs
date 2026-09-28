@@ -150,6 +150,8 @@ pub fn zero() -> CircuitVar {
     constant(0u64)
 }
 
+/// Reads a constant, including proof inputs instantiated by the native allocator.
+/// R1CS proof inputs are variables and return `ReadsVariableValue` instead.
 #[track_caller]
 pub fn value(var: &CircuitVar) -> Result<Field, CircuitError> {
     let value = var

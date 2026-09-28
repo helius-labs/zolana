@@ -229,23 +229,35 @@ fn a_balance_of_at_least_2_pow_64_does_not_fit() {
 
 #[test]
 fn a_balance_summed_over_more_than_253_bits_is_too_wide_to_check() {
-    let too_wide = ("CircuitError.BitWidthTooLarge", None);
-    let refusal = |result: Result<(), Refusal>| result.map_err(|(name, rule, _)| (name, rule));
+    let too_wide = ("CircuitError.BitWidthTooLarge", None, FILE);
     assert_eq!(
         (
             native(&deposits::<190, false>([1; 190], 190)),
-            refusal(native(&deposits::<191, false>([1; 191], 191))),
-            refusal(native(&deposits::<191, true>([1; 191], 191))),
+            native(&deposits::<191, false>([1; 191], 191)),
+            native(&deposits::<191, true>([1; 191], 191)),
         ),
         (Ok(()), Err(too_wide), Err(too_wide))
     );
 }
 
 #[test]
-#[ignore = "FINDING: BitWidthTooLarge from balance() points at src/circuit/protocol/utxo/ledger.rs, not the circuit's line"]
 fn a_balance_too_wide_to_check_points_at_the_circuit_line() {
-    assert_eq!(
-        native(&deposits::<191, false>([1; 191], 191)),
-        Err(("CircuitError.BitWidthTooLarge", None, FILE))
-    );
+    use super::fixtures::{oversized_operation, BALANCE_READ};
+    for op in [BALANCE_READ, WITHDRAW_ALL, WITHDRAW, TRANSFER] {
+        let (line, result) = oversized_operation(op);
+        let error = result.expect_err("254-bit accumulator is refused");
+        assert!(matches!(
+            error.kind(),
+            zk_program_sdk::CircuitErrorKind::BitWidthTooLarge { bits: 254 }
+        ));
+        assert_eq!(
+            (
+                error.name(),
+                error.broken_rule(),
+                error.location().file(),
+                error.location().line()
+            ),
+            ("CircuitError.BitWidthTooLarge", None, FILE, line),
+        );
+    }
 }

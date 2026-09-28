@@ -130,7 +130,7 @@ fn sol_payment_prove_and_verify() {
         public: PaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("payment proof inputs");
     assert_eq!(
         spp_proof_inputs.external_data.tx_viewing_pk,

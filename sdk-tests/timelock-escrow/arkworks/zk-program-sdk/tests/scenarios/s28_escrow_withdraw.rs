@@ -148,7 +148,7 @@ fn escrow_withdraw_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdraw
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("withdraw proof inputs");
     assert_eq!(
         spp_proof_inputs

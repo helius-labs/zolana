@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
         TokenUtxo,
@@ -18,7 +17,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-struct CreateTwo {
+pub struct CreateTwo {
     private: CreateTwoPrivateInputs,
     public: CreateTwoPublicInputs,
 }
@@ -38,8 +37,8 @@ struct CreateTwoPublicInputs {
 
 use crate::s22_create_and_update::{BadgeCircuit, ProfileCircuit};
 
-#[circuit]
-impl Circuit for CreateTwo {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CreateTwo as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -73,7 +72,7 @@ fn create_two_prove_and_verify() {
         public: CreateTwoPublicInputs { owner: address },
     };
     let spp_proof_inputs = create_two
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("create two proof inputs");
     assert_eq!(
         (

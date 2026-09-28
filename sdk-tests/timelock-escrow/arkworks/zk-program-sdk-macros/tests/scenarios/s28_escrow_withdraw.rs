@@ -1,5 +1,4 @@
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -17,7 +16,7 @@ use crate::{
 };
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct Withdraw {
+pub struct Withdraw {
     pub(crate) private: WithdrawPrivateInputs,
     pub(crate) public: WithdrawPublicInputs,
 }
@@ -35,8 +34,8 @@ pub(crate) struct WithdrawPublicInputs {
     pub(crate) owner_identity: [u8; 32],
 }
 
-#[circuit]
-impl Circuit for Withdraw {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Withdraw as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
@@ -79,7 +78,7 @@ fn escrow_withdraw_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdraw
-        .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
         .expect("withdraw proof inputs");
     assert_eq!(
         spp_proof_inputs

@@ -3,7 +3,11 @@ use zk_program_sdk::{
     conversion::ProofInput,
     CircuitError,
 };
-use zolana_transaction::WalletUtxo;
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use zolana_transaction::{
+    utxo::{ProofInputUtxo, SppProofInputUtxo},
+    WalletUtxo,
+};
 
 use crate::harness::fixture::{rule_broken, Refusal};
 
@@ -15,6 +19,21 @@ pub const HASH_BROKEN: Refusal = rule_broken(HASH_RULE, FILE);
 pub const CARRIED_BROKEN: Refusal = rule_broken(CARRIED_RULE, FILE);
 
 pub const CLAIM_WIRE: usize = 1;
+
+/// The incorrect commitment obtained by hashing the dummy's zero owner and
+/// SOL preimages instead of putting zero in its owner and asset hash fields.
+pub fn hashed_dummy_preimages_commitment(wallet: &WalletUtxo) -> Field {
+    let input = SppProofInputUtxo::from(wallet);
+    assert!(input.is_dummy(), "dummy regression vector");
+    let mut fields = ProofInputUtxo::try_from(&input).expect("dummy fields");
+    fields.asset = hash_bytes(&[0u8; 32]).expect("SOL asset hash");
+    fields.owner_hash = Poseidon::hashv(&[
+        &hash_bytes(&[0u8; 33]).expect("zero owner identity"),
+        &[0u8; 32],
+    ])
+    .expect("zero owner preimage hash");
+    crate::protocol::asset::vectors::field_of(&fields.hash().expect("incorrect dummy commitment"))
+}
 
 #[derive(Clone, Debug, ProofInput)]
 pub struct UtxoHash {

@@ -28,7 +28,7 @@ fn counter_lifecycle_prove_and_verify() {
         public: CounterCreatePublicInputs { owner: address },
     };
     let create_spp_proof_inputs = create
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("create proof inputs");
     let create_prover =
         Groth16Prover::<CounterCreate>::new_with_test_setup().expect("create setup");
@@ -50,7 +50,7 @@ fn counter_lifecycle_prove_and_verify() {
         public: IncrementPublicInputs { step: 3 },
     };
     let increment_spp_proof_inputs = increment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("increment proof inputs");
     let increment_result = prove(&increment_prover, &increment, "increment proof");
     increment_prover
@@ -68,7 +68,7 @@ fn counter_lifecycle_prove_and_verify() {
         public: IncrementPublicInputs { step: 4 },
     };
     let increment_spp_proof_inputs = increment
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("second increment proof inputs");
     let increment_result = prove(&increment_prover, &increment, "second increment proof");
     increment_prover
@@ -86,7 +86,7 @@ fn counter_lifecycle_prove_and_verify() {
         public: DecrementPublicInputs { step: 2 },
     };
     let decrement_spp_proof_inputs = decrement
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("decrement proof inputs");
     let decrement_prover =
         Groth16Prover::<Decrement>::new_with_test_setup().expect("decrement setup");
@@ -106,7 +106,7 @@ fn counter_lifecycle_prove_and_verify() {
         public: ResetPublicInputs { owner: address },
     };
     let reset_spp_proof_inputs = reset
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("reset proof inputs");
     let reset_prover = Groth16Prover::<Reset>::new_with_test_setup().expect("reset setup");
     let reset_result = prove(&reset_prover, &reset, "reset proof");
@@ -125,7 +125,7 @@ fn counter_lifecycle_prove_and_verify() {
         public: ClosePublicInputs { owner: address },
     };
     let close_spp_proof_inputs = close
-        .create_and_encrypt(&address, payer)
+        .create_proof_inputs_and_encrypt(&address, payer)
         .expect("close proof inputs");
     let close_prover = Groth16Prover::<Close>::new_with_test_setup().expect("close setup");
     let close_result = prove(&close_prover, &close, "close proof");

@@ -50,14 +50,14 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `TxContext` | The transaction settings: the blinding seed, from the OS RNG in `new`, and the output tree, `Some(0)` by default and the first spent input's `latest_tree_id` when `None`. The first nullifier comes from the first spent input and the sender from the keys. |
 | `Owner` | An owner preimage: the tag (`S` for Ed25519 and PDA keys, `P` for P256), the key bytes and the nullifier key. From a `ShieldedAddress`, or a signing key and nullifier key. |
 | `Bytes<N>` | A byte string the circuit sees byte by byte. |
-| `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
+| `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt_with_keys` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
 | `ZkCircuit` | Feature `client`. A circuit with no transaction and no public input, for testing a builtin on its own. Implemented for every input that implements `Placeholder` and whose circuit type implements `Constraints`. `check_constraints` runs the constraints natively and in R1CS and compares the proof's synthesis with the placeholder's, as `ZkProgram`'s does. `export_r1cs` (feature `setup`) and `export_assignment` write the iden3 `.r1cs` and `.wtns` files, with 0 public inputs. There is no Groth16 prover for one yet; snarkjs proves one from those files. |
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof`, `CompressedProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`, and the 128-byte form an instruction contains, from `CompressedProof::try_from(&proof)`. `CompressedProof::verify` decompresses and verifies it. |
 | `CircuitError` | What circuit code returns: a broken rule, a value out of range, a wrong length or a bad owner or UTXO. `broken_rule()` names the rule and `location()` the `file:line:column` of the program's line that broke it. |
 | `ClientError` | What building a transaction returns: a circuit error, a slot that does not resolve or a transaction the SPP builder refuses. |
-| `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. A failing constraint carries its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. `UnusedHint` names a `hint` that no constraint reads and its `file:line`. |
+| `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. A failing constraint carries its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. |
 | `SourceLocation`, `SlotKind` | The `file:line:column` of an error, and the kind of slot a slot error names. |
 | `ProvingKey`, `VerifyingKey`, `Proof` | Features `client` or `setup`. The arkworks Groth16 types over BN254, without the curve parameter. |
 
@@ -75,20 +75,19 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 
 | Name | What it is good for |
 | --- | --- |
-| `Field` | A native element of the BN254 scalar field that UTXO hashes and the public hash live in. It is a newtype over arkworks' `Fr`, with `From` for `u8` to `u128`, `bool` and `Fr`, `Fr::from(field)` back, and `+`, `-`, `*` and negation on native values. `is_zero`, `inverse`, `sqrt`, `pow` and `u64::try_from` / `u128::try_from` are the native math a `hint` computes with. |
-| `CircuitVar` | The value type inside `circuit`: a field element, a constant in the native run and a variable in R1CS. `+`, `-`, `*`, unary `-`, `+=`, `-=` and `*=` are field arithmetic that wraps around the modulus: a sum and a product by a constant are free, and a product of two variables costs one constraint. `inverse`, `div` and `pow` (by a constant exponent) are methods in the field; `inverse` and `div` refuse a zero divisor. `/`, `%`, `==` and `<` do not compile: the `/` and `%` errors point to `Uint::div_rem` and `CircuitVar::div`, and the `==` and `<` errors name the rules `UseAssertEqual` and `UseUintComparison`, for `assert_equal` or `is_equal` and the `Uint` comparisons. `CircuitVar::from` takes a `Bool` or a `Uint<BITS>`, and `Bool::try_from(&var)` and `Uint::try_from(&var)` check one back. `assert_product(other, product, rule)` constrains `self * other = product` in one row. A circuit allocates one only through `hint`. |
+| `Field` | A native element of the BN254 scalar field that UTXO hashes and the public hash live in. It is a newtype over arkworks' `Fr`, with `From` for `u8` to `u128`, `bool` and `Fr`, `Fr::from(field)` back, and `+`, `-`, `*` and negation on native values. `is_zero`, `inverse`, `sqrt`, `pow` and `u64::try_from` / `u128::try_from` are available when preparing input values. |
+| `CircuitVar` | The value type inside `circuit`: a field element, a constant in the native run and a variable in R1CS. `+`, `-`, `*`, unary `-`, `+=`, `-=` and `*=` are field arithmetic that wraps around the modulus: a sum and a product by a constant are free, and a product of two variables costs one constraint. `inverse`, `div` and `pow` (by a constant exponent) are methods in the field; `inverse` and `div` refuse a zero divisor. `/`, `%`, `==` and `<` do not compile: the `/` and `%` errors point to `Uint::div_rem` and `CircuitVar::div`, and the `==` and `<` errors name the rules `UseAssertEqual` and `UseUintComparison`, for `assert_equal` or `is_equal` and the `Uint` comparisons. `CircuitVar::from` takes a `Bool` or a `Uint<BITS>`, and `Bool::try_from(&var)` and `Uint::try_from(&var)` check one back. `assert_product(other, product, rule)` constrains `self * other = product` in one row. |
 | `CircuitSystem`, `ConstraintSystem` | The constraint system R1CS instantiation allocates into. `ConstraintSystem::new_ref()` makes one. |
-| `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a constant's value. Reading a variable fails in every run with `ValueOfVariable` and the line of the read, so a circuit cannot branch on a value. |
+| `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a constant's value. Native execution represents proof inputs as constants, so `value` can read them. In R1CS, proof inputs are variables: reading one fails with `ReadsVariableValue` at the read's source location during setup or proving. A successful native run alone does not establish that a circuit can be proved; use `check_constraints`. |
 | `Assert` | Equality with a named rule on `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays: `assert_equal`, `assert_not_equal`, `assert_equal_if(condition)`, and `is_equal`, which returns a `Bool`. A zero check on a `CircuitVar` compares it with `zero()`: `is_equal(&zero())`, `assert_equal(&zero(), rule)` or `assert_not_equal(&zero(), rule)`. |
 | `Uint<BITS>` | A value below `2^BITS`, 1 to 253 bits, with the aliases `U8`, `U16`, `U32`, `U64` and `U128`. `add`, `mul` and `sum` return a wider type at no cost. `From` widens between the aliases and turns a `Bool` into a `Uint`; `TryFrom` narrows between the aliases and range-checks a `CircuitVar` into a `Uint`. `checked_add`, `checked_mul`, `checked_sub`, the `assert_less_*` comparisons, `assert_in_range(low, high)` (inclusive), `assert_equal`, `assert_not_zero` and `div_rem` check a named rule; the `is_less_*` comparisons return a `Bool`, and `min` and `max` select by one. Range checks and comparisons decompose through arkworks' `to_bits_le_with_top_bits_zero`; ordering works on at most 252 bits, so a difference cannot wrap around the field. Widths are checked when the circuit is built: a sum or product that could wrap does not compile. |
 | `Bits` | `check_bits(bits)`, `check_is_bool`, and `to_bits_le::<N>()`, which returns the bits as `Bool`s. `from_bits_le` recomposes them. |
-| `hint`, `Unconstrained<T>` | How a gadget outside the SDK witnesses a value it computes off the circuit, such as a square root. `hint(text, [inputs], compute)` runs `compute` on the inputs' values natively and while proving, never while the shape is built, and returns `O` witnesses as an `Unconstrained<[CircuitVar; O]>`. The only way to read them is `constrain(rule, body)`, whose rows carry the rule. Synthesis refuses a hint that no constraint reads with `ProverError::UnusedHint`. |
 | `Bool` | A 0 or 1 value, from a `bool` input, `Bool::try_from(&var)`, `is_equal` or a comparison: `select(if_true, if_false)` for any `Select` type, `not`, `and`, `or`, `xor`, `nand`, `implies`, `Bool::all`, `Bool::any`, `assert_true`, `assert_false` and `assert_true_if(condition)`. `Uint::from(flag)` and `CircuitVar::from(flag)` turn one into a value, for arithmetic or hashing. A circuit needs no arkworks import to branch on one. |
 | `Select` | Selection by a `Bool`, for `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
 | `is_in`, `assert_in` | Membership of a value in a set of `CircuitVar`s. |
 | `poseidon` | The circom Poseidon that zolana hashes with natively, built from light-poseidon's parameters. |
 | `nonzero_hash_chain` | The chain `private_tx_hash` folds input and output hashes with. It skips zeros, so dummies do not enter it. |
-| `hash_bytes` | The zolana `hash_bytes` over byte variables: 31-byte big-endian chunks folded with Poseidon. |
+| `Bytes<N>::hash_bytes()` | A fixed-width commitment over checked bytes: 31-byte big-endian chunks folded with Poseidon. Use one `N` per protocol hash domain; leading zeroes are valid. |
 | `Bytes<N>` | `N` byte variables, each range-checked to 8 bits when allocated. `Bytes::<N>::try_from(&var)` splits a variable into big-endian bytes and `CircuitVar::try_from(&bytes)` packs them back, for `N` up to 31. |
 
 **UTXOs**
@@ -120,7 +119,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 
 | Name | What it is good for |
 | --- | --- |
-| `CircuitLabel`, `LabelKind`, `VariableRole` | What a synthesis records: the rows of each check and scope and the private variables of each allocation, with the rule and the circuit's `file:line`. A `hint`'s witnesses have the role `Hint`. |
+| `CircuitLabel`, `LabelKind`, `VariableRole` | What a synthesis records: the rows of each check and scope and the private variables of each allocation, with the rule and the circuit's `file:line`. |
 | `FailedConstraint` | The first failing row and its innermost label. |
 | `CircuitSize` | Constraints and public and private variables, for comparing a proof's synthesis with the placeholder's. |
 
@@ -130,12 +129,66 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | --- | --- |
 | `constraint_labels` | The labels of a proof input's synthesis. |
 | `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. A `ZkCircuit` has no public hash, so `Tamper::PublicHash` on one is `WrongPublicInputCount`. |
-| `check_private_variables`, `PrivateVariableReport`, `FreeVariable` | Perturbs each private variable in turn and lists the ones no constraint refuses. A free variable is an under-constrained circuit, except equality hints (`Multiplier`) and the unused inputs' nullifier and latest tree, which the SPP proof constrains (`Carried`). A free `Hint` is always reported. Both scenario suites and the escrow run it on every proof. |
-| `check_forged_hint` | Synthesizes a proof with every hint of a given text witnessing forged values, recomputing everything derived from them, and checks the constraints. `Ok` means a dishonest prover can choose that hint, which is a soundness bug unless the gadget allows several answers. A text no hint has is `NoSuchHint`. |
+| `check_private_variables`, `PrivateVariableReport`, `FreeVariable` | Perturbs each private variable in turn and lists the ones no constraint refuses. A free variable is an under-constrained circuit, except equality hints (`Multiplier`) and the unused inputs' nullifier and latest tree, which the SPP proof constrains (`Carried`). Both scenario suites and the escrow run it on every proof. |
 
 ### Writing a gadget
 
-A gadget is a function over circuit values, usually `#[circuit]` and `#[track_caller]`, so its labels name the program's line. It combines the builtins and, for a value it cannot compute in the circuit, a `hint` whose `constrain` body pins the value: range checks through `Uint::try_from`, `assert_product`, comparisons and `assert_equal`. Test it as a `ZkCircuit` with `check_constraints`, `check_private_variables` and `check_forged_hint` on each hint. [`zk-program-sdk/tests/external_gadget`](zk-program-sdk/tests/external_gadget) does this for an integer and a field square root, and proves a program that uses one.
+A gadget is an ordinary function over declared `CircuitVar` inputs or typed
+builtins such as `U32` and `U64`. Use `#[track_caller]` for caller locations.
+Arithmetic and assertions generate constraints directly. Linear combinations and
+`assert_product` can express any R1CS row.
+
+The caller computes any additional values, declares them in its `ProofInput`,
+and passes their circuit variables to the gadget. For example, a field square
+root is supplied as an input and constrained by its square:
+
+```rust
+use zk_program_sdk::{circuit::CircuitVar, CircuitError};
+
+#[track_caller]
+fn assert_square_root(
+    value: &CircuitVar,
+    root: &CircuitVar,
+) -> Result<(), CircuitError> {
+    root.assert_product(root, value, "root squared equals value")
+}
+```
+
+Existing operations allocate their own intermediate witnesses internally.
+External gadgets compose those operations and add all required equations,
+range checks and bounds over their inputs. Native computation by the caller
+is not a constraint on the supplied values.
+
+Test gadgets as standalone `ZkCircuit`s with `check_constraints` and
+`check_private_variables`. Test incorrect supplied values directly in R1CS too:
+instantiate with `Allocator::R1cs`, generate the gadget's constraints and check
+`ConstraintSystem::is_satisfied`. This avoids mistaking native rejection for
+constraint rejection. [`zk-program-sdk/tests/external_gadget`](zk-program-sdk/tests/external_gadget)
+contains integer and field square roots, arbitrary linear combinations, and a
+program that proves and verifies with Groth16 using a declared root input.
+
+### Implementing a derived circuit
+
+`#[derive(ProofInput)]` generates the circuit form of a client type. Implement
+`Circuit` on its associated type with ordinary Rust:
+
+```rust,ignore
+impl Circuit for <Escrow as ProofInput>::Circuit {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        // Build and check the transaction using self's circuit fields.
+    }
+}
+```
+
+`ZkProgram` requires `ProofInput<Circuit: Circuit> + Placeholder`, so its associated
+type must implement `Circuit`. Input fields and state types only need `CircuitType`.
+Use the generated name for inherent impls (`impl EscrowCircuit`) and for generic
+impls such as `impl<const N: usize> Circuit for EscrowCircuit<N>`.
+
+Set `#![deny(unused_must_use, unused_variables, unused_assignments)]`,
+`#![forbid(unsafe_code)]`, and `#![deny(clippy::let_underscore_must_use)]` on circuit
+crates or modules. Use `#[deny(clippy::disallowed_types)]` on circuit impls and
+gadgets to apply the collection restrictions in `clippy.toml`.
 
 ### `zk_program_sdk::conversion`: between the two
 
@@ -181,7 +234,7 @@ stateDiagram-v2
     state "Refused, a constraint fails" as Unsatisfied
 
     [*] --> Inputs
-    Inputs --> Native : create_proof_inputs_and_encrypt instantiates natively
+    Inputs --> Native : create_proof_inputs_and_encrypt_with_keys instantiates natively
     Native --> Checked : circuit, then check
     Checked --> Refused : a rule breaks or a slot does not resolve
     Checked --> Spp : resolve slots, encrypt with zolana_transaction
@@ -200,7 +253,7 @@ stateDiagram-v2
 
 *Figure 1: One set of inputs feeds both proofs.*
 
-`create_proof_inputs_and_encrypt` instantiates the inputs natively, which runs the range
+`create_proof_inputs_and_encrypt_with_keys` instantiates the inputs natively, which runs the range
 checks and fills the records. It then runs `circuit`, resolves each slot of the
 `CheckedTransaction` against the records and converts the amounts. `zolana_transaction`'s
 `ConfidentialTransaction` then pads to the smallest SPP shape that fits and encrypts the

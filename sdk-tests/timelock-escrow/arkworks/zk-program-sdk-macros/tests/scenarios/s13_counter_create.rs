@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit,
     circuit::{
         Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
         PublicInputs, TokenUtxo,
@@ -22,7 +21,7 @@ pub struct Counter {
 }
 
 #[derive(Clone, ProofInput)]
-pub(crate) struct CounterCreate {
+pub struct CounterCreate {
     pub(crate) private: CounterCreatePrivateInputs,
     pub(crate) public: CounterCreatePublicInputs,
 }
@@ -38,8 +37,8 @@ pub(crate) struct CounterCreatePublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
-#[circuit]
-impl Circuit for CounterCreate {
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CounterCreate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -67,7 +66,7 @@ fn counter_create_prove_and_verify() {
         public: CounterCreatePublicInputs { owner: address },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("counter create proof inputs");
     assert_eq!(
         spp_proof_inputs
