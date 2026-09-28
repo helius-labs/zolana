@@ -34,6 +34,7 @@ def main():
     parser.add_argument("names", nargs="*")
     parser.add_argument("--converter", type=Path, required=True)
     parser.add_argument("--expected-lock", type=Path)
+    parser.add_argument("--discard-source", action="store_true", help="remove each compressed source after successful conversion")
     args = parser.parse_args()
     source = json.loads((SERVER / "scripts/key-image-source.lock").read_text())
     expected = json.loads(args.expected_lock.read_text())["keys"] if args.expected_lock else None
@@ -69,6 +70,8 @@ def main():
         if expected and not matches(target, expected[name]):
             raise RuntimeError("converted checksum mismatch: " + name)
         print(name, target.stat().st_size, digest(target), flush=True)
+        if args.discard_source:
+            original.unlink()
 
 
 if __name__ == "__main__":

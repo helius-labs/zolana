@@ -51,14 +51,16 @@ loads lazily and keeps a loaded key in memory.
 ## Publication remains a separate step
 
 This migration does not publish artifacts. Before deploying this revision or
-running integration CI that downloads its keys, publish the converted top-level
+running integration jobs that download its keys, publish the converted top-level
 `.key` files into the new immutable object-store prefix in `proving-keys.lock`,
 and publish the six `source: release` ring files as `custom-ring-keys-v15`.
 Keep the previous prefix and release untouched. Publish existing converted keys;
 do not run setup or the key-rotation script. The new checksums are embedded in
 Rust programs and the TypeScript SDK, so roll those out with the prover revision.
 
-Until publication, CI/local environments can run the conversion command above
-to populate the expected keys without changing or bypassing their checksums.
+The TypeScript end-to-end CI job reproduces its keys with the conversion command
+above, verifies the new checksums, and discards compressed sources to save disk.
+It excludes the large 250-element forester key, which the suite does not use.
+Other CI/local environments can use the same command before publication.
 When upgrading gnark or gnark-crypto, explicitly migrate the image format and
 repin the resulting artifacts; the dependency test prevents accidental reuse.
