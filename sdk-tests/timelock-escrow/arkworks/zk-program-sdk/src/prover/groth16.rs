@@ -1,5 +1,7 @@
 #[cfg(feature = "client")]
 use core::marker::PhantomData;
+#[cfg(feature = "client")]
+use std::sync::{Arc, Mutex};
 #[cfg(any(feature = "setup", not(target_arch = "wasm32")))]
 use std::path::Path;
 
@@ -181,7 +183,7 @@ impl Groth16Keys {
 
     #[cfg(feature = "client")]
     pub fn from_zkey_bytes<P: ZkProgram>(bytes: &[u8]) -> Result<Self, ProverError> {
-        Self::from_zkey_for(bytes, &circuit_matrices::<P>()?)
+        Self::from_zkey_for(bytes, &circuit_matrices::<P>()?.clone())
     }
 
     #[cfg(all(feature = "client", not(target_arch = "wasm32")))]
@@ -390,7 +392,7 @@ impl ProofResult {
 #[cfg(feature = "client")]
 pub struct Groth16Prover<P> {
     keys: Groth16Keys,
-    matrices: CircuitMatrices,
+    matrices: Arc<CircuitMatrices>,
     program: PhantomData<fn() -> P>,
 }
 
@@ -406,7 +408,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
         Self::with_matrices(keys, matrices)
     }
 
-    fn with_matrices(keys: Groth16Keys, matrices: CircuitMatrices) -> Result<Self, ProverError> {
+    fn with_matrices(keys: Groth16Keys, matrices: Arc<CircuitMatrices>) -> Result<Self, ProverError> {
         if matrices.shape() != keys.circuit_shape() {
             return Err(ProverErrorKind::KeysForAnotherCircuit.into());
         }
@@ -433,7 +435,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
             )?;
         Ok(Self {
             keys: Groth16Keys::from(proving_key),
-            matrices,
+            matrices: Arc::new(matrices),
             program: PhantomData,
         })
     }
@@ -475,9 +477,26 @@ impl<P: ZkProgram> Groth16Prover<P> {
 const TEST_SETUP_SEED: u64 = 0;
 
 #[cfg(feature = "client")]
-fn circuit_matrices<P: ZkProgram>() -> Result<CircuitMatrices, ProverError> {
+fn circuit_matrices<P: ZkProgram + 'static>() -> Result<Arc<CircuitMatrices>, ProverError> {
+    use std::{any::TypeId, collections::HashMap, sync::OnceLock};
+
+    // The matrices are deterministic per circuit, so synthesize them once
+    // per process: constraint-system finalization is the load path's
+    // dominant cost (~80 ms native, ~135 ms in the browser) and repeated
+    // prover constructions of the same program get it for free.
+    static CACHE: OnceLock<Mutex<HashMap<TypeId, Arc<CircuitMatrices>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = TypeId::of::<P>();
+    if let Some(matrices) = cache.lock().expect("matrices cache poisoned").get(&key) {
+        return Ok(Arc::clone(matrices));
+    }
     let placeholder = P::placeholder()?;
-    ArkworksCircuit::for_setup(&placeholder).matrices()
+    let matrices = Arc::new(ArkworksCircuit::for_setup(&placeholder).matrices()?);
+    cache
+        .lock()
+        .expect("matrices cache poisoned")
+        .insert(key, Arc::clone(&matrices));
+    Ok(matrices)
 }
 
 #[cfg(any(feature = "setup", not(target_arch = "wasm32")))]

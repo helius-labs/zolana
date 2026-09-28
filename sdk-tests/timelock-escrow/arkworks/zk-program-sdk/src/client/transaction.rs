@@ -14,7 +14,7 @@ use crate::{
     ClientError, ClientErrorKind, ProverError, SlotKind,
 };
 
-pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
+pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder + 'static {
     fn check_constraints(&self) -> Result<usize, ProverError> {
         ArkworksCircuit::new(self)?.check_constraints(&Self::placeholder()?)
     }
@@ -95,7 +95,7 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
     }
 }
 
-impl<T: ProofInput<Circuit: Circuit> + Placeholder> ZkProgram for T {}
+impl<T: ProofInput<Circuit: Circuit> + Placeholder + 'static> ZkProgram for T {}
 
 #[derive(Clone)]
 pub struct ProgramTransaction {
