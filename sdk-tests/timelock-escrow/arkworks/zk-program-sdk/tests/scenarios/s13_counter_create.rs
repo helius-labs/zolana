@@ -98,7 +98,7 @@ pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
-            DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData,
+            DataUtxo, Owner, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -143,7 +143,7 @@ pub(crate) mod circuit {
     impl Circuit for CounterCreate {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let counter = DataUtxo::<Counter>::new_init(&self.public.owner);
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

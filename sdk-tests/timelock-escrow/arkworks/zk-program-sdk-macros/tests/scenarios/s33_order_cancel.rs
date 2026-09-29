@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxo, UtxoTrait,
+        TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -53,7 +53,7 @@ impl Circuit for <Cancel as ProofInput>::Circuit {
         public
             .expiry
             .assert_equal(&order.expiry, "the expiry is not the order's")?;
-        let mut refund = TokenUtxo::new_init(&private.maker, &order.asset());
+        let mut refund = TokenUtxos::new_init(&private.maker, &order.asset());
         order.transfer_all(&mut refund)?;
 
         ConfidentialTransaction::new(&private.tx_context, public)

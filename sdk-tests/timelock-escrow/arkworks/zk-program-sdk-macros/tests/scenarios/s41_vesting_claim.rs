@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
         Assert, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxo, UtxoTrait,
+        PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -85,7 +85,7 @@ impl Circuit for <VestingClaim as ProofInput>::Circuit {
             &vesting.claimed,
             "the claim is below what was already claimed",
         )?;
-        let mut paid = TokenUtxo::new_init(&private.beneficiary, &vesting.asset());
+        let mut paid = TokenUtxos::new_init(&private.beneficiary, &vesting.asset());
         vesting.transfer(&mut paid, &payout)?;
         let mut next = DataUtxo::<VestingCircuit>::new_init(&private.vesting_owner)
             .with_asset(&vesting.asset())?;

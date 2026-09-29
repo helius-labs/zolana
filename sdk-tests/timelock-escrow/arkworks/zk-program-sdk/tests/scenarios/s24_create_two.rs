@@ -72,7 +72,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
-            Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            Owner, PublicInputs, TokenUtxos, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -98,7 +98,7 @@ mod circuit {
     impl Circuit for CreateTwo {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut profile = DataUtxo::<Profile>::new_init(&self.public.owner);
             profile.score = private.score.clone();
             let mut badge = DataUtxo::<Badge>::new_init(&self.public.owner);

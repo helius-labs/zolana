@@ -139,8 +139,8 @@ pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
             constant, poseidon, zero, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxos,
+            TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -220,7 +220,7 @@ pub(crate) mod circuit {
     impl Circuit for CreateIssuer {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut issuer = DataUtxo::<Issuer>::new_init(&self.public.issuer);
             issuer.issuer_hash = self.public.issuer.hash()?;
 

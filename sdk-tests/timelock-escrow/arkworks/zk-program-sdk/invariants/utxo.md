@@ -22,7 +22,7 @@ The preimages (`vectors.rs`) are an Ed25519 SOL token of 1, a P256 USDC token of
 PDA SOL token of 0, an Ed25519 data UTXO in a ring (data hash, ring data hash and ring
 program id set), a P256 token in tree 2^16 - 1 reporting latest tree 4, and a PDA data UTXO
 with blinding and data hash p - 1; dummy vectors use `SppProofInputUtxo::dummy_with_blinding`
-with boundary and generated blindings/tree ids. `SpentInput` and `Utxo::spent` are crate-private and built only by the `TokenUtxo`
+with boundary and generated blindings/tree ids. `SpentInput` and `Utxo::spent` are crate-private and built only by the `TokenUtxos`
 and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry from the
 `Utxo` are covered here (INV-UTXO-05, -08, -20, -21).
 
@@ -250,14 +250,14 @@ and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry
 INV-UTXO summary: 26 (Critical 10, High 12, Medium 4); covered 25, partial 1
 (INV-UTXO-23, Picus `Unknown` within its bound), findings 0.
 
-## Balance (`transfer`, `transfer_all`, `deposit`, `withdraw`, `withdraw_all` on `TokenUtxo` and `DataUtxo`)
+## Balance (`transfer`, `transfer_all`, `deposit`, `withdraw`, `withdraw_all` on `TokenUtxos` and `DataUtxo`)
 
 Covers the `UtxoTrait` trait and its `Balance` of `src/circuit/protocol/utxo/balance.rs`, shared
-by `TokenUtxo` and `DataUtxo`: a balance amount that tracks its bit width, the
+by `TokenUtxos` and `DataUtxo`: a balance amount that tracks its bit width, the
 destination checks, and the 64-bit bounds. The fixtures in
 `tests/unit/protocol/balance/fixtures.rs` are:
 
-- `Balance<SOURCE, DESTINATION, OP, OWN_ASSET>`: a new source holder (a `TokenUtxo` or a
+- `Balance<SOURCE, DESTINATION, OP, OWN_ASSET>`: a new source holder (a `TokenUtxos` or a
   `DataUtxo<CounterState>`) takes one deposit, then runs `OP` (`transfer`, `transfer_all`,
   `withdraw` or `withdraw_all`) against a new destination holder built with the source's
   `asset()` or with another mint. Both final balances are asserted equal to the native ones
@@ -267,7 +267,7 @@ destination checks, and the 64-bit bounds. The fixtures in
 - `Accessors<KIND>`: `owner()` and `asset()` hashed against the native owner hash and
   `hash_bytes(mint)`.
 - `Empty<OP>`: a withdrawal from a holder without a deposit.
-- `IntoBurned<DESTINATION, ALL>`: a transfer into a `TokenUtxo::new_burn` or
+- `IntoBurned<DESTINATION, ALL>`: a transfer into a `TokenUtxos::new_burn` or
   `DataUtxo::new_burn` of a constant input.
 - `Arithmetic`: the balance alone over a constant owner, asset and account.
 
@@ -443,7 +443,7 @@ deposit or withdraw 0.
 - [x] **INV-LEDGER-20: a transfer into a burned UTXO is a structural error before any row**
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_transfer_into_a_burned_utxo_is_a_structural_error`; `tests/unit/protocol/balance/r1cs.rs` `a_transfer_into_a_burned_utxo_is_refused_before_any_row`
   - Kind: error
-  - Statement: a transfer or transfer_all into a burned `TokenUtxo` or `DataUtxo` returns exactly `CircuitError.TransferToBurnedUtxo`, with no rule, natively, from `export_r1cs` and from `check_constraints`.
+  - Statement: a transfer or transfer_all into a burned `TokenUtxos` or `DataUtxo` returns exactly `CircuitError.TransferToBurnedUtxo`, with no rule, natively, from `export_r1cs` and from `check_constraints`.
   - Location: `src/circuit/protocol/utxo/balance.rs:148-152` (`fn check_destination`)
   - Error: `CircuitErrorKind::TransferToBurnedUtxo`
   - Severity: High
@@ -488,11 +488,11 @@ deposit or withdraw 0.
 INV-LEDGER summary: 24 (Critical 7, High 13, Medium 3, Low 1); covered 22, partial 2
 (INV-LEDGER-15 and -16, Picus `Unknown` within its bound), findings 0.
 
-## TokenUtxo (`new_init`, `new_mut`, `new_burn`, dummies, change)
+## TokenUtxos (`new_init`, `new_mut`, `new_burn`, dummies, change)
 
-Covers `TokenUtxo` of `src/circuit/protocol/utxo/token.rs`, spent from `WalletUtxo` inputs
+Covers `TokenUtxos` of `src/circuit/protocol/utxo/token.rs`, spent from `WalletUtxo` inputs
 built by `tests/unit/protocol/transaction/wallets.rs`. `Spend<N, LAST>` in
-`tests/unit/protocol/token/fixtures.rs` runs `TokenUtxo::new_mut` over N inputs and asserts:
+`tests/unit/protocol/token/fixtures.rs` runs `TokenUtxos::new_mut` over N inputs and asserts:
 
 - the balance, with "the balance is the real inputs' native total"
 - the owner hash, with "the owner is the first input's native owner"

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{
-        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo, UtxoTrait,
+        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -36,8 +36,8 @@ struct SplPaymentPublicInputs {
 impl Circuit for <SplPayment as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut payment = TokenUtxo::new_init(&self.public.recipient, &self.public.mint);
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
+        let mut payment = TokenUtxos::new_init(&self.public.recipient, &self.public.mint);
         tokens.transfer(&mut payment, &private.amount)?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

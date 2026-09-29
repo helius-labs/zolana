@@ -104,7 +104,7 @@ order:
 2. Token UTXOs, one array per asset: `token_utxos_asset_a: [WalletUtxo; A]`,
    `token_utxos_asset_b: [WalletUtxo; B]`. Each length is a const generic or a constant: the
    most UTXOs of that asset the circuit spends. `WalletUtxo::dummy` fills the unused entries.
-   In `circuit` each array becomes a `TokenUtxo`.
+   In `circuit` each array becomes a `TokenUtxos`.
 3. Data UTXOs: one named `WalletUtxo` per spent UTXO that holds program state, with its
    state next to it.
 4. Arbitrary data: every other value, for example an amount or a recipient's
@@ -178,7 +178,7 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 - Owners and assets are always preimages. The circuit hashes them itself, each once:
   `Asset::hash` is `hash_bytes(mint)`, `OwnerKey::identity` is `hash_bytes(tag || key)`,
   and `Owner::hash` is `Poseidon(identity, nullifier_pk)`. Two owners or two assets are
-  compared on their packed preimage chunks, a few constraints and no hashing. A `TokenUtxo`
+  compared on their packed preimage chunks, a few constraints and no hashing. A `TokenUtxos`
   checks that its later inputs match the first input's owner and asset this way, then hashes
   them with the first input's owner and asset hashes.
 - `Utxo::hash()` commits a dummy using zero owner and asset hash fields, matching
@@ -188,7 +188,7 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 - The SPP proof checks dummy inputs. A dummy slot contributes 0 to the input chain, and its
   preimage is all zeros: the byte checks pass for zeros, and only the tag check is skipped
   for a slot whose domain is the dummy domain. Nothing hashes a dummy's owner, so a
-  `TokenUtxo` asserts that a dummy's nullifier key is zero, one constraint per later input.
+  `TokenUtxos` asserts that a dummy's nullifier key is zero, one constraint per later input.
 
 - `circuit` is a method of the circuit type, so inside it every value is a `CircuitVar`.
 - Native instantiation represents proof inputs as constants, so `value` may
@@ -240,7 +240,7 @@ and `UtxoTrait::transfer` moves value from one to the other:
 | Type | What it is |
 | --- | --- |
 | `DataUtxo<S>` | A UTXO with program state `S`, close to `LightAccount`: `new_init(owner, asset)`, `new_mut`, `new_burn`. |
-| `TokenUtxo` | `LightAccount` without data: UTXOs of one owner and one asset, none from `new_init(owner, asset)`, `N` from `new_mut` or `new_burn`. |
+| `TokenUtxos` | `LightAccount` without data: UTXOs of one owner and one asset, none from `new_init(owner, asset)`, `N` from `new_mut` or `new_burn`. |
 
 - A state `S` implements `DataHash`, a Poseidon hash over its fields in declaration order.
   Each field contributes its own `hash`: a `CircuitVar` or a `Uint` is its value, and a
@@ -269,7 +269,7 @@ and `UtxoTrait::transfer` moves value from one to the other:
 - `new_init(owner, asset)` holds nothing until a transfer or a deposit: amount 0 in `asset`.
   A data UTXO that only holds state passes `&Asset::sol()`.
 - `source.transfer(&mut destination, &amount)?` moves `amount` into another UTXO, a
-  `TokenUtxo` or a `DataUtxo`, empty or not. An empty destination comes from `new_init` and
+  `TokenUtxos` or a `DataUtxo`, empty or not. An empty destination comes from `new_init` and
   holds the asset it was built with. A destination with inputs holds their asset, and its
   owner signs in SPP because the inputs are spent. Emptiness is structural, never a zero
   balance, since the prover controls the balance. The transfer checks, in order:
@@ -297,10 +297,10 @@ and `UtxoTrait::transfer` moves value from one to the other:
   transaction: a utxo was not added". Forgetting to add a destination compiles, because the
   `&mut` borrow counts as a use; this check refuses it. Every transfer stays within one asset,
   so one sum covers the transaction: one linear constraint in R1CS.
-- The constructors borrow their inputs: `TokenUtxo::new_mut(&inputs)`,
+- The constructors borrow their inputs: `TokenUtxos::new_mut(&inputs)`,
   `DataUtxo::new_mut(&input, &state)`. The accessors return values: `amount()`, `owner()`
   and `asset()`. An owner's and an asset's hashes are shared between clones.
-- A `TokenUtxo` tracks a balance: its inputs plus deposits and the transfers it receives,
+- A `TokenUtxos` tracks a balance: its inputs plus deposits and the transfers it receives,
   minus withdrawals and the transfers it sends. The balance becomes an output to the token's
   owner, the change for a token with inputs. The change is not passed around:
   `with_token_utxos` creates it.
@@ -311,7 +311,7 @@ and `UtxoTrait::transfer` moves value from one to the other:
 - `token.deposit(amount)` adds to the change balance and `token.withdraw(amount)` subtracts
   from it. They only balance the UTXOs. The public amounts themselves are controlled by the
   SPP proof.
-- A `TokenUtxo` has a lifecycle like a `DataUtxo`, fixed when the circuit is written:
+- A `TokenUtxos` has a lifecycle like a `DataUtxo`, fixed when the circuit is written:
 
   | Lifecycle | Constructor | Inputs | Output |
   | --- | --- | --- | --- |
@@ -333,7 +333,7 @@ impl Circuit for Escrow {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;
-        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut escrow =
             DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner, &tokens.asset());
         tokens.transfer(&mut escrow, &private.amount)?;
@@ -348,7 +348,7 @@ impl Circuit for Escrow {
 }
 ```
 
-- `with_token_utxos(TokenUtxo)` adds what the lifecycle implies: `Init` adds its output,
+- `with_token_utxos(TokenUtxos)` adds what the lifecycle implies: `Init` adds its output,
   `Mut` the inputs and the change output, and `Burn` the inputs.
 - `with_data_utxo(DataUtxo)` adds what the lifecycle implies: `Init` adds an output, `Mut` an
   input and an output, and `Burn` an input.
@@ -380,11 +380,11 @@ impl Circuit for Escrow {
   the ones no constraint refuses. Both scenario suites and the escrow tests require that
   list to be empty, apart from equality hints and the unused inputs' nullifier and latest
   tree, which the SPP proof constrains.
-- `TokenUtxo` and `DataUtxo` move value through the same `UtxoTrait` trait: `transfer`,
+- `TokenUtxos` and `DataUtxo` move value through the same `UtxoTrait` trait: `transfer`,
   `transfer_all`, `deposit`, `withdraw` and `withdraw_all`, in every lifecycle. Every
   movement of value between UTXOs is a `transfer` or a `transfer_all`. The lifecycle only
   decides what is left: the output for a token or a data UTXO, and zero once burned, which
-  the circuit asserts. The withdraw moves the whole escrow amount into a new `TokenUtxo` for
+  the circuit asserts. The withdraw moves the whole escrow amount into a new `TokenUtxos` for
   `terms.creator` with `transfer_all`.
 
 ## Client
@@ -452,7 +452,7 @@ zk-program-sdk follows the same split:
 | Path | Contents |
 | --- | --- |
 | `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `CircuitError`, `ClientError`, `ProverError`, their kinds and `SourceLocation`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `UtxoTrait`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxos`, `DataUtxo`, `UtxoTrait`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
 | `zk_program_sdk::testing` | Feature `client`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 
@@ -465,7 +465,7 @@ A feature may gate it later.
   `Placeholder`. Setup never evaluates the values, so the keys depend only on the type, and a
   circuit's structure must not depend on its input values. The fixed seed makes the keys
   reproducible; the setup is insecure either way. `Groth16Prover::new` runs the same synthesis
-  on loaded keys and refuses keys of another circuit. `TokenUtxo::new_mut` and `new_burn`
+  on loaded keys and refuses keys of another circuit. `TokenUtxos::new_mut` and `new_burn`
   take an array of `N` inputs, so a circuit that spends more UTXOs is another `N`, with other
   keys. One set of keys pairs with every
   SPP shape the real UTXOs fit.

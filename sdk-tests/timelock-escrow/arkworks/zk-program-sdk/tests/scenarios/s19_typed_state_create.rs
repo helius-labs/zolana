@@ -141,8 +141,8 @@ pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxos,
+            TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -213,7 +213,7 @@ pub(crate) mod circuit {
     impl Circuit for TypedCreate {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut state = DataUtxo::<TypedState>::new_init(&private.owner);
             state.amount = self.public.amount.clone();
             state.count = private.count.clone();

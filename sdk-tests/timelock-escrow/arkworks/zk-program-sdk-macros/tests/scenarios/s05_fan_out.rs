@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{
-        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo, Uint,
+        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos, Uint,
         UtxoTrait,
     },
     conversion::ProofInput,
@@ -41,11 +41,11 @@ impl Circuit for <FanOut as ProofInput>::Circuit {
         let private = &self.private;
         Uint::<64>::sum::<67, _>(&private.amounts)
             .assert_equal(&self.public.total, "the payments do not sum to the total")?;
-        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut payments = private
             .recipients
             .each_ref()
-            .map(|recipient| TokenUtxo::new_init(recipient, &tokens.asset()));
+            .map(|recipient| TokenUtxos::new_init(recipient, &tokens.asset()));
         payments
             .iter_mut()
             .zip(&private.amounts)

@@ -97,12 +97,12 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `Asset` | A mint as bytes. `hash()` is the asset hash; `Asset::sol()` and `Asset::constant(&mint)` are constants. |
 | `OwnerKey` | The tag and key bytes. `identity()` is `hash_bytes(tag \|\| key)`, the value the program sees as `owner_identity`. |
 | `Owner` | An `OwnerKey` and the nullifier key. `hash()` is the owner hash. Owners compare by their packed preimage. |
-| `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxo`. A dummy carries no nullifier key. |
+| `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxos`. A dummy carries no nullifier key. |
 | `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, this circuit carries them. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
 | `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_burn`. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, or must be zero once burned. |
-| `TokenUtxo` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_burn`, with dummies after the first. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. |
+| `TokenUtxos` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_burn`, with dummies after the first. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. |
 | `UtxoTrait` | The value operations both UTXO types share: `owner`, `asset`, `amount`, `transfer` and `transfer_all` into a destination UTXO of either type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a burned destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `amount` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Balance`. |
 
 **Transaction and circuit**
@@ -269,7 +269,7 @@ R1CS, proves, and checks the proof against the keys. `verify` and the program's
 
 ```mermaid
 stateDiagram-v2
-    accTitle: The DataUtxo and TokenUtxo lifecycles
+    accTitle: The DataUtxo and TokenUtxos lifecycles
     accDescr: Both UTXO types start as Init, Mut or Burn. Init adds an output, Mut inputs and an output, Burn inputs. A burned UTXO transfers its value into other UTXOs and has no output.
 
     state "Init - no input, one output" as Init
@@ -286,11 +286,11 @@ stateDiagram-v2
     Slots --> [*]
 ```
 
-*Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxo`, the counterparts of `LightAccount`.*
+*Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxos`, the counterparts of `LightAccount`.*
 
 A UTXO starts in `Init`, `Mut` or `Burn`. `Init` adds only an output: the new state for a
-`DataUtxo`, the value transferred into it for a `TokenUtxo`. `Mut` adds its inputs and that
-output, the change for a `TokenUtxo`. `Burn` adds only its inputs, and its transfers must move
+`DataUtxo`, the value transferred into it for a `TokenUtxos`. `Mut` adds its inputs and that
+output, the change for a `TokenUtxos`. `Burn` adds only its inputs, and its transfers must move
 out its whole value. Every UTXO but a burned one can receive a transfer: an `Init` UTXO holds
 the asset it was built with, the others their inputs' asset.
 

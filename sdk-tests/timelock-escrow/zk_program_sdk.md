@@ -769,7 +769,7 @@ Layout:
 
 - `arkworks/circuit-lib` (`circuit-lib`): everything not specific to the escrow. `CircuitVar`,
   `ProofInput`, `Assert`, `poseidon`, `Utxo`, `DataHash`, `DataUtxo` (the `LightAccount`
-  counterpart: `new_init` / `from_output_utxo` / `new_mut` / `new_burn`), `TokenUtxo` (several
+  counterpart: `new_init` / `from_output_utxo` / `new_mut` / `new_burn`), `TokenUtxos` (several
   UTXOs of one owner and asset, with `transfer` and automatic change),
   `ConfidentialTransaction` (input and output slots, `private_tx_hash`),
   `TransactionProofInputs`, `Circuit` / `ArkworksCircuit`, Groth16 and groth16-solana helpers,
@@ -788,7 +788,7 @@ Todos (one at a time, each verified before the next):
 2. `CircuitVar`, `ProofInput`, `Assert`, Poseidon over constants and allocated variables. Verify:
    Poseidon equals `zolana_hasher` for arities 1 to 7. Done.
 3. circuit-lib: `Utxo`, `DataHash`, `InputHash`, `Output`, `payment`, `plain_hash`, `DataUtxo`,
-   `TokenUtxo`, `TransactionProofInputs`, `ConfidentialTransaction`, `hash_chain4`, blinding
+   `TokenUtxos`, `TransactionProofInputs`, `ConfidentialTransaction`, `hash_chain4`, blinding
    derivations. Verify: native results equal `ProofInputUtxo::hash`, `PrivateTxHash` and
    `zolana_program::derivation`, and the R1CS run is satisfied with the same hash. Done.
 4. `Circuit` / `ArkworksCircuit` in circuit-lib; the escrow and withdraw circuits in the example
@@ -820,7 +820,7 @@ crate, adapting the existing Rust circuits. Requirements from the user:
 Decisions made while implementing, recorded in the spec:
 
 - The withdraw needs the spec's open item. A burned `DataUtxo` gets
-  `transfer(recipient, amount) -> OutputTokenUtxo`, like a `TokenUtxo`, with no change.
+  `transfer(recipient, amount) -> OutputTokenUtxo`, like a `TokenUtxos`, with no change.
 - The program is unchanged, so its public input hash still follows the current protocol. The new
   proofs verify with the program's `verify_groth16` against the spec's public hash.
 
@@ -831,7 +831,7 @@ Todos:
    instantiation (native or R1CS). Verify: named error natively and an unsatisfied constraint
    system in R1CS for an out-of-range value. Done.
 2. UTXO types: `Utxo` with dummies, `DataHash`, `OutputTokenUtxo`, `DataUtxo<S>` (`new_init`,
-   `from_output_utxo`, `new_mut`, `new_burn`, `transfer` when burned), `TokenUtxo<N>` (`Init` /
+   `from_output_utxo`, `new_mut`, `new_burn`, `transfer` when burned), `TokenUtxos<N>` (`Init` /
    `Mut` / `Burn`, dummies, `transfer`, `deposit`, `withdraw`).
    Verify natively and in R1CS. Done.
 3. `TxContext`, `PublicInputs`, `ConfidentialTransaction<IN, OUT>` builder and `check`, with
@@ -839,7 +839,7 @@ Todos:
    with `zolana_hasher`. Done.
 4. `Circuit` trait and `ArkworksCircuit` (public hash as the only instance variable),
    `check_constraints`, Groth16 setup, prove and verify. Done.
-5. circuit-lib `client` module: `TxContext`, `TokenUtxo`, `OutputTokenUtxo`, `DataUtxo`,
+5. circuit-lib `client` module: `TxContext`, `TokenUtxos`, `OutputTokenUtxo`, `DataUtxo`,
    `ConfidentialTransaction` with real Rust types, producing `SppProofInputs`, the circuit's
    proof inputs and the public hash. Done.
 6. Example crate: `EscrowTerms`, the escrow and withdraw circuits and their `client`
@@ -991,7 +991,7 @@ Decisions:
   constraint except hashing, so a dummy preimage is all zeros. Only the owner tag check is
   gated on the slot being real: zero bytes already pass the byte range checks.
 - `Owner`, `OwnerKey` and `Asset` compute their hashes once, lazily, and reuse them.
-- `TokenUtxo<N>` keeps up to `N` real inputs, with the dummy flag read from the domain.
+- `TokenUtxos<N>` keeps up to `N` real inputs, with the dummy flag read from the domain.
 
 Todos:
 
@@ -1002,7 +1002,7 @@ Todos:
    or more and a tag outside {S, P} are unsatisfied; a gated all-zero owner is satisfied. Done:
    `ProofInput`/`FromCircuit` for `u8` would overlap the `[u8; 32]` field impl, so the tag is
    allocated directly; the gated all-zero owner is tested with todo 2.
-2. Switch the SDK: `circuit::Utxo`, `TokenUtxo`, `DataUtxo`, `OutputTokenUtxo`, `Output` and
+2. Switch the SDK: `circuit::Utxo`, `TokenUtxos`, `DataUtxo`, `OutputTokenUtxo`, `Output` and
    `TxContext.sender` carry `Owner` and `Asset`; `ShieldedAddress`, `Mint` and `WalletUtxo`
    instantiate to preimages; `TryFrom<&ProofInputUtxo> for Utxo` goes. Verify: zk-program-sdk
    tests, with fixtures built from keypairs and mints. Done.
@@ -1013,7 +1013,7 @@ Todos:
 
 ## 16. Later token inputs reuse the first input's owner and asset
 
-2026-09-25. From the review of section 15: `TokenUtxo` hashes every input after the first with
+2026-09-25. From the review of section 15: `TokenUtxos` hashes every input after the first with
 the first input's owner and asset hashes instead of hashing each input's own preimages.
 
 Decisions:
@@ -1026,7 +1026,7 @@ Decisions:
 Todos:
 
 1. `Utxo::hash_with(owner_hash, asset_hash)`, `Owner`/`Asset::assert_same_unless` over packed
-   chunks; `TokenUtxo::spend` uses both. Verify: zk-program-sdk and example tests. Done:
+   chunks; `TokenUtxos::spend` uses both. Verify: zk-program-sdk and example tests. Done:
    escrow 8,993 constraints (was 9,710).
 2. Spec, preimage doc, README constraint counts. Done.
 
@@ -1097,7 +1097,7 @@ Decisions:
   stays `None` until Photon reports it (TODO at `newest_unpaused_tree_id`). The circuit takes
   the first nullifier from the first spent input, and the client takes the sender from the
   keys.
-- `TokenUtxo` and `DataUtxo` borrow their inputs and share the `UtxoTrait` trait, default
+- `TokenUtxos` and `DataUtxo` borrow their inputs and share the `UtxoTrait` trait, default
   methods over a `Balance` each embeds: `transfer`, `transfer_all`, `receive`, `deposit`,
   `withdraw` and `withdraw_all`, with owned accessors and amounts by reference. Both keep
   their lifecycle as a private field; it only decides what happens to the remainder. The

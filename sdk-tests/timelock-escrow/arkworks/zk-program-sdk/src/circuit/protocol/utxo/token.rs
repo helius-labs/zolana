@@ -13,14 +13,13 @@ use crate::{
 
 #[must_use]
 #[derive(Debug)]
-pub struct TokenUtxo {
-    // rename to TokenUtxos
+pub struct TokenUtxos {
     balance: Balance,
     spent_inputs: Vec<SpentInput>,
     close: bool,
 }
 
-impl HasBalance for TokenUtxo {
+impl HasBalance for TokenUtxos {
     fn balance(&self) -> &Balance {
         &self.balance
     }
@@ -34,9 +33,9 @@ impl HasBalance for TokenUtxo {
     }
 }
 
-impl UtxoTrait for TokenUtxo {}
+impl UtxoTrait for TokenUtxos {}
 
-impl TokenUtxo {
+impl TokenUtxos {
     pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
         Self {
             balance: Balance::new(owner.clone(), asset.clone(), Amount::zero()),

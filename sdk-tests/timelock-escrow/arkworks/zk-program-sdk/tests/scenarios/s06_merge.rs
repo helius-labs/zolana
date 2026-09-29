@@ -67,7 +67,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoTrait,
+            Owner, PublicInputs, TokenUtxos, TxContext, Utxo, UtxoTrait,
         },
         CircuitError,
     };
@@ -91,12 +91,12 @@ mod circuit {
     impl Circuit for Merge {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_close(&private.token_utxos_asset_a)?;
+            let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
             tokens
                 .owner()
                 .hash()?
                 .assert_equal(&self.public.owner.hash()?, "the inputs have another owner")?;
-            let mut merged = TokenUtxo::new_init(&self.public.owner, &tokens.asset());
+            let mut merged = TokenUtxos::new_init(&self.public.owner, &tokens.asset());
             tokens.transfer_all(&mut merged)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

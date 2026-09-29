@@ -114,7 +114,7 @@ pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
-            DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData, UtxoTrait,
+            DataUtxo, Owner, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData, UtxoTrait,
         },
         CircuitError,
     };
@@ -164,7 +164,7 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             private.amount.assert_not_zero("the escrow locks nothing")?;
-            let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut escrow = DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner)
                 .with_asset(&tokens.asset())?;
             tokens.transfer(&mut escrow, &private.amount)?;

@@ -2,7 +2,7 @@ use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
         poseidon, Assert, CheckedTransaction, Circuit, CircuitType, CircuitVar,
-        ConfidentialTransaction, Constraints, DataUtxo, Field, PublicInputs, TokenUtxo, Uint,
+        ConfidentialTransaction, Constraints, DataUtxo, Field, PublicInputs, TokenUtxos, Uint,
         UtxoTrait,
     },
     conversion::{Allocator, Placeholder, ProofInput},
@@ -62,7 +62,7 @@ pub struct Refresh {
 
 impl Circuit for RefreshCircuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let tokens = TokenUtxo::new_mut(&self.tokens)?;
+        let tokens = TokenUtxos::new_mut(&self.tokens)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
             .with_token_utxos(tokens)
             .check()
@@ -80,8 +80,8 @@ pub struct Payment {
 
 impl Circuit for PaymentCircuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut tokens = TokenUtxo::new_mut(&self.tokens)?;
-        let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
+        let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
+        let mut payment = TokenUtxos::new_init(&self.public.recipient, &tokens.asset());
         tokens.transfer(&mut payment, &self.amount)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
             .with_token_utxos(tokens)
@@ -103,7 +103,7 @@ pub struct Fund {
 
 impl Circuit for FundCircuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut tokens = TokenUtxo::new_mut(&self.tokens)?;
+        let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
         let mut counter = DataUtxo::new_mut(&self.counter, &self.state)?;
         counter.count = counter
             .count
@@ -129,7 +129,7 @@ pub struct Settle {
 
 impl Circuit for SettleCircuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut tokens = TokenUtxo::new_mut(&self.tokens)?;
+        let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
         tokens.deposit(&self.deposit, &self.account)?;
         tokens.withdraw(&self.withdraw, &self.account)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
@@ -149,8 +149,8 @@ pub struct Forgotten {
 
 impl Circuit for ForgottenCircuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut tokens = TokenUtxo::new_mut(&self.tokens)?;
-        let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
+        let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
+        let mut payment = TokenUtxos::new_init(&self.public.recipient, &tokens.asset());
         tokens.transfer(&mut payment, &self.amount)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
             .with_token_utxos(tokens)
@@ -190,7 +190,7 @@ pub struct Swept<const ALL: bool> {
 
 impl<const ALL: bool> Circuit for SweptCircuit<ALL> {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
-        let mut tokens = TokenUtxo::new_close(&self.tokens)?;
+        let mut tokens = TokenUtxos::new_close(&self.tokens)?;
         if ALL {
             let _ = tokens.withdraw_all(&self.account)?;
         }

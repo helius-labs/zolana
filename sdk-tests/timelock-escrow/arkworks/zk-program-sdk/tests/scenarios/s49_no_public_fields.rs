@@ -57,7 +57,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, Owner,
-            PublicInputs, TokenUtxo, TxContext, Utxo, UtxoTrait,
+            PublicInputs, TokenUtxos, TxContext, Utxo, UtxoTrait,
         },
         CircuitError,
     };
@@ -78,8 +78,8 @@ mod circuit {
     impl Circuit for PrivateSweep {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_close(&private.token_utxos_asset_a)?;
-            let mut sweep = TokenUtxo::new_init(&private.recipient, &tokens.asset());
+            let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
+            let mut sweep = TokenUtxos::new_init(&private.recipient, &tokens.asset());
             tokens.transfer_all(&mut sweep)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

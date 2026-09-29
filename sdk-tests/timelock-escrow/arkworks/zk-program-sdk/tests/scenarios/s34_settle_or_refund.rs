@@ -119,8 +119,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Bool, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData, UtxoTrait,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxos,
+            TxContext, Uint, Utxo, UtxoData, UtxoTrait,
         },
         CircuitError,
     };
@@ -195,9 +195,9 @@ mod circuit {
             let maker_amount = settles.select(&Uint::zero(), &value);
             reservation.fill_price = settles.select(price, &Uint::zero());
             let taker = reservation.owner();
-            let mut to_taker = TokenUtxo::new_init(&taker, &order.asset());
+            let mut to_taker = TokenUtxos::new_init(&taker, &order.asset());
             order.transfer(&mut to_taker, &taker_amount)?;
-            let mut to_maker = TokenUtxo::new_init(&private.maker, &order.asset());
+            let mut to_maker = TokenUtxos::new_init(&private.maker, &order.asset());
             order.transfer(&mut to_maker, &maker_amount)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)

@@ -76,7 +76,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
+            Owner, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };
@@ -108,8 +108,8 @@ mod circuit {
                 .path
                 .root(&public.recipient.hash()?)?
                 .assert_equal(&public.root, "the recipient is not on the allowlist")?;
-            let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut payment = TokenUtxo::new_init(&public.recipient, &tokens.asset());
+            let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
+            let mut payment = TokenUtxos::new_init(&public.recipient, &tokens.asset());
             tokens.transfer(&mut payment, &private.amount)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)

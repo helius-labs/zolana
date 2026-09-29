@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, Owner, PublicInputs,
-        TokenUtxo, Utxo, UtxoTrait,
+        TokenUtxos, Utxo, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -38,8 +38,8 @@ struct SwapPublicInputs {
 }
 
 #[deny(clippy::disallowed_types)]
-fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, CircuitError> {
-    let tokens = TokenUtxo::new_close(inputs)?;
+fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxos, CircuitError> {
+    let tokens = TokenUtxos::new_close(inputs)?;
     tokens
         .owner()
         .hash()?
@@ -54,9 +54,9 @@ impl Circuit for <Swap as ProofInput>::Circuit {
         let public = &self.public;
         let mut tokens_a = leg(&private.token_utxos_asset_a, &private.party_a)?;
         let mut tokens_b = leg(&private.token_utxos_asset_b, &private.party_b)?;
-        let mut to_b = TokenUtxo::new_init(&private.party_b, &public.mint_a);
+        let mut to_b = TokenUtxos::new_init(&private.party_b, &public.mint_a);
         tokens_a.transfer(&mut to_b, &public.amount_a)?;
-        let mut to_a = TokenUtxo::new_init(&private.party_a, &public.mint_b);
+        let mut to_a = TokenUtxos::new_init(&private.party_a, &public.mint_b);
         tokens_b.transfer(&mut to_a, &public.amount_b)?;
 
         ConfidentialTransaction::new(&private.tx_context, public)

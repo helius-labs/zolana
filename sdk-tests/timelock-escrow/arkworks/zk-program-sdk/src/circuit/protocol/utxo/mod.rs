@@ -11,7 +11,7 @@ pub use data::{checked_utxo_data, DataHash, DataUtxo, UtxoData};
 pub(crate) use input::SpentInput;
 pub use input::{Utxo, UtxoMeta};
 pub(crate) use output::Output;
-pub use token::TokenUtxo;
+pub use token::TokenUtxos;
 pub use unique::UniqueDataUtxo;
 use zolana_interface::UTXO_DOMAIN;
 

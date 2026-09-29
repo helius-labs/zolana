@@ -72,7 +72,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, Owner,
-            PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
+            PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };
@@ -100,11 +100,11 @@ mod circuit {
             let private = &self.private;
             Uint::<64>::sum::<67, _>(&private.amounts)
                 .assert_equal(&self.public.total, "the payments do not sum to the total")?;
-            let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut payments = private
                 .recipients
                 .each_ref()
-                .map(|recipient| TokenUtxo::new_init(recipient, &tokens.asset()));
+                .map(|recipient| TokenUtxos::new_init(recipient, &tokens.asset()));
             payments
                 .iter_mut()
                 .zip(&private.amounts)

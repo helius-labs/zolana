@@ -68,7 +68,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Bytes, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
+            PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };
@@ -91,7 +91,7 @@ mod circuit {
     impl Circuit for Withdrawal {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_close(&private.token_utxos_asset_a)?;
+            let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
             let withdrawn = tokens.withdraw_all(&private.destination)?;
             self.public
                 .amount

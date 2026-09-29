@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
         Assert, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxo, Uint, UtxoTrait,
+        PublicInputs, TokenUtxos, Uint, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -66,9 +66,9 @@ impl Circuit for <Settle as ProofInput>::Circuit {
         let maker_amount = settles.select(&Uint::zero(), &value);
         reservation.fill_price = settles.select(price, &Uint::zero());
         let taker = reservation.owner();
-        let mut to_taker = TokenUtxo::new_init(&taker, &order.asset());
+        let mut to_taker = TokenUtxos::new_init(&taker, &order.asset());
         order.transfer(&mut to_taker, &taker_amount)?;
-        let mut to_maker = TokenUtxo::new_init(&private.maker, &order.asset());
+        let mut to_maker = TokenUtxos::new_init(&private.maker, &order.asset());
         order.transfer(&mut to_maker, &maker_amount)?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

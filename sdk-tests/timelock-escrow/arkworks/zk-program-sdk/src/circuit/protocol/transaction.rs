@@ -8,7 +8,7 @@ use super::utxo::{Output, SpentInput};
 use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
-        zero, Assert, Bool, CircuitVar, DataHash, DataUtxo, PublicTransfer, TokenUtxo, Uint,
+        zero, Assert, Bool, CircuitVar, DataHash, DataUtxo, PublicTransfer, TokenUtxos, Uint,
         UniqueDataUtxo, Utxo, UtxoData, UtxoMeta,
     },
     CircuitError, CircuitErrorKind,
@@ -144,7 +144,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
     }
 
     #[track_caller]
-    pub fn with_token_utxos(mut self, token: TokenUtxo) -> Self {
+    pub fn with_token_utxos(mut self, token: TokenUtxos) -> Self {
         self.inputs.extend(token.spent_inputs().iter().cloned());
         self.public_transfers
             .extend(token.public_transfers().iter().cloned());

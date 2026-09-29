@@ -134,8 +134,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData, UtxoTrait,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxos,
+            TxContext, Uint, Utxo, UtxoData, UtxoTrait,
         },
         CircuitError,
     };
@@ -230,7 +230,7 @@ mod circuit {
                 &vesting.claimed,
                 "the claim is below what was already claimed",
             )?;
-            let mut paid = TokenUtxo::new_init(&private.beneficiary, &vesting.asset());
+            let mut paid = TokenUtxos::new_init(&private.beneficiary, &vesting.asset());
             vesting.transfer(&mut paid, &payout)?;
             let mut next = DataUtxo::<Vesting>::new_init(&private.vesting_owner)
                 .with_asset(&vesting.asset())?;

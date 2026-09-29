@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
         poseidon, Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxo, UtxoTrait,
+        PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -48,7 +48,7 @@ impl Circuit for <MixerWithdrawal as ProofInput>::Circuit {
             &public.nullifier_hash,
             "the nullifier hash is not the commitment's",
         )?;
-        let mut payout = TokenUtxo::new_init(&public.recipient, &note.asset());
+        let mut payout = TokenUtxos::new_init(&public.recipient, &note.asset());
         note.transfer_all(&mut payout)?;
 
         ConfidentialTransaction::new(&private.tx_context, public)

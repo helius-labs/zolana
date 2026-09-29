@@ -1,5 +1,5 @@
 use zk_program_sdk::{
-    circuit::{constant, Assert, CircuitVar, Constraints, Field, TokenUtxo, UtxoTrait},
+    circuit::{constant, Assert, CircuitVar, Constraints, Field, TokenUtxos, UtxoTrait},
     conversion::ProofInput,
     CircuitError,
 };
@@ -38,7 +38,7 @@ pub const UNSPENDABLE: usize = 1;
 /// The last input takes the first input's owner, nullifier key included.
 pub const KEYED: usize = 2;
 
-/// `TokenUtxo::new_mut` of the inputs, then its balance, owner hash and asset
+/// `TokenUtxos::new_mut` of the inputs, then its balance, owner hash and asset
 /// hash asserted equal to the native total and hashes.
 #[derive(Clone, Debug, ProofInput)]
 pub struct Spend<const N: usize, const LAST: usize> {
@@ -58,7 +58,7 @@ impl<const N: usize, const LAST: usize> Constraints for SpendCircuit<N, LAST> {
                 _ => {}
             }
         }
-        let tokens = TokenUtxo::new_mut(&inputs)?;
+        let tokens = TokenUtxos::new_mut(&inputs)?;
         CircuitVar::from(tokens.amount()?).assert_equal(&self.balance, BALANCE)?;
         tokens
             .owner()

@@ -1,7 +1,7 @@
 use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
-        Asset, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
+        Asset, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos,
         UtxoTrait,
     },
     conversion::ProofInput,
@@ -38,8 +38,8 @@ struct DepositPublicInputs {
 impl Circuit for <Deposit as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-        let mut deposit = TokenUtxo::new_init(&self.public.recipient, &Asset::sol());
+        let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
+        let mut deposit = TokenUtxos::new_init(&self.public.recipient, &Asset::sol());
         deposit.deposit(&self.public.amount, &private.source)?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

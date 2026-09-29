@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
         poseidon, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxo, UtxoTrait,
+        PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -89,7 +89,7 @@ pub(crate) fn commitment_utxo(
 impl Circuit for <MixerDeposit as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut note = DataUtxo::<MixerCommitmentCircuit>::new_init(&private.mixer)
             .with_asset(&tokens.asset())?;
         tokens.transfer(&mut note, &self.public.denomination)?;

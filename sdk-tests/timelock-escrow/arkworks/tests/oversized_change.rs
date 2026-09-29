@@ -5,7 +5,7 @@
 //! the same values with checked arithmetic.
 use zk_program_sdk::circuit::{
     constant, Bool, CircuitVar, ConfidentialTransaction, ConstraintSystem, PublicInputs,
-    TokenUtxo, TxContext, Uint,
+    TokenUtxos, TxContext, Uint,
 };
 use zk_program_sdk::conversion::{Allocator, ProofInput};
 use zk_program_sdk::CircuitError;
@@ -34,7 +34,7 @@ fn the_circuit_accepts_a_change_amount_above_u64() {
         .expect("second input");
 
     // Balance = 2 * (2^64 - 1) = 2^65 - 2, which does not fit in 64 bits.
-    let token = TokenUtxo::new_mut(&[first, second]).expect("token utxo");
+    let token = TokenUtxos::new_mut(&[first, second]).expect("token utxo");
 
     let tx_context = TxContext {
         blinding_seed: constant(7u64),

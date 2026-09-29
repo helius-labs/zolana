@@ -71,7 +71,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, Owner,
-            PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
+            PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };
@@ -94,12 +94,12 @@ mod circuit {
     impl<const N: usize, const R: usize> Circuit for Payment<N, R> {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut payments = self
                 .public
                 .recipients
                 .each_ref()
-                .map(|recipient| TokenUtxo::new_init(recipient, &tokens.asset()));
+                .map(|recipient| TokenUtxos::new_init(recipient, &tokens.asset()));
             payments
                 .iter_mut()
                 .zip(&private.amounts)

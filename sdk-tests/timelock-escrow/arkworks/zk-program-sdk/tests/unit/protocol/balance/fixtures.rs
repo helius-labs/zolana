@@ -2,7 +2,7 @@ use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
         constant, poseidon, Assert, Asset, Bytes, CircuitVar, Constraints, DataHash, DataUtxo,
-        Field, Owner, TokenUtxo, Uint, Utxo, UtxoTrait,
+        Field, Owner, TokenUtxos, Uint, Utxo, UtxoTrait,
     },
     conversion::ProofInput,
     hasher::DATA_HASH_DOMAIN,
@@ -63,7 +63,7 @@ impl<const OP: usize> Constraints for OversizedCircuit<OP> {
 pub fn oversized_operation(op: usize) -> (u32, Result<(), CircuitError>) {
     let account = Bytes::constant(ACCOUNT.as_array());
     let amount = Uint::<64>::constant(1).expect("one fits in an amount");
-    let mut holder = TokenUtxo::new_init(&Owner::default(), &Asset::sol());
+    let mut holder = TokenUtxos::new_init(&Owner::default(), &Asset::sol());
     for _ in 0..191 {
         holder.deposit(&amount, &account).expect("nonzero deposit");
     }
@@ -84,7 +84,7 @@ pub fn oversized_operation(op: usize) -> (u32, Result<(), CircuitError>) {
             (line, result)
         }
         TRANSFER => {
-            let mut destination = TokenUtxo::new_init(&Owner::default(), &holder.asset());
+            let mut destination = TokenUtxos::new_init(&Owner::default(), &holder.asset());
             let line = line!() + 1;
             let result = holder.transfer(&mut destination, &amount);
             (line, result)
@@ -93,13 +93,13 @@ pub fn oversized_operation(op: usize) -> (u32, Result<(), CircuitError>) {
     }
 }
 
-/// Binds `new_init(owner, asset)` of a `TokenUtxo` or a
+/// Binds `new_init(owner, asset)` of a `TokenUtxos` or a
 /// `DataUtxo<CounterState>` to `holder`, so one body runs against either.
 macro_rules! with_holder {
     ($kind:expr, $owner:expr, $asset:expr, |$holder:ident| $body:expr) => {
         match $kind {
             TOKEN => {
-                let $holder = TokenUtxo::new_init($owner, $asset);
+                let $holder = TokenUtxos::new_init($owner, $asset);
                 $body
             }
             _ => {
@@ -211,7 +211,7 @@ pub struct Deposits<const K: usize, const ALL: bool> {
 
 impl<const K: usize, const ALL: bool> Constraints for DepositsCircuit<K, ALL> {
     fn constraints(&self) -> Result<(), CircuitError> {
-        let mut holder = TokenUtxo::new_init(&self.owner, &self.mint);
+        let mut holder = TokenUtxos::new_init(&self.owner, &self.mint);
         for amount in &self.amounts {
             holder.deposit(amount, &self.account)?;
         }
@@ -235,7 +235,7 @@ pub struct Empty<const OP: usize> {
 
 impl<const OP: usize> Constraints for EmptyCircuit<OP> {
     fn constraints(&self) -> Result<(), CircuitError> {
-        let mut holder = TokenUtxo::new_init(&self.owner, &self.mint);
+        let mut holder = TokenUtxos::new_init(&self.owner, &self.mint);
         match OP {
             WITHDRAW => holder.withdraw(&self.amount, &self.account),
             _ => holder.withdraw_all(&self.account).map(|_| ()),
@@ -250,7 +250,7 @@ pub fn spendable_constant() -> Utxo {
 }
 
 /// A transfer from a funded token holder into a closed `DESTINATION`: a
-/// `TokenUtxo::new_close` or a `DataUtxo::new_close` of a constant input.
+/// `TokenUtxos::new_close` or a `DataUtxo::new_close` of a constant input.
 #[derive(Clone, Copy, Debug, ProofInput)]
 pub struct IntoClosed<const DESTINATION: usize, const ALL: bool> {
     pub owner: ShieldedAddress,
@@ -262,7 +262,7 @@ pub struct IntoClosed<const DESTINATION: usize, const ALL: bool> {
 impl<const DESTINATION: usize, const ALL: bool> IntoClosedCircuit<DESTINATION, ALL> {
     #[track_caller]
     fn into(&self, destination: &mut impl UtxoTrait) -> Result<(), CircuitError> {
-        let mut source = TokenUtxo::new_init(&self.owner, &Asset::sol());
+        let mut source = TokenUtxos::new_init(&self.owner, &Asset::sol());
         source.deposit(&self.deposit, &self.account)?;
         if ALL {
             source.transfer_all(destination)
@@ -278,7 +278,7 @@ impl<const DESTINATION: usize, const ALL: bool> Constraints
     fn constraints(&self) -> Result<(), CircuitError> {
         let input = spendable_constant();
         match DESTINATION {
-            TOKEN => self.into(&mut TokenUtxo::new_close(&[input])?),
+            TOKEN => self.into(&mut TokenUtxos::new_close(&[input])?),
             _ => {
                 let state = CounterState::default();
                 let mut input = input;
@@ -382,8 +382,8 @@ pub struct Arithmetic {
 impl Constraints for ArithmeticCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
         let account = Bytes::constant(ACCOUNT.as_array());
-        let mut source = TokenUtxo::new_init(&Owner::default(), &Asset::sol());
-        let mut destination = TokenUtxo::new_init(&Owner::default(), &source.asset());
+        let mut source = TokenUtxos::new_init(&Owner::default(), &Asset::sol());
+        let mut destination = TokenUtxos::new_init(&Owner::default(), &source.asset());
         source.deposit(&self.deposit, &account)?;
         source.transfer(&mut destination, &self.amount)?;
         let [source_balance, destination_balance] = &self.balances;

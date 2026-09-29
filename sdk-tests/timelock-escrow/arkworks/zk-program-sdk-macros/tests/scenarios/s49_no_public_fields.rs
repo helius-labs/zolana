@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{
-        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo, UtxoTrait,
+        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -34,8 +34,8 @@ struct NoPublicInputs;
 impl Circuit for <PrivateSweep as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let mut tokens = TokenUtxo::new_close(&private.token_utxos_asset_a)?;
-        let mut sweep = TokenUtxo::new_init(&private.recipient, &tokens.asset());
+        let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
+        let mut sweep = TokenUtxos::new_init(&private.recipient, &tokens.asset());
         tokens.transfer_all(&mut sweep)?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
         CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxo,
+        TokenUtxos,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -58,7 +58,7 @@ struct PortfolioCreatePublicInputs {
 impl Circuit for <PortfolioCreate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut portfolio = DataUtxo::<PortfolioCircuit>::new_init(&self.public.owner);
         portfolio.owner_hash = self.public.owner.hash()?;
         portfolio.nonce = private.nonce.clone();

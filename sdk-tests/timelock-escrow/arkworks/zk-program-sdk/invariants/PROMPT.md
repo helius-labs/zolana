@@ -18,7 +18,7 @@ Analyze the following code (a builtin's behavior is spread between the DSL, the 
 
 For a protocol type, also analyze (mandatory):
 
-- `src/circuit/protocol/**` -- the protocol types: `asset.rs` (`Asset`), `owner.rs` (`OwnerKey`, `Owner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `UtxoTrait`, `TokenUtxo`, `DataUtxo`, `UtxoData`, `checked_utxo_data`)
+- `src/circuit/protocol/**` -- the protocol types: `asset.rs` (`Asset`), `owner.rs` (`OwnerKey`, `Owner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UtxoData`, `checked_utxo_data`)
 - the native references every circuit value must equal: `zolana-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `zolana-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `zolana-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`, `transaction_hash`), and `src/program/transfer.rs` (`PublicTransfer::hash`)
 
 ### Hard Rules
@@ -83,7 +83,7 @@ Do NOT answer inline. Write the results as md files into `zk-program-sdk/invaria
 | `asset.md` | `Asset` |
 | `owner.md` | `OwnerKey`, `Owner` |
 | `transfer.md` | `PublicTransfer` |
-| `utxo.md` | `Utxo`, `SpentInput`, `UtxoTrait`, `TokenUtxo`, `DataUtxo`, `UtxoData` |
+| `utxo.md` | `Utxo`, `SpentInput`, `UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UtxoData` |
 | `transaction.md` | `TxContext`, `ConfidentialTransaction::check`, `PublicInputs` |
 | `cross-cutting.md` | invariants every builtin and fixture shares: native and R1CS agreement, the export format, setup/proving shape, the constraint-only statement |
 | `README.md` | coverage matrix + summary (format below) |

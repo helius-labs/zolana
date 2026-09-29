@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxo, UtxoTrait,
+        TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -53,9 +53,9 @@ impl Circuit for <SplitWithdraw as ProofInput>::Circuit {
         public
             .unlock
             .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
-        let mut fee = TokenUtxo::new_init(&public.fee_recipient, &escrow.asset());
+        let mut fee = TokenUtxos::new_init(&public.fee_recipient, &escrow.asset());
         escrow.transfer(&mut fee, &public.fee)?;
-        let mut payout = TokenUtxo::new_init(&escrow.creator, &escrow.asset());
+        let mut payout = TokenUtxos::new_init(&escrow.creator, &escrow.asset());
         escrow.transfer_all(&mut payout)?;
 
         ConfidentialTransaction::new(&private.tx_context, public)

@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
         CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxo, UtxoTrait,
+        TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -86,7 +86,7 @@ pub(crate) fn pool_utxo(
 impl Circuit for <CreatePool as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut pool =
             DataUtxo::<PoolCircuit>::new_init(&private.pool_owner).with_asset(&tokens.asset())?;
         tokens.transfer(&mut pool, &private.amount)?;

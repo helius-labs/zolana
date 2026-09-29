@@ -78,7 +78,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Asset, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxos, TxContext, Uint,
             Utxo, UtxoTrait,
         },
         CircuitError,
@@ -120,10 +120,10 @@ mod circuit {
             public
                 .ask_amount
                 .assert_equal(&order.ask_amount, "the ask amount is not the order's")?;
-            let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_b)?;
-            let mut payment = TokenUtxo::new_init(&private.maker, &public.ask_asset);
+            let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_b)?;
+            let mut payment = TokenUtxos::new_init(&private.maker, &public.ask_asset);
             tokens.transfer(&mut payment, &public.ask_amount)?;
-            let mut payout = TokenUtxo::new_init(&tokens.owner(), &order.asset());
+            let mut payout = TokenUtxos::new_init(&tokens.owner(), &order.asset());
             order.transfer_all(&mut payout)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)

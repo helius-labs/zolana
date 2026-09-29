@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
         CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxo,
+        TokenUtxos,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -41,7 +41,7 @@ pub(crate) struct CounterCreatePublicInputs {
 impl Circuit for <CounterCreate as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let counter = DataUtxo::<CounterCircuit>::new_init(&self.public.owner);
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

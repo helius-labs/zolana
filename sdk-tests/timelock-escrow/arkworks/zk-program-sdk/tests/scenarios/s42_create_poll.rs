@@ -118,7 +118,7 @@ pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData,
+            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -173,7 +173,7 @@ pub(crate) mod circuit {
     impl Circuit for CreatePoll {
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
-            let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut poll = DataUtxo::<Poll>::new_init(&private.poll_owner);
             poll.poll_id = self.public.poll_id.clone();
             poll.root = self.public.root.clone();
