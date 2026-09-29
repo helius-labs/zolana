@@ -1,4 +1,3 @@
-use zolana_interface::UTXO_DOMAIN;
 use zolana_program::{
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
@@ -9,7 +8,7 @@ use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
         zero, Assert, Bool, CircuitVar, DataHash, DataUtxo, PublicTransfer, TokenUtxos, Uint,
-        UniqueDataUtxo, Utxo, UtxoData, UtxoMeta,
+        UniqueDataUtxo, UtxoData, UtxoMeta,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -86,6 +85,17 @@ pub trait PublicInputs {
 pub(crate) struct CheckedOutput {
     pub(crate) output: Output,
     pub(crate) hash: CircuitVar,
+    pub(crate) empty: Bool,
+}
+
+impl CheckedOutput {
+    fn private_hash(&self) -> CircuitVar {
+        if self.output.empty_if_zero {
+            self.empty.select(&zero(), &self.hash)
+        } else {
+            self.hash.clone()
+        }
+    }
 }
 
 #[cfg_attr(not(feature = "client"), allow(dead_code))]
@@ -234,25 +244,18 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             .enumerate()
             .map(|(slot, output)| {
                 let blinding = output_blinding(&first_nullifier, &output_blinding_seed, slot)?;
-                let hash = Utxo {
-                    domain: constant(u64::from(UTXO_DOMAIN)),
-                    owner: output.owner.clone(),
-                    asset: output.asset.clone(),
-                    amount: output.amount.clone(),
-                    blinding,
-                    data_hash: output.data_hash.clone(),
-                    ring_data_hash: zero(),
-                    ring_program_id: zero(),
-                    tree_id: output_tree_id.clone(),
-                    ..Utxo::default()
-                }
-                .hash()?;
-                Ok(CheckedOutput { output, hash })
+                let empty = output.is_empty()?;
+                let hash = output.hash(&empty, blinding, output_tree_id.clone())?;
+                Ok(CheckedOutput {
+                    output,
+                    hash,
+                    empty,
+                })
             })
             .collect::<Result<Vec<_>, CircuitError>>()?;
         let input_hashes: Vec<CircuitVar> = inputs.iter().map(|input| input.hash.clone()).collect();
         let output_hashes: Vec<CircuitVar> =
-            outputs.iter().map(|output| output.hash.clone()).collect();
+            outputs.iter().map(CheckedOutput::private_hash).collect();
         let private_tx_hash = poseidon(&[
             nonzero_hash_chain(&input_hashes)?,
             nonzero_hash_chain(&output_hashes)?,

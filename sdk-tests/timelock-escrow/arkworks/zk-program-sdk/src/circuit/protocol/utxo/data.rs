@@ -223,6 +223,7 @@ impl<S: DataHash> DataUtxo<S> {
             amount: Uint::trusted(balance),
             data_hash,
             data: None,
+            empty_if_zero: false,
         }))
     }
 }

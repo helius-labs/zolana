@@ -49,24 +49,24 @@ fn every_shape_has_exactly_the_pinned_size_and_digest() {
         ],
         [
             pinned(
-                4600,
-                4607,
-                "294088af2053611f7aa25e4a1a3677ab0df280546d347766c42a39ea5048a2eb"
+                4608,
+                4615,
+                "740c1579752b0dcf0f019f5e382e6f06acb253360777d9d3f5a00faaff71a251"
             ),
             pinned(
-                10072,
-                10078,
-                "a2485a7aeee9d844f2c9a33a52bd07c9b6f092f5b2de4ec79d7652cba8c6e1ea"
+                10088,
+                10094,
+                "af5a177ce1aeb8b357b10f10400278a5b8ac4f8644fd60161cf42976ba24d3cd"
             ),
             pinned(
-                9321,
                 9329,
-                "86c3dc9c2758a14cc77f8d7aab996ea687f35fdbe0d2516bcb31873eb7f0e63f"
+                9337,
+                "24a5be538bd273f110629254f58687d36724ee0cb1ffd40ec01fdc4020caed78"
             ),
             pinned(
-                6870,
-                6876,
-                "18a1c3a2e87c982fde6b94cea046540a30af75766bf06f9534c9a33303a41f8e"
+                6878,
+                6884,
+                "b2f71473f1552d10b683cc109a89b4c03ec7c16e9622c5c0c3179590865bc5ef"
             ),
         ]
     );
@@ -89,9 +89,9 @@ fn every_refresh_and_one_of_each_other_shape_checks_exactly_the_pinned_count() {
         (
             refreshes()
                 .into_iter()
-                .map(|(name, _)| (name, Ok(4600)))
+                .map(|(name, _)| (name, Ok(4608)))
                 .collect::<Vec<_>>(),
-            [Ok(10072), Ok(9321), Ok(6870)],
+            [Ok(10088), Ok(9329), Ok(6878)],
         )
     );
 }

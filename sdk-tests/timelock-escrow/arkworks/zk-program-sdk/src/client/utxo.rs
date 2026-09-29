@@ -44,13 +44,16 @@ impl SppTransactionBuilder<'_> {
     pub(super) fn output_utxos(
         &self,
         sender: &ShieldedAddress,
-    ) -> Result<Vec<SppProofOutputUtxo>, ClientError> {
+    ) -> Result<Vec<Option<SppProofOutputUtxo>>, ClientError> {
         let sender_hash = sender.owner_hash().map_err(ClientErrorKind::InvalidOwner)?;
         self.checked
             .outputs
             .iter()
             .enumerate()
             .map(|(slot, checked)| {
+                if bool::from_circuit(&checked.empty)? {
+                    return Ok(None);
+                }
                 let problem = |problem| ClientErrorKind::Slot {
                     kind: SlotKind::Output,
                     index: slot,
@@ -71,14 +74,14 @@ impl SppTransactionBuilder<'_> {
                 let utxo = SppProofOutputUtxo::new(asset, amount, owner)
                     .map_err(ClientErrorKind::Transaction)?;
                 let data_hash = to_bytes(&output.data_hash)?;
-                Ok(match output.data.clone() {
+                Ok(Some(match output.data.clone() {
                     _ if data_hash == [0u8; 32] => utxo,
                     Some(data) => utxo.with_utxo_data(data, data_hash),
                     None => SppProofOutputUtxo {
                         data_hash: Some(data_hash),
                         ..utxo
                     },
-                })
+                }))
             })
             .collect()
     }

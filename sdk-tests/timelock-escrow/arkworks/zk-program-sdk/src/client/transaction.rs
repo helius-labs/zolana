@@ -144,9 +144,11 @@ impl SppTransactionBuilder<'_> {
             .and_then(|transaction| transaction.with_output_tree_id(output_tree_id))
             .map_err(ClientErrorKind::Transaction)?;
         for output in outputs {
-            transaction
-                .add_output_utxo(output)
-                .map_err(ClientErrorKind::Transaction)?;
+            match output {
+                Some(output) => transaction.add_output_utxo(output),
+                None => transaction.add_empty_output_utxo(),
+            }
+            .map_err(ClientErrorKind::Transaction)?;
         }
         for transfer in self.public_transfers()? {
             transaction

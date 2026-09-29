@@ -79,6 +79,7 @@ impl TokenUtxos {
             amount: Uint::trusted(balance),
             data_hash: zero(),
             data: None,
+            empty_if_zero: true,
         }))
     }
 

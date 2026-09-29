@@ -50,6 +50,14 @@ impl ConfidentialTransaction {
         Ok(self)
     }
 
+    pub fn add_empty_output_utxo(&mut self) -> Result<&mut Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.outputs.push(SppProofOutputUtxo::default());
+        Ok(self)
+    }
+
     /// Convert wallet inputs and pad all UTXOs without reordering existing slots.
     ///
     /// Steps:

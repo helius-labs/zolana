@@ -303,11 +303,11 @@ fn settle_or_refund_prove_and_verify() {
             vec![
                 (Some(taker_address), Mint::SOL, 0, reservation_bytes(95)),
                 (Some(taker_address), Mint::SOL, 500, None),
-                (Some(maker_address), Mint::SOL, 0, None),
+                (None, Mint::SOL, 0, None),
             ],
             vec![
                 (Some(taker_address), Mint::SOL, 0, reservation_bytes(0)),
-                (Some(taker_address), Mint::SOL, 0, None),
+                (None, Mint::SOL, 0, None),
                 (Some(maker_address), Mint::SOL, 500, None),
             ],
         )

@@ -89,9 +89,11 @@ impl Reference {
             .and_then(|transaction| transaction.with_output_tree_id(self.output_tree_id))
             .expect("native transaction");
         for output in &self.outputs {
-            transaction
-                .add_output_utxo(output.utxo())
-                .expect("native output");
+            match output.state {
+                None if output.amount == 0 => transaction.add_empty_output_utxo(),
+                _ => transaction.add_output_utxo(output.utxo()),
+            }
+            .expect("native output");
         }
         for transfer in &self.transfers {
             transaction

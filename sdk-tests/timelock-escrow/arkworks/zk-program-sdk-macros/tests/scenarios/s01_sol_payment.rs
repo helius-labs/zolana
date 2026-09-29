@@ -35,7 +35,6 @@ pub(crate) struct PaymentPublicInputs {
 impl Circuit for <Payment as ProofInput>::Circuit {
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
-        // What if all utxos are spent. Then it should not create any outputs. Does that make sense?
         let mut user_a_tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut user_b_tokens =
             TokenUtxos::new_init(&self.public.recipient, &user_a_tokens.asset());
@@ -48,8 +47,9 @@ impl Circuit for <Payment as ProofInput>::Circuit {
     }
 }
 
-#[test]
-fn sol_payment_prove_and_verify() {
+type Outputs = Vec<(Option<ShieldedAddress>, Mint, u64)>;
+
+fn pay(amount: u64) -> (ShieldedAddress, ShieldedAddress, Outputs) {
     let sender = keypair(5);
     let address = sender.shielded_address().expect("sender address");
     let payer = address.solana_address().expect("payer");
@@ -61,28 +61,45 @@ fn sol_payment_prove_and_verify() {
         private: PaymentPrivateInputs {
             tx_context: TxContext::new(),
             token_utxos_asset_a: [first, second],
-            amount: 400,
+            amount,
         },
         public: PaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
         .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
         .expect("payment proof inputs");
-    assert_eq!(
-        spp_proof_inputs
-            .output_utxos
-            .iter()
-            .map(|output| (output.owner_address, output.asset, output.amount))
-            .collect::<Vec<_>>(),
-        vec![
-            (Some(address), Mint::SOL, 100),
-            (Some(recipient), Mint::SOL, 400),
-        ]
-    );
 
     let prover = Groth16Prover::<Payment>::new_with_test_setup().expect("payment setup");
     let result = prove(&prover, &payment, "payment proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
+
+    let outputs = spp_proof_inputs
+        .output_utxos
+        .iter()
+        .map(|output| (output.owner_address, output.asset, output.amount))
+        .collect();
+    (address, recipient, outputs)
+}
+
+#[test]
+fn sol_payment_prove_and_verify() {
+    let (address, recipient, outputs) = pay(400);
+    assert_eq!(
+        outputs,
+        vec![
+            (Some(address), Mint::SOL, 100),
+            (Some(recipient), Mint::SOL, 400),
+        ]
+    );
+}
+
+#[test]
+fn sol_payment_of_the_whole_balance_leaves_an_empty_change() {
+    let (_, recipient, outputs) = pay(500);
+    assert_eq!(
+        outputs,
+        vec![(None, Mint::SOL, 0), (Some(recipient), Mint::SOL, 500)]
+    );
 }
