@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1-alpha — unreleased
+## 0.3.1-alpha — 2026-09-29
 
 Reading a ring transaction's instruction groups requires a version 1
 transaction. The user-registry instructions are exported for callers who
