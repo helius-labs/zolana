@@ -1,9 +1,9 @@
 #[cfg(feature = "client")]
 use core::marker::PhantomData;
-#[cfg(feature = "client")]
-use std::sync::{Arc, Mutex};
 #[cfg(any(feature = "setup", not(target_arch = "wasm32")))]
 use std::path::Path;
+#[cfg(feature = "client")]
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "client")]
 use ark_bn254::Fr;
@@ -140,14 +140,22 @@ impl Groth16Keys {
         Self::from_image_bytes(bytes)
     }
 
-    #[cfg(all(feature = "client", not(target_arch = "wasm32"), target_endian = "little"))]
+    #[cfg(all(
+        feature = "client",
+        not(target_arch = "wasm32"),
+        target_endian = "little"
+    ))]
     pub fn load_image(path: &Path) -> Result<Self, ProverError> {
         Self::from_image_bytes(&std::fs::read(path).map_err(|error| key_file(path, error))?)
     }
 
     /// Like `load_image`, but first verifies the file against its sha256.
     /// See `from_image_checked`.
-    #[cfg(all(feature = "client", not(target_arch = "wasm32"), target_endian = "little"))]
+    #[cfg(all(
+        feature = "client",
+        not(target_arch = "wasm32"),
+        target_endian = "little"
+    ))]
     pub fn load_image_checked(path: &Path, checksum: &[u8; 32]) -> Result<Self, ProverError> {
         Self::from_image_checked(
             &std::fs::read(path).map_err(|error| key_file(path, error))?,
@@ -177,7 +185,10 @@ impl Groth16Keys {
         not(target_arch = "wasm32"),
         target_endian = "little"
     ))]
-    pub fn convert_zkey_to_image<P: ZkProgram>(zkey: &Path, image: &Path) -> Result<(), ProverError> {
+    pub fn convert_zkey_to_image<P: ZkProgram>(
+        zkey: &Path,
+        image: &Path,
+    ) -> Result<(), ProverError> {
         Self::load_zkey::<P>(zkey)?.save_image(image)
     }
 
@@ -408,7 +419,10 @@ impl<P: ZkProgram> Groth16Prover<P> {
         Self::with_matrices(keys, matrices)
     }
 
-    fn with_matrices(keys: Groth16Keys, matrices: Arc<CircuitMatrices>) -> Result<Self, ProverError> {
+    fn with_matrices(
+        keys: Groth16Keys,
+        matrices: Arc<CircuitMatrices>,
+    ) -> Result<Self, ProverError> {
         if matrices.shape() != keys.circuit_shape() {
             return Err(ProverErrorKind::KeysForAnotherCircuit.into());
         }
@@ -549,7 +563,12 @@ mod key_image {
 
     #[cfg(feature = "setup")]
     fn bytes_of<T>(values: &[T]) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(values.as_ptr() as *const u8, core::mem::size_of_val(values)) }
+        unsafe {
+            core::slice::from_raw_parts(
+                values.as_ptr() as *const u8,
+                core::mem::size_of_val(values),
+            )
+        }
     }
 
     #[cfg(feature = "setup")]
@@ -616,7 +635,11 @@ mod key_image {
         )?;
         let mut vector: Vec<T> = Vec::with_capacity(length);
         unsafe {
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), vector.as_mut_ptr() as *mut u8, bytes.len());
+            core::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                vector.as_mut_ptr() as *mut u8,
+                bytes.len(),
+            );
             vector.set_len(length);
         }
         Ok(vector)
