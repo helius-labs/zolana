@@ -162,6 +162,22 @@ Added
   request with an error naming the input or output index, while
   `ringTransactInstruction` refuses a cached circuit, which custom rings do not
   accept, with `RING_CACHE_UNSUPPORTED`.
+- `decodeProgramTransaction(value, assets)` turns the
+  `ProgramFinalizedTransaction` a ZK program's WebAssembly bindings return into
+  SDK inputs, outputs and owner tags, refusing an input, output hash, owner tag,
+  first nullifier or mint that does not match the transaction with
+  `TRANSACTION_INPUT_HASH_MISMATCH`, `TRANSACTION_OUTPUT_HASH_MISMATCH`,
+  `TRANSACTION_OWNER_TAG_MISMATCH`, `TRANSACTION_OWNER_TAG_COUNT_MISMATCH`,
+  `TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH`,
+  `TRANSACTION_FIRST_NULLIFIER_MISMATCH` or `TRANSACTION_MINT_MISMATCH`, and
+  `DecodedProgramTransaction.encrypt(tx, { expiryUnixTs })` seals every
+  output, padding slots included, into the `ExternalData` the program's proof
+  commits to.
+- `toProgramWalletUtxo(utxo, { nullifierPublicKey, treeId, assets })` builds
+  the `ProgramWalletUtxo` those bindings spend and refuses a tree id or
+  nullifier public key that does not open the UTXO's commitment, and
+  `SettlementTransfer`, the leg type of `ExternalData.interfaceTransfers`, is
+  exported from `@heliuslabs/zolana/transaction`.
 
 Fixed
 

@@ -1,0 +1,25 @@
+pub mod circuit;
+mod client;
+pub mod conversion;
+mod error;
+pub mod hasher;
+pub mod program;
+mod prover;
+#[cfg(feature = "client")]
+pub mod testing;
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+pub use client::{Bytes, Owner, ProgramOwner, TxContext};
+#[cfg(feature = "client")]
+pub use client::{ProgramTransaction, ZkCircuit, ZkProgram};
+pub use error::{
+    CircuitError, CircuitErrorKind, ClientError, ClientErrorKind, ProverError, ProverErrorKind,
+    SlotKind, SourceLocation,
+};
+#[cfg(feature = "client")]
+pub use prover::{CompressedProof, Groth16Prover, ProofInputs, ProofResult, SolanaProof};
+#[cfg(any(feature = "client", feature = "setup"))]
+pub use prover::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
+#[cfg(feature = "setup")]
+pub use prover::{SetupKind, VerifyingKeyExport};

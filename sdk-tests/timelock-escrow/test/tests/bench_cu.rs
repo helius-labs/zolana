@@ -1,7 +1,4 @@
 use std::time::{Duration, Instant};
-use zolana_test_utils::utxo::{
-    encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
-};
 use zolana_transaction::utxo::SppProofInputUtxo;
 
 use light_program_profiler::{
@@ -21,13 +18,14 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use timelock_escrow_prover::{CircuitId, PROVER};
 use timelock_escrow_sdk::{
+    escrow_authority,
     instructions::{
-        escrow::{Escrow, EscrowProofInputParams, SppTxHashes},
+        escrow::{Escrow, EscrowProofInputParams, EscrowTransaction},
         withdraw::{Withdraw, WithdrawProofInputParams},
     },
     prover::EscrowProverClient,
-    shared::input_sum,
-    state::{EscrowTerms, EscrowUtxo},
+    state::Funding,
+    zk_program::{NewProgramUtxo, ProgramOwner},
 };
 use zolana_client::{
     transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
@@ -45,8 +43,8 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC},
-    Data, Utxo,
+    instructions::transact::{SppProofInputs, BN254_MODULUS_DEC},
+    Mint,
 };
 use zolana_tree::TreeAccount;
 
@@ -344,9 +342,9 @@ fn bench_cu_escrow() {
             "Compute unit profiling for the timelock escrow escrow/withdraw instructions, replayed \
              under mollusk. The shielded-pool tree account is built directly (the program's \
              `create_tree` init plus the input utxo hashes appended), and each instruction verifies \
-             its own Groth16 proof, then CPIs SPP `transact` (the `cpi_spp_transact*` row). Only the \
+             its own Groth16 proof, then CPIs SPP `transact` (the `invoke_transact` row). Only the \
              timelock escrow program is profiled; the shielded-pool program is built plain, so the CU \
-             its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal \
+             its CPI consumes is charged to the `invoke_transact` row as a black box and its internal \
              functions do not appear here. Each instruction section also records its proving times (SPP \
              transfer proof plus the escrow/withdraw circuit proof) and its serialized transaction \
              size, measured twice: as a legacy transaction, which must prefix a compute-budget limit \
@@ -374,6 +372,66 @@ fn bench_cu_escrow() {
     bench.generate().expect("write BENCHMARK.md");
 }
 
+fn escrow_transaction(
+    creator: &ShieldedKeypair,
+    input_amount: u64,
+    lock_amount: u64,
+    unlock_timestamp: u64,
+) -> EscrowTransaction {
+    let creator_address = creator.shielded_address().expect("creator address");
+    EscrowProofInputParams {
+        creator: creator_address,
+        funding: NewProgramUtxo::new(
+            escrow_authority(),
+            Funding {
+                creator: creator_address,
+            },
+            Mint::SOL,
+            input_amount,
+            creator_address.viewing_pubkey,
+        )
+        .created(random_blinding(), BENCH_TREE_ID),
+        funding_leaf_index: 0,
+        amount: lock_amount,
+        unlock_timestamp,
+        output_tree_id: BENCH_TREE_ID,
+    }
+    .build(creator)
+    .expect("escrow transaction")
+}
+
+struct TreeFixture {
+    account: Account,
+    spend_proofs: Vec<SpendProof>,
+    last_update_slot: u64,
+}
+
+fn tree_fixture(tree: &Pubkey, spp_proof_inputs: &SppProofInputs) -> TreeFixture {
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
+    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
+    let (account, utxo_root, nullifier_root, root_index) = build_tree_fixture(tree, &leaves);
+    let state_tree = local_state_tree(&leaves);
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let nf_tree = nullifier_tree();
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let spend_proofs = build_spend_proofs(
+        tree,
+        &state_tree,
+        &nf_tree,
+        &commitments,
+        utxo_root,
+        nullifier_root,
+        root_index,
+    );
+    TreeFixture {
+        account,
+        spend_proofs,
+        last_update_slot: leaves.len() as u64,
+    }
+}
+
 fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
     const INPUT_AMOUNT: u64 = 1_000_000;
     const LOCK_AMOUNT: u64 = 400_000;
@@ -382,140 +440,35 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
     let payer = Keypair::new();
     let creator = keypair_from_payer(&payer);
-    let creator_address = creator.shielded_address().expect("creator address");
 
-    let input_blinding = random_blinding();
-    let input_utxo = Utxo {
-        owner: creator.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: INPUT_AMOUNT,
-        blinding: input_blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let input_utxo: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
-        input_utxo,
-        &creator.nullifier_key,
-        BENCH_TREE_ID,
-        0,
-        None,
-        None,
-    )
-    .expect("indexed input")
-    .into();
-    let input_utxos = vec![
-        input_utxo,
-        SppProofInputUtxo::dummy(BENCH_TREE_ID).expect("dummy"),
-    ];
-
-    let escrow_utxo = EscrowUtxo {
-        terms: EscrowTerms {
-            creator: creator_address,
-            unlock_timestamp: UNLOCK_TIMESTAMP,
-        },
-        blinding: random_blinding(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: LOCK_AMOUNT,
-    };
-    let escrow_output_utxo = escrow_utxo.output_utxo().expect("escrow output");
-
-    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-
-    let escrow_asset = escrow_output_utxo.asset;
-    let leftover =
-        input_sum(&input_utxos, &escrow_asset.asset) - i128::from(escrow_output_utxo.amount);
-    let change_amount =
-        u64::try_from(leftover).expect("insufficient shielded balance for escrow bench");
-    let change = SppProofOutputUtxo::new(escrow_asset, change_amount, creator_address)
-        .expect("change output");
-    let mut transaction_outputs = vec![change, escrow_output_utxo];
-    let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
-        .expect("derive escrow output blindings");
-    let [change, escrow_output_utxo]: [_; 2] = transaction_outputs
-        .try_into()
-        .expect("escrow transaction has two outputs");
-
-    let transaction_viewing_key = get_transaction_viewing_key(&creator, &input_utxos)
-        .expect("escrow transaction viewing key");
-    let encoded = encrypt_transaction_data(
-        &[change.clone(), escrow_output_utxo],
-        &transaction_viewing_key,
-        BENCH_TREE_ID,
-    )
-    .expect("encode escrow slots");
-
-    let external_data = ExternalData::new(
-        *transaction_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![],
-    );
-    let spp_proof_inputs = SppProofInputs {
-        input_utxos,
-        output_utxos: encoded.output_utxos,
-        external_data,
-        payer: payer_address,
-        blinding_seed,
-        output_tree_id: BENCH_TREE_ID,
-        cache_accounts: Default::default(),
-    };
-
-    let commitments = spp_proof_inputs
-        .input_utxo_hashes()
-        .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
-    let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
-    let state_tree = local_state_tree(&leaves);
-    assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let nf_tree = nullifier_tree();
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-    let spend_proofs = build_spend_proofs(
-        &tree,
-        &state_tree,
-        &nf_tree,
-        &commitments,
-        utxo_root,
-        nullifier_root,
-        root_index,
-    );
-
-    let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs).expect("spp tx hashes");
-    let escrow_proof_inputs = EscrowProofInputParams {
-        escrow_utxo: escrow_utxo.clone(),
-        change,
-        spp_tx_hashes,
-    };
+    let escrow = escrow_transaction(&creator, INPUT_AMOUNT, LOCK_AMOUNT, UNLOCK_TIMESTAMP);
+    let spp_proof_inputs = escrow.spp_proof_inputs();
+    let fixture = tree_fixture(&tree, &spp_proof_inputs);
 
     let prover = ProverClient::local();
-    let escrow_prover = EscrowProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(
         spp_proof_inputs,
-        &spend_proofs,
+        &fixture.spend_proofs,
         &prover,
-        &[&creator.nullifier_key],
+        &[&ProgramOwner::nullifier_key()],
     );
     let escrow_prove_start = Instant::now();
-    let escrow_proof = escrow_prover
-        .prove_escrow(
-            &escrow_proof_inputs
-                .to_proof_inputs()
-                .expect("escrow proof inputs"),
-        )
+    let escrow_proof = EscrowProverClient::new()
+        .prove_escrow(&escrow.to_proof_inputs().expect("escrow proof inputs"))
         .expect("escrow prove");
     let escrow_dur = escrow_prove_start.elapsed();
 
     let ix = Escrow {
-        payer: payer.pubkey(),
-        tree,
-        escrow_proof: escrow_proof.into(),
+        transaction: escrow,
         spp_proof: transact,
+        escrow_proof: escrow_proof.into(),
     }
     .instruction()
     .expect("escrow instruction");
 
+    mollusk.warp_to_slot(fixture.last_update_slot);
     let fixtures = vec![
-        (tree, tree_account),
+        (tree, fixture.account),
         (payer.pubkey(), system_owned_account(100_000_000_000)),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);
@@ -537,123 +490,48 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
     let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
     let payer = Keypair::new();
     let creator = keypair_from_payer(&payer);
-    let creator_address = creator.shielded_address().expect("creator address");
 
-    let escrow_utxo = EscrowUtxo {
-        terms: EscrowTerms {
-            creator: creator_address,
-            unlock_timestamp: UNLOCK_TIMESTAMP,
-        },
-        blinding: random_blinding(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: LOCK_AMOUNT,
-    };
-    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
-
-    let escrow_input_utxo = escrow_utxo
-        .to_input_utxo(BENCH_TREE_ID, 0)
-        .expect("escrow input_utxo");
-    let input_utxos = vec![escrow_input_utxo];
-    let blinding_seed =
-        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
-            .expect("derive withdraw output blinding");
-
-    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let transaction_viewing_key = get_transaction_viewing_key(&creator, &input_utxos)
-        .expect("withdraw transaction viewing key");
-    let encoded = encrypt_transaction_data(
-        std::slice::from_ref(&source_output),
-        &transaction_viewing_key,
-        BENCH_TREE_ID,
-    )
-    .expect("encode withdraw slots");
-
-    let mut external_data = ExternalData::new(
-        *transaction_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![],
-    );
-    external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-    let spp_proof_inputs = SppProofInputs {
-        input_utxos,
-        output_utxos: encoded.output_utxos,
-        external_data,
-        payer: payer_address,
-        blinding_seed,
+    let escrow_utxo = escrow_transaction(&creator, LOCK_AMOUNT, LOCK_AMOUNT, UNLOCK_TIMESTAMP)
+        .escrow_utxo()
+        .clone();
+    let withdraw = WithdrawProofInputParams {
+        escrow_utxo,
+        escrow_leaf_index: 0,
+        payer: Address::new_from_array(payer.pubkey().to_bytes()),
+        expiry_unix_ts: SPP_RELAYER_DEADLINE,
         output_tree_id: BENCH_TREE_ID,
-        cache_accounts: Default::default(),
-    };
-
-    let commitments = spp_proof_inputs
-        .input_utxo_hashes()
-        .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
-    let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
-    let state_tree = local_state_tree(&leaves);
-    assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let nf_tree = nullifier_tree();
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-    let spend_proofs = build_spend_proofs(
-        &tree,
-        &state_tree,
-        &nf_tree,
-        &commitments,
-        utxo_root,
-        nullifier_root,
-        root_index,
-    );
-
-    let withdraw_proof_inputs = WithdrawProofInputParams {
-        escrow_utxo: escrow_utxo.clone(),
-        source_output,
-        external_data_hash: spp_proof_inputs
-            .external_data
-            .hash()
-            .expect("external data hash"),
-        private_tx_blinding: spp_proof_inputs
-            .private_tx_blinding()
-            .expect("private tx blinding"),
-        input_tree_id: BENCH_TREE_ID,
-        output_tree_id: BENCH_TREE_ID,
-    };
+    }
+    .build(&creator)
+    .expect("withdraw transaction");
+    let spp_proof_inputs = withdraw.spp_proof_inputs();
+    let fixture = tree_fixture(&tree, &spp_proof_inputs);
 
     let prover = ProverClient::local();
-    let escrow_prover = EscrowProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(
         spp_proof_inputs,
-        &spend_proofs,
+        &fixture.spend_proofs,
         &prover,
-        &[&zolana_keypair::NullifierKey::from_secret([0; 31])],
+        &[&ProgramOwner::nullifier_key()],
     );
     let withdraw_prove_start = Instant::now();
-    let withdraw_proof = escrow_prover
-        .prove_withdraw(
-            &withdraw_proof_inputs
-                .to_proof_inputs()
-                .expect("withdraw proof inputs"),
-        )
+    let withdraw_proof = EscrowProverClient::new()
+        .prove_withdraw(&withdraw.to_proof_inputs().expect("withdraw proof inputs"))
         .expect("withdraw prove");
     let withdraw_dur = withdraw_prove_start.elapsed();
 
     let ix = Withdraw {
-        creator: creator_address
-            .solana_address()
-            .expect("creator solana address"),
-        payer: payer.pubkey(),
-        tree,
-        withdraw_proof: withdraw_proof.into(),
-        unlock_timestamp: UNLOCK_TIMESTAMP,
+        transaction: withdraw,
         spp_proof: transact,
+        withdraw_proof: withdraw_proof.into(),
     }
     .instruction()
     .expect("withdraw instruction");
 
+    mollusk.warp_to_slot(fixture.last_update_slot);
     mollusk.sysvars.clock.unix_timestamp = UNLOCK_TIMESTAMP as i64 + 1;
 
     let fixtures = vec![
-        (tree, tree_account),
+        (tree, fixture.account),
         (payer.pubkey(), system_owned_account(100_000_000_000)),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);

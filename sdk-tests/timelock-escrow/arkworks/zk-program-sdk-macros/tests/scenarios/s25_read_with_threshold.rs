@@ -1,0 +1,116 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+use zk_program_sdk::{
+    circuit::{
+        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
+    },
+    conversion::ProofInput,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
+};
+use zolana_transaction::{Mint, WalletUtxo};
+
+use crate::{
+    benchmark::prove,
+    shared::{data_input, keypair, refused},
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+pub struct Account {
+    pub balance: u64,
+}
+
+#[derive(Clone, ProofInput)]
+pub struct ReadThreshold {
+    private: ReadThresholdPrivateInputs,
+    public: ReadThresholdPublicInputs,
+}
+
+#[derive(Clone, ProofInput)]
+struct ReadThresholdPrivateInputs {
+    tx_context: TxContext,
+    account_utxo: WalletUtxo,
+    account: Account,
+}
+
+#[derive(Clone, ProofInput, PublicInputs)]
+struct ReadThresholdPublicInputs {
+    threshold: u64,
+}
+
+#[deny(clippy::disallowed_types)]
+impl Circuit for <ReadThreshold as ProofInput>::Circuit {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        let private = &self.private;
+        let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
+        self.public
+            .threshold
+            .assert_less_or_equal(&account.balance, "the balance is below the threshold")?;
+
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
+            .with_data_utxo(account)
+            .check()
+    }
+}
+
+#[test]
+fn read_with_threshold_prove_and_verify() {
+    let owner = keypair(5);
+    let address = owner.shielded_address().expect("owner address");
+    let payer = address.solana_address().expect("payer");
+    let account = Account { balance: 700 };
+    let account_utxo = data_input(&owner, 0, &account, 0);
+
+    let read = ReadThreshold {
+        private: ReadThresholdPrivateInputs {
+            tx_context: TxContext::new(),
+            account_utxo,
+            account: account.clone(),
+        },
+        public: ReadThresholdPublicInputs { threshold: 500 },
+    };
+    let spp_proof_inputs = read
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
+        .expect("read proof inputs");
+    assert_eq!(
+        spp_proof_inputs
+            .output_utxos
+            .iter()
+            .map(|output| (
+                output.owner_address,
+                output.asset,
+                output.amount,
+                output.data.utxo_data().map(<[u8]>::to_vec),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(
+            Some(address),
+            Mint::SOL,
+            0,
+            Some(borsh::to_vec(&account).expect("account bytes")),
+        )]
+    );
+
+    let prover = Groth16Prover::<ReadThreshold>::new_with_test_setup().expect("read setup");
+    let result = prove(&prover, &read, "read proof");
+    prover
+        .verify(&result)
+        .expect("the compressed proof verifies");
+}
+
+#[test]
+fn a_balance_below_the_threshold_is_refused() {
+    let owner = keypair(5);
+    let account = Account { balance: 499 };
+    let read = ReadThreshold {
+        private: ReadThresholdPrivateInputs {
+            tx_context: TxContext::new(),
+            account_utxo: data_input(&owner, 0, &account, 0),
+            account,
+        },
+        public: ReadThresholdPublicInputs { threshold: 500 },
+    };
+
+    assert_eq!(
+        refused(&read),
+        (Some("the balance is below the threshold".to_string()), true)
+    );
+}

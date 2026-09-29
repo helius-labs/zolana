@@ -139,11 +139,10 @@ func (s *statement) updateHashes(t *testing.T) {
 			outputHashes[i] = hostUtxoHash(t, output)
 		}
 	}
-	s.privateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
-		spptest.MustHashChain4(t, inputHashes),
-		spptest.MustHashChain4(t, outputHashes),
+	s.privateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{
+		spptest.MustNonZeroHashChain(t, inputHashes),
+		spptest.MustNonZeroHashChain(t, outputHashes),
 		s.addressChain,
-		s.externalDataHash,
 		s.privateTxBlinding,
 	})
 	s.publicInputHash = s.publicInputHashFor(t, nil)

@@ -204,7 +204,6 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		inputHashes,
 		outputHashes,
 		addressNullifiers,
-		t.ExternalDataHash,
 		DerivePrivateTxBlinding(api, t.Nullifiers[0], t.BlindingSeed),
 	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)

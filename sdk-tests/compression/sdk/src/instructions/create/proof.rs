@@ -88,8 +88,8 @@ impl CreateProofInputParams {
         // The builder derives the account's blinding from the address, the
         // transaction's only and therefore first nullifier.
         let owner = PdaOwner::new(&pda).map_err(err)?;
-        let address =
-            NewAddress::derive(&owner, AddressSeed::owner(&owner), tree_id).map_err(err)?;
+        let address = NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), tree_id)
+            .map_err(err)?;
         if *address.address() != address_nullifier {
             return Err(anyhow!(
                 "address slot does not reserve the program's address"

@@ -422,6 +422,11 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 1. Loading proving keys for big circuits takes a lot of time
 2. tests should start a prover server if not started yet
 3. The prover server should be lazy: load no proving keys on startup, load a key when a proof for it is first requested, then keep it loaded
+4. arkworks proving keys are saved and loaded in the memory-image format
+   (`Groth16Keys::save_image` / `load_image` / `from_image_bytes`, or the
+   sha256-verifying `from_image_checked`): one memory copy per section, no
+   curve validation. Always use it; the canonical format and zkeys exist
+   only where circom/snarkjs compatibility is required.
 
 ## SPP Transaction Proving Keys & Verifying Keys
 

@@ -42,7 +42,6 @@ func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inpu
 		inputHashes,
 		spptest.ToBigInts(assignment.OutputHashes()),
 		noAddressNullifiers(len(inputHashes)),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshPublicInputHash(t, assignment)
@@ -115,7 +114,6 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 		[]*big.Int{inputHash, inputHash},
 		spptest.ToBigInts(assignment.OutputHashes()),
 		noAddressNullifiers(2),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshPublicInputHash(t, assignment)

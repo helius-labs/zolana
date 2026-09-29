@@ -359,14 +359,6 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "input openings swapped",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.Inputs[0], c.Inputs[1] = c.Inputs[1], c.Inputs[0]
-				return c
-			},
-		},
-		{
 			name: "dummy input reclassified as a utxo",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
@@ -568,6 +560,18 @@ func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingP
 	}
 	if err := cs.IsSolved(witness); err != nil {
 		t.Fatalf("solve: %v", err)
+	}
+}
+
+func TestCircuitAcceptsAMovedDummyInput(t *testing.T) {
+	c := validAssignment(t)
+	c.Inputs[0], c.Inputs[1] = c.Inputs[1], c.Inputs[0]
+	witness, err := frontend.NewWitness(c, ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatalf("new witness: %v", err)
+	}
+	if err := testConstraintSystem(t).IsSolved(witness); err != nil {
+		t.Fatalf("a dummy input moved ahead of the spend was rejected: %v", err)
 	}
 }
 
@@ -1200,7 +1204,7 @@ func (s *statement) buildTransaction(
 	}
 	s.outputs = []UtxoWires{created, second}
 
-	s.addressChain = spptest.MustHashChain4(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
+	s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.externalDataHash = big.NewInt(0x5eed)
 	s.privateTxBlinding = big.NewInt(0x5b1d)
 	s.updateHashes(t)
@@ -1223,7 +1227,6 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 		AuditorPk:          wires.AuditorPk,
 		Salt:               wires.Salt,
 		AddressChain:       s.addressChain,
-		ExternalDataHash:   s.externalDataHash,
 		PrivateTxBlinding:  s.privateTxBlinding,
 		AddressTreeID:      big.NewInt(addressTreeID),
 		RingID:             s.ringID,

@@ -144,6 +144,22 @@ export type {
   SerializedSyncCursors,
 } from "@heliuslabs/zolana/transaction";
 export type {
+  DecodedProgramTransaction,
+  ProgramData,
+  ProgramDataRecord,
+  ProgramFinalizedTransaction,
+  ProgramMint,
+  ProgramOwnerTag,
+  ProgramProofInputUtxo,
+  ProgramProofOutputUtxo,
+  ProgramResolvedOwnerTag,
+  ProgramSettlementTransfer,
+  ProgramUtxo,
+  ProgramWalletUtxo,
+  SettlementTransfer,
+} from "@heliuslabs/zolana/transaction";
+export { decodeProgramTransaction, toProgramWalletUtxo } from "@heliuslabs/zolana/transaction";
+export type {
   RingRpcOptions as RootRingRpcOptions,
   SerializedCursor as RootSerializedCursor,
   SerializedNoteReservation as RootSerializedNoteReservation,

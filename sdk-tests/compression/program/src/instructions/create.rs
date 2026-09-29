@@ -41,8 +41,9 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let owner = PdaOwner::new(&pda).map_err(compressed_account_error)?;
-    let address = NewAddress::derive(&owner, AddressSeed::owner(&owner), input_tree_id)
-        .map_err(compressed_account_error)?;
+    let address =
+        NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), input_tree_id)
+            .map_err(compressed_account_error)?;
     let mut account: CompressedAccount<'_, AccountState> =
         CompressedAccount::new_init(&owner, address, address_tree_context);
     account.authority = authority.to_bytes();

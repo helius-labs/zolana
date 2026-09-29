@@ -2,20 +2,23 @@ pub use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
 
 use crate::error::TransactionError;
 
-/// The consolidation shape: supported, but only reached by declaring it.
+/// The consolidation shape: the only supported shape above five inputs.
 pub const SPP_CONSOLIDATION_SHAPE: Shape = Shape::IN36_OUT2;
 
-/// Shapes automatic selection may pick: every supported shape except the
-/// consolidation one, which costs a 36-input proof and is only ever reached by
-/// declaring it.
+/// Shapes wallet coin selection may fill: every supported shape except the
+/// consolidation one, which costs a 36-input proof. A wallet holding more
+/// UTXOs than these shapes take merges them first.
 pub fn auto_shapes() -> impl Iterator<Item = Shape> {
     SPP_SUPPORTED_SHAPES
         .into_iter()
         .filter(|shape| *shape != SPP_CONSOLIDATION_SHAPE)
 }
 
+/// The first supported shape that fits. The consolidation shape comes last, so
+/// it is selected only for more than five inputs.
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
-    auto_shapes()
+    SPP_SUPPORTED_SHAPES
+        .into_iter()
         .find(|s| n_in <= s.n_inputs() && n_out <= s.n_outputs())
         .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
 }

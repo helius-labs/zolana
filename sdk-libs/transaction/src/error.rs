@@ -70,6 +70,12 @@ pub enum TransactionError {
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
 
+    #[error("owner tag count mismatch: {got} owner tag(s) for {expected} output(s)")]
+    OwnerTagCountMismatch { got: usize, expected: usize },
+
+    #[error("the keys do not hold the sender the transaction was finalized for")]
+    SenderAddressMismatch,
+
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 
@@ -205,6 +211,9 @@ pub enum TransactionError {
 
     #[error("wallet authority did not provide its current viewing key")]
     MissingCurrentViewingKey,
+
+    #[error("the first input has no synced transaction viewing key")]
+    MissingSyncedTransactionKey,
 
     /// Raised when the authority is built, not when it is used, so it is
     /// distinct from [`Self::MissingCurrentViewingKey`]: that one means a scan

@@ -253,7 +253,6 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		inputHashes,
 		[]frontend.Variable{outputHash},
 		addressNullifiers,
-		t.Public.ExternalDataHash,
 		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
 	)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)

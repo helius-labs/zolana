@@ -14,3 +14,11 @@ type EscrowTerms struct {
 func (t EscrowTerms) DataHash(api frontend.API) frontend.Variable {
 	return gnarksdk.Poseidon(api, t.OwnerHash, t.Unlock)
 }
+
+type Funding struct {
+	OwnerHash frontend.Variable
+}
+
+func (f Funding) DataHash(api frontend.API) frontend.Variable {
+	return gnarksdk.Poseidon(api, f.OwnerHash)
+}

@@ -1,0 +1,93 @@
+[package]
+name = "zk-program-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254 = "0.6"
+ark-ec = { version = "0.6", optional = true }
+ark-ff = "0.6"
+ark-groth16 = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-poly = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-r1cs-std = { version = "0.6", default-features = false, features = ["std"] }
+ark-relations = { version = "0.6", default-features = false, features = ["std"] }
+ark-serialize = { version = "0.6", optional = true }
+ark-std = { version = "0.6", features = ["getrandom"] }
+borsh = { workspace = true }
+groth16-solana = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+# arkworks 0.6 port of light-poseidon (crates.io 0.4.0 is on arkworks 0.5).
+light-poseidon = { path = "/Users/jorrit/dev/light-poseidon-ark-0.6/light-poseidon" }
+rayon = { workspace = true, optional = true }
+solana-address = { workspace = true, features = ["curve25519"] }
+solana-bn254 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde-wasm-bindgen = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+solana-signature = { workspace = true }
+thiserror = { workspace = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+zk-program-sdk-macros = { path = "../zk-program-sdk-macros" }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[features]
+default = ["client", "setup", "encrypt", "parallel"]
+client = [
+    "dep:ark-ec",
+    "dep:ark-groth16",
+    "dep:ark-poly",
+    "dep:ark-serialize",
+    "dep:groth16-solana",
+    "dep:sha2",
+    "dep:solana-bn254",
+]
+setup = [
+    "dep:ark-ec",
+    "dep:ark-groth16",
+    "dep:ark-serialize",
+    "dep:groth16-solana",
+    "groth16-solana?/gnark-vk",
+]
+encrypt = ["client"]
+parallel = ["client", "dep:rayon", "ark-groth16/parallel", "ark-poly/parallel"]
+serde = ["dep:serde", "zolana-keypair/serde", "zolana-transaction/serde"]
+tsify = [
+    "serde",
+    "dep:tsify",
+    "dep:wasm-bindgen",
+    "zolana-keypair/tsify",
+    "zolana-transaction/tsify",
+]
+wasm = ["client", "tsify", "dep:js-sys", "dep:serde-wasm-bindgen"]
+wasm-prover = ["wasm"]
+wasm-verify = ["wasm", "groth16-solana/gnark-vk"]
+# Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
+external-tools = []
+
+[dev-dependencies]
+ark-circom = { version = "0.6.0", default-features = false }
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
+hex = { workspace = true }
+num-bigint = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+wasmer = { version = "6.1", default-features = false }
+zolana-program = { workspace = true, features = ["compression"] }
+
+[[test]]
+name = "unit"
+required-features = ["client", "setup"]
+
+[[test]]
+name = "external_gadget"
+required-features = ["client", "setup"]
+
+[lints.clippy]
+disallowed_types = "allow"

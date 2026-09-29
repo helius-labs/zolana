@@ -18,6 +18,13 @@ wincode = { workspace = true }
 solana-address = { workspace = true }
 solana-signature = { workspace = true }
 num-bigint = { workspace = true }
+serde = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde", "zolana-keypair/serde"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "zolana-keypair/tsify"]
 
 [dev-dependencies]
 hex = { workspace = true }
@@ -27,3 +34,8 @@ serde_json = { workspace = true }
 [[test]]
 name = "behavior"
 path = "tests/behavior.rs"
+
+[[test]]
+name = "serde"
+path = "tests/serde.rs"
+required-features = ["serde"]

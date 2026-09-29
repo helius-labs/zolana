@@ -39,8 +39,7 @@ type CustomRingPolicyCircuit struct {
 	InputCountSelected  [NInputs]frontend.Variable  `gnark:"NInOneHot"`
 	OutputCountSelected [NOutputs]frontend.Variable `gnark:"NOutOneHot"`
 
-	AddressChain     frontend.Variable
-	ExternalDataHash frontend.Variable
+	AddressChain frontend.Variable
 	// Folded last into the private transaction hash, as in SPP.
 	PrivateTxBlinding frontend.Variable
 

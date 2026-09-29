@@ -93,10 +93,9 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 
 	// 4. Bind the openings to the SPP transaction.
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
-		hashPrefix4(api, inputHashes, c.InputCountSelected[:]),
-		hashPrefix4(api, outputHashes, c.OutputCountSelected[:]),
+		gadget.NonZeroHashChain(api, inputHashes),
+		gadget.NonZeroHashChain(api, outputHashes),
 		c.AddressChain,
-		c.ExternalDataHash,
 		c.PrivateTxBlinding,
 	}))
 	return txContext
@@ -156,7 +155,7 @@ func (w UtxoWires) checkSlot(
 
 	// 3. Mark selected UTXOs outside the record for rule evaluation.
 	utxo := api.Mul(active, isUtxo)
-	return api.Select(isUtxo, hash, frontend.Variable(0)), utxoView{
+	return api.Select(utxo, hash, frontend.Variable(0)), utxoView{
 		ownerPkHash:   w.OwnerPkHash,
 		nullifierPk:   w.NullifierPk,
 		asset:         w.Asset,

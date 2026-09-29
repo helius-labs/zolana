@@ -1,0 +1,96 @@
+use ark_bn254::Fr;
+use ark_ff::One;
+use proptest::prelude::*;
+use zk_program_sdk::{
+    circuit::{value, CircuitVar, Field},
+    testing::{check_tampered, Tamper},
+    ZkCircuit,
+};
+
+use super::fixtures::{every_form, form_names, Negated, RULE, RULE_BROKEN};
+use crate::harness::{
+    field::random,
+    fixture::{each, native_circuit, Fixture, Native, Visit},
+    iden3::read_r1cs,
+};
+
+fn arbitrary_field() -> impl Strategy<Value = Field> {
+    any::<[u8; 32]>().prop_map(random)
+}
+
+struct NativeNegation;
+
+impl Visit<CircuitVar> for NativeNegation {
+    type Output = Field;
+
+    fn visit<F: Fixture<CircuitVar>>(&self, fixture: &F) -> Field {
+        let circuit = native_circuit(fixture).expect("native instantiation");
+        value(&F::computed(&circuit)).expect("constant negation")
+    }
+}
+
+struct Checked(Field);
+
+impl<C> Visit<C> for Checked {
+    type Output = (Option<usize>, Option<&'static str>);
+
+    fn visit<F: Fixture<C>>(&self, fixture: &F) -> Self::Output {
+        (
+            fixture.check_constraints().ok(),
+            check_tampered(
+                fixture,
+                Tamper::PrivateVariable {
+                    index: 1,
+                    value: self.0,
+                },
+            )
+            .err()
+            .and_then(|error| error.broken_rule()),
+        )
+    }
+}
+
+proptest! {
+    #[test]
+    fn natively_every_form_holds_exactly_when_the_claim_is_minus_the_value(
+        value in arbitrary_field(),
+        claimed in arbitrary_field(),
+        honest in any::<bool>(),
+    ) {
+        let negation = if honest { -value } else { claimed };
+        let expected = if negation == -value { Ok(()) } else { Err(RULE_BROKEN) };
+        prop_assert_eq!(
+            every_form(&Native, (value, negation)),
+            each(&form_names(), expected)
+        );
+    }
+
+    #[test]
+    fn a_wrong_negation_is_refused_natively_and_in_r1cs_and_the_honest_one_checks(
+        value in arbitrary_field(),
+        offset in arbitrary_field().prop_filter("a wrong negation", |offset| *offset != Field::from(0u64)),
+    ) {
+        let wrong = -value + offset;
+        let r1cs = read_r1cs(&Negated::<1>::export_r1cs().expect("r1cs export"));
+        prop_assert_eq!(
+            (
+                every_form(&Native, (value, wrong)),
+                every_form(&Checked(wrong), (value, -value)),
+                r1cs.first_unsatisfied(&[Fr::one(), value.into(), wrong.into()]),
+            ),
+            (
+                each(&form_names(), Err(RULE_BROKEN)),
+                each(&form_names(), (Some(1), Some(RULE))),
+                Some(0),
+            )
+        );
+    }
+
+    #[test]
+    fn every_form_gives_the_same_native_negation(value in arbitrary_field()) {
+        prop_assert_eq!(
+            every_form(&NativeNegation, (value, -value)),
+            each(&form_names(), -value)
+        );
+    }
+}

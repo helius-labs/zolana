@@ -1,4 +1,5 @@
 use solana_address::Address;
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::hash::sha256;
 pub use zolana_program::PrivateTxHash;
 
@@ -48,7 +49,7 @@ impl SppProofInputs {
     }
 
     pub fn private_tx_blinding(&self) -> Result<[u8; 32], TransactionError> {
-        derive_private_tx_blinding(&self.first_nullifier()?, &self.blinding_seed)
+        private_tx_blinding(&self.input_utxos, &self.blinding_seed)
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
@@ -63,24 +64,8 @@ impl SppProofInputs {
 
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
         validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
-        let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
-        for input_utxo in &self.input_utxos {
-            if input_utxo.is_dummy() {
-                input_hashes.push([0u8; 32]);
-            } else {
-                input_hashes.push(input_utxo.hash());
-            }
-        }
-
-        let mut output_hashes = Vec::with_capacity(self.output_utxos.len());
-        for output in &self.output_utxos {
-            if output.is_dummy() {
-                output_hashes.push([0u8; 32]);
-            } else {
-                output_hashes.push(output.hash(self.output_tree_id)?);
-            }
-        }
-
+        let input_hashes = input_hashes(&self.input_utxos);
+        let output_hashes = output_hashes(&self.output_utxos, self.output_tree_id)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = PrivateTxHash::new(
             &input_hashes,
@@ -91,4 +76,77 @@ impl SppProofInputs {
         .hash()?;
         Ok(sha256(&private_tx))
     }
+
+    pub fn padding_independent_private_tx_hash(&self) -> Result<[u8; 32], TransactionError> {
+        padding_independent_private_tx_hash(
+            &self.input_utxos,
+            &self.output_utxos,
+            self.output_tree_id,
+            &self.blinding_seed,
+        )
+    }
+}
+
+pub(super) fn private_tx_blinding(
+    input_utxos: &[SppProofInputUtxo],
+    blinding_seed: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    let first_nullifier = input_utxos
+        .first()
+        .ok_or(TransactionError::NoInputs)?
+        .nullifier();
+    derive_private_tx_blinding(&first_nullifier, blinding_seed)
+}
+
+pub(super) fn padding_independent_private_tx_hash(
+    input_utxos: &[SppProofInputUtxo],
+    output_utxos: &[SppProofOutputUtxo],
+    output_tree_id: u16,
+    blinding_seed: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    validate_input_tree_order(input_utxos.iter().map(|input| input.tree_id))?;
+    Ok(Poseidon::hashv(&[
+        nonzero_hash_chain(&input_hashes(input_utxos))?.as_slice(),
+        nonzero_hash_chain(&output_hashes(output_utxos, output_tree_id)?)?.as_slice(),
+        nonzero_hash_chain(&[])?.as_slice(),
+        private_tx_blinding(input_utxos, blinding_seed)?.as_slice(),
+    ])?)
+}
+
+fn input_hashes(input_utxos: &[SppProofInputUtxo]) -> Vec<[u8; 32]> {
+    input_utxos
+        .iter()
+        .map(|input_utxo| {
+            if input_utxo.is_dummy() {
+                [0u8; 32]
+            } else {
+                input_utxo.hash()
+            }
+        })
+        .collect()
+}
+
+pub(super) fn output_hashes(
+    output_utxos: &[SppProofOutputUtxo],
+    output_tree_id: u16,
+) -> Result<Vec<[u8; 32]>, TransactionError> {
+    output_utxos
+        .iter()
+        .map(|output| {
+            if output.is_dummy() {
+                Ok([0u8; 32])
+            } else {
+                output.hash(output_tree_id)
+            }
+        })
+        .collect()
+}
+
+fn nonzero_hash_chain(values: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
+    values
+        .iter()
+        .filter(|value| **value != [0u8; 32])
+        .try_fold([0u8; 32], |chain, value| {
+            Ok(Poseidon::hashv(&[chain.as_slice(), value.as_slice()])?)
+        })
 }

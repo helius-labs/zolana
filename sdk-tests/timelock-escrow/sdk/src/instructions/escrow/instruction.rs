@@ -1,55 +1,42 @@
 use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::Pubkey;
-use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
-};
-use zolana_program::instruction::nullifier_pda_accounts;
+use timelock_escrow_program::instructions::escrow::owner_tags;
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
-use crate::{err, escrow_authority_pda, tag, EscrowIxData, EscrowProof};
+use super::EscrowTransaction;
+use crate::{
+    err, escrow_authority, tag, zk_program::program_instruction, EscrowIxData, EscrowProof,
+};
 
 pub struct Escrow {
-    pub payer: Pubkey,
-    pub tree: Pubkey,
-    pub escrow_proof: EscrowProof,
+    pub transaction: EscrowTransaction,
     pub spp_proof: TransactIxData,
+    pub escrow_proof: EscrowProof,
 }
 
 impl Escrow {
     pub fn instruction(self) -> Result<Instruction> {
         let Self {
-            payer,
-            tree,
-            escrow_proof,
+            transaction,
             spp_proof,
+            escrow_proof,
         } = self;
-
-        let nullifier_pdas = nullifier_pda_accounts(
-            &tree,
-            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
-        );
-        let serialized_ix = wincode::serialize(&EscrowIxData {
+        let authority = *escrow_authority().pda();
+        let proven = transaction.transaction.accept(spp_proof)?;
+        let creator = *proven.built().payer();
+        let transact = proven.transact(owner_tags(&creator, &authority))?;
+        let data = wincode::serialize(&EscrowIxData {
             proof: escrow_proof,
-            transact: spp_proof,
+            transact,
         })
         .map_err(err)?;
-
-        let mut accounts = vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new(payer, true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(tree, false),
-        ];
-        accounts.extend(nullifier_pdas);
-        accounts.push(AccountMeta::new_readonly(escrow_authority_pda(), false));
-        let mut instruction_data = vec![tag::ESCROW];
-        instruction_data.extend_from_slice(&serialized_ix);
-        Ok(Instruction {
-            program_id: timelock_escrow_program::ID,
+        let mut accounts = vec![AccountMeta::new(creator, true)];
+        accounts.extend(proven.spp_accounts(&[authority])?);
+        Ok(program_instruction(
+            timelock_escrow_program::ID,
+            tag::ESCROW,
+            &data,
             accounts,
-            data: instruction_data,
-        })
+        ))
     }
 }

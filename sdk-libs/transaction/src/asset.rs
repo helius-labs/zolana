@@ -9,7 +9,22 @@ pub const SOL_MINT: Address = Address::new_from_array([0u8; 32]);
 
 /// A mint address used in commitments and its compact ID used in payloads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase", deny_unknown_fields)
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub struct Mint {
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::address")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "string"))]
     pub asset: Address,
     pub asset_id: u64,
 }
@@ -35,6 +50,23 @@ pub struct AssetBalance {
     pub mint: Address,
     pub amount: u64,
     pub utxos: Vec<WalletUtxo>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AssetAmount {
+    pub asset_id: u64,
+    pub mint: Address,
+    pub amount: u64,
+}
+
+impl From<&AssetBalance> for AssetAmount {
+    fn from(balance: &AssetBalance) -> Self {
+        Self {
+            asset_id: balance.asset_id,
+            mint: balance.mint,
+            amount: balance.amount,
+        }
+    }
 }
 
 /// Spendable default-ring balances. Ring-bound notes are never in here; a
