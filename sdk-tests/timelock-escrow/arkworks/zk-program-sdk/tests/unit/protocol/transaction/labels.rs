@@ -36,6 +36,15 @@ pub fn allocated<F: ZkCircuit>(fixture: &F, text: &str) -> Vec<usize> {
         .collect()
 }
 
+pub fn scoped<F: ZkCircuit>(fixture: &F, text: &str) -> Vec<usize> {
+    labels(fixture)
+        .into_iter()
+        .filter(|label| label.kind == LabelKind::Scope && label.text == text)
+        .flat_map(|label| label.private_variables)
+        .map(|variable| variable + 1)
+        .collect()
+}
+
 /// The first private wire a check labelled `rule` allocates.
 pub fn first_wire_of<F: ZkCircuit>(fixture: &F, rule: &str) -> usize {
     labels(fixture)

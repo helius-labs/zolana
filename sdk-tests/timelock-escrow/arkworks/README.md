@@ -101,9 +101,9 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, this circuit carries them. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
-| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_burn`. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, or must be zero once burned. |
-| `TokenUtxos` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_burn`, with dummies after the first. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. |
-| `UtxoTrait` | The value operations both UTXO types share: `owner`, `asset`, `amount`, `transfer` and `transfer_all` into a destination UTXO of either type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a burned destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `amount` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Balance`. |
+| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_close`. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, a real UTXO even at a zero balance because it carries state, or must be zero once closed. |
+| `TokenUtxos` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_close`, with dummies after the first. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. An output whose balance is zero at proof time is an empty UTXO: it keeps its slot and derived blinding, enters `private_tx_hash` as 0, and leaves no zero-amount UTXO. The circuit decides this from the balance, so a prover cannot choose it. `new_close` asserts that nothing is left and takes no slot. |
+| `UtxoTrait` | The value operations both UTXO types share: `owner`, `asset`, `amount`, `transfer` and `transfer_all` into a destination UTXO of either type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a closed destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `amount` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Balance`. |
 
 **Transaction and circuit**
 
@@ -111,7 +111,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | --- | --- |
 | `TxContext` | The transaction settings in circuit form, the output tree as a `Uint<16>`. `check` derives the output blindings and `private_tx_blinding` from them and the first spent input's nullifier, and selects the output tree. |
 | `PublicInputs` | Hashes a circuit's public fields, then `private_tx_hash`, into the public hash. |
-| `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, and computes `private_tx_hash` and the public hash. |
+| `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, a `TokenUtxos` output of zero as an empty UTXO, and computes `private_tx_hash` and the public hash. The client places each empty output in its slot with `zolana_transaction`'s `add_empty_output_utxo`. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
 | `Circuit` | The `circuit` method of a circuit type. |
 | `Constraints` | The `constraints` method of a circuit type that only asserts rules, with no transaction and no public hash. `ZkCircuit` runs it. |
@@ -212,7 +212,7 @@ Everything a future macro derives goes through these, and each can be written by
 | `EscrowTerms` | The escrow UTXO's state: the creator as an `Owner`, and the unlock time. Its borsh bytes are the escrow UTXO's data. |
 | `escrow_input` | Turns the escrow output the escrow instruction created into the withdraw's input. |
 | `circuit::Escrow` | Spends the creator's token UTXOs, locks `amount` in a new escrow data UTXO for the escrow authority, and returns the change. Public hash: `Poseidon(escrow_owner, private_tx_hash)`. |
-| `circuit::Withdraw` | Burns the escrow UTXO and transfers its amount to the creator, whose key identity must equal the signer's `owner_identity`. Public hash: `Poseidon(unlock, owner_identity, private_tx_hash)`. |
+| `circuit::Withdraw` | Closes the escrow UTXO and transfers its amount to the creator, whose key identity must equal the signer's `owner_identity`. Public hash: `Poseidon(unlock, owner_identity, private_tx_hash)`. |
 | `circuit::EscrowTerms` | The state in the circuit, with `DataHash` and `UtxoData`. |
 
 ## Flow
@@ -270,29 +270,30 @@ R1CS, proves, and checks the proof against the keys. `verify` and the program's
 ```mermaid
 stateDiagram-v2
     accTitle: The DataUtxo and TokenUtxos lifecycles
-    accDescr: Both UTXO types start as Init, Mut or Burn. Init adds an output, Mut inputs and an output, Burn inputs. A burned UTXO transfers its value into other UTXOs and has no output.
+    accDescr: Both UTXO types start as Init, Mut or Close. Init adds an output, Mut inputs and an output, Close inputs. A closed UTXO transfers its value into other UTXOs and has no output.
 
     state "Init - no input, one output" as Init
     state "Mut - inputs in, the new state or change out" as Mut
-    state "Burn - inputs in, no output of its own" as Burn
+    state "Close - inputs in, no output of its own" as Close
     state "Slots in the ConfidentialTransaction" as Slots
 
     [*] --> Init : new_init
     [*] --> Mut : new_mut
-    [*] --> Burn : new_burn
+    [*] --> Close : new_close
     Init --> Slots : output
     Mut --> Slots : inputs and output
-    Burn --> Slots : inputs, its value transferred into other UTXOs
+    Close --> Slots : inputs, its value transferred into other UTXOs
     Slots --> [*]
 ```
 
 *Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxos`, the counterparts of `LightAccount`.*
 
-A UTXO starts in `Init`, `Mut` or `Burn`. `Init` adds only an output: the new state for a
+A UTXO starts in `Init`, `Mut` or `Close`. `Init` adds only an output: the new state for a
 `DataUtxo`, the value transferred into it for a `TokenUtxos`. `Mut` adds its inputs and that
-output, the change for a `TokenUtxos`. `Burn` adds only its inputs, and its transfers must move
-out its whole value. Every UTXO but a burned one can receive a transfer: an `Init` UTXO holds
-the asset it was built with, the others their inputs' asset.
+output, the change for a `TokenUtxos`. A `TokenUtxos` output that ends at zero is an empty
+UTXO in its slot. `Close` adds only its inputs, and its transfers must move out its whole
+value. Every UTXO but a closed one can receive a transfer: an `Init` UTXO holds the asset it
+was built with, the others their inputs' asset.
 
 ## Running it
 

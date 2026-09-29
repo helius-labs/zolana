@@ -3,7 +3,7 @@ use super::{
         Asserted, Checked, Fund, Payment, Refresh, Settle, LEAVES, NO_TREE, PRIVATE_TX_HASH,
         PUBLIC_HASH, TRANSACTION_HASH,
     },
-    labels::{allocated, breaks, checks, tamper, Broken},
+    labels::{allocated, breaks, checks, scoped, tamper, Broken},
     vectors::{forgotten, funds, payments, refreshes, settles},
 };
 use crate::harness::{
@@ -14,6 +14,7 @@ use crate::harness::{
 const PROOF_INPUTS_BREAK_RULE: &str = "ProverError.ProofInputsBreakRule";
 const BOOL_RULE: &str = "a bool proof input is neither 0 nor 1";
 const U16_RULE: &str = "a u16 proof input does not fit in 16 bits";
+const EMPTINESS: &str = "whether a token output is empty";
 
 const fn inside_scope(scope: &'static str) -> Broken {
     (PROOF_INPUTS_BREAK_RULE, Some(scope), false)
@@ -180,6 +181,26 @@ fn a_tampered_context_breaks_its_range_or_booleanity_row() {
             Err(breaks(BOOL_RULE)),
             Err(inside_scope("the transaction's outputs and hashes")),
         ]
+    );
+}
+
+#[test]
+fn a_prover_cannot_flip_whether_a_token_output_is_empty_and_only_a_zero_amounts_hint_is_free() {
+    let [(_, kept), (_, emptied), _] = <[_; 3]>::try_from(payments()).expect("three payments");
+    let tampered = |program| {
+        let fixture = Asserted::honest(program);
+        scoped(&fixture, EMPTINESS)
+            .into_iter()
+            .map(|wire| tamper(&fixture, wire))
+            .collect::<Vec<_>>()
+    };
+    let refused = Err(inside_scope("an equality test"));
+    assert_eq!(
+        (tampered(kept), tampered(emptied)),
+        (
+            vec![refused, refused, refused, refused],
+            vec![refused, Ok(()), refused, refused],
+        )
     );
 }
 

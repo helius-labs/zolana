@@ -597,6 +597,7 @@ fn padded_builder_rejects_every_mutator_and_remains_encryptable() {
         tx.add_output_utxo(SppProofOutputUtxo::new(Mint::SOL, 1, sender).unwrap()),
         E::OutputUtxosAlreadyPadded,
     );
+    error(tx.add_empty_output_utxo(), E::OutputUtxosAlreadyPadded);
     error(tx.transfer_sol(&sender, 1), E::OutputUtxosAlreadyPadded);
     error(
         tx.transfer(&sender, mint(2).asset, 1),
@@ -641,6 +642,98 @@ fn padded_builder_rejects_every_mutator_and_remains_encryptable() {
     let mut tx = builder(&owner, 1);
     tx.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
     error(tx.with_output_tree_id(4), E::OutputUtxosAlreadyPadded);
+}
+
+#[test]
+fn an_explicit_empty_output_keeps_its_slot_and_commits_like_empty_padding() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let recipient = keypair(2).shielded_address().unwrap();
+    let seed = [3; 32];
+    let transaction = |outputs: &[Option<SppProofOutputUtxo>], shape| {
+        let mut tx = builder(&owner, 8).with_blinding_seed(seed).unwrap();
+        for output in outputs {
+            match output {
+                Some(output) => tx.add_output_utxo(output.clone()),
+                None => tx.add_empty_output_utxo(),
+            }
+            .unwrap();
+        }
+        tx.pad_utxos_with_empty_outputs(shape, &sender).unwrap();
+        tx
+    };
+    let paid_all = SppProofOutputUtxo::new(Mint::SOL, 8, recipient).unwrap();
+    let paid = SppProofOutputUtxo::new(Mint::SOL, 3, recipient).unwrap();
+    let kept = SppProofOutputUtxo::new(Mint::SOL, 5, sender).unwrap();
+
+    let explicit = transaction(&[Some(paid_all.clone()), None], Shape::IN1_OUT2)
+        .finalize(&sender)
+        .unwrap();
+    let padded = transaction(&[Some(paid_all)], Shape::IN1_OUT2)
+        .finalize(&sender)
+        .unwrap();
+    assert_eq!(
+        (
+            explicit.output_utxos(),
+            explicit.output_hashes().unwrap(),
+            explicit.padding_independent_private_tx_hash().unwrap(),
+        ),
+        (
+            padded.output_utxos(),
+            padded.output_hashes().unwrap(),
+            padded.padding_independent_private_tx_hash().unwrap(),
+        )
+    );
+
+    let middle = transaction(&[Some(paid), None, Some(kept)], Shape::IN2_OUT3);
+    let proof = middle.clone().encrypt(&owner).unwrap();
+    let middle = middle.finalize(&sender).unwrap();
+    let first = middle.first_nullifier().unwrap();
+    let output_seed = derive_output_blinding_seed(&first, &seed).unwrap();
+    let hashes = middle.output_hashes().unwrap();
+    let [paid_hash, _, kept_hash] = <[[u8; 32]; 3]>::try_from(hashes.clone()).unwrap();
+    let input_hash = middle.input_utxos().first().unwrap().hash();
+    let chain = |values: &[[u8; 32]]| {
+        values.iter().fold([0; 32], |chain, value| {
+            Poseidon::hashv(&[chain.as_slice(), value.as_slice()]).unwrap()
+        })
+    };
+    assert_eq!(
+        (
+            middle
+                .output_utxos()
+                .iter()
+                .map(|output| (output.is_dummy(), output.blinding))
+                .collect::<Vec<_>>(),
+            proof
+                .external_data
+                .outputs
+                .iter()
+                .map(|output| output.utxo_hash)
+                .collect::<Vec<_>>(),
+            proof.external_data.resolved_owner_tags.get(1).copied(),
+            middle.padding_independent_private_tx_hash().unwrap(),
+        ),
+        (
+            [false, true, false]
+                .into_iter()
+                .zip(0..)
+                .map(|(dummy, slot)| (
+                    dummy,
+                    derive_transact_output_blinding(&first, &output_seed, slot).unwrap()
+                ))
+                .collect::<Vec<_>>(),
+            hashes,
+            Some(sender.confidential_view_tag().unwrap()),
+            Poseidon::hashv(&[
+                chain(&[input_hash]).as_slice(),
+                chain(&[paid_hash, kept_hash]).as_slice(),
+                [0; 32].as_slice(),
+                middle.private_tx_blinding().unwrap().as_slice(),
+            ])
+            .unwrap(),
+        )
+    );
 }
 
 // Assert both readers recover independently expected fields and the resulting

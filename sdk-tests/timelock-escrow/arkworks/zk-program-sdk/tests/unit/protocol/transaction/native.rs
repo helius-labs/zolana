@@ -1,5 +1,6 @@
 use solana_address::Address;
-use zk_program_sdk::{circuit::Field, ZkCircuit};
+use zk_program_sdk::{circuit::Field, ZkCircuit, ZkProgram};
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{instructions::transact::SettlementTarget, Mint};
 
 use super::{
@@ -11,7 +12,7 @@ use super::{
     vectors::{
         forgotten, fund, funds, payments, refresh, refreshes, settles, swept, unspent, Named,
     },
-    wallets::{address, blinding, Spent, SENDER, STRANGER},
+    wallets::{address, blinding, Spent, PAYER, RECIPIENT, SENDER, STRANGER, USDC},
 };
 use crate::harness::fixture::{native, rule_broken, Refusal};
 
@@ -163,5 +164,48 @@ fn a_malformed_transaction_breaks_exactly_its_rule() {
             Err(broken(COUNTER_OVERFLOWS)),
             Err(rule_broken(CLOSE_LEAVES, super::fixtures::FILE)),
         ]
+    );
+}
+
+type Slot = (Option<ShieldedAddress>, Mint, u64);
+
+fn slots<P: ZkProgram>(program: &P) -> Vec<Slot> {
+    program
+        .create_finalized_transaction(&address(SENDER), PAYER)
+        .expect("finalized transaction")
+        .output_utxos()
+        .iter()
+        .map(|output| (output.owner_address, output.asset, output.amount))
+        .collect()
+}
+
+#[test]
+fn only_a_token_output_of_zero_becomes_an_empty_slot() {
+    let sender = Some(address(SENDER));
+    let recipient = Some(address(RECIPIENT));
+    let empty = (None, Mint::default(), 0);
+    let [(_, kept), (_, emptied), (_, nothing_paid)] =
+        <[_; 3]>::try_from(payments()).expect("three payments");
+    let [(_, funded), (_, drained)] = <[_; 2]>::try_from(funds()).expect("two funds");
+    let [(_, partial), (_, withdrawn)] = <[_; 2]>::try_from(settles()).expect("two settles");
+    assert_eq!(
+        (
+            [slots(&kept), slots(&emptied), slots(&nothing_paid)],
+            [slots(&funded), slots(&drained), slots(&fund(40, 0, 0, 0))],
+            [slots(&partial), slots(&withdrawn)],
+        ),
+        (
+            [
+                vec![(sender, Mint::SOL, 100), (recipient, Mint::SOL, 400)],
+                vec![empty, (recipient, USDC, 3)],
+                vec![(sender, Mint::SOL, 7), empty],
+            ],
+            [
+                vec![(sender, Mint::SOL, 200), (sender, Mint::SOL, 100)],
+                vec![empty, (sender, Mint::SOL, 42)],
+                vec![(sender, Mint::SOL, 40), (sender, Mint::SOL, 0)],
+            ],
+            [vec![(sender, Mint::SOL, 230)], vec![empty]],
+        )
     );
 }

@@ -129,13 +129,13 @@ inapplicable operation-specific error.
 | `TokenUtxos::new_mut` | [utxo.md](utxo.md) | INV-TOKEN-02 | INV-TOKEN-03..04 | INV-TOKEN-05 | INV-TOKEN-06..08 | spend fixtures: INV-TOKEN-03, INV-TOKEN-05 | INV-TOKEN-09..10 | INV-TOKEN-01 | refresh/payment fixtures: INV-TX-17..18 | INV-TOKEN-01 |
 | `TokenUtxos::new_init` | [utxo.md](utxo.md) | INV-TX-01..03 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial] | transaction fixtures: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01..03 | refresh/payment fixtures; burns have no separate proof: INV-TX-17..18 | INV-TX-01 |
 | `TokenUtxos::new_burn` | [utxo.md](utxo.md) | INV-TX-01..03 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial] | transaction fixtures: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01..03 | refresh/payment fixtures; burns have no separate proof: INV-TX-17..18 | INV-TX-01 |
-| `TokenUtxos::change` | [utxo.md](utxo.md) | INV-TX-01..03 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial] | transaction fixtures: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01..03 | refresh/payment fixtures; burns have no separate proof: INV-TX-17..18 | INV-TX-01 |
+| `TokenUtxos::change` | [utxo.md](utxo.md) | INV-TX-01..03, INV-TX-22 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial], INV-TX-23 | transaction fixtures: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01..03 | refresh/payment fixtures; burns have no separate proof: INV-TX-17..18 | INV-TX-01 |
 | `DataUtxo::new_mut` | [utxo.md](utxo.md) | INV-DATA-02 | INV-DATA-06..07 | INV-DATA-08 | INV-DATA-09..10 | held/fresh fixtures: INV-DATA-06, INV-DATA-08 | INV-DATA-11..12 | native state: INV-DATA-01 | funded counter update fixture: INV-TX-19 | shared fixture: INV-TX-01 |
 | `DataUtxo::new_init` | [utxo.md](utxo.md) | INV-DATA-03 | INV-DATA-06..07 | INV-DATA-08 | INV-DATA-09..10 | held/fresh fixtures: INV-DATA-06, INV-DATA-08 | INV-DATA-11..12 | native state: INV-DATA-01 | funded counter update fixture: INV-TX-19 | shared fixture: INV-TX-01 |
 | `DataUtxo::new_burn` | [utxo.md](utxo.md) | INV-DATA-01 | INV-DATA-06..07 | INV-DATA-08 | INV-DATA-09..10 | held/fresh fixtures: INV-DATA-06, INV-DATA-08 | INV-DATA-11..12 | native state: INV-DATA-01 | funded counter update fixture: INV-TX-19 | shared fixture: INV-TX-01 |
 | `UtxoData / checked_utxo_data` | [utxo.md](utxo.md) | INV-DATA-04 | INV-DATA-06..07 | INV-DATA-08 | INV-DATA-09..10 | held/fresh fixtures: INV-DATA-06, INV-DATA-08 | INV-DATA-05, INV-DATA-11..12 | native state: INV-DATA-04 | funded counter update fixture: INV-TX-19 | shared fixture: INV-TX-01 |
 | `TxContext output blindings / output tree` | [transaction.md](transaction.md) | INV-TX-01..03 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial], INV-TX-21 [partial] | native/proving transaction shapes: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01..03 | INV-TX-16..20 | random transaction oracle: INV-TX-01 |
-| `ConfidentialTransaction::check / transaction hashes` | [transaction.md](transaction.md) | INV-TX-01, INV-TX-03..04 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial], INV-TX-21 [partial] | native/proving transaction shapes: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01, INV-TX-03..04 | INV-TX-16..20 | random transaction oracle: INV-TX-01 |
+| `ConfidentialTransaction::check / transaction hashes` | [transaction.md](transaction.md) | INV-TX-01, INV-TX-03..04, INV-TX-22 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial], INV-TX-21 [partial], INV-TX-23 | native/proving transaction shapes: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-01, INV-TX-03..04 | INV-TX-16..20 | random transaction oracle: INV-TX-01 |
 | `PublicInputs / public hash` | [transaction.md](transaction.md) | INV-TX-05 | INV-TX-06..07 | INV-TX-08 | INV-TX-09..12, INV-TX-13 [partial], INV-TX-21 [partial] | native/proving transaction shapes: INV-TX-06, INV-TX-08 | INV-TX-14..15 | INV-TX-05 | INV-TX-16..20 | random transaction oracle: INV-TX-01 |
 
 ## Scope of shared fixtures
@@ -200,14 +200,14 @@ current checkboxes and their recorded passing postconditions.
 | [gadgets.md](gadgets.md) | 92 | 90 | 2 | 0 |
 | [ops.md](ops.md) | 84 | 84 | 0 | 0 |
 | [owner.md](owner.md) | 37 | 36 | 1 | 0 |
-| [transaction.md](transaction.md) | 21 | 19 | 2 | 0 |
+| [transaction.md](transaction.md) | 23 | 21 | 2 | 0 |
 | [transfer.md](transfer.md) | 7 | 7 | 0 | 0 |
 | [uint.md](uint.md) | 217 | 211 | 6 | 0 |
 | [utxo.md](utxo.md) | 72 | 69 | 3 | 0 |
-| **Total** | **1047** | **1025** | **22** | **0** |
+| **Total** | **1049** | **1027** | **22** | **0** |
 
-Severity: **297 Critical**, **497 High**, **250 Medium**, **3 Low**. The reference audit
-matches **1,248 Covered-by references** to passing test output, with no missing file/test or duplicate invariant ID.
+Severity: **299 Critical**, **497 High**, **250 Medium**, **3 Low**. The reference audit
+matches **1,252 Covered-by references** to passing test output, with no missing file/test or duplicate invariant ID.
 
 The matrix contains **114 operation rows**. Every category has a direct or explicitly
 scoped fixture reference, except operation-specific errors marked N/A for infallible APIs.

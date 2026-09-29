@@ -239,8 +239,8 @@ and `UtxoTrait::transfer` moves value from one to the other:
 
 | Type | What it is |
 | --- | --- |
-| `DataUtxo<S>` | A UTXO with program state `S`, close to `LightAccount`: `new_init(owner, asset)`, `new_mut`, `new_burn`. |
-| `TokenUtxos` | `LightAccount` without data: UTXOs of one owner and one asset, none from `new_init(owner, asset)`, `N` from `new_mut` or `new_burn`. |
+| `DataUtxo<S>` | A UTXO with program state `S`, close to `LightAccount`: `new_init(owner, asset)`, `new_mut`, `new_close`. |
+| `TokenUtxos` | `LightAccount` without data: UTXOs of one owner and one asset, none from `new_init(owner, asset)`, `N` from `new_mut` or `new_close`. |
 
 - A state `S` implements `DataHash`, a Poseidon hash over its fields in declaration order.
   Each field contributes its own `hash`: a `CircuitVar` or a `Uint` is its value, and a
@@ -273,7 +273,7 @@ and `UtxoTrait::transfer` moves value from one to the other:
   holds the asset it was built with. A destination with inputs holds their asset, and its
   owner signs in SPP because the inputs are spent. Emptiness is structural, never a zero
   balance, since the prover controls the balance. The transfer checks, in order:
-  1. the destination is not burned, a structural error in both runs;
+  1. the destination is not closed, a structural error in both runs;
   2. the destination holds the source's asset: the packed mint bytes are compared, two
      constraints, skipped when the destination's asset is a clone of the source's, as when it
      was built from `source.asset()`. That identity comes from how the circuit is written, so
@@ -317,10 +317,20 @@ and `UtxoTrait::transfer` moves value from one to the other:
   | --- | --- | --- | --- |
   | `Init` | `new_init(owner, asset)` | none, the balance comes from transfers and `deposit` | yes |
   | `Mut` | `new_mut(inputs)` | `N` | yes |
-  | `Burn` | `new_burn(inputs)` | `N` | none |
+  | `Close` | `new_close(inputs)` | `N` | none |
 
-  A `Burn` token's balance must end at zero, and the circuit asserts it. The SPP proof would
+  A `Close` token's balance must end at zero, and the circuit asserts it. The SPP proof would
   otherwise book a leftover as a public withdrawal.
+- The output of an `Init` or `Mut` token is an empty UTXO when its balance is zero at proof
+  time: the protocol's dummy domain, zero owner and asset, and its slot's derived blinding.
+  It keeps its slot and adds 0 to the output chain of `private_tx_hash`, while its dummy
+  commitment stays in the public output hashes. A spend of the whole balance therefore leaves
+  no zero-amount UTXO, and the transaction still does not show whether the sender kept change.
+  The circuit decides emptiness from the balance with an is-zero test, 8 constraints per
+  token output, so a prover cannot choose it. `Close` remains the lifecycle for a circuit
+  that knows nothing is left: it takes no output slot and costs one constraint.
+- A `DataUtxo` output stays a real UTXO at a zero balance, because it carries state. Only its
+  closing lifecycles leave no output or, for a `UniqueDataUtxo`, the closed-address marker.
 
 ## The `circuit` method
 
@@ -349,9 +359,9 @@ impl Circuit for Escrow {
 ```
 
 - `with_token_utxos(TokenUtxos)` adds what the lifecycle implies: `Init` adds its output,
-  `Mut` the inputs and the change output, and `Burn` the inputs.
+  `Mut` the inputs and the change output, and `Close` the inputs.
 - `with_data_utxo(DataUtxo)` adds what the lifecycle implies: `Init` adds an output, `Mut` an
-  input and an output, and `Burn` an input.
+  input and an output, and `Close` an input.
 - `ConfidentialTransaction` has no shape. It holds the UTXOs the circuit adds, and the client
   picks the smallest SPP shape with enough slots for the real ones.
 - Inputs and outputs keep the order in which UTXOs are added. The SPP transaction puts the
@@ -362,7 +372,9 @@ impl Circuit for Escrow {
 - `check` does the rest:
   1. asserts that the transfers net to zero over the UTXOs added,
   2. derives each output's blinding from `tx_context` and its index, and hashes the output,
+     as an empty UTXO for a token output of zero,
   3. computes `private_tx_hash` with `nonzero_hash_chain` over the input and output hashes,
+     where an empty output enters as 0,
   4. computes the public hash with `public.hash(&private_tx_hash)`.
 
   It returns a `CheckedTransaction`: the public hash, `private_tx_hash` and the slots, which
@@ -383,8 +395,8 @@ impl Circuit for Escrow {
 - `TokenUtxos` and `DataUtxo` move value through the same `UtxoTrait` trait: `transfer`,
   `transfer_all`, `deposit`, `withdraw` and `withdraw_all`, in every lifecycle. Every
   movement of value between UTXOs is a `transfer` or a `transfer_all`. The lifecycle only
-  decides what is left: the output for a token or a data UTXO, and zero once burned, which
-  the circuit asserts. The withdraw moves the whole escrow amount into a new `TokenUtxos` for
+  decides what is left: the output for a token or a data UTXO, an empty UTXO for a token
+  output of zero, and zero once closed, which the circuit asserts. The withdraw moves the whole escrow amount into a new `TokenUtxos` for
   `terms.creator` with `transfer_all`.
 
 ## Client
@@ -414,9 +426,10 @@ let result = prover.prove(&escrow)?;
   2. resolves the slots against the records and converts each output amount to `u64`, with a
      named error when one does not fit,
   3. builds `zolana_transaction::ConfidentialTransaction` from the resolved inputs and
-     outputs, with the circuit's blinding seed, picks the smallest SPP shape they fit, pads it
-     with dummy inputs and empty outputs, and encrypts it with the keys: blindings, owner
-     tags, ciphertexts and `external_data_hash`,
+     outputs, adding each empty output in its slot with `add_empty_output_utxo`, with the
+     circuit's blinding seed, picks the smallest SPP shape they fit, pads it with dummy inputs
+     and empty outputs, and encrypts it with the keys: blindings, owner tags, ciphertexts and
+     `external_data_hash`,
   4. sets the expiry and checks that `padding_independent_private_tx_hash` equals the
      circuit's `private_tx_hash`.
 
@@ -465,7 +478,7 @@ A feature may gate it later.
   `Placeholder`. Setup never evaluates the values, so the keys depend only on the type, and a
   circuit's structure must not depend on its input values. The fixed seed makes the keys
   reproducible; the setup is insecure either way. `Groth16Prover::new` runs the same synthesis
-  on loaded keys and refuses keys of another circuit. `TokenUtxos::new_mut` and `new_burn`
+  on loaded keys and refuses keys of another circuit. `TokenUtxos::new_mut` and `new_close`
   take an array of `N` inputs, so a circuit that spends more UTXOs is another `N`, with other
   keys. One set of keys pairs with every
   SPP shape the real UTXOs fit.

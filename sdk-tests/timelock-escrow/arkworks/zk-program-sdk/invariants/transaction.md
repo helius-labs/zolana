@@ -77,12 +77,20 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transaction/native.rs`
 
+- [x] **INV-TX-22: only a token output of zero becomes an empty slot**
+  - Covered by: `tests/unit/protocol/transaction/native.rs` `only_a_token_output_of_zero_becomes_an_empty_slot`; `tests/unit/protocol/transaction/native.rs` `every_shape_reproduces_the_native_private_transaction_and_public_hashes`; `zk-program-sdk-macros/tests/scenarios/s01_sol_payment.rs` `sol_payment_of_the_whole_balance_leaves_an_empty_change`
+  - Kind: native equivalence
+  - Statement: the finalized transaction has exactly one output slot per `check` output, in order. A `TokenUtxos` output of zero is an ownerless empty UTXO: the zero change of "1 + 2 USDC pays 3", "40 SOL moves all 40 into a counter holding 2" and "9 USDC deposits 1 and withdraws all 10", and the zero payment of "7 + 0 SOL pays 0". Every nonzero token output keeps its owner and amount, and a data output keeps its owner at a zero balance (a counter funded with 0). The empty slot commits as the dummy UTXO under its slot's derived blinding and adds 0 to the private output chain, so the private transaction hash stays the native one (INV-TX-01).
+  - Location: `src/circuit/protocol/utxo/output.rs` (`Output::is_empty`, `Output::hash`), `src/circuit/protocol/transaction.rs` (`CheckedOutput::private_hash`), `src/client/utxo.rs` (`output_utxos`)
+  - Severity: Critical
+  - Suggested test: positive; `tests/unit/protocol/transaction/native.rs`
+
 ### Constraint
 
 - [x] **INV-TX-06: every shape has exactly its pinned size and digest**
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `every_shape_has_exactly_the_pinned_size_and_digest`
   - Kind: constraint
-  - Statement: `Asserted` over a refresh, a payment, a funding and a settlement has exactly 4600, 10072, 8847 and 6870 constraints over 4607, 10078, 8855 and 6876 variables, with the R1CS sha256 digests pinned in the test.
+  - Statement: `Asserted` over a refresh, a payment, a funding and a settlement has exactly 4608, 10088, 9329 and 6878 constraints over 4615, 10094, 9337 and 6884 variables, with the R1CS sha256 digests pinned in the test. Each `TokenUtxos` output costs 8 constraints for its emptiness; a data output costs none.
   - Location: `src/circuit/protocol/transaction.rs:182-251` (`fn check`)
   - Severity: High
   - Suggested test: positive (digest); `tests/unit/protocol/transaction/r1cs.rs`
@@ -100,7 +108,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
 - [x] **INV-TX-08: every refresh and one of each other shape checks exactly its pinned count**
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `every_refresh_and_one_of_each_other_shape_checks_exactly_the_pinned_count`
   - Kind: completeness
-  - Statement: `check_constraints` returns exactly `Ok(4600)` for all four refreshes, whichever output tree they select, and exactly `Ok(10072)`, `Ok(8847)` and `Ok(6870)` for a payment, a funding and a settlement: the setup matrices over the placeholder and the proving matrices agree.
+  - Statement: `check_constraints` returns exactly `Ok(4608)` for all four refreshes, whichever output tree they select, and exactly `Ok(10088)`, `Ok(9329)` and `Ok(6878)` for a payment, a funding and a settlement: the setup matrices over the placeholder and the proving matrices agree.
   - Location: `src/prover/synthesis.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transaction/r1cs.rs`
@@ -146,6 +154,14 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Location: `src/circuit/protocol/transaction.rs`
   - Severity: Medium
   - Suggested test: external (Picus); `tests/unit/protocol/transaction/picus.rs`
+
+- [x] **INV-TX-23: a prover cannot flip whether a token output is empty**
+  - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `a_prover_cannot_flip_whether_a_token_output_is_empty_and_only_a_zero_amounts_hint_is_free`
+  - Kind: soundness
+  - Statement: in the payment with change 100 and the payment with change 0, tampering the emptiness bit of either token output breaks a row of "an equality test", and so does tampering the equality hint of a nonzero amount. Only the hint of the zero change leaves every row satisfied: `0 * hint = 0` holds for any hint, and the bit it would have to flip stays constrained.
+  - Location: `src/circuit/protocol/utxo/output.rs` (`Output::is_empty`)
+  - Severity: Critical
+  - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
 ### Error
 

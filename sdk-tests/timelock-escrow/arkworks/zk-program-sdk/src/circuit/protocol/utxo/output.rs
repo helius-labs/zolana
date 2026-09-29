@@ -2,9 +2,11 @@ use zolana_interface::DUMMY_DOMAIN;
 
 use super::{utxo_domain, Utxo};
 use crate::{
-    circuit::{constant, zero, Asset, Bool, CircuitVar, Owner, Uint},
+    circuit::{constant, labels::Scope, zero, Asset, Bool, CircuitVar, Owner, Uint},
     CircuitError,
 };
+
+const EMPTINESS: &str = "whether a token output is empty";
 
 #[derive(Clone, Debug)]
 pub(crate) struct Output {
@@ -19,11 +21,11 @@ pub(crate) struct Output {
 impl Output {
     #[track_caller]
     pub(crate) fn is_empty(&self) -> Result<Bool, CircuitError> {
-        if self.empty_if_zero {
-            self.amount.is_zero()
-        } else {
-            Ok(Bool::constant(false))
+        if !self.empty_if_zero {
+            return Ok(Bool::constant(false));
         }
+        let _scope = Scope::open(&self.amount.var().cs(), EMPTINESS);
+        self.amount.is_zero()
     }
 
     #[track_caller]
