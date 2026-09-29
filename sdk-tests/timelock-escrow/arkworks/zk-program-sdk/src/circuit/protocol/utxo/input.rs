@@ -16,6 +16,11 @@ pub struct Utxo {
     pub ring_data_hash: CircuitVar,
     pub ring_program_id: CircuitVar,
     pub tree_id: CircuitVar,
+    pub meta: UtxoMeta,
+}
+
+#[derive(Clone, Debug)]
+pub struct UtxoMeta {
     /// Client-supplied nullifier metadata, not derived or verified by this circuit.
     /// The first input is bound through transaction blinding; later nullifiers
     /// need an authenticated link to SPP before use in application authorization.
@@ -23,13 +28,21 @@ pub struct Utxo {
     pub latest_tree_id: CircuitVar,
     pub has_latest_tree_id: Bool,
 }
-// TODO: UTXOMeta
+
+impl Default for UtxoMeta {
+    fn default() -> Self {
+        Self {
+            nullifier: zero(),
+            latest_tree_id: zero(),
+            has_latest_tree_id: Bool::constant(false),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SpentInput {
     pub(crate) hash: CircuitVar,
-    pub(crate) nullifier: CircuitVar,
-    pub(crate) latest_tree_id: CircuitVar,
-    pub(crate) has_latest_tree_id: Bool,
+    pub(crate) meta: UtxoMeta,
 }
 
 impl Default for Utxo {
@@ -44,9 +57,7 @@ impl Default for Utxo {
             ring_data_hash: zero(),
             ring_program_id: zero(),
             tree_id: zero(),
-            nullifier: zero(),
-            latest_tree_id: zero(),
-            has_latest_tree_id: Bool::constant(false),
+            meta: UtxoMeta::default(),
         }
     }
 }
@@ -71,9 +82,7 @@ impl Utxo {
     pub(crate) fn spent(&self, hash: CircuitVar) -> SpentInput {
         SpentInput {
             hash,
-            nullifier: self.nullifier.clone(),
-            latest_tree_id: self.latest_tree_id.clone(),
-            has_latest_tree_id: self.has_latest_tree_id.clone(),
+            meta: self.meta.clone(),
         }
     }
 

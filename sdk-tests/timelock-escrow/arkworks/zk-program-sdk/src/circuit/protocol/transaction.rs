@@ -9,7 +9,7 @@ use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
         zero, Assert, Bool, CircuitVar, DataHash, DataUtxo, PublicTransfer, TokenUtxo, Uint,
-        UniqueDataUtxo, Utxo, UtxoData,
+        UniqueDataUtxo, Utxo, UtxoData, UtxoMeta,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -25,7 +25,7 @@ impl TxContext {
     #[track_caller]
     fn output_tree_id(&self, first: &SpentInput) -> Result<CircuitVar, CircuitError> {
         self.uses_output_tree_id
-            .or(&first.has_latest_tree_id)
+            .or(&first.meta.has_latest_tree_id)
             .var()
             .assert_equal(
                 &constant(1u64),
@@ -33,7 +33,7 @@ impl TxContext {
             )?;
         Ok(self
             .uses_output_tree_id
-            .select(&self.output_tree_id.var(), &first.latest_tree_id))
+            .select(&self.output_tree_id.var(), &first.meta.latest_tree_id))
     }
 
     fn is_native(&self) -> bool {
@@ -224,7 +224,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         let first = inputs.first().ok_or(CircuitErrorKind::RuleBroken(
             "a transaction spends at least one input",
         ))?;
-        let first_nullifier = first.nullifier.clone();
+        let first_nullifier = first.meta.nullifier.clone();
         let output_tree_id = self.tx_context.output_tree_id(first)?;
         let blinding_seed = self.tx_context.blinding_seed.clone();
         let output_blinding_seed = output_blinding_seed(&first_nullifier, &blinding_seed)?;
@@ -283,9 +283,10 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
 fn address_slot(address: &CircuitVar) -> SpentInput {
     SpentInput {
         hash: zero(),
-        nullifier: address.clone(),
-        latest_tree_id: zero(),
-        has_latest_tree_id: Bool::constant(false),
+        meta: UtxoMeta {
+            nullifier: address.clone(),
+            ..UtxoMeta::default()
+        },
     }
 }
 

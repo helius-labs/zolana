@@ -254,7 +254,7 @@ fn the_carried_nullifier_is_the_wallets_native_nullifier() {
     let preimages = preimages();
     assert_eq!(
         per_vector(&preimages, |preimage| (
-            constant_of(&circuit(&preimage.wallet()).nullifier),
+            constant_of(&circuit(&preimage.wallet()).meta.nullifier),
             field_of(&preimage.wallet().nullifier),
         )),
         per_vector(&preimages, |preimage| {
@@ -340,9 +340,9 @@ fn the_circuit_dummy_has_the_dummy_domain_and_no_nullifier_key() {
             constant_of(&utxo.ring_data_hash),
             constant_of(&utxo.ring_program_id),
             constant_of(&utxo.tree_id),
-            constant_of(&utxo.nullifier),
-            constant_of(&utxo.latest_tree_id),
-            constant_of(&CircuitVar::from(utxo.has_latest_tree_id.clone())),
+            constant_of(&utxo.meta.nullifier),
+            constant_of(&utxo.meta.latest_tree_id),
+            constant_of(&CircuitVar::from(utxo.meta.has_latest_tree_id.clone())),
         ]
     };
     let mut expected = [zero; 12];

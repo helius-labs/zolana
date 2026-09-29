@@ -7,7 +7,7 @@ mod unique;
 
 pub use data::{checked_utxo_data, DataHash, DataUtxo, UtxoData};
 pub(crate) use input::SpentInput;
-pub use input::Utxo;
+pub use input::{Utxo, UtxoMeta};
 pub use ledger::Balance;
 use ledger::{Accumulator, HasLedger, Ledger};
 pub(crate) use output::Output;

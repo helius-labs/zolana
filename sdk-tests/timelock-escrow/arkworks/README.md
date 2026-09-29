@@ -98,6 +98,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `OwnerKey` | The tag and key bytes. `identity()` is `hash_bytes(tag \|\| key)`, the value the program sees as `owner_identity`. |
 | `Owner` | An `OwnerKey` and the nullifier key. `hash()` is the owner hash. Owners compare by their packed preimage. |
 | `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `Balance`. `Utxo::dummy()` pads a `TokenUtxo`. A dummy carries no nullifier key. |
+| `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, this circuit carries them. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
 | `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_burn`. It moves value through `Balance` like a token UTXO; what is left is its output, or must be zero once burned. |

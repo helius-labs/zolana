@@ -80,18 +80,20 @@ impl ProofInput for WalletUtxo {
                 "utxo tree id",
                 VariableRole::Constrained,
             )?,
-            nullifier: field(
-                allocator,
-                &self.nullifier,
-                "utxo nullifier",
-                VariableRole::Carried,
-            )?,
-            latest_tree_id: allocator.witness(
-                Fr::from(self.latest_tree_id.unwrap_or(0)),
-                "utxo latest tree id",
-                VariableRole::Carried,
-            )?,
-            has_latest_tree_id: self.latest_tree_id.is_some().instantiate(allocator)?,
+            meta: circuit::UtxoMeta {
+                nullifier: field(
+                    allocator,
+                    &self.nullifier,
+                    "utxo nullifier",
+                    VariableRole::Carried,
+                )?,
+                latest_tree_id: allocator.witness(
+                    Fr::from(self.latest_tree_id.unwrap_or(0)),
+                    "utxo latest tree id",
+                    VariableRole::Carried,
+                )?,
+                has_latest_tree_id: self.latest_tree_id.is_some().instantiate(allocator)?,
+            },
         })
     }
 }

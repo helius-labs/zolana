@@ -58,12 +58,15 @@ pub struct Carried {
 impl Constraints for CarriedCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
         self.utxo
+            .meta
             .nullifier
             .assert_equal(&self.nullifier, CARRIED_RULE)?;
         self.utxo
+            .meta
             .latest_tree_id
             .assert_equal(&self.latest_tree_id, CARRIED_RULE)?;
         self.utxo
+            .meta
             .has_latest_tree_id
             .assert_equal(&self.has_latest_tree_id, CARRIED_RULE)
     }

@@ -10,4 +10,5 @@ pub use transaction::{CheckedTransaction, ConfidentialTransaction, PublicInputs,
 pub(crate) use transfer::PublicTransfer;
 pub use utxo::{
     checked_utxo_data, Balance, DataHash, DataUtxo, TokenUtxo, UniqueDataUtxo, Utxo, UtxoData,
+    UtxoMeta,
 };
