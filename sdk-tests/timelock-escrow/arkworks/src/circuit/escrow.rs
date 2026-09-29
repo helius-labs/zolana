@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-        DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+        poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
+        Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
     },
     CircuitError,
 };

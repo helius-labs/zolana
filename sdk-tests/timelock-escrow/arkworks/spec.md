@@ -229,13 +229,13 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 - A circuit cannot allocate a `CircuitVar`, and `value` reads only a constant. Reading a
   variable fails in both runs with the line of the read.
 - The SPP proof range-checks UTXO amounts, so a spent UTXO's amount is a trusted `Uint<64>`
-  that a circuit reads through `Balance`. The circuit range-checks its inputs and the computed
+  that a circuit reads through `UtxoTrait`. The circuit range-checks its inputs and the computed
   values its logic relies on, such as the operands of a comparison.
 
 ## UTXO types
 
 zk-program-sdk has two UTXO types, each a version of Light's `LightAccount`. Both hold value,
-and `Balance::transfer` moves value from one to the other:
+and `UtxoTrait::transfer` moves value from one to the other:
 
 | Type | What it is |
 | --- | --- |
@@ -290,7 +290,7 @@ and `Balance::transfer` moves value from one to the other:
   range-checks the input amounts and every debit passes rules 3 and 4. `withdraw` checks rule
   4 for what remains. A public transfer of zero is refused by a constraint, "a public
   transfer moves a nonzero amount". `withdraw_all(&destination)?` returns the amount it
-  withdraws. `balance()` is a `Uint<64>`: free while the balance is known to fit 64 bits, one
+  withdraws. `amount()` is a `Uint<64>`: free while the balance is known to fit 64 bits, one
   range check when it could exceed them, as for a token with several inputs.
 - Each UTXO records its net transfers: what it received minus what it sent. `check` sums them
   over every UTXO added to the transaction and asserts the sum is zero, rule "value leaves the
@@ -298,7 +298,7 @@ and `Balance::transfer` moves value from one to the other:
   `&mut` borrow counts as a use; this check refuses it. Every transfer stays within one asset,
   so one sum covers the transaction: one linear constraint in R1CS.
 - The constructors borrow their inputs: `TokenUtxo::new_mut(&inputs)`,
-  `DataUtxo::new_mut(&input, &state)`. The accessors return values: `balance()`, `owner()`
+  `DataUtxo::new_mut(&input, &state)`. The accessors return values: `amount()`, `owner()`
   and `asset()`. An owner's and an asset's hashes are shared between clones.
 - A `TokenUtxo` tracks a balance: its inputs plus deposits and the transfers it receives,
   minus withdrawals and the transfers it sends. The balance becomes an output to the token's
@@ -380,7 +380,7 @@ impl Circuit for Escrow {
   the ones no constraint refuses. Both scenario suites and the escrow tests require that
   list to be empty, apart from equality hints and the unused inputs' nullifier and latest
   tree, which the SPP proof constrains.
-- `TokenUtxo` and `DataUtxo` move value through the same `Balance` trait: `transfer`,
+- `TokenUtxo` and `DataUtxo` move value through the same `UtxoTrait` trait: `transfer`,
   `transfer_all`, `deposit`, `withdraw` and `withdraw_all`, in every lifecycle. Every
   movement of value between UTXOs is a `transfer` or a `transfer_all`. The lifecycle only
   decides what is left: the output for a token or a data UTXO, and zero once burned, which
@@ -452,7 +452,7 @@ zk-program-sdk follows the same split:
 | Path | Contents |
 | --- | --- |
 | `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `CircuitError`, `ClientError`, `ProverError`, their kinds and `SourceLocation`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `U8`, `U16`, `U32`, `U64`, `U128`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `UtxoTrait`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `CircuitLabel`, `LabelKind`, `VariableRole`, `FailedConstraint`, `CircuitSize`. |
 | `zk_program_sdk::testing` | Feature `client`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 

@@ -118,9 +118,9 @@ impl Placeholder for Settle {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, Bool, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Bool, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            Uint, Utxo, UtxoData, UtxoTrait,
         },
         CircuitError,
     };
@@ -190,7 +190,7 @@ mod circuit {
                 &price.is_less_or_equal(&reservation.limit_price)?,
                 "the settle flag does not match the price",
             )?;
-            let value = order.balance()?;
+            let value = order.amount()?;
             let taker_amount = settles.select(&value, &Uint::zero());
             let maker_amount = settles.select(&Uint::zero(), &value);
             reservation.fill_price = settles.select(price, &Uint::zero());

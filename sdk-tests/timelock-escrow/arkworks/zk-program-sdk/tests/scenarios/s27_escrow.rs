@@ -113,8 +113,8 @@ impl Placeholder for Escrow {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
+            DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData, UtxoTrait,
         },
         CircuitError,
     };

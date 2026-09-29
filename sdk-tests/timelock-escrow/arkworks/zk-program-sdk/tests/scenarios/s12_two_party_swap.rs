@@ -82,8 +82,9 @@ impl Placeholder for Swap {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Asset, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            UtxoTrait,
         },
         CircuitError,
     };

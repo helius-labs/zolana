@@ -1,8 +1,9 @@
 use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
-        poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitType, CircuitVar,
+        poseidon, Assert, CheckedTransaction, Circuit, CircuitType, CircuitVar,
         ConfidentialTransaction, Constraints, DataUtxo, Field, PublicInputs, TokenUtxo, Uint,
+        UtxoTrait,
     },
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, TxContext,

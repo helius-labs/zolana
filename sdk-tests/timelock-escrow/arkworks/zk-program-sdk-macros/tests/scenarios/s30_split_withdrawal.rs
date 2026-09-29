@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxo,
+        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxo, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -44,7 +44,7 @@ impl Circuit for <SplitWithdraw as ProofInput>::Circuit {
         let public = &self.public;
         let mut escrow = DataUtxo::new_close(&private.escrow, &private.terms)?;
         escrow
-            .balance()?
+            .amount()?
             .assert_not_zero("the escrow utxo holds nothing")?;
         escrow.creator.key().identity()?.assert_equal(
             &public.owner_identity,

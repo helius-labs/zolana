@@ -1,15 +1,15 @@
+mod balance;
 mod data;
 mod input;
-mod ledger;
 mod output;
 mod token;
 mod unique;
 
+pub use balance::UtxoTrait;
+use balance::{Amount, Balance, HasBalance};
 pub use data::{checked_utxo_data, DataHash, DataUtxo, UtxoData};
 pub(crate) use input::SpentInput;
 pub use input::{Utxo, UtxoMeta};
-pub use ledger::Balance;
-use ledger::{Accumulator, HasLedger, Ledger};
 pub(crate) use output::Output;
 pub use token::TokenUtxo;
 pub use unique::UniqueDataUtxo;

@@ -76,8 +76,8 @@ impl Placeholder for MixerWithdrawal {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoTrait,
         },
         CircuitError,
     };

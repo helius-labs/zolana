@@ -1,8 +1,8 @@
 use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
-        Asset, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs,
-        TokenUtxo,
+        Asset, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
+        UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,

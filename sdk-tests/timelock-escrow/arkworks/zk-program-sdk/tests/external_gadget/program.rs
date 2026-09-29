@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        Balance, CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs,
-        TokenUtxo,
+        CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs, TokenUtxo,
+        UtxoTrait,
     },
     conversion::{field_bytes, ProofInput},
     testing::{check_private_variables, FreeVariable},

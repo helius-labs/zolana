@@ -1,5 +1,5 @@
 use zk_program_sdk::{
-    circuit::{constant, Assert, Balance, CircuitVar, Constraints, Field, TokenUtxo},
+    circuit::{constant, Assert, CircuitVar, Constraints, Field, TokenUtxo, UtxoTrait},
     conversion::ProofInput,
     CircuitError,
 };
@@ -59,7 +59,7 @@ impl<const N: usize, const LAST: usize> Constraints for SpendCircuit<N, LAST> {
             }
         }
         let tokens = TokenUtxo::new_mut(&inputs)?;
-        CircuitVar::from(tokens.balance()?).assert_equal(&self.balance, BALANCE)?;
+        CircuitVar::from(tokens.amount()?).assert_equal(&self.balance, BALANCE)?;
         tokens
             .owner()
             .hash()?

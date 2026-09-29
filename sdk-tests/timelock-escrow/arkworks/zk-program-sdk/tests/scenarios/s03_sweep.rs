@@ -63,8 +63,8 @@ impl Placeholder for Sweep {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, Owner,
+            PublicInputs, TokenUtxo, TxContext, Utxo, UtxoTrait,
         },
         CircuitError,
     };

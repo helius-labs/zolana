@@ -128,9 +128,9 @@ impl Placeholder for Make {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            Uint, Utxo, UtxoData, UtxoTrait,
         },
         CircuitError,
     };

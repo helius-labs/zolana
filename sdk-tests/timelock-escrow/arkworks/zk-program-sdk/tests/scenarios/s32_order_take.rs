@@ -77,9 +77,9 @@ impl Placeholder for Take {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Asset, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
-            Utxo,
+            Utxo, UtxoTrait,
         },
         CircuitError,
     };

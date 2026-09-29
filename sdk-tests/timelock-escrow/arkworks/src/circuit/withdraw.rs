@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-        ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+        poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+        DataUtxo, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
     },
     CircuitError,
 };
@@ -29,7 +29,7 @@ impl Circuit for Withdraw {
         let private = &self.private;
         let mut escrow = DataUtxo::new_close(&private.escrow, &private.terms)?;
         escrow
-            .balance()?
+            .amount()?
             .assert_not_zero("the escrow utxo holds nothing")?;
         escrow.creator.key().identity()?.assert_equal(
             &self.public.owner_identity,

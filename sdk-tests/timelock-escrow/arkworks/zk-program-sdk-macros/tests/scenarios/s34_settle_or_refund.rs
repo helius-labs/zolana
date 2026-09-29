@@ -1,8 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
-        Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
-        DataUtxo, PublicInputs, TokenUtxo, Uint,
+        Assert, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
+        PublicInputs, TokenUtxo, Uint, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -61,7 +61,7 @@ impl Circuit for <Settle as ProofInput>::Circuit {
             &price.is_less_or_equal(&reservation.limit_price)?,
             "the settle flag does not match the price",
         )?;
-        let value = order.balance()?;
+        let value = order.amount()?;
         let taker_amount = settles.select(&value, &Uint::zero());
         let maker_amount = settles.select(&Uint::zero(), &value);
         reservation.fill_price = settles.select(price, &Uint::zero());

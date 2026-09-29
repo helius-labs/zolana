@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
 
-use super::{utxo_domain, Accumulator, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
+use super::{utxo_domain, Amount, Balance, HasBalance, Output, SpentInput, Utxo, UtxoTrait};
 use crate::{
     circuit::{
         constant, labels::Scope, poseidon, zero, Assert, Asset, Bool, Bytes, CircuitVar, Owner,
@@ -93,20 +93,20 @@ pub(super) enum Leaves {
 #[must_use]
 #[derive(Debug)]
 pub struct DataUtxo<S> {
-    ledger: Ledger,
+    balance: Balance,
     state: S,
     address: Option<CircuitVar>,
     spent: Option<SpentInput>,
     leaves: Leaves,
 }
 
-impl<S> HasLedger for DataUtxo<S> {
-    fn ledger(&self) -> &Ledger {
-        &self.ledger
+impl<S> HasBalance for DataUtxo<S> {
+    fn balance(&self) -> &Balance {
+        &self.balance
     }
 
-    fn ledger_mut(&mut self) -> &mut Ledger {
-        &mut self.ledger
+    fn balance_mut(&mut self) -> &mut Balance {
+        &mut self.balance
     }
 
     fn is_closed(&self) -> bool {
@@ -114,7 +114,7 @@ impl<S> HasLedger for DataUtxo<S> {
     }
 }
 
-impl<S> Balance for DataUtxo<S> {}
+impl<S> UtxoTrait for DataUtxo<S> {}
 
 impl<S: Default> DataUtxo<S> {
     pub fn new_init(owner: &Owner) -> Self {
@@ -152,10 +152,10 @@ impl<S: DataHash> DataUtxo<S> {
             "the input does not commit to its program state",
         )?;
         Ok(Self {
-            ledger: Ledger::new(
+            balance: Balance::new(
                 input.owner.clone(),
                 input.asset.clone(),
-                Accumulator::amount(&input.amount),
+                Amount::from(&input.amount),
             ),
             state,
             address,
@@ -169,7 +169,7 @@ impl<S: DataHash> DataUtxo<S> {
 impl<S> DataUtxo<S> {
     pub(super) fn fresh(owner: &Owner, state: S, address: Option<CircuitVar>) -> Self {
         Self {
-            ledger: Ledger::new(owner.clone(), Asset::sol(), Accumulator::zero()),
+            balance: Balance::new(owner.clone(), Asset::sol(), Amount::zero()),
             state,
             address,
             spent: None,
@@ -179,10 +179,10 @@ impl<S> DataUtxo<S> {
 
     #[track_caller]
     pub fn with_asset(mut self, asset: &Asset) -> Result<Self, CircuitError> {
-        if self.spent.is_some() || !self.ledger.is_untouched() {
+        if self.spent.is_some() || !self.balance.is_untouched() {
             return Err(CircuitErrorKind::AssetOfUsedUtxo.into());
         }
-        self.ledger.set_asset(asset);
+        self.balance.set_asset(asset);
         Ok(self)
     }
 
@@ -191,18 +191,18 @@ impl<S> DataUtxo<S> {
     }
 
     pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
-        self.ledger.public_transfers()
+        self.balance.public_transfers()
     }
 
     pub(crate) fn transferred(&self) -> &CircuitVar {
-        self.ledger.transferred()
+        self.balance.transferred()
     }
 }
 
 impl<S: DataHash> DataUtxo<S> {
     #[track_caller]
     pub(crate) fn output(&self) -> Result<Option<Output>, CircuitError> {
-        let balance = self.ledger.balance_var();
+        let balance = self.balance.amount_var();
         let data_hash = match &self.leaves {
             Leaves::State => data_hash(self.address.as_ref(), &self.state)?,
             Leaves::Address(address) => {

@@ -6,7 +6,7 @@ type shares live in `cross-cutting.md`. ID prefix: `INV-TRANSFER`; the tests liv
 `tests/unit/protocol/transfer/`.
 
 The circuit `PublicTransfer` and its `hash` are `pub(crate)`: a transfer is created only by
-`Balance::deposit` and `withdraw` and hashed only inside `ConfidentialTransaction::check`, so
+`UtxoTrait::deposit` and `withdraw` and hashed only inside `ConfidentialTransaction::check`, so
 no public fixture can instantiate it. Its R1CS rows, soundness, setup/proving shape, snarkjs
 interop and Picus run are therefore covered through the transaction flows in
 `transaction.md` (`INV-TX`, W8), not here. This file covers the native reference those flows

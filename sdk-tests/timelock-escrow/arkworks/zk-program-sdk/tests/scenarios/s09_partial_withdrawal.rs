@@ -66,8 +66,8 @@ impl Placeholder for Withdrawal {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            poseidon, Bytes, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };

@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use zolana_interface::ADDRESS_DOMAIN;
 use zolana_program::ADDRESS_TREE_ID;
 
-use super::{data::Leaves, Balance, DataUtxo, HasLedger, Ledger, Utxo, UtxoData};
+use super::{data::Leaves, Balance, DataUtxo, HasBalance, Utxo, UtxoData, UtxoTrait};
 use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, poseidon, zero, Asset,
@@ -21,13 +21,13 @@ pub struct UniqueDataUtxo<S> {
     creates_address: bool,
 }
 
-impl<S> HasLedger for UniqueDataUtxo<S> {
-    fn ledger(&self) -> &Ledger {
-        self.utxo.ledger()
+impl<S> HasBalance for UniqueDataUtxo<S> {
+    fn balance(&self) -> &Balance {
+        self.utxo.balance()
     }
 
-    fn ledger_mut(&mut self) -> &mut Ledger {
-        self.utxo.ledger_mut()
+    fn balance_mut(&mut self) -> &mut Balance {
+        self.utxo.balance_mut()
     }
 
     fn is_closed(&self) -> bool {
@@ -35,7 +35,7 @@ impl<S> HasLedger for UniqueDataUtxo<S> {
     }
 }
 
-impl<S> Balance for UniqueDataUtxo<S> {}
+impl<S> UtxoTrait for UniqueDataUtxo<S> {}
 
 impl<S: Default> UniqueDataUtxo<S> {
     #[track_caller]

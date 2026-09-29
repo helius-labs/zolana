@@ -410,7 +410,7 @@ fn power_of_two(bits: u32) -> Fr {
     (0..bits).fold(Fr::one(), |power, _| power.double())
 }
 
-const fn ceil_log2(n: usize) -> u32 {
+pub(crate) const fn ceil_log2(n: usize) -> u32 {
     if n <= 1 {
         0
     } else {

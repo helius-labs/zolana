@@ -6,7 +6,7 @@ use serde_json::json;
 use zolana_transaction::Mint;
 
 use super::{
-    fixtures::{ledger, Ledger, TOKEN, TRANSFER, WITHDRAW},
+    fixtures::{balance, Balance, TOKEN, TRANSFER, WITHDRAW},
     vectors::{TRANSFERS, WITHDRAWALS},
 };
 use crate::{
@@ -19,18 +19,18 @@ use crate::{
     protocol::transaction::labels::allocated,
 };
 
-type Transfer = Ledger<TOKEN, TOKEN, TRANSFER, true>;
-type Withdraw = Ledger<TOKEN, TOKEN, WITHDRAW, true>;
+type Transfer = Balance<TOKEN, TOKEN, TRANSFER, true>;
+type Withdraw = Balance<TOKEN, TOKEN, WITHDRAW, true>;
 
 #[test]
-fn snarkjs_accepts_every_honest_ledger_pair_and_rejects_a_tampered_balance() {
-    let work = WorkDir::new("ledger-wtns");
+fn snarkjs_accepts_every_honest_balance_pair_and_rejects_a_tampered_balance() {
+    let work = WorkDir::new("balance-wtns");
     let r1cs = work.write("transfer.r1cs", &export::<Transfer>());
     let checked: Vec<_> = TRANSFERS
         .iter()
         .enumerate()
         .map(|(index, vector)| {
-            let fixture = ledger::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, vector);
+            let fixture = balance::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, vector);
             let honest = assignment(&fixture);
             let wire = allocated(&fixture, "a field proof input")[0];
             let tampered = with_wires(honest.clone(), &[(wire, honest[wire] + Fr::one())]);
@@ -58,9 +58,9 @@ fn snarkjs_accepts_every_honest_ledger_pair_and_rejects_a_tampered_balance() {
 
 #[test]
 fn snarkjs_proves_and_verifies_a_withdrawal() {
-    let work = WorkDir::new("ledger-groth16");
+    let work = WorkDir::new("balance-groth16");
     let r1cs = work.write("withdraw.r1cs", &export::<Withdraw>());
-    let fixture = ledger::<TOKEN, TOKEN, WITHDRAW, true>(Mint::SOL, &WITHDRAWALS[2]);
+    let fixture = balance::<TOKEN, TOKEN, WITHDRAW, true>(Mint::SOL, &WITHDRAWALS[2]);
     let wtns = work.write("withdraw.wtns", &write_wtns(&assignment(&fixture)));
     assert_eq!(snarkjs::groth16(&work, &r1cs, &wtns), (true, json!([])));
 }

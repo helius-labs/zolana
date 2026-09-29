@@ -1,8 +1,8 @@
 use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
-        constant, poseidon, Assert, Asset, Balance, Bytes, CircuitVar, Constraints, DataHash,
-        DataUtxo, Field, Owner, TokenUtxo, Uint, Utxo,
+        constant, poseidon, Assert, Asset, Bytes, CircuitVar, Constraints, DataHash, DataUtxo,
+        Field, Owner, TokenUtxo, Uint, Utxo, UtxoTrait,
     },
     conversion::ProofInput,
     hasher::DATA_HASH_DOMAIN,
@@ -47,7 +47,7 @@ pub const WITHDRAW: usize = 2;
 pub const WITHDRAW_ALL: usize = 3;
 pub const BALANCE_READ: usize = 4;
 
-/// Constant deposits reach the accumulator's structural width limit without
+/// Constant deposits reach the amount's structural width limit without
 /// allocating unrelated owner, asset or input range-check variables.
 #[derive(Clone, Copy, Debug, ProofInput)]
 pub struct Oversized<const OP: usize>;
@@ -70,7 +70,7 @@ pub fn oversized_operation(op: usize) -> (u32, Result<(), CircuitError>) {
     match op {
         BALANCE_READ => {
             let line = line!() + 1;
-            let result = holder.balance();
+            let result = holder.amount();
             (line, result.map(drop))
         }
         WITHDRAW_ALL => {
@@ -114,7 +114,7 @@ macro_rules! with_holder {
 /// with the source's own `asset()` (`OWN_ASSET`) or with `held`; both final
 /// balances are asserted equal to the native ones.
 #[derive(Clone, Copy, Debug, ProofInput)]
-pub struct Ledger<
+pub struct Balance<
     const SOURCE: usize,
     const DESTINATION: usize,
     const OP: usize,
@@ -131,13 +131,13 @@ pub struct Ledger<
 }
 
 impl<const SOURCE: usize, const DESTINATION: usize, const OP: usize, const OWN_ASSET: bool>
-    LedgerCircuit<SOURCE, DESTINATION, OP, OWN_ASSET>
+    BalanceCircuit<SOURCE, DESTINATION, OP, OWN_ASSET>
 {
     #[track_caller]
     fn run(
         &self,
-        source: &mut impl Balance,
-        destination: &mut impl Balance,
+        source: &mut impl UtxoTrait,
+        destination: &mut impl UtxoTrait,
     ) -> Result<(), CircuitError> {
         source.deposit(&self.deposit, &self.account)?;
         match OP {
@@ -149,13 +149,13 @@ impl<const SOURCE: usize, const DESTINATION: usize, const OP: usize, const OWN_A
                 .assert_equal(&self.amount, WITHDRAWN)?,
         }
         let [source_balance, destination_balance] = &self.balances;
-        CircuitVar::from(source.balance()?).assert_equal(source_balance, BALANCES)?;
-        CircuitVar::from(destination.balance()?).assert_equal(destination_balance, BALANCES)
+        CircuitVar::from(source.amount()?).assert_equal(source_balance, BALANCES)?;
+        CircuitVar::from(destination.amount()?).assert_equal(destination_balance, BALANCES)
     }
 }
 
 impl<const SOURCE: usize, const DESTINATION: usize, const OP: usize, const OWN_ASSET: bool>
-    Constraints for LedgerCircuit<SOURCE, DESTINATION, OP, OWN_ASSET>
+    Constraints for BalanceCircuit<SOURCE, DESTINATION, OP, OWN_ASSET>
 {
     fn constraints(&self) -> Result<(), CircuitError> {
         with_holder!(SOURCE, &self.owner, &self.mint, |source| {
@@ -219,7 +219,7 @@ impl<const K: usize, const ALL: bool> Constraints for DepositsCircuit<K, ALL> {
             CircuitVar::from(holder.withdraw_all(&self.account)?)
                 .assert_equal(&self.balance, WITHDRAWN)
         } else {
-            CircuitVar::from(holder.balance()?).assert_equal(&self.balance, BALANCES)
+            CircuitVar::from(holder.amount()?).assert_equal(&self.balance, BALANCES)
         }
     }
 }
@@ -261,7 +261,7 @@ pub struct IntoClosed<const DESTINATION: usize, const ALL: bool> {
 
 impl<const DESTINATION: usize, const ALL: bool> IntoClosedCircuit<DESTINATION, ALL> {
     #[track_caller]
-    fn into(&self, destination: &mut impl Balance) -> Result<(), CircuitError> {
+    fn into(&self, destination: &mut impl UtxoTrait) -> Result<(), CircuitError> {
         let mut source = TokenUtxo::new_init(&self.owner, &Asset::sol());
         source.deposit(&self.deposit, &self.account)?;
         if ALL {
@@ -290,11 +290,11 @@ impl<const DESTINATION: usize, const ALL: bool> Constraints
     }
 }
 
-pub fn ledger<const S: usize, const D: usize, const OP: usize, const OWN: bool>(
+pub fn balance<const S: usize, const D: usize, const OP: usize, const OWN: bool>(
     held: Mint,
     vector: &Vector,
-) -> Ledger<S, D, OP, OWN> {
-    Ledger {
+) -> Balance<S, D, OP, OWN> {
+    Balance {
         owner: address(SENDER),
         recipient: address(RECIPIENT),
         mint: Mint::SOL,
@@ -319,10 +319,10 @@ pub fn pairs<const OP: usize, V: Visit>(visitor: &V, vector: &Vector) -> Visited
     PAIRS
         .into_iter()
         .zip([
-            visitor.visit(&ledger::<TOKEN, TOKEN, OP, true>(Mint::SOL, vector)),
-            visitor.visit(&ledger::<TOKEN, DATA, OP, true>(Mint::SOL, vector)),
-            visitor.visit(&ledger::<DATA, TOKEN, OP, true>(Mint::SOL, vector)),
-            visitor.visit(&ledger::<DATA, DATA, OP, true>(Mint::SOL, vector)),
+            visitor.visit(&balance::<TOKEN, TOKEN, OP, true>(Mint::SOL, vector)),
+            visitor.visit(&balance::<TOKEN, DATA, OP, true>(Mint::SOL, vector)),
+            visitor.visit(&balance::<DATA, TOKEN, OP, true>(Mint::SOL, vector)),
+            visitor.visit(&balance::<DATA, DATA, OP, true>(Mint::SOL, vector)),
         ])
         .collect()
 }
@@ -332,8 +332,8 @@ pub fn sources<const OP: usize, V: Visit>(visitor: &V, vector: &Vector) -> Visit
     SOURCES
         .into_iter()
         .zip([
-            visitor.visit(&ledger::<TOKEN, TOKEN, OP, true>(Mint::SOL, vector)),
-            visitor.visit(&ledger::<DATA, TOKEN, OP, true>(Mint::SOL, vector)),
+            visitor.visit(&balance::<TOKEN, TOKEN, OP, true>(Mint::SOL, vector)),
+            visitor.visit(&balance::<DATA, TOKEN, OP, true>(Mint::SOL, vector)),
         ])
         .collect()
 }
@@ -370,8 +370,8 @@ pub fn accessors<const KIND: usize>(owner: u8, mint: Mint) -> Accessors<KIND> {
     }
 }
 
-/// The ledger arithmetic alone: a constant owner, asset and account, so the
-/// only rows are the amounts' range checks and the ledger's own rules.
+/// The balance arithmetic alone: a constant owner, asset and account, so the
+/// only rows are the amounts' range checks and the balance's own rules.
 #[derive(Clone, Copy, Debug, ProofInput)]
 pub struct Arithmetic {
     pub deposit: u64,
@@ -387,8 +387,8 @@ impl Constraints for ArithmeticCircuit {
         source.deposit(&self.deposit, &account)?;
         source.transfer(&mut destination, &self.amount)?;
         let [source_balance, destination_balance] = &self.balances;
-        CircuitVar::from(source.balance()?).assert_equal(source_balance, BALANCES)?;
-        CircuitVar::from(destination.balance()?).assert_equal(destination_balance, BALANCES)
+        CircuitVar::from(source.amount()?).assert_equal(source_balance, BALANCES)?;
+        CircuitVar::from(destination.amount()?).assert_equal(destination_balance, BALANCES)
     }
 }
 

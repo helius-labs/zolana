@@ -3,7 +3,7 @@ use zolana_transaction::Mint;
 
 use super::{
     fixtures::{
-        broken, ledger, pairs, sources, BALANCES, PAIRS, SOURCES, TOKEN, TRANSFER,
+        balance, broken, pairs, sources, BALANCES, PAIRS, SOURCES, TOKEN, TRANSFER,
         TRANSFER_EXCEEDS, WITHDRAW, WITHDRAWAL_EXCEEDS,
     },
     vectors::Vector,
@@ -72,7 +72,7 @@ proptest! {
         amount in any::<u64>(),
     ) {
         let amount = amount % deposit;
-        let fixture = ledger::<TOKEN, TOKEN, TRANSFER, true>(
+        let fixture = balance::<TOKEN, TOKEN, TRANSFER, true>(
             Mint::SOL,
             &vector(deposit, amount, [deposit - amount, amount]),
         );

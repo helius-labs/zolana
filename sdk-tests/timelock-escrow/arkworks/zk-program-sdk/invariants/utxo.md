@@ -3,7 +3,7 @@
 Covers `src/circuit/protocol/utxo/`, against the native `zolana-keypair` and
 `zolana-transaction` values. Invariants every type shares live in `cross-cutting.md`. ID
 prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
-`tests/unit/protocol/{utxo,ledger,token,data}/`. No invariant is extracted yet: run
+`tests/unit/protocol/{utxo,balance,token,data}/`. No invariant is extracted yet: run
 [`PROMPT.md`](PROMPT.md) for this area.
 
 ## Utxo (`hash`, the nullifier, `SpentInput`, `dummy`)
@@ -252,24 +252,24 @@ INV-UTXO summary: 26 (Critical 10, High 12, Medium 4); covered 25, partial 1
 
 ## Balance (`transfer`, `transfer_all`, `deposit`, `withdraw`, `withdraw_all` on `TokenUtxo` and `DataUtxo`)
 
-Covers the `Balance` trait and its `Ledger` of `src/circuit/protocol/utxo/ledger.rs`, shared
-by `TokenUtxo` and `DataUtxo`: a balance accumulator that tracks its bit width, the
+Covers the `UtxoTrait` trait and its `Balance` of `src/circuit/protocol/utxo/balance.rs`, shared
+by `TokenUtxo` and `DataUtxo`: a balance amount that tracks its bit width, the
 destination checks, and the 64-bit bounds. The fixtures in
-`tests/unit/protocol/ledger/fixtures.rs` are:
+`tests/unit/protocol/balance/fixtures.rs` are:
 
-- `Ledger<SOURCE, DESTINATION, OP, OWN_ASSET>`: a new source holder (a `TokenUtxo` or a
+- `Balance<SOURCE, DESTINATION, OP, OWN_ASSET>`: a new source holder (a `TokenUtxo` or a
   `DataUtxo<CounterState>`) takes one deposit, then runs `OP` (`transfer`, `transfer_all`,
   `withdraw` or `withdraw_all`) against a new destination holder built with the source's
   `asset()` or with another mint. Both final balances are asserted equal to the native ones
   with "the balances are the native balances", and `withdraw_all`'s result with
   "withdraw_all returns the native balance".
-- `Deposits<K, ALL>`: K deposits into one holder, then `balance()` (or `withdraw_all`).
+- `Deposits<K, ALL>`: K deposits into one holder, then `amount()` (or `withdraw_all`).
 - `Accessors<KIND>`: `owner()` and `asset()` hashed against the native owner hash and
   `hash_bytes(mint)`.
 - `Empty<OP>`: a withdrawal from a holder without a deposit.
 - `IntoBurned<DESTINATION, ALL>`: a transfer into a `TokenUtxo::new_burn` or
   `DataUtxo::new_burn` of a constant input.
-- `Arithmetic`: the ledger alone over a constant owner, asset and account.
+- `Arithmetic`: the balance alone over a constant owner, asset and account.
 
 The vectors (`vectors.rs`) move 4 of 10, 0 of 1, all 7 and all 2^64 - 1; withdraw 3 of 10,
 all 5 and 1 of 2^64 - 1; exceed with 11 of 10, 2^64 - 1 of 1 and 2^64 - 1 of 2^64 - 2; and
@@ -278,212 +278,212 @@ deposit or withdraw 0.
 ### Semantics
 
 - [x] **INV-LEDGER-01: a transfer leaves exactly the native balances for every holder pair**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `every_transfer_leaves_exactly_the_native_balances_for_every_holder_pair`; `tests/unit/protocol/ledger/properties.rs` `natively_a_transfer_holds_exactly_when_it_fits_the_balance` (property)
+  - Covered by: `tests/unit/protocol/balance/native.rs` `every_transfer_leaves_exactly_the_native_balances_for_every_holder_pair`; `tests/unit/protocol/balance/properties.rs` `natively_a_transfer_holds_exactly_when_it_fits_the_balance` (property)
   - Kind: semantics
   - Statement: for every transfer vector and each of the four token/data source and destination pairs, the native run returns exactly `Ok(())` with the balances deposit - amount and amount, and exactly `RuleBroken` with "the balances are the native balances" when the source balance claim is off by one; for every random deposit and amount, it holds exactly when the amount is at most the deposit.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:184-201` (`fn transfer`), `src/circuit/protocol/utxo/ledger.rs:81-96` (`fn debit`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:182-196` (`fn transfer`), `src/circuit/protocol/utxo/balance.rs:80-85` (`fn debit`)
   - Severity: Critical
-  - Suggested test: positive + negative + property; `tests/unit/protocol/ledger/native.rs`, `tests/unit/protocol/ledger/properties.rs`
+  - Suggested test: positive + negative + property; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/properties.rs`
 
 - [x] **INV-LEDGER-02: transfer_all moves exactly the whole balance**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `transfer_all_moves_exactly_the_whole_balance_for_every_holder_pair`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `transfer_all_moves_exactly_the_whole_balance_for_every_holder_pair`
   - Kind: semantics
   - Statement: for the deposits 10 and 2^64 - 1 and each of the four holder pairs, `transfer_all` leaves exactly 0 in the source and the whole deposit in the destination, and an off-by-one source claim breaks exactly the balances rule.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:203-215` (`fn transfer_all`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:199-210` (`fn transfer_all`)
   - Severity: Critical
-  - Suggested test: positive + negative; `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
 - [x] **INV-LEDGER-03: a withdrawal leaves exactly the deposit minus the amount**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_withdrawal_leaves_exactly_the_deposit_minus_the_amount_for_every_source`; `tests/unit/protocol/ledger/properties.rs` `natively_a_withdrawal_holds_exactly_when_it_fits_the_balance` (property)
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_withdrawal_leaves_exactly_the_deposit_minus_the_amount_for_every_source`; `tests/unit/protocol/balance/properties.rs` `natively_a_withdrawal_holds_exactly_when_it_fits_the_balance` (property)
   - Kind: semantics
   - Statement: for every withdrawal vector and both source kinds, the native run leaves exactly deposit - amount in the source and nothing in the destination, and an off-by-one claim breaks exactly the balances rule; for every random deposit and nonzero amount, it holds exactly when the amount is at most the deposit.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:226-236` (`fn withdraw`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:222-231` (`fn withdraw`)
   - Severity: Critical
-  - Suggested test: positive + negative + property; `tests/unit/protocol/ledger/native.rs`, `tests/unit/protocol/ledger/properties.rs`
+  - Suggested test: positive + negative + property; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/properties.rs`
 
 - [x] **INV-LEDGER-04: withdraw_all returns exactly the balance and leaves zero**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `withdraw_all_returns_exactly_the_balance_and_leaves_zero_for_every_source`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `withdraw_all_returns_exactly_the_balance_and_leaves_zero_for_every_source`
   - Kind: semantics
   - Statement: for the deposits 10 and 2^64 - 1 and both source kinds, `withdraw_all` returns exactly the deposit and leaves 0; a claimed result one below the deposit breaks exactly "withdraw_all returns the native balance".
-  - Location: `src/circuit/protocol/utxo/ledger.rs:238-246` (`fn withdraw_all`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:234-241` (`fn withdraw_all`)
   - Severity: Critical
-  - Suggested test: positive + negative; `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
 - [x] **INV-LEDGER-05: deposits add exactly their amounts**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `deposits_add_exactly_their_amounts`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `deposits_add_exactly_their_amounts`
   - Kind: semantics
   - Statement: the balance after deposits [3], [3, 4] and [2^64 - 2, 1] is exactly 3, 7 and 2^64 - 1, withdraw_all after [2^64 - 1] returns exactly 2^64 - 1, and the claim 8 after [3, 4] breaks exactly the balances rule.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:217-224` (`fn deposit`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:213-219` (`fn deposit`)
   - Severity: High
-  - Suggested test: positive + negative; `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
 - [x] **INV-LEDGER-06: owner() and asset() are the holder's native owner and mint**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `owner_and_asset_hash_to_the_native_owner_hash_and_hash_bytes_of_the_mint`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `owner_and_asset_hash_to_the_native_owner_hash_and_hash_bytes_of_the_mint`
   - Kind: native equivalence
   - Statement: for a token and a data holder over SOL and USDC, `owner().hash()` is exactly the native `owner_hash` and `asset().hash()` exactly `hash_bytes(mint)`; another owner's hash breaks exactly "the owner hash is the native one".
-  - Location: `src/circuit/protocol/utxo/ledger.rs:170-177` (`fn owner`, `fn asset`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:168-174` (`fn owner`, `fn asset`)
   - Severity: High
-  - Suggested test: positive + negative; `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
 ### Constraint
 
 - [x] **INV-LEDGER-07: every ledger fixture has exactly its pinned size and digest**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `every_ledger_fixture_has_exactly_the_pinned_size_and_digest`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `every_balance_fixture_has_exactly_the_pinned_size_and_digest`
   - Kind: constraint
   - Statement: the token-to-token fixtures have exactly 1642 (transfer), 1644 (transfer into another held asset), 1577 (transfer_all), 1643 (withdraw) and 1579 (withdraw_all) constraints, with the variable counts and R1CS sha256 digests pinned in the test.
-  - Location: `src/circuit/protocol/utxo/ledger.rs`
+  - Location: `src/circuit/protocol/utxo/balance.rs`
   - Severity: High
-  - Suggested test: positive (digest); `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: positive (digest); `tests/unit/protocol/balance/r1cs.rs`
 
 - [x] **INV-LEDGER-08: token and data holders export byte-identical rows**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `token_and_data_holders_export_byte_identical_r1cs_for_every_operation`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `token_and_data_holders_export_byte_identical_r1cs_for_every_operation`
   - Kind: constraint
-  - Statement: for every operation, the R1CS exported for each token/data holder pair is exactly the token-to-token R1CS, and `Accessors<DATA>` exports exactly `Accessors<TOKEN>`'s: `Balance` runs the same ledger for both.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:162-247` (`trait HasLedger`, `trait Balance`)
+  - Statement: for every operation, the R1CS exported for each token/data holder pair is exactly the token-to-token R1CS, and `Accessors<DATA>` exports exactly `Accessors<TOKEN>`'s: `UtxoTrait` runs the same balance for both.
+  - Location: `src/circuit/protocol/utxo/balance.rs:159-242` (`trait HasBalance`, `trait UtxoTrait`)
   - Severity: Medium
-  - Suggested test: positive; `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: positive; `tests/unit/protocol/balance/r1cs.rs`
 
 - [x] **INV-LEDGER-09: each rule owns exactly its rows**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `each_rule_owns_exactly_its_pinned_rows`; `tests/unit/protocol/ledger/r1cs.rs` `a_destination_built_from_the_source_asset_adds_no_asset_row_and_another_adds_exactly_two`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `each_rule_owns_exactly_its_pinned_rows`; `tests/unit/protocol/balance/r1cs.rs` `a_destination_built_from_the_source_asset_adds_no_asset_row_and_another_adds_exactly_two`
   - Kind: constraint
   - Statement: the nonzero rule owns one row per public transfer, a debit's exceeds rule exactly 65 rows (a 64-bit range check of the remainder) and `transfer_all` none; a destination built from the source's `asset()` adds no asset row, and one built from another mint exactly two.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:81-96` (`fn debit`), `src/circuit/protocol/utxo/ledger.rs:150-160` (`fn check_destination`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:80-85` (`fn debit`), `src/circuit/protocol/utxo/balance.rs:148-157` (`fn check_destination`)
   - Severity: High
-  - Suggested test: positive; `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: positive; `tests/unit/protocol/balance/r1cs.rs`
 
 - [x] **INV-LEDGER-10: a balance within 64 bits needs no range check, and one beyond it exactly one**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `balance_is_free_within_64_bits_and_one_range_check_beyond`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `balance_is_free_within_64_bits_and_one_range_check_beyond`
   - Kind: constraint
-  - Statement: after one deposit `balance()` adds no "the balance does not fit in 64 bits" row; after two deposits it adds exactly 65, and the second deposit costs exactly 1 + 65 + 65 constraints.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:72-79` (`fn narrow`)
+  - Statement: after one deposit `amount()` adds no "the balance does not fit in 64 bits" row; after two deposits it adds exactly 65, and the second deposit costs exactly 1 + 65 + 65 constraints.
+  - Location: `src/circuit/protocol/utxo/balance.rs:71-77` (`fn narrow`)
   - Severity: High
-  - Suggested test: positive; `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: positive; `tests/unit/protocol/balance/r1cs.rs`
 
 ### Completeness
 
 - [x] **INV-LEDGER-11: every valid vector checks exactly the pinned count for every holder**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `every_valid_vector_checks_exactly_the_pinned_count_for_every_holder`; `tests/unit/protocol/ledger/properties.rs` `every_fitting_transfer_checks_exactly_the_pinned_count` (property)
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `every_valid_vector_checks_exactly_the_pinned_count_for_every_holder`; `tests/unit/protocol/balance/properties.rs` `every_fitting_transfer_checks_exactly_the_pinned_count` (property)
   - Kind: completeness
   - Statement: `check_constraints` returns exactly `Ok(1642)`, `Ok(1577)`, `Ok(1643)` and `Ok(1579)` for every transfer, transfer_all, withdrawal and withdraw_all vector and every holder pair, and `Ok(1642)` for every random fitting transfer.
   - Location: `src/prover/synthesis.rs` (`fn check`)
   - Severity: High
-  - Suggested test: positive + property; `tests/unit/protocol/ledger/r1cs.rs`, `tests/unit/protocol/ledger/properties.rs`
+  - Suggested test: positive + property; `tests/unit/protocol/balance/r1cs.rs`, `tests/unit/protocol/balance/properties.rs`
 
 ### Soundness
 
 - [x] **INV-LEDGER-12: a tampered witness breaks the rule that owns its row**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `a_tampered_witness_breaks_the_rule_that_owns_its_row`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `a_tampered_witness_breaks_the_rule_that_owns_its_row`
   - Kind: soundness
   - Statement: tampering the first witness of the nonzero rule, of the transfer's and the withdrawal's exceeds rules and of the 64-bit balance check breaks exactly that rule inside its own rows, and tampering either balance claim breaks exactly the balances rule.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:81-96`, `src/circuit/protocol/utxo/ledger.rs:217-246`
+  - Location: `src/circuit/protocol/utxo/balance.rs:80-85`, `src/circuit/protocol/utxo/balance.rs:213-241`
   - Severity: Critical
-  - Suggested test: negative; `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/r1cs.rs`
 
 - [x] **INV-LEDGER-13: a destination holding another asset breaks the asset rows**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `a_witness_whose_destination_holds_another_asset_breaks_the_asset_rows`; `tests/unit/protocol/ledger/native.rs` `a_destination_holding_another_asset_breaks_exactly_that_rule`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `a_witness_whose_destination_holds_another_asset_breaks_the_asset_rows`; `tests/unit/protocol/balance/native.rs` `a_destination_holding_another_asset_breaks_exactly_that_rule`
   - Kind: soundness
   - Statement: natively a transfer or transfer_all into a destination holding USDC breaks exactly "the destination holds another asset" for every holder kind; in R1CS the honest SOL assignment satisfies the other-asset export and the USDC assignment leaves exactly row 1575, the first asset row, unsatisfied.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:150-160` (`fn check_destination`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:148-157` (`fn check_destination`)
   - Severity: Critical
-  - Suggested test: negative; `tests/unit/protocol/ledger/r1cs.rs`, `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/r1cs.rs`, `tests/unit/protocol/balance/native.rs`
 
 - [x] **INV-LEDGER-14: the balance rows read no owner, so only the fixture's unused nullifier keys are free**
-  - Covered by: `tests/unit/protocol/ledger/r1cs.rs` `balance_reads_no_owner_so_only_the_nullifier_keys_are_free`
+  - Covered by: `tests/unit/protocol/balance/r1cs.rs` `balance_reads_no_owner_so_only_the_nullifier_keys_are_free`
   - Kind: soundness
   - Statement: `check_private_variables` reports exactly the owner addresses' unused nullifier keys ("a 32-byte proof input" allocations) free and nothing tolerated: two for a transfer and a withdraw_all, one for two deposits, and none for the accessors, which hash the owner.
   - Location: `src/testing.rs` (`fn check_private_variables`)
   - Severity: High
-  - Suggested test: negative; `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/r1cs.rs`
 
 - [ ] **INV-LEDGER-15: Picus proves the ledger arithmetic deterministic and both balances fixed**
-  - Partial coverage: `tests/unit/protocol/ledger/picus.rs` `picus_finds_no_counterexample_for_the_ledger_arithmetic_within_its_limit` runs Picus on the constant-owner `Arithmetic` Picus export, alone and with both balance claims promoted, bounded at 30 s, and asserts only that it finds no counterexample: both runs end `Unknown`, as they do at 120 s, because Picus does not settle the 64-bit range checks of the deposit and the remainder (the bits fixtures prove widths up to 5, INV-CV-BITS-23). INV-LEDGER-12 and -14 are the hermetic substitutes.
+  - Partial coverage: `tests/unit/protocol/balance/picus.rs` `picus_finds_no_counterexample_for_the_balance_arithmetic_within_its_limit` runs Picus on the constant-owner `Arithmetic` Picus export, alone and with both balance claims promoted, bounded at 30 s, and asserts only that it finds no counterexample: both runs end `Unknown`, as they do at 120 s, because Picus does not settle the 64-bit range checks of the deposit and the remainder (the bits fixtures prove widths up to 5, INV-CV-BITS-23). INV-LEDGER-12 and -14 are the hermetic substitutes.
   - Kind: soundness
   - Statement: Picus reports exactly Safe for the `Arithmetic` Picus export, and exactly Safe with both balance claims promoted to outputs.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:81-96`, `src/prover/snarkjs.rs` (`fn picus_r1cs`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:80-85`, `src/prover/snarkjs.rs` (`fn picus_r1cs`)
   - Severity: Critical
-  - Suggested test: external (Picus); `tests/unit/protocol/ledger/picus.rs`
+  - Suggested test: external (Picus); `tests/unit/protocol/balance/picus.rs`
 
 - [ ] **INV-LEDGER-16: Picus proves a whole transfer's balances fixed**
-  - Partial coverage: `tests/unit/protocol/ledger/picus.rs` `picus_finds_no_counterexample_for_a_whole_transfer_within_its_limit` runs Picus on the token-to-token transfer with both balances promoted, bounded at 30 s, and asserts only that it finds no counterexample: the run ends `Unknown` (the owner and asset byte checks and the 64-bit range checks exceed the bound).
+  - Partial coverage: `tests/unit/protocol/balance/picus.rs` `picus_finds_no_counterexample_for_a_whole_transfer_within_its_limit` runs Picus on the token-to-token transfer with both balances promoted, bounded at 30 s, and asserts only that it finds no counterexample: the run ends `Unknown` (the owner and asset byte checks and the 64-bit range checks exceed the bound).
   - Kind: soundness
   - Statement: Picus reports exactly Safe for the transfer's Picus export with both balances promoted.
-  - Location: `src/circuit/protocol/utxo/ledger.rs`
+  - Location: `src/circuit/protocol/utxo/balance.rs`
   - Severity: Medium
-  - Suggested test: external (Picus); `tests/unit/protocol/ledger/picus.rs`
+  - Suggested test: external (Picus); `tests/unit/protocol/balance/picus.rs`
 
 ### Error
 
 - [x] **INV-LEDGER-17: a debit beyond the balance breaks exactly its rule**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_debit_beyond_the_balance_breaks_exactly_its_rule`; `tests/unit/protocol/ledger/properties.rs` `natively_every_other_source_balance_breaks_the_balance_rule` (property)
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_debit_beyond_the_balance_breaks_exactly_its_rule`; `tests/unit/protocol/balance/properties.rs` `natively_every_other_source_balance_breaks_the_balance_rule` (property)
   - Kind: error
   - Statement: for every exceeding vector, a transfer returns exactly `RuleBroken` with "the transfer exceeds the balance" for every holder pair and a withdrawal exactly `RuleBroken` with "the withdrawal exceeds the balance" for both sources, located in the fixture's file: the 64-bit range check's `ValueTooLarge` is reported as the rule.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:81-96` (`fn debit`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:80-85` (`fn debit`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
-  - Suggested test: negative + property; `tests/unit/protocol/ledger/native.rs`, `tests/unit/protocol/ledger/properties.rs`
+  - Suggested test: negative + property; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/properties.rs`
 
 - [x] **INV-LEDGER-18: a public transfer of zero breaks the nonzero rule**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_public_transfer_of_zero_breaks_the_nonzero_rule`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_public_transfer_of_zero_breaks_the_nonzero_rule`
   - Kind: error
   - Statement: a deposit of 0 before a transfer (every holder pair), a withdrawal of 0 (both sources) and a withdraw_all of an empty holder each return exactly `RuleBroken` with "a public transfer moves a nonzero amount", located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:217-246`
+  - Location: `src/circuit/protocol/utxo/balance.rs:213-241`
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
-  - Suggested test: negative; `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/native.rs`
 
 - [x] **INV-LEDGER-19: a balance of at least 2^64 does not fit**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_balance_of_at_least_2_pow_64_does_not_fit`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_balance_of_at_least_2_pow_64_does_not_fit`
   - Kind: error
-  - Statement: after the deposits [2^64 - 1, 1] and [2^64 - 1, 2^64 - 1], `balance()` and `withdraw_all` each return exactly `RuleBroken` with "the balance does not fit in 64 bits", located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:72-79` (`fn narrow`)
+  - Statement: after the deposits [2^64 - 1, 1] and [2^64 - 1, 2^64 - 1], `amount()` and `withdraw_all` each return exactly `RuleBroken` with "the balance does not fit in 64 bits", located in the fixture's file.
+  - Location: `src/circuit/protocol/utxo/balance.rs:71-77` (`fn narrow`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
-  - Suggested test: negative; `tests/unit/protocol/ledger/native.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/native.rs`
 
 - [x] **INV-LEDGER-20: a transfer into a burned UTXO is a structural error before any row**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_transfer_into_a_burned_utxo_is_a_structural_error`; `tests/unit/protocol/ledger/r1cs.rs` `a_transfer_into_a_burned_utxo_is_refused_before_any_row`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_transfer_into_a_burned_utxo_is_a_structural_error`; `tests/unit/protocol/balance/r1cs.rs` `a_transfer_into_a_burned_utxo_is_refused_before_any_row`
   - Kind: error
   - Statement: a transfer or transfer_all into a burned `TokenUtxo` or `DataUtxo` returns exactly `CircuitError.TransferToBurnedUtxo`, with no rule, natively, from `export_r1cs` and from `check_constraints`.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:150-154` (`fn check_destination`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:148-152` (`fn check_destination`)
   - Error: `CircuitErrorKind::TransferToBurnedUtxo`
   - Severity: High
-  - Suggested test: negative; `tests/unit/protocol/ledger/native.rs`, `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/r1cs.rs`
 
 - [x] **INV-LEDGER-21: a balance summed over more than 253 bits is too wide to check**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_balance_summed_over_more_than_253_bits_is_too_wide_to_check`; `tests/unit/protocol/ledger/r1cs.rs` `a_balance_too_wide_to_check_is_refused_before_any_row`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_balance_summed_over_more_than_253_bits_is_too_wide_to_check`; `tests/unit/protocol/balance/r1cs.rs` `a_balance_too_wide_to_check_is_refused_before_any_row`
   - Kind: error
-  - Statement: 190 deposits of 1 hold natively and check exactly 13472 constraints; 191 deposits make `balance()` and `withdraw_all` return exactly `CircuitError.BitWidthTooLarge` natively and from `export_r1cs`.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:62-70` (`fn bounded`)
+  - Statement: 190 deposits of 1 hold natively and check exactly 13472 constraints; 191 deposits make `amount()` and `withdraw_all` return exactly `CircuitError.BitWidthTooLarge` natively and from `export_r1cs`.
+  - Location: `src/circuit/protocol/utxo/balance.rs:60-68` (`fn bounded`)
   - Error: `CircuitErrorKind::BitWidthTooLarge`
   - Severity: Medium
-  - Suggested test: negative; `tests/unit/protocol/ledger/native.rs`, `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/r1cs.rs`
 
 - [x] **INV-LEDGER-22: a balance too wide to check is refused at the circuit's line**
-  - Covered by: `tests/unit/protocol/ledger/native.rs` `a_balance_too_wide_to_check_points_at_the_circuit_line`; `tests/unit/protocol/ledger/r1cs.rs` `oversized_accumulator_errors_keep_the_operation_location_through_the_prover`
+  - Covered by: `tests/unit/protocol/balance/native.rs` `a_balance_too_wide_to_check_points_at_the_circuit_line`; `tests/unit/protocol/balance/r1cs.rs` `oversized_amount_errors_keep_the_operation_location_through_the_prover`
   - Kind: error
-  - Statement: after 191 deposits of 1, every tested `balance`, `withdraw_all`, `withdraw` and `transfer` operation returns exactly `CircuitError.BitWidthTooLarge { bits: 254 }` at the file and line of that operation's circuit call, natively and through R1CS export, assignment export and `check_constraints`.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:63-71` (`fn bounded`)
+  - Statement: after 191 deposits of 1, every tested `amount`, `withdraw_all`, `withdraw` and `transfer` operation returns exactly `CircuitError.BitWidthTooLarge { bits: 254 }` at the file and line of that operation's circuit call, natively and through R1CS export, assignment export and `check_constraints`.
+  - Location: `src/circuit/protocol/utxo/balance.rs:60-68` (`fn bounded`)
   - Error: `CircuitErrorKind::BitWidthTooLarge`
   - Severity: Low
-  - Suggested test: negative; `tests/unit/protocol/ledger/native.rs`, `tests/unit/protocol/ledger/r1cs.rs`
+  - Suggested test: negative; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/r1cs.rs`
 
 ### Interop
 
 - [x] **INV-LEDGER-23: snarkjs accepts every honest transfer and rejects a tampered balance**
-  - Covered by: `tests/unit/protocol/ledger/external.rs` `snarkjs_accepts_every_honest_ledger_pair_and_rejects_a_tampered_balance`
+  - Covered by: `tests/unit/protocol/balance/external.rs` `snarkjs_accepts_every_honest_balance_pair_and_rejects_a_tampered_balance`
   - Kind: interop
   - Statement: for every transfer vector, `snarkjs wtns check` accepts the token-to-token transfer R1CS with the honest assignment and rejects it with the source balance claim increased by 1.
   - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
-  - Suggested test: external (snarkjs); `tests/unit/protocol/ledger/external.rs`
+  - Suggested test: external (snarkjs); `tests/unit/protocol/balance/external.rs`
 
 - [x] **INV-LEDGER-24: snarkjs proves and verifies a withdrawal**
-  - Covered by: `tests/unit/protocol/ledger/external.rs` `snarkjs_proves_and_verifies_a_withdrawal`
+  - Covered by: `tests/unit/protocol/balance/external.rs` `snarkjs_proves_and_verifies_a_withdrawal`
   - Kind: interop
   - Statement: snarkjs Groth16 setup, prove and verify accept the withdrawal R1CS with the assignment of 1 withdrawn from 2^64 - 1, with exactly the empty public signal list.
   - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
-  - Suggested test: external (snarkjs); `tests/unit/protocol/ledger/external.rs`
+  - Suggested test: external (snarkjs); `tests/unit/protocol/balance/external.rs`
 
 INV-LEDGER summary: 24 (Critical 7, High 13, Medium 3, Low 1); covered 22, partial 2
 (INV-LEDGER-15 and -16, Picus `Unknown` within its bound), findings 0.
@@ -523,7 +523,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/native.rs` `a_wrong_total_owner_or_asset_breaks_exactly_its_rule`
   - Kind: semantics
   - Statement: for 300 + 200 SOL, the balance, owner hash or asset hash claim increased by 1 breaks exactly its rule natively, located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:170-182` (`fn owner`, `fn asset`, `fn balance`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:168-179` (`fn owner`, `fn asset`, `fn amount`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/token/native.rs`
 
@@ -595,8 +595,8 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
 - [x] **INV-TOKEN-10: two inputs of 2^64 - 1 do not fit the balance**
   - Covered by: `tests/unit/protocol/token/native.rs` `two_inputs_of_2_pow_64_minus_1_do_not_fit_the_balance`
   - Kind: error
-  - Statement: the spend of 2^64 - 1 + 2^64 - 1 USDC returns exactly `RuleBroken` with "the balance does not fit in 64 bits" from `balance()`, located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/ledger.rs:72-79` (`fn narrow`)
+  - Statement: the spend of 2^64 - 1 + 2^64 - 1 USDC returns exactly `RuleBroken` with "the balance does not fit in 64 bits" from `amount()`, located in the fixture's file.
+  - Location: `src/circuit/protocol/utxo/balance.rs:71-77` (`fn narrow`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/token/native.rs`

@@ -66,8 +66,8 @@ impl Placeholder for Payment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, Owner,
+            PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };

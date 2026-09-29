@@ -1,8 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit::{
-        Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
-        DataUtxo, PublicInputs, TokenUtxo,
+        Assert, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
+        PublicInputs, TokenUtxo, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,

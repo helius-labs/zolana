@@ -67,8 +67,8 @@ impl Placeholder for Reset {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };

@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
-        Uint,
+        CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo, Uint,
+        UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,

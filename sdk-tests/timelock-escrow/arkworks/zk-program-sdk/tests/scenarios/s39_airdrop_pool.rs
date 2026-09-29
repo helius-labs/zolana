@@ -116,9 +116,9 @@ impl Placeholder for CreatePool {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData,
+            UtxoTrait,
         },
         CircuitError,
     };

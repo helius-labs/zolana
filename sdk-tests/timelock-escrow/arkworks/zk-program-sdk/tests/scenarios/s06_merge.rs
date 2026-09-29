@@ -66,8 +66,8 @@ impl Placeholder for Merge {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoTrait,
         },
         CircuitError,
     };

@@ -75,8 +75,8 @@ impl Placeholder for AllowlistedPayment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoTrait,
         },
         CircuitError,
     };

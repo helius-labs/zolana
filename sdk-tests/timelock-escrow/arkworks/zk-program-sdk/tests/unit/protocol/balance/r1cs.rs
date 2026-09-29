@@ -3,8 +3,8 @@ use zolana_transaction::Mint;
 
 use super::{
     fixtures::{
-        accessors, deposits, into_closed, ledger, pairs, sources, Ledger, ANOTHER_ASSET, BALANCES,
-        BALANCE_FITS, DATA, NONZERO, PAIRS, SOURCES, TOKEN, TRANSFER, TRANSFER_ALL,
+        accessors, balance, deposits, into_closed, pairs, sources, Balance, ANOTHER_ASSET,
+        BALANCES, BALANCE_FITS, DATA, NONZERO, PAIRS, SOURCES, TOKEN, TRANSFER, TRANSFER_ALL,
         TRANSFER_EXCEEDS, WITHDRAW, WITHDRAWAL_EXCEEDS, WITHDRAWN, WITHDRAW_ALL,
     },
     vectors::{TRANSFERS, TRANSFER_ALLS, WITHDRAWALS, WITHDRAW_ALLS},
@@ -23,11 +23,11 @@ use crate::{
     },
 };
 
-type Transfer = Ledger<TOKEN, TOKEN, TRANSFER, true>;
-type TransferIntoHeld = Ledger<TOKEN, TOKEN, TRANSFER, false>;
+type Transfer = Balance<TOKEN, TOKEN, TRANSFER, true>;
+type TransferIntoHeld = Balance<TOKEN, TOKEN, TRANSFER, false>;
 
 #[test]
-fn every_ledger_fixture_has_exactly_the_pinned_size_and_digest() {
+fn every_balance_fixture_has_exactly_the_pinned_size_and_digest() {
     assert_eq!(
         [
             (size::<Transfer>(), r1cs_digest::<Transfer>()),
@@ -36,16 +36,16 @@ fn every_ledger_fixture_has_exactly_the_pinned_size_and_digest() {
                 r1cs_digest::<TransferIntoHeld>()
             ),
             (
-                size::<Ledger<TOKEN, TOKEN, TRANSFER_ALL, true>>(),
-                r1cs_digest::<Ledger<TOKEN, TOKEN, TRANSFER_ALL, true>>()
+                size::<Balance<TOKEN, TOKEN, TRANSFER_ALL, true>>(),
+                r1cs_digest::<Balance<TOKEN, TOKEN, TRANSFER_ALL, true>>()
             ),
             (
-                size::<Ledger<TOKEN, TOKEN, WITHDRAW, true>>(),
-                r1cs_digest::<Ledger<TOKEN, TOKEN, WITHDRAW, true>>()
+                size::<Balance<TOKEN, TOKEN, WITHDRAW, true>>(),
+                r1cs_digest::<Balance<TOKEN, TOKEN, WITHDRAW, true>>()
             ),
             (
-                size::<Ledger<TOKEN, TOKEN, WITHDRAW_ALL, true>>(),
-                r1cs_digest::<Ledger<TOKEN, TOKEN, WITHDRAW_ALL, true>>()
+                size::<Balance<TOKEN, TOKEN, WITHDRAW_ALL, true>>(),
+                r1cs_digest::<Balance<TOKEN, TOKEN, WITHDRAW_ALL, true>>()
             ),
         ],
         [
@@ -103,15 +103,15 @@ fn token_and_data_holders_export_byte_identical_r1cs_for_every_operation() {
             each(&PAIRS, Transfer::export_r1cs().expect("r1cs")),
             each(
                 &PAIRS,
-                Ledger::<TOKEN, TOKEN, TRANSFER_ALL, true>::export_r1cs().expect("r1cs")
+                Balance::<TOKEN, TOKEN, TRANSFER_ALL, true>::export_r1cs().expect("r1cs")
             ),
             each(
                 &SOURCES,
-                Ledger::<TOKEN, TOKEN, WITHDRAW, true>::export_r1cs().expect("r1cs")
+                Balance::<TOKEN, TOKEN, WITHDRAW, true>::export_r1cs().expect("r1cs")
             ),
             each(
                 &SOURCES,
-                Ledger::<TOKEN, TOKEN, WITHDRAW_ALL, true>::export_r1cs().expect("r1cs")
+                Balance::<TOKEN, TOKEN, WITHDRAW_ALL, true>::export_r1cs().expect("r1cs")
             ),
             super::fixtures::Accessors::<TOKEN>::export_r1cs().expect("r1cs"),
         )
@@ -121,8 +121,8 @@ fn token_and_data_holders_export_byte_identical_r1cs_for_every_operation() {
 #[test]
 fn a_destination_built_from_the_source_asset_adds_no_asset_row_and_another_adds_exactly_two() {
     let vector = &TRANSFERS[0];
-    let own = ledger::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, vector);
-    let held = ledger::<TOKEN, TOKEN, TRANSFER, false>(Mint::SOL, vector);
+    let own = balance::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, vector);
+    let held = balance::<TOKEN, TOKEN, TRANSFER, false>(Mint::SOL, vector);
     assert_eq!(
         (
             checks(&own, ANOTHER_ASSET),
@@ -135,10 +135,10 @@ fn a_destination_built_from_the_source_asset_adds_no_asset_row_and_another_adds_
 
 #[test]
 fn each_rule_owns_exactly_its_pinned_rows() {
-    let transfer = ledger::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, &TRANSFERS[0]);
-    let withdraw = ledger::<TOKEN, TOKEN, WITHDRAW, true>(Mint::SOL, &WITHDRAWALS[0]);
-    let withdraw_all = ledger::<TOKEN, TOKEN, WITHDRAW_ALL, true>(Mint::SOL, &WITHDRAW_ALLS[0]);
-    let transfer_all = ledger::<TOKEN, TOKEN, TRANSFER_ALL, true>(Mint::SOL, &TRANSFER_ALLS[0]);
+    let transfer = balance::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, &TRANSFERS[0]);
+    let withdraw = balance::<TOKEN, TOKEN, WITHDRAW, true>(Mint::SOL, &WITHDRAWALS[0]);
+    let withdraw_all = balance::<TOKEN, TOKEN, WITHDRAW_ALL, true>(Mint::SOL, &WITHDRAW_ALLS[0]);
+    let transfer_all = balance::<TOKEN, TOKEN, TRANSFER_ALL, true>(Mint::SOL, &TRANSFER_ALLS[0]);
     assert_eq!(
         (
             [NONZERO, TRANSFER_EXCEEDS, BALANCES].map(|rule| checks(&transfer, rule)),
@@ -221,8 +221,8 @@ fn every_valid_vector_checks_exactly_the_pinned_count_for_every_holder() {
 
 #[test]
 fn a_tampered_witness_breaks_the_rule_that_owns_its_row() {
-    let transfer = ledger::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, &TRANSFERS[0]);
-    let withdraw = ledger::<DATA, TOKEN, WITHDRAW, true>(Mint::SOL, &WITHDRAWALS[0]);
+    let transfer = balance::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, &TRANSFERS[0]);
+    let withdraw = balance::<DATA, TOKEN, WITHDRAW, true>(Mint::SOL, &WITHDRAWALS[0]);
     let two = deposits::<2, false>([3, 4], 7);
     let balance_wires = allocated(&transfer, "a field proof input");
     assert_eq!(
@@ -249,7 +249,7 @@ fn a_tampered_witness_breaks_the_rule_that_owns_its_row() {
 #[test]
 fn a_witness_whose_destination_holds_another_asset_breaks_the_asset_rows() {
     let vector = &TRANSFERS[0];
-    let held = |mint| ledger::<TOKEN, TOKEN, TRANSFER, true>(mint, vector);
+    let held = |mint| balance::<TOKEN, TOKEN, TRANSFER, true>(mint, vector);
     let rows = exported::<TransferIntoHeld>();
     assert_eq!(
         (
@@ -286,7 +286,7 @@ fn balance_reads_no_owner_so_only_the_nullifier_keys_are_free() {
     };
     assert_eq!(
         (
-            free(check_private_variables(&ledger::<
+            free(check_private_variables(&balance::<
                 TOKEN,
                 DATA,
                 TRANSFER,
@@ -294,7 +294,7 @@ fn balance_reads_no_owner_so_only_the_nullifier_keys_are_free() {
             >(
                 Mint::SOL, &TRANSFERS[0]
             ))),
-            free(check_private_variables(&ledger::<
+            free(check_private_variables(&balance::<
                 DATA,
                 TOKEN,
                 WITHDRAW_ALL,
@@ -351,7 +351,7 @@ fn a_balance_too_wide_to_check_is_refused_before_any_row() {
 }
 
 #[test]
-fn oversized_accumulator_errors_keep_the_operation_location_through_the_prover() {
+fn oversized_amount_errors_keep_the_operation_location_through_the_prover() {
     use super::fixtures::{oversized_operation, Oversized, BALANCE_READ, FILE};
     fn check<const OP: usize>() {
         let (line, _) = oversized_operation(OP);

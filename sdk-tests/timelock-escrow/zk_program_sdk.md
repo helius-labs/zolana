@@ -1097,11 +1097,11 @@ Decisions:
   stays `None` until Photon reports it (TODO at `newest_unpaused_tree_id`). The circuit takes
   the first nullifier from the first spent input, and the client takes the sender from the
   keys.
-- `TokenUtxo` and `DataUtxo` borrow their inputs and share the `Balance` trait, default
-  methods over a `Ledger` each embeds: `transfer`, `transfer_all`, `receive`, `deposit`,
+- `TokenUtxo` and `DataUtxo` borrow their inputs and share the `UtxoTrait` trait, default
+  methods over a `Balance` each embeds: `transfer`, `transfer_all`, `receive`, `deposit`,
   `withdraw` and `withdraw_all`, with owned accessors and amounts by reference. Both keep
   their lifecycle as a private field; it only decides what happens to the remainder. The
-  native run refuses an overspend and a public transfer of zero. `Balance` is not sealed, so
+  native run refuses an overspend and a public transfer of zero. `UtxoTrait` is not sealed, so
   a program can implement it for a wrapper without owning the crate. `Owner` and `Asset`
   share their hash caches between clones.
 - `Bool` replaces `CircuitVar` for booleans, with `select`, `not`, `and` and `or`, so a circuit

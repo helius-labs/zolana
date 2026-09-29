@@ -1,5 +1,5 @@
 //! The circuit's change/output paths wrap the balance in `Uint::trusted`
-//! without the `narrow()` range check that `Balance::balance()` and
+//! without the `narrow()` range check that `UtxoTrait::amount()` and
 //! `withdraw_all()` use. As a result the circuit accepts change outputs whose
 //! amount does not fit in 64 bits, while the native transaction code refuses
 //! the same values with checked arithmetic.

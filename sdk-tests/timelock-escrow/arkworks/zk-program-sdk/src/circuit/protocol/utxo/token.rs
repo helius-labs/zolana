@@ -1,6 +1,6 @@
 use zolana_interface::DUMMY_DOMAIN;
 
-use super::{utxo_domain, Accumulator, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
+use super::{utxo_domain, Amount, Balance, HasBalance, Output, SpentInput, Utxo, UtxoTrait};
 use crate::{
     circuit::{
         builtins::{field::var::system_of, ops::assert::assert_equal_unless},
@@ -15,18 +15,18 @@ use crate::{
 #[derive(Debug)]
 pub struct TokenUtxo {
     // rename to TokenUtxos
-    ledger: Ledger,
+    balance: Balance,
     spent_inputs: Vec<SpentInput>,
     close: bool,
 }
 
-impl HasLedger for TokenUtxo {
-    fn ledger(&self) -> &Ledger {
-        &self.ledger
+impl HasBalance for TokenUtxo {
+    fn balance(&self) -> &Balance {
+        &self.balance
     }
 
-    fn ledger_mut(&mut self) -> &mut Ledger {
-        &mut self.ledger
+    fn balance_mut(&mut self) -> &mut Balance {
+        &mut self.balance
     }
 
     fn is_closed(&self) -> bool {
@@ -34,12 +34,12 @@ impl HasLedger for TokenUtxo {
     }
 }
 
-impl Balance for TokenUtxo {}
+impl UtxoTrait for TokenUtxo {}
 
 impl TokenUtxo {
     pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
         Self {
-            ledger: Ledger::new(owner.clone(), asset.clone(), Accumulator::zero()),
+            balance: Balance::new(owner.clone(), asset.clone(), Amount::zero()),
             spent_inputs: Vec::new(),
             close: false,
         }
@@ -60,16 +60,16 @@ impl TokenUtxo {
     }
 
     pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
-        self.ledger.public_transfers()
+        self.balance.public_transfers()
     }
 
     pub(crate) fn transferred(&self) -> &CircuitVar {
-        self.ledger.transferred()
+        self.balance.transferred()
     }
 
     #[track_caller]
     pub(crate) fn change(&self) -> Result<Option<Output>, CircuitError> {
-        let balance = self.ledger.balance_var();
+        let balance = self.balance.amount_var();
         if self.close {
             balance.assert_equal(&zero(), "a closed token utxo leaves a balance")?;
             return Ok(None);
@@ -132,10 +132,10 @@ impl TokenUtxo {
                 .push(input.spent(dummy.select(&zero(), &input.hash_with(&owner, &asset)?)));
         }
         Ok(Self {
-            ledger: Ledger::new(
+            balance: Balance::new(
                 first.owner.clone(),
                 first.asset.clone(),
-                Accumulator::sum(&amounts),
+                Amount::sum(&amounts),
             ),
             spent_inputs,
             close,

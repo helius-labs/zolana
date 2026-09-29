@@ -1,8 +1,8 @@
 use solana_address::Address;
 use zk_program_sdk::{
     circuit::{
-        checked_utxo_data, Assert, Balance, CircuitVar, ConfidentialTransaction, Constraints,
-        DataUtxo, Field,
+        checked_utxo_data, Assert, CircuitVar, ConfidentialTransaction, Constraints, DataUtxo,
+        Field, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, TxContext,
@@ -53,7 +53,7 @@ impl<const CLOSE: bool> Constraints for HeldCircuit<CLOSE> {
             DataUtxo::new_mut(&self.input, &self.state)?
         };
         CircuitVar::from(counter.count.clone()).assert_equal(&self.count, COUNT)?;
-        CircuitVar::from(counter.balance()?).assert_equal(&self.balance, BALANCE)?;
+        CircuitVar::from(counter.amount()?).assert_equal(&self.balance, BALANCE)?;
         counter
             .owner()
             .hash()?
@@ -94,7 +94,7 @@ impl Constraints for FreshCircuit {
     fn constraints(&self) -> Result<(), CircuitError> {
         let counter = DataUtxo::<CounterState>::new_init(&self.owner).with_asset(&self.mint)?;
         CircuitVar::from(counter.count.clone()).assert_equal(&self.count, COUNT)?;
-        CircuitVar::from(counter.balance()?).assert_equal(&self.balance, BALANCE)?;
+        CircuitVar::from(counter.amount()?).assert_equal(&self.balance, BALANCE)?;
         counter
             .owner()
             .hash()?

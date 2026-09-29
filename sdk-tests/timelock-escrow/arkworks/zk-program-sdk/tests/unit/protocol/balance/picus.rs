@@ -5,7 +5,7 @@ use std::time::Duration;
 use zolana_transaction::Mint;
 
 use super::{
-    fixtures::{arithmetic, ledger, Arithmetic, Ledger, TOKEN, TRANSFER},
+    fixtures::{arithmetic, balance, Arithmetic, Balance, TOKEN, TRANSFER},
     vectors::TRANSFERS,
 };
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
 
 const LIMIT: Duration = Duration::from_secs(30);
 
-type Transfer = Ledger<TOKEN, TOKEN, TRANSFER, true>;
+type Transfer = Balance<TOKEN, TOKEN, TRANSFER, true>;
 
 fn balances_promoted(r1cs: &[u8], balances: Vec<usize>) -> Vec<u8> {
     let wires: Vec<usize> = balances
@@ -30,8 +30,8 @@ fn balances_promoted(r1cs: &[u8], balances: Vec<usize>) -> Vec<u8> {
 }
 
 #[test]
-fn picus_finds_no_counterexample_for_the_ledger_arithmetic_within_its_limit() {
-    let work = WorkDir::new("picus-ledger-arithmetic");
+fn picus_finds_no_counterexample_for_the_balance_arithmetic_within_its_limit() {
+    let work = WorkDir::new("picus-balance-arithmetic");
     let r1cs = picus_export::<Arithmetic>();
     let balances = allocated(&arithmetic(&TRANSFERS[0]), "a field proof input");
     let verdicts = [
@@ -51,9 +51,9 @@ fn picus_finds_no_counterexample_for_the_ledger_arithmetic_within_its_limit() {
 
 #[test]
 fn picus_finds_no_counterexample_for_a_whole_transfer_within_its_limit() {
-    let work = WorkDir::new("picus-ledger-transfer");
+    let work = WorkDir::new("picus-balance-transfer");
     let r1cs = picus_export::<Transfer>();
-    let fixture = ledger::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, &TRANSFERS[0]);
+    let fixture = balance::<TOKEN, TOKEN, TRANSFER, true>(Mint::SOL, &TRANSFERS[0]);
     let balances = allocated(&fixture, "a field proof input");
     let verdict = verdict_within(
         &work,

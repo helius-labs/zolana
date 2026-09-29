@@ -2,7 +2,7 @@ use zolana_transaction::Mint;
 
 use super::{
     fixtures::{
-        accessors, broken, deposits, into_closed, ledger, pairs, sources, Empty, ANOTHER_ASSET,
+        accessors, balance, broken, deposits, into_closed, pairs, sources, Empty, ANOTHER_ASSET,
         BALANCES, BALANCE_FITS, DATA, FILE, NONZERO, PAIRS, SOURCES, TOKEN, TRANSFER, TRANSFER_ALL,
         TRANSFER_EXCEEDS, WITHDRAW, WITHDRAWAL_EXCEEDS, WITHDRAW_ALL,
     },
@@ -139,10 +139,10 @@ fn a_destination_holding_another_asset_breaks_exactly_that_rule() {
     let vector = &TRANSFERS[0];
     assert_eq!(
         (
-            native(&ledger::<TOKEN, TOKEN, TRANSFER, false>(Mint::SOL, vector)),
-            native(&ledger::<TOKEN, TOKEN, TRANSFER, false>(USDC, vector)),
-            native(&ledger::<TOKEN, DATA, TRANSFER, false>(USDC, vector)),
-            native(&ledger::<DATA, TOKEN, TRANSFER_ALL, false>(
+            native(&balance::<TOKEN, TOKEN, TRANSFER, false>(Mint::SOL, vector)),
+            native(&balance::<TOKEN, TOKEN, TRANSFER, false>(USDC, vector)),
+            native(&balance::<TOKEN, DATA, TRANSFER, false>(USDC, vector)),
+            native(&balance::<DATA, TOKEN, TRANSFER_ALL, false>(
                 USDC,
                 &TRANSFER_ALLS[0]
             )),
@@ -245,7 +245,7 @@ fn a_balance_too_wide_to_check_points_at_the_circuit_line() {
     use super::fixtures::{oversized_operation, BALANCE_READ};
     for op in [BALANCE_READ, WITHDRAW_ALL, WITHDRAW, TRANSFER] {
         let (line, result) = oversized_operation(op);
-        let error = result.expect_err("254-bit accumulator is refused");
+        let error = result.expect_err("254-bit amount is refused");
         assert!(matches!(
             error.kind(),
             zk_program_sdk::CircuitErrorKind::BitWidthTooLarge { bits: 254 }

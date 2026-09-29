@@ -67,8 +67,8 @@ impl Placeholder for Close {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataUtxo, Owner, PublicInputs, TxContext, Utxo, UtxoTrait,
         },
         CircuitError,
     };
