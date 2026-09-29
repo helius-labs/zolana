@@ -70,24 +70,6 @@ pub enum ClientError {
     #[error("the transaction names a read cache, but no input reads from it")]
     UnusedReadCache,
 
-    #[error("output {index} is the cache write beyond the {max} a transact holds")]
-    TooManyCacheWrites { index: usize, max: usize },
-
-    #[error("output {index} writes cache slot {slot}, but a cache holds slots 0..36")]
-    CacheWriteSlotOutOfRange { index: usize, slot: u8 },
-
-    #[error("output {index} writes cache slot {slot}, which an earlier output already writes")]
-    DuplicateCacheWriteSlot { index: usize, slot: u8 },
-
-    #[error("output {index} names a cache slot, but the transaction writes no cache")]
-    CachedOutputWithoutWriteCache { index: usize },
-
-    #[error("output {index} is padding and cannot be written to a cache")]
-    CachedDummyOutput { index: usize },
-
-    #[error("the transaction names a write cache, but no output is written to it")]
-    UnusedWriteCache,
-
     #[error("the transaction writes a cache, whose writer must sign the transact")]
     CacheWriteNeedsWriter,
 

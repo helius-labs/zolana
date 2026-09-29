@@ -15,13 +15,14 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
 };
 use zolana_account_checks::AccountIterator;
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use zolana_interface::instruction::tag::TRANSACT;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             confidential_encrypted_output_body, CircuitId, OwnerTag, TransactIxData,
             TransactOutput, TransactProof,
         },
-        tag::TRANSACT,
         MessageData,
     },
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -440,14 +441,10 @@ impl NamespaceWrite<'_> {
             owner_tag: OwnerTag::Inline(owner_bytes),
             data: Some(self.content.to_vec()),
         });
-        let external_data_hash = external
-            .hash(TRANSACT, &[], &[owner_bytes])
-            .map_err(|_| CustomRingError::HashingFailed)?;
         let private_tx_hash = mutation_private_tx_hash(
             self.input_hash,
             self.output_hash,
             self.address_nullifier,
-            &external_data_hash,
             &self.private_tx_blinding,
         )
         .map_err(|_| CustomRingError::HashingFailed)?;

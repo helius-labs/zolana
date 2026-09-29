@@ -8,11 +8,7 @@ import {
   ed25519DerivationMessage,
   roleExpansion,
 } from "../../keypair/derivation.js";
-import {
-  mergeDummyNullifier,
-  mergeOutputBlinding,
-  mergePrivateTxBlinding,
-} from "../../keypair/merge/index.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js";
@@ -47,14 +43,13 @@ export interface TransactionKeyRequest {
 
 /**
  * Every value the protocol derives from the nullifier secret. `nullifier`
- * spends a UTXO; the merge derivations produce its padded-slot nullifiers,
- * output blinding, and private-transaction blinding.
+ * spends a UTXO; the merge derivations produce its padded-slot nullifiers and
+ * output blinding.
  */
 export type DeriveRequest =
   | Readonly<{ kind: "nullifier"; utxoHash: Bytes32; blinding: Bytes32 }>
   | Readonly<{ kind: "mergeDummyNullifier"; firstNullifier: Bytes32; slotIndex: number }>
-  | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>
-  | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>;
+  | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>;
 
 /**
  * The privacy roles of one shielded wallet, exposed as the functions the
@@ -247,8 +242,6 @@ export class LocalShieldedKeys implements ShieldedKeys {
         return mergeDummyNullifier(this.#nullifier, request.firstNullifier, request.slotIndex);
       case "mergeOutputBlinding":
         return mergeOutputBlinding(this.#nullifier, request.firstNullifier);
-      case "mergePrivateTxBlinding":
-        return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
     }
   }
 

@@ -49,12 +49,6 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "output utxo hash",
         None,
         ShieldedPoolError::NonCanonicalOutputUtxoHash,
-    )?;
-    check_field_element(
-        ix.private_tx_hash,
-        "private tx hash",
-        None,
-        ShieldedPoolError::NonCanonicalPrivateTxHash,
     )
 }
 
@@ -165,8 +159,11 @@ pub(crate) fn process_merge_core(
     create_nullifier_pdas(
         accounts.payer,
         accounts.input_tree,
-        &mut accounts.nullifier_pdas,
-        ix.nullifiers.iter(),
+        accounts
+            .nullifier_pdas
+            .iter_mut()
+            .map(|nullifier_pda| &mut **nullifier_pda)
+            .zip(ix.nullifiers.iter()),
         &input_tree_result,
     )?;
     let tree_write = {

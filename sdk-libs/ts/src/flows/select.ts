@@ -51,7 +51,7 @@ export type SpendTarget =
 
 /** @internal */
 export interface SelectedSpendInputs {
-  /** Grouped by tree: each tree owns one contiguous run, as a proof requires. */
+  /** Grouped by tree: each tree owns one contiguous run. */
   readonly entries: readonly WalletUtxo[];
   /** The entries' trees, in the order the entries first sit in them. */
   readonly trees: readonly Address[];
@@ -75,6 +75,7 @@ export function selectUtxos(
       (entry) =>
         !entry.spent &&
         entry.utxo.asset === input.asset &&
+        entry.utxo.amount > 0n &&
         policy.eligible(entry) &&
         (policy.tree.kind !== "fixed" || entry.outputContext.tree === policy.tree.tree),
     );
@@ -125,9 +126,9 @@ export function selectUtxos(
 }
 
 /**
- * A proof gives each input tree one contiguous run of inputs, so the selected
- * entries are reordered into per-tree runs, keeping the amount order inside
- * each. A policy that infers the trees refuses more runs than it admits.
+ * The selected entries are reordered into per-tree runs, keeping the amount
+ * order inside each. A policy that infers the trees refuses more runs than it
+ * admits.
  */
 function grouped(
   entries: readonly WalletUtxo[],

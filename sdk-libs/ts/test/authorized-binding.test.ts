@@ -63,9 +63,11 @@ function fundedWallet(keypair: ShieldedKeypair, asset: Address = SOL_MINT): Wall
   return wallet;
 }
 
-async function authorize(kind: "transfer" | "withdrawal" | "split") {
+async function authorize(
+  kind: "transfer" | "withdrawal" | "split",
+  asset: Address = kind === "withdrawal" ? SPL_MINT : SOL_MINT,
+) {
   const keypair = spendingKeypair();
-  const asset = kind === "withdrawal" ? SPL_MINT : SOL_MINT;
   const wallet = fundedWallet(keypair, asset);
   const feePayer = keypair.shieldedAddress().solanaAddress();
   const keys = LocalKeys.fromKeypair(keypair, {
@@ -181,6 +183,42 @@ describe("authorized transaction binding", () => {
         mismatch,
       ]),
     ).toThrowError(expect.objectContaining({ details: { field: "shape" } }));
+  });
+
+  it("admits only a zero-amount SOL output in an SPL transfer's empty change slot", async () => {
+    const { material } = await authorize("transfer", SPL_MINT);
+    expect(material.senderOutputCount).toBe(2);
+    const standIn = material.proofInputs.outputs[1];
+    if (standIn === undefined) throw new Error("expected the SOL change slot");
+    expect(standIn.isDummy()).toBe(false);
+    expect(standIn.asset).toBe(SOL_MINT);
+    expect(standIn.amount).toBe(0n);
+    expect(() => checkAuthorizedBinding(material, mismatch)).not.toThrow();
+    const funded = material.proofInputs.outputs.map((output, index) =>
+      index === 1
+        ? createProofOutput({
+            ownerAddress: material.owner,
+            asset: SOL_MINT,
+            amount: 1n,
+            blinding: output.blinding,
+            data: output.data,
+          })
+        : output,
+    );
+    expectMismatch(
+      Object.freeze({
+        ...material,
+        proofInputs: new SppProofInputs({
+          payer: material.proofInputs.payer,
+          inputUtxos: material.proofInputs.inputUtxos,
+          outputs: funded,
+          externalData: material.proofInputs.externalData,
+          blindingSeed: material.proofInputs.blindingSeed,
+          outputTreeId: material.proofInputs.outputTreeId,
+        }),
+      }),
+      "change",
+    );
   });
 
   it("rejects a coherent clone before the prover sees it", async () => {

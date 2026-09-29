@@ -109,9 +109,10 @@ func authorizeP256(
 	signingPrivate *ecdsa.PrivateKey,
 ) p256Authorization {
 	t.Helper()
-	var privateTxHash [32]byte
-	spptest.AsBigInt(assignment.PrivateTxHash).FillBytes(privateTxHash[:])
-	digest := sha256.Sum256(privateTxHash[:])
+	var message [64]byte
+	spptest.AsBigInt(assignment.PrivateTxHash).FillBytes(message[:32])
+	spptest.AsBigInt(assignment.ExternalDataHash).FillBytes(message[32:])
+	digest := sha256.Sum256(message[:])
 	low := new(big.Int).SetBytes(digest[16:])
 	high := new(big.Int).SetBytes(digest[:16])
 	r, s, err := ecdsa.Sign(rand.Reader, signingPrivate, digest[:])
@@ -727,6 +728,21 @@ func TestCustomRingP256RejectsBadMessageHash(t *testing.T) {
 		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
+}
+
+func TestCustomRingP256RejectsSignatureForDifferentExternalData(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	original := authorizeP256(t, assignment, owner, owner)
+	assignment.ExternalDataHash = spptest.Fe(301)
+	reauthorized := authorizeP256(t, assignment, owner, owner)
+	assert := test.NewAssert(t)
+	assert.SolvingSucceeded(circuit, asCustomRingP256(assignment, reauthorized), test.WithCurves(ecc.BN254))
+	reauthorized.sig = original.sig
+	assert.SolvingFailed(circuit, asCustomRingP256(assignment, reauthorized), test.WithCurves(ecc.BN254))
 }
 
 func TestCustomRingP256RejectsOwnerKeyMismatch(t *testing.T) {

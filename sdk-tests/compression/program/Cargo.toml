@@ -30,6 +30,9 @@ zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 
 [dev-dependencies]
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 zolana-client = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

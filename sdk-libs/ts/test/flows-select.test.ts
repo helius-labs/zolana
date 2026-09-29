@@ -112,6 +112,17 @@ describe("UTXO selection", () => {
     expect(selection.entries.map((entry) => entry.utxo.amount)).toEqual([1n, 3n, 5n]);
   });
 
+  it("never selects a zero-amount UTXO", () => {
+    const wallet = walletWith([[0n], [0n], [5n], [3n]]);
+    const selection = selectUtxos({
+      wallet,
+      asset: MINT,
+      target: { kind: "consolidate", minInputs: 2 },
+      policy: policy({ ordering: "smallestFirst", maxInputs: 3 }),
+    });
+    expect(selection.entries.map((entry) => entry.utxo.amount)).toEqual([3n, 5n]);
+  });
+
   it("distinguishes a fragmented balance from a poor one", () => {
     const fragmented = walletWith([[5n], [5n], [5n], [5n], [5n], [5n]]);
     expect(() =>

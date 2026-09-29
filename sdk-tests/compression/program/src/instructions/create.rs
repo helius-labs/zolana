@@ -2,11 +2,8 @@ use light_program_profiler::profile;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
-        },
-        tag::TRANSACT,
+    instruction::instruction_data::transact::{
+        CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
     },
     N_PUBLIC_SLOTS,
 };
@@ -72,14 +69,10 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         owner_tag: OwnerTag::Inline(pda_bytes),
         data: Some(payload),
     });
-    let external_data_hash = external
-        .hash(TRANSACT, &[], &[pda_bytes])
-        .map_err(|_| CompressionError::HashingFailed)?;
     let private_tx = private_tx_hash(
         [0u8; 32],
         output_hash,
         address,
-        &external_data_hash,
         &private_tx_blinding(&address, 0)?,
     )?;
 

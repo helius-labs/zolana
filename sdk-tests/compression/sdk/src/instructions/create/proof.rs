@@ -120,7 +120,6 @@ impl CreateProofInputParams {
             input_hashes: &[zero],
             output_hashes: &[output_hash],
             address_nullifiers: Some(&[address_nullifier]),
-            external_data_hash: &external_hash,
             blinding: &private_tx_blinding,
         }
         .hash()?;

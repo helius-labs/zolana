@@ -52,7 +52,6 @@ type Circuit struct {
 	MaxPrice           frontend.Variable
 	CreatedAt          frontend.Variable
 
-	ExternalDataHash  frontend.Variable
 	PrivateTxBlinding frontend.Variable
 }
 
@@ -126,7 +125,6 @@ func (c *Circuit) Define(api frontend.API) error {
 		api,
 		[]frontend.Variable{orderInHash, reservationInHash},
 		[]frontend.Variable{recipientOutHash, makerCounterHash, makerSourceHash},
-		c.ExternalDataHash,
 		c.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(privateTxHash, c.Public.PrivateTxHash)

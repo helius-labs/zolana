@@ -24,9 +24,7 @@ use zolana_keypair::{
 
 use crate::{
     error::TransactionError,
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
-    },
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
 };
 
 /// Which cipher opened a slot. A ring deposit publishes one ciphertext and no
@@ -51,8 +49,8 @@ pub struct DecryptRequest<'a> {
 }
 
 /// Every value the protocol derives from the nullifier secret. `Nullifier`
-/// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers,
-/// its output blinding, and its private-transaction blinding.
+/// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers
+/// and its output blinding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeriveRequest {
     Nullifier {
@@ -64,9 +62,6 @@ pub enum DeriveRequest {
         slot_index: u8,
     },
     MergeOutputBlinding {
-        first_nullifier: [u8; 32],
-    },
-    MergePrivateTxBlinding {
         first_nullifier: [u8; 32],
     },
 }
@@ -188,9 +183,6 @@ impl ShieldedKeys for LocalShieldedKeys {
                 } => merge_dummy_nullifier(&self.nullifier, first_nullifier, *slot_index),
                 DeriveRequest::MergeOutputBlinding { first_nullifier } => {
                     merge_output_blinding(&self.nullifier, first_nullifier)
-                }
-                DeriveRequest::MergePrivateTxBlinding { first_nullifier } => {
-                    merge_private_tx_blinding(&self.nullifier, first_nullifier)
                 }
             })
             .collect()

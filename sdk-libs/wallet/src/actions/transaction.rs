@@ -424,6 +424,7 @@ fn select_split_utxo(
             let mut largest_divisible: Option<&WalletUtxo> = None;
             for entry in wallet.unspent().filter(|entry| {
                 entry.utxo.asset.asset == asset
+                    && entry.utxo.amount > 0
                     && pda::tree(entry.tree_id()) == tree
                     // Apply the full eligibility predicate before picking the
                     // largest, so a large ring-bound or data-carrying utxo never
@@ -608,7 +609,7 @@ fn select_bounded_inputs(
         .unwrap_or(0);
     let mut candidates: Vec<&WalletUtxo> = wallet
         .unspent()
-        .filter(|entry| entry.utxo.asset.asset == asset && eligible(entry))
+        .filter(|entry| entry.utxo.asset.asset == asset && entry.utxo.amount > 0 && eligible(entry))
         .collect();
     candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
     let mut total = 0u64;
@@ -691,6 +692,7 @@ fn select_merge_inputs(
                 .unspent()
                 .filter(|entry| {
                     entry.utxo.asset.asset == asset
+                        && entry.utxo.amount > 0
                         && pda::tree(entry.tree_id()) == tree
                         && is_plain_utxo(entry)
                 })
@@ -1135,6 +1137,7 @@ fn select_inputs(
     let mut available = 0u64;
     for entry in wallet.unspent().filter(|entry| {
         entry.utxo.asset.asset == asset
+            && entry.utxo.amount > 0
             && trees.contains(&pda::tree(entry.tree_id()))
             && eligible(entry)
     }) {
@@ -2203,6 +2206,38 @@ mod tests {
         let selected = select_merge_inputs(&wallet, test_tree(), SOL_MINT, None).unwrap();
 
         assert_eq!(amounts(&selected), vec![10, 20]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_skips_zero_amount_utxos() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 0, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
+        push_utxo(&mut wallet, &keypair, 20, [3u8; 31]);
+
+        let selected = select_merge_inputs(&wallet, test_tree(), SOL_MINT, None).unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 20]);
+    }
+
+    #[test]
+    fn withdrawal_inputs_skip_zero_amount_utxos() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 0, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
+
+        let selected = select_inputs(
+            &wallet,
+            &[test_tree()],
+            SOL_MINT,
+            10,
+            is_default_ring_spendable,
+        )
+        .unwrap();
+
+        assert_eq!(amounts(&selected), vec![10]);
     }
 
     #[test]

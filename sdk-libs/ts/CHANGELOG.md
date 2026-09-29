@@ -91,6 +91,37 @@ Breaking
 - `UtxoData`, `DepositEntry.utxoData` and `RingDepositEntry.dataHash` are
   removed, so a deposit output never carries application data → attach data
   to a UTXO through a proven transaction instead.
+- `privateTxHash` no longer takes `externalDataHash`, starts each of its
+  input, output and address chains from the first nonzero entry and keeps its
+  value when padding moves between slots, `SppProofInputs.messageHash()`
+  returns a new digest that also covers the external data and a transfer's
+  cache write, and `CustomRingPolicyProofRequest` drops `externalDataHash` and
+  takes a zero `addressChain` for a transfer that creates no address → drop
+  `externalDataHash` from hand-built hash inputs and policy requests, sign
+  again, and prove against the program and prover of this release.
+- `MergeTransactInstructionData` and `MergeInputs` drop `privateTxHash`, so
+  `getMergeTransactInstructionAsync` data is 32 bytes shorter and the merge
+  prover request no longer carries it → remove the field from hand-built merge
+  data and prover inputs, and prove merges against the program and prover of
+  this release.
+- `mergePrivateTxBlinding`, `PreparedMerge.privateTxBlinding()`, the
+  `privateTxBlinding` field of the `Merge` and `PreparedMerge` constructors and
+  the `mergePrivateTxBlinding` `DeriveRequest` kind are removed because a merge
+  has no private transaction hash → stop deriving and passing the value, and
+  drop the kind from `ShieldedKeys` implementations.
+- `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
+  `CLIENT_INPUTS_NOT_GROUPED_BY_TREE` and
+  `ShieldedPoolError.InputsNotGroupedByTree` are removed, leaving code 7063
+  unused, because a transfer may now spend inputs from different trees in any
+  order, a padding input that names a tree no real input opens fails with
+  `CLIENT_INPUT_TREE_UNRESOLVED`, and `SppProofInputs` refuses a real input or
+  output that follows a padding slot with `TRANSACTION_REAL_SLOT_AFTER_DUMMY` →
+  drop handling of the removed codes, match the new ones and place padding
+  after every real slot.
+- `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
+  proving keys, so `ProverClient` rejects a proof from a prover on the previous
+  keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
+  release.
 
 Added
 
@@ -121,9 +152,8 @@ Added
   `proveCustomRingTransfer` charges each transfer against the ring's
   private per-window velocity caps and refuses an overspend with
   `RING_VELOCITY_CAP_EXCEEDED`, `readRingVelocityState` reads the sender's
-  counters, `auditRingTransaction` reports them as `AuditedRingSpendRecord`,
-  and `PreparedTransfer.withInputTreeLast` orders a transfer's inputs so the
-  spend record's tree runs last.
+  counters, and `auditRingTransaction` reports them as
+  `AuditedRingSpendRecord`.
 - `createRingKeyRegistryRootInstruction` creates a ring's member key
   registry, `buildRingKeyRegistrationTransaction` seals a member's nullifier
   key to the ring auditor for `fetchRingSealedKey` and `openRingSealedKey` to
@@ -162,9 +192,19 @@ Added
   take the accounts as `TransactCacheAccounts`, `cachedInputFields`,
   `emptyCachedInputFields` and `bindCacheWrite` compute the same values for a
   custom prover, and a selection the program would reject fails before any
-  request with an error naming the input or output index, while
-  `ringTransactInstruction` refuses a cached circuit, which custom rings do not
-  accept, with `RING_CACHE_UNSUPPORTED`.
+  request with an error naming the input or output index, such as
+  `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
+  `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` or
+  `TRANSACTION_UNUSED_WRITE_CACHE`, while `ringTransactInstruction` refuses a
+  cached circuit, which custom rings do not accept, with
+  `RING_CACHE_UNSUPPORTED`.
+
+Changed
+
+- A padded `ConfidentialTransfer` publishes an empty change slot that a real
+  output follows as a zero-amount SOL output the sender owns instead of as
+  padding, and UTXO selection for transfers, withdrawals, merges and splits
+  skips zero-amount UTXOs.
 
 Fixed
 
@@ -177,6 +217,12 @@ Fixed
   refused with `RING_POLICY_CONFIG_INCOMPATIBLE` before any transaction is
   sent, a transient failure retries the deploy step, and the accessors return
   copies.
+- `proveCustomRingTransfer` on a ring with a spend window put padding before
+  the spend record, which the transaction proof refuses, the record now follows
+  the spent UTXOs with padding inputs after it, and a spare slot before the
+  record output is a zero-amount copy of the sender's change, else of the last
+  output, that publishes the copied output's owner tag, so it adds no subject
+  to the ring's rules.
 
 ## 0.2.0-alpha — 2026-09-21
 

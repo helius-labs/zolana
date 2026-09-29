@@ -380,7 +380,6 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     let private_tx = PrivateTxHash::new(
         &args.private_tx_inputs,
         &private_tx_outputs,
-        &external_hash,
         &private_tx_blinding,
     )
     .hash()?;

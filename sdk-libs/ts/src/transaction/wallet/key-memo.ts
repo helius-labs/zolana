@@ -163,8 +163,6 @@ function deriveKey(request: DeriveRequest): string {
       return `mergeDummy|${hex(request.firstNullifier)}|${String(request.slotIndex)}`;
     case "mergeOutputBlinding":
       return `mergeBlinding|${hex(request.firstNullifier)}`;
-    case "mergePrivateTxBlinding":
-      return `mergePrivateTxBlinding|${hex(request.firstNullifier)}`;
   }
 }
 

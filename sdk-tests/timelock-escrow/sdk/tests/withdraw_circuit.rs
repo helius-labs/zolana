@@ -81,12 +81,10 @@ fn build_inputs(source_output_owner: [u8; 32]) -> WithdrawProofInputs {
         OUTPUT_TREE_ID,
     )
     .expect("source output utxo");
-    let external_data_hash = fe(8);
     let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[escrow_utxo.hash().expect("escrow utxo hash")],
         &[source_output.hash().expect("source output hash")],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -106,7 +104,6 @@ fn build_inputs(source_output_owner: [u8; 32]) -> WithdrawProofInputs {
         nullifier_pk,
         escrow_utxo,
         source_output,
-        external_data_hash,
         private_tx_blinding,
     }
 }

@@ -394,9 +394,8 @@ fn inputs_take_the_tree_and_sequence_of_the_entry_their_index_names() {
     );
 }
 
-/// The program groups inputs by tree, so each tree owns a contiguous run, but
-/// the reconstruction must not lean on it: an interleaved head followed by a
-/// grouped tail still numbers every tree from its own first sequence.
+/// Inputs from different trees may interleave: an interleaved head followed by
+/// a grouped tail still numbers every tree from its own first sequence.
 #[test]
 fn input_sequences_count_per_tree_when_the_indexes_interleave() {
     assert_eq!(

@@ -31,7 +31,6 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
         eddsa_owner,
-        private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
         utxo_tree_root_index: 0,
         nullifier_tree_root_index: 0,

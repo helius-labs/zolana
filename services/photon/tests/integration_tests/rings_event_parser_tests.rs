@@ -2020,8 +2020,8 @@ fn unshield_transaction_info() -> TransactionInfo {
     )
 }
 
-/// Inputs grouped by tree, as the program requires: two from `TEST_TREE`, one
-/// from `SECOND_TEST_TREE`, each numbered from its own tree's first sequence.
+/// Two inputs from `TEST_TREE` and one from `SECOND_TEST_TREE`, each numbered
+/// from its own tree's first sequence.
 fn two_tree_transfer_transaction_info() -> TransactionInfo {
     transact_transaction_info(
         5,
@@ -2248,7 +2248,6 @@ fn merge_transaction_info() -> TransactionInfo {
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],
         eddsa_owner: true,
-        private_tx_hash: [0; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
             .collect(),

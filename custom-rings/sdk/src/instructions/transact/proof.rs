@@ -2,10 +2,10 @@
 //!
 //! # The auditor message must be in `messages` before the SPP proof is generated
 //!
-//! The circuit's public input binds `private_tx_hash`, but the auditor message
-//! that this module mints is folded INTO that hash: SPP folds `messages` into
-//! `external_data_hash` and that into `private_tx_hash`. So the message has to
-//! exist before the SPP proof, and `private_tx_hash` only exists after it.
+//! The circuit's public input binds `private_tx_hash`, and the auditor message
+//! that this module mints is folded into the SPP proof's `external_data_hash`.
+//! So the message has to exist before the SPP proof, and `private_tx_hash` is
+//! only taken from that proof.
 //!
 //! The two steps are therefore separate calls rather than one:
 //!
@@ -100,11 +100,10 @@ impl CustomRingProofParams {
     /// The returned [`AuditorMessage`] must be pushed into
     /// `external_data.messages` (as `message.to_message_data(&auditor_pk)`)
     /// **before** the SPP transfer is proved, because SPP folds `messages` into
-    /// `external_data_hash` and that into `private_tx_hash`. Feed the
-    /// `private_tx_hash` the SPP proof yields to [`PendingCustomRingProof::finish`] to
-    /// obtain the circuit inputs. Proving SPP first and appending the message
-    /// afterwards produces two irreconcilable `private_tx_hash` values: whichever
-    /// one the ring proof commits to, the other is the one SPP checks.
+    /// `external_data_hash`. Feed the `private_tx_hash` the SPP proof yields to
+    /// [`PendingCustomRingProof::finish`] to obtain the circuit inputs. Proving
+    /// SPP first and appending the message afterwards leaves the published
+    /// ciphertext different from the one the SPP proof committed to.
     ///
     /// Consuming, because the message is bound to the one ephemeral scalar this
     /// call generated; re-deriving from the same params would encrypt under a new
@@ -148,11 +147,10 @@ impl PendingCustomRingProof {
     /// implementation the program calls on-chain, so a folded request cannot
     /// drift from what verification recomputes.
     /// The circuit recomputes `private_tx_hash` over the chains and the
-    /// external data hash, a value the SPP proof did not fold cannot prove.
+    /// blinding, a value the SPP proof did not fold cannot prove.
     pub fn finish(
         self,
         private_tx_hash: CustomRingPrivateTxHash,
-        external_data_hash: &[u8; 32],
         private_tx_blinding: &[u8; 32],
         witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
@@ -213,14 +211,7 @@ impl PendingCustomRingProof {
                 n_out: witness.n_out,
                 inputs: witness.inputs,
                 outputs: witness.outputs,
-                // SPP folds a zero address slot per input into `private_tx_hash`.
-                address_chain: zolana_hasher::hash_chain::create_hash_chain_4_from_slice(&vec![
-                [0u8; 32];
-                witness.n_in
-                    as usize
-            ])
-                .map_err(|_| CustomRingProofInputError::Hashing)?,
-                external_data_hash: *external_data_hash,
+                address_chain: [0u8; 32],
                 private_tx_blinding: *private_tx_blinding,
                 sources: witness.sources,
                 policy_len: witness.policy_len,
@@ -406,7 +397,6 @@ mod tests {
         let mut private_tx_hash = [0u8; 32];
         private_tx_hash[29..].copy_from_slice(&[0xab, 0xcd, 0xef]);
         let policy_hash = [4u8; 32];
-        let external_data_hash = [5u8; 32];
         let witness = witness();
         let revocation_targets = witness.revocation_targets;
         let revocation_tree_indexes = witness.revocation_tree_indexes;
@@ -414,7 +404,6 @@ mod tests {
         let request = pending
             .finish(
                 CustomRingPrivateTxHash::try_from(private_tx_hash).expect("below the modulus"),
-                &external_data_hash,
                 &[0u8; 32],
                 witness,
                 &policy_hash,

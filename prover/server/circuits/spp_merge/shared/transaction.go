@@ -69,7 +69,6 @@ type CommonPublicInputs struct {
 	Nullifiers []frontend.Variable
 	OutputHash frontend.Variable
 
-	PrivateTxHash    frontend.Variable
 	ExternalDataHash frontend.Variable
 	AllowDummyInputs frontend.Variable
 
@@ -129,7 +128,6 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 		p.OutputHash,
 		transaction.TreeSlotsHashChain(api, p.TreeSlots),
 		p.OutputTreeID,
-		p.PrivateTxHash,
 		p.ExternalDataHash,
 		p.AllowDummyInputs,
 	}
@@ -209,7 +207,6 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	// single-use nullifier can seed the output blinding and dummy nullifiers.
 	api.AssertIsEqual(t.Inputs[0].Domain, UtxoDomain)
 
-	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
 	ctx := mergeInputContext{
 		OwnerHash:       userOwnerHash,
@@ -221,7 +218,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	for i := range t.Inputs {
 		tree := transaction.SelectTreeSlot(api, t.Inputs[i].TreeSlot, t.Public.TreeSlots, false)
 		api.AssertIsDifferent(tree.UtxoRoot, 0)
-		inputHashes[i], nullifiers[i] = constrainInput(api, t.Inputs[i], ctx, tree, i)
+		nullifiers[i] = constrainInput(api, t.Inputs[i], ctx, tree, i)
 		ctx.FirstNullifier = nullifiers[0]
 	}
 	transaction.AssertDistinctNullifiers(api, nullifiers)
@@ -232,7 +229,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 
 	outputBlinding := MergeOutputBlinding(api, t.UserNullifierSecret, nullifiers[0])
-	outputHash := constrainOutput(
+	constrainOutput(
 		api,
 		t.Output,
 		t.Public.OutputHash,
@@ -243,20 +240,6 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.RingProgramID,
 		t.Public.OutputTreeID,
 	)
-
-	addressNullifiers := make([]frontend.Variable, len(inputHashes))
-	for i := range addressNullifiers {
-		addressNullifiers[i] = frontend.Variable(0)
-	}
-	privateTxHash := transaction.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		[]frontend.Variable{outputHash},
-		addressNullifiers,
-		t.Public.ExternalDataHash,
-		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
-	)
-	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 
 	for i := range nullifiers {
 		api.AssertIsEqual(t.Public.Nullifiers[i], nullifiers[i])

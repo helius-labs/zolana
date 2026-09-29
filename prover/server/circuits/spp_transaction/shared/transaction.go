@@ -177,6 +177,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		t.CachedInputs.constrain(api, t, inputHashes, inputTreeIDs)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
+	AssertDummiesLast(api, inputUtxos(t.Inputs))
 
 	// 2. check outputs
 	outputBlindingSeed := DeriveOutputBlindingSeed(api, t.Nullifiers[0], t.BlindingSeed)
@@ -188,6 +189,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		)
 		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i], t.OutputTreeID)
 	}
+	AssertDummiesLast(api, t.Outputs)
 
 	// 3. check balance
 	assertBalanceConservation(
@@ -204,7 +206,6 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		inputHashes,
 		outputHashes,
 		addressNullifiers,
-		t.ExternalDataHash,
 		DerivePrivateTxBlinding(api, t.Nullifiers[0], t.BlindingSeed),
 	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)

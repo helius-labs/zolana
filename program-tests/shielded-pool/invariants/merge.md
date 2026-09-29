@@ -120,10 +120,10 @@ nullifiers.
   - Severity: Critical
   - Suggested test: negative both errors; harness: mollusk unit
 
-- [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus both owner keys**
+- [ ] **INV-MERGE-12: registry public-input shape is the 6-element prefix plus both owner keys**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
   - Kind: state
-  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record.
+  - Statement: the `merge_transact` public-input hash folds the 6-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `external_data_hash`, `allow_dummy_inputs`) followed by `signing_pk_field` and `nullifier_pk` from the registry record in one chain.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
@@ -255,10 +255,10 @@ nullifiers.
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-MERGE-08: ring public-input shape is the 7-element prefix plus ring data and ring id**
+- [ ] **INV-RING-MERGE-08: ring public-input shape is the 6-element prefix plus ring data and ring id**
   - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
   - Kind: state
-  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `output_ring_data_hash` and `ring_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
+  - Statement: the `ring_merge_transact` public-input hash folds the 6-element prefix (as in INV-MERGE-12) followed by `output_ring_data_hash` and `ring_program_id` in one chain; it folds no signing or viewing key field (owner identity is omitted by design).
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`, `Ring` arm)
   - Severity: High
   - Suggested test: property (client-side comparison); harness: `cargo test -p`

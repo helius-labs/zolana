@@ -601,7 +601,7 @@ function checkChangeOutputs(
     if (
       output.ownerAddress === undefined ||
       !equalBytes(output.ownerAddress.toBytes(), ownerBytes) ||
-      output.asset !== asset ||
+      (output.asset !== asset && (output.asset !== SOL_MINT || output.amount !== 0n)) ||
       output.ringProgramId !== undefined
     ) {
       throw mismatch("change");

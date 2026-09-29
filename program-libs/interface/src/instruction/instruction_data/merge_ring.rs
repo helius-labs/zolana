@@ -63,7 +63,6 @@ mod tests {
                     .collect(),
                 utxo_tree_root_index: 4,
                 nullifier_tree_root_index: 10,
-                private_tx_hash: [3u8; 32],
                 eddsa_owner: false,
             },
         }

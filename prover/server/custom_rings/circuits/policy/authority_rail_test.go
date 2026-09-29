@@ -27,12 +27,12 @@ func TestPolicyStatementBindsTheAuthorityRailPreimage(t *testing.T) {
 	firstNullifier := spptest.MustNullifier(t, hostUtxoHash(t, spent), spent.Blinding.(*big.Int), big.NewInt(7))
 	blinding, err := protocol.PrivateTxBlinding(firstNullifier, big.NewInt(4242))
 	s.privateTxBlinding = spptest.MustHash(t, blinding, err)
-	s.addressChain = spptest.MustHashChain4(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
+	s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.updateHashes(t)
 
 	inputHashes := []*big.Int{hostUtxoHash(t, s.inputs[0]), big.NewInt(0)}
 	outputHashes := []*big.Int{hostUtxoHash(t, s.outputs[0]), big.NewInt(0)}
-	rail := spptest.MustPrivateTxHash(t, inputHashes, outputHashes, []*big.Int{big.NewInt(0), big.NewInt(0)}, s.externalDataHash, s.privateTxBlinding)
+	rail := spptest.MustPrivateTxHash(t, inputHashes, outputHashes, []*big.Int{big.NewInt(0), big.NewInt(0)}, s.privateTxBlinding)
 	if rail.Cmp(s.privateTxHash) != 0 {
 		t.Fatalf("the policy preimage %s differs from the rail preimage %s", s.privateTxHash, rail)
 	}

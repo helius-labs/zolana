@@ -15,8 +15,8 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::transact::{
         canonical_shape, inputs_require_p256, pad_input_utxos, resolve_shape,
-        validate_input_tree_order, ConfidentialTransaction, PublicTransferRequest,
-        SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
+        ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
+        SppProofOutputUtxo,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
@@ -205,31 +205,21 @@ fn constructor_requires_preimage_hashes_but_accepts_hash_only_inputs() {
 }
 
 #[test]
-fn constructor_enforces_declared_contiguous_trees_and_preserves_input_order() {
+fn constructor_enforces_declared_trees_and_preserves_interleaved_input_order() {
     let owner = keypair(1);
-    let ordered = vec![
+    let interleaved = vec![
         wallet_utxo(&owner, Mint::SOL, 1, 9, 1),
-        dummy(&owner, 9),
         wallet_utxo(&owner, Mint::SOL, 2, 4, 2),
+        wallet_utxo(&owner, Mint::SOL, 3, 9, 3),
         dummy(&owner, 4),
+        dummy(&owner, 9),
     ];
-    let tx = ConfidentialTransaction::new(ordered.clone(), payer(&owner)).unwrap();
-    assert_eq!(tx.inputs(), ordered);
+    let tx = ConfidentialTransaction::new(interleaved.clone(), payer(&owner)).unwrap();
+    assert_eq!(tx.inputs(), interleaved);
     assert_eq!(tx.input_tree_ids(), [9, 4]);
-    assert_eq!(*tx.first_nullifier(), ordered.first().unwrap().nullifier);
-    let mut interleaved = ordered;
-    interleaved.push(dummy(&owner, 9));
-    let expected = E::InterleavedInputTrees {
-        index: 4,
-        tree_id: 9,
-    };
-    error(
-        validate_input_tree_order(interleaved.iter().map(|n| n.tree_id)),
-        expected.clone(),
-    );
-    error(
-        ConfidentialTransaction::new(interleaved, payer(&owner)),
-        expected,
+    assert_eq!(
+        *tx.first_nullifier(),
+        interleaved.first().unwrap().nullifier
     );
     error(
         ConfidentialTransaction::new(
@@ -391,19 +381,15 @@ fn shape_selection_boundaries_and_explicit_consolidation() {
             .collect::<Vec<_>>(),
         [6, 0]
     );
+    proof.input_utxos.get_mut(1).unwrap().tree_id = 9;
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN36_OUT2);
+    assert!(proof.message_hash().is_ok());
+    assert!(proof.input_utxo_hashes().is_ok());
     proof.output_utxos.pop();
     error(
         proof.check_shape(),
         E::UnsupportedShape { n_in: 36, n_out: 1 },
     );
-    proof.input_utxos.get_mut(1).unwrap().tree_id = 9;
-    let expected = E::InterleavedInputTrees {
-        index: 2,
-        tree_id: 7,
-    };
-    error(proof.check_shape(), expected.clone());
-    error(proof.message_hash(), expected.clone());
-    error(proof.input_utxo_hashes(), expected);
 }
 
 #[test]

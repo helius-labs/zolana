@@ -86,7 +86,6 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		inputHashes,
 		outputHashes,
 		addressNullifiers,
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash

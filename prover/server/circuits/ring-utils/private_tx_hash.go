@@ -1,6 +1,6 @@
 // Package ringutils holds the squads ring proof circuits. This first circuit
-// proves knowledge of a transaction's input and output UTXOs whose hashes fold,
-// with the external data hash, into a given private_tx_hash -- the public input
+// proves knowledge of a transaction's input and output UTXOs whose hashes fold
+// into a given private_tx_hash -- the public input
 // the ring proof shares with the SPP proof -- and that every UTXO is either
 // free or a member of the public RingProgramID. Slot categories mirror SPP:
 // only real UTXOs enter the chains, dummies contribute 0, and address slots
@@ -13,8 +13,8 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// NumInputs and NumOutputs fix the circuit shape. The HashChain folds exactly
-// these many UTXO hashes, so a proved transaction must have matching counts.
+// NumInputs and NumOutputs fix the circuit shape. Padding slots drop out of the
+// chains, so a proved transaction may have fewer real UTXOs than slots.
 const (
 	NumInputs  = 2
 	NumOutputs = 2
@@ -82,8 +82,7 @@ func (u Utxo) assertRingMemberOrFree(api frontend.API, ringProgramID frontend.Va
 }
 
 // PrivateTxHashCircuit proves the witnessed inputs and outputs fold, with the
-// external data hash and the private transaction blinding, into the public
-// PrivateTxHash. AddressNullifiers mirrors the SPP address category: the
+// private transaction blinding, into the public PrivateTxHash. AddressNullifiers mirrors the SPP address category: the
 // nullifier (compressed address) of every address slot, 0 elsewhere. The values
 // are opaque here; SPP constrains them.
 type PrivateTxHashCircuit struct {
@@ -91,7 +90,6 @@ type PrivateTxHashCircuit struct {
 	Inputs            [NumInputs]Utxo
 	Outputs           [NumOutputs]Utxo
 	AddressNullifiers [NumInputs]frontend.Variable
-	ExternalDataHash  frontend.Variable
 	PrivateTxBlinding frontend.Variable
 }
 
@@ -115,7 +113,6 @@ func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
 		inputHashes,
 		outputHashes,
 		addressNullifiers,
-		c.ExternalDataHash,
 		c.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(c.Public.PrivateTxHash, h)

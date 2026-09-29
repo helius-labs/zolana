@@ -2,7 +2,7 @@ import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
-import { bytesField, bytesToBigInt } from "../src/client/internal.js";
+import { bigintToBytes, bytesField, bytesToBigInt } from "../src/client/internal.js";
 import { assemble, transferPublicInputHash } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
 import type { TransferInputs } from "../src/client/prover/types.js";
@@ -24,7 +24,7 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { InstructionTag } from "../src/interface/program.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
 import type { Bytes16, Bytes32, Bytes128 } from "../src/interface/types.js";
-import { ShieldedKeypair } from "../src/keypair/index.js";
+import { ShieldedKeypair, sha256Bytes } from "../src/keypair/index.js";
 import {
   Merge,
   ProofInputUtxo,
@@ -38,6 +38,7 @@ import {
   transactOutputBlinding,
   type ProofOutputUtxo,
 } from "../src/transaction/index.js";
+import { concat } from "../src/transaction/internal.js";
 
 const TREE_ID = 0;
 const TREE = treeAddress(TREE_ID);
@@ -489,9 +490,8 @@ describe("a transfer writing its outputs to a cache", () => {
   ] as const)("binds the external data hash to the cache for %s", (_name, writes, pairs) => {
     const value = fixture({ ownedOutputs: 2 });
     const spent = input(value, 0);
-    const cached = assemble(withCache(value.proofInputs, { writes, write: CACHE }), [
-      spendProof(spent),
-    ]);
+    const writing = withCache(value.proofInputs, { writes, write: CACHE });
+    const cached = assemble(writing, [spendProof(spent)]);
     const uncached = assemble(value.proofInputs, [spendProof(spent)]);
     const payload = cached.proverInputs.payload;
 
@@ -508,7 +508,13 @@ describe("a transfer writing its outputs to a cache", () => {
         "external data hash",
       ),
     );
-    expect(payload.privateTxHash).not.toBe(uncached.proverInputs.payload.privateTxHash);
+    expect(payload.privateTxHash).toBe(uncached.proverInputs.payload.privateTxHash);
+    expect(writing.messageHash()).toEqual(
+      sha256Bytes(
+        concat(bigintToBytes(payload.privateTxHash), bigintToBytes(payload.externalDataHash)),
+      ),
+    );
+    expect(writing.messageHash()).not.toEqual(value.proofInputs.messageHash());
     expect([payload.cacheTreeId, payload.cacheReadHashChain]).toEqual(
       fields(emptyCachedInputFields(1)),
     );
@@ -541,6 +547,96 @@ describe("a transfer writing its outputs to a cache", () => {
     expect(assembled.instructionData.circuit).toMatchObject({
       cacheAccess: { readBitmap: 1n << 7n, writeSlots: writeSlots([[0, 7]]) },
     });
+  });
+});
+
+describe("the digest the owners sign", () => {
+  it("binds a cache write into the external data hash it signs", () => {
+    const value = fixture();
+    const writing = withCache(value.proofInputs, { writes: [3], write: CACHE });
+    const external = value.proofInputs.externalData.hash();
+    const bound = bindCacheWrite(external, { cache: CACHE, writeSlots: writeSlots([[0, 3]]) });
+
+    expect(writing.privateTxHash()).toEqual(value.proofInputs.privateTxHash());
+    expect(writing.messageHash()).toEqual(sha256Bytes(concat(writing.privateTxHash(), bound)));
+    expect(writing.messageHash()).not.toEqual(
+      sha256Bytes(concat(writing.privateTxHash(), external)),
+    );
+    expect(value.proofInputs.messageHash()).toEqual(
+      sha256Bytes(concat(value.proofInputs.privateTxHash(), external)),
+    );
+    expect(withCache(value.proofInputs, { reads: [0], read: CACHE }).messageHash()).toEqual(
+      value.proofInputs.messageHash(),
+    );
+  });
+
+  it("changes with the external data while the private transaction hash does not", () => {
+    const base = fixture().proofInputs;
+    const resalted = new SppProofInputs({
+      payer: base.payer,
+      inputUtxos: base.inputUtxos,
+      outputs: base.outputs,
+      externalData: createExternalData({
+        ...base.externalData,
+        salt: new Uint8Array(16).fill(9) as Bytes16,
+      }),
+      blindingSeed: base.blindingSeed,
+      outputTreeId: base.outputTreeId,
+    });
+
+    expect(resalted.externalData.hash()).not.toEqual(base.externalData.hash());
+    expect(resalted.privateTxHash()).toEqual(base.privateTxHash());
+    expect(resalted.messageHash()).not.toEqual(base.messageHash());
+    expect(resalted.messageHash()).toEqual(
+      sha256Bytes(concat(base.privateTxHash(), resalted.externalData.hash())),
+    );
+  });
+
+  it("refuses every cache write the proof refuses", () => {
+    const refused = (
+      options: Parameters<typeof fixture>[0],
+      spec: CacheSpec,
+      code: TransactionError["code"],
+    ): unknown =>
+      transactionRejects(() => withCache(fixture(options).proofInputs, spec).messageHash(), code);
+    const firstWritesSlot = (slot: number): CacheSpec => ({
+      write: CACHE,
+      outputs: ([first, ...rest]) => [
+        ...(first === undefined ? [] : [{ ...first, cacheSlot: slot }]),
+        ...rest,
+      ],
+    });
+
+    expect(refused({}, { writes: [5] }, "TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE")).toEqual({
+      index: 0,
+    });
+    expect(
+      refused(
+        { ownedOutputs: 2 },
+        { writes: [5, 5], write: CACHE },
+        "TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT",
+      ),
+    ).toEqual({ index: 1, slot: 5 });
+    expect(refused({}, { write: CACHE }, "TRANSACTION_UNUSED_WRITE_CACHE")).toBeUndefined();
+    for (const slot of [36, -1, 1.5]) {
+      expect(refused({}, firstWritesSlot(slot), "TRANSACTION_CACHE_SLOT_OUT_OF_RANGE")).toEqual({
+        index: 0,
+        slot,
+      });
+    }
+    expect(
+      refused(
+        {},
+        {
+          write: CACHE,
+          outputs: ([first, padding]) => [
+            ...(first === undefined ? [] : [first]),
+            ...(padding === undefined ? [] : [{ ...padding, cacheSlot: 1 }]),
+          ],
+        },
+        "TRANSACTION_CACHED_DUMMY_OUTPUT",
+      ),
+    ).toEqual({ index: 1 });
   });
 });
 
@@ -799,7 +895,7 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(528);
+    expect(encodeMergeTransactInstructionData(data)).toHaveLength(496);
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,
