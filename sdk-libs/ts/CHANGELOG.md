@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0-alpha — unreleased
+## 0.3.0-alpha — 2026-09-29
 
 A ring gains a scoped co-signer, a permanent delegate that moves and
 recovers member notes from escrowed nullifier keys, public spend windows,
