@@ -16,7 +16,6 @@ use zolana_ring_client::{
 };
 use zolana_ring_policy::Member;
 use zolana_ring_rpc::KeyFileError;
-use zolana_test_utils::wallet::Wallet;
 use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo, SOL_MINT};
 
 use crate::{
@@ -72,8 +71,9 @@ impl<E: Into<TransactError>> From<E> for DelegateError {
     }
 }
 
+/// Selects from recovered notes, which recovery returns verified and unspent.
 struct NoteSelection<'a> {
-    wallet: &'a Wallet,
+    notes: &'a [WalletUtxo],
     ring: Address,
     mint: Address,
     amount: u64,
@@ -217,12 +217,8 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
             ),
         );
     }
-    let mut wallet = Wallet::new(source, assets.clone())?
-        .with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
-    wallet.utxos = recovered.utxos;
-
     let selection = NoteSelection {
-        wallet: &wallet,
+        notes: &recovered.utxos,
         ring: ctx.ring.program_id(),
         mint,
         amount,
@@ -311,10 +307,8 @@ fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey, DelegateEr
 
 impl NoteSelection<'_> {
     fn held(&self) -> impl Iterator<Item = &WalletUtxo> {
-        self.wallet.utxos.iter().filter(|held| {
-            !self.wallet.is_spent(held)
-                && held.utxo.ring_program_id == Some(self.ring)
-                && held.utxo.asset.asset == self.mint
+        self.notes.iter().filter(|held| {
+            held.utxo.ring_program_id == Some(self.ring) && held.utxo.asset.asset == self.mint
         })
     }
 
@@ -439,19 +433,9 @@ mod tests {
         )
     }
 
-    fn wallet_with(owner: &ShieldedKeypair, notes: Vec<WalletUtxo>) -> Wallet {
-        let mut wallet = Wallet::new(
-            owner.shielded_address().expect("address"),
-            AssetRegistry::default(),
-        )
-        .expect("wallet");
-        wallet.utxos = notes;
-        wallet
-    }
-
-    fn selection<'a>(wallet: &'a Wallet, mint: Address, amount: u64) -> NoteSelection<'a> {
+    fn selection(notes: &[WalletUtxo], mint: Address, amount: u64) -> NoteSelection<'_> {
         NoteSelection {
-            wallet,
+            notes,
             ring: ring().program_id(),
             mint,
             amount,
@@ -465,8 +449,8 @@ mod tests {
     #[test]
     fn selects_the_largest_source_notes_up_to_the_amount() {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
-        let wallet = wallet_with(&owner, vec![sol_note(&owner, 5), sol_note(&owner, 6)]);
-        let selected = selection(&wallet, SOL_MINT, 8).notes(0).expect("selected");
+        let notes = vec![sol_note(&owner, 5), sol_note(&owner, 6)];
+        let selected = selection(&notes, SOL_MINT, 8).notes(0).expect("selected");
         assert_eq!(amounts(&selected), [6, 5]);
         assert_eq!(selected.total, 11);
     }
@@ -486,17 +470,14 @@ mod tests {
                 },
             )
         };
-        let wallet = wallet_with(
-            &owner,
-            vec![
-                ring_note(mint, 1, 3),
-                ring_note(mint, 2, 8),
-                ring_note(SOL_MINT, 0, 99),
-            ],
-        );
-        assert_eq!(selection(&wallet, mint, 5).tree_id(), Some(2));
-        assert_eq!(selection(&wallet, mint, 9).tree_id(), None);
-        assert_eq!(amounts(&selection(&wallet, mint, 5).notes(2).unwrap()), [8]);
+        let notes = vec![
+            ring_note(mint, 1, 3),
+            ring_note(mint, 2, 8),
+            ring_note(SOL_MINT, 0, 99),
+        ];
+        assert_eq!(selection(&notes, mint, 5).tree_id(), Some(2));
+        assert_eq!(selection(&notes, mint, 9).tree_id(), None);
+        assert_eq!(amounts(&selection(&notes, mint, 5).notes(2).unwrap()), [8]);
     }
 
     #[test]
@@ -526,8 +507,7 @@ mod tests {
                 amount: 5,
             },
         ));
-        let wallet = wallet_with(&owner, notes);
-        let selection = selection(&wallet, SOL_MINT, 5);
+        let selection = selection(&notes, SOL_MINT, 5);
         assert_eq!(selection.tree_id(), Some(2));
         assert_eq!(amounts(&selection.notes(2).unwrap()), [5]);
         assert!(matches!(
@@ -539,24 +519,21 @@ mod tests {
     #[test]
     fn a_fragmented_tree_is_selected_only_within_the_authority_shape() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
-        let wallet = wallet_with(&owner, (0..6).map(|_| sol_note(&owner, 1)).collect());
-        let supported = selection(&wallet, SOL_MINT, 4);
+        let notes: Vec<_> = (0..6).map(|_| sol_note(&owner, 1)).collect();
+        let supported = selection(&notes, SOL_MINT, 4);
         assert_eq!(supported.tree_id(), Some(0));
         assert_eq!(supported.notes(0).unwrap().notes.len(), 4);
-        assert_eq!(selection(&wallet, SOL_MINT, 5).tree_id(), None);
+        assert_eq!(selection(&notes, SOL_MINT, 5).tree_id(), None);
     }
 
     #[test]
     fn selected_totals_can_exceed_u64_when_payment_and_change_fit() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
-        let wallet = wallet_with(
-            &owner,
-            vec![
-                sol_note(&owner, u64::MAX - 1),
-                sol_note(&owner, u64::MAX - 1),
-            ],
-        );
-        let selection = selection(&wallet, SOL_MINT, u64::MAX);
+        let notes = vec![
+            sol_note(&owner, u64::MAX - 1),
+            sol_note(&owner, u64::MAX - 1),
+        ];
+        let selection = selection(&notes, SOL_MINT, u64::MAX);
         assert_eq!(selection.tree_id(), Some(0));
         let selected = selection.notes(0).unwrap();
         assert_eq!(selected.notes.len(), 2);
@@ -570,8 +547,8 @@ mod tests {
     #[test]
     fn a_zero_amount_cannot_select_an_empty_delegate_move() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
-        let wallet = wallet_with(&owner, vec![sol_note(&owner, 1)]);
-        let selection = selection(&wallet, SOL_MINT, 0);
+        let notes = vec![sol_note(&owner, 1)];
+        let selection = selection(&notes, SOL_MINT, 0);
         assert_eq!(selection.tree_id(), None);
         assert!(matches!(selection.notes(0), Err(DelegateError::ZeroAmount)));
     }
@@ -579,15 +556,15 @@ mod tests {
     #[test]
     fn refuses_when_the_source_holds_too_little() {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
-        let wallet = wallet_with(&owner, vec![sol_note(&owner, 3)]);
+        let notes = vec![sol_note(&owner, 3)];
         assert!(matches!(
-            selection(&wallet, SOL_MINT, 8).notes(0),
+            selection(&notes, SOL_MINT, 8).notes(0),
             Err(DelegateError::InsufficientNotes { needed: 8, held: 3 })
         ));
     }
 
     #[test]
-    fn ignores_a_foreign_ring_mint_tree_or_spent_note() {
+    fn ignores_a_foreign_ring_mint_or_tree() {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
         let other_ring = Address::new_from_array([7; 32]);
         let other_mint = Address::new_from_array([8; 32]);
@@ -597,24 +574,17 @@ mod tests {
             tree_id,
             amount,
         };
-        let spent = note(&owner, fixture(Some(ring().program_id()), SOL_MINT, 0, 23));
-        let spent_nullifier = spent.nullifier;
-        let mut wallet = wallet_with(
-            &owner,
-            vec![
-                note(&owner, fixture(Some(other_ring), SOL_MINT, 0, 20)),
-                note(
-                    &owner,
-                    fixture(Some(ring().program_id()), other_mint, 0, 21),
-                ),
-                note(&owner, fixture(Some(ring().program_id()), SOL_MINT, 1, 22)),
-                spent,
-                note(&owner, fixture(None, SOL_MINT, 0, 24)),
-            ],
-        );
-        wallet.nullifiers.insert(spent_nullifier);
+        let notes = vec![
+            note(&owner, fixture(Some(other_ring), SOL_MINT, 0, 20)),
+            note(
+                &owner,
+                fixture(Some(ring().program_id()), other_mint, 0, 21),
+            ),
+            note(&owner, fixture(Some(ring().program_id()), SOL_MINT, 1, 22)),
+            note(&owner, fixture(None, SOL_MINT, 0, 24)),
+        ];
         assert!(matches!(
-            selection(&wallet, SOL_MINT, 5).notes(0),
+            selection(&notes, SOL_MINT, 5).notes(0),
             Err(DelegateError::InsufficientNotes { needed: 5, held: 0 })
         ));
     }
@@ -891,9 +861,9 @@ mod tests {
         assert_eq!(recovered.len(), 1);
         assert_eq!(recovered[0].utxo, unspent.utxo);
 
-        let mut wallet = Wallet::new(address, AssetRegistry::default()).expect("wallet");
-        wallet.utxos = recovered;
-        let selected = selection(&wallet, SOL_MINT, 6).notes(0).expect("selected");
+        let selected = selection(&recovered, SOL_MINT, 6)
+            .notes(0)
+            .expect("selected");
         assert_eq!(selected.notes.len(), 1);
         assert_eq!(selected.notes[0].utxo, unspent.utxo);
     }

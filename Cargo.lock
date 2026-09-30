@@ -1988,7 +1988,6 @@ dependencies = [
  "zolana-ring-client",
  "zolana-ring-policy",
  "zolana-ring-rpc",
- "zolana-test-utils",
  "zolana-transaction",
 ]
 

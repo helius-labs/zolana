@@ -9,11 +9,10 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SpendableUtxos};
 use zolana_interface::pda;
 use zolana_keypair::{KeypairError, ShieldedKeypair};
-use zolana_test_utils::wallet::{sync_wallet, Wallet};
-use zolana_transaction::{TransactionError, WalletUtxo, SOL_MINT};
+use zolana_transaction::{SpendableDecryptionResult, TransactionError, WalletUtxo, SOL_MINT};
 
 use crate::{
     assets::{self, AssetError},
@@ -77,16 +76,16 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         payment: None,
     }
     .load(ctx)?;
-    let mut wallet = Wallet::new(sender.shielded_address()?, registry)?
-        .with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
+    let sender_utxos = SpendableUtxos::new(&sender, &registry)
+        .with_deposit_payload(zolana_ring_client::deposit_payload);
 
-    println!("syncing the sender wallet");
-    sync_wallet(&mut wallet, &sender, &indexer)?;
-    let (tree, selected) = select_candidates(&wallet, ctx.ring, mint, args.count).ok_or(
+    println!("reading the sender's notes");
+    let spendable = sender_utxos.fetch(&indexer)?;
+    let (tree, selected) = select_candidates(&spendable, ctx.ring, mint, args.count).ok_or(
         MergeError::InsufficientNotes {
             mint,
             ring: ctx.ring.program_id(),
-            found: largest_candidate_group(&wallet, ctx.ring, mint),
+            found: largest_candidate_group(&spendable, ctx.ring, mint),
         },
     )?;
     let input_count = selected.len();
@@ -127,8 +126,11 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     )?;
 
     wait_for_indexed_transaction(&indexer, signature)?;
-    sync_wallet(&mut wallet, &sender, &indexer)?;
-    if !wallet.unspent().any(|entry| entry.utxo_hash == output_hash) {
+    if !sender_utxos
+        .fetch(&indexer)?
+        .utxos()
+        .any(|entry| entry.utxo_hash == output_hash)
+    {
         return Err(MergeError::OutputNotFound(output_hash));
     }
 
@@ -148,12 +150,12 @@ fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, MergeError> {
 }
 
 fn candidate_groups(
-    wallet: &Wallet,
+    spendable: &SpendableDecryptionResult,
     ring: CustomRing,
     mint: Address,
 ) -> BTreeMap<Address, Vec<&WalletUtxo>> {
     let mut groups: BTreeMap<Address, Vec<&WalletUtxo>> = BTreeMap::new();
-    for entry in wallet.unspent() {
+    for entry in spendable.utxos() {
         if entry.utxo.asset.asset != mint
             || entry.utxo.ring_program_id != Some(ring.program_id())
             || entry.data_hash.is_some()
@@ -185,8 +187,12 @@ fn candidate_groups(
     groups
 }
 
-fn largest_candidate_group(wallet: &Wallet, ring: CustomRing, mint: Address) -> usize {
-    candidate_groups(wallet, ring, mint)
+fn largest_candidate_group(
+    spendable: &SpendableDecryptionResult,
+    ring: CustomRing,
+    mint: Address,
+) -> usize {
+    candidate_groups(spendable, ring, mint)
         .values()
         .map(Vec::len)
         .max()
@@ -194,12 +200,12 @@ fn largest_candidate_group(wallet: &Wallet, ring: CustomRing, mint: Address) -> 
 }
 
 fn select_candidates(
-    wallet: &Wallet,
+    spendable: &SpendableDecryptionResult,
     ring: CustomRing,
     mint: Address,
     limit: usize,
 ) -> Option<(Address, Vec<&WalletUtxo>)> {
-    candidate_groups(wallet, ring, mint)
+    candidate_groups(spendable, ring, mint)
         .into_iter()
         .filter(|(_, entries)| entries.len() >= 2)
         .max_by_key(|(tree, entries)| (entries.len(), *tree))
@@ -252,12 +258,8 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
         let ring = CustomRing::new(Address::new_from_array([9; 32]));
         let tree = pda::tree(1);
-        let mut wallet = Wallet::new(
-            owner.shielded_address().expect("address"),
-            Default::default(),
-        )
-        .expect("wallet");
-        wallet.utxos.extend([
+        let mut spendable = SpendableDecryptionResult::default();
+        spendable.utxos_with_data.extend([
             note(&owner, ring, 1, 30, 1),
             {
                 let mut deposited = note(&owner, ring, 1, 10, 2);
@@ -270,10 +272,10 @@ mod tests {
         ]);
         let mut dirty = note(&owner, ring, 1, 2, 5);
         dirty.ring_data_hash = Some([1; 32]);
-        wallet.utxos.push(dirty);
+        spendable.utxos_with_data.push(dirty);
 
         let (selected_tree, selected) =
-            select_candidates(&wallet, ring, SOL_MINT, 2).expect("candidates");
+            select_candidates(&spendable, ring, SOL_MINT, 2).expect("candidates");
 
         assert_eq!(selected_tree, tree);
         assert_eq!(
@@ -289,14 +291,12 @@ mod tests {
     fn one_note_is_not_a_merge() {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
         let ring = CustomRing::new(Address::new_from_array([9; 32]));
-        let mut wallet = Wallet::new(
-            owner.shielded_address().expect("address"),
-            Default::default(),
-        )
-        .expect("wallet");
-        wallet.utxos.push(note(&owner, ring, 0, 10, 1));
+        let spendable = SpendableDecryptionResult {
+            utxos_with_data: vec![note(&owner, ring, 0, 10, 1)],
+            ..Default::default()
+        };
 
-        assert!(select_candidates(&wallet, ring, SOL_MINT, MAX_MERGE_INPUTS).is_none());
-        assert_eq!(largest_candidate_group(&wallet, ring, SOL_MINT), 1);
+        assert!(select_candidates(&spendable, ring, SOL_MINT, MAX_MERGE_INPUTS).is_none());
+        assert_eq!(largest_candidate_group(&spendable, ring, SOL_MINT), 1);
     }
 }
