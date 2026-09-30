@@ -60,22 +60,33 @@ def request(path, key=None, data=None, method=None, query=False):
             return response.status, response.read(), response.headers.get_all('Access-Control-Allow-Origin')
     except urllib.error.HTTPError as error:
         return error.code, b'', []
-for attempt in range(20):
+def expect(status, path, key=None, query=False):
+    got = request(path, key, query=query)[0]
+    assert got == status, (path, key, query, got)
+def listening(port):
     try:
-        request('/ready')
+        urllib.request.urlopen(f'http://127.0.0.1:{port}/proving-keys', timeout=1)
+    except urllib.error.HTTPError:
+        pass
+    except OSError:
+        return False
+    return True
+# nginx answers as soon as it starts, before the backends it proxies to and
+# authorizes against listen, so wait for all three.
+for attempt in range(40):
+    if all(listening(port) for port in (3003, 8784, 3001)):
         break
-    except urllib.error.URLError:
-        time.sleep(0.25)
+    time.sleep(0.25)
 for path in ('/ready', '/indexer', '/indexer/readiness', '/prove/indexed', '/v1/zolana/prove/indexed', '/proving-keys/extra'):
-    assert request(path)[0] == 401, path
-    assert request(path, 'wrong')[0] == 401, path
+    expect(401, path)
+    expect(401, path, 'wrong')
     code, _, cors = request(path, 'secret')
     assert code == 200 and cors == ['*'], (path, code, cors)
-    assert request(path, 'wrong', query=True)[0] == 401, path
-    assert request(path, 'secret', query=True)[0] == 200, path
+    expect(401, path, 'wrong', query=True)
+    expect(200, path, 'secret', query=True)
 for path in ('/proving-keys', '/v1/zolana/proving-keys'):
     for key in (None, 'wrong', 'secret'):
-        assert request(path, key)[0] == 200, path
+        expect(200, path, key)
 assert request('/_authorize', 'secret')[0] == 404
 assert request('/indexer', 'secret', b'{"jsonrpc":"2.0"}')[1] == b'{"jsonrpc":"2.0"}'
 assert request('/indexer', method='OPTIONS')[0] == 204
