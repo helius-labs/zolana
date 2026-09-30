@@ -1,5 +1,6 @@
-use anyhow::{anyhow, Result};
-use solana_keypair::Keypair;
+use anyhow::{anyhow, Context, Result};
+use solana_address::Address;
+use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
@@ -192,11 +193,148 @@ fn new_wallet(rpc: &mut SolanaRpc) -> Result<ShieldedKeypair> {
 
 /// Deposits are batched only to stay inside the 4 KB transaction v1 limit.
 const DEPOSITS_PER_TRANSACTION: usize = 12;
+/// Registration rent and the sender's transaction fees on top of its deposits.
+const SENDER_FEES: u64 = 20_000_000;
+/// Cache rent, the merge fee and the forester fee.
+const RENT_SPONSOR_FUNDS: u64 = 20_000_000;
+/// A one-signature v1 transaction without a priority fee.
+const TRANSFER_FEE: u64 = 5_000;
+
+pub enum Cluster {
+    /// Boots a validator, deploys the programs and starts a prover.
+    Localnet,
+    /// An existing deployment at `ZOLANA_RPC_URL`, `ZOLANA_INDEXER_URL` and
+    /// `ZOLANA_PROVER_URL`, funded by the `ZOLANA_EXAMPLE_PAYER` keypair file.
+    Remote { payer: Box<Keypair> },
+}
+
+impl Cluster {
+    pub fn from_env() -> Result<Self> {
+        let Ok(path) = std::env::var("ZOLANA_EXAMPLE_PAYER") else {
+            return Ok(Self::Localnet);
+        };
+        let payer = read_keypair_file(&path)
+            .map_err(|_| anyhow!("ZOLANA_EXAMPLE_PAYER is not a keypair file"))?;
+        Ok(Self::Remote {
+            payer: Box::new(payer),
+        })
+    }
+
+    /// Refunds the remote payer on drop, so a run that fails after setup still empties the holders.
+    pub fn refund_on_exit<'a>(
+        &'a self,
+        rpc_url: &str,
+        holders: Vec<&'a dyn Signer>,
+    ) -> RefundOnExit<'a> {
+        RefundOnExit {
+            cluster: self,
+            rpc_url: rpc_url.to_owned(),
+            holders,
+        }
+    }
+
+    fn refund(&self, rpc: &mut SolanaRpc, holder: &dyn Signer) -> Result<()> {
+        let Self::Remote { payer } = self else {
+            return Ok(());
+        };
+        let balance = rpc.get_balance(holder.pubkey())?;
+        if balance <= TRANSFER_FEE {
+            return Ok(());
+        }
+        rpc.create_and_send_transaction(
+            &[solana_system_interface::instruction::transfer(
+                &holder.pubkey(),
+                &payer.pubkey(),
+                balance - TRANSFER_FEE,
+            )],
+            holder.pubkey(),
+            &[holder],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
+        Ok(())
+    }
+}
+
+#[must_use]
+pub struct RefundOnExit<'a> {
+    cluster: &'a Cluster,
+    rpc_url: String,
+    holders: Vec<&'a dyn Signer>,
+}
+
+impl Drop for RefundOnExit<'_> {
+    fn drop(&mut self) {
+        let mut rpc = SolanaRpc::new(self.rpc_url.clone());
+        for holder in &self.holders {
+            if let Err(error) = self.cluster.refund(&mut rpc, *holder) {
+                eprintln!("refund of {} failed: {error}", holder.pubkey());
+            }
+        }
+    }
+}
+
+struct Funding<'a> {
+    cluster: &'a Cluster,
+    account: Address,
+    lamports: u64,
+}
+
+impl Funding<'_> {
+    fn send(self, rpc: &mut SolanaRpc) -> Result<()> {
+        match self.cluster {
+            Cluster::Localnet => {
+                rpc.airdrop(&self.account, self.lamports)?;
+            }
+            Cluster::Remote { payer } => {
+                rpc.create_and_send_transaction(
+                    &[solana_system_interface::instruction::transfer(
+                        &payer.pubkey(),
+                        &self.account,
+                        self.lamports,
+                    )],
+                    payer.pubkey(),
+                    &[payer],
+                    ComputeBudgetConfig::for_instruction_count(1),
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Unlike [`setup`], deploys nothing and creates no tree.
+fn setup_remote(cluster: &Cluster, sender_funds: u64) -> Result<SetupContext> {
+    let url = |name: &str| std::env::var(name).with_context(|| format!("{name} is required"));
+    let rpc_url = url("ZOLANA_RPC_URL")?;
+    let tree_id = match std::env::var("ZOLANA_TREE_ID") {
+        Ok(id) => id.parse().context("ZOLANA_TREE_ID is not a tree id")?,
+        Err(_) => 0,
+    };
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
+    rpc.assert_executable(&Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID))?;
+    let solana_keypair = Keypair::new();
+    let sender = ShieldedKeypair::from_keypair(&solana_keypair)?;
+    Funding {
+        cluster,
+        account: sender.pubkey(),
+        lamports: sender_funds,
+    }
+    .send(&mut rpc)?;
+    Ok(SetupContext {
+        rpc_url,
+        indexer_url: url("ZOLANA_INDEXER_URL")?,
+        prover_url: url("ZOLANA_PROVER_URL")?,
+        tree_id,
+        sender,
+        recipient_address: ShieldedKeypair::from_keypair(&Keypair::new())?.shielded_address()?,
+    })
+}
 
 /// What the merge examples start from, on top of [`setup`]: a sender
 /// registered for merging, a rent sponsor for the cache account, and a private
 /// balance already split across many UTXOs.
 pub struct MergeScenario {
+    pub cluster: Cluster,
     pub rpc_url: String,
     pub indexer_url: String,
     pub prover_url: String,
@@ -215,6 +353,11 @@ pub struct MergeScenario {
 /// and splits `utxo_count * amount` lamports of the sender's private balance
 /// into `utxo_count` UTXOs.
 pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScenario> {
+    let cluster = Cluster::from_env()?;
+    let sender_funds = u64::try_from(utxo_count)?
+        .checked_mul(amount)
+        .and_then(|deposits| deposits.checked_add(SENDER_FEES))
+        .ok_or_else(|| anyhow!("sender funds overflow"))?;
     let SetupContext {
         rpc_url,
         indexer_url,
@@ -222,17 +365,25 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
         tree_id,
         sender,
         recipient_address: _,
-    } = setup()?;
+    } = match cluster {
+        Cluster::Localnet => setup()?,
+        Cluster::Remote { .. } => setup_remote(&cluster, sender_funds)?,
+    };
     let tree = pda::tree(tree_id);
 
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     // The recipient is kept as a keypair here, not just an address, so the
     // example can decrypt what it received.
-    let recipient = new_wallet(&mut rpc)?;
+    let recipient = ShieldedKeypair::from_keypair(&Keypair::new())?;
     // The sponsor pays for the merge as well as the cache rent: the nullifier
     // PDAs and the forester fee come out of this balance.
     let rent_sponsor = Keypair::new();
-    rpc.airdrop(&rent_sponsor.pubkey(), 2_000_000_000)?;
+    Funding {
+        cluster: &cluster,
+        account: rent_sponsor.pubkey(),
+        lamports: RENT_SPONSOR_FUNDS,
+    }
+    .send(&mut rpc)?;
 
     // `merge_transact` reads the registry record for the owner's signing and
     // nullifier keys, and rejects an owner that has not opted into merging.
@@ -313,6 +464,7 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
     }
 
     Ok(MergeScenario {
+        cluster,
         rpc_url,
         indexer_url,
         prover_url,

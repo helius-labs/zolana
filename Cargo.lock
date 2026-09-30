@@ -1516,6 +1516,7 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signature",
  "solana-signer",
+ "solana-system-interface 3.2.0",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
