@@ -3,8 +3,24 @@ name: async prover
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE*"
+      - ".gitignore"
+      - "sdk-libs/ts/**"
+      - "sdk-tests/client/typescript/**"
+      - "package.json"
+      - "package-lock.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE*"
+      - ".gitignore"
+      - "sdk-libs/ts/**"
+      - "sdk-tests/client/typescript/**"
+      - "package.json"
+      - "package-lock.json"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
