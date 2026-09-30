@@ -108,10 +108,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
 
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
     let mut assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
-    let inputs = &mut assembled.prover_inputs;
-    let proof = sender.prove_transfer(&ProverClient::local(), inputs)?;
-    let packed = pack_transact_proof(&proof)?;
-    let ix_data = assembled.with_proof(packed);
+    let proof = assembled.prove(&ProverClient::local(), &sender)?;
+    let ix_data = assembled.with_proof(proof);
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),

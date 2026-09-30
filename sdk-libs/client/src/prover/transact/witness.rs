@@ -15,7 +15,7 @@ use crate::{
             assembly::{input_utxos_from_nullifiers, TransferInputUtxo},
             eddsa::TransferProver,
         },
-        ProofCompressed, Prover, TransferInputs,
+        ProofCompressed, Prover, ProverExt, TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };

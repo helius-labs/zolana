@@ -22,7 +22,7 @@ use zolana_client::{
     input_utxos_from_nullifiers,
     prover::{Delivery, ExpectedProvingKey, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
-    Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover, ProverClient,
+    Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover, ProverClient, ProverExt,
     RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation, SpendProof,
     TransferInputUtxo,
 };

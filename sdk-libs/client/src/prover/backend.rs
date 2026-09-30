@@ -20,8 +20,7 @@ use crate::{
 /// Implement [`Self::prove`] to prove somewhere else instead, such as in
 /// process or on a mobile device, and pass the implementation to
 /// [`ZolanaClient::with_prover`](crate::ZolanaClient::with_prover) or any
-/// `&dyn Prover` parameter. The typed methods build their requests with the
-/// same encoder the server path uses, so every backend receives the same body.
+/// `&dyn Prover` parameter. The typed proofs are [`ProverExt`] methods.
 ///
 /// A body carries nullifier secrets. An implementation must not log it or
 /// persist it.
@@ -37,7 +36,15 @@ pub trait Prover: Send + Sync {
     /// Anything a request carries is a [`ProveRequest`] method, so a new one
     /// leaves this signature, and every implementation, unchanged.
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError>;
+}
 
+/// The typed proofs, built on [`Prover::prove`] with the same encoder the
+/// server path uses, so every backend receives the same body.
+///
+/// Implemented for every [`Prover`], and only through that blanket impl, so a
+/// backend cannot override a typed method: every client path, including the
+/// async ones that call [`Prover::prove`] directly, proves through `prove`.
+pub trait ProverExt: Prover {
     /// Prove a Solana-only (eddsa) transfer. Call
     /// [`ProofCompressed::try_from`](crate::ProofCompressed) for the wire format.
     fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
@@ -117,3 +124,5 @@ pub trait Prover: Send + Sync {
         Ok(assembled.with_proof(proof))
     }
 }
+
+impl<P: Prover + ?Sized> ProverExt for P {}

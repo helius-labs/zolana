@@ -7,7 +7,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    BatchAddressAppendInputs, ComputeBudgetConfig, ProofCompressed, Prover, ProverClient, Rpc,
+    BatchAddressAppendInputs, ComputeBudgetConfig, ProofCompressed, ProverClient, ProverExt, Rpc,
     SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;

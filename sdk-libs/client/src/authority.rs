@@ -14,17 +14,23 @@ use crate::{
     error::ClientError,
     prover::{
         field::{be, right_align_slice},
-        Proof, Prover, TransferInput, TransferInputs,
+        TransferInput,
     },
 };
 
-/// Completes a witness whose real inputs it owns, then proves it.
+/// Completes a witness whose real inputs it owns.
 ///
 /// Assembly leaves every real input without a secret
 /// ([`TransferInput::nullifier_secret`] is `None`); a padding slot carries a
 /// genuine zero, and an input belonging to another owner arrives complete. So no
 /// type on the assembly path holds key material, and the secret enters the
 /// witness here, one call before it goes on the wire.
+///
+/// Completing is all an authority does. The caller proves the completed
+/// witness, so proving somewhere else means implementing
+/// [`Prover`](crate::Prover), not an authority.
+/// [`AssembledTransfer::prove`](crate::AssembledTransfer::prove) completes and
+/// proves in one call.
 ///
 /// `Send + Sync` because the async proving paths hold a `&dyn ProofAuthority`
 /// across an await, and their futures have to be `Send` to run on a
@@ -35,20 +41,8 @@ pub trait ProofAuthority: Send + Sync {
     /// carries.
     ///
     /// Every rail shares [`TransferInput`], so this one method completes a
-    /// transfer, a ring transfer and a ring-authority transfer alike. Prefer
-    /// [`Self::prove_transfer`], which completes and proves in one call; this is
-    /// the seam the async prover and the ring rails prove through.
+    /// transfer, a ring transfer and a ring-authority transfer alike.
     fn complete_inputs(&self, inputs: &mut [TransferInput]) -> Result<(), ClientError>;
-
-    /// Complete the witness and prove it.
-    fn prove_transfer(
-        &self,
-        prover: &dyn Prover,
-        inputs: &mut TransferInputs,
-    ) -> Result<Proof, ClientError> {
-        self.complete_inputs(&mut inputs.inputs)?;
-        prover.prove_transfer(inputs)
-    }
 }
 
 /// The in-process authority: the secret is held here, and only this function

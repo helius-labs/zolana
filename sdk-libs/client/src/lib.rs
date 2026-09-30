@@ -41,7 +41,7 @@ pub use prover::{
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, CacheReadInputs, Commitments,
     CompressedCommitments, Delivery, IndexerRequirement, MergeProofResult, MergeProver, Proof,
-    ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverLaunch,
+    ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverExt, ProverLaunch,
     PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,

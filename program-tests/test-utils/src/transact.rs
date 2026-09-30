@@ -12,7 +12,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
-    spawn_prover, CacheReadInputs, Proof, ProofCompressed, ProofInputUtxo, Prover, ProverClient,
+    spawn_prover, CacheReadInputs, Proof, ProofCompressed, ProofInputUtxo, ProverClient, ProverExt,
     PublicInputs, PublicTransfers, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };

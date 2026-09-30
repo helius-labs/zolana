@@ -10,7 +10,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{assemble, ComputeBudgetConfig, ProofAuthority, ProverClient, SpendProof};
+use zolana_client::{assemble, ComputeBudgetConfig, ProverClient, SpendProof};
 use zolana_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
@@ -23,7 +23,6 @@ use crate::{
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
-    transact::pack_transact_proof,
 };
 
 impl LifecycleHarness {
@@ -127,11 +126,8 @@ impl LifecycleHarness {
             .collect();
 
         let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-        let transfer_inputs = &mut assembled.prover_inputs;
-        let proof = from_keypair
-            .nullifier_key
-            .prove_transfer(&ProverClient::local(), transfer_inputs)?;
-        let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
+        let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;
+        let ix_data = assembled.with_proof(proof);
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),

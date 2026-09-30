@@ -18,7 +18,7 @@ mod verify;
 #[cfg(feature = "indexer-api")]
 pub mod witness;
 
-pub use backend::Prover;
+pub use backend::{Prover, ProverExt};
 pub use client::{
     spawn_prover, AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest,
     ProverClient, ProverLaunch, PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH,

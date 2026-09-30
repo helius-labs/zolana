@@ -12,7 +12,7 @@ use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::{
-    spawn_prover, BatchAddressAppendInputs, ProofCompressed, Prover, ProverClient,
+    spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient, ProverExt,
 };
 use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;

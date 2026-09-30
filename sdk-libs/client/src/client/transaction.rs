@@ -12,7 +12,7 @@ use crate::{
         transact::witness::{assemble, AssembledTransfer},
         verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
         witness::{AsyncWitnessReader, WitnessReader},
-        ProofCompressed, TransferProofResult,
+        ProofCompressed, ProverExt, TransferProofResult,
     },
     rpc::{
         compile_message, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig, Rpc,

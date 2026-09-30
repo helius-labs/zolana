@@ -14,7 +14,7 @@ use crate::{
     error::ClientError,
     prover::{
         transact::witness::{assemble, SpendProof},
-        verify_confidential_transfer_inputs, ProofCompressed,
+        verify_confidential_transfer_inputs, ProofCompressed, ProverExt,
     },
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -281,7 +281,8 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             &witnesses.dummy_nullifier_proofs,
         )?;
         let inputs = &mut assembled.prover_inputs;
-        let proof = authority.prove_transfer(self.blocking_prover(), inputs)?;
+        authority.complete_inputs(&mut inputs.inputs)?;
+        let proof = self.blocking_prover().prove_transfer(inputs)?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {

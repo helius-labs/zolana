@@ -6,8 +6,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::field::be, ProofCompressed, Prover, ProverClient, TransferOutput, TransferP256Inputs,
-    TreeSlotFields,
+    prover::field::be, ProofCompressed, ProverClient, ProverExt, TransferOutput,
+    TransferP256Inputs, TreeSlotFields,
 };
 use zolana_hasher::{
     hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},

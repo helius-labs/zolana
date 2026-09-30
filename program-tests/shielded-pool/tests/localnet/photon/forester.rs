@@ -375,9 +375,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         ],
         &[],
     )?;
-    let inputs = &mut assembled.prover_inputs;
-    let proof = ctx.sender.prove_transfer(&ProverClient::local(), inputs)?;
-    let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
+    let proof = assembled.prove(&ProverClient::local(), &ctx.sender)?;
+    let ix_data = assembled.with_proof(proof);
 
     let tx_ix = Transact {
         payer: env.payer.pubkey(),

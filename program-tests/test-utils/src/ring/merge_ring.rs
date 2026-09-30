@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, MergeProver, Prover, ProverClient};
+use zolana_client::{ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
