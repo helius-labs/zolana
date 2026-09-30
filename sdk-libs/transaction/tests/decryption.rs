@@ -4,10 +4,14 @@ use std::{cell::RefCell, collections::HashSet};
 
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
     decrypt, decrypt_spendable,
+    instructions::merge::{
+        merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
+    },
+    owner_utxo_hash,
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousRecipientEncode},
         confidential::{Confidential, ConfidentialEncode},
@@ -16,9 +20,9 @@ use zolana_transaction::{
     },
     verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data, DataRecord,
     DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
-    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, ShieldedKeys, ShieldedTransaction,
-    SpendableDecryptionResult, TransactionError, TransactionKeyRequest, UtxoSerialization,
-    WalletUtxo, TRANSFER_PLAINTEXT,
+    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, RingDepositPlaintext,
+    ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult, TransactionError,
+    TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo, TRANSFER_PLAINTEXT,
 };
 
 fn owner_cx<'a>(owner: &ShieldedKeypair, assets: &'a AssetRegistry) -> OwnerCx<'a> {
@@ -996,4 +1000,260 @@ fn altered_encryption_context_and_ciphertext_cannot_create_spendable_notes() {
             }
         }
     }
+}
+
+/// `note` received in its own transaction, as a confidential slot.
+fn received(owner: &ShieldedKeypair, note: &WalletUtxo) -> ShieldedTransaction {
+    let tx_key = keypair(200).viewing_key;
+    let mut tx = publication(
+        note,
+        vec![confidential_slot(note, owner.viewing_pubkey(), &tx_key, 0)],
+    );
+    tx.tx_viewing_pk = Some(tx_key.pubkey());
+    tx.salt = Some([7; 16]);
+    tx
+}
+
+/// A merge of `inputs` as the indexer reports it: no ciphertext and no
+/// transaction key, the padded slots spending dummy nullifiers, and one output
+/// committing to the inputs' total. Returns the note the owner should rebuild.
+fn merge_publication(
+    owner: &ShieldedKeypair,
+    inputs: &[&WalletUtxo],
+    tx_slot: u8,
+    ring_data_hash: Option<[u8; 32]>,
+) -> (ShieldedTransaction, WalletUtxo) {
+    let first_nullifier = inputs[0].nullifier;
+    let mut nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
+    nullifiers.extend((inputs.len()..MERGE_DEFAULT_INPUT_COUNT).map(|index| {
+        merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, index as u8).unwrap()
+    }));
+    let utxo = Utxo {
+        owner: owner.signing_pubkey(),
+        asset: inputs[0].utxo.asset,
+        amount: inputs.iter().map(|input| input.utxo.amount).sum(),
+        blinding: merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),
+        ring_program_id: inputs[0].utxo.ring_program_id,
+        data: Data::default(),
+    };
+    let nullifier_pubkey = inputs[0].nullifier_pubkey;
+    let tree_id = inputs[0].tree_id;
+    let utxo_hash = utxo
+        .hash(
+            &nullifier_pubkey,
+            &[0; 32],
+            &ring_data_hash.unwrap_or_default(),
+            tree_id,
+        )
+        .unwrap();
+    let output = WalletUtxo {
+        nullifier: owner.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+        utxo,
+        nullifier_pubkey,
+        utxo_hash,
+        data_hash: None,
+        ring_data_hash,
+        tree_id,
+        leaf_index: 100 + u64::from(tx_slot),
+        slot: u64::from(tx_slot),
+        tx_signature: Signature::from([tx_slot; 64]),
+        slot_index: 0,
+    };
+    // A ring merge publishes the output's ring-data hash as the payload.
+    let payload = ring_data_hash.map(Vec::from).unwrap_or_default();
+    let mut tx = publication(&output, vec![slot(&output, payload)]);
+    tx.nullifiers = nullifiers;
+    (tx, output)
+}
+
+/// A proofless ring deposit of `amount` SOL to `owner`, encrypted to
+/// `recipient`. Returns the note the owner should read back.
+fn ring_deposit(
+    owner: &ShieldedKeypair,
+    recipient: P256Pubkey,
+    ring: Address,
+    amount: u64,
+    nonce: u8,
+) -> (ShieldedTransaction, WalletUtxo) {
+    let address = owner.shielded_address().unwrap();
+    let plaintext = RingDepositPlaintext {
+        blinding: [nonce; 32],
+        utxo_data: None,
+        memo: Some(vec![nonce]),
+        ring_data: Vec::new(),
+    };
+    let ring_data_hash = [0; 32];
+    let tree_id = 5;
+    let utxo = plaintext
+        .clone()
+        .into_utxo(address.signing_pubkey, Mint::SOL, amount, ring);
+    let utxo_hash = utxo
+        .hash(
+            &address.nullifier_pubkey,
+            &[0; 32],
+            &ring_data_hash,
+            tree_id,
+        )
+        .unwrap();
+    let output = EncryptedRingDepositOutput {
+        owner_utxo_hash: owner_utxo_hash(&address.owner_hash().unwrap(), &plaintext.blinding)
+            .unwrap(),
+        asset: *Mint::SOL.asset.as_array(),
+        amount,
+        data_hash: None,
+        ring_program_id: *ring.as_array(),
+        ring_data_hash,
+        encrypted: plaintext.encrypt(&recipient).unwrap(),
+    };
+    let mut blob = vec![EncryptedScheme::RingDeposit.as_byte()];
+    blob.extend(borsh::to_vec(&output).unwrap());
+    let note = WalletUtxo {
+        nullifier: owner.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+        utxo,
+        nullifier_pubkey: address.nullifier_pubkey,
+        utxo_hash,
+        data_hash: None,
+        ring_data_hash: Some(ring_data_hash),
+        tree_id,
+        leaf_index: u64::from(nonce),
+        slot: u64::from(nonce),
+        tx_signature: Signature::from([nonce; 64]),
+        slot_index: 0,
+    };
+    let mut tx = publication(
+        &note,
+        vec![slot(
+            &note,
+            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
+        )],
+    );
+    tx.proofless = true;
+    (tx, note)
+}
+
+#[test]
+fn merge_outputs_rebuild_from_inputs_in_the_batch_in_any_order() {
+    let owner = keypair(41);
+    let assets = AssetRegistry::default();
+    let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, None);
+    let (chained, chained_output) = merge_publication(&owner, &[&merged], 11, None);
+    let txs = vec![
+        received(&owner, &first),
+        received(&owner, &second),
+        merge,
+        chained,
+    ];
+
+    let candidates = decrypt(&owner, &txs, &assets).unwrap();
+    assert_eq!(
+        candidates.utxos,
+        vec![first, second, merged, chained_output.clone()]
+    );
+    let expected = SpendableDecryptionResult {
+        balances: Balances {
+            assets: vec![balance(vec![chained_output], Mint::SOL, 42)],
+        },
+        utxos_with_data: vec![],
+    };
+    assert_eq!(decrypt_spendable(&owner, &txs, &assets).unwrap(), expected);
+    let reversed: Vec<_> = txs.into_iter().rev().collect();
+    assert_eq!(
+        decrypt_spendable(&owner, &reversed, &assets).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn merges_rebuild_nothing_without_every_input_or_a_matching_commitment() {
+    let owner = keypair(43);
+    let other = keypair(44);
+    let assets = AssetRegistry::default();
+    let held = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let unknown = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    let foreign = wallet_utxo(&other, Mint::SOL, 9, 3, 3);
+    let spl = Mint::new(Address::new_from_array([6; 32]), 9);
+    let mut spl_assets = AssetRegistry::default();
+    spl_assets.insert(spl.asset_id, spl.asset).unwrap();
+    let held_spl = wallet_utxo(&owner, spl, 5, 3, 4);
+
+    // An input the batch never produced.
+    let (missing_input, _) = merge_publication(&owner, &[&held, &unknown], 10, None);
+    // Another owner's merge, and one whose first input is not this wallet's.
+    let (foreign_merge, _) = merge_publication(&other, &[&foreign], 11, None);
+    let (foreign_first, _) = merge_publication(&owner, &[&foreign, &held], 12, None);
+    // A merge across assets cannot come from one proof.
+    let (mixed_assets, _) = merge_publication(&owner, &[&held, &held_spl], 13, None);
+    // A published output that is not the inputs' total, and a merge chained on it.
+    let (mut wrong_total, overstated) = merge_publication(&owner, &[&held], 14, None);
+    wrong_total.output_slots[0].output_context.hash =
+        wallet_utxo(&owner, Mint::SOL, 31, 3, 5).utxo_hash;
+    let (chained, _) = merge_publication(&owner, &[&overstated], 15, None);
+
+    for (case, merge) in [
+        ("missing input", missing_input),
+        ("foreign merge", foreign_merge),
+        ("foreign first input", foreign_first),
+        ("mixed assets", mixed_assets),
+        ("wrong total", wrong_total.clone()),
+    ] {
+        let txs = [
+            received(&owner, &held),
+            received(&owner, &held_spl),
+            merge,
+            chained.clone(),
+        ];
+        let candidates = decrypt(&owner, &txs, &spl_assets).unwrap();
+        assert_eq!(
+            candidates.utxos,
+            vec![held.clone(), held_spl.clone()],
+            "{case}"
+        );
+    }
+    // The merge still spends its input when its output cannot be rebuilt.
+    assert_eq!(
+        decrypt_spendable(&owner, &[received(&owner, &held), wrong_total], &assets).unwrap(),
+        SpendableDecryptionResult::default()
+    );
+}
+
+#[test]
+fn ring_deposits_open_for_their_owner_and_feed_a_ring_merge() {
+    let owner = keypair(45);
+    let other = keypair(46);
+    let assets = AssetRegistry::default();
+    let ring = Address::new_from_array([9; 32]);
+    let (first_deposit, first) = ring_deposit(&owner, owner.viewing_pubkey(), ring, 20, 1);
+    let (second_deposit, second) = ring_deposit(&owner, owner.viewing_pubkey(), ring, 22, 2);
+    assert_eq!(first.utxo.ring_program_id, Some(ring));
+    assert_eq!(first.utxo.data.memo(), Some(&[1u8][..]));
+
+    let candidates = decrypt(
+        &owner,
+        &[first_deposit.clone(), second_deposit.clone()],
+        &assets,
+    )
+    .unwrap();
+    assert_eq!(candidates.utxos, vec![first.clone(), second.clone()]);
+
+    // Ring notes are reported apart from the default-ring balances.
+    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, Some([0; 32]));
+    assert_eq!(merged.utxo.ring_program_id, Some(ring));
+    assert_eq!(
+        decrypt_spendable(&owner, &[first_deposit, second_deposit, merge], &assets).unwrap(),
+        SpendableDecryptionResult {
+            balances: Balances::default(),
+            utxos_with_data: vec![merged],
+        }
+    );
+
+    // Encrypted to someone else, or opened by a key whose owner hash the deposit
+    // does not name: the unauthenticated cipher yields noise, never a note.
+    let (to_other, _) = ring_deposit(&owner, other.viewing_pubkey(), ring, 20, 3);
+    let (for_other, _) = ring_deposit(&other, owner.viewing_pubkey(), ring, 20, 4);
+    assert_eq!(
+        decrypt(&owner, &[to_other, for_other], &assets).unwrap(),
+        DecryptionResult::default()
+    );
 }
