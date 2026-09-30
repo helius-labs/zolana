@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use solana_address::Address;
 use solana_signature::Signature;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
@@ -24,7 +25,7 @@ const PAGE_LIMIT: u32 = 1_000;
 pub struct SpendableUtxos<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
-    deposit_payload: DepositPayload,
+    ring_deposit_payload: Option<(Address, DepositPayload)>,
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
@@ -32,14 +33,19 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         Self {
             keys,
             assets,
-            deposit_payload: |ciphertext| Ok(ciphertext),
+            ring_deposit_payload: None,
         }
     }
 
-    /// For a ring program that frames the ciphertexts of its deposits. A
-    /// deposit whose framing does not parse is skipped.
-    pub fn with_deposit_payload(mut self, deposit_payload: DepositPayload) -> Self {
-        self.deposit_payload = deposit_payload;
+    /// For a ring program that frames the ciphertexts of its deposits. It
+    /// reads only that ring's deposits, and [`fetch`](Self::fetch) fails on
+    /// framing that does not parse.
+    pub fn with_ring_deposit_payload(
+        mut self,
+        ring_program_id: Address,
+        deposit_payload: DepositPayload,
+    ) -> Self {
+        self.ring_deposit_payload = Some((ring_program_id, deposit_payload));
         self
     }
 
@@ -56,14 +62,14 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
 
         let mut transactions = Transactions::default();
         for tx in tagged_transactions(indexer, &tags)? {
-            transactions.insert(self.unwrap_ring_deposits(tx));
+            transactions.insert(self.unwrap_ring_deposits(tx)?);
         }
         loop {
             let spendable = decrypt_spendable(self.keys, &transactions.all, self.assets)?;
             let nullifiers: Vec<_> = spendable.utxos().map(|utxo| utxo.nullifier).collect();
             let mut found = false;
             for tx in spending_transactions(indexer, &nullifiers)? {
-                found |= transactions.insert(self.unwrap_ring_deposits(tx));
+                found |= transactions.insert(self.unwrap_ring_deposits(tx)?);
             }
             if !found {
                 return Ok(spendable);
@@ -71,11 +77,16 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         }
     }
 
-    fn unwrap_ring_deposits(&self, mut tx: ShieldedTransaction) -> ShieldedTransaction {
-        for slot in &mut tx.output_slots {
-            slot.unwrap_ring_deposit(self.deposit_payload);
+    fn unwrap_ring_deposits(
+        &self,
+        mut tx: ShieldedTransaction,
+    ) -> Result<ShieldedTransaction, ClientError> {
+        if let Some((ring_program_id, deposit_payload)) = &self.ring_deposit_payload {
+            for slot in &mut tx.output_slots {
+                slot.unwrap_ring_deposit(ring_program_id, *deposit_payload)?;
+            }
         }
-        tx
+        Ok(tx)
     }
 }
 

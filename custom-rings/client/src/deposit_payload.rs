@@ -1,9 +1,11 @@
 use custom_ring_interface::RingDepositAuditCapsule;
 use zolana_transaction::error::TransactionError;
 
-pub fn deposit_payload(bytes: &[u8]) -> Result<&[u8], TransactionError> {
+/// The recipient's ciphertext inside a deposit's audit capsule, or `None` for
+/// a deposit published without one.
+pub fn deposit_payload(bytes: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
     RingDepositAuditCapsule::parse(bytes)
-        .map(|capsule| capsule.map_or(bytes, |capsule| capsule.recipient_ciphertext))
+        .map(|capsule| capsule.map(|capsule| capsule.recipient_ciphertext))
         .map_err(|error| TransactionError::Deserialize(error.to_string()))
 }
 
@@ -27,6 +29,7 @@ mod tests {
             RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
             plaintext
         );
+        assert_eq!(deposit_payload(&encrypted.ciphertext).unwrap(), None);
         encrypted.ciphertext = RingDepositAuditCapsule {
             slot_index: 7,
             eph_pk: &[2; 33],
@@ -35,7 +38,7 @@ mod tests {
         }
         .encode();
         let wrapped = encrypted.ciphertext.clone();
-        encrypted.ciphertext = deposit_payload(&wrapped).unwrap().to_vec();
+        encrypted.ciphertext = deposit_payload(&wrapped).unwrap().unwrap().to_vec();
         assert_eq!(
             RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
             plaintext

@@ -114,7 +114,7 @@ enum MergeResolution {
 }
 
 pub(super) struct SyncCtx<'a> {
-    deposit_payload: zolana_transaction::DepositPayload,
+    ring_deposit_payload: Option<(Address, zolana_transaction::DepositPayload)>,
     keys: LocalShieldedKeys,
     pub(super) nullifier_key: &'a NullifierKey,
     /// Every viewing key this wallet has held, current and rotated-out. A
@@ -729,7 +729,10 @@ impl SyncCtx<'_> {
                         // The SDK scan opens the deposit on its own, once the
                         // ring's framing is unwrapped.
                         let mut deposit_slot = slot.clone();
-                        deposit_slot.unwrap_ring_deposit(self.deposit_payload);
+                        if let Some((ring_program_id, deposit_payload)) = &self.ring_deposit_payload
+                        {
+                            deposit_slot.unwrap_ring_deposit(ring_program_id, *deposit_payload)?;
+                        }
                         let deposit = ShieldedTransaction {
                             output_slots: vec![deposit_slot],
                             ..tx.clone()
@@ -1051,7 +1054,7 @@ impl Wallet {
         let self_viewing_pubkeys = self.self_viewing_pubkeys();
         let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
-            deposit_payload: self.deposit_payload,
+            ring_deposit_payload: self.ring_deposit_payload,
             keys: LocalShieldedKeys::new(
                 identity,
                 viewing_keys.clone(),

@@ -77,7 +77,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     }
     .load(ctx)?;
     let sender_utxos = SpendableUtxos::new(&sender, &registry)
-        .with_deposit_payload(zolana_ring_client::deposit_payload);
+        .with_ring_deposit_payload(ctx.ring.program_id(), zolana_ring_client::deposit_payload);
 
     println!("reading the sender's notes");
     let spendable = sender_utxos.fetch(&indexer)?;

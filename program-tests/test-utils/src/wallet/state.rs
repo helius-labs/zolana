@@ -133,7 +133,7 @@ impl CursorStream {
 }
 
 pub struct Wallet {
-    pub(super) deposit_payload: DepositPayload,
+    pub(super) ring_deposit_payload: Option<(Address, DepositPayload)>,
     /// Public wallet identity. All secret key material is supplied by a
     /// `WalletAuthority` when cryptographic work is required.
     pub identity: ShieldedAddress,
@@ -161,7 +161,7 @@ impl Wallet {
     ) -> Result<Self, TransactionError> {
         let viewing_pubkey = identity.viewing_pubkey;
         Ok(Self {
-            deposit_payload: |bytes| Ok(bytes),
+            ring_deposit_payload: None,
             identity,
             registry,
             viewing_key_history: vec![ViewingKeyEntry::new(viewing_pubkey, 0)],
@@ -174,8 +174,12 @@ impl Wallet {
     }
 
     #[must_use]
-    pub fn with_deposit_payload_decoder(mut self, decoder: DepositPayload) -> Self {
-        self.deposit_payload = decoder;
+    pub fn with_ring_deposit_payload(
+        mut self,
+        ring_program_id: Address,
+        deposit_payload: DepositPayload,
+    ) -> Self {
+        self.ring_deposit_payload = Some((ring_program_id, deposit_payload));
         self
     }
 

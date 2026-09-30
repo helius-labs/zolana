@@ -308,14 +308,13 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     );
 }
 
-fn unframe(ciphertext: &[u8]) -> Result<&[u8], TransactionError> {
-    ciphertext
-        .strip_prefix(b"frame")
-        .ok_or_else(|| TransactionError::Deserialize("unframed deposit".into()))
+/// A framing that marks framed ciphertexts with `frame`.
+fn unframe(ciphertext: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
+    Ok(ciphertext.strip_prefix(b"frame"))
 }
 
 #[test]
-fn a_framed_ring_deposit_opens_with_its_deposit_payload() {
+fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
     let owner = keypair(9);
     let address = owner.shielded_address().unwrap();
     let ring = Address::new_from_array([4; 32]);
@@ -371,12 +370,30 @@ fn a_framed_ring_deposit_opens_with_its_deposit_payload() {
         .unwrap();
     assert_eq!(framed.utxos().count(), 0);
 
+    // Another ring's framing never reads this ring's deposits.
+    let other_ring = SpendableUtxos::new(&owner, &assets)
+        .with_ring_deposit_payload(Address::new_from_array([5; 32]), unframe)
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(other_ring.utxos().count(), 0);
+
     let unframed = SpendableUtxos::new(&owner, &assets)
-        .with_deposit_payload(unframe)
+        .with_ring_deposit_payload(ring, unframe)
         .fetch(&indexer)
         .unwrap();
     let utxos: Vec<_> = unframed.utxos().collect();
     assert_eq!(utxos.len(), 1);
     assert_eq!(utxos[0].utxo_hash, deposited.hash);
     assert_eq!(utxos[0].utxo.ring_program_id, Some(ring));
+
+    // Framing that does not parse fails the fetch instead of hiding the deposit.
+    let reject = |_: &[u8]| -> Result<Option<&[u8]>, TransactionError> {
+        Err(TransactionError::Deserialize("bad frame".into()))
+    };
+    assert!(matches!(
+        SpendableUtxos::new(&owner, &assets)
+            .with_ring_deposit_payload(ring, reject)
+            .fetch(&indexer),
+        Err(ClientError::Transaction(TransactionError::Deserialize(_)))
+    ));
 }

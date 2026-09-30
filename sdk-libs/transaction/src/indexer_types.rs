@@ -1,4 +1,5 @@
 use borsh::BorshDeserialize;
+use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
 use zolana_keypair::P256Pubkey;
 
@@ -7,9 +8,10 @@ use crate::{
     serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization},
 };
 
-/// Returns the recipient's ciphertext from inside a ring program's framing of
-/// a ring deposit ciphertext.
-pub type DepositPayload = for<'a> fn(&'a [u8]) -> Result<&'a [u8], TransactionError>;
+/// A ring program's reading of its framing around a ring deposit ciphertext:
+/// the recipient's ciphertext inside it, `None` when the ciphertext carries no
+/// framing, or an error when the framing does not parse.
+pub type DepositPayload = for<'a> fn(&'a [u8]) -> Result<Option<&'a [u8]>, TransactionError>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {
@@ -75,37 +77,41 @@ impl OutputSlot {
         Proofless::deserialize(body).ok()
     }
 
-    /// Replaces a ring program's framing of a ring deposit ciphertext with the
-    /// recipient's ciphertext inside it, which is what
-    /// [`decrypt`](crate::decrypt) opens. Every other output, and a deposit
-    /// whose framing does not parse, is left as published.
-    pub fn unwrap_ring_deposit(&mut self, deposit_payload: DepositPayload) {
+    /// Replaces the framing `ring_program_id` puts around its ring deposit
+    /// ciphertexts with the recipient's ciphertext inside it, which is what
+    /// [`decrypt`](crate::decrypt) opens. Other outputs, deposits of other
+    /// rings and unframed ciphertexts are left as published; framing that does
+    /// not parse is an error rather than a deposit that silently never opens.
+    pub fn unwrap_ring_deposit(
+        &mut self,
+        ring_program_id: &Address,
+        deposit_payload: DepositPayload,
+    ) -> Result<(), TransactionError> {
         let Some(OutputDataEncoding::Encrypted(blob)) = self.output_data() else {
-            return;
+            return Ok(());
         };
         let Some((&scheme, body)) = blob.split_first() else {
-            return;
+            return Ok(());
         };
         if scheme != EncryptedScheme::RingDeposit.as_byte() {
-            return;
+            return Ok(());
         }
         let Ok(mut output) = EncryptedRingDepositOutput::try_from_slice(body) else {
-            return;
+            return Ok(());
         };
-        let Ok(ciphertext) = deposit_payload(&output.encrypted.ciphertext) else {
-            return;
-        };
-        if ciphertext.len() == output.encrypted.ciphertext.len() {
-            return;
+        if output.ring_program_id != *ring_program_id.as_array() {
+            return Ok(());
         }
+        let Some(ciphertext) = deposit_payload(&output.encrypted.ciphertext)? else {
+            return Ok(());
+        };
         output.encrypted.ciphertext = ciphertext.to_vec();
-        let Ok(body) = borsh::to_vec(&output) else {
-            return;
-        };
-        if let Ok(payload) = borsh::to_vec(&OutputDataEncoding::Encrypted(
+        let serialize = |error: std::io::Error| TransactionError::Serialize(error.to_string());
+        let body = borsh::to_vec(&output).map_err(serialize)?;
+        self.payload = borsh::to_vec(&OutputDataEncoding::Encrypted(
             [&[scheme][..], &body].concat(),
-        )) {
-            self.payload = payload;
-        }
+        ))
+        .map_err(serialize)?;
+        Ok(())
     }
 }
