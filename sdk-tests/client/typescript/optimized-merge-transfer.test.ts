@@ -10,7 +10,7 @@ import { getCacheAddress } from "@heliuslabs/zolana/addresses";
 import { LocalKeys, MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, atSlot } from "@heliuslabs/zolana/client";
 import {
   DepositAsset,
-  MERGE_INPUT_COUNT,
+  MAX_MERGE_INPUTS,
   TransactCacheAccounts,
   closeCacheInstruction,
   createCacheInstruction,
@@ -38,11 +38,12 @@ import {
   userRecordAddress,
 } from "./setup.js";
 
-const UTXO_COUNT = MERGE_INPUT_COUNT;
+const UTXO_COUNT = MAX_MERGE_INPUTS;
+const DEPOSITS_PER_TRANSACTION = 12;
 const DEPOSIT_AMOUNT = 100_000_000n;
 const TRANSFER_AMOUNT = 500_000_000n;
-const SENDER_LAMPORTS = 2_000_000_000n;
-const RENT_SPONSOR_LAMPORTS = 1_000_000_000n;
+const SENDER_LAMPORTS = 10_000_000_000n;
+const RENT_SPONSOR_LAMPORTS = 2_000_000_000n;
 const CACHE_NONCE = 0n;
 const CACHE_EXPIRES_AT = 2_000_000_000n;
 const CACHE_SLOT = 0;
@@ -86,29 +87,33 @@ describe("example: optimized merge and transfer", () => {
 
     // 2. The private balance arrives as one UTXO per deposit.
     const senderViewTag = senderAddress.confidentialViewTag();
-    const depositTx = await sendAsSender(
-      [
-        await depositInstruction({
-          tree: client.tree,
-          depositor: senderSigner,
-          deposits: Array.from({ length: UTXO_COUNT }, () => ({
-            asset: DepositAsset.sol(),
-            viewTag: senderViewTag,
-            recipientOwnerHash: senderAddress.ownerHash(),
-            amount: DEPOSIT_AMOUNT,
-          })),
-        }),
-      ],
-      { computeUnitLimit: DEPOSIT_COMPUTE_UNIT_LIMIT },
-    );
+    let depositSlot = 0n;
+    for (let batch = 0; batch < UTXO_COUNT; batch += DEPOSITS_PER_TRANSACTION) {
+      const depositTx = await sendAsSender(
+        [
+          await depositInstruction({
+            tree: client.tree,
+            depositor: senderSigner,
+            deposits: Array.from(
+              { length: Math.min(DEPOSITS_PER_TRANSACTION, UTXO_COUNT - batch) },
+              () => ({
+                asset: DepositAsset.sol(),
+                viewTag: senderViewTag,
+                recipientOwnerHash: senderAddress.ownerHash(),
+                amount: DEPOSIT_AMOUNT,
+              }),
+            ),
+          }),
+        ],
+        { computeUnitLimit: DEPOSIT_COMPUTE_UNIT_LIMIT },
+      );
+      depositSlot = depositTx.slot;
+    }
     const deposited = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
       transactions: (
-        await client.getShieldedTransactionsByTags(
-          { tags: [senderViewTag] },
-          atSlot(depositTx.slot),
-        )
+        await client.getShieldedTransactionsByTags({ tags: [senderViewTag] }, atSlot(depositSlot))
       ).transactions,
     });
     const utxos = deposited.balance(SOL_MINT).utxos;
