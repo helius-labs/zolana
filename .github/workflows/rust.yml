@@ -1,5 +1,7 @@
 name: rust
 
+# No job here reads the TypeScript SDK or its example; typescript.yml covers
+# them. Vectors shared with Rust live in test-vectors/, which still triggers.
 on:
   push:
     branches: [main]
@@ -8,6 +10,10 @@ on:
       - "**/*.md"
       - "LICENSE*"
       - ".gitignore"
+      - "sdk-libs/ts/**"
+      - "sdk-tests/client/typescript/**"
+      - "package.json"
+      - "package-lock.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
@@ -15,6 +21,10 @@ on:
       - "**/*.md"
       - "LICENSE*"
       - ".gitignore"
+      - "sdk-libs/ts/**"
+      - "sdk-tests/client/typescript/**"
+      - "package.json"
+      - "package-lock.json"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
