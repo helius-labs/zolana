@@ -1,0 +1,41 @@
+name: gpu-deploy-scripts
+
+# The GPU deployment scripts and their tests read tools/gpu and the Aeglos build
+# files, so nothing else triggers them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/gpu/**"
+      - "tools/check-photon-image.sh"
+      - "prover/server/build-aeglos.sh"
+      - "prover/server/Dockerfile.aeglos"
+      - "prover/server/prover/backend/aeglos-source.lock"
+      - ".github/workflows/publish-gpu.yml"
+      - ".github/workflows/gpu-deploy-scripts.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "tools/gpu/**"
+      - "tools/check-photon-image.sh"
+      - "prover/server/build-aeglos.sh"
+      - "prover/server/Dockerfile.aeglos"
+      - "prover/server/prover/backend/aeglos-source.lock"
+      - ".github/workflows/publish-gpu.yml"
+      - ".github/workflows/gpu-deploy-scripts.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-deploy-scripts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck tools/gpu/*.sh tools/check-photon-image.sh prover/server/build-aeglos.sh
+      - run: python3 -m unittest discover -s tools/gpu -p 'test_*.py'
+        env:
+          GPU_GATEWAY_TEST: '1'

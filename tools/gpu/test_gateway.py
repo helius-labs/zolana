@@ -1,11 +1,14 @@
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
 
 from aws_host import NGINX, gateway
+
+BACKEND = "python:3.12-alpine"
 
 
 @unittest.skipUnless(os.environ.get("GPU_GATEWAY_TEST") == "1", "requires Docker")
@@ -74,29 +77,65 @@ assert request('/indexer', method='OPTIONS')[0] == 204
 """
 
         def docker(*args):
-            return subprocess.run(
+            result = subprocess.run(
                 ["docker", *args],
-                check=True,
                 text=True,
                 capture_output=True,
                 timeout=120,
             )
+            if result.returncode != 0:
+                self.fail(
+                    f"docker {' '.join(args)} exited {result.returncode}: "
+                    f"{result.stderr.strip()}"
+                )
+            return result
+
+        # A registry can throttle an anonymous pull; pulling first, with
+        # retries, keeps that apart from the gateway under test.
+        def pull(image):
+            for attempt in range(3):
+                result = subprocess.run(
+                    ["docker", "pull", "--quiet", image],
+                    text=True,
+                    capture_output=True,
+                    timeout=120,
+                )
+                if result.returncode == 0:
+                    return
+                time.sleep(5 * (attempt + 1))
+            self.fail(f"docker pull {image}: {result.stderr.strip()}")
+
+        # nginx joins the backend's network namespace, which exists only
+        # while the backend runs.
+        def wait_running(container):
+            for _ in range(20):
+                state = docker("inspect", "--format", "{{.State.Running}}", container)
+                if state.stdout.strip() == "true":
+                    return
+                time.sleep(0.25)
+            logs = subprocess.run(
+                ["docker", "logs", container], text=True, capture_output=True, timeout=30
+            )
+            self.fail(f"{container} is not running: {logs.stdout}{logs.stderr}")
 
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "nginx.conf"
             config.write_text(gateway(True))
             config.chmod(0o644)
+            pull(BACKEND)
+            pull(NGINX)
             try:
                 docker(
                     "run",
                     "-d",
                     "--name",
                     name,
-                    "python:3.12-alpine",
+                    BACKEND,
                     "python",
                     "-c",
                     backend,
                 )
+                wait_running(name)
                 docker(
                     "run",
                     "-d",
