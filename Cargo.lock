@@ -5694,7 +5694,6 @@ dependencies = [
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
