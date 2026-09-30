@@ -125,7 +125,9 @@ Workflows under `.github/workflows/`:
 - `photon.yml` — Photon contract tests, migrations, schema drift, and service tests
 - `publish-image.yml` — container smoke tests, and publishes photon, prover and forester images to ECR
 - `forester.yml` — forester compile check
-- `prover-server.yml` — Go test suite + xtask smoke
+- `prover-server.yml` — Go test suite
+- `xtask-verifying-keys.yml` — xtask verifying-key smoke against the Go prover
+- `gpu-deploy-scripts.yml` — GPU deployment script checks and gateway test
 - `enforce-pr-only.yml` — fails direct pushes to `main`
 
 Area-specific workflows use path filters where appropriate. The shared Rust setup lives in

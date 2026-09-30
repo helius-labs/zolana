@@ -1,11 +1,19 @@
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
 
 from aws_host import NGINX, gateway
+
+BACKEND = "python:3.12-alpine"
+# ECR Public caps anonymous pulls per source IP, and hosted runners share their
+# IPs, so it can refuse with "toomanyrequests: Data limit exceeded". Its
+# docker/library images mirror Docker Hub's official ones, so the pinned digest
+# pulls byte for byte from Docker Hub too.
+NGINX_MIRROR = NGINX.replace("public.ecr.aws/docker/library/", "docker.io/library/", 1)
 
 
 @unittest.skipUnless(os.environ.get("GPU_GATEWAY_TEST") == "1", "requires Docker")
@@ -52,51 +60,100 @@ def request(path, key=None, data=None, method=None, query=False):
             return response.status, response.read(), response.headers.get_all('Access-Control-Allow-Origin')
     except urllib.error.HTTPError as error:
         return error.code, b'', []
-for attempt in range(20):
+def expect(status, path, key=None, query=False):
+    got = request(path, key, query=query)[0]
+    assert got == status, (path, key, query, got)
+def listening(port):
     try:
-        request('/ready')
+        urllib.request.urlopen(f'http://127.0.0.1:{port}/proving-keys', timeout=1)
+    except urllib.error.HTTPError:
+        pass
+    except OSError:
+        return False
+    return True
+# nginx answers as soon as it starts, before the backends it proxies to and
+# authorizes against listen, so wait for all three.
+for attempt in range(40):
+    if all(listening(port) for port in (3003, 8784, 3001)):
         break
-    except urllib.error.URLError:
-        time.sleep(0.25)
+    time.sleep(0.25)
 for path in ('/ready', '/indexer', '/indexer/readiness', '/prove/indexed', '/v1/zolana/prove/indexed', '/proving-keys/extra'):
-    assert request(path)[0] == 401, path
-    assert request(path, 'wrong')[0] == 401, path
+    expect(401, path)
+    expect(401, path, 'wrong')
     code, _, cors = request(path, 'secret')
     assert code == 200 and cors == ['*'], (path, code, cors)
-    assert request(path, 'wrong', query=True)[0] == 401, path
-    assert request(path, 'secret', query=True)[0] == 200, path
+    expect(401, path, 'wrong', query=True)
+    expect(200, path, 'secret', query=True)
 for path in ('/proving-keys', '/v1/zolana/proving-keys'):
     for key in (None, 'wrong', 'secret'):
-        assert request(path, key)[0] == 200, path
+        expect(200, path, key)
 assert request('/_authorize', 'secret')[0] == 404
 assert request('/indexer', 'secret', b'{"jsonrpc":"2.0"}')[1] == b'{"jsonrpc":"2.0"}'
 assert request('/indexer', method='OPTIONS')[0] == 204
 """
 
         def docker(*args):
-            return subprocess.run(
+            result = subprocess.run(
                 ["docker", *args],
-                check=True,
                 text=True,
                 capture_output=True,
                 timeout=120,
             )
+            if result.returncode != 0:
+                self.fail(
+                    f"docker {' '.join(args)} exited {result.returncode}: "
+                    f"{result.stderr.strip()}"
+                )
+            return result
+
+        # Pulled before the test starts, so a registry refusing an anonymous
+        # pull is not mistaken for a gateway failure. Returns the first
+        # reference that pulls.
+        def pull(*images):
+            errors = []
+            for image in images:
+                result = subprocess.run(
+                    ["docker", "pull", "--quiet", image],
+                    text=True,
+                    capture_output=True,
+                    timeout=120,
+                )
+                if result.returncode == 0:
+                    return image
+                errors.append(f"docker pull {image}: {result.stderr.strip()}")
+            self.fail("\n".join(errors))
+
+        # nginx joins the backend's network namespace, which exists only
+        # while the backend runs.
+        def wait_running(container):
+            for _ in range(20):
+                state = docker("inspect", "--format", "{{.State.Running}}", container)
+                if state.stdout.strip() == "true":
+                    return
+                time.sleep(0.25)
+            logs = subprocess.run(
+                ["docker", "logs", container], text=True, capture_output=True, timeout=30
+            )
+            self.fail(f"{container} is not running: {logs.stdout}{logs.stderr}")
 
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "nginx.conf"
             config.write_text(gateway(True))
             config.chmod(0o644)
+            pull(BACKEND)
+            nginx = pull(NGINX, NGINX_MIRROR)
             try:
                 docker(
                     "run",
                     "-d",
                     "--name",
                     name,
-                    "python:3.12-alpine",
+                    BACKEND,
                     "python",
                     "-c",
                     backend,
                 )
+                wait_running(name)
                 docker(
                     "run",
                     "-d",
@@ -106,7 +163,7 @@ assert request('/indexer', method='OPTIONS')[0] == 204
                     "container:" + name,
                     "-v",
                     f"{config}:/etc/nginx/nginx.conf:ro",
-                    NGINX,
+                    nginx,
                 )
                 docker("exec", name, "python", "-c", checks)
                 logs = docker("logs", name + "-nginx")
