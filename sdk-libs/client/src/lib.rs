@@ -23,6 +23,7 @@ pub mod error;
 pub mod indexer;
 pub mod prover;
 pub mod rpc;
+pub mod spendable;
 pub mod user_registry;
 
 pub use authority::ProofAuthority;
@@ -66,6 +67,7 @@ pub use rpc::{
     MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
+pub use spendable::SpendableUtxos;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

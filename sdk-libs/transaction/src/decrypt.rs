@@ -31,6 +31,17 @@ pub struct SpendableDecryptionResult {
     pub utxos_with_data: Vec<WalletUtxo>,
 }
 
+impl SpendableDecryptionResult {
+    /// Every spendable UTXO: the balances' UTXOs, then the data-bearing ones.
+    pub fn utxos(&self) -> impl Iterator<Item = &WalletUtxo> {
+        self.balances
+            .assets
+            .iter()
+            .flat_map(|balance| &balance.utxos)
+            .chain(&self.utxos_with_data)
+    }
+}
+
 /// Decrypts and verifies notes against the supplied transactions.
 pub fn decrypt_spendable<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,

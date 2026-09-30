@@ -2,9 +2,8 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
-
 use zolana_transaction::{
-    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, WalletUtxo,
+    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
@@ -133,10 +132,8 @@ impl CursorStream {
     }
 }
 
-pub type DepositPayloadDecoder = for<'a> fn(&'a [u8]) -> Result<&'a [u8], TransactionError>;
-
 pub struct Wallet {
-    pub(super) deposit_payload: DepositPayloadDecoder,
+    pub(super) deposit_payload: DepositPayload,
     /// Public wallet identity. All secret key material is supplied by a
     /// `WalletAuthority` when cryptographic work is required.
     pub identity: ShieldedAddress,
@@ -177,7 +174,7 @@ impl Wallet {
     }
 
     #[must_use]
-    pub fn with_deposit_payload_decoder(mut self, decoder: DepositPayloadDecoder) -> Self {
+    pub fn with_deposit_payload_decoder(mut self, decoder: DepositPayload) -> Self {
         self.deposit_payload = decoder;
         self
     }

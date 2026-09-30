@@ -75,6 +75,9 @@ serial_test = { workspace = true }
 wincode = { workspace = true }
 
 [[test]]
+name = "spendable"
+
+[[test]]
 name = "rpc"
 
 # Hermetic: the prover proving-key startup check.

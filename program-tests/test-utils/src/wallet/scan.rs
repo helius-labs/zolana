@@ -124,7 +124,7 @@ enum MergeResolution {
 }
 
 pub(super) struct SyncCtx<'a> {
-    deposit_payload: super::state::DepositPayloadDecoder,
+    deposit_payload: zolana_transaction::DepositPayload,
     pub(super) nullifier_key: &'a NullifierKey,
     /// Every viewing key this wallet has held, current and rotated-out. A
     /// transfer addressed to a retired key is still addressed to this wallet,

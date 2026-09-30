@@ -39,6 +39,30 @@ pub struct EncryptedUtxoMatch {
     pub salt: Option<[u8; 16]>,
 }
 
+impl EncryptedUtxoMatch {
+    /// A proofless deposit output as the single-output transaction
+    /// `zolana_transaction::decrypt_spendable` reads it from. `None` for an
+    /// encrypted output, which arrives with its whole transaction instead.
+    pub fn into_proofless_transaction(self) -> Option<ShieldedTransaction> {
+        if self.tx_viewing_pk.is_some() || self.salt.is_some() {
+            return None;
+        }
+        Some(ShieldedTransaction {
+            slot: self.slot,
+            tx_signature: self.tx_signature,
+            event_index: Some(0),
+            tx_viewing_pk: None,
+            salt: None,
+            output_slots: vec![self.output_slot],
+            messages: Vec::new(),
+            nullifiers: Vec::new(),
+            proofless: true,
+            ring_config: None,
+            ring_program_id: None,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,

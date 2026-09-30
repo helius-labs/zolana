@@ -1,8 +1,15 @@
 use borsh::BorshDeserialize;
-use zolana_event::{MessageData, OutputDataEncoding, ProoflessOutput};
+use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
 use zolana_keypair::P256Pubkey;
 
-use crate::serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization};
+use crate::{
+    error::TransactionError,
+    serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization},
+};
+
+/// Returns the recipient's ciphertext from inside a ring program's framing of
+/// a ring deposit ciphertext.
+pub type DepositPayload = for<'a> fn(&'a [u8]) -> Result<&'a [u8], TransactionError>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {
@@ -56,5 +63,39 @@ impl OutputSlot {
             return None;
         }
         Proofless::deserialize(body).ok()
+    }
+
+    /// Replaces a ring program's framing of a ring deposit ciphertext with the
+    /// recipient's ciphertext inside it, which is what
+    /// [`decrypt`](crate::decrypt) opens. Every other output, and a deposit
+    /// whose framing does not parse, is left as published.
+    pub fn unwrap_ring_deposit(&mut self, deposit_payload: DepositPayload) {
+        let Some(OutputDataEncoding::Encrypted(blob)) = self.output_data() else {
+            return;
+        };
+        let Some((&scheme, body)) = blob.split_first() else {
+            return;
+        };
+        if scheme != EncryptedScheme::RingDeposit.as_byte() {
+            return;
+        }
+        let Ok(mut output) = EncryptedRingDepositOutput::try_from_slice(body) else {
+            return;
+        };
+        let Ok(ciphertext) = deposit_payload(&output.encrypted.ciphertext) else {
+            return;
+        };
+        if ciphertext.len() == output.encrypted.ciphertext.len() {
+            return;
+        }
+        output.encrypted.ciphertext = ciphertext.to_vec();
+        let Ok(body) = borsh::to_vec(&output) else {
+            return;
+        };
+        if let Ok(payload) = borsh::to_vec(&OutputDataEncoding::Encrypted(
+            [&[scheme][..], &body].concat(),
+        )) {
+            self.payload = payload;
+        }
     }
 }
