@@ -90,7 +90,6 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
     )
     .expect("change utxo");
     let source_input_hash = fe(5);
-    let external_data_hash = fe(8);
     let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[source_input_hash, [0u8; 32]],
@@ -98,7 +97,6 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
             change.hash().expect("change hash"),
             order_utxo.hash().expect("order utxo hash"),
         ],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -109,7 +107,6 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
         order_utxo,
         change,
         source_input_hash,
-        external_data_hash,
         private_tx_blinding,
     }
 }

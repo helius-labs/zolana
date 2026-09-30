@@ -86,7 +86,6 @@ type MergeParameters struct {
 	OutputRingDataHash *big.Int
 
 	ExternalDataHash *big.Int
-	PrivateTxHash    *big.Int
 	AllowDummyInputs *big.Int
 
 	PublicInputHash *big.Int

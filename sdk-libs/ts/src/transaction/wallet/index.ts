@@ -23,6 +23,25 @@ export {
   type SplitBundlePlaintext,
 } from "./encrypt-rails.js";
 export {
+  decodeProgramTransaction,
+  toProgramWalletUtxo,
+  type DecodedProgramTransaction,
+  type ProgramData,
+  type ProgramDataRecord,
+  type ProgramEncryptOptions,
+  type ProgramFinalizedTransaction,
+  type ProgramMint,
+  type ProgramOwnerTag,
+  type ProgramProofInputUtxo,
+  type ProgramProofOutputUtxo,
+  type ProgramResolvedOwnerTag,
+  type ProgramSettlementTransfer,
+  type ProgramTransactionKeys,
+  type ProgramUtxo,
+  type ProgramWalletUtxo,
+} from "./program-transaction.js";
+export { ProgramOwner, type ProgramOwnerSeed } from "./program-owner.js";
+export {
   approveIntent,
   approveUnattended,
   intentHash,

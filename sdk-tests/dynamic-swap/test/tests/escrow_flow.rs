@@ -350,9 +350,6 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 encoded.resolved_owner_tags,
                 vec![],
             );
-            let external_data_hash = external_data
-                .hash()
-                .map_err(|e| anyhow!("external data hash: {e:?}"))?;
             let spp_proof_inputs = SppProofInputs {
                 input_utxos,
                 output_utxos: encoded.output_utxos,
@@ -395,7 +392,6 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 destination_asset,
                 created_at,
                 order_amount,
-                external_data_hash,
                 private_tx_blinding,
                 output_tree_id: env.localnet.tree_id,
             }
@@ -666,9 +662,6 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             encoded.resolved_owner_tags,
             vec![],
         );
-        let external_data_hash = external_data
-            .hash()
-            .map_err(|e| anyhow!("external data hash: {e:?}"))?;
         let spp_proof_inputs = SppProofInputs {
             input_utxos,
             output_utxos: encoded.output_utxos,
@@ -703,7 +696,6 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             reservation_utxo_hash: escrow_state.reservation_utxo_hash,
             recipient_owner_hash,
             authority_owner_hash,
-            external_data_hash,
             private_tx_blinding,
             output_tree_id: env.localnet.tree_id,
         }

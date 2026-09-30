@@ -125,7 +125,6 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
     },
     outputUtxoHash: field(9),
     eddsaOwner: true,
-    privateTxHash: field(3),
     nullifiers: Array.from({ length: 8 }, (_, index) => field(index + 1)),
     utxoTreeRootIndex: 4,
     nullifierTreeRootIndex: 10,
@@ -427,7 +426,7 @@ describe("merge cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-    expect(cached.data).toHaveLength(1 + 528);
+    expect(cached.data).toHaveLength(1 + 496);
     expect(Array.from(cached.data?.slice(-2) ?? [])).toEqual([1, 7]);
     expect(plain.data?.at(-1)).toBe(0);
   });

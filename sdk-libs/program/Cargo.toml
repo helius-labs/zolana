@@ -1,34 +1,148 @@
 [package]
 name = "zolana-program"
 version = "0.1.0"
-description = "SPP SDK for Solana programs and clients: shielded-pool instruction builders and the blinding seed derivations a program recomputes on-chain, buildable for the SBF target."
+description = "SPP SDK for Solana programs: the zolana-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
-[lib]
-name = "zolana_program"
+[dependencies]
+ark-bn254 = { version = "0.6", optional = true }
+ark-ec = { version = "0.6", optional = true }
+ark-ff = { version = "0.6", optional = true }
+ark-groth16 = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-poly = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-r1cs-std = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-relations = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-serialize = { version = "0.6", optional = true }
+ark-std = { version = "0.6", features = ["getrandom"], optional = true }
+borsh = { workspace = true, optional = true }
+groth16-solana = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+# arkworks 0.6 port of light-poseidon (crates.io 0.4.0 is on arkworks 0.5).
+light-poseidon = { git = "https://github.com/Lightprotocol/light-poseidon", rev = "08e037e20910e86aa62641217643540d1f902443", optional = true }
+pinocchio = { workspace = true, features = ["cpi"], optional = true }
+rayon = { workspace = true, optional = true }
+solana-address = { workspace = true }
+solana-bn254 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde-wasm-bindgen = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+solana-signature = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-rayon = { version = "1.3", features = ["no-bundler"], optional = true }
+wincode = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-instruction = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true, optional = true }
+zolana-macros = { path = "../macros", optional = true }
+zolana-transaction = { workspace = true, optional = true }
+zolana-tree = { workspace = true, optional = true }
 
 [features]
+default = []
 # Builders for protocol operations: protocol-authority and fee-authority
 # administration, tree creation, ring activation, and the forester's nullifier
 # tree maintenance. Off by default so programs and wallets never compile them.
-protocol = []
-
-[dependencies]
-solana-address = { workspace = true }
-solana-instruction = { workspace = true }
-solana-pubkey = { workspace = true }
-thiserror = { workspace = true }
-wincode = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true, features = ["borsh", "tree"] }
-zolana-tree = { workspace = true }
+protocol-instructions = ["zolana-instruction/protocol"]
+# The shielded pool's transact instruction as a signed CPI from a pinocchio
+# program.
+cpi = ["zolana-instruction/cpi"]
+# Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
+# the tree and nullifier PDA checks of a read, and their transact CPI.
+compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:zolana-tree"]
+circuit = [
+    "dep:ark-bn254",
+    "dep:ark-ff",
+    "dep:ark-r1cs-std",
+    "dep:ark-relations",
+    "dep:ark-std",
+    "dep:borsh",
+    "dep:light-poseidon",
+    "dep:solana-signature",
+    "dep:thiserror",
+    "dep:zolana-keypair",
+    "dep:zolana-macros",
+    "dep:zolana-transaction",
+    "solana-address/curve25519",
+]
+client = [
+    "circuit",
+    "dep:ark-ec",
+    "dep:ark-groth16",
+    "dep:ark-poly",
+    "dep:ark-serialize",
+    "dep:groth16-solana",
+    "dep:sha2",
+    "dep:solana-bn254",
+]
+setup = [
+    "circuit",
+    "dep:ark-ec",
+    "dep:ark-groth16",
+    "dep:ark-serialize",
+    "dep:groth16-solana",
+    "groth16-solana?/gnark-vk",
+]
+encrypt = ["client"]
+parallel = ["client", "dep:rayon", "ark-groth16/parallel", "ark-poly/parallel"]
+serde = ["circuit", "dep:serde", "zolana-keypair/serde", "zolana-transaction/serde"]
+tsify = [
+    "serde",
+    "dep:tsify",
+    "dep:wasm-bindgen",
+    "zolana-keypair/tsify",
+    "zolana-transaction/tsify",
+]
+wasm = [
+    "client",
+    "tsify",
+    "dep:console_error_panic_hook",
+    "dep:js-sys",
+    "dep:serde-wasm-bindgen",
+]
+wasm-prover = ["wasm"]
+r1cs-export = ["client", "setup"]
+wasm-threads = ["wasm-prover", "parallel", "dep:wasm-bindgen-rayon"]
+wasm-verify = ["wasm", "groth16-solana/gnark-vk"]
+# Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
+external-tools = []
 
 [dev-dependencies]
+ark-circom = { version = "0.6.0", default-features = false }
 borsh = { workspace = true }
-bytemuck = { workspace = true }
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
+hex = { workspace = true }
+num-bigint = { workspace = true }
+proptest = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+wasmer = { version = "6.1", default-features = false }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+zolana-client = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-tree = { workspace = true }
+
+[[test]]
+name = "unit"
+required-features = ["client", "setup"]
+
+[[test]]
+name = "external_gadget"
+required-features = ["client", "setup"]
+
+[[test]]
+name = "scenarios"
+required-features = ["client", "setup", "compression"]
+
+[lints.clippy]
+disallowed_types = "allow"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

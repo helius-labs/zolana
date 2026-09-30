@@ -953,7 +953,6 @@ fn tx_size(args: Vec<String>) {
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
             eddsa_owner: true,
-            private_tx_hash: [0u8; 32],
             nullifiers,
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,

@@ -23,19 +23,20 @@ use crate::instructions::{
 /// create their PDAs. Retain only the queue metadata needed by the event.
 ///
 /// Steps 1-5 complete each tree before moving to the next:
-/// 1. Select the tree's contiguous input group.
+/// 1. Select the inputs that reference the tree, in input order.
 /// 2. Load the tree, combine its dummy-input policy and resolve its roots.
 /// 3. Queue its nullifiers and credit its insertion fee.
 /// 4. Release the tree-data borrow, collect the fee and create its PDAs.
 /// 5. Retain its first queue sequence for the event.
-/// 6. Reject unmatched tree contexts, input groups or PDA accounts.
+/// 6. Reject unmatched tree contexts, inputs or PDA accounts.
 /// 7. Assign the tree slots and packed input flags to the proof inputs.
 ///
-/// Inputs are grouped by tree, so each tree owns one contiguous group of inputs.
-/// The tree library assigns consecutive queue numbers within each group. The
-/// circuit applies its single dummy-input bit to every input slot whichever
-/// tree it selected, so the published policy is the conjunction over all input
-/// trees: anything weaker would relax the gate of the tightest tree.
+/// Inputs may reference their trees in any order. Each tree queues the inputs
+/// that reference it in input order, so the tree library assigns them
+/// consecutive queue numbers in that order. The circuit applies its single
+/// dummy-input bit to every input slot whichever tree it selected, so the
+/// published policy is the conjunction over all input trees: anything weaker
+/// would relax the gate of the tightest tree.
 #[profile]
 pub(crate) fn apply_input_trees(
     accounts: &mut TransactAccounts<'_>,
@@ -52,14 +53,24 @@ pub(crate) fn apply_input_trees(
     let mut sequences: ArrayVec<InputTreeSequence, INPUT_TREES> = ArrayVec::new();
     let mut tree_slots: ArrayVec<TreeSlot, INPUT_TREES> = ArrayVec::new();
     let mut allow_dummy_inputs = true;
-    let mut remaining_pdas = nullifier_pdas.as_mut_slice();
+    let mut queued_inputs = 0usize;
+    if nullifier_pdas.len() != ix.inputs.len() {
+        return Err(ShieldedPoolError::InvalidNullifierPda.into());
+    }
 
-    let mut input_groups = ix
-        .inputs
-        .chunk_by(|left, right| left.tree_index == right.tree_index);
-    for (input_tree_account, context) in input_trees.iter_mut().zip(&ix.tree_contexts) {
-        // 1. Select the tree's contiguous input group.
-        let tree_inputs = input_groups.next().ok_or(shape)?;
+    for (tree_index, (input_tree_account, context)) in
+        (0u8..).zip(input_trees.iter_mut().zip(&ix.tree_contexts))
+    {
+        // 1. Select the inputs that reference this tree, in input order.
+        let tree_inputs = || {
+            ix.inputs
+                .iter()
+                .filter(move |input| input.tree_index == tree_index)
+        };
+        let tree_input_count = tree_inputs().count();
+        if tree_input_count == 0 {
+            return Err(shape.into());
+        }
         let input_tree_address = input_tree_account.address().to_bytes();
         let result = {
             // 2. Load the tree, combine its dummy-input policy and resolve its roots.
@@ -70,21 +81,21 @@ pub(crate) fn apply_input_trees(
             )
             .map_err(tree_error)?;
             allow_dummy_inputs &=
-                input_tree.dummy_input_headroom().map_err(tree_error)? >= tree_inputs.len() as u64;
+                input_tree.dummy_input_headroom().map_err(tree_error)? >= tree_input_count as u64;
             tree_slots
                 .try_push(resolve_input_tree_slot(&input_tree, context)?)
                 .map_err(|_| shape)?;
 
             // 3. Queue its nullifiers and credit its insertion fee.
             let first_input_queue_seq = input_tree.nullifier_tree().queue_next_index;
-            for input in tree_inputs {
+            for input in tree_inputs() {
                 input_tree
                     .nullifier_tree()
                     .insert_nullifier_into_queue(&input.nullifier_hash)
                     .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
             }
             let forester_fee = input_tree
-                .credit_insertion_fee(tree_inputs.len() as u64)
+                .credit_insertion_fee(tree_input_count as u64)
                 .map_err(tree_error)?;
             InputTreeResult {
                 input_tree: InputTreeSequence {
@@ -98,31 +109,28 @@ pub(crate) fn apply_input_trees(
         };
         // 4. Release the tree-data borrow before the CPIs. The helper collects
         // this tree's fee before debiting it for any PDA rent.
-        let (tree_pdas, rest) = remaining_pdas
-            .split_at_mut_checked(tree_inputs.len())
-            .ok_or(ShieldedPoolError::InvalidNullifierPda)?;
         create_nullifier_pdas(
             payer,
             input_tree_account,
-            tree_pdas,
-            tree_inputs.iter().map(|input| &input.nullifier_hash),
+            nullifier_pdas
+                .iter_mut()
+                .zip(&ix.inputs)
+                .filter(|(_, input)| input.tree_index == tree_index)
+                .map(|(nullifier_pda, input)| (&mut **nullifier_pda, &input.nullifier_hash)),
             &result,
         )?;
-        remaining_pdas = rest;
+        queued_inputs += tree_input_count;
         // 5. Retain its first queue sequence for the event.
         sequences.try_push(result.input_tree).map_err(|_| shape)?;
     }
     // 6. Every declared context must have been paired with both a tree account
-    // and an input group; leftover groups or mismatched counts mean the
+    // and its inputs; unqueued inputs or mismatched counts mean the
     // instruction data and the account list disagree.
-    if input_groups.next().is_some()
+    if queued_inputs != ix.inputs.len()
         || sequences.len() != ix.tree_contexts.len()
         || sequences.len() != input_trees.len()
     {
         return Err(shape.into());
-    }
-    if !remaining_pdas.is_empty() {
-        return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
 
     // 7. Assign the tree slots and packed input flags to the proof inputs.

@@ -144,7 +144,6 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         OUTPUT_TREE_ID,
     )
     .expect("destination output utxo");
-    let external_data_hash = fe(8);
     let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[
@@ -155,7 +154,6 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
             source_output.hash().expect("source output hash"),
             destination_output.hash().expect("destination output hash"),
         ],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -177,7 +175,6 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         taker_in,
         source_output,
         destination_output,
-        external_data_hash,
         private_tx_blinding,
     }
 }

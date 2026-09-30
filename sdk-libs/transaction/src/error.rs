@@ -70,6 +70,12 @@ pub enum TransactionError {
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
 
+    #[error("owner tag count mismatch: {got} owner tag(s) for {expected} output(s)")]
+    OwnerTagCountMismatch { got: usize, expected: usize },
+
+    #[error("the keys do not hold the sender the transaction was finalized for")]
+    SenderAddressMismatch,
+
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 
@@ -99,6 +105,12 @@ pub enum TransactionError {
     #[error("input slot 0 must be a real input utxo, not padding")]
     DummyInFirstInputSlot,
 
+    #[error("input slot {index} is real but follows padding, padding inputs must come last")]
+    RealInputAfterDummy { index: usize },
+
+    #[error("output slot {index} is real but follows a dummy, dummy outputs must come last")]
+    RealOutputAfterDummy { index: usize },
+
     /// Padding is hashed under a declared input tree. A dummy naming any other
     /// tree is a caller mistake: its commitment and nullifier both fold the tree
     /// id in, so it cannot be relabelled after the fact.
@@ -122,11 +134,20 @@ pub enum TransactionError {
     #[error("a padding output cannot be written to a cache")]
     CachedDummyOutput,
 
+    #[error("output {index} is the cache write beyond the {max} a transact holds")]
+    TooManyCacheWrites { index: usize, max: usize },
+
+    #[error("output {index} writes cache slot {slot}, which an earlier output already writes")]
+    DuplicateCacheWriteSlot { index: usize, slot: u8 },
+
+    #[error("output {index} names a cache slot, but the transaction writes no cache")]
+    CachedOutputWithoutWriteCache { index: usize },
+
+    #[error("the transaction names a write cache, but no output is written to it")]
+    UnusedWriteCache,
+
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
-
-    #[error("input {index} returns to tree {tree_id}; group inputs by tree before signing")]
-    InterleavedInputTrees { index: usize, tree_id: u16 },
 
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },
@@ -205,6 +226,9 @@ pub enum TransactionError {
 
     #[error("wallet authority did not provide its current viewing key")]
     MissingCurrentViewingKey,
+
+    #[error("the first input has no synced transaction viewing key")]
+    MissingSyncedTransactionKey,
 
     /// Raised when the authority is built, not when it is used, so it is
     /// distinct from [`Self::MissingCurrentViewingKey`]: that one means a scan

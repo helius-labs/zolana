@@ -42,7 +42,6 @@ func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inpu
 		inputHashes,
 		spptest.ToBigInts(assignment.OutputHashes()),
 		noAddressNullifiers(len(inputHashes)),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshPublicInputHash(t, assignment)
@@ -115,7 +114,6 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 		[]*big.Int{inputHash, inputHash},
 		spptest.ToBigInts(assignment.OutputHashes()),
 		noAddressNullifiers(2),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshPublicInputHash(t, assignment)
@@ -124,7 +122,7 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 }
 
 // TestP256DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, P256 rail):
-// a real P256 spend authorizes the transaction alongside a dummy in slot 0.
+// a real P256 spend authorizes the transaction alongside a dummy in slot 1.
 // Changing the dummy's public nullifier must fail only its derived-nullifier
 // binding, with output blindings, transaction hashes, and P256 authorization
 // refreshed to agree with the attacker-chosen value.
@@ -134,8 +132,8 @@ func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
-	// Keep the 110-unit spend in slot 1 and replace slot 0 with padding.
-	in := &assignment.Inputs[0]
+	// Keep the 100-unit spend in slot 0 and replace slot 1 with padding.
+	in := &assignment.Inputs[1]
 	in.Utxo.Domain = spptest.Fe(DummyDomain)
 	in.Utxo.Owner = spptest.Fe(0)
 	in.Utxo.Asset = spptest.Fe(0)
@@ -143,20 +141,20 @@ func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	in.OwnerPkHash = spptest.Fe(0)
 	in.NullifierSecret = spptest.Fe(0)
 	for i := range assignment.Outputs {
-		assignment.Outputs[i].Utxo.Amount = spptest.Fe(55)
+		assignment.Outputs[i].Utxo.Amount = spptest.Fe(50)
 	}
 
 	owner := spptest.FixedP256Key(t, 11)
-	rewriteInputAsP256(t, assignment, 1, owner)
+	rewriteInputAsP256(t, assignment, 0, owner)
 	inputHashes := []*big.Int{
+		testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0)),
 		spptest.Fe(0),
-		testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[1].Utxo), assignment.inputTreeID(1)),
 	}
 	refreshNullifierAttackHashes(t, assignment, inputHashes)
 	authorization := authorizeP256(t, assignment, owner, owner)
 	assert.SolvingSucceeded(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
 
-	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
+	assignment.Inputs[1].Nullifier = spptest.Fe(0xF01)
 	refreshNullifierAttackHashes(t, assignment, inputHashes)
 	authorization = authorizeP256(t, assignment, owner, owner)
 

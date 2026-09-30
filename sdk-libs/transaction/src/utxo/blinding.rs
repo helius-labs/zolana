@@ -5,10 +5,10 @@ use crate::error::TransactionError;
 /// stay below the field modulus.
 pub type Blinding = [u8; 32];
 
-// The blinding seed derivations live in `zolana_program::derivation` so
+// The blinding seed derivations live in `zolana_instruction::derivation` so
 // programs can recompute them on-chain; this module keeps the SDK entry points
 // and maps the hasher error into `TransactionError`.
-pub use zolana_program::derivation::{
+pub use zolana_instruction::derivation::{
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
@@ -22,7 +22,7 @@ pub fn derive_output_blinding_seed(
     first_nullifier: &[u8; 32],
     blinding_seed: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
-    Ok(zolana_program::derive_output_blinding_seed(
+    Ok(zolana_instruction::derive_output_blinding_seed(
         first_nullifier,
         blinding_seed,
     )?)
@@ -38,7 +38,7 @@ pub fn derive_private_tx_blinding(
     first_nullifier: &[u8; 32],
     secret: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
-    Ok(zolana_program::derive_private_tx_blinding(
+    Ok(zolana_instruction::derive_private_tx_blinding(
         first_nullifier,
         secret,
     )?)
@@ -54,7 +54,7 @@ pub fn derive_transact_output_blinding(
     seed: &Blinding,
     output_index: u32,
 ) -> Result<Blinding, TransactionError> {
-    Ok(zolana_program::derive_transact_output_blinding(
+    Ok(zolana_instruction::derive_transact_output_blinding(
         first_nullifier,
         seed,
         output_index,

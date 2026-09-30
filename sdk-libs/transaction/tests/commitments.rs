@@ -3,9 +3,13 @@ mod common;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
+use zolana_interface::{
+    state::cache::bind_cache_write,
+    verifying_keys::{CacheAccess, CacheWrite},
+};
 use zolana_keypair::{hash::sha256, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::transact::{CacheAccounts, PrivateTxHash, SppProofInputs},
+    instructions::transact::{CacheAccounts, PrivateTxHash, Shape, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
         program_id_proof_input_hash, ring_program_id_proof_input_hash, SppProofInputUtxo,
@@ -322,37 +326,151 @@ fn ownerless_outputs_and_dummy_inputs_contribute_zero_but_owned_zero_outputs_are
         amount: 0,
         ..output()
     };
-    tx.output_utxos = vec![ownerless.clone(), owned.clone()];
+    tx.output_utxos = vec![owned.clone(), ownerless.clone()];
     let expected_private = PrivateTxHash::new(
         &[real_hash, [0; 32]],
-        &[[0; 32], owned.hash(0).unwrap()],
-        &tx.external_data.hash().unwrap(),
+        &[owned.hash(0).unwrap(), [0; 32]],
         &tx.private_tx_blinding().unwrap(),
     )
     .hash()
     .unwrap();
-    assert_eq!(tx.message_hash().unwrap(), sha256(&expected_private));
+    assert_eq!(
+        tx.message_hash().unwrap(),
+        sha256(&[expected_private, tx.external_data.hash().unwrap()].concat())
+    );
     let expected = tx.message_hash().unwrap();
     tx.input_utxos.last_mut().unwrap().utxo_hash = field(91);
-    tx.output_utxos.first_mut().unwrap().blinding = field(92);
+    tx.output_utxos.last_mut().unwrap().blinding = field(92);
     assert_eq!(tx.message_hash().unwrap(), expected);
-    tx.output_utxos.last_mut().unwrap().blinding = field(93);
+    tx.output_utxos.first_mut().unwrap().blinding = field(93);
     assert_ne!(tx.message_hash().unwrap(), expected);
     assert!(ownerless.is_dummy());
     assert!(!owned.is_dummy());
 }
 
 #[test]
-fn private_transaction_hash_binds_every_chain_order_external_hash_and_blinding() {
-    let inputs = [field(1), field(2)];
-    let outputs = [field(3), field(4)];
-    let external = field(5);
+fn a_real_slot_after_a_dummy_is_refused_before_signing_or_proving() {
+    let mut tx = proof();
+    let first = tx.input_utxos.first().cloned().unwrap();
+    let second = SppProofInputUtxo::from(wallet_utxo(&keypair(7), Mint::SOL, 11, 0, 2));
+    let dummy = SppProofInputUtxo::dummy_with_blinding(field(7), 0).unwrap();
+    let ownerless = SppProofOutputUtxo {
+        blinding: field(8),
+        ..Default::default()
+    };
+    tx.input_utxos = vec![first.clone(), second.clone(), dummy.clone()];
+    tx.output_utxos = vec![output(), output(), ownerless.clone()];
+    assert_eq!(tx.check_shape(), Ok(Shape::IN3_OUT3));
+    assert!(tx.message_hash().is_ok());
+
+    let inputs = SppProofInputs {
+        input_utxos: vec![first, dummy, second],
+        ..tx.clone()
+    };
+    let input_error = TransactionError::RealInputAfterDummy { index: 2 };
+    assert_eq!(inputs.check_shape(), Err(input_error.clone()));
+    assert_eq!(inputs.message_hash(), Err(input_error));
+
+    let outputs = SppProofInputs {
+        output_utxos: vec![output(), ownerless, output()],
+        ..tx
+    };
+    let output_error = TransactionError::RealOutputAfterDummy { index: 2 };
+    assert_eq!(outputs.check_shape(), Err(output_error.clone()));
+    assert_eq!(outputs.message_hash(), Err(output_error));
+}
+
+#[test]
+fn a_cache_writing_message_hash_signs_the_cache_bound_external_data_hash() {
+    let mut tx = proof().with_write_cache(address(2));
+    tx.output_utxos = vec![output().with_cache_slot(3).unwrap()];
+    let unwritten = SppProofInputs {
+        output_utxos: vec![output()],
+        cache_accounts: CacheAccounts::default(),
+        ..tx.clone()
+    };
+    assert!(matches!(
+        SppProofInputs {
+            cache_accounts: CacheAccounts::default(),
+            ..tx.clone()
+        }
+        .message_hash(),
+        Err(TransactionError::CachedOutputWithoutWriteCache { index: 0 })
+    ));
+    let mut write_slots = CacheAccess::NO_WRITES;
+    write_slots[0] = CacheWrite { output: 0, slot: 3 };
+    let bound = bind_cache_write(
+        tx.external_data.hash().unwrap(),
+        Some((&address(2).to_bytes(), &write_slots)),
+    )
+    .unwrap();
+    let private_tx = PrivateTxHash::new(
+        &[tx.input_utxos.first().unwrap().hash()],
+        &[tx.output_utxos.first().unwrap().hash(0).unwrap()],
+        &tx.private_tx_blinding().unwrap(),
+    )
+    .hash()
+    .unwrap();
+    assert_eq!(
+        tx.message_hash().unwrap(),
+        sha256(&[private_tx, bound].concat())
+    );
+    assert_ne!(
+        tx.message_hash().unwrap(),
+        sha256(&[private_tx, tx.external_data.hash().unwrap()].concat())
+    );
+    assert_eq!(
+        unwritten.message_hash().unwrap(),
+        sha256(&[private_tx, tx.external_data.hash().unwrap()].concat())
+    );
+}
+
+#[test]
+fn private_transaction_hash_ignores_zero_padding_slots() {
     let blinding = field(6);
-    let zeros = [[0; 32]; 2];
-    let base = PrivateTxHash::new(&inputs, &outputs, &external, &blinding)
+    let compact = PrivateTxHash::new(&[field(1)], &[field(3)], &blinding)
         .hash()
         .unwrap();
-    let mut explicit = PrivateTxHash::new(&inputs, &outputs, &external, &blinding);
+    let padded_inputs = [field(1), [0; 32], [0; 32]];
+    let padded_outputs = [[0; 32], field(3), [0; 32], [0; 32]];
+    let padded = PrivateTxHash::new(&padded_inputs, &padded_outputs, &blinding);
+    assert_eq!(padded.hash().unwrap(), compact);
+    let zeros = [[0; 32]; 3];
+    let mut with_zero_addresses = padded;
+    with_zero_addresses.address_nullifiers = Some(&zeros);
+    assert_eq!(with_zero_addresses.hash().unwrap(), compact);
+}
+
+#[test]
+fn external_data_changes_the_message_hash_but_not_the_private_transaction_hash() {
+    let mut tx = proof();
+    let message = tx.message_hash().unwrap();
+    let blinding = tx.private_tx_blinding().unwrap();
+    let inputs = [tx.input_utxos.first().unwrap().hash()];
+    let private_tx = PrivateTxHash::new(&inputs, &[], &blinding).hash().unwrap();
+    assert_eq!(
+        message,
+        sha256(&[private_tx, tx.external_data.hash().unwrap()].concat())
+    );
+    tx.external_data.salt = [9; 16];
+    assert_ne!(tx.message_hash().unwrap(), message);
+    assert_eq!(tx.private_tx_blinding().unwrap(), blinding);
+    assert_eq!(
+        tx.message_hash().unwrap(),
+        sha256(&[private_tx, tx.external_data.hash().unwrap()].concat())
+    );
+}
+
+#[test]
+fn private_transaction_hash_binds_every_chain_order_and_blinding() {
+    let inputs = [field(1), field(2)];
+    let outputs = [field(3), field(4)];
+    let blinding = field(6);
+    let zeros = [[0; 32]; 2];
+    let base = PrivateTxHash::new(&inputs, &outputs, &blinding)
+        .hash()
+        .unwrap();
+    let mut explicit = PrivateTxHash::new(&inputs, &outputs, &blinding);
     explicit.address_nullifiers = Some(&zeros);
     assert_eq!(explicit.hash().unwrap(), base);
     for changed_inputs in [
@@ -361,7 +479,7 @@ fn private_transaction_hash_binds_every_chain_order_external_hash_and_blinding()
         [field(2), field(1)],
     ] {
         assert_ne!(
-            PrivateTxHash::new(&changed_inputs, &outputs, &external, &blinding)
+            PrivateTxHash::new(&changed_inputs, &outputs, &blinding)
                 .hash()
                 .unwrap(),
             base
@@ -373,20 +491,14 @@ fn private_transaction_hash_binds_every_chain_order_external_hash_and_blinding()
         [field(4), field(3)],
     ] {
         assert_ne!(
-            PrivateTxHash::new(&inputs, &changed_outputs, &external, &blinding)
+            PrivateTxHash::new(&inputs, &changed_outputs, &blinding)
                 .hash()
                 .unwrap(),
             base
         );
     }
     assert_ne!(
-        PrivateTxHash::new(&inputs, &outputs, &field(7), &blinding)
-            .hash()
-            .unwrap(),
-        base
-    );
-    assert_ne!(
-        PrivateTxHash::new(&inputs, &outputs, &external, &field(7))
+        PrivateTxHash::new(&inputs, &outputs, &field(7))
             .hash()
             .unwrap(),
         base
@@ -398,7 +510,7 @@ fn private_transaction_hash_binds_every_chain_order_external_hash_and_blinding()
         [field(7), field(9)],
         [field(9), field(8)],
     ] {
-        let mut hash = PrivateTxHash::new(&inputs, &outputs, &external, &blinding);
+        let mut hash = PrivateTxHash::new(&inputs, &outputs, &blinding);
         hash.address_nullifiers = Some(&nullifiers);
         let hash = hash.hash().unwrap();
         assert_ne!(hash, base);

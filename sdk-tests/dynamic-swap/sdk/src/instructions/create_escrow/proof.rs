@@ -39,8 +39,7 @@ pub struct EscrowOpenProofInputParams {
     /// `CREATED_AT_SLOT_TOLERANCE`.
     pub created_at: u64,
     pub order_amount: u64,
-    pub external_data_hash: [u8; 32],
-    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// `SppProofInputs::private_tx_blinding()`, the last `private_tx_hash`
     /// preimage element. The spent inputs carry their own tree ids.
     pub private_tx_blinding: [u8; 32],
     /// Raw id of the tree the order, reservation and maker-change outputs are
@@ -121,7 +120,6 @@ impl EscrowOpenProofInputParams {
                 reservation_out.hash().map_err(err)?,
                 maker_change.hash().map_err(err)?,
             ],
-            &self.external_data_hash,
             &self.private_tx_blinding,
         )
         .hash()
@@ -151,7 +149,6 @@ impl EscrowOpenProofInputParams {
             order_out,
             reservation_out,
             maker_change,
-            external_data_hash: self.external_data_hash,
             private_tx_blinding: self.private_tx_blinding,
         })
     }

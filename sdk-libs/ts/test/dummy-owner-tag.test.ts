@@ -16,7 +16,7 @@ import {
   type PreparedTransfer,
   type SppProofInputs,
 } from "../src/transaction/index.js";
-import { hashChain4 } from "../src/transaction/internal.js";
+import { concat, nonZeroHashChain } from "../src/transaction/internal.js";
 
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
 // a padding slot attribute the transaction to it.
@@ -56,6 +56,18 @@ function dummyTags(signed: SppProofInputs): readonly OwnerTag[] {
   });
 }
 
+function expectZeroAmountSenderOutput(
+  output: PreparedTransfer["outputs"][number] | undefined,
+  sender: ShieldedKeypair,
+): void {
+  expect(output?.isDummy()).toBe(false);
+  expect(output?.asset).toBe(SOL_MINT);
+  expect(output?.amount).toBe(0n);
+  expect(output?.ownerAddress?.signingPublicKey.toBytes()).toEqual(
+    sender.signingPublicKey().toBytes(),
+  );
+}
+
 /**
  * Every output slot, padding included, is blinded by
  * `transactOutputBlinding(firstNullifier, outputBlindingSeed, index)`; the
@@ -89,13 +101,12 @@ describe("dummy output owner tags", () => {
     const prepared = transfer.prepare();
     const signed = transfer.sign(sender, new AssetRegistry());
 
-    // Padded layout: the SPL change slot below `senderOutputCount` holds no
-    // value and is a dummy, the SOL change and the recipient are real.
     expect(prepared.changeLayout).toBe("padded");
     expect(prepared.senderOutputCount).toBe(2);
-    expect(prepared.outputs.map((output) => output.isDummy())).toEqual([true, false, false]);
+    expect(prepared.outputs.map((output) => output.isDummy())).toEqual([false, false, false]);
+    expectZeroAmountSenderOutput(prepared.outputs[0], sender);
     expect(signed.outputs.map((output) => output.isDummy())).toEqual([
-      true,
+      false,
       false,
       false,
       true,
@@ -106,11 +117,9 @@ describe("dummy output owner tags", () => {
     ]);
 
     const tags = dummyTags(signed);
-    expect(tags).toHaveLength(6);
+    expect(tags).toHaveLength(5);
     for (const tag of tags) expect(tag).toEqual(inlineTag(senderTag));
     expect(tags.some((tag) => tag.kind === "account")).toBe(false);
-    // The zero-value change slot below `senderOutputCount` is published as a
-    // pad under the dummy tag rather than as the sender's compact tag.
     expect(signed.externalData.outputs[0]?.ownerTag).toEqual(inlineTag(senderTag));
     // A foreign payer is not the sender, so no slot at all publishes Account(0).
     expect(
@@ -144,30 +153,56 @@ describe("dummy output owner tags", () => {
     expect(dummyTags(signedCompact)).toEqual([inlineTag(recipientTag)]);
     expect(signedCompact.externalData.outputs[0]?.ownerTag).toEqual(inlineTag(recipientTag));
     expectDerivedBlindings(preparedCompact, signedCompact);
+  });
 
-    // Padded: both change slots hold no value and are dummies from `prepare`
-    // on; they, too, take the recipient's tag.
+  it("keeps the empty change slots before a recipient as zero-amount outputs the sender owns", () => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const senderTag = sender.signingPublicKey().confidentialViewTag();
+    const payer = sender.shieldedAddress().solanaAddress();
     const padded = new ConfidentialTransfer(
       sender.shieldedAddress(),
       [solInput(sender, 10n)],
       payer,
-    );
+    ).withShape({ inputs: 1, outputs: 8 });
     padded.send(recipient.shieldedAddress(), SOL_MINT, 10n);
     const preparedPadded = padded.prepare();
-    expect(preparedPadded.outputs.map((output) => output.isDummy())).toEqual([true, true, false]);
+    expect(preparedPadded.senderOutputCount).toBe(2);
+    expect(preparedPadded.outputs.map((output) => output.isDummy())).toEqual([false, false, false]);
+    expectZeroAmountSenderOutput(preparedPadded.outputs[0], sender);
+    expectZeroAmountSenderOutput(preparedPadded.outputs[1], sender);
     const signedPadded = padded.sign(sender, new AssetRegistry());
-    // `prepare` tagged both change slots with the sender, who is the payer
-    // here; a pad may not name the payer, so the proof-side outputs must be
-    // retagged to the recipient exactly like the published slots.
-    expect(signedPadded.outputs.slice(0, 2).map((output) => output.ownerTag)).toEqual([
-      recipientTag,
-      recipientTag,
+    expect(signedPadded.outputs.map((output) => output.isDummy())).toEqual([
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(signedPadded.externalData.outputs.slice(0, 2).map((output) => output.ownerTag)).toEqual([
+      { kind: "account", index: 0 },
+      { kind: "account", index: 0 },
     ]);
     const tags = dummyTags(signedPadded);
-    expect(tags.length).toBeGreaterThanOrEqual(2);
-    for (const tag of tags) expect(tag).toEqual(inlineTag(recipientTag));
-    expect(tags.some((tag) => tag.kind === "account")).toBe(false);
+    expect(tags).toHaveLength(5);
+    for (const tag of tags) expect(tag).toEqual(inlineTag(senderTag));
     expectDerivedBlindings(preparedPadded, signedPadded);
+  });
+
+  it("keeps an empty change slot a dummy when no real output follows it", () => {
+    const sender = ShieldedKeypair.generate();
+    const transfer = new ConfidentialTransfer(
+      sender.shieldedAddress(),
+      [solInput(sender, 10n)],
+      FOREIGN_PAYER,
+    );
+    transfer.withdraw(SOL_MINT, 10n, WithdrawalTarget.sol({ recipient: FOREIGN_PAYER }));
+    const prepared = transfer.prepare();
+    expect(prepared.senderOutputCount).toBe(2);
+    expect(prepared.outputs.map((output) => output.isDummy())).toEqual([true, true]);
   });
 
   it("keeps a real zero-amount SOL change output for a self-paid full withdrawal", () => {
@@ -242,12 +277,10 @@ describe("dummy output owner tags", () => {
         output.isDummy() ? zero : output.hash(signed.outputTreeId),
       );
       const externalDataHash = signed.externalData.hash();
-      // The five Poseidon elements the circuit hashes, folded by hand.
       const byHand = poseidon([
-        hashChain4(inputHashes),
-        hashChain4(outputHashes),
-        hashChain4(inputHashes.map(() => zero)),
-        externalDataHash,
+        nonZeroHashChain(inputHashes),
+        nonZeroHashChain(outputHashes),
+        zero,
         blinding,
       ]);
       expect(signed.privateTxHash()).toEqual(byHand);
@@ -256,11 +289,10 @@ describe("dummy output owner tags", () => {
           inputHashes,
           outputHashes,
           addressNullifiers: inputHashes.map(() => zero),
-          externalDataHash,
           blinding,
         }),
       ).toEqual(byHand);
-      expect(signed.messageHash()).toEqual(sha256Bytes(byHand));
+      expect(signed.messageHash()).toEqual(sha256Bytes(concat(byHand, externalDataHash)));
       expectDerivedBlindings(prepared, signed);
     }
   });

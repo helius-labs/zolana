@@ -10,7 +10,6 @@ pub mod proving_key;
 pub mod ring_authority;
 pub mod timing;
 pub mod transact;
-mod utxo;
 mod verify;
 #[cfg(feature = "indexer-api")]
 pub mod witness;
@@ -36,6 +35,6 @@ pub use transact::{
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
 };
-pub use utxo::ProofInputUtxo;
 pub use verify::{verify_confidential_transfer_inputs, verify_confidential_transfer_proof};
 pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};
+pub use zolana_transaction::utxo::ProofInputUtxo;

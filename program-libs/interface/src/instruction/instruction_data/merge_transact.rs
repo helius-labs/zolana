@@ -50,7 +50,6 @@ pub struct MergeTransactIxData {
     /// When true the owner identity (`pk_field(user_signing_pk)`) is derived from
     /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
     pub eddsa_owner: bool,
-    pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
@@ -89,7 +88,6 @@ pub struct MergeTransactIxDataRef<'a> {
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
     pub eddsa_owner: bool,
-    pub private_tx_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
@@ -159,7 +157,6 @@ mod tests {
                 .collect(),
             utxo_tree_root_index: 4,
             nullifier_tree_root_index: 10,
-            private_tx_hash: [3u8; 32],
             eddsa_owner: false,
         }
     }
@@ -180,7 +177,6 @@ mod tests {
             view.nullifier_tree_root_index,
             owned.nullifier_tree_root_index
         );
-        assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.eddsa_owner, owned.eddsa_owner);
     }
 
@@ -188,7 +184,7 @@ mod tests {
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        assert_eq!(bytes.len(), 271 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 239 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

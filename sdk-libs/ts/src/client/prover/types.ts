@@ -106,7 +106,6 @@ export interface MergeInputs {
   /** Present once the `ProofAuthority` has completed the inputs. */
   readonly userNullifierSecret?: Field;
   readonly externalDataHash: Field;
-  readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
@@ -307,7 +306,6 @@ export interface CustomRingPolicyProofRequest {
   readonly inputs: readonly CustomRingOpening[];
   readonly outputs: readonly CustomRingOpening[];
   readonly addressChain: Bytes32;
-  readonly externalDataHash: Bytes32;
   readonly privateTxBlinding: Bytes32;
   readonly sources: readonly CustomRingSourceOwner[];
   readonly policyLen: number;

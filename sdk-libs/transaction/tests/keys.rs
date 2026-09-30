@@ -1,8 +1,6 @@
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
-    },
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
     keys::*,
     TransactionError,
 };
@@ -45,7 +43,6 @@ fn derive_answers_a_batch_in_request_order() {
                 first_nullifier,
                 slot_index: 2,
             },
-            DeriveRequest::MergePrivateTxBlinding { first_nullifier },
         ])
         .expect("derive");
 
@@ -54,7 +51,6 @@ fn derive_answers_a_batch_in_request_order() {
         vec![
             merge_output_blinding(&keypair.nullifier_key, &first_nullifier).unwrap(),
             merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, 2).unwrap(),
-            merge_private_tx_blinding(&keypair.nullifier_key, &first_nullifier).unwrap(),
         ]
     );
 }
@@ -230,7 +226,6 @@ fn key_batches_preserve_empty_mixed_and_repeated_requests() {
     };
     let requests = [
         nullifier,
-        DeriveRequest::MergePrivateTxBlinding { first_nullifier },
         DeriveRequest::MergeDummyNullifier {
             first_nullifier,
             slot_index: 7,
@@ -243,7 +238,6 @@ fn key_batches_preserve_empty_mixed_and_repeated_requests() {
         keys.derive(&requests).unwrap(),
         vec![
             expected_nullifier,
-            merge_private_tx_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),
             merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, 7).unwrap(),
             expected_nullifier,
             merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),

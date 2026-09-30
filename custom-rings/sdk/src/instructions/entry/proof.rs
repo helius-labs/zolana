@@ -310,7 +310,6 @@ impl NamespaceWrite<'_> {
             input_hashes: &[slot.input_hash],
             output_hashes: &[output_hash],
             address_nullifiers: address_nullifiers.as_ref().map(|slice| slice.as_slice()),
-            external_data_hash: &external_hash,
             blinding: &private_tx_blinding,
         }
         .hash()

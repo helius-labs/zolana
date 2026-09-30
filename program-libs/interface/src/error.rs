@@ -153,8 +153,6 @@ pub enum ShieldedPoolError {
     InvalidTreeContextCount = 7061,
     #[error("input references a tree index beyond the declared input trees")]
     InputTreeIndexOutOfRange = 7062,
-    #[error("inputs must be grouped by tree in non-decreasing tree-index order")]
-    InputsNotGroupedByTree = 7063,
     #[error("a declared input tree is referenced by no input")]
     UnreferencedTreeContext = 7064,
     #[error("the same input tree account is passed twice")]
@@ -290,7 +288,6 @@ mod tests {
                 TooManyExternalDataHashSlices => 7060,
                 InvalidTreeContextCount => 7061,
                 InputTreeIndexOutOfRange => 7062,
-                InputsNotGroupedByTree => 7063,
                 UnreferencedTreeContext => 7064,
                 DuplicateInputTree => 7065,
                 InvalidCache => 7066,
@@ -373,7 +370,6 @@ mod tests {
             TooManyExternalDataHashSlices,
             InvalidTreeContextCount,
             InputTreeIndexOutOfRange,
-            InputsNotGroupedByTree,
             UnreferencedTreeContext,
             DuplicateInputTree,
             InvalidCache,
@@ -388,7 +384,7 @@ mod tests {
             CacheWriteAuthorityMismatch,
             CacheRentRecipientMismatch,
         ];
-        let codes = (7000_u32..).filter(|code| *code != 7072);
+        let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {
             assert_eq!(
                 variant as u32,
@@ -398,7 +394,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 77, "variant count drifted");
+        assert_eq!(variants.len(), 76, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

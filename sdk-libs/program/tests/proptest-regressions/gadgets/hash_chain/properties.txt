@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4f5ed86e35755c24f87a58d88fbb9c609746dfa42166ad57a1633ede51a66f71 # shrinks to values = [Field(13061121753635044316099038768142653997693768648410793789347211542840911855614)], offset = Field(5201459985327695211678186942410887983696596125455410320962800781499391378653)
+cc b513613c93fbf7a8024e92a265aa79e72fe61f7bcb8100232c2c2114cca75fc0 # shrinks to values = [Field(17652987709622542422928420912561479388768637313143699101044277274396466348028)]

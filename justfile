@@ -84,7 +84,7 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zolana-program-unit test-zolana-program-release
 
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
@@ -97,7 +97,7 @@ test-tree:
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo nextest run -p zolana-interface -p zolana-program --features zolana-program/protocol
+    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
@@ -110,7 +110,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: build-programs
-    cargo nextest run -p zolana-interface -p zolana-program --features zolana-program/protocol
+    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
@@ -349,6 +349,8 @@ test-user-registry-litesvm: build-programs
 # zolana-keypair doctest covered. The zolana-client proving binaries are behind
 # its `proofs` feature, so `--features client` stays hermetic.
 test-sdk-libs:
+    cargo nextest run -p zolana-instruction --features cpi
+    cargo nextest run -p zolana-program --features compression
     cargo nextest run -p zolana-keypair
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-event-parser
@@ -370,7 +372,7 @@ test-sdk-libs:
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
     cd sdk-libs/gnark-sdk && GOWORK=off go test ./... -count=1
-    cargo nextest run -p swap-prover -p timelock-escrow-prover -p dynamic-swap-prover
+    cargo nextest run -p zolana-gnark-ffi-prover -p swap-prover -p dynamic-swap-prover
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -582,7 +584,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-client/client
+    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression,zolana-program/client,zolana-program/setup,zolana-program/encrypt,zolana-program/parallel
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -626,7 +628,7 @@ test-programs: build-programs build-prover-server build-cli
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-proofless-programs: build-programs
-    cargo test -p zolana-interface -p zolana-program --features zolana-program/protocol
+    cargo test -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 
@@ -682,10 +684,10 @@ bench-shielded-pool: build-programs
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo test -p shielded-pool-tests --features proofs --test bench_cu -- --ignored --nocapture
 
-# The example programs (swap, timelock escrow, dynamic swap) verify against
-# INSECURE TEST KEYS -- UNSAFE FOR PRODUCTION. They come from the setup CLI's
-# `--insecure-test-keys`, whose Groth16 randomness is a fixed public seed, so
-# anyone can forge proofs against them. That seed makes them deterministic: the
+# The example programs (swap, timelock escrow, dynamic swap, compression)
+# verify against INSECURE TEST KEYS -- UNSAFE FOR PRODUCTION. They come from the
+# setup CLI's `--insecure-test-keys`, whose Groth16 randomness is a fixed public
+# seed, so anyone can forge proofs against them. That seed makes them deterministic: the
 # same circuit and gnark version always yield the same keys, so they are
 # generated locally instead of published, and each example's checksum manifest
 # pins them to its committed Rust verifying keys.
@@ -738,13 +740,24 @@ ensure-swap-keys: (_ensure-example-keys "sdk-tests/zk-program-swap" "swap-prover
 
 regen-swap-keys: (_regen-example-keys "sdk-tests/zk-program-swap" "swap-prover" "swap-keys.CHECKSUM" "make take cancel take_verifiable_encryption")
 
-ensure-escrow-keys: (_ensure-example-keys "sdk-tests/timelock-escrow" "timelock-escrow-prover" "timelock-escrow-keys.CHECKSUM" "regen-escrow-keys" "escrow withdraw")
+# Builds the timelock escrow in one step: its r1cs, the deterministic insecure
+# test keys (UNSAFE for production) and verifying keys under
+# target/zk/timelock-escrow-program, the wasm module and the SBF program.
+build-escrow-program:
+    cargo run --release -p zolana-cli -- build-zk-program -p timelock-escrow-program --sbf-features bpf-entrypoint
 
-regen-escrow-keys: (_regen-example-keys "sdk-tests/timelock-escrow" "timelock-escrow-prover" "timelock-escrow-keys.CHECKSUM" "escrow withdraw")
+# Writes only the escrow's r1cs and keys, which its zk_functional test includes.
+_escrow-zk-keys:
+    cargo run --release -p zolana-cli -- build-zk-program -p timelock-escrow-program --skip-wasm --skip-sbf
+
 
 ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open escrow_settle")
 
 regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
+
+ensure-compression-keys: (_ensure-example-keys "sdk-tests/compression" "compression-example-prover" "compression-keys.CHECKSUM" "regen-compression-keys" "read")
+
+regen-compression-keys: (_regen-example-keys "sdk-tests/compression" "compression-example-prover" "compression-keys.CHECKSUM" "read")
 
 # Rotate ring proving keys with their verifying keys and lock entries,
 # then repin the circuit fingerprints and run release-custom-rings.
@@ -786,21 +799,125 @@ bench-rfq:
         -- --features bpf-entrypoint,profile-program
     cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
 
-# The profiling escrow build calls a profiler syscall that solana-test-validator
-# does not register, so it must never land in target/deploy (validator/CI load
-# the plain program from there). Build the bench programs into a dedicated dir,
-# matching PROFILING_SBF_DIR in bench_cu.rs. Regenerates
-# sdk-tests/timelock-escrow/BENCHMARK.md.
-bench-escrow: ensure-escrow-keys
-    cargo build-sbf --tools-version {{sbf-tools-version}} \
-        --sbf-out-dir target/escrow-bench \
-        --manifest-path programs/shielded-pool/Cargo.toml \
-        -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} \
-        --sbf-out-dir target/escrow-bench \
-        --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml \
-        -- --features bpf-entrypoint,profile-program
-    cargo test -p timelock-escrow-test --test bench_cu -- --ignored --nocapture
+bench-zolana-program:
+    ZOLANA_PROGRAM_BENCHMARK=1 cargo test --release -p zolana-program --features client,setup,encrypt,parallel,compression --test scenarios -- --test-threads=1
+
+test-zolana-macros:
+    cargo test --release -p zolana-macros
+
+# Full SDK validation: crate checks, hermetic units, two external runs, release tests.
+# External tool requirements are listed on test-zolana-program-external below.
+test-zolana-program:
+    cargo check --tests --all-features -p zolana-program -p zolana-macros -p timelock-escrow-program
+    just test-zolana-program-unit
+    just test-zolana-program-external
+    just test-zolana-program-external
+    just test-zolana-program-release
+
+# The ZK program SDK scenarios, the macro tests and the escrow circuit tests,
+# in release, after writing the escrow's keys.
+test-zolana-program-release: _escrow-zk-keys
+    cargo test --release -p zolana-program -p zolana-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,zolana-program/compression -- --test-threads=4
+
+# The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
+test-zolana-program-unit filter="":
+    cargo test -p zolana-program --features client,setup,encrypt,parallel --test unit "{{filter}}"
+
+# The ZK program SDK unit suite with the circom, snarkjs and Picus checks.
+# Needs circom, snarkjs, run-picus, Racket and cvc5 on PATH, plus ps/kill access.
+# CIRCOMLIB_DIR may name a clean checkout of the pinned circomlib revision.
+# An optional test filter also supports focused checks, such as harness::picus::timeout_cleanup.
+test-zolana-program-external filter="":
+    cargo test --release -p zolana-program --features client,setup,encrypt,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
+
+# Checks that the ZK program SDK, the escrow circuits and the escrow wasm
+# module build for wasm32-unknown-unknown. Kept out of check-all, which runs
+# without the wasm target; the zk-program CI job installs it.
+check-wasm:
+    cargo check -p zolana-program --no-default-features --features client --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-program --features wasm --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-program --features wasm,zolana-program/wasm-prover,zolana-program/wasm-verify --target wasm32-unknown-unknown
+
+# Builds the escrow wasm module (escrowTransaction, withdrawTransaction and
+# their provers) into target/zk/timelock-escrow-program/wasm: multi-threaded,
+# on nightly with build-std (the page must be cross-origin isolated and prove
+# in a worker). Needs wasm-pack and nightly-2026-05-18 with rust-src and the
+# wasm32 target.
+build-escrow-wasm:
+    cargo run --release -q -p zolana-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys
+
+escrow-program-id := "2ehy1rrRKT3KEVNN6pLmHeiUedwazPZezXXhwaLjCt5G"
+escrow-wasm-node-dir := "target/zk/timelock-escrow-program/wasm-node"
+
+build-escrow-wasm-node:
+    cargo run --release -q -p zolana-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys --wasm-target nodejs --wasm-out {{escrow-wasm-node-dir}}
+
+test-escrow-ts: build-programs build-prover-server build-cli ensure-photon build-escrow-wasm-node
+    #!/usr/bin/env bash
+    set -euo pipefail
+    program_ids="$(cargo run -q -p xtask -- program-ids)"
+    eval "$program_ids"
+    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
+    workdir="target/escrow-ts"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    cleanup
+    rm -rf "$workdir"
+    mkdir -p "$workdir"
+    export ZOLANA_CONFIG_DIR="$PWD/$workdir"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    export ZOLANA_PHOTON_BIN="$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
+    accounts_dir="$workdir/accounts"
+    cargo run -q -p xtask -- generate-account-snapshots \
+      --deploy-dir target/deploy --accounts-dir "$accounts_dir"
+    target/debug/zolana dev start \
+      --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
+      --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
+      --log-dir "$workdir/logs" \
+      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --sbf-program {{escrow-program-id}} target/deploy/timelock_escrow_program.so
+    npm run build:ts
+    npm run check:ts:escrow
+    ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
+      ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
+      TIMELOCK_ESCROW_PROGRAM_ID="{{escrow-program-id}}" \
+      npm run test:ts:escrow
+
+# Writes the ZK program SDK wasm fixtures: the seeded proving keys and a
+# throwaway snarkjs zkey under target/zk-program-wasm-fixtures (not
+# committed), and the committed JSON fixtures the Playwright and TS SDK tests
+# compare against. Needs `snarkjs` on PATH.
+regen-zk-program-wasm-fixtures:
+    cargo test --release -p zolana-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --nocapture
+
+# Writes only the uncommitted keys the ZK program SDK wasm tests load.
+_zk-program-wasm-keys:
+    cargo test --release -p zolana-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --exact write_wasm_keys
+
+# Runs the ZK program SDK wasm tests in Chromium against the test program in
+# sdk-libs/program/tests/wasm: checks that the committed
+# fixtures still match the native path, builds the threaded module with its
+# test-only verifier and the prover-free proof-inputs module, checks the
+# generated types, proves in the worker, and compares against the native
+# fixtures and snarkjs.
+test-zk-program-wasm: _zk-program-wasm-keys
+    cargo test --release -p zolana-program-wasm-test-program --features fixtures --test fixtures
+    cd sdk-libs/program/tests/wasm && npm ci && npx playwright install chromium && npm run build:test && npm run build:inputs && npm run check:dts && npm test
+
+# Measures proving time (proof inputs + proof), key load and module size of
+# the ZK program SDK wasm test module in Chromium, against snarkjs proving the
+# same Rust-generated proof inputs.
+bench-zk-program-wasm: _zk-program-wasm-keys
+    cd sdk-libs/program/tests/wasm && npm ci && npx playwright install chromium && npm run build:test && npm run build:inputs && npm run bench
 
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
@@ -1175,6 +1292,16 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
 test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel
 
+# Timelock escrow lifecycle on a local validator
+# (sdk-tests/timelock-escrow/program/tests/escrow.rs), booted through
+# FixtureLocalnet like test-swap-validator. build-programs generates the
+# escrow's verifying keys before building its program.
+test-escrow-validator: build-programs build-prover-server build-cli ensure-photon
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p timelock-escrow-program --features localnet --test escrow
+
+# Runs the swap and escrow lifecycle suites back to back in one CI job.
+test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
+
 # Custom-ring lifecycle on a local validator
 # (custom-rings/test/tests/ring.rs): create the ring config holding the
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
@@ -1219,19 +1346,10 @@ _custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli e
     export SHIELDED_POOL_PROGRAM_ID
     bash tools/test-ring-controls.sh {{test}}
 
-# Timelock escrow lifecycle on a local validator
-# (sdk-tests/timelock-escrow/test/tests/escrow.rs), booted through
-# FixtureLocalnet like test-swap-validator.
-test-escrow-validator: ensure-escrow-keys build-programs build-prover-server build-cli ensure-photon
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p timelock-escrow-test --test escrow
-
-# Runs the swap and escrow lifecycle suites back to back in one CI job.
-test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
-
 # Plaintext compressed-account lifecycle on a local validator
 # (sdk-tests/compression/test/tests/compression.rs), booted through
 # FixtureLocalnet like test-swap-validator.
-test-compression-validator: build-programs build-prover-server build-cli ensure-photon
+test-compression-validator: ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p compression-example-test --test compression
 
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
@@ -1322,8 +1440,8 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of
 # them run in parallel.
-test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -E 'not binary(bench_cu)'
+test-examples-validator: ensure-swap-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-program -p compression-example-test -p dynamic-swap-test -p rfq-test --features timelock-escrow-program/localnet -E 'not binary(bench_cu) and not (package(timelock-escrow-program) and not binary(escrow))'
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -1422,7 +1540,7 @@ build-localnet: build-programs build-localnet-tools build-localnet-archives
 
 # The CLIs, the prover server, xtask, the ring suites' fixture Photon and the
 # example programs' test keys.
-build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys
+build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-dynamic-swap-keys ensure-compression-keys
     cargo build -p xtask --target-dir target
     cargo build --locked -p custom-ring-cli --target-dir target
     cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection --target-dir target
@@ -1437,7 +1555,7 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p spp-test-validator --test lifecycle --test proof_cu --archive-file {{dir}}/spp-test-validator.tar.zst
     cargo nextest archive -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --archive-file {{dir}}/ring-test-program.tar.zst
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
-    cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
+    cargo nextest archive -p timelock-escrow-program --features localnet --test escrow --archive-file {{dir}}/timelock-escrow-program.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
     cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --test windowed_concurrency --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst

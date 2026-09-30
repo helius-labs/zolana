@@ -12,8 +12,7 @@ use crate::{err, state::OrderUtxo};
 /// values and the instruction can never land.
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
-    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// `SppProofInputs::private_tx_blinding()`, the last `private_tx_hash`
     /// preimage element.
     pub private_tx_blinding: [u8; 32],
     /// Raw id of the tree the order and change outputs are appended to; it is
@@ -29,7 +28,6 @@ impl SppTxHashes {
             .ok_or_else(|| err("missing source input"))?;
         Ok(Self {
             source_input_hash: source_input.hash(),
-            external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
             private_tx_blinding: spp_proof_inputs.private_tx_blinding().map_err(err)?,
             output_tree_id: spp_proof_inputs.output_tree_id,
         })
@@ -72,7 +70,6 @@ impl MakeProofInputParams {
         let private_tx_hash = PrivateTxHash::new(
             &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
             &[change.hash().map_err(err)?, order_utxo.hash().map_err(err)?],
-            &self.spp_tx_hashes.external_data_hash,
             &self.spp_tx_hashes.private_tx_blinding,
         )
         .hash()
@@ -83,7 +80,6 @@ impl MakeProofInputParams {
             order_utxo,
             change,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
-            external_data_hash: self.spp_tx_hashes.external_data_hash,
             private_tx_blinding: self.spp_tx_hashes.private_tx_blinding,
         })
     }
@@ -134,13 +130,11 @@ mod tests {
             .expect("change output");
         let spp_tx_hashes = SppTxHashes {
             source_input_hash: [3u8; 32],
-            external_data_hash: [4u8; 32],
             private_tx_blinding: [5u8; 32],
             output_tree_id: OUTPUT_TREE_ID,
         };
 
         let source_input_hash = spp_tx_hashes.source_input_hash;
-        let external_data_hash = spp_tx_hashes.external_data_hash;
         let private_tx_blinding = spp_tx_hashes.private_tx_blinding;
         let change_hash = change.hash(OUTPUT_TREE_ID).expect("change hash");
         let order_utxo_hash = order_utxo
@@ -161,7 +155,6 @@ mod tests {
         let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
             &[change_hash, order_utxo_hash],
-            &external_data_hash,
             &private_tx_blinding,
         )
         .hash()

@@ -11,7 +11,7 @@ use zolana_interface::instruction::instruction_data::MergeTransactIxData;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     decrypt_spendable,
-    instructions::{merge::MergeProofInputs, transact::canonical_shape},
+    instructions::{merge::MergeProofInputs, transact::auto_shapes},
     AssetRegistry, WalletUtxo, SOL_MINT,
 };
 
@@ -39,8 +39,8 @@ pub fn landed_slot<R: Rpc>(client: &ZolanaClient<R>, signature: Signature) -> Re
         .ok_or_else(|| anyhow!("transaction {signature} has no confirmed slot"))
 }
 
-/// The balance is too wide for one transfer: shape selection reaches five
-/// inputs on its own, so these UTXOs have to be consolidated by a merge first.
+/// The balance is too wide for one transfer: wallet coin selection fills at
+/// most five inputs, so these UTXOs have to be consolidated by a merge first.
 pub fn assert_balance_needs_merging(utxos: &[WalletUtxo], expected: usize) {
     assert_eq!(
         utxos.len(),
@@ -48,8 +48,8 @@ pub fn assert_balance_needs_merging(utxos: &[WalletUtxo], expected: usize) {
         "the wallet should hold {expected} utxos"
     );
     assert!(
-        canonical_shape(utxos.len(), 2).is_err(),
-        "{} utxos should not fit any auto-selected transfer shape",
+        auto_shapes().all(|shape| utxos.len() > shape.n_inputs()),
+        "{} utxos should not fit any shape wallet coin selection fills",
         utxos.len()
     );
 }

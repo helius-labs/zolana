@@ -13,8 +13,7 @@ use crate::{
 /// Steps:
 /// 1. Reject an input count above the shape's capacity.
 /// 2. Collect the declared tree IDs and select the last tree for padding.
-/// 3. Append dummies until the input count matches the shape. For ordered
-///    inputs, this extends the last tree's contiguous run.
+/// 3. Append dummies until the input count matches the shape.
 pub fn pad_input_utxos(
     input_utxos: &mut Vec<SppProofInputUtxo>,
     shape: Shape,
@@ -66,22 +65,6 @@ pub(super) fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, T
     Ok(tree_ids)
 }
 
-pub fn validate_input_tree_order(
-    tree_ids: impl IntoIterator<Item = u16>,
-) -> Result<(), TransactionError> {
-    let mut seen = Vec::new();
-    for (index, tree_id) in tree_ids.into_iter().enumerate() {
-        if seen.last() == Some(&tree_id) {
-            continue;
-        }
-        if seen.contains(&tree_id) {
-            return Err(TransactionError::InterleavedInputTrees { index, tree_id });
-        }
-        seen.push(tree_id);
-    }
-    Ok(())
-}
-
 impl SppProofInputs {
     pub fn first_nullifier(&self) -> Result<[u8; 32], TransactionError> {
         Ok(self
@@ -92,20 +75,31 @@ impl SppProofInputs {
     }
 
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
-        let mut signers = Vec::new();
-        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
-        for input_utxo in self
+        let input_owners = self
             .input_utxos
             .iter()
             .filter(|input_utxo| !input_utxo.is_dummy())
-        {
-            let address = match input_utxo.utxo.owner.curve()? {
+            .map(|input_utxo| &input_utxo.utxo.owner);
+        let data_output_owners = self
+            .output_utxos
+            .iter()
+            .filter(|output_utxo| {
+                output_utxo
+                    .data_hash
+                    .is_some_and(|data_hash| data_hash != [0u8; 32])
+            })
+            .filter_map(|output_utxo| output_utxo.owner_address.as_ref())
+            .map(|owner_address| &owner_address.signing_pubkey);
+        let mut signers = Vec::new();
+        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
+        for owner in input_owners.chain(data_output_owners) {
+            let address = match owner.curve()? {
                 Curve::P256 => continue,
                 Curve::Ed25519 | Curve::Pda => {
-                    Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?)
+                    Address::new_from_array(owner.confidential_view_tag()?)
                 }
             };
-            let hash = input_utxo.utxo.owner.owner_proof_input_hash()?;
+            let hash = owner.owner_proof_input_hash()?;
             if address == self.payer || signer_hashes.contains(&hash) {
                 continue;
             }
@@ -143,7 +137,6 @@ impl SppProofInputs {
     }
 
     pub fn input_utxo_hashes(&self) -> Result<Vec<&SppProofInputUtxo>, TransactionError> {
-        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         Ok(self
             .input_utxos
             .iter()

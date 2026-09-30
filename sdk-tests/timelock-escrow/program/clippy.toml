@@ -1,0 +1,7 @@
+disallowed-types = [
+    { path = "std::vec::Vec", reason = "a circuit has a fixed shape: use an array `[T; N]` with dummies" },
+    { path = "std::collections::VecDeque", reason = "a circuit has a fixed shape: use an array `[T; N]` with dummies" },
+    { path = "std::collections::HashMap", reason = "a circuit has a fixed shape: use an array `[T; N]` with dummies" },
+    { path = "std::collections::BTreeMap", reason = "a circuit has a fixed shape: use an array `[T; N]` with dummies" },
+    { path = "std::string::String", reason = "a circuit holds no text: use `Bytes<N>`" },
+]

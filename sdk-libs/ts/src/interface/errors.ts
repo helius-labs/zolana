@@ -73,7 +73,6 @@ export const ShieldedPoolError = Object.freeze({
   TooManyExternalDataHashSlices: 7060,
   InvalidTreeContextCount: 7061,
   InputTreeIndexOutOfRange: 7062,
-  InputsNotGroupedByTree: 7063,
   UnreferencedTreeContext: 7064,
   DuplicateInputTree: 7065,
   InvalidCache: 7066,

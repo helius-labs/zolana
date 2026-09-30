@@ -106,41 +106,36 @@ impl<'a> MergeProof<'a> {
     /// input (`prover/server/circuits/spp_merge/{default,ring}.go`, prefix from
     /// `spp_merge/shared/transaction.go` `CommonPublicInputs.Prefix`).
     ///
-    /// Both variants share the same 7 leading elements (nullifier chain, output
-    /// hash, tree slot chain, output tree id, private tx hash, external data
-    /// hash, dummy-input policy); the default merge then appends the owner's
-    /// signing identity and nullifier public key (from the registry), while the
-    /// policy-ring merge omits that identity (no registry to bind it against) and
-    /// appends the output `ring_data_hash` and `ring_program_id`. The 7-element
-    /// prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group without
-    /// padding. Continuing from its hash with the two-element owner-binding tail
-    /// is therefore equivalent to folding all 9 elements together.
+    /// Both variants share the same 6 leading elements (nullifier chain, output
+    /// hash, tree slot chain, output tree id, external data hash, dummy-input
+    /// policy); the default merge then appends the owner's signing identity and
+    /// nullifier public key (from the registry), while the policy-ring merge
+    /// omits that identity (no registry to bind it against) and appends the
+    /// output `ring_data_hash` and `ring_program_id`. All 8 elements fold in one
+    /// chain.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
+        let (tail_first, tail_second) = match &self.derived.owner_binding {
+            MergeOwnerBinding::Ring {
+                ring_program_id,
+                output_ring_data_hash,
+            } => (*output_ring_data_hash, *ring_program_id),
+            MergeOwnerBinding::Registry {
+                signing_pk_field,
+                nullifier_pk,
+            } => (*signing_pk_field, *nullifier_pk),
+        };
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
-        let prefix_hash = create_hash_chain_4_from_slice(&[
+        create_hash_chain_4_from_slice(&[
             create_hash_chain_4_from_slice(&self.ix.nullifiers)?,
             *self.ix.output_utxo_hash,
             populated_tree_slots_hash_chain(core::slice::from_ref(&self.derived.tree_slot))?,
             self.derived.output_tree_id,
-            *self.ix.private_tx_hash,
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,
-        ])?;
-        match &self.derived.owner_binding {
-            MergeOwnerBinding::Ring {
-                ring_program_id,
-                output_ring_data_hash,
-            } => create_hash_chain_4_from_slice(&[
-                prefix_hash,
-                *output_ring_data_hash,
-                *ring_program_id,
-            ]),
-            MergeOwnerBinding::Registry {
-                signing_pk_field,
-                nullifier_pk,
-            } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),
-        }
+            tail_first,
+            tail_second,
+        ])
         .map_err(Into::into)
     }
 }

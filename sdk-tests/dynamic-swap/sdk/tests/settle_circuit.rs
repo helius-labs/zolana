@@ -120,7 +120,6 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         reservation_utxo_hash,
         recipient_owner_hash: terms.recipient_owner_hash,
         authority_owner_hash: authority.owner_hash().unwrap(),
-        external_data_hash: fe(8),
         private_tx_blinding: derive_private_tx_blinding(&first_nullifier, &blinding_seed).unwrap(),
         output_tree_id: OUTPUT_TREE_ID,
     }
@@ -151,7 +150,6 @@ fn refresh_hashes(inputs: &mut EscrowSettleProofInputs) {
             inputs.maker_counter.hash().unwrap(),
             inputs.maker_source.hash().unwrap(),
         ],
-        &inputs.external_data_hash,
         &inputs.private_tx_blinding,
     )
     .hash()

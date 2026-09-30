@@ -23,10 +23,12 @@ use zolana_keypair::{
 };
 
 use crate::{
+    asset::{AssetAmount, AssetRegistry},
+    decrypt::{decrypt_spendable, SpendableDecryptionResult},
     error::TransactionError,
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
-    },
+    indexer_types::ShieldedTransaction,
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
+    utxo::WalletUtxo,
 };
 
 /// Which cipher opened a slot. A ring deposit publishes one ciphertext and no
@@ -51,8 +53,8 @@ pub struct DecryptRequest<'a> {
 }
 
 /// Every value the protocol derives from the nullifier secret. `Nullifier`
-/// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers,
-/// its output blinding, and its private-transaction blinding.
+/// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers
+/// and its output blinding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeriveRequest {
     Nullifier {
@@ -64,9 +66,6 @@ pub enum DeriveRequest {
         slot_index: u8,
     },
     MergeOutputBlinding {
-        first_nullifier: [u8; 32],
-    },
-    MergePrivateTxBlinding {
         first_nullifier: [u8; 32],
     },
 }
@@ -92,6 +91,85 @@ pub trait ShieldedKeys {
         &self,
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError>;
+
+    fn spendable_utxos(
+        &self,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+    ) -> Result<SpendableDecryptionResult, TransactionError> {
+        let mut spendable = decrypt_spendable(self, transactions, assets)?;
+        let viewing_pubkey = self.address()?.viewing_pubkey;
+        let mut utxos: Vec<&mut WalletUtxo> = spendable
+            .balances
+            .assets
+            .iter_mut()
+            .flat_map(|balance| balance.utxos.iter_mut())
+            .chain(spendable.utxos_with_data.iter_mut())
+            .collect();
+        let requests: Vec<TransactionKeyRequest> = utxos
+            .iter()
+            .map(|utxo| TransactionKeyRequest {
+                viewing_pubkey,
+                first_nullifier: utxo.nullifier,
+            })
+            .collect();
+        if requests.is_empty() {
+            return Ok(spendable);
+        }
+        let keys = self.transaction_keys(&requests)?;
+        if keys.len() != requests.len() {
+            return Err(TransactionError::IncompleteDerivation {
+                got: keys.len(),
+                want: requests.len(),
+            });
+        }
+        for (utxo, key) in utxos.iter_mut().zip(keys) {
+            utxo.tx_viewing_key = Some(*key.secret_bytes());
+        }
+        Ok(spendable)
+    }
+}
+
+pub trait ShieldedView {
+    fn spendable_balance(
+        &self,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+    ) -> Result<Vec<AssetAmount>, TransactionError>;
+}
+
+impl<K: ShieldedKeys + ?Sized> ShieldedView for K {
+    fn spendable_balance(
+        &self,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+    ) -> Result<Vec<AssetAmount>, TransactionError> {
+        Ok(decrypt_spendable(self, transactions, assets)?
+            .balances
+            .assets
+            .iter()
+            .map(AssetAmount::from)
+            .collect())
+    }
+}
+
+pub(crate) fn first_input_transaction_key<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    viewing_pubkey: P256Pubkey,
+    first_nullifier: [u8; 32],
+    synced: Option<[u8; 32]>,
+) -> Result<ViewingKey, TransactionError> {
+    if let Some(secret) = synced {
+        return Ok(ViewingKey::from_bytes(&secret)?);
+    }
+    let keys = shielded_keys.transaction_keys(&[TransactionKeyRequest {
+        viewing_pubkey,
+        first_nullifier,
+    }])?;
+    let got = keys.len();
+    keys.into_iter()
+        .next()
+        .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })
 }
 
 /// In-process keys: the counterpart of a remote holder, answering the same
@@ -188,9 +266,6 @@ impl ShieldedKeys for LocalShieldedKeys {
                 } => merge_dummy_nullifier(&self.nullifier, first_nullifier, *slot_index),
                 DeriveRequest::MergeOutputBlinding { first_nullifier } => {
                     merge_output_blinding(&self.nullifier, first_nullifier)
-                }
-                DeriveRequest::MergePrivateTxBlinding { first_nullifier } => {
-                    merge_private_tx_blinding(&self.nullifier, first_nullifier)
                 }
             })
             .collect()

@@ -108,7 +108,6 @@ type PolicyParameters struct {
 	Outputs [policy.NOutputs]Opening
 
 	AddressChain      *big.Int
-	ExternalDataHash  *big.Int
 	PrivateTxBlinding *big.Int
 
 	Sources       [policy.NSources]SourceOwner
@@ -206,7 +205,6 @@ type policyParametersJSON struct {
 	Inputs             []openingJSON     `json:"inputs"`
 	Outputs            []openingJSON     `json:"outputs"`
 	AddressChain       string            `json:"addressChain"`
-	ExternalDataHash   string            `json:"externalDataHash"`
 	PrivateTxBlinding  string            `json:"privateTxBlinding"`
 	Sources            []sourceOwnerJSON `json:"sources"`
 	PolicyLen          uint8             `json:"policyLen"`
@@ -247,7 +245,6 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		Inputs:             writeOpenings(p.Inputs[:]),
 		Outputs:            writeOpenings(p.Outputs[:]),
 		AddressChain:       common.ToHex(p.AddressChain),
-		ExternalDataHash:   common.ToHex(p.ExternalDataHash),
 		PrivateTxBlinding:  common.ToHex(p.PrivateTxBlinding),
 		Sources:            make([]sourceOwnerJSON, 0, len(p.Sources)),
 		PolicyLen:          p.PolicyLen,
@@ -361,9 +358,6 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if p.AddressChain, err = fieldFromHex(raw.AddressChain, "addressChain"); err != nil {
-		return err
-	}
-	if p.ExternalDataHash, err = fieldFromHex(raw.ExternalDataHash, "externalDataHash"); err != nil {
 		return err
 	}
 	if p.PrivateTxBlinding, err = fieldFromHex(raw.PrivateTxBlinding, "privateTxBlinding"); err != nil {
@@ -738,7 +732,6 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 		PublicInputHash:    p.PublicInputHash,
 		PrivateTxHash:      p.PrivateTxHash,
 		AddressChain:       p.AddressChain,
-		ExternalDataHash:   p.ExternalDataHash,
 		PrivateTxBlinding:  p.PrivateTxBlinding,
 		WindowSlots:        p.WindowSlots,
 		AddressTreeID:      p.AddressTreeID,

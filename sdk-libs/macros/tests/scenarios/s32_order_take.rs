@@ -1,0 +1,121 @@
+use zolana_interface::shape::Shape;
+use zolana_keypair::ShieldedAddress;
+use zolana_program::{
+    circuit::{
+        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxos, UtxoTrait,
+    },
+    conversion::ProofInput,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
+};
+use zolana_transaction::{Mint, WalletUtxo};
+
+use crate::{
+    benchmark::prove,
+    s31_order_make::{order_utxo, OrderTerms},
+    shared::{keypair, token_input, USDC},
+};
+
+#[derive(Clone, ProofInput)]
+pub struct Take {
+    pub(crate) private: TakePrivateInputs,
+    pub(crate) public: TakePublicInputs,
+}
+
+#[derive(Clone, ProofInput)]
+pub(crate) struct TakePrivateInputs {
+    pub(crate) tx_context: TxContext,
+    pub(crate) order: WalletUtxo,
+    pub(crate) terms: OrderTerms,
+    pub(crate) maker: ShieldedAddress,
+    pub(crate) token_utxos_asset_b: [WalletUtxo; 1],
+}
+
+#[derive(Clone, PublicInputs)]
+pub(crate) struct TakePublicInputs {
+    pub(crate) ask_asset: Mint,
+    pub(crate) ask_amount: u64,
+}
+
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Take as ProofInput>::Circuit {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        let private = &self.private;
+        let public = &self.public;
+        let mut order = DataUtxo::new_close(&private.order, &private.terms)?;
+        private
+            .maker
+            .hash()?
+            .assert_equal(&order.maker_hash, "the maker is not the order's")?;
+        public
+            .ask_asset
+            .hash()?
+            .assert_equal(&order.ask_asset_hash, "the ask asset is not the order's")?;
+        public
+            .ask_amount
+            .assert_equal(&order.ask_amount, "the ask amount is not the order's")?;
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_b)?;
+        let mut payment = TokenUtxos::new_init(&private.maker, &public.ask_asset);
+        tokens.transfer(&mut payment, &public.ask_amount)?;
+        let mut payout = TokenUtxos::new_init(&tokens.owner(), &order.asset());
+        order.transfer_all(&mut payout)?;
+
+        ConfidentialTransaction::new(&private.tx_context, public)
+            .with_data_utxo(order)
+            .with_token_utxos(tokens)
+            .with_token_utxos(payment)
+            .with_token_utxos(payout)
+            .check()
+    }
+}
+
+#[test]
+fn order_take_prove_and_verify() {
+    let maker = keypair(5);
+    let maker_address = maker.shielded_address().expect("maker address");
+    let taker = keypair(6);
+    let taker_address = taker.shielded_address().expect("taker address");
+    let payer = taker_address.solana_address().expect("payer");
+    let (order, terms) = order_utxo(&maker, 500, 60, 1_800_000_000);
+
+    let take = Take {
+        private: TakePrivateInputs {
+            tx_context: TxContext::new(),
+            order,
+            terms,
+            maker: maker_address,
+            token_utxos_asset_b: [token_input(&taker, USDC, 100, 3)],
+        },
+        public: TakePublicInputs {
+            ask_asset: USDC,
+            ask_amount: 60,
+        },
+    };
+    let spp_proof_inputs = take
+        .create_proof_inputs_and_encrypt_with_keys(&taker, payer, u64::MAX)
+        .expect("take proof inputs");
+    assert_eq!(
+        (
+            spp_proof_inputs.check_shape().expect("take shape"),
+            spp_proof_inputs
+                .output_utxos
+                .iter()
+                .map(|output| (output.owner_address, output.asset, output.amount))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            Shape::IN2_OUT3,
+            vec![
+                (Some(taker_address), USDC, 40),
+                (Some(maker_address), USDC, 60),
+                (Some(taker_address), Mint::SOL, 500),
+            ]
+        )
+    );
+
+    let prover = Groth16Prover::<Take>::new_with_test_setup().expect("take setup");
+    let result = prove(&prover, &take, "take proof");
+    prover
+        .verify(&result)
+        .expect("the compressed proof verifies");
+}

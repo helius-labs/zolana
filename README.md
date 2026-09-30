@@ -58,8 +58,9 @@ Circuit-changing upgrades require rotating the proving keys, embedded Rust
 verifying keys, key checksums, and circuit fingerprints together. The core
 rotation workflow is `prover/server/scripts/rotate_proving_keys.sh`. The
 example programs use insecure deterministic test keys, UNSAFE for production:
-`regen-swap-keys`, `regen-dynamic-swap-keys`, and `regen-escrow-keys` rewrite
-their verifying keys and checksums, and nothing is published.
+`regen-swap-keys` and `regen-dynamic-swap-keys` rewrite their verifying keys and
+checksums, `build-escrow-program` generates the escrow's keys under `target/zk`,
+and nothing is published.
 `just prover-server-test` checks the committed fingerprints; do not refresh
 them without rotating the matching keys.
 A rotated key set requires deploying the matching on-chain programs and prover

@@ -20,17 +20,67 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
+circuits = [
+    "dep:borsh",
+    "dep:solana-instruction",
+    "dep:zolana-keypair",
+    "dep:zolana-transaction",
+    "zolana-program/client",
+    "zolana-program/setup",
+    "zolana-program/encrypt",
+    "zolana-program/parallel",
+]
+wasm = [
+    "dep:borsh",
+    "dep:zolana-keypair",
+    "dep:zolana-transaction",
+    "zolana-program/wasm",
+]
+localnet = ["circuits"]
 
 [dependencies]
+borsh = { workspace = true, optional = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
 light-program-profiler = { workspace = true }
-pinocchio = { workspace = true, features = ["cpi"] }
+pinocchio = { workspace = true, features = ["cpi", "sha2"] }
+solana-instruction = { workspace = true, optional = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
+zolana-macros = { path = "../../../sdk-libs/macros" }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true, optional = true }
+zolana-program = { workspace = true, features = ["cpi", "compression"] }
+zolana-transaction = { workspace = true, optional = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-program-test = { workspace = true, features = ["localnet"] }
+
+[[test]]
+name = "zk_functional"
+required-features = ["circuits"]
+
+[[test]]
+name = "escrow"
+required-features = ["localnet"]
+
+[package.metadata.cargo-machete]
+ignored = ["groth16-solana"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4", "--enable-simd", "--enable-threads", "--enable-bulk-memory", "--enable-mutable-globals"]
+
+[lints.clippy]
+disallowed_types = "allow"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

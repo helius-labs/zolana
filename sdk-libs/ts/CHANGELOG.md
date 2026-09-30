@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.3.2-alpha — unreleased
+
+The private transaction hash no longer depends on padding, so one ZK program
+circuit works with every transaction shape, and a merge carries no private
+transaction hash. A transaction that a ZK program's WebAssembly bindings build
+decodes, seals and proves through the SDK, and the program forwards it to
+`transact` through a CPI.
+
+Breaking
+
+- `privateTxHash` no longer takes `externalDataHash`, starts each of its
+  input, output and address chains from the first nonzero entry and keeps its
+  value when padding moves between slots, `SppProofInputs.messageHash()`
+  returns a new digest that also covers the external data and a transfer's
+  cache write, and `CustomRingPolicyProofRequest` drops `externalDataHash` and
+  takes a zero `addressChain` for a transfer that creates no address → drop
+  `externalDataHash` from hand-built hash inputs and policy requests, sign
+  again, and prove against the program and prover of this release.
+- `MergeTransactInstructionData` and `MergeInputs` drop `privateTxHash`, so
+  `getMergeTransactInstructionAsync` data is 32 bytes shorter and the merge
+  prover request no longer carries it → remove the field from hand-built merge
+  data and prover inputs, and prove merges against the program and prover of
+  this release.
+- `mergePrivateTxBlinding`, `PreparedMerge.privateTxBlinding()`, the
+  `privateTxBlinding` field of the `Merge` and `PreparedMerge` constructors and
+  the `mergePrivateTxBlinding` `DeriveRequest` kind are removed because a merge
+  has no private transaction hash → stop deriving and passing the value, and
+  drop the kind from `ShieldedKeys` implementations.
+- `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
+  `CLIENT_INPUTS_NOT_GROUPED_BY_TREE` and
+  `ShieldedPoolError.InputsNotGroupedByTree` are removed, leaving code 7063
+  unused, because a transfer may now spend inputs from different trees in any
+  order, a padding input that names a tree no real input opens fails with
+  `CLIENT_INPUT_TREE_UNRESOLVED`, and `SppProofInputs` refuses a real input or
+  output that follows a padding slot with `TRANSACTION_REAL_SLOT_AFTER_DUMMY` →
+  drop handling of the removed codes, match the new ones and place padding
+  after every real slot.
+- `PreparedTransfer.withInputTreeLast` is removed → drop the call, a
+  transfer's inputs may reference their trees in any order.
+- `SppProofInputs` refuses a cache write the program would reject with
+  `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
+  `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` or `TRANSACTION_UNUSED_WRITE_CACHE`
+  → handle the new `TransactionErrorCode` variants in exhaustive switches.
+- `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
+  proving keys, so `ProverClient` rejects a proof from a prover on the previous
+  keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
+  release.
+
+Added
+
+- `decodeProgramTransaction(value, assets)` turns the
+  `ProgramFinalizedTransaction` a ZK program's WebAssembly bindings return into
+  SDK inputs, outputs and owner tags, refusing an input, output hash, owner tag,
+  first nullifier or mint that does not match the transaction with
+  `TRANSACTION_INPUT_HASH_MISMATCH`, `TRANSACTION_OUTPUT_HASH_MISMATCH`,
+  `TRANSACTION_OWNER_TAG_MISMATCH`, `TRANSACTION_OWNER_TAG_COUNT_MISMATCH`,
+  `TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH`,
+  `TRANSACTION_FIRST_NULLIFIER_MISMATCH` or `TRANSACTION_MINT_MISMATCH`, and
+  `DecodedProgramTransaction.encrypt(tx, { expiryUnixTs })` seals every
+  output, padding slots included, into the `ExternalData` the program's proof
+  commits to.
+- `toProgramWalletUtxo(utxo, { nullifierPublicKey, treeId, assets })` builds
+  the `ProgramWalletUtxo` those bindings spend and refuses a tree id or
+  nullifier public key that does not open the UTXO's commitment, and
+  `SettlementTransfer`, the leg type of `ExternalData.interfaceTransfers`, is
+  exported from `@heliuslabs/zolana/transaction`.
+- `ProgramOwner.find(seeds, programId)` derives a ZK program's PDA owner with
+  its `ownerTag()`, `ownerHash()`, `address(viewingPublicKey)` and the shared
+  `ProgramOwner.nullifierKey()`, and
+  `DecodedProgramTransaction.toProofInputs(keys, { expiryUnixTs })` seals a
+  program transaction into the `SppProofInputs` that `proveTransact` takes,
+  refusing keys that are not the sender's with
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`.
+- `transactCpiAccounts(input)` and `encodeTransactInstructionData(data)` from
+  `@heliuslabs/zolana/interface` return the accounts, signing PDAs included,
+  and the instruction bytes a program forwards to `transact` through a CPI.
+- `bytes16`, `bytes31`, `bytes32`, `bytes33`, `bytes34` and `bytes64` copy a
+  `Uint8Array` into the matching fixed-length type and refuse any other length
+  with `KEYPAIR_INVALID_LENGTH`, and `ShieldedPublicKey.fromPda` and
+  `ShieldedAddress.forPda` also take the PDA as an `Address`.
+
+Changed
+
+- A padded `ConfidentialTransfer` publishes an empty change slot that a real
+  output follows as a zero-amount SOL output the sender owns instead of as
+  padding, and UTXO selection for transfers, withdrawals, merges and splits
+  skips zero-amount UTXOs.
+
+Fixed
+
+- `proveCustomRingTransfer` on a ring with a spend window put padding before
+  the spend record, which the transaction proof refuses, the record now follows
+  the spent UTXOs with padding inputs after it, and a spare slot before the
+  record output is a zero-amount copy of the sender's change, else of the last
+  output, that publishes the copied output's owner tag, so it adds no subject
+  to the ring's rules.
+
 ## 0.3.1-alpha — 2026-09-29
 
 Reading a ring transaction's instruction groups requires a version 1

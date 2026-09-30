@@ -293,10 +293,6 @@ fn make_and_take_swap_inline() -> Result<()> {
             taker_in,
             source_output,
             destination_output,
-            external_data_hash: take_spp_proof_inputs
-                .external_data
-                .hash()
-                .map_err(|e| anyhow!("take external data hash: {e:?}"))?,
             private_tx_blinding: take_spp_proof_inputs
                 .private_tx_blinding()
                 .map_err(|e| anyhow!("take private tx blinding: {e:?}"))?,

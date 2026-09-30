@@ -1,0 +1,45 @@
+[package]
+name = "zolana-program-wasm-test-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "wasm_test_program"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+wasm = ["zolana-program/wasm"]
+fixtures = [
+    "wasm",
+    "zolana-program/setup",
+    "zolana-program/encrypt",
+    "zolana-program/parallel",
+]
+snarkjs = ["fixtures"]
+
+[dependencies]
+borsh = { workspace = true }
+solana-address = { workspace = true }
+zolana-program = { workspace = true, features = ["client"] }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+solana-signature = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }
+
+[[test]]
+name = "fixtures"
+required-features = ["fixtures"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4", "--enable-simd", "--enable-threads", "--enable-bulk-memory", "--enable-mutable-globals"]
+
+[lints.clippy]
+disallowed_types = "allow"

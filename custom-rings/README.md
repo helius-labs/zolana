@@ -189,8 +189,8 @@ another. The auditor decrypts one message per transaction and opens every
 output with it.
 
 The order is fixed by the hashes. SPP hashes the messages into
-`external_data_hash` and that into `private_tx_hash`, and `private_tx_hash` is
-a public input of the custom-ring circuit. `CustomRingTransfer::prove`
+`external_data_hash`, which its proof commits to, and `private_tx_hash` is a
+public input of the custom-ring circuit. `CustomRingTransfer::prove`
 therefore encrypts the message first, runs the SPP proof over the
 message-bearing external data, and only then finishes the custom-ring proof
 over the resulting `private_tx_hash`. `CustomRingProofParams::encrypt` returns

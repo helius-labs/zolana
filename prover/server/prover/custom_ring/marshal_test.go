@@ -48,7 +48,6 @@ func sampleParams() *PolicyParameters {
 		NIn:                2,
 		NOut:               2,
 		AddressChain:       big.NewInt(0x31),
-		ExternalDataHash:   big.NewInt(0x32),
 		PrivateTxBlinding:  big.NewInt(0x36),
 		PolicyLen:          3,
 		InlineCount:        1,
@@ -222,7 +221,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 	keys := []string{
 		"circuitType", "publicInputHash", "privateTxHash",
 		"txViewingSk", "ephSk", "auditorPk", "salt", "nIn", "nOut", "inputs",
-		"outputs", "addressChain", "externalDataHash", "privateTxBlinding", "sources",
+		"outputs", "addressChain", "privateTxBlinding", "sources",
 		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "treeSlots", "addressTreeId",
 		"keyEscrow", "keyRegistryRoot", "answers", "windowSlots", "velocity", "velocityCount", "ringId",
 		"namespaceOwnerHash", "windowIndex", "approvalRequired", "record",

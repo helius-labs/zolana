@@ -79,9 +79,9 @@ func mustHashChain(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash, blinding *big.Int) *big.Int {
+func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, blinding *big.Int) *big.Int {
 	t.Helper()
-	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash, blinding)
+	value, err := PrivateTxHash(inputs, outputs, addresses, blinding)
 	return mustHash(t, value, err)
 }
 
@@ -303,24 +303,51 @@ func TestHashChainEmptyAndSingle(t *testing.T) {
 	}
 }
 
+func mustNonZeroHashChain(t *testing.T, inputs []*big.Int) *big.Int {
+	t.Helper()
+	value, err := NonZeroHashChain(inputs)
+	return mustHash(t, value, err)
+}
+
+func TestNonZeroHashChainSkipsZeros(t *testing.T) {
+	five := fe(5)
+	fiveSeven := mustPoseidon(t, 3, []*big.Int{five, fe(7)})
+	cases := []struct {
+		name   string
+		inputs []*big.Int
+		want   *big.Int
+	}{
+		{"empty", nil, fe(0)},
+		{"only zeros", []*big.Int{fe(0), fe(0)}, fe(0)},
+		{"single entry", []*big.Int{fe(5)}, five},
+		{"zeros around one entry", []*big.Int{fe(0), fe(5), fe(0)}, five},
+		{"two entries", []*big.Int{fe(5), fe(7)}, fiveSeven},
+		{"zeros between two entries", []*big.Int{fe(0), fe(5), fe(0), fe(0), fe(7)}, fiveSeven},
+	}
+	for _, tc := range cases {
+		got := mustNonZeroHashChain(t, tc.inputs)
+		if got.Cmp(tc.want) != 0 {
+			t.Fatalf("%s: got %s want %s", tc.name, got, tc.want)
+		}
+	}
+
+	reordered := mustNonZeroHashChain(t, []*big.Int{fe(7), fe(5)})
+	if reordered.Cmp(fiveSeven) == 0 {
+		t.Fatal("nonzero hash chain ignores the order of its entries")
+	}
+}
+
 func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	inputs := []*big.Int{fe(11), fe(12)}
 	outputs := []*big.Int{fe(21), fe(22)}
 	addresses := []*big.Int{fe(41), fe(42)}
-	externalDataHash := fe(31)
 	blinding := fe(32)
 
-	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
-	// external_data_hash (tested in the prover's external_data tests).
-	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, blinding)
-	inputChain := mustHashChain4(t, inputs)
-	outputChain := mustHashChain4(t, outputs)
-	addressChain := mustHashChain4(t, addresses)
-	want := mustPoseidon(t, 6, []*big.Int{
-		inputChain,
-		outputChain,
-		addressChain,
-		externalDataHash,
+	got := mustPrivateTxHash(t, inputs, outputs, addresses, blinding)
+	want := mustPoseidon(t, 5, []*big.Int{
+		mustNonZeroHashChain(t, inputs),
+		mustNonZeroHashChain(t, outputs),
+		mustNonZeroHashChain(t, addresses),
 		blinding,
 	})
 	if got.Cmp(want) != 0 {
@@ -328,14 +355,28 @@ func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
+func TestPrivateTxHashIgnoresPaddingSlots(t *testing.T) {
+	blinding := fe(32)
+	compact := mustPrivateTxHash(t, []*big.Int{fe(11)}, []*big.Int{fe(21)}, nil, blinding)
+	padded := mustPrivateTxHash(
+		t,
+		[]*big.Int{fe(11), fe(0), fe(0)},
+		[]*big.Int{fe(0), fe(21), fe(0), fe(0)},
+		[]*big.Int{fe(0), fe(0), fe(0)},
+		blinding,
+	)
+	if compact.Cmp(padded) != 0 {
+		t.Fatalf("padding changed the private tx hash: %s != %s", compact, padded)
+	}
+}
+
 func TestPrivateTxHashChangesWithBlinding(t *testing.T) {
 	inputs := []*big.Int{fe(11), fe(12)}
 	outputs := []*big.Int{fe(21), fe(22)}
 	addresses := []*big.Int{fe(41), fe(42)}
-	externalDataHash := fe(31)
 
-	first := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(32))
-	second := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(33))
+	first := mustPrivateTxHash(t, inputs, outputs, addresses, fe(32))
+	second := mustPrivateTxHash(t, inputs, outputs, addresses, fe(33))
 	if first.Cmp(second) == 0 {
 		t.Fatal("private tx hash did not change with the blinding")
 	}
@@ -351,19 +392,15 @@ func TestPrivateTxHashBlindingBreaksCandidateOracle(t *testing.T) {
 	inputs := []*big.Int{candidates[0], fe(0)}
 	outputs := []*big.Int{fe(21), fe(22)}
 	addresses := []*big.Int{fe(0), fe(0)}
-	externalDataHash := fe(31)
 
-	published := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(32))
-	outputChain := mustHashChain(t, outputs)
-	addressChain := mustHashChain(t, addresses)
+	published := mustPrivateTxHash(t, inputs, outputs, addresses, fe(32))
+	outputChain := mustNonZeroHashChain(t, outputs)
+	addressChain := mustNonZeroHashChain(t, addresses)
 	for i, candidate := range candidates {
-		// The pre-blinding formula, which the attacker can evaluate from public
-		// data alone once a candidate input is guessed.
-		guess := mustPoseidon(t, 5, []*big.Int{
-			mustHashChain(t, []*big.Int{candidate, fe(0)}),
+		guess := mustPoseidon(t, 4, []*big.Int{
+			mustNonZeroHashChain(t, []*big.Int{candidate, fe(0)}),
 			outputChain,
 			addressChain,
-			externalDataHash,
 		})
 		if published.Cmp(guess) == 0 {
 			t.Fatalf("candidate %d reproduced the private transaction hash without the blinding", i)

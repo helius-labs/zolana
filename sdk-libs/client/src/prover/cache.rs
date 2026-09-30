@@ -1,12 +1,13 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{
-    state::cache::{
-        bind_cache_write, cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY,
-    },
-    verifying_keys::{CacheAccess, CacheWrite, MAX_CACHE_WRITES},
+    state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY},
+    verifying_keys::CacheAccess,
 };
-use zolana_transaction::{instructions::transact::CacheAccounts, ExternalData, SppProofOutputUtxo};
+use zolana_transaction::{
+    instructions::transact::{cache_bound_external_data_hash, cache_write_slots, CacheAccounts},
+    ExternalData, SppProofOutputUtxo,
+};
 
 use super::{inputs::CacheReadInputs, transact::assembly::TransferInputUtxo};
 use crate::error::ClientError;
@@ -43,13 +44,10 @@ impl CacheSelection {
         external_data: &ExternalData,
     ) -> Result<Self, ClientError> {
         let reads = cache_reads(inputs, accounts.read)?;
-        let write_slots = cache_writes(outputs, accounts.write)?;
-        let write_cache = accounts.write.map(|cache| cache.to_bytes());
-        let external_data_hash = bind_cache_write(
-            external_data.hash()?,
-            write_cache.as_ref().map(|cache| (cache, &write_slots)),
-        )?;
-        let access = (reads.read_bitmap != 0 || write_cache.is_some()).then_some(CacheAccess {
+        let write_slots = cache_write_slots(outputs, accounts.write)?;
+        let external_data_hash =
+            cache_bound_external_data_hash(external_data, &write_slots, accounts.write)?;
+        let access = (reads.read_bitmap != 0 || accounts.write.is_some()).then_some(CacheAccess {
             read_bitmap: reads.read_bitmap,
             write_slots,
         });
@@ -134,51 +132,4 @@ fn cache_reads(
                 .collect(),
         },
     })
-}
-
-fn cache_writes(
-    outputs: &[SppProofOutputUtxo],
-    cache: Option<Address>,
-) -> Result<[CacheWrite; MAX_CACHE_WRITES], ClientError> {
-    let mut write_slots = CacheAccess::NO_WRITES;
-    let mut used = 0;
-    for (index, output_utxo) in outputs.iter().enumerate() {
-        let Some(slot) = output_utxo.cache_slot else {
-            continue;
-        };
-        if cache.is_none() {
-            return Err(ClientError::CachedOutputWithoutWriteCache { index });
-        }
-        if output_utxo.is_dummy() {
-            return Err(ClientError::CachedDummyOutput { index });
-        }
-        if usize::from(slot) >= CACHE_CAPACITY {
-            return Err(ClientError::CacheWriteSlotOutOfRange { index, slot });
-        }
-        if write_slots
-            .iter()
-            .take(used)
-            .any(|entry| entry.slot == slot)
-        {
-            return Err(ClientError::DuplicateCacheWriteSlot { index, slot });
-        }
-        let entry = write_slots
-            .get_mut(used)
-            .ok_or(ClientError::TooManyCacheWrites {
-                index,
-                max: MAX_CACHE_WRITES,
-            })?;
-        *entry = CacheWrite {
-            output: u8::try_from(index).map_err(|_| ClientError::TooManyOutputs {
-                got: outputs.len(),
-                max: usize::from(u8::MAX),
-            })?,
-            slot,
-        };
-        used += 1;
-    }
-    if cache.is_some() && used == 0 {
-        return Err(ClientError::UnusedWriteCache);
-    }
-    Ok(write_slots)
 }

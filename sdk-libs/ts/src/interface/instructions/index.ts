@@ -428,29 +428,35 @@ export function checkTransactCacheAccounts(
   }
 }
 
+type TransactAccountsInput = Readonly<{
+  payer: SignerAccount;
+  inputTree: Address;
+  outputTree: Address;
+  withdrawal?: TransactWithdrawal;
+  cache?: TransactCacheAccounts;
+  data: TransactInstructionData;
+}>;
+
 async function transactAccounts(
-  payer: SignerAccount,
-  inputTree: Address,
-  outputTree: Address,
-  inputs: readonly InputUtxo[],
-  treeContexts: readonly TreeContext[],
-  withdrawal?: TransactWithdrawal,
-  cache?: TransactCacheAccounts,
+  input: TransactAccountsInput,
+  signerPdas: readonly Address[],
 ): Promise<Meta[]> {
-  validateSingleInputTree(inputs, treeContexts);
-  const accounts = [
-    meta(payer, true, true),
-    meta(outputTree, false, true),
+  checkTransactCacheAccounts(input.data.circuit, input.cache);
+  validateSingleInputTree(input.data.inputs, input.data.treeContexts);
+  return [
+    meta(input.payer, true, true),
+    meta(input.outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
-    meta(inputTree, false, true),
+    meta(input.inputTree, false, true),
     ...(await nullifierPdaAccounts(
-      inputTree,
-      inputs.map((input) => input.nullifierHash),
+      input.inputTree,
+      input.data.inputs.map((utxo) => utxo.nullifierHash),
     )),
+    ...signerPdas.map((pda) => meta(pda, false, false)),
+    ...settlementAccounts(input.withdrawal),
+    ...cacheAccountMetas(input.cache),
   ];
-  accounts.push(...settlementAccounts(withdrawal), ...cacheAccountMetas(cache));
-  return accounts;
 }
 
 export async function transactInstruction(
@@ -463,19 +469,24 @@ export async function transactInstruction(
     data: TransactInstructionData;
   }>,
 ): Promise<Instruction> {
-  checkTransactCacheAccounts(input.data.circuit, input.cache);
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    await transactAccounts(
-      input.payer,
-      input.inputTree,
-      input.outputTree,
-      input.data.inputs,
-      input.data.treeContexts,
-      input.withdrawal,
-      input.cache,
-    ),
+    await transactAccounts(input, []),
   );
+}
+
+export function transactCpiAccounts(
+  input: Readonly<{
+    payer: SignerAccount;
+    inputTree: Address;
+    outputTree: Address;
+    withdrawal?: TransactWithdrawal;
+    cache?: TransactCacheAccounts;
+    data: TransactInstructionData;
+    signerPdas: readonly Address[];
+  }>,
+): Promise<readonly Meta[]> {
+  return transactAccounts(input, input.signerPdas);
 }
 
 /**
