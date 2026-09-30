@@ -8,7 +8,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     prover::MergeCacheTarget, MergeProver, MerkleContext, MerkleProof, NonInclusionProof,
-    ProofCompressed, ProverClient, SpendProof, STATE_TREE_HEIGHT,
+    ProofCompressed, ProverClient, ProverExt, SpendProof, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{

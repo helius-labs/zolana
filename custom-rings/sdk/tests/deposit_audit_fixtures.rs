@@ -13,7 +13,7 @@ use custom_ring_sdk::{
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use solana_address::Address;
 use zeroize::Zeroizing;
-use zolana_client::ProverClient;
+use zolana_client::{Prover, ProverClient};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_program::instruction::{RingAssetDeposit, RingDeposit};
 use zolana_ring_client::{DepositOpening, DepositSeal};

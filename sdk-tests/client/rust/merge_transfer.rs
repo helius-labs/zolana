@@ -9,7 +9,7 @@ use client_example::{
 };
 use solana_signer::Signer;
 use zolana_client::{
-    ComputeBudgetConfig, IndexerRpcConfig, MergeProver, ProverClient, Rpc, SolanaRpc,
+    ComputeBudgetConfig, IndexerRpcConfig, MergeProver, ProverClient, ProverExt, Rpc, SolanaRpc,
     WitnessReader, ZolanaClient, ZolanaIndexer,
 };
 use zolana_program::instruction::{MergeTransact, Transact};

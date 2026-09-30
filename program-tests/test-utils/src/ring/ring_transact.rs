@@ -9,7 +9,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProofCompressed,
-    ProverClient, RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
+    ProverClient, ProverExt, RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,

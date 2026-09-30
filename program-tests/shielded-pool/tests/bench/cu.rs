@@ -12,7 +12,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
+use zolana_client::{Prover, ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::state::cache::empty_cached_input_fields;

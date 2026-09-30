@@ -9,11 +9,10 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
-        indexed::ProofDataSource,
         transact::witness::{assemble, AssembledTransfer},
         verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
         witness::{AsyncWitnessReader, WitnessReader},
-        ProofCompressed, TransferProofResult,
+        ProofCompressed, ProverExt, TransferProofResult,
     },
     rpc::{
         compile_message, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig, Rpc,
@@ -39,7 +38,7 @@ impl<R> ZolanaClient<R> {
         &self,
         result: &TransferProofResult,
     ) -> Result<ProofCompressed, ClientError> {
-        let proof = self.async_prover.prove_transfer(&result.inputs).await?;
+        let proof = self.prove_transfer_async(&result.inputs).await?;
         verify_confidential_transfer_proof(result, &proof)?;
         ProofCompressed::try_from(proof)
     }
@@ -58,7 +57,7 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
+        if self.proves_indexed() {
             return Ok(self
                 .indexed_transfer(
                     TransferPreparation {
@@ -107,7 +106,7 @@ impl<R: Rpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
+        if self.proves_indexed() {
             let proved = self.indexed_transfer(
                 TransferPreparation {
                     transaction: signed.transaction.clone(),
@@ -176,7 +175,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.async_prover.proof_data_source() == ProofDataSource::Prover {
+        if self.proves_indexed_async() {
             let proved = self
                 .indexed_transfer_async(
                     TransferPreparation {
@@ -215,7 +214,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.async_prover.prove_transfer(inputs).await?;
+        let proof = self.prove_transfer_async(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         let trees = transact_trees(&assembled, &signed.transaction);

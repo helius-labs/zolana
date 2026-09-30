@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{assemble, ComputeBudgetConfig, ProofAuthority, ProverClient, SpendProof};
+use zolana_client::{assemble, ComputeBudgetConfig, ProverClient, SpendProof};
 use zolana_keypair::PublicKey;
 use zolana_program::instruction::Transact;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
@@ -19,7 +19,6 @@ use crate::{
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
-    transact::pack_transact_proof,
 };
 
 impl LifecycleHarness {
@@ -230,11 +229,8 @@ impl LifecycleHarness {
         // All actors are eddsa-owned since the P256 rail was removed: the owner
         // authorizes the spend by signing the transaction.
         let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-        let transfer_inputs = &mut assembled.prover_inputs;
-        let proof = from_keypair
-            .nullifier_key
-            .prove_transfer(&ProverClient::local(), transfer_inputs)?;
-        let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
+        let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;
+        let ix_data = assembled.with_proof(proof);
 
         let transfer_ix = Transact {
             payer: fee_payer.pubkey(),

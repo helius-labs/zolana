@@ -17,14 +17,12 @@ use zeroize::Zeroizing;
 use crate::{
     error::ClientError,
     prover::{
+        backend::Prover,
         endpoint::{scrub, ProverEndpoint},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
-        json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
-            to_json_p256_ring, to_json_ring, to_json_ring_authority,
-        },
         proof::{proof_from_gnark_json, Proof},
         proving_key::{parse_sha256_hex, ExpectedProvingKey, ProverKeys, ProvingKeyReport},
+        requests,
     },
 };
 
@@ -92,8 +90,9 @@ pub enum IndexerRequirement {
     Required,
 }
 
-/// A `/prove` body from a downstream crate, sent through the client's retry,
-/// queue-fallback, and poll handling.
+/// One proof request: the body in the prover's wire format and what a backend
+/// needs to prove it. Downstream crates implement it for their own circuits;
+/// a [`Prover`] receives it whole.
 pub trait ProveRequest {
     /// `Zeroizing`, a body may carry key material.
     fn body(&self) -> Result<Zeroizing<String>, ClientError>;
@@ -295,59 +294,6 @@ impl ProverClient {
         self
     }
 
-    /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
-    /// Call [`Proof::compress`] for the wire format.
-    pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let key =
-            ExpectedProvingKey::transfer_confidential(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json(inputs)?, self.delivery, &key)
-    }
-
-    /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
-    /// Call [`Proof::compress`] for the wire format.
-    pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
-        self.send(to_json_merge(inputs), self.delivery, &key)
-    }
-
-    /// Prove a ring-authority transfer (anonymous, no signature), returning the
-    /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
-    /// call [`Proof::compress`] for the wire format.
-    pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let key =
-            ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json_ring_authority(inputs)?, self.delivery, &key)
-    }
-
-    /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
-    /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
-    /// wire format.
-    pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
-        self.send(to_json_merge_ring(inputs), self.delivery, &key)
-    }
-
-    /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
-    pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::transfer_ring(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json_ring(inputs)?, self.delivery, &key)
-    }
-
-    /// Prove a custom-ring P256 transfer.
-    pub fn prove_transfer_p256_ring(
-        &self,
-        inputs: &TransferP256Inputs,
-    ) -> Result<Proof, ClientError> {
-        let key =
-            ExpectedProvingKey::transfer_p256_ring(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json_p256_ring(inputs)?, self.delivery, &key)
-    }
-
-    pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
-        let key = request.proving_key()?;
-        self.send(request.body()?, request.delivery(), &key)
-    }
-
     pub fn prove_indexed<R: Request>(&self, request: &R) -> Result<R::Output, ClientError> {
         let key = request.proving_key()?;
         let body = request.body()?;
@@ -360,17 +306,6 @@ impl ProverClient {
             })
             .map_err(indexed_failure)?;
         request.finish(proof, resolution)
-    }
-
-    /// Prove a nullifier-tree batch address-append update, returning the
-    /// uncompressed negated proof. Call [`ProofCompressed::try_from`] for the
-    /// SPP instruction wire format.
-    pub fn prove_batch_address_append(
-        &self,
-        inputs: &BatchAddressAppendInputs,
-    ) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::batch_address_append(inputs.tree_height, inputs.batch_size)?;
-        self.send(to_json_batch_address_append(inputs), Delivery::Queued, &key)
     }
 
     /// Compare the prover's proving keys (`GET /proving-keys`) with the
@@ -791,6 +726,24 @@ fn get_label(path: &str) -> String {
     format!("{} request", path.trim_start_matches('/').replace('-', " "))
 }
 
+impl Prover for ProverClient {
+    fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError> {
+        let key = request.proving_key()?;
+        let delivery = rail(self.delivery, request.delivery());
+        self.send(request.body()?, delivery, &key)
+    }
+}
+
+/// The rail a request takes: an in-response request asks for the proof in the
+/// response unless the client was configured to queue transfer-shaped proofs
+/// (`with_queued_proofs`); a queued request always queues.
+fn rail(configured: Delivery, requested: Delivery) -> Delivery {
+    match requested {
+        Delivery::InResponse => configured,
+        Delivery::Queued => Delivery::Queued,
+    }
+}
+
 fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKeys, ClientError> {
     if !status.is_success() {
         return Err(ClientError::ProverServer(format!(
@@ -918,50 +871,41 @@ impl AsyncProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let key =
-            ExpectedProvingKey::transfer_confidential(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json(inputs)?, self.delivery, &key).await
+        self.prove(&requests::transfer(inputs)?).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
-        self.send(to_json_merge(inputs), self.delivery, &key).await
+        self.prove(&requests::merge(inputs)?).await
     }
 
     pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        let key =
-            ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json_ring_authority(inputs)?, self.delivery, &key)
-            .await
+        self.prove(&requests::ring_authority(inputs)?).await
     }
 
     pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
-        self.send(to_json_merge_ring(inputs), self.delivery, &key)
-            .await
+        self.prove(&requests::merge_ring(inputs)?).await
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::transfer_ring(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json_ring(inputs)?, self.delivery, &key).await
+        self.prove(&requests::transfer_ring(inputs)?).await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        let key =
-            ExpectedProvingKey::transfer_p256_ring(inputs.inputs.len(), inputs.outputs.len())?;
-        self.send(to_json_p256_ring(inputs)?, self.delivery, &key)
-            .await
+        self.prove(&requests::transfer_p256_ring(inputs)?).await
     }
 
+    /// The async counterpart of [`Prover::prove`] on [`ProverClient`], on the
+    /// same rail.
     pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
         let key = request.proving_key()?;
-        self.send(request.body()?, request.delivery(), &key).await
+        let delivery = rail(self.delivery, request.delivery());
+        self.send(request.body()?, delivery, &key).await
     }
 
     pub async fn prove_indexed<R: Request>(&self, request: &R) -> Result<R::Output, ClientError> {
@@ -983,9 +927,7 @@ impl AsyncProverClient {
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        let key = ExpectedProvingKey::batch_address_append(inputs.tree_height, inputs.batch_size)?;
-        self.send(to_json_batch_address_append(inputs), Delivery::Queued, &key)
-            .await
+        self.prove(&requests::batch_address_append(inputs)?).await
     }
 
     /// Async counterpart of [`ProverClient::check_proving_keys`].
@@ -1642,6 +1584,66 @@ mod tests {
             requests.iter().all(|request| !request.sync_requested),
             "a custom request must not ask for a synchronous answer"
         );
+    }
+
+    struct InResponseRequest;
+
+    impl ProveRequest for InResponseRequest {
+        fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+            Ok(Zeroizing::new("{}".to_string()))
+        }
+
+        fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+            Ok(test_key())
+        }
+
+        fn delivery(&self) -> Delivery {
+            Delivery::InResponse
+        }
+    }
+
+    fn queued_then_completed() -> Vec<MockResponse> {
+        vec![
+            MockResponse::json(202, json!({ "jobId": "job-rail", "status": "queued" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": gnark_proof(), "proofDurationMs": 7 },
+                }),
+            ),
+        ]
+    }
+
+    fn assert_never_asked_for_a_sync_answer(requests: &[RecordedRequest]) {
+        assert!(
+            requests.iter().all(|request| !request.sync_requested),
+            "a client configured to queue asked for a synchronous answer"
+        );
+    }
+
+    /// A client configured to queue transfer-shaped proofs queues every
+    /// in-response request.
+    #[test]
+    fn a_queued_client_queues_in_response_requests() {
+        let server = MockServer::respond_with(queued_then_completed());
+        queued_prover_client(server.url())
+            .with_queued_proofs()
+            .prove(&InResponseRequest)
+            .expect("queued proof should complete");
+        assert_never_asked_for_a_sync_answer(&server.requests());
+    }
+
+    /// The async client takes the same rail as the blocking one.
+    #[tokio::test]
+    async fn a_queued_async_client_queues_in_response_requests() {
+        let server = MockServer::respond_with(queued_then_completed());
+        async_prover_client(server.url())
+            .with_queued_proofs()
+            .prove(&InResponseRequest)
+            .await
+            .expect("queued proof should complete");
+        assert_never_asked_for_a_sync_answer(&server.requests());
     }
 
     fn proof_with_reported_key(reported: Option<Value>) -> Value {

@@ -1,13 +1,15 @@
+mod backend;
 mod cache;
 mod client;
 mod endpoint;
 pub mod field;
 pub mod indexed;
 mod inputs;
-mod json;
+pub(crate) mod json;
 pub mod merge;
 mod proof;
 pub mod proving_key;
+pub(crate) mod requests;
 pub mod ring_authority;
 pub mod timing;
 pub mod transact;
@@ -16,6 +18,7 @@ mod verify;
 #[cfg(feature = "indexer-api")]
 pub mod witness;
 
+pub use backend::{Prover, ProverExt};
 pub use client::{
     spawn_prover, AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest,
     ProverClient, ProverLaunch, PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH,

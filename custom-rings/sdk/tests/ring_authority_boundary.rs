@@ -6,7 +6,7 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    Proof, ProofAuthority, ProverClient, PublicTransfers, RingAuthorityProver, Rpc,
+    Proof, ProofAuthority, ProverClient, ProverExt, PublicTransfers, RingAuthorityProver, Rpc,
 };
 use zolana_interface::{
     instruction::{

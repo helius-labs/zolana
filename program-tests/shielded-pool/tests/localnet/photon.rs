@@ -26,8 +26,8 @@ use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
-    NonInclusionProof as IndexedNonInclusionProof, ProofAuthority, ProofInputUtxo, ProverClient,
-    Rpc, SolanaRpc, SpendProof, TransferInput, ZolanaIndexer,
+    NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, Rpc, SolanaRpc,
+    SpendProof, TransferInput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::primitives::solana_owner_identity;
@@ -73,8 +73,7 @@ use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,
-    pack_transact_proof, public_sol_field, real_output, single_tree_slots, sol_leg,
-    transfer_output,
+    public_sol_field, real_output, single_tree_slots, sol_leg, transfer_output,
 };
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use num_bigint::BigUint;
 use zolana_client::{
     ClientError, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProveResult,
-    ProverClient, Rpc, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    ProverClient, ProverExt, Rpc, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
@@ -155,7 +155,8 @@ impl Rpc for TestIndexer {
         let mut assembled =
             zolana_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
         let inputs = &mut assembled.prover_inputs;
-        let proof = authority.prove_transfer(&ProverClient::local(), inputs)?;
+        authority.complete_inputs(&mut inputs.inputs)?;
+        let proof = ProverClient::local().prove_transfer(inputs)?;
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
