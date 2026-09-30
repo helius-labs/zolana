@@ -307,7 +307,13 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
   const [config, configBump] = await ringConfigPda(RING);
   const [rootAddress, rootBump] = await ringKeyRegistryRootPda(RING);
   const insertion = firstInsertion(identity);
-  const envelope = sealNullifierKey(member.keypair.nullifierKey(), auditor.publicKey());
+  // A random ephemeral would let a wrong auditor key pass the pad byte 1 run in 256, so which
+  // check refuses it would flake between the envelope and the inclusion proof.
+  const envelope = sealNullifierKeyWith(
+    ViewingKey.fromBytes(EPHEMERAL_SK),
+    member.keypair.nullifierKey(),
+    auditor.publicKey(),
+  );
   const key = registeredKeyHash({
     nullifierPublicKey: envelope.nullifierPublicKey,
     ciphertext: envelope.sealed.ciphertext,
