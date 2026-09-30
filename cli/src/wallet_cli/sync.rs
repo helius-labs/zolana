@@ -1,10 +1,7 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
-use zolana_client::{EncryptedUtxoMatch, IndexerPollConfig, Rpc, ZolanaIndexer};
-use zolana_test_utils::wallet::{
-    sync_wallet_with_config as client_sync_wallet_with_config, SyncReport, SyncWalletConfig, Wallet,
-};
-use zolana_transaction::Address;
+use zolana_client::{EncryptedUtxoMatch, IndexerPollConfig, Rpc, SpendableUtxos, ZolanaIndexer};
+use zolana_transaction::{Address, SpendableDecryptionResult};
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
@@ -18,40 +15,31 @@ use crate::{
 
 pub(super) struct SyncContext {
     pub(super) material: WalletMaterial,
-    pub(super) wallet: Wallet,
+    pub(super) spendable: SpendableDecryptionResult,
     pub(super) local_assets: Vec<LocalAssetConfig>,
-    pub(super) report: SyncReport,
 }
 
 pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
     let ctx = sync_context(&opts)?;
-    println!(
-        "ok sync stored={} unparsed={} undecryptable={}",
-        ctx.report.stored_utxos,
-        ctx.report.unparsed_transactions,
-        ctx.report.undecryptable_candidates
-    );
+    println!("ok sync utxos={}", ctx.spendable.utxos().count());
     Ok(())
 }
 
+/// The wallet's spendable UTXOs, read afresh from the indexer. The CLI's UTXOs
+/// all live on the default ring and carry its owner tag or, as deposits, its
+/// viewing key's tag. Anonymous transfers, tagged per counterparty, are not
+/// read; no CLI command produces them.
 pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let config = CliConfigFile::load()?;
     let sync = resolve_sync_with_config(opts, &config)?;
     let material = load_sender_from_resolved_sync(&sync)?;
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
-    let mut wallet = Wallet::new(material.keypair.shielded_address()?, assets)?;
-    let report = client_sync_wallet_with_config(
-        &mut wallet,
-        &material,
-        &indexer,
-        SyncWalletConfig::default(),
-    )?;
+    let spendable = SpendableUtxos::new(&material.keypair, &assets).fetch(&indexer)?;
     Ok(SyncContext {
         material,
-        wallet,
+        spendable,
         local_assets: config.assets,
-        report,
     })
 }
 

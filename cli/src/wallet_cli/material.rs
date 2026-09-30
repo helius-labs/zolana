@@ -12,19 +12,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
-use zolana_keypair::{
-    shielded::ShieldedAddress, viewing_key::ViewTag, Curve, NullifierKey, ShieldedKeypair,
-    SigningKey, ViewingKey,
-};
-use zolana_test_utils::wallet::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority,
-    SyncWalletAuthority,
-};
-use zolana_transaction::P256Signature;
-use zolana_transaction::{
-    serialization::anonymous::AnonymousTransferSenderPlaintext, Address, SppProofOutputUtxo,
-    TransactionError,
-};
+use zolana_keypair::{Curve, ShieldedKeypair, SigningKey, ViewingKey};
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
@@ -72,70 +60,6 @@ pub(super) struct WalletMaterial {
 impl WalletMaterial {
     pub(super) fn owner_pubkey(&self) -> Pubkey {
         self.funding.pubkey()
-    }
-}
-
-impl SyncWalletAuthority for WalletMaterial {
-    fn solana_pubkey(&self) -> Address {
-        Address::new_from_array(self.owner_pubkey().to_bytes())
-    }
-
-    fn shielded_address(&self) -> std::result::Result<ShieldedAddress, TransactionError> {
-        Ok(self.keypair.shielded_address()?)
-    }
-
-    fn viewing_keys(&self) -> std::result::Result<Vec<ViewingKey>, TransactionError> {
-        Ok(vec![self.keypair.viewing_key.clone()])
-    }
-
-    fn encrypt_confidential_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        outputs: &[SppProofOutputUtxo],
-    ) -> std::result::Result<EncryptedTransfer, TransactionError> {
-        SyncWalletAuthority::encrypt_confidential_transfer(
-            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            first_nullifier,
-            outputs,
-        )
-    }
-
-    fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> std::result::Result<EncryptedTransfer, TransactionError> {
-        SyncWalletAuthority::encrypt_anonymous_transfer(
-            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            first_nullifier,
-            sender_view_tag,
-            sender,
-            recipients,
-        )
-    }
-
-    fn request_user_approval(
-        &self,
-        request: ApprovalRequest,
-    ) -> std::result::Result<(), TransactionError> {
-        debug_assert_eq!(request.solana_pubkey, self.solana_pubkey());
-        Ok(())
-    }
-
-    fn sign_p256(
-        &self,
-        message_hash: &[u8; 32],
-    ) -> std::result::Result<P256Signature, TransactionError> {
-        SyncWalletAuthority::sign_p256(
-            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            message_hash,
-        )
-    }
-
-    fn spend_nullifier_key(&self) -> std::result::Result<NullifierKey, TransactionError> {
-        Ok(self.keypair.nullifier_key.clone())
     }
 }
 
@@ -536,18 +460,5 @@ mod tests {
         let invalid = root.join("invalid.json");
         fs::write(&invalid, b"not json").unwrap();
         assert!(load_solana_cli_keypair(&invalid).is_err());
-    }
-
-    #[test]
-    fn wallet_authority_is_bound_to_funding_owner() {
-        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
-        let funding = Keypair::new();
-        let material = WalletMaterial { keypair, funding };
-        let message_hash = [7u8; 32];
-
-        assert_eq!(material.solana_pubkey(), material.funding.pubkey());
-        material.shielded_address().expect("shielded address");
-        material.spend_nullifier_key().expect("nullifier key");
-        material.sign_p256(&message_hash).expect("P256 signature");
     }
 }
