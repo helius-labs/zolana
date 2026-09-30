@@ -1,10 +1,12 @@
 //! A wallet's spendable UTXOs, read from the indexer.
 //!
 //! Stateless: [`SpendableUtxos::fetch`] reads the transactions tagged for the
-//! wallet, decrypts them with [`decrypt_spendable`], then reads the
-//! transactions that spent the UTXOs it found, until a round finds nothing
-//! new. A merge, or a spend another client made, can carry none of the
-//! wallet's tags; only the nullifier rounds find those.
+//! wallet and decrypts them, then reads the transactions that spent the UTXOs
+//! it found, until a round finds nothing new. A merge, or a spend another
+//! client made, can carry none of the wallet's tags; only the nullifier rounds
+//! find those. Each round decrypts only the transactions it fetched and queries
+//! only the nullifiers it has not queried, so with a remote key holder a round
+//! costs round trips for what is new, not for everything found so far.
 
 use std::collections::HashSet;
 
@@ -12,7 +14,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
-    decrypt_spendable, AssetRegistry, DepositPayload, ShieldedKeys, SpendableDecryptionResult,
+    verify_spendable, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
+    SpendableDecryptionResult,
 };
 
 use crate::{
@@ -60,21 +63,46 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
 
-        let mut transactions = Transactions::default();
-        for tx in tagged_transactions(indexer, &tags)? {
-            transactions.insert(self.unwrap_ring_deposits(tx)?);
-        }
+        let mut seen = HashSet::new();
+        let mut batch = self.unseen(&mut seen, tagged_transactions(indexer, &tags)?)?;
+        let mut decrypted = DecryptionResult::default();
+        let mut queried = HashSet::new();
         loop {
-            let spendable = decrypt_spendable(self.keys, &transactions.all, self.assets)?;
-            let nullifiers: Vec<_> = spendable.utxos().map(|utxo| utxo.nullifier).collect();
-            let mut found = false;
-            for tx in spending_transactions(indexer, &nullifiers)? {
-                found |= transactions.insert(self.unwrap_ring_deposits(tx)?);
-            }
-            if !found {
+            decrypted.extend(self.keys, &batch, self.assets)?;
+            let spendable = verify_spendable(self.keys, &decrypted)?;
+            // The spends of a UTXO queried in an earlier round are fetched.
+            let nullifiers: Vec<_> = spendable
+                .utxos()
+                .map(|utxo| utxo.nullifier)
+                .filter(|nullifier| queried.insert(*nullifier))
+                .collect();
+            batch = self.unseen(&mut seen, spending_transactions(indexer, &nullifiers)?)?;
+            if batch.is_empty() {
                 return Ok(spendable);
             }
         }
+    }
+
+    /// The transactions not fetched before, their ring deposits unwrapped. A
+    /// proofless deposit arrives one output at a time, so its leaf is part of
+    /// its identity.
+    fn unseen(
+        &self,
+        seen: &mut HashSet<(Signature, Option<u16>, Option<u64>)>,
+        transactions: Vec<ShieldedTransaction>,
+    ) -> Result<Vec<ShieldedTransaction>, ClientError> {
+        transactions
+            .into_iter()
+            .filter(|tx| {
+                let leaf = tx
+                    .proofless
+                    .then(|| tx.output_slots.first())
+                    .flatten()
+                    .map(|slot| slot.output_context.leaf_index);
+                seen.insert((tx.tx_signature, tx.event_index, leaf))
+            })
+            .map(|tx| self.unwrap_ring_deposits(tx))
+            .collect()
     }
 
     fn unwrap_ring_deposits(
@@ -87,29 +115,6 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
             }
         }
         Ok(tx)
-    }
-}
-
-/// Every fetched transaction once. A proofless deposit arrives one output at a
-/// time, so its leaf is part of its identity.
-#[derive(Default)]
-struct Transactions {
-    seen: HashSet<(Signature, Option<u16>, Option<u64>)>,
-    all: Vec<ShieldedTransaction>,
-}
-
-impl Transactions {
-    fn insert(&mut self, tx: ShieldedTransaction) -> bool {
-        let leaf = tx
-            .proofless
-            .then(|| tx.output_slots.first())
-            .flatten()
-            .map(|slot| slot.output_context.leaf_index);
-        let inserted = self.seen.insert((tx.tx_signature, tx.event_index, leaf));
-        if inserted {
-            self.all.push(tx);
-        }
-        inserted
     }
 }
 

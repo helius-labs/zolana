@@ -1214,6 +1214,30 @@ fn a_merge_rebuilds_from_utxos_held_since_an_earlier_sync() {
 }
 
 #[test]
+fn extending_a_result_decrypts_only_the_new_transactions() {
+    let owner = keypair(51);
+    let keys = RecordingKeys::new(&owner);
+    let assets = AssetRegistry::default();
+    let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    let earlier = vec![received(&owner, &first), received(&owner, &second)];
+    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, None);
+
+    let mut decrypted = decrypt(&keys, &earlier, &assets).unwrap();
+    let earlier_decrypts = keys.decrypt_calls.borrow().len();
+    decrypted
+        .extend(&keys, std::slice::from_ref(&merge), &assets)
+        .unwrap();
+
+    // The merge's inputs came from the earlier call, and nothing it covered
+    // was decrypted again.
+    assert_eq!(keys.decrypt_calls.borrow().len(), earlier_decrypts);
+    assert_eq!(decrypted.utxos.last(), Some(&merged));
+    let all: Vec<_> = earlier.into_iter().chain([merge]).collect();
+    assert_eq!(decrypted, decrypt(&owner, &all, &assets).unwrap());
+}
+
+#[test]
 fn merges_rebuild_nothing_without_every_input_or_a_matching_commitment() {
     let owner = keypair(43);
     let other = keypair(44);

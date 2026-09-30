@@ -71,68 +71,87 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
     transactions: &[ShieldedTransaction],
     assets: &AssetRegistry,
 ) -> Result<DecryptionResult, TransactionError> {
-    let address = shielded_keys.address()?;
-    let spent_nullifiers = transactions
-        .iter()
-        .flat_map(|tx| tx.nullifiers.iter().copied())
-        .collect();
-    let mut utxos = Vec::new();
-    let mut unknown_asset_ids = BTreeSet::new();
-    let mut unknown_mints = BTreeSet::new();
-    for tx in transactions {
-        for (position, slot) in tx.output_slots.iter().enumerate() {
-            let slot_index =
-                u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
-            let decoded = match decode_slot(shielded_keys, &address, tx, slot, slot_index, assets) {
-                Ok(Some(decoded)) => decoded,
-                Ok(None) => continue,
-                // An asset the registry lacks leaves one output out and is
-                // reported, rather than failing the whole scan. Deposits name
-                // their mint, in the clear and after the owner check; every
-                // other output carries a registry id.
-                Err(TransactionError::UnknownAsset(asset_id)) => {
-                    unknown_asset_ids.insert(asset_id);
-                    continue;
+    let mut decrypted = DecryptionResult::default();
+    decrypted.extend(shielded_keys, transactions, assets)?;
+    Ok(decrypted)
+}
+
+impl DecryptionResult {
+    /// Adds the candidates of `transactions`, decrypting only those. A merge
+    /// among them is rebuilt from every candidate held so far, so its inputs
+    /// may come from an earlier call: a client that reads its transactions in
+    /// rounds decrypts each one once. Left unchanged on error.
+    pub fn extend<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+    ) -> Result<(), TransactionError> {
+        let address = shielded_keys.address()?;
+        let mut found = Vec::new();
+        let mut unknown_asset_ids = BTreeSet::new();
+        let mut unknown_mints = BTreeSet::new();
+        for tx in transactions {
+            for (position, slot) in tx.output_slots.iter().enumerate() {
+                let slot_index =
+                    u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
+                let decoded =
+                    match decode_slot(shielded_keys, &address, tx, slot, slot_index, assets) {
+                        Ok(Some(decoded)) => decoded,
+                        Ok(None) => continue,
+                        // An asset the registry lacks leaves one output out and
+                        // is reported, rather than failing the whole scan.
+                        // Deposits name their mint, in the clear and after the
+                        // owner check; every other output carries a registry id.
+                        Err(TransactionError::UnknownAsset(asset_id)) => {
+                            unknown_asset_ids.insert(asset_id);
+                            continue;
+                        }
+                        Err(TransactionError::UnknownMint(mint)) => {
+                            unknown_mints.insert(mint);
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    };
+                for utxo in decoded.utxos {
+                    let hash = slot.output_context.hash;
+                    found.push(WalletUtxo {
+                        utxo,
+                        nullifier_pubkey: address.nullifier_pubkey,
+                        utxo_hash: hash,
+                        nullifier: [0; 32],
+                        data_hash: decoded.data_hash,
+                        ring_data_hash: decoded.ring_data_hash,
+                        tree_id: slot.output_context.tree_id,
+                        leaf_index: slot.output_context.leaf_index,
+                        slot: tx.slot,
+                        tx_signature: tx.tx_signature,
+                        slot_index,
+                    });
                 }
-                Err(TransactionError::UnknownMint(mint)) => {
-                    unknown_mints.insert(mint);
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-            for utxo in decoded.utxos {
-                let hash = slot.output_context.hash;
-                utxos.push(WalletUtxo {
-                    utxo,
-                    nullifier_pubkey: address.nullifier_pubkey,
-                    utxo_hash: hash,
-                    nullifier: [0; 32],
-                    data_hash: decoded.data_hash,
-                    ring_data_hash: decoded.ring_data_hash,
-                    tree_id: slot.output_context.tree_id,
-                    leaf_index: slot.output_context.leaf_index,
-                    slot: tx.slot,
-                    tx_signature: tx.tx_signature,
-                    slot_index,
-                });
             }
         }
+        assign_nullifiers(shielded_keys, &mut found)?;
+        let mut utxos = self.utxos.clone();
+        utxos.extend(found);
+        rebuild_merges(shielded_keys, &address, transactions, &mut utxos)?;
+        utxos.sort_by_key(|utxo| {
+            (
+                utxo.slot,
+                utxo.tx_signature.as_ref().to_vec(),
+                utxo.slot_index,
+            )
+        });
+        self.utxos = utxos;
+        self.spent_nullifiers.extend(
+            transactions
+                .iter()
+                .flat_map(|tx| tx.nullifiers.iter().copied()),
+        );
+        self.unknown_asset_ids.extend(unknown_asset_ids);
+        self.unknown_mints.extend(unknown_mints);
+        Ok(())
     }
-    assign_nullifiers(shielded_keys, &mut utxos)?;
-    rebuild_merges(shielded_keys, &address, transactions, &mut utxos)?;
-    utxos.sort_by_key(|utxo| {
-        (
-            utxo.slot,
-            utxo.tx_signature.as_ref().to_vec(),
-            utxo.slot_index,
-        )
-    });
-    Ok(DecryptionResult {
-        utxos,
-        spent_nullifiers,
-        unknown_asset_ids,
-        unknown_mints,
-    })
 }
 
 /// Skips unresolved, mismatched and spent notes; spend status covers the supplied batch.

@@ -32,6 +32,7 @@ struct Indexer {
     /// Served by the nullifiers they publish.
     spends: Vec<ShieldedTransaction>,
     queried_tags: RefCell<Vec<Vec<[u8; 32]>>>,
+    queried_nullifiers: RefCell<Vec<[u8; 32]>>,
 }
 
 fn page<T: Clone>(items: Vec<T>, cursor: Option<Vec<u8>>) -> (Vec<T>, Option<Vec<u8>>) {
@@ -104,6 +105,11 @@ impl Rpc for Indexer {
         _limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        if cursor.is_none() {
+            self.queried_nullifiers
+                .borrow_mut()
+                .extend(nullifiers.iter().copied());
+        }
         let matching = self
             .spends
             .iter()
@@ -306,6 +312,12 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
         indexer.queried_tags.borrow().first(),
         Some(&vec![owner_tag, address.viewing_pubkey.x()])
     );
+    // Each round queries only the UTXOs found since the last one.
+    let queried = indexer.queried_nullifiers.borrow();
+    let mut unique = queried.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
 }
 
 /// A framing that marks framed ciphertexts with `frame`.
