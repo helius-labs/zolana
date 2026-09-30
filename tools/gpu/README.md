@@ -23,7 +23,8 @@ AdministratorAccess covers these operations. Log in with `aws sso login
 required in the selected region.
 
 `publish-gpu` publishes images after merge using the existing image publisher
-role and `PRIVATE_LIBS_TOKEN`, with read access to Aeglos. Wait for that workflow
+role and the `image-publish` environment secret `AEGLOS_DEPLOY_KEY`, a
+read-only Aeglos deploy key. Wait for that workflow
 to finish. Deployment selects the newest complete release, pins both images by
 digest, and requires the same source commit. `--revision FULL_SHA` selects a
 specific published commit. Release commits must be on the local `origin/main`,

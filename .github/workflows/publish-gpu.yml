@@ -92,21 +92,19 @@ jobs:
         id: aeglos
         if: matrix.service == 'prover' && steps.image.outputs.exists == 'false'
         env:
-          AEGLOS_READ_TOKEN: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+          AEGLOS_DEPLOY_KEY: ${{ secrets.AEGLOS_DEPLOY_KEY }}
         run: |
-          test -n "$AEGLOS_READ_TOKEN"
-          askpass=$(mktemp)
-          trap 'rm -f "$askpass"' EXIT
-          cat > "$askpass" <<'SH'
-          #!/bin/sh
-          case "$1" in
-            *Username*) printf '%s\n' x-access-token ;;
-            *Password*) printf '%s\n' "$AEGLOS_READ_TOKEN" ;;
-            *) exit 1 ;;
-          esac
-          SH
-          chmod 700 "$askpass"
-          GIT_ASKPASS="$askpass" tools/gpu/fetch-aeglos.sh "$RUNNER_TEMP/aeglos-source"
+          test -n "$AEGLOS_DEPLOY_KEY"
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$AEGLOS_DEPLOY_KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0='url.git@github.com:.insteadOf'
+          export GIT_CONFIG_VALUE_0='https://github.com/'
+          tools/gpu/fetch-aeglos.sh "$RUNNER_TEMP/aeglos-source"
           {
             echo 'contexts<<EOF'
             echo "aeglos_source=$RUNNER_TEMP/aeglos-source"
