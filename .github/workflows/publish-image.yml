@@ -42,6 +42,7 @@ on:
       - "rust-toolchain.toml"
       - "LICENSE"
       - "THIRD_PARTY_NOTICES"
+      - "tools/check-photon-image.sh"
       - ".github/workflows/publish-image.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -55,6 +56,7 @@ on:
       - "rust-toolchain.toml"
       - "LICENSE"
       - "THIRD_PARTY_NOTICES"
+      - "tools/check-photon-image.sh"
       - ".github/workflows/publish-image.yml"
   workflow_dispatch:
     inputs:
@@ -137,12 +139,7 @@ jobs:
           cache-from: type=gha,scope=photon-image-validation
           cache-to: type=gha,mode=max,scope=photon-image-validation
       - name: Smoke-test packaged binaries
-        run: |
-          docker run --rm --entrypoint photon zolana-photon:ci --version
-          docker run --rm --entrypoint photon-migration zolana-photon:ci --version
-          docker run --rm --entrypoint photon-snapshotter zolana-photon:ci --version
-          docker run --rm --entrypoint photon-snapshot-loader zolana-photon:ci --version
-          test "$(docker run --rm --entrypoint id zolana-photon:ci -u)" = 10001
+        run: tools/check-photon-image.sh zolana-photon:ci
 
   publish:
     name: publish / ${{ inputs.service || 'photon' }}
@@ -235,8 +232,8 @@ jobs:
           CHANNEL: ${{ steps.plan.outputs.channel }}
         run: |
           if [[ "$CHANNEL" != release ]]; then
-            if [[ "$IMAGE_TAG" == *-zolana-* ]]; then
-              echo "::error::preview tag $IMAGE_TAG must not use the release naming scheme" >&2
+            if [[ "$IMAGE_TAG" == *-zolana-* || "$IMAGE_TAG" == gpu-* ]]; then
+              echo "::error::preview tag $IMAGE_TAG must not use a release or GPU naming scheme" >&2
               exit 1
             fi
             exit 0
@@ -312,11 +309,21 @@ jobs:
               exit "$status"
             fi
           done <<< "$IMAGE_TAGS"
+      - name: Read prover build settings
+        if: steps.plan.outputs.service == 'prover'
+        id: prover-build
+        run: |
+          source prover/server/release-build.env
+          echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
+          echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ steps.plan.outputs.context }}
           file: ${{ steps.plan.outputs.file }}
           platforms: linux/amd64
+          build-args: |
+            GOAMD64=${{ steps.prover-build.outputs.goamd64 }}
+            PROVER_PGO=${{ steps.prover-build.outputs.pgo }}
           load: true
           push: false
           tags: ${{ steps.metadata.outputs.tags }}
@@ -338,10 +345,7 @@ jobs:
           test -n "$image"
           case "$SERVICE" in
             photon)
-              docker run --rm --entrypoint photon "$image" --version
-              docker run --rm --entrypoint photon-migration "$image" --version
-              docker run --rm --entrypoint photon-snapshotter "$image" --version
-              docker run --rm --entrypoint photon-snapshot-loader "$image" --version
+              tools/check-photon-image.sh "$image"
               ;;
             prover)
               # Distroless and no shell, so the entrypoint is the only thing to

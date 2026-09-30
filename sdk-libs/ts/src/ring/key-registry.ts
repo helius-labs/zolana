@@ -34,7 +34,8 @@ import {
   registerRingKeyInstruction,
 } from "./instructions.js";
 import { memberOfTag, type Member } from "./policy.js";
-import { KEY_REGISTRY_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
+import { waitForProjection } from "../client/retry.js";
+import { KEY_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
 import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submission.js";
 
 /** Rust `NF_KEY_ENC_INFO`, separates the key stream from the audit stream. */
@@ -227,7 +228,7 @@ export async function fetchRingSealedKey(
   input: Readonly<{ client: RingSealedKeyClient; ringProgramId: Address; member: Member }>,
   context?: RequestContext,
 ): Promise<RingSealedKeyEntry> {
-  return waitForRingProjection(
+  return waitForProjection(
     async (attemptContext) =>
       readSealedKey(
         {
@@ -371,7 +372,7 @@ async function buildRegistrationAttempt(
   const { client, ringProgramId } = input;
   const { payer, member } = checkedIdentity(input.member);
   const auditor = (await fetchRingProgramConfig(client, ringProgramId, context)).auditorPublicKey;
-  const { root, insertion } = await waitForRingProjection(
+  const { root, insertion } = await waitForProjection(
     async (attemptContext) => {
       const root = await fetchRingKeyRegistryRoot(client, ringProgramId, attemptContext);
       if (root.nextIndex >= KEY_REGISTRY_CAPACITY)

@@ -117,10 +117,10 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn merge_encoding(cache: Option<(&[u8; 32], u8)>) -> ([u8; 32], [u8; 32]) {
+fn merge_encoding(input_count: usize, cache: Option<(&[u8; 32], u8)>) -> ([u8; 32], [u8; 32]) {
     use zolana_hasher::{sha256::Sha256, Hasher};
     use zolana_interface::instruction::{tag, MergeExternalDataHash};
-    let mut data = data_with(8);
+    let mut data = data_with(input_count);
     data.cache_slot = cache.map(|(_, slot)| slot);
     let instruction_sha256 = Sha256::hash(&data.serialize().unwrap()).unwrap();
     let external_data_hash = MergeExternalDataHash {
@@ -135,9 +135,12 @@ fn merge_encoding(cache: Option<(&[u8; 32], u8)>) -> ([u8; 32], [u8; 32]) {
 }
 
 fn compute_merge_encoding_vector() -> serde_json::Value {
-    let (instruction_sha256, external_data_hash) = merge_encoding(None);
-    let (cached_instruction_sha256, cached_external_data_hash) =
-        merge_encoding(Some((&VECTOR_CACHE_ADDRESS, VECTOR_CACHE_SLOT)));
+    let (instruction_sha256, external_data_hash) = merge_encoding(MERGE_DEFAULT_INPUT_COUNT, None);
+    let (cached_instruction_sha256, cached_external_data_hash) = merge_encoding(
+        MERGE_DEFAULT_INPUT_COUNT,
+        Some((&VECTOR_CACHE_ADDRESS, VECTOR_CACHE_SLOT)),
+    );
+    let (wide_instruction_sha256, _) = merge_encoding(MAX_MERGE_INPUTS, None);
     serde_json::json!({
         "instruction_sha256": hex(&instruction_sha256),
         "external_data_hash": hex(&external_data_hash),
@@ -146,6 +149,10 @@ fn compute_merge_encoding_vector() -> serde_json::Value {
             "cache_slot": VECTOR_CACHE_SLOT,
             "instruction_sha256": hex(&cached_instruction_sha256),
             "external_data_hash": hex(&cached_external_data_hash),
+        },
+        "wide": {
+            "input_count": MAX_MERGE_INPUTS,
+            "instruction_sha256": hex(&wide_instruction_sha256),
         },
     })
 }
@@ -173,6 +180,14 @@ fn cached_merge_matches_the_shared_encoding_vector() {
     assert_ne!(
         vector["cached"]["external_data_hash"],
         vector["external_data_hash"]
+    );
+}
+
+#[test]
+fn wide_merge_matches_the_shared_encoding_vector() {
+    assert_eq!(
+        committed_merge_encoding_vector()["wide"],
+        compute_merge_encoding_vector()["wide"]
     );
 }
 

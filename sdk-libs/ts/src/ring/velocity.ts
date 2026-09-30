@@ -20,9 +20,12 @@ import type {
   ChainReader,
   SlotReader,
   ProofAuthority,
+  IndexedProofAuthority,
   RingSpendRecordReader,
 } from "../client/ports.js";
 import { bytesField } from "../client/internal.js";
+import { checkIndexedAuthority } from "../client/prover/indexed.js";
+import type { PreparedTransferInput } from "../client/ports.js";
 import { asField } from "../client/prover/assembly.js";
 import {
   RING_INPUT_SLOTS,
@@ -200,8 +203,12 @@ async function recoverCounters(
 export function withRecordSlotSecret(
   keys: ProofAuthority,
   recordNullifier: Bytes32,
-): ProofAuthority {
+): ProofAuthority & IndexedProofAuthority {
   const nullifier = bytesField(recordNullifier, "record nullifier");
+  const complete = <T extends PreparedTransferInput>(input: T): T =>
+    input.nullifier === nullifier && input.nullifierSecret === undefined
+      ? Object.freeze({ ...input, nullifierSecret: asField(0n) })
+      : input;
   return {
     prove: (inputs, context) =>
       keys.prove(
@@ -209,18 +216,24 @@ export function withRecordSlotSecret(
           circuit: inputs.circuit,
           payload: Object.freeze({
             ...inputs.payload,
-            inputs: Object.freeze(
-              inputs.payload.inputs.map((input) =>
-                input.nullifier === nullifier && input.nullifierSecret === undefined
-                  ? Object.freeze({ ...input, nullifierSecret: asField(0n) })
-                  : input,
-              ),
-            ),
+            inputs: Object.freeze(inputs.payload.inputs.map(complete)),
           }),
         }),
         context,
       ),
     proveMerge: (inputs, context) => keys.proveMerge(inputs, context),
+    proveIndexed: (request, context) => {
+      checkIndexedAuthority(keys);
+      return keys.proveIndexed(
+        request.circuit === "merge"
+          ? request
+          : {
+              ...request,
+              payload: { ...request.payload, inputs: request.payload.inputs.map(complete) },
+            },
+        context,
+      );
+    },
   };
 }
 

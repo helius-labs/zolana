@@ -70,6 +70,8 @@ pub enum Commands {
         /// the forester.
         #[arg(long, default_value_t = DEFAULT_PROOF_CONCURRENCY)]
         proof_concurrency: usize,
+        #[arg(long)]
+        client_proof_data: bool,
     },
     /// Close nullifier PDAs below the reclaim watermark and
     /// return their rent to the tree. Reads RPC_URL, PHOTON_URL, and PAYER

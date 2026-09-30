@@ -3,9 +3,6 @@
 //! `just dump-deposit-audit-fixtures` whenever the SPP ring deposit layout or
 //! the deposit proving key changes.
 
-#[path = "../../../sdk-libs/client/tests/prover_bootstrap.rs"]
-mod prover_bootstrap;
-
 use custom_ring_interface::{
     tag, CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
     MAX_RING_DEPOSIT_AUDIT_SLOTS,
@@ -37,7 +34,7 @@ const REGISTRY_INDEX: usize = 1 + CustomRingProof::SIZE;
 #[test]
 #[ignore = "rewrites the program's deposit audit fixtures, run with just dump-deposit-audit-fixtures"]
 fn dump_deposit_audit_fixtures() {
-    prover_bootstrap::start_prover();
+    zolana_test_utils::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
     let prover = ProverClient::local();
     let dir = concat!(
         env!("CARGO_MANIFEST_DIR"),

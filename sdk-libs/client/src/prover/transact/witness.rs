@@ -514,6 +514,10 @@ mod tests {
             .unwrap();
         let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
 
+        use crate::prover::indexed::{PreparedIndexedTransfer, Request};
+        let indexed = PreparedIndexedTransfer::new(proof_inputs.clone(), &sender).unwrap();
+        let indexed_body: serde_json::Value =
+            serde_json::from_str(&indexed.body().unwrap()).unwrap();
         let requested = proof_inputs.dummy_nullifiers();
         let real = &proof_inputs.input_utxos[0];
         let mut proof = fake_spend_proof();
@@ -530,7 +534,31 @@ mod tests {
                 nf
             })
             .collect();
-        let assembled = assemble(proof_inputs, &[proof], &dummy).expect("assemble");
+        let mut assembled = assemble(proof_inputs, &[proof], &dummy).expect("assemble");
+        crate::authority::ProofAuthority::complete_inputs(
+            &sender,
+            &mut assembled.prover_inputs.inputs,
+        )
+        .unwrap();
+        let mut complete_json: serde_json::Value =
+            serde_json::from_str(&crate::prover::json::to_json(&assembled.prover_inputs).unwrap())
+                .unwrap();
+        let object = complete_json.as_object_mut().unwrap();
+        object.remove("treeSlots");
+        object.remove("publicInputHash");
+        for input in object["inputs"].as_array_mut().unwrap() {
+            for field in [
+                "statePathElements",
+                "statePathIndex",
+                "nullifierLowValue",
+                "nullifierNextValue",
+                "nullifierLowPathElements",
+                "nullifierLowPathIndex",
+            ] {
+                input.as_object_mut().unwrap().remove(field);
+            }
+        }
+        assert_eq!(indexed_body["prepared"], complete_json);
 
         let witnessed: Vec<[u8; 32]> = assembled
             .ix

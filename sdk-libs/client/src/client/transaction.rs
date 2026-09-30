@@ -9,6 +9,7 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
+        indexed::ProofDataSource,
         transact::witness::{assemble, AssembledTransfer},
         verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
         witness::{AsyncWitnessReader, WitnessReader},
@@ -20,7 +21,7 @@ use crate::{
     },
 };
 
-use super::{validation::validate_fee_payer_pubkey, ZolanaClient};
+use super::{validation::validate_fee_payer_pubkey, TransferPreparation, ZolanaClient};
 
 /// A signed shielded transaction ready for proof assembly and submission.
 ///
@@ -57,6 +58,17 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
+        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
+            return Ok(self
+                .indexed_transfer(
+                    TransferPreparation {
+                        transaction: proof_inputs,
+                        config: config.unwrap_or(self.indexer_config),
+                    },
+                    authority,
+                )?
+                .data);
+        }
         let commitments = proof_inputs.input_utxo_hashes()?;
         let witnesses = self.blocking_indexer().input_witnesses(
             &commitments,
@@ -95,6 +107,29 @@ impl<R: Rpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
+        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
+            let proved = self.indexed_transfer(
+                TransferPreparation {
+                    transaction: signed.transaction.clone(),
+                    config: self.indexer_config,
+                },
+                authority,
+            )?;
+            let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
+            return build_unsigned_message(
+                self.compute_budget(),
+                fee_payer,
+                TransactTrees {
+                    input_tree_ids: proved.input_tree_ids,
+                    read_cache: signed.transaction.cache_accounts.read,
+                    output_tree_id: signed.transaction.output_tree_id,
+                },
+                owner_signers,
+                signed.settlement_transfers.clone(),
+                proved.data,
+                recent_blockhash,
+            );
+        }
         let commitments = signed.transaction.input_utxo_hashes()?;
         // The overlap this used to hand-roll lives in the reader now, which
         // runs all the round trips together rather than two.
@@ -141,6 +176,30 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
+        if self.async_prover.proof_data_source() == ProofDataSource::Prover {
+            let proved = self
+                .indexed_transfer_async(
+                    TransferPreparation {
+                        transaction: signed.transaction.clone(),
+                        config: self.indexer_config,
+                    },
+                    authority,
+                )
+                .await?;
+            return build_unsigned_message(
+                self.compute_budget(),
+                fee_payer,
+                TransactTrees {
+                    input_tree_ids: proved.input_tree_ids,
+                    read_cache: signed.transaction.cache_accounts.read,
+                    output_tree_id: signed.transaction.output_tree_id,
+                },
+                owner_signers,
+                signed.settlement_transfers.clone(),
+                proved.data,
+                recent_blockhash,
+            );
+        }
         let commitments = signed.transaction.input_utxo_hashes()?;
         let witnesses = AsyncWitnessReader::input_witnesses(
             &self.async_indexer,

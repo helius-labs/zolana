@@ -25,9 +25,8 @@ use zolana_test_utils::nullifier_pda::{
 fn forester_dry_run_reconstructs_from_photon() -> TestResult {
     restart_localnet();
 
-    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
-    let indexer_url =
-        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
@@ -141,9 +140,8 @@ struct ForesterEnv {
 /// config, and a pool tree with a small localnet nullifier batch: the shared
 /// harness bootstrap steps, with the suite's shrunken nullifier ZKP batch.
 fn phase_bootstrap() -> TestResult<ForesterEnv> {
-    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
-    let indexer_url =
-        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
 
     let config = BootstrapConfig {
         label: "zolana-photon",

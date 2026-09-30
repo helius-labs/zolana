@@ -31,8 +31,6 @@ use zolana_test_utils::transact::{
     real_output, single_tree_slots, sol_leg, transfer_input, transfer_output, TransferInputArgs,
 };
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
-const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
 const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
@@ -104,9 +102,9 @@ struct UnshieldOutcome {
 /// Boot the prover, connect to the local validator, create the pool, and fund
 /// the recipient owner.
 fn phase_setup() -> TestResult<SolCycle> {
-    zolana_test_utils::prover::spawn_workspace_prover();
+    zolana_test_utils::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
 
-    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
+    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());

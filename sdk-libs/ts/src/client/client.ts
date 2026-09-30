@@ -1,3 +1,6 @@
+import { prepareMerge } from "./prover/merge.js";
+import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
+import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
 import {
   assertIsAddress,
   assertIsSignature,
@@ -41,12 +44,17 @@ import {
   type AuthorizedPrivateTransactionMaterial,
   type BlockhashProvider,
   type ChainReader,
+  type IndexedDepositInputs,
+  type IndexedPolicyInputs,
+  type IndexedProofAuthority,
   type IndexerReader,
   type KitRpcAccess,
   type MergeAssembler,
   type MergeCacheTarget,
   type ProofAuthority,
+  type ProofDataSource,
   type ProofReader,
+  type ProofResolution,
   type ProofService,
   type ProvedMerge,
   type ProvenRingTransact,
@@ -68,7 +76,7 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble, checkedProverInputs, checkedTransferCache } from "./prover/assembly.js";
+import { assemble, checkedProverInputs } from "./prover/assembly.js";
 import {
   ProverClient,
   type AsyncPollConfig,
@@ -83,6 +91,7 @@ import type {
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterKeyProofRequest,
+  Proof,
   TransferCircuit,
   TransferInputs,
 } from "./prover/types.js";
@@ -131,6 +140,8 @@ const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
+  /** `"prover"` unless set. */
+  readonly proofDataSource?: ProofDataSource;
   /**
    * Serves the indexer and the prover too, unless either names its own URL.
    * Left out, the whole config falls back to the local validator stack.
@@ -197,12 +208,13 @@ export class ZolanaClient
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
   /** The prover server, for a `LocalKeys` to forward completed inputs to. */
-  readonly proofService: ProofService;
+  readonly proofService: ProofService & IndexedProofAuthority;
   readonly #indexer: ZolanaIndexer;
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
   readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
+  readonly #proofDataSource: ProofDataSource;
 
   constructor(input: ZolanaClientConfig) {
     const candidate: unknown = input;
@@ -210,6 +222,13 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
 
+    if (
+      input.proofDataSource !== undefined &&
+      input.proofDataSource !== "client" &&
+      input.proofDataSource !== "prover"
+    )
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
+    this.#proofDataSource = input.proofDataSource ?? "prover";
     const treeId = input.treeId ?? DEFAULT_TREE_ID;
     if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "treeId" } });
@@ -782,72 +801,70 @@ export class ZolanaClient
     );
   }
 
-  async proverHealth(context?: RequestContext): Promise<ProverHealth> {
-    try {
-      return await this.#prover.health(context);
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+  proverHealth(context?: RequestContext): Promise<ProverHealth> {
+    return this.#proving(() => this.#prover.health(context));
   }
 
   /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
-  async checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
-    try {
-      return await this.#prover.checkProvingKeys(context);
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+  checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
+    return this.#proving(() => this.#prover.checkProvingKeys(context));
   }
 
-  async proveCustomRingPolicy(
+  get proofDataSource(): ProofDataSource {
+    return this.#proofDataSource;
+  }
+
+  proveIndexedRingPolicy(
+    inputs: IndexedPolicyInputs,
+    context?: RequestContext,
+  ): Promise<Readonly<{ proof: Uint8Array; resolution: ProofResolution }>> {
+    return this.#proving(async () => {
+      const result = await this.#prover.proveIndexedPolicy(
+        this.#withMinContextSlot(inputs, undefined),
+        context,
+      );
+      return Object.freeze({
+        proof: compressProof(result.proof).toCustomRingProof(),
+        resolution: result.resolution,
+      });
+    });
+  }
+
+  proveCustomRingPolicy(
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
-    try {
-      const proof = await this.#prover.proveCustomRingPolicy(inputs, context);
-      return compressProof(proof).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    return this.#provingRing(() => this.#prover.proveCustomRingPolicy(inputs, context));
   }
 
-  async proveCustomRingCompressedPolicy(
+  proveIndexedRingDeposit(
+    inputs: IndexedDepositInputs,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    return this.#provingRing(() =>
+      this.#prover.proveIndexedDeposit(this.#withMinContextSlot(inputs, undefined), context),
+    );
+  }
+
+  proveCustomRingCompressedPolicy(
     inputs: CustomRingCompressedPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
-    try {
-      return compressProof(
-        await this.#prover.proveCustomRingCompressedPolicy(inputs, context),
-      ).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    return this.#provingRing(() => this.#prover.proveCustomRingCompressedPolicy(inputs, context));
   }
 
-  async proveCustomRingRegisterKey(
+  proveCustomRingRegisterKey(
     inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
-    try {
-      return compressProof(
-        await this.#prover.proveCustomRingRegisterKey(inputs, context),
-      ).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    return this.#provingRing(() => this.#prover.proveCustomRingRegisterKey(inputs, context));
   }
 
-  async proveCustomRingDelegatePolicy(
+  proveCustomRingDelegatePolicy(
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
-    try {
-      return compressProof(
-        await this.#prover.proveCustomRingDelegatePolicy(inputs, context),
-      ).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    return this.#provingRing(() => this.#prover.proveCustomRingDelegatePolicy(inputs, context));
   }
 
   async proveRingAuthorityTransact(
@@ -868,44 +885,28 @@ export class ZolanaClient
     );
   }
 
-  async proveCustomRingBase(
+  proveCustomRingBase(
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
-    try {
-      const proof = await this.#prover.proveCustomRingBase(inputs, context);
-      return compressProof(proof).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    return this.#provingRing(() => this.#prover.proveCustomRingBase(inputs, context));
   }
 
-  async proveCustomRingDeposit(
+  proveCustomRingDeposit(
     inputs: CustomRingDepositProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
-    try {
-      return compressProof(
-        await this.#prover.proveCustomRingDeposit(inputs, context),
-      ).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    return this.#provingRing(() => this.#prover.proveCustomRingDeposit(inputs, context));
   }
 
-  async proveTransferInputs(
-    inputs: TransferInputs,
-    context?: RequestContext,
-  ): Promise<TransactProof> {
-    try {
+  proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
+    return this.#proving(async () => {
       const proof = await this.#prover.prove(checkedProverInputs(inputs), context);
       return compressProof(proof).toTransactProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    });
   }
 
-  async #proveTransfer(
+  #proveTransfer(
     proofInputs: SppProofInputs,
     circuit: TransferCircuit,
     keys: ProofAuthority,
@@ -913,22 +914,35 @@ export class ZolanaClient
     context: RequestContext | undefined,
     outputTree: TreeContext = this,
   ): Promise<ProvenRingTransact> {
-    if (!(proofInputs instanceof SppProofInputs)) {
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    }
-    checkProofAuthority(keys);
-    if (treeAddress(outputTree.treeId) !== outputTree.tree)
-      throw new ClientError("CLIENT_TREE_MISMATCH", {
-        details: { transactionTree: outputTree.tree, clientTree: treeAddress(outputTree.treeId) },
-      });
-    // Output commitments bind the destination tree.
-    if (proofInputs.outputTreeId !== outputTree.treeId) {
-      throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
-        details: { expected: outputTree.treeId, actual: proofInputs.outputTreeId },
-      });
-    }
-    try {
+    return this.#proving(async () => {
+      if (!(proofInputs instanceof SppProofInputs)) {
+        throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+      }
+      checkProofAuthority(keys);
       checkedTransferCache(proofInputs);
+      if (treeAddress(outputTree.treeId) !== outputTree.tree)
+        throw new ClientError("CLIENT_TREE_MISMATCH", {
+          details: { transactionTree: outputTree.tree, clientTree: treeAddress(outputTree.treeId) },
+        });
+      // Output commitments bind the destination tree.
+      if (proofInputs.outputTreeId !== outputTree.treeId) {
+        throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
+          details: { expected: outputTree.treeId, actual: proofInputs.outputTreeId },
+        });
+      }
+      if (this.#proofDataSource === "prover") {
+        const prepared = prepareTransfer(proofInputs, circuit);
+        const { proof, trees } = await proveThroughAuthority(
+          keys,
+          this.#withMinContextSlot(prepared.inputs, config),
+          context,
+        );
+        const complete = prepared.finish(trees);
+        return Object.freeze({
+          data: complete.withProof(compressProof(proof).toTransactProof()),
+          roots: complete.roots,
+        });
+      }
       const { proofs, dummyProofs } = await this.#inputProofs(proofInputs, config, context);
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
@@ -936,40 +950,54 @@ export class ZolanaClient
         data: assembled.withProof(compressProof(proof).toTransactProof()),
         roots: assembled.roots,
       });
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
+    });
   }
 
-  async proveMerge(
+  proveMerge(
     input: Readonly<{
       prepared: PreparedMerge;
       keys: ProofAuthority;
-      indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
       cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
-    const candidate: unknown = input;
-    if (typeof candidate !== "object" || candidate === null) {
-      throw new ClientError("CLIENT_INVALID_MERGE");
-    }
-    checkProofAuthority(input.keys);
-    const assembled = await assembleMerge(
-      input.prepared,
-      input.indexer ?? this,
-      this.tree,
-      context,
-      input.cache,
-    );
-    const compressed = compressProof(await input.keys.proveMerge(assembled.proverInputs, context));
-    return Object.freeze({
-      data: assembled.instructionData({
-        a: compressed.a,
-        b: compressed.b,
-        c: compressed.c,
-      }),
-      outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
+    return this.#proving(async () => {
+      const candidate: unknown = input;
+      if (typeof candidate !== "object" || candidate === null) {
+        throw new ClientError("CLIENT_INVALID_MERGE");
+      }
+      checkProofAuthority(input.keys);
+      if (!(input.prepared instanceof PreparedMerge)) {
+        throw new ClientError("CLIENT_INVALID_MERGE");
+      }
+      if (this.#proofDataSource === "prover") {
+        const prepared = prepareMerge(input.prepared, this.tree, input.cache);
+        const { proof, trees } = await proveThroughAuthority(
+          input.keys,
+          this.#withMinContextSlot(prepared.inputs, undefined),
+          context,
+        );
+        const [tree] = trees;
+        if (tree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
+        const complete = prepared.finish(tree);
+        const compressed = compressProof(proof);
+        return Object.freeze({
+          data: complete.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c }),
+          outputHash: new Uint8Array(complete.outputHash) as Bytes32,
+        });
+      }
+      const assembled = await assembleMerge(input.prepared, this, this.tree, context, input.cache);
+      const compressed = compressProof(
+        await input.keys.proveMerge(assembled.proverInputs, context),
+      );
+      return Object.freeze({
+        data: assembled.instructionData({
+          a: compressed.a,
+          b: compressed.b,
+          c: compressed.c,
+        }),
+        outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
+      });
     });
   }
 
@@ -1068,6 +1096,30 @@ export class ZolanaClient
     checkAuthorizedBinding(authorized, intentMismatch);
     return this.proveTransact(authorized.proofInputs, keys, undefined, context);
   }
+
+  /** Every proving failure leaves as a `ClientError`. */
+  async #proving<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  #provingRing(run: () => Promise<Proof>): Promise<Uint8Array> {
+    return this.#proving(async () => compressProof(await run()).toCustomRingProof());
+  }
+
+  #withMinContextSlot<T extends Readonly<{ minContextSlot?: bigint }>>(
+    inputs: T,
+    config: IndexerRpcConfig | undefined,
+  ): T {
+    const requested = checkedContextSlot(inputs.minContextSlot);
+    const required = (config ?? this.#indexerConfig).requireSlot;
+    return required === undefined || (requested !== undefined && requested >= required)
+      ? inputs
+      : { ...inputs, minContextSlot: required };
+  }
 }
 
 /** A `ProofAuthority` is a structural type; a wrong argument fails here rather than as a missing method later. */
@@ -1075,7 +1127,7 @@ function checkProofAuthority(keys: unknown): asserts keys is ProofAuthority {
   if (!hasProofMethods(keys)) throw new ClientError("CLIENT_INVALID_PROOF_AUTHORITY");
 }
 
-/** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */
+/** Mirrors Rust `MERGE_CU_LIMIT`. */
 export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 
 export async function buildUnsignedTransaction(

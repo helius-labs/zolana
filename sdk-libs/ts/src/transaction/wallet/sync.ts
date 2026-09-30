@@ -1,4 +1,4 @@
-import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
+import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -946,8 +946,7 @@ class SyncPass {
       return false;
     }
 
-    // A merge spends a fixed number of slots; anything wider is not one.
-    if (tx.nullifiers.length > MERGE_INPUT_COUNT) {
+    if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(tx.nullifiers.length)) {
       this.undecryptableCandidates++;
       return true;
     }

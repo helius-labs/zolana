@@ -1,11 +1,9 @@
 import type { RingMergeClient, WalletKeys } from "../client/ports.js";
-import { assembleMerge } from "../client/prover/merge.js";
-import { compressProof } from "../client/prover/proof.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
 import { initializePoseidon } from "../hasher/index.js";
-import { MERGE_INPUT_COUNT } from "../interface/constants.js";
+import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
 import type { SignerAccount } from "../interface/instructions/index.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { SOL_MINT } from "../transaction/asset.js";
@@ -33,6 +31,7 @@ import {
 } from "./submission.js";
 import { ringProofInput, ringSelectionErrors, ringIntentMismatch } from "./transfer.js";
 import { resolveRingOutputTree } from "./trees.js";
+import { withProofDataRetry } from "../client/retry.js";
 
 export interface RingMergeTransactionParams {
   readonly client: RingMergeClient;
@@ -41,6 +40,8 @@ export interface RingMergeTransactionParams {
   readonly keys: WalletKeys;
   readonly feePayer: Address;
   readonly asset?: Address;
+  /** The most notes merged, smallest first, from 2 through `MAX_MERGE_INPUTS`, default `MERGE_INPUT_COUNT`. */
+  readonly maxInputs?: number;
   readonly outputTree?: Address;
   readonly cosigner?: SignerAccount;
   readonly approve?: ApprovalHandler;
@@ -75,6 +76,7 @@ async function buildRingMerge(
   try {
     await initializePoseidon();
     checkKeysIdentity(params.keys, params.wallet.identity);
+    const maxInputs = mergeWidth(params.maxInputs);
     const [coSigner, outputTree] = await Promise.all([
       fetchRingCoSigner(params.client, params.ringProgramId, context),
       resolveRingOutputTree(params.client, params.outputTree, context),
@@ -102,7 +104,7 @@ async function buildRingMerge(
             entry.dataHash === undefined &&
             entry.utxo.data.records().every((record) => record.kind !== "utxoData"),
           ordering: "smallestFirst",
-          maxInputs: MERGE_INPUT_COUNT,
+          maxInputs,
           tree: { kind: "fixed", tree: params.client.tree },
           errors: {
             ...ringSelectionErrors,
@@ -143,11 +145,11 @@ async function buildRingMerge(
       summary: `merge ${String(inputs.length)} inputs in ring ${params.ringProgramId}`,
     });
     checkIntentApproval(approval, intent, ringIntentMismatch);
-    const assembled = await assembleMerge(prepared, params.client, params.client.tree, context);
-    if (!equalBytes(assembled.outputHash, expectedHash)) throw ringIntentMismatch("output");
-    const proof = await params.keys.proveMerge(assembled.proverInputs, context);
-    const compressed = compressProof(proof);
-    const data = assembled.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c });
+    const { data } = await withProofDataRetry(
+      params.client.proofDataSource,
+      (attempt) => params.client.proveMerge({ prepared, keys: params.keys }, attempt),
+      context,
+    );
     if (!equalBytes(data.outputUtxoHash, expectedHash)) throw ringIntentMismatch("output");
     const [instruction, lifetime] = await Promise.all([
       ringMergeInstruction({
@@ -176,4 +178,16 @@ async function buildRingMerge(
     if (retry.reservation !== undefined) params.wallet._releaseReservation(retry.reservation.id);
     throw wrapRingError("RING_BUILD_MERGE", cause);
   }
+}
+
+function mergeWidth(maxInputs = MERGE_INPUT_COUNT): number {
+  if (maxInputs > MAX_MERGE_INPUTS) {
+    throw new RingError("RING_TOO_MANY_INPUTS", {
+      details: { selected: maxInputs, maximum: MAX_MERGE_INPUTS },
+    });
+  }
+  if (!Number.isSafeInteger(maxInputs) || maxInputs < 2) {
+    throw new RingError("RING_NOTHING_TO_MERGE");
+  }
+  return maxInputs;
 }

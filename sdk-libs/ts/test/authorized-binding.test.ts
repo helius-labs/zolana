@@ -121,7 +121,7 @@ function offlineClient() {
   const fetch = vi.fn<typeof globalThis.fetch>(async () => {
     throw new Error("network reached");
   });
-  return { client: new ZolanaClient({ tree: TREE, fetch }), fetch };
+  return { client: new ZolanaClient({ tree: TREE, fetch, proofDataSource: "client" }), fetch };
 }
 
 describe("authorized transaction binding", () => {

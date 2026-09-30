@@ -689,7 +689,7 @@ describe("wallet sync", () => {
     expect(store.save).toHaveBeenCalledTimes(1);
   });
 
-  it("reconstructs a ciphertext-free merge from owned spent inputs", async () => {
+  it.each([8, 36])("reconstructs a ciphertext-free %i-input merge", async (width) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const inputUtxos = [20n, 22n].map((amount, index) => {
@@ -712,7 +712,7 @@ describe("wallet sync", () => {
     const firstNullifier = inputUtxos[0]!.nullifier;
     const nullifiers = [
       ...inputUtxos.map((entry) => entry.nullifier),
-      ...Array.from({ length: 6 }, (_, offset) =>
+      ...Array.from({ length: width - 2 }, (_, offset) =>
         mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 2),
       ),
     ];

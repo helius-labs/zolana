@@ -199,7 +199,7 @@ pub(crate) struct CacheReadsJson {
     pub read_index: Vec<String>,
 }
 
-fn cache_reads_to_json(cache: &CacheReadInputs) -> CacheReadsJson {
+pub(crate) fn cache_reads_to_json(cache: &CacheReadInputs) -> CacheReadsJson {
     CacheReadsJson {
         tree_id: big_uint_to_string(&cache.tree_id),
         read_hash_chain: big_uint_to_string(&cache.read_hash_chain),
@@ -217,7 +217,7 @@ fn cache_reads_to_json(cache: &CacheReadInputs) -> CacheReadsJson {
     }
 }
 
-fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
+pub(crate) fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
     UtxoParamsJson {
         domain: fe_to_string(&utxo.domain),
         owner: fe_to_string(&utxo.owner_hash),
@@ -286,7 +286,7 @@ fn tree_slots_to_json(slots: &[TreeSlotFields]) -> Vec<TreeSlotJson> {
         .collect()
 }
 
-fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
+pub(crate) fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
     OutputParamsJson {
         utxo: utxo_to_json(&output.utxo),
         is_dummy: big_uint_to_string(&output.is_dummy),

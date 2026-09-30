@@ -55,7 +55,7 @@ await initializePoseidon();
 
 const filled = (byte: number): Bytes32 => fill(byte) as Bytes32;
 const addressOf = (bytes: Uint8Array): Address => getAddressDecoder().decode(bytes);
-const hexOf = (value: bigint): string => Buffer.from(bigintToBytes(value)).toString("hex");
+const hexOf = (value: bigint): string => Buffer.from(bigintToBytes(value, "value")).toString("hex");
 const RECORDS_PDA = addressOf(filled(0x11));
 const PAYER = addressOf(filled(0x01));
 const ADDRESS_TREE = addressOf(filled(0x30));

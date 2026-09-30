@@ -667,53 +667,95 @@ describe("a cache selection the client refuses before proving", () => {
   });
 });
 
-function proverFetch(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
-  return vi.fn<typeof globalThis.fetch>(async (_url, init) =>
-    Response.json(proofFor(String(init?.body))),
-  );
+function proverFetch(
+  resolution?: Record<string, unknown>,
+): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
+  return vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+    const body: unknown = JSON.parse(String(init?.body));
+    const payload =
+      typeof body === "object" && body !== null && "prepared" in body ? body.prepared : body;
+    return Response.json({
+      ...proofFor(payload),
+      ...(resolution === undefined ? {} : { resolution }),
+    });
+  });
 }
 
-function client(fetch: typeof globalThis.fetch): ZolanaClient {
+function client(
+  fetch: typeof globalThis.fetch,
+  proofDataSource: "client" | "prover" = "client",
+): ZolanaClient {
   return new ZolanaClient({
     solanaRpcUrl: "http://127.0.0.1:8899",
     indexerUrl: "http://127.0.0.1:8784",
     proverUrl: "http://127.0.0.1:3001",
     tree: TREE,
     fetch,
+    proofDataSource,
     indexerConfig: { poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
   });
 }
 
 describe("ZolanaClient.proveTransact reading from a cache", () => {
-  it("fetches only a nullifier proof for a fully cached run", async () => {
-    const value = fixture();
-    const spent = input(value, 0);
-    const fetch = proverFetch();
-    const instance = client(fetch);
-    const getMerkleProofs = vi.spyOn(instance, "getMerkleProofs");
-    const getAccount = vi.spyOn(instance, "getAccount");
-    const getNonInclusionProofs = vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
-      context: { blockTime: 1n, slot: 1n },
-      proofs: [nonInclusionProof(spent.nullifier())],
-    });
+  it.each(["client", "prover"] as const)(
+    "fetches only a nullifier proof for a fully cached run with %s fetching",
+    async (proofDataSource) => {
+      const value = fixture();
+      const spent = input(value, 0);
+      const expected = assemble(
+        withCache(value.proofInputs, { reads: [3], read: CACHE }),
+        [],
+        [nonInclusionProof(spent.nullifier())],
+      );
+      const fetch = proverFetch({
+        publicInputHash: `0x${expected.proverInputs.payload.publicInputHash.toString(16)}`,
+        trees: [
+          {
+            tree: TREE,
+            id: TREE_ID,
+            utxoRoot: "0x0",
+            nullifierRoot: `0x${bytesField(nonInclusionProof(spent.nullifier()).root, "root").toString(16)}`,
+            utxoRootIndex: NO_UTXO_ROOT,
+            nullifierRootIndex: NULLIFIER_ROOT_INDEX,
+          },
+        ],
+      });
+      const instance = client(fetch, proofDataSource);
+      const getMerkleProofs = vi.spyOn(instance, "getMerkleProofs");
+      const getAccount = vi.spyOn(instance, "getAccount");
+      const getNonInclusionProofs = vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: [nonInclusionProof(spent.nullifier())],
+      });
 
-    const data = await instance.proveTransact(
-      withCache(value.proofInputs, { reads: [3], read: CACHE }),
-      LocalKeys.fromKeypair(value.keypair, instance.proofService),
-    );
+      const data = await instance.proveTransact(
+        withCache(value.proofInputs, { reads: [3], read: CACHE }),
+        LocalKeys.fromKeypair(value.keypair, instance.proofService),
+      );
 
-    expect(getMerkleProofs).not.toHaveBeenCalled();
-    expect(getAccount).not.toHaveBeenCalled();
-    expect(getNonInclusionProofs.mock.calls[0]?.slice(0, 2)).toEqual([TREE, [spent.nullifier()]]);
-    expect(data.circuit).toMatchObject({
-      kind: "confidentialEddsaCached",
-      cacheAccess: { readBitmap: 1n << 3n, writeSlots: NO_CACHE_WRITES },
-    });
-    expect(data.treeContexts).toEqual([
-      { utxoTreeRootIndex: NO_UTXO_ROOT, nullifierTreeRootIndex: NULLIFIER_ROOT_INDEX },
-    ]);
-    expect(fetch).toHaveBeenCalledOnce();
-  });
+      expect(getMerkleProofs).not.toHaveBeenCalled();
+      expect(getAccount).not.toHaveBeenCalled();
+      if (proofDataSource === "client") {
+        expect(getNonInclusionProofs.mock.calls[0]?.slice(0, 2)).toEqual([
+          TREE,
+          [spent.nullifier()],
+        ]);
+      } else {
+        expect(getNonInclusionProofs).not.toHaveBeenCalled();
+      }
+      expect(data.circuit).toMatchObject({
+        kind: "confidentialEddsaCached",
+        cacheAccess: { readBitmap: 1n << 3n, writeSlots: NO_CACHE_WRITES },
+      });
+      expect(data.treeContexts).toEqual([
+        { utxoTreeRootIndex: NO_UTXO_ROOT, nullifierTreeRootIndex: NULLIFIER_ROOT_INDEX },
+      ]);
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(String(fetch.mock.calls[0]?.[0])).toMatch(
+        proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+      );
+    },
+  );
 
   it("requests the proven inputs' nullifiers before the cached ones in one request", async () => {
     const value = fixture({ realInputs: 2 });
@@ -825,20 +867,43 @@ describe("a merge writing its output to a cache slot", () => {
     ).toEqual({ field: "slot" });
   });
 
-  it("proves the merge for the slot through the client", async () => {
-    const { owner, prepared, proofs, dummyProofs } = mergeFixture();
-    const instance = client(proverFetch());
-    vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue(proofs);
-    vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
-      context: { blockTime: 1n, slot: 1n },
-      proofs: dummyProofs,
-    });
-    const proved = await instance.proveMerge({
-      prepared,
-      keys: LocalKeys.fromKeypair(owner, instance.proofService),
-      cache: { address: CACHE, slot: 2 },
-    });
-    expect(proved.data.cacheSlot).toBe(2);
-    expect(proved.outputHash).toEqual(prepared.outputHash());
-  });
+  it.each(["client", "prover"] as const)(
+    "proves the merge for the slot with %s fetching",
+    async (proofDataSource) => {
+      const { owner, prepared, proofs, dummyProofs } = mergeFixture();
+      const expected = assembleMergeWithProofs(prepared, proofs, TREE, dummyProofs, {
+        address: CACHE,
+        slot: 2,
+      });
+      const fetch = proverFetch({
+        publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
+        trees: [
+          {
+            tree: TREE,
+            id: TREE_ID,
+            utxoRoot: `0x${bytesField(proofs[0]!.state.root, "root").toString(16)}`,
+            nullifierRoot: `0x${bytesField(proofs[0]!.nullifier.root, "root").toString(16)}`,
+            utxoRootIndex: STATE_ROOT_INDEX,
+            nullifierRootIndex: NULLIFIER_ROOT_INDEX,
+          },
+        ],
+      });
+      const instance = client(fetch, proofDataSource);
+      vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue(proofs);
+      vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: dummyProofs,
+      });
+      const proved = await instance.proveMerge({
+        prepared,
+        keys: LocalKeys.fromKeypair(owner, instance.proofService),
+        cache: { address: CACHE, slot: 2 },
+      });
+      expect(String(fetch.mock.calls[0]?.[0])).toMatch(
+        proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+      );
+      expect(proved.data.cacheSlot).toBe(2);
+      expect(proved.outputHash).toEqual(prepared.outputHash());
+    },
+  );
 });

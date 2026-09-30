@@ -9,7 +9,11 @@ import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
-import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
+import {
+  MAX_MERGE_INPUTS,
+  MERGE_SUPPORTED_INPUT_COUNTS,
+  mergePaddedInputCount,
+} from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
@@ -31,8 +35,6 @@ import {
   type InputUtxoContext,
 } from "./transact.js";
 
-/** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
-export const MERGE_INPUTS = MERGE_INPUT_COUNT;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 function checkedU64(value: bigint, field: string): bigint {
@@ -72,9 +74,9 @@ export class PreparedMerge {
       outputTreeId: TreeId;
     }>,
   ) {
-    if (input.inputs.length !== MERGE_INPUTS) {
+    if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(input.inputs.length)) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
-        expected: MERGE_INPUTS,
+        expected: paddedInputCount(input.inputs.length),
         actual: input.inputs.length,
       });
     }
@@ -140,8 +142,22 @@ export class PreparedMerge {
 
   /** The slots the padding fills, in order; what `dummyNullifiers` was derived for. */
   static dummySlots(realInputs: number): readonly number[] {
-    return Array.from({ length: MERGE_INPUTS - realInputs }, (_, offset) => realInputs + offset);
+    return Array.from(
+      { length: paddedInputCount(realInputs) - realInputs },
+      (_, offset) => realInputs + offset,
+    );
   }
+}
+
+function paddedInputCount(realInputs: number): number {
+  const count = mergePaddedInputCount(realInputs);
+  if (count === undefined) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
+      got: realInputs,
+      max: MAX_MERGE_INPUTS,
+    });
+  }
+  return count;
 }
 
 /** An input carrying program or ring data, which the plain merge rail never consolidates. */
@@ -182,7 +198,7 @@ function realInputContexts(
 }
 
 /**
- * Consolidates up to `MERGE_INPUTS` plain UTXOs of one owner and asset into one.
+ * Consolidates up to `MAX_MERGE_INPUTS` plain UTXOs of one owner and asset into one.
  * The output blinding, private-transaction blinding, and padded slots'
  * nullifiers derive from the nullifier secret; the builder receives them
  * derived by `ShieldedKeys.derive`.
@@ -206,12 +222,7 @@ export class Merge {
   ) {
     const inputs = input.inputs;
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (inputs.length > MERGE_INPUTS) {
-      throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
-        got: inputs.length,
-        max: MERGE_INPUTS,
-      });
-    }
+    const width = paddedInputCount(inputs.length);
     const address = input.address;
     const owner = address.signingPublicKey;
     const firstInput = inputs[0];
@@ -244,7 +255,7 @@ export class Merge {
     });
     const inputTreeId = singleInputTreeId(inputs);
     const padded = [...inputs];
-    while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, inputTreeId));
+    while (padded.length < width) padded.push(ProofInputUtxo.dummy(undefined, inputTreeId));
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({

@@ -15,12 +15,12 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 )
 
-func buildValidWitness(t *testing.T) *merge.Circuit {
+func buildValidWitness(t testing.TB) *merge.Circuit {
 	t.Helper()
 	return buildWitness(t, false)
 }
 
-func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
+func buildWitness(t testing.TB, eddsa bool) *merge.Circuit {
 	t.Helper()
 	return buildDefaultWitness(t, mergeFixtureOptions{eddsa: eddsa})
 }
@@ -38,6 +38,8 @@ const (
 const defaultFixtureInputs = 8
 
 type mergeFixtureOptions struct {
+	inputCount        int
+	externalDataHash  *big.Int
 	rail              mergeFixtureRail
 	eddsa             bool
 	asset             *big.Int
@@ -97,7 +99,7 @@ func publicTreeSlots(slots []transaction.TreeSlot) []protocol.TreeSlot {
 }
 
 // mergeUtxoHash hashes u under the raw id of the tree that holds it.
-func mergeUtxoHash(t *testing.T, u protocol.Utxo, treeID int64) *big.Int {
+func mergeUtxoHash(t testing.TB, u protocol.Utxo, treeID int64) *big.Int {
 	t.Helper()
 	return spptest.MustUtxoHash(t, u, big.NewInt(treeID))
 }
@@ -117,13 +119,13 @@ type mergeWitnessFixture struct {
 	publicInputHash     *big.Int
 }
 
-func buildDefaultWitness(t *testing.T, options mergeFixtureOptions) *merge.Circuit {
+func buildDefaultWitness(t testing.TB, options mergeFixtureOptions) *merge.Circuit {
 	t.Helper()
 	options.rail = defaultFixtureRail
 	return buildMergeFixture(t, options).defaultCircuit()
 }
 
-func buildRingWitness(t *testing.T, ringProgramID *big.Int) *merge.RingCircuit {
+func buildRingWitness(t testing.TB, ringProgramID *big.Int) *merge.RingCircuit {
 	t.Helper()
 	return buildMergeFixture(t, mergeFixtureOptions{
 		rail:           ringFixtureRail,
@@ -133,8 +135,12 @@ func buildRingWitness(t *testing.T, ringProgramID *big.Int) *merge.RingCircuit {
 	}).ringCircuit()
 }
 
-func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessFixture {
+func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessFixture {
 	t.Helper()
+	inputCount := options.inputCount
+	if inputCount == 0 {
+		inputCount = defaultFixtureInputs
+	}
 	curve := elliptic.P256()
 
 	// Owner identity: signing key (P256 or Solana) + shared nullifier secret.
@@ -316,18 +322,21 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	}
 	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
 
-	externalDataHash := big.NewInt(0xABCDEF)
+	externalDataHash := options.externalDataHash
+	if externalDataHash == nil {
+		externalDataHash = big.NewInt(0xABCDEF)
+	}
 
 	// private_tx_hash over the input/output hash chains (dummies contribute 0).
-	inputHashChainInputs := make([]*big.Int, defaultFixtureInputs)
-	for i := 0; i < defaultFixtureInputs; i++ {
+	inputHashChainInputs := make([]*big.Int, inputCount)
+	for i := 0; i < inputCount; i++ {
 		if i < numReal {
 			inputHashChainInputs[i] = inHashes[i]
 		} else {
 			inputHashChainInputs[i] = big.NewInt(0)
 		}
 	}
-	addressNullifiers := make([]*big.Int, defaultFixtureInputs)
+	addressNullifiers := make([]*big.Int, inputCount)
 	for i := range addressNullifiers {
 		addressNullifiers[i] = big.NewInt(0)
 	}
@@ -366,8 +375,8 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		}
 		return nf
 	}
-	dummyNfWitnesses := make(map[int]protocol.NonInclusionWitness, defaultFixtureInputs-numReal)
-	for i := numReal; i < defaultFixtureInputs; i++ {
+	dummyNfWitnesses := make(map[int]protocol.NonInclusionWitness, inputCount-numReal)
+	for i := numReal; i < inputCount; i++ {
 		w, err := nfTree.NonInclusionWitness(dummyNullifier(i))
 		if err != nil {
 			t.Fatal(err)
@@ -376,8 +385,8 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	}
 
 	// Public columns (real + dummy), reused verbatim in the public input hash.
-	pubNullifiers := make([]*big.Int, defaultFixtureInputs)
-	for i := 0; i < defaultFixtureInputs; i++ {
+	pubNullifiers := make([]*big.Int, inputCount)
+	for i := 0; i < inputCount; i++ {
 		if i < numReal {
 			pubNullifiers[i] = nullifiers[i]
 		} else {
@@ -418,8 +427,8 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	}
 	publicInputHash := hashChain4(t, publicInputPreimage)
 
-	inputs := mergeshared.NewInputs(defaultFixtureInputs)
-	public := mergeshared.NewCommonPublicInputs(defaultFixtureInputs)
+	inputs := mergeshared.NewInputs(inputCount)
+	public := mergeshared.NewCommonPublicInputs(inputCount)
 	public.ExternalDataHash = externalDataHash
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
@@ -433,7 +442,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		}
 	}
 
-	for i := 0; i < defaultFixtureInputs; i++ {
+	for i := 0; i < inputCount; i++ {
 		in := &inputs[i]
 		public.Nullifiers[i] = pubNullifiers[i]
 		in.TreeSlot = big.NewInt(0)
@@ -484,7 +493,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 }
 
 func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
-	assignment := merge.NewMergeCircuit(defaultFixtureInputs)
+	assignment := merge.NewMergeCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
 	assignment.Asset = f.asset
@@ -498,7 +507,7 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 }
 
 func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
-	assignment := merge.NewMergeRingCircuit(defaultFixtureInputs)
+	assignment := merge.NewMergeRingCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
 	assignment.Asset = f.asset
@@ -512,7 +521,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	return assignment
 }
 
-func hashChain4(t *testing.T, in []*big.Int) *big.Int {
+func hashChain4(t testing.TB, in []*big.Int) *big.Int {
 	t.Helper()
 	h, err := protocol.HashChain4(in)
 	if err != nil {

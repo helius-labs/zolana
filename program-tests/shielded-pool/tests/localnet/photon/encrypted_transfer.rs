@@ -17,11 +17,10 @@ fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
 
 fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     restart_localnet();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
 
-    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
-    let indexer_url =
-        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());

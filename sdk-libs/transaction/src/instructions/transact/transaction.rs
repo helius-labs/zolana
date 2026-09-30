@@ -61,6 +61,43 @@ impl SppProofInputs {
             .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
     }
 
+    fn signing_external_data_hash(&self) -> Result<[u8; 32], TransactionError> {
+        use zolana_interface::{
+            state::cache::bind_cache_write,
+            verifying_keys::{valid_cache_writes, CacheAccess, CacheWrite},
+        };
+        let mut writes = CacheAccess::NO_WRITES;
+        let selected = self
+            .output_utxos
+            .iter()
+            .enumerate()
+            .filter_map(|(index, output)| output.cache_slot.map(|slot| (index, output, slot)));
+        for (position, (index, output, slot)) in selected.enumerate() {
+            let entry = writes
+                .get_mut(position)
+                .ok_or(TransactionError::InvalidCacheWrite)?;
+            if output.is_dummy() || self.cache_accounts.write.is_none() {
+                return Err(TransactionError::InvalidCacheWrite);
+            }
+            *entry = CacheWrite {
+                output: u8::try_from(index).map_err(|_| TransactionError::InvalidCacheWrite)?,
+                slot,
+            };
+        }
+        if !valid_cache_writes(&writes, self.output_utxos.len())
+            || (self.cache_accounts.write.is_some() && writes == CacheAccess::NO_WRITES)
+        {
+            return Err(TransactionError::InvalidCacheWrite);
+        }
+        Ok(bind_cache_write(
+            self.external_data.hash()?,
+            self.cache_accounts
+                .write
+                .as_ref()
+                .map(|cache| (cache.as_array(), &writes)),
+        )?)
+    }
+
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
         validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
@@ -81,7 +118,7 @@ impl SppProofInputs {
             }
         }
 
-        let external_data_hash = self.external_data.hash()?;
+        let external_data_hash = self.signing_external_data_hash()?;
         let private_tx = PrivateTxHash::new(
             &input_hashes,
             &output_hashes,

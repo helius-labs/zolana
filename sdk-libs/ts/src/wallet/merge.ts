@@ -3,10 +3,11 @@ import { getAddressEncoder } from "@solana/kit";
 import type {
   ChainReader,
   MergeAssembler,
-  ProofReader,
+  ProofDataSourceContext,
   TreeContext,
   WalletKeys,
 } from "../client/ports.js";
+import { withProofDataRetry } from "../client/retry.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
@@ -17,7 +18,7 @@ import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { initializePoseidon } from "../hasher/index.js";
-import { MERGE_INPUT_COUNT } from "../interface/constants.js";
+import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
 import {
   isPlainUtxo,
   selectUtxos,
@@ -124,9 +125,9 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
       .utxos()
       .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
     if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-    if (hashes.length > MERGE_INPUT_COUNT) {
+    if (hashes.length > MAX_MERGE_INPUTS) {
       throw new WalletError("WALLET_TOO_MANY_INPUTS", {
-        details: { got: hashes.length, max: MERGE_INPUT_COUNT },
+        details: { got: hashes.length, max: MAX_MERGE_INPUTS },
       });
     }
     const seen = new Set<string>();
@@ -150,7 +151,7 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
 export type MergeClient = MergeAssembler &
   TreeContext &
   Pick<ChainReader, "getAccount"> &
-  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+  ProofDataSourceContext;
 
 export interface MergeTransactionParams {
   readonly client: MergeClient;
@@ -158,6 +159,7 @@ export interface MergeTransactionParams {
   readonly keys: WalletKeys;
   readonly feePayer: Address;
   readonly asset?: Address;
+  /** Up to `MAX_MERGE_INPUTS` named notes, else the `MERGE_INPUT_COUNT` smallest. */
   readonly inputs?: readonly Bytes32[];
   readonly approve?: ApprovalHandler;
 }
@@ -218,12 +220,9 @@ async function proveAndAssembleMerge(
       details: { proofTree: input.client.tree, submitTree: created.tree },
     });
   }
-  const proved = await input.client.proveMerge(
-    {
-      prepared: created.prepared,
-      keys: input.keys,
-      indexer: treeCheckedIndexer(input.client, created.tree),
-    },
+  const proved = await withProofDataRetry(
+    input.client.proofDataSource,
+    (attempt) => input.client.proveMerge({ prepared: created.prepared, keys: input.keys }, attempt),
     context,
   );
   return input.client.assembleAuthorizedMergeTransaction(
@@ -260,39 +259,4 @@ function validateMergeBuild(record: MergeRecord, owner: Address, address: Shield
   if (!equalBytes(record.viewingPublicKey, address.viewingPublicKey.toBytes())) {
     throw new WalletError("WALLET_MERGE_VIEWING_KEY_MISMATCH", { details: { owner } });
   }
-}
-
-function treeCheckedIndexer(
-  indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
-  submitTree: Address,
-): Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs"> {
-  return {
-    getInputMerkleProofs: async (commitments, config, context) => {
-      const proofs = await indexer.getInputMerkleProofs(commitments, config, context);
-      for (const proof of proofs) {
-        for (const proofTree of [
-          proof.state.merkleContext.tree,
-          proof.nullifier.merkleContext.tree,
-        ]) {
-          if (proofTree !== submitTree) {
-            throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-              details: { proofTree, submitTree },
-            });
-          }
-        }
-      }
-      return proofs;
-    },
-    getNonInclusionProofs: async (tree, leaves, config, context) => {
-      const response = await indexer.getNonInclusionProofs(tree, leaves, config, context);
-      for (const proof of response.proofs) {
-        if (proof.merkleContext.tree !== submitTree) {
-          throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-            details: { proofTree: proof.merkleContext.tree, submitTree },
-          });
-        }
-      }
-      return response;
-    },
-  };
 }

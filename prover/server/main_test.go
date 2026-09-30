@@ -2,6 +2,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
@@ -33,5 +34,11 @@ func TestTransferSetupInputCount(t *testing.T) {
 				t.Fatalf("invalid count accepted: got %d, err %v", got, err)
 			}
 		})
+	}
+}
+
+func TestRedactedURLHidesThePassword(t *testing.T) {
+	if got := redactedURL("redis://user:secret@redis.test:6379/0"); strings.Contains(got, "secret") || !strings.Contains(got, "redis.test") {
+		t.Fatalf("redacted URL %q", got)
 	}
 }

@@ -5,6 +5,7 @@ import {
   encodeMergeTransactInstructionData,
   mergeExternalDataHash,
 } from "../src/interface/codecs/index.js";
+import { MAX_MERGE_INPUTS } from "../src/interface/constants.js";
 import { copyBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32, Bytes128, MergeTransactInstructionData } from "../src/interface/types.js";
 
@@ -51,6 +52,19 @@ describe("shared merge encoding", () => {
         }),
       ),
     ).toBe(vector.cached.external_data_hash);
+  });
+
+  it("matches the Rust wide-merge encoding and refuses other widths", () => {
+    expect(MAX_MERGE_INPUTS).toBe(vector.wide.input_count);
+    const nullifiers = (count: number) => Array.from({ length: count }, (_, index) => field(index));
+    const wide = encodeMergeTransactInstructionData({
+      ...data,
+      nullifiers: nullifiers(vector.wide.input_count),
+    });
+    expect(hex(sha256(wide))).toBe(vector.wide.instruction_sha256);
+    expect(() =>
+      encodeMergeTransactInstructionData({ ...data, nullifiers: nullifiers(9) }),
+    ).toThrow("INTERFACE_INVALID_LENGTH");
   });
 
   it("matches the Rust plain-merge encoding and external hash", () => {

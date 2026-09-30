@@ -6,5 +6,9 @@
     "instruction_sha256": "9565ed1c7c376bbb635303de501e6a5ef17a68c265aec16b0aba2077d4a863e6"
   },
   "external_data_hash": "003df3284567587f136e0d6cbfb8cf2efa948a92ef1a89e598a27edc9105c48b",
-  "instruction_sha256": "ad0752418f025c10069a3ef084e633df46d5a22eb54067d13f66f279c94bd146"
+  "instruction_sha256": "ad0752418f025c10069a3ef084e633df46d5a22eb54067d13f66f279c94bd146",
+  "wide": {
+    "input_count": 36,
+    "instruction_sha256": "c62be6139fc908aa66f97c9175919b29d0840b4c1bfd6e61832a238003d19be4"
+  }
 }

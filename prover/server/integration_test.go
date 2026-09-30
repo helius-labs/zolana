@@ -75,9 +75,13 @@ func StartServerWithPreload(isLightweight bool, preload bool) {
 		}
 	}
 
+	readiness := server.NewReadiness()
+	readiness.MarkReady()
 	serverCfg := server.Config{
-		ProverAddress:  ProverAddress,
-		MetricsAddress: MetricsAddress,
+		Readiness:         readiness,
+		TransferExecution: server.NewExecution(1),
+		ProverAddress:     ProverAddress,
+		MetricsAddress:    MetricsAddress,
 	}
 	logging.Logger().Info().Msg("Starting the server")
 	instance = server.Run(&serverCfg, keyManager)

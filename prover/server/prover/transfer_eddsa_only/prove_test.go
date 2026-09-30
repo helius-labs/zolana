@@ -45,7 +45,7 @@ func TestValidateCacheSelection(t *testing.T) {
 		{"tree id beyond u16", CacheSelectionParams{TreeID: big.NewInt(1 << 16), ReadHashes: ints(9, 0)}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.cache.validate(2)
+			err := tc.cache.Validate(2)
 			if tc.valid && err != nil {
 				t.Fatalf("rejected a valid selection: %v", err)
 			}

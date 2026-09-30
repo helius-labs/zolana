@@ -5,6 +5,7 @@
 use custom_ring_interface::PolicyConfig;
 use solana_account::Account;
 use solana_address::Address;
+use zolana_client::prover::indexed::{IndexedPolicyLookup, ProofDataSource};
 use zolana_client::{AsyncRpc, MerkleProof, NonInclusionProof, Rpc};
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::{
@@ -66,6 +67,8 @@ impl PolicyTree {
 
 /// The policy witness of one transfer, serialized into the proof request.
 pub struct CustomRingWitness {
+    pub indexed_inputs: Option<Vec<IndexedPolicyLookup>>,
+    pub indexed_registry: Option<zolana_client::prover::indexed::IndexedRegistry>,
     /// In slot order, at most `INPUT_TREES`.
     pub trees: Vec<PolicyTree>,
     pub address_tree_id: u16,
@@ -120,10 +123,11 @@ pub struct CustomRingWitnessInput<'a> {
 
 impl<'a> CustomRingWitnessInput<'a> {
     /// Refuses client-side with a named rule before any prover round.
-    pub fn build<I: Rpc, R: Rpc>(
+    pub fn build_with_source<I: Rpc, R: Rpc>(
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<CustomRingWitness, TransferError> {
         let plan = self.plan()?;
         let lineages = plan.lineages().fetch(indexer).map_err(list_entry)?;
@@ -131,21 +135,23 @@ impl<'a> CustomRingWitnessInput<'a> {
         let proofs = resolved
             .queries()
             .into_iter()
-            .map(|query| query.fetch(indexer, rpc))
+            .map(|query| query.fetch(indexer, rpc, source))
             .collect::<Result<Vec<_>, _>>()?;
         let escrow = match self.key_registry {
+            Some(registry) if source == ProofDataSource::Prover => Some(registry.pending(rpc)?),
             Some(registry) => {
                 Some(registry.openings(ReadEnvironment { indexer, rpc }, &self.output_keys()?)?)
             }
             None => None,
         };
-        resolved.assemble(proofs, escrow)
+        resolved.assemble(proofs, escrow, source)
     }
 
-    pub async fn build_async<I: AsyncRpc, R: AsyncRpc>(
+    pub async fn build_async_with_source<I: AsyncRpc, R: AsyncRpc>(
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<CustomRingWitness, TransferError> {
         let plan = self.plan()?;
         let lineages = plan
@@ -158,10 +164,13 @@ impl<'a> CustomRingWitnessInput<'a> {
             resolved
                 .queries()
                 .into_iter()
-                .map(|query| query.fetch_async(indexer, rpc)),
+                .map(|query| query.fetch_async(indexer, rpc, source)),
         )
         .await?;
         let escrow = match self.key_registry {
+            Some(registry) if source == ProofDataSource::Prover => {
+                Some(registry.pending_async(rpc).await?)
+            }
             Some(registry) => Some(
                 registry
                     .openings_async(ReadEnvironment { indexer, rpc }, &self.output_keys()?)
@@ -169,7 +178,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             ),
             None => None,
         };
-        resolved.assemble(proofs, escrow)
+        resolved.assemble(proofs, escrow, source)
     }
 
     /// Unowned slots and namespace-owned records carry no key.
@@ -533,6 +542,7 @@ impl ResolvedWitness<'_> {
         self,
         proofs: Vec<TreeProofs>,
         escrow: Option<EscrowedKeys>,
+        source: ProofDataSource,
     ) -> Result<CustomRingWitness, TransferError> {
         if proofs.len() != self.trees.trees.len() {
             return Err(TransferError::IncompleteProofSet);
@@ -542,12 +552,17 @@ impl ResolvedWitness<'_> {
             .into_iter()
             .map(|proofs| (proofs.states.into_iter(), proofs.absences.into_iter()))
             .collect();
+        let mut lookups = Vec::with_capacity(ANSWER_SLOTS);
         let mut answers = Vec::with_capacity(ANSWER_SLOTS);
         let mut revocation_targets = [[0u8; 32]; ANSWER_SLOTS];
         let mut revocation_tree_indexes = [0u8; ANSWER_SLOTS];
         for (index, (answer, &slot)) in self.answers.iter().zip(&self.trees.slots).enumerate() {
             let (states, absences) = &mut proofs[usize::from(slot)];
-            let absence = absences.next().ok_or(TransferError::IncompleteProofSet)?;
+            lookups.push(IndexedPolicyLookup {
+                tree_slot: slot,
+                commitment: answer.fact.state_leaf(),
+                nullifier: Some(answer.fact.absence_target()),
+            });
             revocation_targets[index] = answer.fact.absence_target();
             revocation_tree_indexes[index] = slot;
             let mut entry = RuleAnswer {
@@ -556,23 +571,28 @@ impl ResolvedWitness<'_> {
                 mode: answer.mode as u8,
                 list_id: answer.list_id as u8,
                 member: *answer.member.as_bytes(),
-                low: absence.low_element,
-                next: absence.high_element,
-                nullifier_path: padded(absence.path, NULLIFIER_PATH_LEN),
-                nullifier_path_index: absence.low_element_index,
                 ..RuleAnswer::default()
             };
+            if source == ProofDataSource::Client {
+                let absence = absences.next().ok_or(TransferError::IncompleteProofSet)?;
+                entry.low = absence.low_element;
+                entry.next = absence.high_element;
+                entry.nullifier_path = padded(absence.path, NULLIFIER_PATH_LEN);
+                entry.nullifier_path_index = absence.low_element_index;
+            }
             match answer.fact {
                 EntryFact::Unclaimed { .. } => entry.absent_branch = 1,
                 EntryFact::Live(live) => {
-                    let state = states.next().ok_or(TransferError::IncompleteProofSet)?;
                     entry.absent_branch = 2;
                     entry.state = live.entry.state as u8;
                     entry.version = live.entry.version;
                     entry.blinding = live.entry.blinding;
                     entry.content_hash = live.entry.content_hash;
-                    entry.state_path = padded(state.path, STATE_PATH_LEN);
-                    entry.state_path_index = state.leaf_index;
+                    if source == ProofDataSource::Client {
+                        let state = states.next().ok_or(TransferError::IncompleteProofSet)?;
+                        entry.state_path = padded(state.path, STATE_PATH_LEN);
+                        entry.state_path_index = state.leaf_index;
+                    }
                 }
             }
             answers.push(entry);
@@ -584,6 +604,11 @@ impl ResolvedWitness<'_> {
             return Err(TransferError::IncompleteProofSet);
         }
         answers.resize_with(ANSWER_SLOTS, RuleAnswer::default);
+        lookups.resize_with(ANSWER_SLOTS, || IndexedPolicyLookup {
+            tree_slot: 0,
+            commitment: None,
+            nullifier: None,
+        });
 
         let input = self.input;
         let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
@@ -601,7 +626,23 @@ impl ResolvedWitness<'_> {
             };
         }
         let table = &input.policy_config.rules;
+        let indexed_registry = if source == ProofDataSource::Prover {
+            input
+                .key_registry
+                .zip(escrow.as_ref())
+                .map(
+                    |(registry, escrow)| zolana_client::prover::indexed::IndexedRegistry {
+                        ring_program_id: registry.ring.program_id(),
+                        root: escrow.root.root,
+                        next_index: escrow.root.next_index,
+                    },
+                )
+        } else {
+            None
+        };
         Ok(CustomRingWitness {
+            indexed_registry,
+            indexed_inputs: (source == ProofDataSource::Prover).then_some(lookups),
             trees: policy_trees,
             address_tree_id: input.policy_config.address_tree_id(),
             sources: *self.sources.slots(),
@@ -682,8 +723,21 @@ struct TreeProofs {
 }
 
 impl TreeQuery {
-    fn fetch<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<TreeProofs, TransferError> {
+    fn fetch<I: Rpc, R: Rpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+        source: ProofDataSource,
+    ) -> Result<TreeProofs, TransferError> {
         let current = current_roots(rpc.get_account(self.tree.address)?, self.tree)?;
+        if source == ProofDataSource::Prover {
+            return Ok(TreeProofs {
+                tree: self.tree,
+                current,
+                states: Vec::new(),
+                absences: Vec::new(),
+            });
+        }
         let states = if self.states.is_empty() {
             Vec::new()
         } else {
@@ -710,8 +764,17 @@ impl TreeQuery {
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<TreeProofs, TransferError> {
         let current = current_roots(rpc.get_account(self.tree.address).await?, self.tree)?;
+        if source == ProofDataSource::Prover {
+            return Ok(TreeProofs {
+                tree: self.tree,
+                current,
+                states: Vec::new(),
+                absences: Vec::new(),
+            });
+        }
         let states = if self.states.is_empty() {
             Vec::new()
         } else {
@@ -1503,7 +1566,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
 
         let live = lineage.live().expect("live");
@@ -1547,7 +1610,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
         assert!(rpc.lineages.requests.lock().expect("requests").is_empty());
         let calls = rpc.calls.lock().expect("calls");
@@ -1570,7 +1633,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc);
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty() && calls.non_inclusion.is_empty());
@@ -1600,7 +1663,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc);
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
     }
 
@@ -1624,7 +1687,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
         assert_eq!(witness.trees[0].roots.nullifier, older.value);
         assert_eq!(witness.trees[0].roots.nullifier_index, older.index);
@@ -1646,7 +1709,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
         let current = current_roots(Some(tree_account()), address_tree()).expect("current roots");
         assert_eq!(witness.trees[0].roots.nullifier, current.nullifier);
@@ -1677,7 +1740,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
         assert_eq!(
             witness.trees[0].roots,
@@ -1715,7 +1778,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
 
         let answers = enabled(&witness);
@@ -1749,7 +1812,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
 
         let answers = enabled(&witness);
@@ -1783,7 +1846,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc);
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty() && calls.non_inclusion.is_empty());
@@ -1805,7 +1868,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
 
         assert_eq!(witness.rules, config.rules.rules);
@@ -1888,7 +1951,7 @@ mod tests {
             velocity: velocity_off(),
             key_registry: None,
         }
-        .build(&rpc, &rpc)
+        .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
 
         let second = PoolTree::from_id(SECOND_TREE_ID);

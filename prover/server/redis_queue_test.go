@@ -753,7 +753,7 @@ func TestWorkerCreation(t *testing.T) {
 
 	keyManager := common.NewLazyKeyManager("./proving-keys/", common.DefaultDownloadConfig())
 
-	addressAppendWorker := server.NewAddressAppendQueueWorker(rq, keyManager)
+	addressAppendWorker := server.NewAddressAppendQueueWorker(server.WorkerConfig{Queue: rq, Keys: keyManager})
 	if addressAppendWorker == nil {
 		t.Errorf("Expected address append worker to be created, got nil")
 	}
@@ -911,9 +911,13 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 
 	keyManager := common.NewLazyKeyManager("./proving-keys/", common.DefaultDownloadConfig())
 
+	readiness := server.NewReadiness()
+	readiness.MarkReady()
 	config := &server.EnhancedConfig{
-		ProverAddress:  "localhost:8082",
-		MetricsAddress: "localhost:9997",
+		Readiness:         readiness,
+		TransferExecution: server.NewExecution(1),
+		ProverAddress:     "localhost:8082",
+		MetricsAddress:    "localhost:9997",
 		Queue: &server.QueueConfig{
 			RedisURL: redisURL,
 			Enabled:  true,

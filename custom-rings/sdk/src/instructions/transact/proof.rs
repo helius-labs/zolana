@@ -176,7 +176,7 @@ impl PendingCustomRingProof {
             .map_err(|_| CustomRingProofInputError::Hashing)?;
         let tree_slots = witness.tree_slots();
         let key_registry_root = witness.key_registry_root.map(|registry| registry.root);
-        let public_input_hash = custom_ring_interface::CustomRingPolicyPublicInput {
+        let statement = custom_ring_interface::CustomRingPolicyPublicInput {
             audit: CustomRingBasePublicInput {
                 private_tx_hash: private_tx_hash.as_ref(),
                 tx_viewing_pk: tx_viewing_pk.as_bytes(),
@@ -197,12 +197,40 @@ impl PendingCustomRingProof {
             key_registry_root: key_registry_root.as_ref(),
             revocation_tree_indexes: &witness.revocation_tree_indexes,
             revocation_targets: &witness.revocation_targets,
-        }
-        .hash()
-        .map_err(|_| CustomRingProofInputError::Hashing)?;
+        };
+        let public_input_hash = statement
+            .hash()
+            .map_err(|_| CustomRingProofInputError::Hashing)?;
+        let indexed = witness
+            .indexed_inputs
+            .map(|inputs| {
+                Ok::<_, CustomRingProofInputError>(
+                    zolana_client::prover::indexed::IndexedPolicyData {
+                        inputs,
+                        registry: witness.indexed_registry,
+                        public_inputs: statement
+                            .indexed_inputs()
+                            .map_err(|_| CustomRingProofInputError::Hashing)?
+                            .to_vec(),
+                        trees: witness
+                            .trees
+                            .iter()
+                            .map(|tree| zolana_client::prover::indexed::ResolvedProofTree {
+                                tree: tree.tree.address,
+                                id: tree.tree.id,
+                                utxo_root: tree.roots.state,
+                                nullifier_root: tree.roots.nullifier,
+                                context: tree.context().context,
+                            })
+                            .collect(),
+                    },
+                )
+            })
+            .transpose()?;
 
         Ok(
             crate::instructions::transact::CustomRingPolicyProofRequest {
+                indexed,
                 public_input_hash,
                 private_tx_hash: *private_tx_hash.as_ref(),
                 tx_viewing_key,
@@ -359,6 +387,8 @@ mod tests {
         let mut revocation_tree_indexes = [0u8; ANSWER_SLOTS];
         revocation_tree_indexes[1] = 1;
         CustomRingWitness {
+            indexed_inputs: None,
+            indexed_registry: None,
             trees: vec![tree(0, 7), tree(4, 9)],
             address_tree_id: 0,
             sources: [SourceOwnerEntry::default(); MAX_SOURCES],
@@ -407,7 +437,8 @@ mod tests {
         private_tx_hash[29..].copy_from_slice(&[0xab, 0xcd, 0xef]);
         let policy_hash = [4u8; 32];
         let external_data_hash = [5u8; 32];
-        let witness = witness();
+        let mut witness = witness();
+        witness.indexed_inputs = Some(Vec::new());
         let revocation_targets = witness.revocation_targets;
         let revocation_tree_indexes = witness.revocation_tree_indexes;
 
@@ -451,6 +482,17 @@ mod tests {
         .expect("public input hash");
 
         assert_eq!(request.public_input_hash, expected);
+        let indexed = request.indexed.as_ref().expect("indexed metadata");
+        let mut transcript = indexed.public_inputs.clone();
+        transcript.insert(
+            1,
+            zolana_interface::tree_slot::populated_tree_slots_hash_chain(&request.tree_slots)
+                .unwrap(),
+        );
+        assert_eq!(
+            zolana_hasher::hash_chain::create_hash_chain_from_slice(&transcript).unwrap(),
+            expected
+        );
         assert_eq!(request.private_tx_hash, private_tx_hash);
         assert_eq!(request.tree_slots, slots);
         assert_eq!(request.key_registry_root, Some(REGISTRY_ROOT));

@@ -95,35 +95,19 @@ impl RingTransferP256Prover {
         )?;
         let published_output_owner_pk_hashes =
             confidential_marked_output_owner_pk_hashes(&self.external_data)?;
-        let message_digest = sha256(&private_tx);
-        validate_authorization(&self.inputs, &self.authorization, &message_digest)?;
-
-        let public_key = self.authorization.pubkey.to_p256()?;
-        let point = public_key.to_encoded_point(false);
-        let pub_x = coordinate(point.x(), "x")?;
-        let pub_y = coordinate(point.y(), "y")?;
-        // The shared P256 identity is published only when a default-ring P256
-        // UTXO is spent. A ring-bound P256 spend is anonymous, so it may not
-        // coexist with a default-ring spend and no published output owner may
-        // name the identity while it happens.
-        let p256_owner_pk_hash = p256_owner_identity(&pub_x)?;
-        let input_utxos = p256_spend_rings(&self.inputs)?;
-        if input_utxos.default_ring && input_utxos.bound_ring {
-            return Err(ClientError::RingP256MixedDefaultAndRingSpend);
+        let PreparedP256Authorization {
+            pub_x,
+            pub_y,
+            message_digest,
+            default_owner_tag,
+            default_p256_owner_pk_hash,
+        } = P256AuthorizationPreparation {
+            inputs: &self.inputs,
+            authorization: &self.authorization,
+            private_tx: &private_tx,
+            published_owners: &published_output_owner_pk_hashes,
         }
-        if input_utxos.bound_ring {
-            if let Some(index) = published_output_owner_pk_hashes
-                .iter()
-                .position(|published| *published == p256_owner_pk_hash)
-            {
-                return Err(ClientError::RingP256PublishedOwnerLeaksIdentity { index });
-            }
-        }
-        let default_owner_tag = input_utxos.default_ring.then_some(pub_x);
-        let default_p256_owner_pk_hash = match default_owner_tag {
-            Some(_) => p256_owner_pk_hash,
-            None => [0u8; 32],
-        };
+        .prepare()?;
 
         let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
         let message_proof_input_hash = hash_bytes(&message_digest)?;
@@ -184,6 +168,64 @@ impl RingTransferP256Prover {
     }
 }
 
+pub(crate) struct P256AuthorizationPreparation<'a> {
+    pub inputs: &'a [TransferInputUtxo],
+    pub authorization: &'a P256Signature,
+    pub private_tx: &'a [u8; 32],
+    pub published_owners: &'a [[u8; 32]],
+}
+
+pub(crate) struct PreparedP256Authorization {
+    pub pub_x: [u8; 32],
+    pub pub_y: [u8; 32],
+    pub message_digest: [u8; 32],
+    pub default_owner_tag: Option<[u8; 32]>,
+    pub default_p256_owner_pk_hash: [u8; 32],
+}
+
+impl P256AuthorizationPreparation<'_> {
+    pub fn prepare(self) -> Result<PreparedP256Authorization, ClientError> {
+        let message_digest = sha256(self.private_tx);
+        validate_authorization(self.inputs, self.authorization, &message_digest)?;
+
+        let public_key = self.authorization.pubkey.to_p256()?;
+        let point = public_key.to_encoded_point(false);
+        let pub_x = coordinate(point.x(), "x")?;
+        let pub_y = coordinate(point.y(), "y")?;
+        // The shared P256 identity is published only when a default-ring P256
+        // UTXO is spent. A ring-bound P256 spend is anonymous, so it may not
+        // coexist with a default-ring spend and no published output owner may
+        // name the identity while it happens.
+        let p256_owner_pk_hash = p256_owner_identity(&pub_x)?;
+        let input_utxos = p256_spend_rings(self.inputs)?;
+        if input_utxos.default_ring && input_utxos.bound_ring {
+            return Err(ClientError::RingP256MixedDefaultAndRingSpend);
+        }
+        if input_utxos.bound_ring {
+            if let Some(index) = self
+                .published_owners
+                .iter()
+                .position(|published| *published == p256_owner_pk_hash)
+            {
+                return Err(ClientError::RingP256PublishedOwnerLeaksIdentity { index });
+            }
+        }
+        let default_owner_tag = input_utxos.default_ring.then_some(pub_x);
+        let default_p256_owner_pk_hash = match default_owner_tag {
+            Some(_) => p256_owner_pk_hash,
+            None => [0u8; 32],
+        };
+
+        Ok(PreparedP256Authorization {
+            pub_x,
+            pub_y,
+            message_digest,
+            default_owner_tag,
+            default_p256_owner_pk_hash,
+        })
+    }
+}
+
 /// Which rings the proof's spent P256 UTXOs belong to. Only spends count: an
 /// address slot creates nothing that names an owner, so it neither publishes
 /// the shared identity nor forbids a ring spend.
@@ -198,7 +240,7 @@ fn p256_spend_rings(inputs: &[TransferInputUtxo]) -> Result<P256SpendRings, Clie
         bound_ring: false,
     };
     for input_utxo in inputs {
-        if input_utxo.proof.is_none() || input_utxo.utxo.utxo.owner.curve()? != Curve::P256 {
+        if input_utxo.utxo.is_dummy() || input_utxo.utxo.utxo.owner.curve()? != Curve::P256 {
             continue;
         }
         if input_utxo.utxo.utxo.ring_program_id.is_some() {
@@ -217,7 +259,7 @@ fn validate_authorization(
 ) -> Result<(), ClientError> {
     let mut found_p256 = false;
     for (index, input_utxo) in inputs.iter().enumerate() {
-        if input_utxo.proof.is_none() {
+        if input_utxo.utxo.is_dummy() {
             continue;
         }
         if input_utxo.utxo.utxo.owner.curve()? != Curve::P256 {

@@ -43,7 +43,7 @@ func TestKeyRegisterProofVerifiesEndToEnd(t *testing.T) {
 	var decoded KeyRegisterParameters
 	roundTripProofParameters(t, params, &decoded)
 
-	proof, err := Prove(registerSystem, &decoded)
+	proof, err := RingProof{System: registerSystem, Parameters: &decoded}.Prove()
 	if err != nil {
 		t.Fatalf("prove: %v", err)
 	}

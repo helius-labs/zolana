@@ -10,7 +10,7 @@ use crate::{
         find_binary, log_tail, path_string, process_scope, remove_launchd_validators,
         require_scoped_port_available, spawn_service, stop_port, Service,
     },
-    prover::start_prover_service,
+    prover::ProverService,
     release::Release,
 };
 
@@ -92,13 +92,16 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
             Some(release) => Some(release.prover_binary()?),
             None => None,
         };
-        start_prover_service(
-            opts.prover_port,
-            None,
-            opts.prover_auto_download,
-            &opts.log_dir,
-            prover_binary.as_deref(),
-        )?;
+        let indexer_url = opts.prover_indexer_url();
+        ProverService {
+            port: opts.prover_port,
+            redis_url: None,
+            auto_download: opts.prover_auto_download,
+            log_dir: &opts.log_dir,
+            binary: prover_binary.as_deref(),
+            indexer_url: indexer_url.as_deref(),
+        }
+        .start()?;
     }
 
     if opts.start_indexer() {
@@ -343,7 +346,7 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
         let mut child = spawn_service(
             &photon,
             &args,
-            &[("TMPDIR", &temp_dir)],
+            &[("TMPDIR", temp_dir.as_os_str())],
             Service::Photon,
             &opts.log_dir,
         )?;

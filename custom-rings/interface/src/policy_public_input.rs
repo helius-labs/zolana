@@ -62,6 +62,15 @@ impl CustomRingPolicyPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         create_hash_chain_from_slice(&self.elements()?)
     }
+
+    pub fn indexed_inputs(&self) -> Result<[[u8; 32]; POLICY_LEN - AUDIT_LEN - 1], HasherError> {
+        let elements = self.elements()?;
+        let mut indexed = [[0u8; 32]; POLICY_LEN - AUDIT_LEN - 1];
+        // 1. The folded prefix ends immediately before the tree commitment.
+        indexed[0] = create_hash_chain_from_slice(&elements[..AUDIT_LEN + 1])?;
+        indexed[1..].copy_from_slice(&elements[AUDIT_LEN + 2..]);
+        Ok(indexed)
+    }
 }
 
 /// The escrow flag and the registry root, zero when escrow is off.

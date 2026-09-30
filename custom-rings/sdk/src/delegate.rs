@@ -1,3 +1,4 @@
+use crate::transfer::SppWitness;
 use crate::{
     authority::{AuthoritySeal, RingAuthorityMove},
     RingAuthorityProofInputs,
@@ -5,15 +6,13 @@ use crate::{
 use futures::future::try_join;
 use solana_address::Address;
 use solana_instruction::Instruction;
-use zolana_client::{
-    AsyncRpc, Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, RingAuthorityProofResult,
-    RingAuthorityProver, Rpc, TransferInputs,
+use zolana_client::prover::indexed::{
+    IndexedTransferPreparation, IndexedTransferRail, ProofDataSource,
 };
-use zolana_interface::{
-    instruction::{CircuitId, TransactIxData, TransactProof},
-    N_PUBLIC_SLOTS,
-};
+use zolana_client::{AsyncRpc, Proof, ProofAuthority, ProofInputUtxo, RingAuthorityProver, Rpc};
+use zolana_interface::instruction::TransactIxData;
 use zolana_keypair::{random_salt, NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_transaction::instructions::transact::SppProofInputs;
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo, AssetRegistry,
 };
@@ -23,8 +22,7 @@ use crate::{
     instructions::{spend::ReadEnvironment, transact::PolicyReads},
     transfer::{
         frame_dummy_outputs, PolicyBinding, PolicyRequest, PolicyStatement, PolicyTierInput,
-        RingInstructionData, RingMembership, RingSpendInputs, SpendSet, SpendTreePlan, SpendTrees,
-        TierRequestInput,
+        RingMembership, RingSpendInputs, SpendSet, SpendTreePlan, SpendTrees, TierRequestInput,
     },
     AsyncTransferProofEnvironment, CustomRing, CustomRingDelegateTransact, CustomRingProof,
     CustomRingProofParams, EncryptedAudit, PendingCustomRingProof, PoolTree, TransferError,
@@ -117,6 +115,13 @@ impl<'a> DelegateTransfer<'a> {
         self,
         env: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
+        crate::projection::retry_projection_lag(|| self.clone().prove_once(&env))
+    }
+
+    fn prove_once<I: Rpc, R: Rpc>(
+        self,
+        env: &TransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenDelegateTransfer, TransferError> {
         let config = self
             .ring
             .read_config(env.rpc)?
@@ -133,21 +138,28 @@ impl<'a> DelegateTransfer<'a> {
         let staged = self.stage(config.auditor_pubkey, key_registry)?;
         let spends = SpendSet {
             trees: staged.tree_plan().read(env.rpc)?,
-            inputs: RingSpendInputs {
-                indexer: env.indexer,
-                input_utxos: &staged.prepared.inputs,
-            }
-            .load()?,
+            inputs: if env.prover.proof_data_source() == ProofDataSource::Client {
+                Some(
+                    RingSpendInputs {
+                        indexer: env.indexer,
+                        input_utxos: &staged.prepared.inputs,
+                    }
+                    .load()?,
+                )
+            } else {
+                None
+            },
         };
-        let statement = staged.policy_tier().read(ReadEnvironment {
-            indexer: env.indexer,
-            rpc: env.rpc,
-        })?;
-        let witnessed = staged.witness(spends, statement)?;
-        let spp_proof =
-            ProofCompressed::try_from(env.prover.prove_ring_authority(witnessed.spp())?)?
-                .to_transact_proof();
-        let ring_proof = env.prover.prove(&witnessed.request)?;
+        let statement = staged.policy_tier().read(
+            ReadEnvironment {
+                indexer: env.indexer,
+                rpc: env.rpc,
+            },
+            env.prover.proof_data_source(),
+        )?;
+        let mut witnessed = staged.witness(spends, statement)?;
+        let spp_proof = witnessed.spp.prove(env.prover, &witnessed.transaction)?;
+        let ring_proof = witnessed.request.prove(env.prover)?;
         witnessed.finish(spp_proof, ring_proof)
     }
 
@@ -155,6 +167,13 @@ impl<'a> DelegateTransfer<'a> {
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenDelegateTransfer, TransferError> {
+        crate::projection::retry_projection_lag_async(|| self.clone().prove_once_async(&env)).await
+    }
+
+    async fn prove_once_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        env: &AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
         let config = self
             .ring
@@ -174,27 +193,38 @@ impl<'a> DelegateTransfer<'a> {
         let staged = self.stage(config.auditor_pubkey, key_registry)?;
         let spends = SpendSet {
             trees: staged.tree_plan().read_async(env.rpc).await?,
-            inputs: RingSpendInputs {
-                indexer: env.indexer,
-                input_utxos: &staged.prepared.inputs,
-            }
-            .load_async()
-            .await?,
+            inputs: if env.prover.proof_data_source() == ProofDataSource::Client {
+                Some(
+                    RingSpendInputs {
+                        indexer: env.indexer,
+                        input_utxos: &staged.prepared.inputs,
+                    }
+                    .load_async()
+                    .await?,
+                )
+            } else {
+                None
+            },
         };
         let statement = staged
             .policy_tier()
-            .read_async(ReadEnvironment {
-                indexer: env.indexer,
-                rpc: env.rpc,
-            })
+            .read_async(
+                ReadEnvironment {
+                    indexer: env.indexer,
+                    rpc: env.rpc,
+                },
+                env.prover.proof_data_source(),
+            )
             .await?;
-        let witnessed = staged.witness(spends, statement)?;
+        let mut witnessed = staged.witness(spends, statement)?;
         let (spp, ring) = try_join(
-            env.prover.prove_ring_authority(witnessed.spp()),
-            env.prover.prove(&witnessed.request),
+            witnessed
+                .spp
+                .prove_async(env.prover, &witnessed.transaction),
+            witnessed.request.prove_async(env.prover),
         )
         .await?;
-        witnessed.finish(ProofCompressed::try_from(spp)?.to_transact_proof(), ring)
+        witnessed.finish(spp, ring)
     }
 
     /// The auditor message joins `external_data` ahead of every hash over it.
@@ -353,24 +383,45 @@ impl StagedDelegateTransfer {
     ) -> Result<WitnessedDelegateTransfer, TransferError> {
         let SpendSet { inputs, trees } = spends;
         let shape = self.prepared.shape;
-        let mut result = RingAuthorityProver {
-            inputs,
-            outputs: self.prepared.outputs.clone(),
+        let transaction = SppProofInputs {
+            input_utxos: self.prepared.inputs.clone(),
+            output_utxos: self.prepared.outputs.clone(),
             blinding_seed: self.prepared.blinding_seed,
             output_tree_id: self.prepared.output_tree_id,
             external_data: self.prepared.external_data.clone(),
-            public_transfers: self.prepared.public_transfers,
             payer: self.prepared.payer,
-            allow_dummy_inputs: trees.allow_dummy_inputs,
-            ring_program_id: self.prepared.ring_program_id,
-            shape,
-        }
-        .build()?;
-        self.source_nullifier_key
-            .complete_inputs(&mut result.inputs.inputs)?;
+            cache_accounts: Default::default(),
+        };
+        let spp = match inputs {
+            None => SppWitness::Indexed(Box::new(
+                IndexedTransferPreparation {
+                    transaction: transaction.clone(),
+                    rail: IndexedTransferRail::RingAuthority(self.ring.program_id()),
+                }
+                .prepare_with_dummy_policy(&self.source_nullifier_key, trees.allow_dummy_inputs)?,
+            )),
+            Some(inputs) => {
+                let mut result = RingAuthorityProver {
+                    inputs,
+                    outputs: self.prepared.outputs.clone(),
+                    blinding_seed: self.prepared.blinding_seed,
+                    output_tree_id: self.prepared.output_tree_id,
+                    external_data: self.prepared.external_data.clone(),
+                    public_transfers: self.prepared.public_transfers,
+                    payer: self.prepared.payer,
+                    allow_dummy_inputs: trees.allow_dummy_inputs,
+                    ring_program_id: self.prepared.ring_program_id,
+                    shape,
+                }
+                .build()?;
+                self.source_nullifier_key
+                    .complete_inputs(&mut result.inputs.inputs)?;
+                SppWitness::Authority(Box::new(result))
+            }
+        };
         let request = TierRequestInput {
             pending: self.pending_proof,
-            private_tx_hash: result.private_tx_hash.try_into()?,
+            private_tx_hash: spp.private_tx_hash().try_into()?,
             external_data: &self.prepared.external_data,
             private_tx_blinding: self.prepared.private_tx_blinding()?,
         }
@@ -380,7 +431,8 @@ impl StagedDelegateTransfer {
             request,
             tx_viewing_key: self.tx_viewing_key,
             prepared: self.prepared,
-            result,
+            spp,
+            transaction,
             delegate: self.delegate,
             trees,
             ring: self.ring,
@@ -393,7 +445,8 @@ struct WitnessedDelegateTransfer {
     request: PolicyRequest,
     tx_viewing_key: ViewingKey,
     prepared: RingAuthorityProofInputs,
-    result: RingAuthorityProofResult,
+    spp: SppWitness,
+    transaction: SppProofInputs,
     delegate: Address,
     trees: SpendTrees,
     ring: CustomRing,
@@ -401,13 +454,9 @@ struct WitnessedDelegateTransfer {
 }
 
 impl WitnessedDelegateTransfer {
-    fn spp(&self) -> &TransferInputs {
-        &self.result.inputs
-    }
-
     fn finish(
         self,
-        spp_proof: TransactProof,
+        spp_proof: TransactIxData,
         ring_proof: Proof,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
         let PolicyBinding {
@@ -415,20 +464,10 @@ impl WitnessedDelegateTransfer {
             reads: policy,
             approval_required: _,
         } = self.request.proven(ring_proof)?;
-        let width = self.prepared.shape.n_inputs() as u8;
         Ok(ProvenDelegateTransfer {
             tx_viewing_key: self.tx_viewing_key,
             outputs: self.prepared.outputs.clone(),
-            data: RingInstructionData {
-                external_data: &self.prepared.external_data,
-                nullifiers: &self.result.nullifiers,
-                input_tree_indexes: &self.result.input_tree_indexes,
-                tree_contexts: &self.result.tree_contexts,
-                private_tx_hash: self.result.private_tx_hash,
-                proof: spp_proof,
-                circuit: CircuitId::RingAuthority(width, width, N_PUBLIC_SLOTS as u8),
-            }
-            .assemble()?,
+            data: spp_proof,
             proof,
             policy,
             cosigner: self.cosigner,

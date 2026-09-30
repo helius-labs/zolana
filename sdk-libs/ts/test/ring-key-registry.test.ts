@@ -1140,6 +1140,7 @@ describe("recovered delegate move", () => {
     };
     const transaction = await buildRingDelegateRecoveredTransaction({
       client: {
+        proofDataSource: "client",
         tree: TREE,
         treeId: 0,
         commitment: "confirmed",

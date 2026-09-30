@@ -21,11 +21,7 @@ use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOU
 use zolana_test_utils::{localnet::start_shielded_pool_localnet, prover::spawn_workspace_prover};
 use zolana_transaction::Address;
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
-const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
 const PROVER_URL_ENV: &str = "ZOLANA_PROVER_URL";
-const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
-const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 
 fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u64> {
@@ -373,11 +369,10 @@ struct PoolState {
 /// config (endpoints + selected keypair).
 fn phase_setup_environment() -> Result<CycleEnv> {
     restart_localnet();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
 
-    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
-    let indexer_url =
-        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
     let prover_url =
         std::env::var(PROVER_URL_ENV).unwrap_or_else(|_| DEFAULT_PROVER_URL.to_owned());
 

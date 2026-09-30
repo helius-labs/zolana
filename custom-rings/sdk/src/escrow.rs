@@ -50,6 +50,23 @@ pub(crate) struct EscrowedKeys {
 }
 
 impl KeyRegistry {
+    pub fn pending<R: Rpc>(self, rpc: &R) -> Result<EscrowedKeys, KeyRegistrationError> {
+        Ok(EscrowedKeys {
+            root: self.root(self.ring.read_key_registry_root(rpc)?)?,
+            keys: Vec::new(),
+        })
+    }
+
+    pub async fn pending_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<EscrowedKeys, KeyRegistrationError> {
+        Ok(EscrowedKeys {
+            root: self.root(self.ring.read_key_registry_root_async(rpc).await?)?,
+            keys: Vec::new(),
+        })
+    }
+
     pub fn of(ring: CustomRing, config: &CustomRingConfig) -> Option<Self> {
         match config.key_escrow {
             KeyEscrow::Off => None,

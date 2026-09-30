@@ -19,8 +19,8 @@ use std::{
 
 use solana_address::Address;
 use zolana_client::{
-    AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc, ZolanaClient,
-    ZolanaIndexer,
+    AsyncProverClient, AsyncZolanaIndexer, IndexerRequirement, ProofDataSource, ProverClient,
+    ProverLaunch, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{pda, state::tree::read_tree_id, SHIELDED_POOL_PROGRAM_ID};
 
@@ -70,6 +70,23 @@ impl LocalnetPorts {
             .filter(|offset| offset.checked_add(8900).is_some())
             .map(Self::offset)
             .ok_or_else(|| ProgramTestError::Localnet(format!("test number {test} is too large")))
+    }
+
+    /// This checkout's serial localnet, where the justfile recipes run.
+    pub fn checkout() -> Result<Self, ProgramTestError> {
+        let defaults = Self::for_test(0)?;
+        Ok(Self {
+            rpc: env_port("ZOLANA_LOCALNET_RPC_PORT")?.unwrap_or(defaults.rpc),
+            photon: env_port("ZOLANA_LOCALNET_PHOTON_PORT")?.unwrap_or(defaults.photon),
+        })
+    }
+
+    /// `ZOLANA_LOCALNET_PHOTON_URL`, else the checkout's Photon port, as the justfile resolves it.
+    pub fn checkout_photon_url() -> Result<String, ProgramTestError> {
+        match env::var("ZOLANA_LOCALNET_PHOTON_URL") {
+            Ok(url) if !url.trim().is_empty() => Ok(url.trim().to_owned()),
+            _ => Ok(Self::checkout()?.photon_url()),
+        }
     }
 
     pub fn rpc_url(&self) -> String {
@@ -303,7 +320,13 @@ fn connect(
     ports: LocalnetPorts,
     program_ids: &[Address],
 ) -> Result<(ZolanaClient<SolanaRpc>, u16), ProgramTestError> {
-    zolana_client::spawn_prover_with_artifacts(&paths.cli_bin, &paths.proving_keys_dir)?;
+    ProverLaunch::new_with_cli(&paths.cli_bin)?
+        .with_keys_dir(&paths.proving_keys_dir)?
+        .with_indexer(
+            LocalnetPorts::checkout_photon_url()?,
+            IndexerRequirement::Optional,
+        )
+        .spawn()?;
     let rpc = SolanaRpc::new(ports.rpc_url()).with_poll_interval(FIXTURE_POLL_INTERVAL);
     for program_id in program_ids {
         rpc.assert_executable(program_id)?;
@@ -313,13 +336,15 @@ fn connect(
         .get_account(tree)?
         .and_then(|account| read_tree_id(&account.data))
         .ok_or_else(|| ProgramTestError::Localnet(format!("default tree {tree} is missing")))?;
+    // The shared prover resolves against the checkout's Photon, not this one.
     let client = ZolanaClient::new(
         rpc,
         ZolanaIndexer::new(ports.photon_url()),
         ProverClient::default(),
         AsyncZolanaIndexer::new(ports.photon_url()),
         AsyncProverClient::default(),
-    );
+    )
+    .with_proof_data_source(ProofDataSource::Client);
     Ok((client, tree_id))
 }
 
@@ -339,5 +364,16 @@ fn require_file(label: &str, path: &Path) -> Result<(), ProgramTestError> {
             "{label} is missing at {}; build it first",
             path.display()
         )))
+    }
+}
+
+fn env_port(name: &str) -> Result<Option<u16>, ProgramTestError> {
+    match env::var(name) {
+        Ok(port) if !port.trim().is_empty() => port
+            .trim()
+            .parse()
+            .map(Some)
+            .map_err(|_| ProgramTestError::Localnet(format!("{name}={port} is not a port"))),
+        _ => Ok(None),
     }
 }

@@ -1,5 +1,6 @@
 use std::{
     env,
+    ffi::OsStr,
     fs::OpenOptions,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -41,7 +42,7 @@ struct OwnedReceipt {
 pub(crate) fn spawn_service(
     binary: &Path,
     args: &[String],
-    envs: &[(&str, &Path)],
+    envs: &[(&str, &OsStr)],
     service: Service,
     log_dir: &str,
 ) -> Result<Child> {

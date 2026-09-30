@@ -311,7 +311,7 @@ func TestDepositProofVerifiesEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof, err := Prove(ps, request)
+	proof, err := RingProof{System: ps, Parameters: request}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,159 @@
+# GPU prover and indexer
+
+## New AWS deployment
+
+From a checkout of `main`, with Python 3.9+, AWS CLI v2 and an active AWS session:
+
+```sh
+AWS_PROFILE=YOUR_PROFILE tools/gpu/aws.py deploy my-prover --with-indexer
+```
+
+This creates an L4 `g6.2xlarge` in Frankfurt with the Aeglos prover, Photon,
+and PostgreSQL on one host. Photon starts from a copy of devnet-c and resumes
+indexing through the RPC URL in the `zolana-gpu/photon-rpc-url` secret in
+`--source-region`. Create that secret before the first indexer deployment. The
+command prints the HTTPS prover URL, `/indexer` URL, API key secret ARN,
+instance ID, and CloudWatch log group.
+
+The profile must use account `558215002830` and permit CloudFormation, EC2/VPC,
+IAM role creation and passing, CloudFront, SSM, S3, Secrets Manager, ECR reads,
+and CloudWatch Logs. Copying the cache also needs ECS task access in devnet-c.
+AdministratorAccess covers these operations. Log in with `aws sso login
+--profile YOUR_PROFILE` if the session has expired. GPU quota and capacity are
+required in the selected region.
+
+`publish-gpu` publishes images after merge using the existing image publisher
+role and `PRIVATE_LIBS_TOKEN`, with read access to Aeglos. Wait for that workflow
+to finish. Deployment selects the newest complete release, pins both images by
+digest, and requires the same source commit. `--revision FULL_SHA` selects a
+specific published commit. Release commits must be on the local `origin/main`,
+so fetch it before deploying. The GitHub CLI checks that each image carries a
+`publish-gpu` attestation from its commit, made on `main` for a release, so
+install `gh` and log in with `gh auth login`. Local CUDA, Docker, Go, Rust, and Aeglos
+access are not required. Manual workflow runs on other branches publish preview images.
+Select them with `--preview --revision FULL_SHA`. Default deployments exclude
+previews.
+
+For a prover with an existing indexer:
+
+```sh
+AWS_PROFILE=YOUR_PROFILE tools/gpu/aws.py deploy my-prover --indexer-url https://INDEXER
+```
+
+Use `--indexer-key-secret ARN` if the external indexer requires a key. The secret
+must contain the raw key in `--source-region`. The deployment generates its own
+API key. Read it through Secrets Manager and send it in `X-API-Key`, as a
+Bearer token, or as the `api-key` query parameter the SDKs use. Both public
+APIs require it. Only CloudFront can reach the gateway;
+SSH, PostgreSQL, Photon, and prover metrics have no public ingress. Use SSM for
+host access and port forwarding.
+
+`--plan` resolves images and validates the template without creating resources.
+Repeat the same deploy command to resume after a failure. Completed deployments
+only run endpoint checks. Changing settings requires a new name. `status NAME`
+prints the stack and endpoints. `destroy NAME` deletes that deployment, including
+its copied database and keys. Instances stay running until destroyed.
+
+The cache export runs as a separate Fargate task in the source network, with a
+read-only database connection, a short lock timeout, and a bounded runtime.
+It adds database read load. It does not restart Photon or change source services,
+secrets, or security groups. Source database credentials never reach the new EC2.
+Restoration runs in one transaction against an empty local database. A marker
+prevents a second restore over indexed data. The S3 dump expires after seven days.
+The encrypted gp3 volume defaults to 200 GiB. Increase `--disk-gb` for larger data.
+
+Startup waits for both readiness endpoints and checks authentication through
+CloudFront. Proving keys load on demand, so the first proof is not warm.
+Install failures leave the stack available for inspection. Logs are in CloudWatch;
+the SSM command ID is printed during installation. Use one deployment command
+at a time per name. CloudFront setup can take several minutes.
+
+## Existing Vast or EC2 host
+
+These scripts install the Aeglos prover and Photon on an existing Vast or EC2
+host. Prover requests reach Photon over loopback. PostgreSQL stays on the same
+host. Deployment does not allocate cloud instances or change devnet services.
+
+Use Linux x86-64 with CUDA 12.8 and a compatible NVIDIA driver. The host needs
+PostgreSQL 16 and its client tools, Supervisor, Python 3, curl, and Bash.
+Create a dedicated empty database and role before the first deployment.
+Keep PostgreSQL on loopback. Allow SSH only in the EC2 security group or Vast
+port mapping. Photon listens on all interfaces, and its port must stay private.
+The prover and its metrics bind to loopback by default.
+
+## Build
+
+Build on Linux with Go and Rust versions from the repository, CUDA development
+tools, and the Photon build dependencies from `services/photon/Dockerfile`.
+Git must have access to the private Aeglos repository. The source lock pins its
+commit and archive digest. Credentials stay on the build host.
+
+```sh
+CUDA_ARCH=sm_120 tools/gpu/build.sh target/gpu-bundle
+```
+
+Use `sm_89` for L4 or L40S, `sm_120` for RTX 5090, and `sm_100` for B200.
+Without `CUDA_ARCH`, the build reads the first local GPU. Installation checks
+the target GPU against the bundle. `prover/server/build-aeglos.sh` builds the
+prover for this bundle and for `Dockerfile.aeglos`. It fails before the CUDA
+build when Aeglos changes the gnark or gnark-crypto version of the prover
+module. It compiles through `build-release.sh` with `GOAMD64` from
+`PROVER_GPU_GOAMD64` in `release-build.env`. Set `GOAMD64=v1` for a host CPU
+without AVX2. Build from a clean checkout. The bundle records the Zolana commit
+and file digests. Build and target hosts need compatible system libraries. Each
+release directory accepts one bundle digest.
+
+## Deploy
+
+Copy `deployment.env.example` into an ignored directory such as `target/`.
+Set the private RPC URL and local database credentials, quote shell values,
+and restrict the file to its owner with `chmod 600`. Deployment files are
+trusted shell input. Keep the same `DEPLOYMENT_NAME` for upgrades.
+Database URLs require a loopback IP and cannot contain connection query options.
+Upgrades preserve the database host, port, name, and user. Password rotation is
+allowed.
+
+The prover receives every `PROVER_*` and `AEGLOS_*` variable from the file,
+plus `GOMAXPROCS`, `GOMEMLIMIT`, `GOGC`, `GODEBUG`, and `CUDA_VISIBLE_DEVICES`.
+Photon receives `TOKIO_WORKER_THREADS` and `RUST_LOG`, and its migration
+receives `DATABASE_URL`. The service scripts read the other variables without
+exporting them.
+
+```sh
+SSH_PORT=40056 SSH_KEY=~/.ssh/vast_key \
+  tools/gpu/deploy.sh vast root@HOST target/gpu-bundle target/gpu.env
+
+SSH_KEY=~/.ssh/ec2_key \
+  tools/gpu/deploy.sh ec2 ubuntu@HOST target/gpu-bundle target/gpu.env
+```
+
+Vast requires a root SSH target. EC2 requires passwordless sudo and starts the
+stack through a dedicated systemd unit. Each stack has its own Supervisor
+socket, release directory, key cache, and rotating logs under
+`/opt/zolana-gpu/DEPLOYMENT_NAME`. Upgrades restart that stack only and preserve
+its database and proving keys. Proving keys are fetched and checked against
+the prover lockfile on demand. GPU calls share the engine admission lock.
+
+For Vast container restarts, configure the instance startup command to run
+`supervisord -c /opt/zolana-gpu/DEPLOYMENT_NAME/supervisord.conf` after PostgreSQL
+is ready. Use persistent storage for the database and deployment directory.
+
+## Reuse indexer data
+
+Take a PostgreSQL custom-format dump from an authorized source or replica with
+`pg_dump --format=custom --no-owner --no-privileges --lock-wait-timeout=5s`.
+Use a read-only source account or a previously exported cache. A dump adds
+read load but does not stop the source indexer. Keep credentials out of shell
+history by using a PostgreSQL service file and `.pgpass`.
+
+Pass the dump as the last deployment argument. Restoration is transactional
+and runs only before first startup against an empty local database. Existing
+deployments reject cache restoration. Photon resumes indexing from restored
+data and applies migrations from the bundled source revision.
+
+Deployments check Photon `/readiness` and prover `/ready`. Lazy key loading
+means readiness does not guarantee a warm first proof. Set
+`PROVER_PRELOAD_CIRCUITS` to preload selected keys. The existing
+[prover monitoring](../../prover/server/TRANSFER_SERVICE.md) covers metrics,
+capacity alerts, and request timings. Failed readiness leaves the release
+installed and reports an error. Inspect the stack logs before retrying.

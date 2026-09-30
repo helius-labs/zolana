@@ -1,0 +1,79 @@
+groups:
+  - name: prover_capacity
+    rules:
+      - record: prover:transfer_completed_per_second
+        expr: sum by (job) (rate(prover_proofs_completed_total{circuit_type=~"transfer.*|merge.*"}[5m])) or on (job) (0 * max by (job) (up{job="prover"}))
+      - record: prover:transfer_target_per_second
+        expr: vector(2)
+        labels:
+          job: prover
+      - alert: ProverUnavailable
+        expr: up{job="prover"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prover metrics target is unavailable
+      - alert: ProverKeysNotReady
+        expr: prover_ready == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prover key loading has not completed
+      - alert: ProverTransferSaturated
+        expr: (prover_transfer_active / prover_transfer_capacity > 0.9) and on (job, instance) (prover_transfer_waiting > 0 or prover_queue_depth{queue="zk_transfer_queue"} > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Transfer execution capacity is saturated
+      - alert: ProverSyncFallback
+        expr: sum by (job) (rate(prover_sync_proofs_shed_total[5m])) / clamp_min(sum by (job) (rate(prover_proof_requests_total[5m])), 0.001) > 0.01
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Synchronous proofs require queue fallback
+      - alert: ProverTransferBelowTarget
+        expr: (prover:transfer_completed_per_second < prover:transfer_target_per_second) and on (job) (max by (job) (prover_queue_depth{queue="zk_transfer_queue"}) > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Transfer throughput is below target while work waits
+      - alert: ProverQueueDelay
+        expr: max by (job) (prover_queue_depth{queue="zk_transfer_queue"}) > 0 and on (job) max by (job) (prover_queue_wait_seconds_mean{queue="zk_transfer_queue"}) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Transfer queue delay exceeds the service target
+      - alert: ProverRequestLatency
+        expr: histogram_quantile(0.95, sum by (job, route, le) (rate(prover_http_request_duration_seconds_bucket{status="2xx"}[5m]))) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Proof HTTP latency exceeds the service target
+      - alert: ProverProofFailures
+        expr: sum by (job) (rate(prover_proof_generation_errors_total[5m])) / clamp_min(sum by (job) (rate(prover_proof_requests_total[5m])), 0.001) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Proof generation is failing
+      - alert: ProverIndexerFailures
+        expr: sum by (job) (rate(prover_indexer_preparation_duration_seconds_count{outcome="error"}[5m])) / clamp_min(sum by (job) (rate(prover_indexer_preparation_duration_seconds_count[5m])), 0.001) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Indexer proof preparation is failing
+      - alert: ProverHTTPFailures
+        expr: sum by (job) (rate(prover_http_request_duration_seconds_count{status="5xx"}[5m])) / clamp_min(sum by (job) (rate(prover_http_request_duration_seconds_count[5m])), 0.001) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prover HTTP service is failing

@@ -6,7 +6,8 @@ import (
 )
 
 type Proof struct {
-	Proof groth16.Proof
+	Resolution *ProofResolution
+	Proof      groth16.Proof
 	// ProvingKeySha256 is the sha256 of the proving key file the proof was
 	// generated with (zero when the system was not loaded from a file). Clients
 	// compare it with the proving-key sha256 pinned next to their verifying key.

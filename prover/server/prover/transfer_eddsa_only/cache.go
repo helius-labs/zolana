@@ -35,7 +35,7 @@ func (p *TransferParameters) needsStateRoot(i int) bool {
 	return isUtxo && entryOrZero(p.Cache.IsCached, i).Sign() == 0
 }
 
-func (c CacheSelectionParams) validate(nInputs int) error {
+func (c CacheSelectionParams) Validate(nInputs int) error {
 	if c.TreeID != nil && (c.TreeID.Sign() < 0 || c.TreeID.BitLen() > 16) {
 		return fmt.Errorf("spp: cacheTreeId must fit a u16")
 	}

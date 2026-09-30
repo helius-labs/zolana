@@ -15,7 +15,9 @@ import (
 	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/custom_rings/circuits/deposit"
 	"zolana/prover/custom_rings/circuits/policy"
+	"zolana/prover/prover/backend"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 )
 
 // Keeps each ring statement's decoder and compiled witness shape together.
@@ -27,6 +29,12 @@ type RingCircuit struct {
 
 type Request interface {
 	assignment() (frontend.Circuit, error)
+}
+
+type RingProof struct {
+	System     *common.RingProofSystem
+	Parameters Request
+	Timing     *timing.Trace
 }
 
 type Convert struct {
@@ -144,18 +152,11 @@ func DecodeRequest(circuitType common.CircuitType, payload []byte) (Request, err
 	return nil, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
 }
 
-func Prove(ps *common.RingProofSystem, request Request) (*common.Proof, error) {
-	assignment, err := request.assignment()
+func (request RingProof) Prove() (*common.Proof, error) {
+	ps := request.System
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, request.Parameters.assignment)
 	if err != nil {
 		return nil, err
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("create witness: %w", err)
-	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	if err != nil {
-		return nil, fmt.Errorf("prove: %w", err)
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

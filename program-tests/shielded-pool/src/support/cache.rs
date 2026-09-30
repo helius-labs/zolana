@@ -90,7 +90,7 @@ impl CachedSpendFixture {
             (1..=self.n_inputs).contains(&self.cached_slots),
             "a cached spend draws between one input and all of them from the cache"
         );
-        spawn_workspace_prover();
+        spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
         let payer = rpc.payer.insecure_clone();
         let payer_bytes = payer.pubkey().to_bytes();

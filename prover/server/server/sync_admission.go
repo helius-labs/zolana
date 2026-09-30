@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"zolana/prover/logging"
 )
@@ -32,6 +34,8 @@ const (
 	// Seconds a shed caller is asked to wait. One proof's worth, rounded up: by
 	// then a permit has almost certainly turned over.
 	syncRetryAfterSecs = 1
+	// Seconds a caller waits on keys or indexer projection before retrying.
+	notReadyRetryAfterSecs = 5
 )
 
 // syncAdmission bounds concurrent in-request proving.
@@ -71,22 +75,40 @@ func syncPermits() int {
 	return getMaxConcurrency()
 }
 
+// reservation counts a caller toward the wait bound from before indexer resolution.
+type reservation struct {
+	admission *syncAdmission
+	leave     func()
+}
+
+func (a *syncAdmission) reserve() (*reservation, *Error) {
+	if waiting := a.waiting.Add(1); waiting > a.maxWait {
+		a.waiting.Add(-1)
+		SyncProofsShedTotal.Inc()
+		SyncAdmissionWait.WithLabelValues("rejected").Observe(0)
+		return nil, overloadedError()
+	}
+	return &reservation{admission: a, leave: sync.OnceFunc(func() { a.waiting.Add(-1) })}, nil
+}
+
+func (r *reservation) cancel() { r.leave() }
+
 // admit takes a permit, waiting until ctx expires. The returned release must be
 // called exactly once, when the proof is done rather than when the handler
 // returns: a handler that gives up on its deadline leaves the proof running, and
 // releasing early would admit work the CPU is still busy with.
 //
 // The error is nil iff a permit was taken.
-func (a *syncAdmission) admit(ctx context.Context) (func(), *Error) {
-	if waiting := a.waiting.Add(1); waiting > a.maxWait {
-		a.waiting.Add(-1)
-		SyncProofsShedTotal.Inc()
-		return nil, overloadedError()
-	}
-	defer a.waiting.Add(-1)
+func (r *reservation) admit(ctx context.Context) (func(), *Error) {
+	start := time.Now()
+	outcome := "rejected"
+	defer func() { SyncAdmissionWait.WithLabelValues(outcome).Observe(time.Since(start).Seconds()) }()
+	defer r.cancel()
+	a := r.admission
 
 	select {
 	case a.permits <- struct{}{}:
+		outcome = "admitted"
 		var once atomic.Bool
 		return func() {
 			// Guard the release so a double call cannot hand out a permit that
@@ -101,18 +123,12 @@ func (a *syncAdmission) admit(ctx context.Context) (func(), *Error) {
 	}
 }
 
+// Retry-After keeps a shed caller from guessing into a retry storm.
 func overloadedError() *Error {
 	return &Error{
 		StatusCode: http.StatusTooManyRequests,
 		Code:       "prover_busy",
 		Message:    "Prover is at its concurrency limit; retry shortly or submit with X-Async: true",
+		RetryAfter: syncRetryAfterSecs,
 	}
-}
-
-// sendWithRetryAfter sheds a caller, telling it when to come back. Without the
-// header a client is left to guess, and guessing wrong is what turns a shed
-// request into a retry storm.
-func sendOverloaded(w http.ResponseWriter, e *Error) {
-	w.Header().Set("Retry-After", strconv.Itoa(syncRetryAfterSecs))
-	e.send(w)
 }

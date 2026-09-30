@@ -12,7 +12,7 @@ import (
 func TestAdmitBoundsConcurrency(t *testing.T) {
 	a := newSyncAdmission(1)
 
-	release, err := a.admit(context.Background())
+	release, err := admit(a, context.Background())
 	if err != nil {
 		t.Fatalf("first admit: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestAdmitBoundsConcurrency(t *testing.T) {
 	// A waiter with a deadline it cannot meet is shed rather than admitted.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, err := a.admit(ctx); err == nil {
+	if _, err := admit(a, ctx); err == nil {
 		t.Fatal("expected the second proof to be refused while the permit is held")
 	} else if err.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("expected 429, got %d", err.StatusCode)
@@ -29,7 +29,7 @@ func TestAdmitBoundsConcurrency(t *testing.T) {
 	release()
 
 	// And the permit is reusable once the first proof is done.
-	release2, err := a.admit(context.Background())
+	release2, err := admit(a, context.Background())
 	if err != nil {
 		t.Fatalf("admit after release: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestAdmitBoundsConcurrency(t *testing.T) {
 // mode that makes clients retry for no reason.
 func TestAdmitWaitsForAReleasedPermit(t *testing.T) {
 	a := newSyncAdmission(1)
-	release, err := a.admit(context.Background())
+	release, err := admit(a, context.Background())
 	if err != nil {
 		t.Fatalf("first admit: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestAdmitWaitsForAReleasedPermit(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	second, err := a.admit(ctx)
+	second, err := admit(a, ctx)
 	if err != nil {
 		t.Fatalf("expected to wait for the permit, got %v", err)
 	}
@@ -65,7 +65,7 @@ func TestAdmitShedsBeyondTheWaitBound(t *testing.T) {
 	permits := 1
 	a := newSyncAdmission(permits)
 
-	held, err := a.admit(context.Background())
+	held, err := admit(a, context.Background())
 	if err != nil {
 		t.Fatalf("first admit: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestAdmitShedsBeyondTheWaitBound(t *testing.T) {
 				<-blocked
 				cancel()
 			}()
-			if release, err := a.admit(ctx); err == nil {
+			if release, err := admit(a, ctx); err == nil {
 				release()
 			}
 		}()
@@ -101,7 +101,7 @@ func TestAdmitShedsBeyondTheWaitBound(t *testing.T) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := a.admit(ctx); err == nil {
+	if _, err := admit(a, ctx); err == nil {
 		t.Fatal("expected the overflow caller to be shed")
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
@@ -113,14 +113,14 @@ func TestAdmitShedsBeyondTheWaitBound(t *testing.T) {
 // silently stops bounding.
 func TestReleaseIsIdempotent(t *testing.T) {
 	a := newSyncAdmission(1)
-	release, err := a.admit(context.Background())
+	release, err := admit(a, context.Background())
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}
 	release()
 	release()
 
-	first, err := a.admit(context.Background())
+	first, err := admit(a, context.Background())
 	if err != nil {
 		t.Fatalf("admit after double release: %v", err)
 	}
@@ -128,7 +128,15 @@ func TestReleaseIsIdempotent(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, err := a.admit(ctx); err == nil {
+	if _, err := admit(a, ctx); err == nil {
 		t.Fatal("a double release handed out a second permit")
 	}
+}
+
+func admit(a *syncAdmission, ctx context.Context) (func(), *Error) {
+	reserved, err := a.reserve()
+	if err != nil {
+		return nil, err
+	}
+	return reserved.admit(ctx)
 }

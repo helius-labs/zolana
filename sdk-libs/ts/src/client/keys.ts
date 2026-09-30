@@ -10,10 +10,18 @@ import {
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
-import { bytesField, hasProofMethods, poseidon } from "./internal.js";
-import type { ProofAuthority, ProofService, WalletKeys } from "./ports.js";
+import { bytesField, hasIndexedMethod, hasProofMethods, poseidon } from "./internal.js";
+import type {
+  ProofAuthority,
+  ProofService,
+  WalletKeys,
+  IndexedProofInputs,
+  IndexedProofResult,
+  PreparedTransferInput,
+} from "./ports.js";
+import { decodeIndexedInputs } from "./prover/indexed.js";
 import { asField } from "./prover/assembly.js";
-import type { Field, MergeInputs, ProverInputs, TransferInput } from "./prover/types.js";
+import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
 
 /**
  * A wallet's privacy roles held in-process. Answers `ShieldedKeys` from the
@@ -90,6 +98,15 @@ export class LocalKeys implements WalletKeys {
     return this.#proofs.proveMerge(complete, context);
   }
 
+  proveIndexed(request: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult> {
+    return proveIndexedWith(
+      this.#proofs,
+      request,
+      (use) => this.#keys.withNullifierKey(use),
+      context,
+    );
+  }
+
   destroy(): void {
     this.#keys.destroy();
   }
@@ -115,6 +132,10 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
 
   proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#proofs.proveMerge(completeMergeInputs(inputs, this.#key), context);
+  }
+
+  proveIndexed(request: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult> {
+    return proveIndexedWith(this.#proofs, request, (use) => use(this.#key), context);
   }
 
   destroy(): void {
@@ -143,7 +164,7 @@ function completeMergeInputs(inputs: MergeInputs, key: NullifierKey): MergeInput
 }
 
 /** Fills the secret on this wallet's own real inputs; everything else passes through untouched. */
-function completeInput(input: TransferInput, key: NullifierKey): TransferInput {
+function completeInput<T extends PreparedTransferInput>(input: T, key: NullifierKey): T {
   const nullifierPublicKey = bytesField(key.publicKey(), "nullifier public key");
   if (
     input.nullifierSecret !== undefined ||
@@ -169,4 +190,40 @@ function checkProofService(proofs: ProofService): ProofService {
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
   }
   return proofs;
+}
+
+/** The caller's request is decoded before the nullifier secret joins it. */
+async function proveIndexedWith(
+  proofs: ProofService,
+  request: IndexedProofInputs,
+  withKey: (use: (key: NullifierKey) => IndexedProofInputs) => IndexedProofInputs,
+  context: RequestContext | undefined,
+): Promise<IndexedProofResult> {
+  const service: unknown = proofs;
+  if (!hasIndexedMethod(service)) {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
+  }
+  const inputs = decodeIndexedInputs(request);
+  return service.proveIndexed(
+    withKey((key) => completeIndexedInputs(inputs, key)),
+    context,
+  );
+}
+
+function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): IndexedProofInputs {
+  if (inputs.circuit === "merge") {
+    if (inputs.payload.userNullifierSecret !== undefined) return inputs;
+    if (
+      bytesField(key.publicKey(), "nullifier public key") !== inputs.payload.userNullifierPublicKey
+    )
+      throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
+    return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
+  }
+  return {
+    ...inputs,
+    payload: {
+      ...inputs.payload,
+      inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
+    },
+  };
 }

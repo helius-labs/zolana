@@ -101,6 +101,7 @@ export function privateTransactionClient(
   overrides: Partial<PrivateTransactionClient> = {},
 ): PrivateTransactionClient {
   return {
+    proofDataSource: "client",
     getAccount: async () => undefined,
     assembleAuthorizedPrivateTransaction: notImplemented("assembleAuthorizedPrivateTransaction"),
     ...overrides,
@@ -111,6 +112,7 @@ export function ringTransferClient(
   overrides: Partial<RingTransferClient> = {},
 ): RingTransferClient {
   return {
+    proofDataSource: "client",
     tree: TREE,
     treeId: TREE_ID,
     getLatestBlockhash: async () => BLOCKHASH,
