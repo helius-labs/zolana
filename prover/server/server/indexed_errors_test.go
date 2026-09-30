@@ -178,3 +178,49 @@ func TestPanickingProofRequestCountsAsFailure(t *testing.T) {
 		}
 	}
 }
+
+func failingPhoton(t *testing.T) *indexed.Resolver {
+	t.Helper()
+	photon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(photon.Close)
+	resolver, err := indexed.NewResolver(indexed.Config{URL: photon.URL, Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolver
+}
+
+// A client told indexer_unavailable cannot see why, so the log line has to
+// carry the resolver's error, next to the job on the queue path.
+func TestIndexerUnavailableLogsCause(t *testing.T) {
+	const cause = "indexer response status 500"
+
+	t.Run("queue", func(t *testing.T) {
+		_, rq := newTestQueue(t)
+		logs := captureLogs(t)
+
+		runOneJob(t, rq, "zk_transfer_queue", WorkerConfig{Indexer: failingPhoton(t)}, &ProofJob{ID: "job-1", Indexed: true, Payload: indexedTransferRequest(t)})
+
+		assertCauseLoggedOnceWithJob(t, logs, cause, "job-1")
+		assertClientSees(t, rq, "job-1", errIndexedProof.Error(), "indexer_unavailable")
+	})
+
+	t.Run("sync", func(t *testing.T) {
+		logs := captureLogs(t)
+		readiness := NewReadiness()
+		readiness.MarkReady()
+		handler := proveHandler{readiness: readiness, indexer: failingPhoton(t), indexed: true, transferExecution: &Execution{admission: newSyncAdmission(1)}}
+
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/prove/indexed", bytes.NewReader(indexedTransferRequest(t))))
+
+		if body := decodeError(t, response); response.Code != http.StatusBadGateway || body["code"] != "indexer_unavailable" || bytes.Contains(response.Body.Bytes(), []byte(cause)) {
+			t.Errorf("client sees %d %v", response.Code, body)
+		}
+		if logged := len(logLinesMentioning(t, logs, cause)); logged != 1 {
+			t.Errorf("cause logged %d times, want 1:\n%s", logged, logs.String())
+		}
+	})
+}

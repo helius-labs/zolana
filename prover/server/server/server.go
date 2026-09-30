@@ -883,6 +883,14 @@ func indexedFailure(err error) *Error {
 	return &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable", cause: err}
 }
 
+// indexerUnavailable reports whether an indexed failure withholds its cause,
+// which the caller then logs. A not-ready or unregistered-member failure tells
+// the client everything the prover knows. The resolver's errors are fixed
+// strings that carry no credentials or request data, so the log may hold them.
+func indexerUnavailable(failure *Error) bool {
+	return failure.Code == "indexer_unavailable"
+}
+
 func malformedBodyError(err error) *Error {
 	return &Error{StatusCode: http.StatusBadRequest, Code: "malformed_body", Message: err.Error()}
 }
@@ -893,6 +901,24 @@ func provingError(err error) *Error {
 
 func unexpectedError(err error) *Error {
 	return &Error{StatusCode: http.StatusInternalServerError, Code: "unexpected_error", Message: err.Error()}
+}
+
+// withCause keeps the cause behind a redacted failure. The cause never reaches
+// the response body or a stored failure, only the server log.
+func withCause(failure *Error, cause error) *Error {
+	failure.cause = cause
+	return failure
+}
+
+// loggedCause is the error a log line records for a failure: the innermost
+// cause a redacted failure withholds, or the failure itself when nothing was
+// withheld.
+func loggedCause(err error) error {
+	var failure *Error
+	for errors.As(err, &failure) && failure.cause != nil {
+		err = failure.cause
+	}
+	return err
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
@@ -1171,6 +1197,12 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			if ctx.Err() != nil && !errors.Is(err, indexed.ErrIndexerNotReady) {
 				failure = &Error{StatusCode: http.StatusRequestTimeout, Code: "proof_timeout", Message: "Proof request expired"}
 			}
+			if indexerUnavailable(failure) {
+				logging.Logger().Error().
+					Err(err).
+					Str("circuit_type", string(meta.CircuitType)).
+					Msg("Indexer proof data unavailable")
+			}
 			failure.send(w)
 			return
 		}
@@ -1200,17 +1232,10 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		// Recover from panics to prevent server crash from malformed input
 		defer func() {
 			if r := recover(); r != nil {
-				if handler.indexed {
-					r = errIndexedProof
-				}
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
-				logging.Logger().Error().
-					Interface("panic", r).
-					Str("circuit_type", string(meta.CircuitType)).
-					Msg("Panic recovered in proof processing")
 				resultChan <- proofResult{
 					proof: nil,
-					err:   unexpectedError(fmt.Errorf("internal error during proof processing: %v", r)),
+					err:   handler.syncPanicFailure(meta.CircuitType, r),
 				}
 			}
 		}()
@@ -1223,9 +1248,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		}
 
 		if proofError != nil {
-			if handler.indexed {
-				proofError = provingError(errIndexedProof)
-			}
+			proofError = handler.syncProofFailure(meta.CircuitType, proofError)
 			timer.ObserveError(proofError.Code)
 			RecordJobComplete(false)
 		} else {
@@ -1279,6 +1302,42 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			Int("timeout_seconds", int(timeoutDuration.Seconds())).
 			Msg("Synchronous proof timed out")
 	}
+}
+
+// syncProofFailure is the error a sync client receives for a failed proof. An
+// indexed or custom-ring client reads only the redacted message, as on the
+// queue path (a custom-ring failure arrives already redacted by
+// customRingFailure), so the cause it withholds is logged here, the one place
+// it survives. A failure that withholds nothing reaches the client whole and
+// is not logged.
+func (handler proveHandler) syncProofFailure(circuit common.CircuitType, failure *Error) *Error {
+	if handler.indexed {
+		failure = withCause(provingError(errIndexedProof), failure)
+	}
+	if failure.cause != nil {
+		logging.Logger().Error().
+			Err(loggedCause(failure)).
+			Str("circuit_type", string(circuit)).
+			Msg("Synchronous proof failed")
+	}
+	return failure
+}
+
+// syncPanicFailure logs a recovered panic unredacted and returns the error a
+// sync client receives, which for an indexed or custom-ring proof names no
+// cause.
+func (handler proveHandler) syncPanicFailure(circuit common.CircuitType, recovered interface{}) *Error {
+	logging.Logger().Error().
+		Interface("panic", recovered).
+		Str("circuit_type", string(circuit)).
+		Msg("Panic recovered in proof processing")
+	switch {
+	case handler.indexed:
+		recovered = errIndexedProof
+	case circuit.IsRing():
+		recovered = errCustomRingProof
+	}
+	return unexpectedError(fmt.Errorf("internal error during proof processing: %v", recovered))
 }
 
 func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) bool {

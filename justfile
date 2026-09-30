@@ -1601,16 +1601,16 @@ prover-server-test:
         exit 1
     fi
     cd prover/server
-    # Runs every package except the redis-dependent `server` package:
     # ./circuits/... (gnark solve/prove tests), ./prover/..., and
     # ./prover-test/... (reference + integration tests). The circuit and
     # integration tests run real groth16 setup+prove -- TestCircuitProvesFor-
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
-    # The `server` package's handler tests need redis, the queue-routing and
-    # timeout unit tests do not.
-    go test ./server/ -run '^(TestGetQueueNameForCircuit|TestSyncProofTimeout)$'
+    # The whole `server` package, unfiltered, so a new or renamed test cannot
+    # drop out of CI. Its tests bring their own in-process miniredis and need no
+    # Redis server or proving keys.
+    go test ./server/
 
 [private]
 xtask-create-verifying-keys:
