@@ -399,7 +399,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli fetch-cu
     set -euo pipefail
     # A command substitution that exits nonzero is no `set -e` trigger, so the
     # ids are captured first and each one the recipe reads is required.
-    program_ids="$(cargo run -q -p xtask -- program-ids)"
+    program_ids="$(tools/ci/xtask.sh program-ids)"
     eval "$program_ids"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
     : "${USER_REGISTRY_PROGRAM_ID:?xtask did not emit USER_REGISTRY_PROGRAM_ID}"
@@ -1194,7 +1194,7 @@ test-custom-ring-validator filter="all()": fetch-custom-ring-keys build-prover-s
     # `eval "$(...)"` alone cannot fail the recipe: a command substitution that
     # exits nonzero is not a `set -e` trigger, so a broken xtask would leave the
     # program ids unset and the test would silently run against its fallbacks.
-    program_ids=$(cargo run -q -p xtask -- program-ids)
+    program_ids=$(tools/ci/xtask.sh program-ids)
     eval "$program_ids"
     : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
@@ -1219,7 +1219,7 @@ test-custom-ring-repin: (_custom-ring-suite "policy_repin")
 _custom-ring-suite test: fetch-custom-ring-keys build-prover-server build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
-    program_ids=$(cargo run -q -p xtask -- program-ids)
+    program_ids=$(tools/ci/xtask.sh program-ids)
     eval "$program_ids"
     : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
