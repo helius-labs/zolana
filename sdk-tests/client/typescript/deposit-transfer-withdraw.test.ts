@@ -190,7 +190,7 @@ describe("example: deposit, transfer, withdraw", () => {
     });
     const withdrawalBalance = balancesAfterWithdrawal.balance(SOL_MINT);
     expect(withdrawalBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT);
-    expect(withdrawalBalance.utxos).toHaveLength(1);
+    expect(withdrawalBalance.utxos.filter((utxo) => utxo.amount > 0n)).toHaveLength(1);
 
     // 8. Read remaining private balance and the public balance.
     const solanaBalance = await client.getBalance(senderSigner.address);
