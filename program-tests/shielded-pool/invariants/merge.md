@@ -120,10 +120,10 @@ nullifiers.
   - Severity: Critical
   - Suggested test: negative both errors; harness: mollusk unit
 
-- [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus both owner keys**
+- [ ] **INV-MERGE-12: registry public-input shape is the 6-element prefix plus both owner keys**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
   - Kind: state
-  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record.
+  - Statement: the `merge_transact` public-input hash folds the 6-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `external_data_hash`, `allow_dummy_inputs`) followed by `signing_pk_field` and `nullifier_pk` from the registry record in one chain.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
@@ -255,10 +255,10 @@ nullifiers.
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-MERGE-08: ring public-input shape is the 7-element prefix plus ring data and ring id**
+- [ ] **INV-RING-MERGE-08: ring public-input shape is the 6-element prefix plus ring data and ring id**
   - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
   - Kind: state
-  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `output_ring_data_hash` and `ring_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
+  - Statement: the `ring_merge_transact` public-input hash folds the 6-element prefix (as in INV-MERGE-12) followed by `output_ring_data_hash` and `ring_program_id` in one chain; it folds no signing or viewing key field (owner identity is omitted by design).
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`, `Ring` arm)
   - Severity: High
   - Suggested test: property (client-side comparison); harness: `cargo test -p`
@@ -345,7 +345,7 @@ than by entries of their own.
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-MERGE-22: a proof names its cache destination**
-  - Covered by: `program-libs/interface/tests/merge_shape.rs` `cache_mode_address_and_slot_are_bound_by_both_merge_hashes` (both merge tags, every address and slot change moves the external data hash), `sdk-libs/program/tests/cache.rs` `cache_write_binding_commits_to_destination_writes_and_external_data`, `program-tests/shielded-pool/tests/cache/queued.rs` `ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends` (a proven transact redirected to another cache or given other write slots -> 7008, atomically)
+  - Covered by: `program-libs/interface/tests/merge_shape.rs` `cache_mode_address_and_slot_are_bound_by_both_merge_hashes` (both merge tags, every address and slot change moves the external data hash), `sdk-libs/instruction/tests/cache.rs` `cache_write_binding_commits_to_destination_writes_and_external_data`, `program-tests/shielded-pool/tests/cache/queued.rs` `ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends` (a proven transact redirected to another cache or given other write slots -> 7008, atomically)
   - Kind: precondition
   - Statement: the merge rails fold the cache address and slot into `MergeExternalDataHash`, and transact folds the cache address and write bitmap into its external data hash (`bind_cache_write`), so a relayer holding the writer's signature still cannot move a proven output to another cache or slot. A read-only transact binds no destination and keeps its original preimage.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`MergeExternalDataHash`), `program-libs/interface/src/state/cache.rs` (`fn bind_cache_write`), `programs/shielded-pool/src/instructions/transact/cache.rs` (`fn bind_cache_write`)

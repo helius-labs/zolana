@@ -147,7 +147,6 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
         &[change_output_hash, zero, zero],
-        &external_hash,
         &private_tx_blinding,
     )
     .hash()

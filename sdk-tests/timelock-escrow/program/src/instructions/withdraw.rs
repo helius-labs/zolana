@@ -1,58 +1,28 @@
 use light_program_profiler::profile;
 use pinocchio::{
-    error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::solana_owner_identity;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+use zolana_program::CompressedProof;
 
 use crate::{
     error::TimelockEscrowError,
-    instructions::{
-        shared::{check_after_window, cpi_spp_transact_signed, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof},
-    },
+    instructions::shared::{check_after_window, EscrowAuthority, IxData},
+    zk::{withdraw, Groth16Proof},
 };
 
+pub mod slot {
+    pub const ESCROW: usize = 0;
+    pub const SOURCE_OUTPUT: usize = 0;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct WithdrawProof {
-    pub proof_a: [u8; 32],
-    pub proof_b: [u8; 64],
-    pub proof_c: [u8; 32],
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct WithdrawIxData {
-    pub proof: WithdrawProof,
-    /// The committed escrow `unlock` timestamp the withdraw proof reveals as a
-    /// public input. Separate from `transact.expiry_unix_ts` (the SPP relayer
-    /// deadline): withdraw requires `now > unlock`, which is necessarily in the
-    /// past, whereas SPP rejects a `transact` whose `expiry_unix_ts` is in the
-    /// past. The escrow's committed terms hash includes `unlock`; the proof
-    /// recomputes it.
+pub struct WithdrawArgs {
+    pub proof: CompressedProof,
     pub unlock_timestamp: u64,
-    pub transact: TransactIxData,
-}
-
-pub struct WithdrawPublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    pub unlock: u64,
-    pub owner_pk_field: &'a [u8; 32],
-}
-
-impl WithdrawPublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            u64_right_align(self.unlock).as_slice(),
-            self.owner_pk_field.as_slice(),
-        ])
-        .map_err(|_| TimelockEscrowError::HashingFailed.into())
-    }
 }
 
 #[inline(never)]
@@ -60,43 +30,36 @@ impl WithdrawPublicInput<'_> {
 pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("caller")?;
-    // The creator signs the withdraw; the withdraw proof recomputes the
-    // escrow's committed owner_hash from this pubkey (owner_pk_field), so only
-    // the creator can withdraw and the creator knows the refund blinding it
-    // chose. The identity is tagged as a Solana key, like the owner hash the
-    // escrow terms commit.
-    let owner_pk_field = solana_owner_identity(iter.next_signer("creator")?.address().as_array())
-        .map_err(TimelockEscrowError::from)?;
+    let creator = *iter.next_signer("creator")?.address();
+    let creator_identity =
+        solana_owner_identity(creator.as_array()).map_err(TimelockEscrowError::from)?;
 
-    let WithdrawIxData {
-        proof,
-        unlock_timestamp,
+    let IxData {
+        args: WithdrawArgs {
+            proof,
+            unlock_timestamp,
+        },
+        private_tx_hash,
         transact,
-    } = wincode::deserialize_exact(data)
-        .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
+    } = IxData::<WithdrawArgs>::parse(data)?;
 
     let clock = Clock::get()?;
     check_after_window(clock.unix_timestamp, unlock_timestamp)?;
 
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
+    withdraw::verify(
+        &Groth16Proof {
+            a: &proof.a,
+            b: &proof.b,
+            c: &proof.c,
         },
-        WithdrawPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
+        &withdraw::PublicInputs {
             unlock: unlock_timestamp,
-            owner_pk_field: &owner_pk_field,
-        }
-        .hash()?,
-        &crate::verifying_keys::withdraw::VERIFYINGKEY,
-    )?;
+            creator_identity,
+        },
+        private_tx_hash,
+    )
+    .map_err(TimelockEscrowError::from)?;
 
-    let transact_bytes = transact
-        .serialize()
-        .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact_signed(spp_accounts, &transact_bytes)
+    EscrowAuthority::find(&creator).invoke_transact(spp_accounts, transact)
 }

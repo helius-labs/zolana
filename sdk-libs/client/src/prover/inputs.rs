@@ -94,7 +94,6 @@ pub struct MergeInputs {
     pub user_nullifier_pk: BigUint,
     pub user_nullifier_secret: BigUint,
     pub external_data_hash: BigUint,
-    pub private_tx_hash: BigUint,
     /// Merges always legitimately pad with dummy slots, so the dummy-input
     /// guard is `1` here.
     pub allow_dummy_inputs: BigUint,

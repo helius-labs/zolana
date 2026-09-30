@@ -1,0 +1,146 @@
+error[E0080]: evaluation panicked: a Uint holds between 1 and 253 bits
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::circuit::Uint::<0>::VALID` failed here
+  |
+ ::: $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  |       const VALID: () = assert!(
+  |  _______________________-
+  | |         BITS >= 1 && BITS <= MAX_BITS,
+  | |         "a Uint holds between 1 and 253 bits"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  |         let () = Self::VALID;
+  |                  ^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Uint::<0>::zero`
+ --> tests/ui/widths/fail/uint_widths.rs:4:17
+  |
+4 |     let empty = Uint::<0>::zero();
+  |                 ^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: a sum of two Uint<BITS> needs more than BITS and at most 253 bits
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::circuit::Uint::<64>::add::<64>::{constant#0}` failed here
+  |
+ ::: $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  | /             assert!(
+  | |                 OUT > BITS && OUT <= MAX_BITS,
+  | |                 "a sum of two Uint<BITS> needs more than BITS and at most 253 bits"
+  | |             )
+  | |_____________- in this macro invocation
+
+note: erroneous constant encountered
+ --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  | /         const {
+  | |             assert!(
+  | |                 OUT > BITS && OUT <= MAX_BITS,
+  | |                 "a sum of two Uint<BITS> needs more than BITS and at most 253 bits"
+  | |             )
+  | |         };
+  | |_________^
+
+note: the above error was encountered while instantiating `fn Uint::<64>::add::<64>`
+ --> tests/ui/widths/fail/uint_widths.rs:6:19
+  |
+6 |     let wrapped = amount.add::<64>(&amount);
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: a product of two Uint<BITS> needs at least 2 * BITS and at most 253 bits
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::circuit::Uint::<64>::mul::<100>::{constant#0}` failed here
+  |
+ ::: $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  | /             assert!(
+  | |                 OUT >= 2 * BITS && OUT <= MAX_BITS,
+  | |                 "a product of two Uint<BITS> needs at least 2 * BITS and at most 253 bits"
+  | |             )
+  | |_____________- in this macro invocation
+
+note: erroneous constant encountered
+ --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  | /         const {
+  | |             assert!(
+  | |                 OUT >= 2 * BITS && OUT <= MAX_BITS,
+  | |                 "a product of two Uint<BITS> needs at least 2 * BITS and at most 253 bits"
+  | |             )
+  | |         };
+  | |_________^
+
+note: the above error was encountered while instantiating `fn Uint::<64>::mul::<100>`
+ --> tests/ui/widths/fail/uint_widths.rs:7:21
+  |
+7 |     let truncated = amount.mul::<100>(&amount);
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: checked_mul multiplies values of at most 126 bits
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::circuit::Uint::<128>::checked_mul::{constant#0}` failed here
+  |
+ ::: $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  | /             assert!(
+  | |                 2 * BITS <= MAX_BITS,
+  | |                 "checked_mul multiplies values of at most 126 bits"
+  | |             )
+  | |_____________- in this macro invocation
+
+note: erroneous constant encountered
+ --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  | /         const {
+  | |             assert!(
+  | |                 2 * BITS <= MAX_BITS,
+  | |                 "checked_mul multiplies values of at most 126 bits"
+  | |             )
+  | |         };
+  | |_________^
+
+note: the above error was encountered while instantiating `fn Uint::<128>::checked_mul`
+ --> tests/ui/widths/fail/uint_widths.rs:8:19
+  |
+8 |     let squared = U128::zero().checked_mul(&U128::zero(), "fits in 128 bits");
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: subtraction and comparison work on at most 252 bits
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::circuit::Uint::<253>::ORDERED` failed here
+  |
+ ::: $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  |       const ORDERED: () = assert!(
+  |  _________________________-
+  | |         BITS >= 1 && BITS <= MAX_ORDERED_BITS,
+  | |         "subtraction and comparison work on at most 252 bits"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/uint.rs
+  |
+  |         let () = Self::ORDERED;
+  |                  ^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Uint::<253>::is_less_than`
+ --> tests/ui/widths/fail/uint_widths.rs:9:19
+  |
+9 |     let ordered = Uint::<253>::zero().is_less_than(&Uint::<253>::zero());
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

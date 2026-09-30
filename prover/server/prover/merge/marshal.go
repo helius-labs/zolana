@@ -44,7 +44,6 @@ type MergeParametersJSON struct {
 	UserNullifierPk     string `json:"userNullifierPk"`
 	UserNullifierSecret string `json:"userNullifierSecret"`
 	ExternalDataHash    string `json:"externalDataHash"`
-	PrivateTxHash       string `json:"privateTxHash"`
 	PublicInputHash     string `json:"publicInputHash"`
 	AllowDummyInputs    string `json:"allowDummyInputs"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
@@ -85,7 +84,6 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		UserNullifierPk:     common.FeHex(p.UserNullifierPk),
 		UserNullifierSecret: common.FeHex(p.UserNullifierSecret),
 		ExternalDataHash:    common.FeHex(p.ExternalDataHash),
-		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
 	}
@@ -154,9 +152,6 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return fmt.Errorf("merge: userNullifierSecret must be non-zero")
 	}
 	if p.ExternalDataHash, err = common.FeFromHex(params.ExternalDataHash); err != nil {
-		return err
-	}
-	if p.PrivateTxHash, err = common.FeFromHex(params.PrivateTxHash); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = common.FeFromHex(params.PublicInputHash); err != nil {

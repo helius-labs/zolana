@@ -1008,7 +1008,6 @@ pub fn build_spl_withdrawal(
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
         &[change_output_hash, zero, zero],
-        &external_hash,
         &private_tx_blinding,
     )
     .hash()

@@ -43,7 +43,6 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 		f.public.OutputHash.(*big.Int),
 		spptest.MustTreeSlotsHashChain(t, publicTreeSlots(f.public.TreeSlots)),
 		f.public.OutputTreeID.(*big.Int),
-		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
 		f.userSigningPkHash,

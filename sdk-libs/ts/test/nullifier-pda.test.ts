@@ -228,7 +228,6 @@ describe("nullifier PDA accounts", () => {
       },
       outputUtxoHash: filled(46, 32) as Bytes32,
       eddsaOwner: true,
-      privateTxHash: filled(47, 32) as Bytes32,
       nullifiers,
       utxoTreeRootIndex: 0,
       nullifierTreeRootIndex: 0,

@@ -319,7 +319,6 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.proof.c, 32, "proof.c")
     .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
     .bool(value.eddsaOwner, "eddsaOwner")
-    .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
   writer
@@ -333,7 +332,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, value.cacheSlot === undefined ? 527 : 528);
+  return encoded(value, writeMergeData, value.cacheSlot === undefined ? 495 : 496);
 }
 
 export function mergeExternalDataHash(

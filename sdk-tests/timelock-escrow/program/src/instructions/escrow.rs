@@ -1,55 +1,50 @@
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
-use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+use zolana_hasher::primitives::solana_owner_identity;
+use zolana_program::CompressedProof;
 
 use crate::{
     error::TimelockEscrowError,
-    instructions::{
-        shared::cpi_spp_transact_signed,
-        verifier::{verify_groth16, CompressedGroth16Proof},
-    },
-    verifying_keys::escrow,
+    instructions::shared::{EscrowAuthority, IxData},
+    zk::{escrow, Groth16Proof},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct EscrowProof {
-    pub proof_a: [u8; 32],
-    pub proof_b: [u8; 64],
-    pub proof_c: [u8; 32],
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct EscrowIxData {
-    pub proof: EscrowProof,
-    pub transact: TransactIxData,
+pub mod slot {
+    pub const SOURCE: usize = 0;
+    pub const CHANGE: usize = 0;
+    pub const ESCROW: usize = 1;
 }
 
 #[inline(never)]
 #[profile]
 pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    iter.next_signer_mut("creator")?;
+    let creator = *iter.next_signer("creator")?.address();
+    let creator_identity =
+        solana_owner_identity(creator.as_array()).map_err(TimelockEscrowError::from)?;
+    let escrow_authority = EscrowAuthority::find(&creator);
 
-    let EscrowIxData { proof, transact } = wincode::deserialize_exact(data)
-        .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
+    let IxData {
+        args: proof,
+        private_tx_hash,
+        transact,
+    } = IxData::<CompressedProof>::parse(data)?;
 
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
+    escrow::verify(
+        &Groth16Proof {
+            a: &proof.a,
+            b: &proof.b,
+            c: &proof.c,
         },
-        transact.private_tx_hash,
-        &escrow::VERIFYINGKEY,
-    )?;
-
-    let transact_bytes = transact
-        .serialize()
-        .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
+        &escrow::PublicInputs {
+            escrow_owner: escrow_authority.owner_hash()?,
+            creator_identity,
+        },
+        private_tx_hash,
+    )
+    .map_err(TimelockEscrowError::from)?;
 
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact_signed(spp_accounts, &transact_bytes)
+    escrow_authority.invoke_transact(spp_accounts, transact)
 }

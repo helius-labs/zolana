@@ -1,4 +1,5 @@
 import { p256 } from "@noble/curves/nist.js";
+import { type Address, getAddressEncoder } from "@solana/kit";
 
 import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
 import {
@@ -11,6 +12,17 @@ import { KeypairError, wrapKeypairError } from "./error.js";
 
 export type SignatureType = "p256" | "ed25519" | "pda";
 export type ViewTag = Bytes32;
+
+const addressEncoder = getAddressEncoder();
+
+function pdaBytes(address: Bytes32 | Address): Bytes32 {
+  if (typeof address !== "string") return checkedBytes<Bytes32>(address, 32, "PDA address");
+  try {
+    return checkedBytes<Bytes32>(new Uint8Array(addressEncoder.encode(address)), 32, "PDA address");
+  } catch (error) {
+    throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error, { reason: "pdaAddress" });
+  }
+}
 
 export class P256PublicKey {
   readonly #bytes: Uint8Array;
@@ -91,10 +103,10 @@ export class ShieldedPublicKey {
   }
 
   /** Mirrors Rust `PublicKey::from_pda`. */
-  static fromPda(address: Bytes32): ShieldedPublicKey {
+  static fromPda(address: Bytes32 | Address): ShieldedPublicKey {
     const bytes = new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH);
     bytes[0] = SIGNATURE_TYPE_PDA;
-    bytes.set(checkedBytes<Bytes32>(address, 32, "PDA address"), 1);
+    bytes.set(pdaBytes(address), 1);
     return new ShieldedPublicKey(bytes);
   }
 

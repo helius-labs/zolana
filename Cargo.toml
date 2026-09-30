@@ -16,6 +16,7 @@ members = [
     "programs/user-registry",
     "program-tests/ring-test-program",
     "program-tests/spp-recorder-program",
+    "bench/key-load",
     "bench/tree",
     "cli",
     "custom-rings/cli",
@@ -27,6 +28,9 @@ members = [
     "custom-rings/program",
     "custom-rings/sdk",
     "custom-rings/test",
+    "sdk-libs/program",
+    "sdk-libs/program/tests/wasm/program",
+    "sdk-libs/macros",
     "sdk-libs/client",
     "sdk-libs/gnark-ffi-prover",
     "sdk-libs/gnark-ffi-prover/build-helper",
@@ -34,7 +38,7 @@ members = [
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
-    "sdk-libs/program",
+    "sdk-libs/instruction",
     "sdk-libs/smart-account-client",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
@@ -44,6 +48,7 @@ members = [
     "services/ring-rpc",
     "sdk-tests/client/rust",
     "sdk-tests/compression/program",
+    "sdk-tests/compression/prover",
     "sdk-tests/compression/sdk",
     "sdk-tests/compression/test",
     "sdk-tests/dynamic-swap/program",
@@ -56,9 +61,6 @@ members = [
     "sdk-tests/zk-program-swap/sdk",
     "sdk-tests/zk-program-swap/test",
     "sdk-tests/timelock-escrow/program",
-    "sdk-tests/timelock-escrow/prover",
-    "sdk-tests/timelock-escrow/sdk",
-    "sdk-tests/timelock-escrow/test",
     "xtask",
 ]
 default-members = [
@@ -91,6 +93,7 @@ zolana-ring-policy = { path = "custom-rings/policy", version = "0.1.0" }
 zolana-ring-indexer = { path = "custom-rings/indexer", version = "0.1.0" }
 zolana-ring-key-registry = { path = "custom-rings/key-registry", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
+zolana-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
@@ -265,6 +268,14 @@ yellowstone-grpc-proto = "12.5.0"
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-native-roots"] }
 tokio-stream = "0.1.18"
 zerocopy = "0.8.25"
+
+# Browser (wasm) bindings.
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6.5"
+serde_bytes = "0.11.19"
+tsify = { version = "0.5.8", default-features = false, features = ["js"] }
+wasm-bindgen = "0.2.104"
 
 # Prover math/crypto.
 ark-bn254 = "0.5"

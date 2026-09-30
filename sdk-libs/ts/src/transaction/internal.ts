@@ -114,6 +114,21 @@ export function hashChain(values: readonly Bytes32[]): Bytes32 {
 }
 
 /**
+ * Folds `Poseidon(h, v)` over the nonzero entries in order. Zero entries are
+ * skipped, so padding position does not matter, the first nonzero entry is
+ * taken as is, and no nonzero entry gives zero. Mirrors Rust
+ * `create_nonzero_hash_chain_from_slice`.
+ */
+export function nonZeroHashChain(values: readonly Bytes32[]): Bytes32 {
+  let hash = copy(ZERO_32);
+  for (const value of values) {
+    if (value.every((byte) => byte === 0)) continue;
+    hash = hash.every((byte) => byte === 0) ? copy(value) : poseidon([hash, value]);
+  }
+  return hash;
+}
+
+/**
  * Folds three elements per Poseidon call. The fold carries no length tag, so it
  * is injective only over the fixed-length public-input chains of one circuit.
  */

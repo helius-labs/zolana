@@ -231,9 +231,11 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         tx_signature: indexed.tx_signature,
         slot_index: 0,
         nullifier: expected_nullifier,
+        tx_viewing_key: None,
         data_hash: None,
         ring_data_hash: None,
         tree_id,
+        latest_tree_id: None,
     };
     assert_eq!(*recovered, expected);
 

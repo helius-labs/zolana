@@ -37,7 +37,7 @@ func constrainInput(
 	ctx mergeInputContext,
 	tree transaction.TreeSlot,
 	slotIndex int,
-) (frontend.Variable, frontend.Variable) {
+) frontend.Variable {
 	isDummy := api.IsZero(api.Sub(in.Domain, DummyDomain))
 	isUtxo := api.IsZero(api.Sub(in.Domain, UtxoDomain))
 	api.AssertIsEqual(api.Add(isUtxo, isDummy), 1)
@@ -100,7 +100,7 @@ func constrainInput(
 		Hi:  in.NullifierNextValue,
 	})
 
-	return api.Select(isDummy, frontend.Variable(0), utxoHash), nullifier
+	return nullifier
 }
 
 // assertEqualWhen constrains a == b only when cond == 1.

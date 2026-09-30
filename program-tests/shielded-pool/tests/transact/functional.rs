@@ -224,7 +224,6 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let private_tx = PrivateTxHash::new(
         &private_input_hashes,
         &private_output_hashes,
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -483,7 +482,6 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let private_tx = PrivateTxHash::new(
         &private_input_hashes,
         &private_output_hashes,
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -1681,9 +1679,10 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// Build a 2x3 spend from two trees. The first input is a funded deposit;
-/// `second_input_amount` funds a real deposit in the second tree when present,
-/// otherwise that tree supplies a dummy input. Return the instruction and the
+/// Build a 3x3 spend whose inputs interleave two trees as `[0, 1, 0]`. The first
+/// input is a funded deposit; `second_input_amount` funds a real deposit in the
+/// second tree when present, otherwise that tree supplies a dummy input; the
+/// third input is a dummy from the first tree. Return the instruction and the
 /// expected output-tree root after appending the proven outputs.
 fn build_two_tree_transact_ix(
     env: &mut Pool,
@@ -1713,13 +1712,23 @@ fn build_two_tree_transact_ix(
     let mut input_hashes = Vec::new();
     let mut nullifiers = Vec::new();
     let mut prover_input_list = Vec::new();
-    let input_trees = [
-        (env.tree, Some(first_input_amount)),
-        (second_tree, second_input_amount),
+    let trees = [env.tree, second_tree];
+    let tree_ids = trees.map(|tree| {
+        read_tree_id(&env.rpc.account_data(&tree).expect("input tree account"))
+            .expect("input tree id")
+    });
+    let inputs = [
+        (0u8, Some(first_input_amount), [2u8; 31]),
+        (1, second_input_amount, [2u8; 31]),
+        (0, None, [3u8; 31]),
     ];
-    for (slot_index, (slot, (tree, amount))) in tree_slots.iter_mut().zip(input_trees).enumerate() {
-        let input_tree_id = read_tree_id(&env.rpc.account_data(&tree).expect("input tree account"))
-            .expect("input tree id");
+    for (tree_index, amount, dummy_blinding) in inputs {
+        let tree = *trees
+            .get(usize::from(tree_index))
+            .expect("declared input tree");
+        let input_tree_id = *tree_ids
+            .get(usize::from(tree_index))
+            .expect("declared input tree id");
         let (mut input, nullifier, input_hash) = if let Some(amount) = amount {
             assert!(amount > 0, "real inputs must carry funds");
             let deposit = env
@@ -1767,17 +1776,20 @@ fn build_two_tree_transact_ix(
             (input, nullifier, hash)
         } else {
             let (input, nullifier) =
-                dummy_input(&[2u8; 31], &nf_tree, input_tree_id).expect("dummy input");
+                dummy_input(&dummy_blinding, &nf_tree, input_tree_id).expect("dummy input");
             (input, nullifier, zero)
         };
-        let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
-        assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-        *slot = TreeSlot::new(input_tree_id, utxo_root, nullifier_root);
-        input.tree_slot = BigUint::from(slot_index);
-        root_indexes.push((utxo_root_index, 0));
+        input.tree_slot = BigUint::from(tree_index);
         input_hashes.push(input_hash);
         nullifiers.push(nullifier);
         prover_input_list.push(input);
+    }
+    for (slot, (tree, input_tree_id)) in tree_slots.iter_mut().zip(trees.into_iter().zip(tree_ids))
+    {
+        let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
+        assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+        *slot = TreeSlot::new(input_tree_id, utxo_root, nullifier_root);
+        root_indexes.push((utxo_root_index, 0));
     }
     assert_ne!(tree_slots[0].id, tree_slots[1].id, "distinct input trees");
     let nullifier = *nullifiers.first().expect("first input nullifier");
@@ -1813,10 +1825,8 @@ fn build_two_tree_transact_ix(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .enumerate()
-            .map(|(index, hash)| {
-                input_utxo_in_tree(*hash, u8::try_from(index).expect("tree index"))
-            })
+            .zip(inputs)
+            .map(|(hash, (tree_index, _, _))| input_utxo_in_tree(*hash, tree_index))
             .collect(),
         root_indexes.first().expect("first root indexes").0,
         Vec::new(),
@@ -1841,14 +1851,15 @@ fn build_two_tree_transact_ix(
     let private_tx = PrivateTxHash::new(
         &input_hashes,
         &[change_output_hash, zero, zero],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
 
-    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
-    let signer_hashes = vec![payer_hash, zero, zero];
+    let mut signer_hashes = vec![zero; Shape::new(nullifiers.len(), n_outputs).signer_width()];
+    if let Some(first) = signer_hashes.first_mut() {
+        *first = solana_owner_identity(&payer_bytes).expect("payer identity");
+    }
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let input_flags = transact_input_flags(&prover_input_list);
     let public_input_hash = PublicInputs {
@@ -1912,10 +1923,11 @@ fn build_two_tree_transact_ix(
     (transact_ix_data, expected_output_tree.root())
 }
 
-/// One `transact` spending an input from each of two trees: every nullifier PDA
-/// lands under the tree its input names, each tree queues only its own run and
-/// pays its own forester fee, and the event carries one input-tree sequence per
-/// tree so the indexer can rebuild the spend.
+/// One `transact` spending inputs interleaved across two trees: every nullifier
+/// PDA lands under the tree its input names at that tree's first queue sequence
+/// plus its rank among the tree's inputs, each tree queues only its own inputs
+/// and pays its own forester fee, and the event reports the same sequences so
+/// the indexer can rebuild the spend.
 #[test]
 fn transact_spends_two_input_trees_with_a_valid_proof() {
     assert_two_tree_transact(None);
@@ -1968,8 +1980,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         .iter()
         .map(|input| input.nullifier_hash)
         .collect();
-    let [first_nullifier, second_nullifier] = nullifiers.as_slice() else {
-        panic!("the two-tree fixture input_utxos exactly two inputs");
+    let [first_nullifier, second_nullifier, third_nullifier] = nullifiers.as_slice() else {
+        panic!("the two-tree fixture spends exactly three inputs");
     };
 
     let (first_utxo_next_before, first_nullifier_next_before) =
@@ -2022,8 +2034,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
     );
     assert_eq!(
         first_nullifier_next_after,
-        first_nullifier_next_before + 1,
-        "the first tree queues its own input only"
+        first_nullifier_next_before + 2,
+        "the first tree queues its own inputs only"
     );
     assert_eq!(
         second_nullifier_next_after,
@@ -2052,22 +2064,34 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
 
     // Each nullifier PDA is derived under, and paid for by, the tree its input
     // named.
-    assert_nullifier_pda(
-        &env.rpc,
-        &first_tree,
-        first_nullifier,
-        first_nullifier_next_before,
-    )
-    .expect("first tree nullifier PDA");
-    assert_nullifier_pda(
-        &env.rpc,
-        &second_tree,
-        second_nullifier,
-        second_nullifier_next_before,
-    )
-    .expect("second tree nullifier PDA");
-    assert_tree_lamports_after_spend(&env.rpc, &first_tree, &first_tree_before, 1)
-        .expect("first tree funds its nullifier PDA");
+    let expected = vec![
+        (
+            *first_nullifier,
+            first_tree.to_bytes(),
+            first_nullifier_next_before,
+        ),
+        (
+            *second_nullifier,
+            second_tree.to_bytes(),
+            second_nullifier_next_before,
+        ),
+        (
+            *third_nullifier,
+            first_tree.to_bytes(),
+            first_nullifier_next_before + 1,
+        ),
+    ];
+    for (nullifier, tree, queue_index) in &expected {
+        assert_nullifier_pda(
+            &env.rpc,
+            &Pubkey::new_from_array(*tree),
+            nullifier,
+            *queue_index,
+        )
+        .expect("nullifier PDA under its input's tree at its rank within that tree");
+    }
+    assert_tree_lamports_after_spend(&env.rpc, &first_tree, &first_tree_before, 2)
+        .expect("first tree funds its nullifier PDAs");
     assert_tree_lamports_after_spend(&env.rpc, &second_tree, &second_tree_before, 1)
         .expect("second tree funds its nullifier PDA");
 
@@ -2075,8 +2099,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
     let (_, second_fee_after) = tree_fees(&env.rpc, &second_tree).expect("second tree fees after");
     assert_eq!(
         first_fee_after,
-        first_fee_before + first_fees.fee_per_nullifier,
-        "the first tree collected exactly one nullifier fee"
+        first_fee_before + 2 * first_fees.fee_per_nullifier,
+        "the first tree collected exactly two nullifier fees"
     );
     assert_eq!(
         second_fee_after,
@@ -2084,8 +2108,9 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         "the second tree collected exactly one nullifier fee"
     );
 
-    // The event carries one sequence per input tree, in context order, so the
-    // indexer can attribute every nullifier to the tree that queued it.
+    // The event reports each input's tree and queue sequence, matching its
+    // nullifier PDA, so the indexer can attribute every nullifier to the tree
+    // that queued it.
     let event = match indexed.events.as_slice() {
         [event] => event.decoded.as_ref().expect("decode transact event"),
         events => panic!("expected exactly one transact event, got {events:?}"),
@@ -2098,19 +2123,7 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         .map(|input| (input.nullifier, input.tree, input.input_queue_seq))
         .collect();
     assert_eq!(
-        rebuilt,
-        vec![
-            (
-                *first_nullifier,
-                first_tree.to_bytes(),
-                first_nullifier_next_before
-            ),
-            (
-                *second_nullifier,
-                second_tree.to_bytes(),
-                second_nullifier_next_before
-            ),
-        ],
+        rebuilt, expected,
         "the indexer attributes each nullifier to the tree that queued it"
     );
     assert_eq!(

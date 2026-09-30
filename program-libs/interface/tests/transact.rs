@@ -418,6 +418,18 @@ fn input_tree_contexts_accept_contiguous_runs_up_to_the_program_limit() {
 }
 
 #[test]
+fn input_tree_contexts_accept_interleaved_trees() {
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 1, 0]), &tree_contexts(2)),
+        Ok(())
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[1, 0, 1, 0]), &tree_contexts(2)),
+        Ok(())
+    );
+}
+
+#[test]
 fn input_tree_contexts_reject_every_invalid_grouping() {
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0]), &[]),
@@ -430,10 +442,6 @@ fn input_tree_contexts_reject_every_invalid_grouping() {
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 2]), &tree_contexts(2)),
         Err(ShieldedPoolError::InputTreeIndexOutOfRange)
-    );
-    assert_eq!(
-        validate_input_tree_contexts(&inputs(&[0, 1, 0]), &tree_contexts(2)),
-        Err(ShieldedPoolError::InputsNotGroupedByTree)
     );
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 0]), &tree_contexts(2)),

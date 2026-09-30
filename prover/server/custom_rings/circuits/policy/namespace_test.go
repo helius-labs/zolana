@@ -26,7 +26,7 @@ func TestWindowedPolicyAllowsDummyInputs(t *testing.T) {
 				s.inputs = append(s.inputs, dummyOpening(t, int64(90+len(s.inputs))))
 			}
 			s.inputs = append(s.inputs, record)
-			s.addressChain = spptest.MustHashChain4(t, spptest.RepeatBigInt(big.NewInt(0), count))
+			s.addressChain = spptest.MustNonZeroHashChain(t, spptest.RepeatBigInt(big.NewInt(0), count))
 			if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t, nil), ecc.BN254.ScalarField()); err != nil {
 				t.Fatal(err)
 			}
@@ -38,7 +38,7 @@ func TestPolicyWithoutWindowAllowsAddressClaims(t *testing.T) {
 	f := defaultFixture()
 	f.rulesFree = true
 	s := newStatement(t, f)
-	s.addressChain = spptest.MustHashChain4(t, []*big.Int{big.NewInt(0), big.NewInt(0x1234)})
+	s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0x1234)})
 	if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t, nil), ecc.BN254.ScalarField()); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +70,17 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	assignment, err := spp.NewCustomRingEddsaOnlyCircuit(shape)
 	if err != nil {
 		t.Fatal(err)
+	}
+	cacheHashes := spptest.RepeatBigInt(zero, shape.NInputs)
+	cacheChain, err := protocol.RightHashChain4(cacheHashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment.CachedInputs = shared.CachedInputs{
+		TreeID: zero, ReadHashChain: cacheChain,
+		ReadHashes: spptest.ToVariables(cacheHashes),
+		IsCached:   spptest.ToVariables(cacheHashes),
+		ReadIndex:  spptest.ToVariables(cacheHashes),
 	}
 	nullifiers := make([]*big.Int, len(s.inputs))
 	secrets := []*big.Int{big.NewInt(7), zero, zero}
@@ -127,7 +138,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.addressChain = spptest.MustHashChain4(t, []*big.Int{zero, nullifiers[1], zero})
+	s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{zero, nullifiers[1], zero})
 	s.trees = []hostTree{{stateRoot: root, nullifierRoot: tree.Root()}}
 	s.updateHashes(t)
 	for i, slot := range s.treeSlots(t) {
@@ -153,6 +164,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 		PublicAmounts:  [protocol.NPublicSlots]*big.Int{zero, zero, zero},
 		SignerPkHashes: signers, InputFlags: big.NewInt(1),
 		BindOutputOwnerTags: true, OutputOwnerPkHashes: owners,
+		PreimageTail: []*big.Int{zero, cacheChain},
 	})
 	if err != nil {
 		t.Fatal(err)

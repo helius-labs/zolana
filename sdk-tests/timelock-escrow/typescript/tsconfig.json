@@ -1,0 +1,8 @@
+{
+  "extends": "../../../sdk-libs/ts/tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "noEmit": true
+  },
+  "include": ["**/*.ts"]
+}

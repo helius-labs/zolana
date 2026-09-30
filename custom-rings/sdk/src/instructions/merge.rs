@@ -484,7 +484,6 @@ mod tests {
                 nullifiers: vec![[0; 32]; MERGE_DEFAULT_INPUT_COUNT],
                 utxo_tree_root_index: 0,
                 nullifier_tree_root_index: 0,
-                private_tx_hash: [0; 32],
                 eddsa_owner: false,
             },
         };

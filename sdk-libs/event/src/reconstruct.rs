@@ -230,9 +230,8 @@ fn single_input_tree(
 /// Assign every `transact` input its tree and queue sequence number. An input's
 /// `tree_index` selects the emitted entry, which the program wrote in
 /// `tree_contexts` order; its sequence is that entry's `first_input_queue_seq`
-/// plus the number of earlier inputs on the same tree. The program groups
-/// inputs by tree, so each tree's run is contiguous, but the running counters
-/// do not rely on it.
+/// plus the number of earlier inputs on the same tree. Inputs from different
+/// trees may interleave, so the running counters count per tree.
 fn inputs_from_tree_indexes(
     input_trees: &[InputTreeSequence],
     inputs: &[InputUtxo],

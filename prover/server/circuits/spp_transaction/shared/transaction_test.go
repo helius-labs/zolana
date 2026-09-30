@@ -428,7 +428,6 @@ func buildCircuitAssignmentExact(
 		inputHashes,
 		OutputHashes,
 		noAddressNullifiers(shape.NInputs),
-		externalDataHash,
 		privateTxBlinding,
 	)
 	payerPkHash := testPayerPkHash()
@@ -719,7 +718,6 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		inputHashes,
 		OutputHashes,
 		noAddressNullifiers(len(inputHashes)),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash

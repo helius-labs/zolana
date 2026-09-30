@@ -157,11 +157,8 @@ pub fn validate_interface_transfers(
 
 /// Validate the declared input trees against the inputs that reference them.
 ///
-/// Inputs are grouped by tree: `tree_index` is non-decreasing, so every tree
-/// owns one contiguous run of inputs and the program can queue a run's
-/// nullifiers in a single pass per tree. Combined with the requirement that
-/// every declared context is referenced, the index sequence starts at zero and
-/// grows by at most one, so a gap means a declared tree no input spends from.
+/// Inputs may reference their trees in any order, but every declared context
+/// must be referenced by at least one input.
 pub fn validate_input_tree_contexts(
     inputs: &[InputUtxo],
     tree_contexts: &[TreeContext],
@@ -170,26 +167,14 @@ pub fn validate_input_tree_contexts(
     if context_count == 0 || context_count > MAX_INPUT_TREES {
         return Err(ShieldedPoolError::InvalidTreeContextCount);
     }
-    let mut previous: Option<u8> = None;
+    let mut referenced: u32 = 0;
     for input in inputs {
         if usize::from(input.tree_index) >= context_count {
             return Err(ShieldedPoolError::InputTreeIndexOutOfRange);
         }
-        match previous {
-            Some(previous) if input.tree_index < previous => {
-                return Err(ShieldedPoolError::InputsNotGroupedByTree);
-            }
-            Some(previous) if input.tree_index > previous.saturating_add(1) => {
-                return Err(ShieldedPoolError::UnreferencedTreeContext);
-            }
-            None if input.tree_index != 0 => {
-                return Err(ShieldedPoolError::UnreferencedTreeContext);
-            }
-            _ => {}
-        }
-        previous = Some(input.tree_index);
+        referenced |= 1 << input.tree_index;
     }
-    if previous.map(|index| usize::from(index) + 1) != Some(context_count) {
+    if referenced.count_ones() as usize != context_count {
         return Err(ShieldedPoolError::UnreferencedTreeContext);
     }
     Ok(())

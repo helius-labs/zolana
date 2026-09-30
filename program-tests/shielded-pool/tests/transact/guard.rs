@@ -950,17 +950,19 @@ fn transact_rejects_an_input_tree_index_past_the_declared_contexts() {
 }
 
 #[test]
-fn transact_rejects_inputs_that_are_not_grouped_by_tree() {
+fn transact_interleaving_two_trees_reaches_proof_verification() {
     let mut env = Pool::initialized();
-    // A decreasing index would split a tree's inputs into two runs, which
-    // breaks the consecutive queue numbering the PDAs and the event rely on.
+    let second_tree = env
+        .rpc
+        .create_tree(&env.authority)
+        .expect("create the second input tree");
     let data = multi_tree_ix_data(&[0, 1, 0], 2);
-    let input_trees = vec![env.tree, env.tree];
+    let input_trees = vec![env.tree, second_tree];
     expect_tree_run_rejection(
         &mut env,
         input_trees,
         data,
-        ShieldedPoolError::InputsNotGroupedByTree,
+        ShieldedPoolError::TransactProofVerificationFailed,
     );
 }
 

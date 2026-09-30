@@ -26,7 +26,6 @@ import {
   checkedBytes,
   field,
   hashChain4,
-  poseidon,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import {
@@ -45,7 +44,6 @@ export interface MergeAssembly {
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
-  readonly privateTxHash: Bytes32;
   readonly publicInputHash: Bytes32;
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
   /// re-derive it.
@@ -161,7 +159,6 @@ function assembleMergeUnchecked(
     });
   }
   const inputs: TransferInput[] = [];
-  const inputHashes: bigint[] = [];
   const nullifiers: Bytes32[] = [];
   let inputTree: MergeInputTree | undefined;
   let proofIndex = 0;
@@ -189,7 +186,6 @@ function assembleMergeUnchecked(
       checkNullifierRoot(inputTree, proof, index);
       const converted = createDummyTransferInput(input, proof, nullifier);
       inputs.push(converted);
-      inputHashes.push(0n);
       nullifiers.push(new Uint8Array(nullifier) as Bytes32);
       continue;
     }
@@ -243,7 +239,6 @@ function assembleMergeUnchecked(
         : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
     inputs.push(converted);
-    inputHashes.push(bytesToBigInt(input.hash()));
     nullifiers.push(new Uint8Array(input.nullifier()) as Bytes32);
     proofIndex++;
   }
@@ -261,21 +256,6 @@ function assembleMergeUnchecked(
     outputUtxoHash: outputHash,
     ...(cache === undefined ? {} : { cache }),
   });
-  // Merge has no blinding seed: the owner's nullifier secret takes its place
-  // in the private transaction blinding, so a reader holding the secret
-  // recovers the output without any disclosed value.
-  const firstNullifier = nullifiers[0];
-  if (firstNullifier === undefined) throw new ClientError("CLIENT_NO_INPUTS");
-  const privateTxBlinding = prepared.privateTxBlinding();
-  const privateTxHash = bigintToBytes(
-    poseidon([
-      hashChain4(inputHashes),
-      bytesToBigInt(outputHash),
-      hashChain4(Array.from({ length: MERGE_INPUTS }, () => 0n)),
-      bytesToBigInt(externalDataHash),
-      bytesField(privateTxBlinding, "merge private tx blinding"),
-    ]),
-  ) as Bytes32;
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerProofInputHash(),
@@ -289,7 +269,6 @@ function assembleMergeUnchecked(
       bytesToBigInt(outputHash),
       bytesToBigInt(treeSlotsHashChain(treeSlots)),
       outputTreeIdField,
-      bytesToBigInt(privateTxHash),
       bytesToBigInt(externalDataHash),
       1n,
       ...(prepared.output.ringProgramId === undefined
@@ -310,7 +289,6 @@ function assembleMergeUnchecked(
       bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
     ),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
-    privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
     publicInputHash: asField(bytesToBigInt(publicInputHash)),
     outputRingDataHash: output.circuit.ringDataHash,
@@ -326,7 +304,6 @@ function assembleMergeUnchecked(
       proof: copyMergeProof(proof),
       outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
       eddsaOwner,
-      privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
       nullifiers: Object.freeze(
         nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
       ),
@@ -346,7 +323,6 @@ function assembleMergeUnchecked(
     nullifiers: Object.freeze(nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32)),
     utxoTreeRootIndex,
     nullifierTreeRootIndex,
-    privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
     publicInputHash,
     externalDataHash,
     eddsaOwner,

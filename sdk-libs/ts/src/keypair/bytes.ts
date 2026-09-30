@@ -26,6 +26,30 @@ export function checkedBytes<T extends Uint8Array>(
   return new Uint8Array(bytes) as T;
 }
 
+export function bytes16(bytes: Uint8Array): Bytes16 {
+  return checkedBytes<Bytes16>(bytes, 16, "bytes16");
+}
+
+export function bytes31(bytes: Uint8Array): Bytes31 {
+  return checkedBytes<Bytes31>(bytes, 31, "bytes31");
+}
+
+export function bytes32(bytes: Uint8Array): Bytes32 {
+  return checkedBytes<Bytes32>(bytes, 32, "bytes32");
+}
+
+export function bytes33(bytes: Uint8Array): Bytes33 {
+  return checkedBytes<Bytes33>(bytes, 33, "bytes33");
+}
+
+export function bytes34(bytes: Uint8Array): Bytes34 {
+  return checkedBytes<Bytes34>(bytes, 34, "bytes34");
+}
+
+export function bytes64(bytes: Uint8Array): Bytes64 {
+  return checkedBytes<Bytes64>(bytes, 64, "bytes64");
+}
+
 export function bytesToBigInt(bytes: Uint8Array): bigint {
   let value = 0n;
   for (const byte of bytes) value = (value << 8n) | BigInt(byte);

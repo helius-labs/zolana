@@ -318,34 +318,6 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 
 	externalDataHash := big.NewInt(0xABCDEF)
 
-	// private_tx_hash over the input/output hash chains (dummies contribute 0).
-	inputHashChainInputs := make([]*big.Int, defaultFixtureInputs)
-	for i := 0; i < defaultFixtureInputs; i++ {
-		if i < numReal {
-			inputHashChainInputs[i] = inHashes[i]
-		} else {
-			inputHashChainInputs[i] = big.NewInt(0)
-		}
-	}
-	addressNullifiers := make([]*big.Int, defaultFixtureInputs)
-	for i := range addressNullifiers {
-		addressNullifiers[i] = big.NewInt(0)
-	}
-	privateTxBlinding, err := protocol.PrivateTxBlinding(nullifiers[0], nullifierSecret)
-	if err != nil {
-		t.Fatal(err)
-	}
-	privateTxHash, err := protocol.PrivateTxHash(
-		inputHashChainInputs,
-		[]*big.Int{outHash},
-		addressNullifiers,
-		externalDataHash,
-		privateTxBlinding,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	userSigningPkHash := ownerKeyHash
 	if options.userSigningPkHash != nil {
 		userSigningPkHash = options.userSigningPkHash
@@ -396,7 +368,6 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		outHash,
 		spptest.MustTreeSlotsHashChain(t, treeSlots),
 		outputTreeID,
-		privateTxHash,
 		externalDataHash,
 		allowDummyInputs,
 	}
@@ -421,7 +392,6 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	inputs := mergeshared.NewInputs(defaultFixtureInputs)
 	public := mergeshared.NewCommonPublicInputs(defaultFixtureInputs)
 	public.ExternalDataHash = externalDataHash
-	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID

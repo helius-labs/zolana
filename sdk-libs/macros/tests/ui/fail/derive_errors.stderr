@@ -1,0 +1,23 @@
+error: circuit derives support structs with named fields and unit structs, not tuple structs
+ --> tests/ui/fail/derive_errors.rs:7:14
+  |
+7 | struct Amount(u64);
+  |              ^^^^^
+
+error: circuit derives support structs, not enums
+  --> tests/ui/fail/derive_errors.rs:10:1
+   |
+10 | enum Choice {
+   | ^^^^
+
+error: public inputs hash at most 11 fields, 12 given: Poseidon takes 12 inputs and one is reserved; nest a struct to hash more
+  --> tests/ui/fail/derive_errors.rs:15:8
+   |
+15 | struct TooManyPublicInputs {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+error: states hash at most 11 fields, 12 given: Poseidon takes 12 inputs and one is reserved; nest a struct to hash more
+  --> tests/ui/fail/derive_errors.rs:31:8
+   |
+31 | struct TooManyStateFields {
+   |        ^^^^^^^^^^^^^^^^^^

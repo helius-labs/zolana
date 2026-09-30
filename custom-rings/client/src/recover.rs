@@ -219,10 +219,12 @@ impl<'a> MemberRecovery<'a> {
                     nullifier_pubkey: self.source.address.nullifier_pubkey,
                     utxo_hash: output_context.hash,
                     nullifier,
+                    tx_viewing_key: None,
                     data_hash: hashes.data_hash,
                     ring_data_hash: hashes.ring_data_hash,
                     tree_id,
                     leaf_index: output_context.leaf_index,
+                    latest_tree_id: None,
                     slot: transaction.slot,
                     tx_signature: transaction.tx_signature,
                     slot_index: output.slot_index,
@@ -295,6 +297,7 @@ impl<'a> MemberRecovery<'a> {
             seen.insert(output_context.hash);
             candidates.push(WalletUtxo {
                 nullifier: utxo.nullifier(&output_context.hash, self.source.nullifier_key)?,
+                tx_viewing_key: None,
                 utxo,
                 nullifier_pubkey: self.source.address.nullifier_pubkey,
                 utxo_hash: output_context.hash,
@@ -302,6 +305,7 @@ impl<'a> MemberRecovery<'a> {
                 ring_data_hash: Some(output.ring_data_hash),
                 tree_id,
                 leaf_index: output_context.leaf_index,
+                latest_tree_id: None,
                 slot,
                 tx_signature,
                 slot_index,
@@ -610,6 +614,7 @@ impl MergeOpening<'_, '_> {
         }
         Ok(Some(WalletUtxo {
             nullifier: utxo.nullifier(&slot.output_context.hash, self.source.nullifier_key)?,
+            tx_viewing_key: None,
             utxo,
             nullifier_pubkey: self.source.address.nullifier_pubkey,
             utxo_hash: slot.output_context.hash,
@@ -617,6 +622,7 @@ impl MergeOpening<'_, '_> {
             ring_data_hash: Some(ring_data_hash),
             tree_id: self.tree_id,
             leaf_index: slot.output_context.leaf_index,
+            latest_tree_id: None,
             slot: transaction.slot,
             tx_signature: transaction.tx_signature,
             slot_index: 0,

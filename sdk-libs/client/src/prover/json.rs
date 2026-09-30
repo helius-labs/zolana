@@ -361,8 +361,6 @@ pub(crate) struct MergeParametersJson {
     pub user_nullifier_secret: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
-    #[serde(rename = "privateTxHash")]
-    pub private_tx_hash: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
     #[serde(rename = "allowDummyInputs")]
@@ -424,7 +422,6 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
-        private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
@@ -774,7 +771,6 @@ mod merge_tests {
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
             external_data_hash: BigUint::from(6u8),
-            private_tx_hash: BigUint::from(7u8),
             allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
@@ -793,7 +789,6 @@ mod merge_tests {
             "userNullifierPk",
             "userNullifierSecret",
             "externalDataHash",
-            "privateTxHash",
             "allowDummyInputs",
             "publicInputHash",
             "outputRingDataHash",
@@ -823,6 +818,7 @@ mod merge_tests {
         // The merge circuit derives every blinding from userNullifierSecret,
         // so the transfer-only root seed is not part of this request.
         assert!(value.get("blindingSeed").is_none());
+        assert!(value.get("privateTxHash").is_none());
         assert!(
             value["output"]["blinding"].is_null(),
             "merge output blinding is derived in-circuit"

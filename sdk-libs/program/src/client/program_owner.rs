@@ -1,0 +1,137 @@
+use std::collections::HashSet;
+
+use borsh::BorshDeserialize;
+use solana_address::Address;
+use solana_signature::Signature;
+use zolana_keypair::{
+    constants::BLINDING_LEN, hash::owner_hash, NullifierKey, P256Pubkey, PublicKey,
+    ShieldedAddress, ViewingKey,
+};
+use zolana_transaction::{
+    decrypt, utxo::Utxo, AssetRegistry, DecryptionResult, LocalShieldedKeys, ShieldedTransaction,
+    SppProofOutputUtxo, WalletUtxo,
+};
+
+use super::DataUtxo;
+use crate::{hasher::DataHasher, ClientError, ClientErrorKind};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProgramOwner {
+    pda: Address,
+}
+
+impl ProgramOwner {
+    pub fn new(pda: Address) -> Self {
+        Self { pda }
+    }
+
+    pub fn find(seeds: &[&[u8]], program_id: &Address) -> Self {
+        Self::new(Address::find_program_address(seeds, program_id).0)
+    }
+
+    pub fn pda(&self) -> &Address {
+        &self.pda
+    }
+
+    pub fn public_key(&self) -> PublicKey {
+        PublicKey::from_pda(&self.pda)
+    }
+
+    pub fn nullifier_key() -> NullifierKey {
+        NullifierKey::from_secret([0u8; BLINDING_LEN])
+    }
+
+    pub fn nullifier_pubkey() -> Result<[u8; 32], ClientError> {
+        Ok(Self::nullifier_key()
+            .pubkey()
+            .map_err(ClientErrorKind::InvalidOwner)?)
+    }
+
+    pub fn owner_tag(&self) -> [u8; 32] {
+        self.pda.to_bytes()
+    }
+
+    pub fn owner_hash(&self) -> Result<[u8; 32], ClientError> {
+        Ok(owner_hash(&self.public_key(), &Self::nullifier_pubkey()?)
+            .map_err(ClientErrorKind::InvalidOwner)?)
+    }
+
+    pub fn address(&self, viewing_pubkey: P256Pubkey) -> Result<ShieldedAddress, ClientError> {
+        Ok(ShieldedAddress::for_pda(
+            &self.pda,
+            Self::nullifier_pubkey()?,
+            viewing_pubkey,
+        ))
+    }
+
+    pub fn decrypt_data_utxos<T: BorshDeserialize + DataHasher>(
+        &self,
+        viewing_key: &ViewingKey,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+    ) -> Result<Vec<DataUtxo<T>>, ClientError> {
+        let keys = LocalShieldedKeys::new(
+            self.address(viewing_key.pubkey())?,
+            vec![viewing_key.clone()],
+            Self::nullifier_key(),
+        )
+        .map_err(ClientErrorKind::Transaction)?;
+        let DecryptionResult {
+            utxos,
+            spent_nullifiers,
+        } = decrypt(&keys, transactions, assets).map_err(ClientErrorKind::Transaction)?;
+        let mut claimed = HashSet::new();
+        Ok(utxos
+            .into_iter()
+            .filter(|utxo| !spent_nullifiers.contains(&utxo.nullifier))
+            .filter_map(|utxo| DataUtxo::<T>::try_from(utxo).ok())
+            .filter(|data_utxo| claimed.insert(data_utxo.utxo.utxo_hash))
+            .collect())
+    }
+
+    pub fn input(
+        &self,
+        output: &SppProofOutputUtxo,
+        tree_id: u16,
+        leaf_index: u64,
+    ) -> Result<WalletUtxo, ClientError> {
+        let key = Self::nullifier_key();
+        let nullifier_pubkey = Self::nullifier_pubkey()?;
+        let utxo = Utxo {
+            owner: self.public_key(),
+            asset: output.asset,
+            amount: output.amount,
+            blinding: output.blinding,
+            ring_program_id: None,
+            data: output.data.clone(),
+        };
+        let utxo_hash = utxo
+            .hash(
+                &nullifier_pubkey,
+                &output.data_hash.unwrap_or_default(),
+                &[0u8; 32],
+                tree_id,
+            )
+            .map_err(ClientErrorKind::InvalidUtxo)?;
+        if utxo_hash != output.hash(tree_id).map_err(ClientErrorKind::InvalidUtxo)? {
+            return Err(ClientErrorKind::NotProgramOutput.into());
+        }
+        Ok(WalletUtxo {
+            nullifier: utxo
+                .nullifier(&utxo_hash, &key)
+                .map_err(ClientErrorKind::InvalidUtxo)?,
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            data_hash: output.data_hash,
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+            latest_tree_id: None,
+            slot: 0,
+            tx_signature: Signature::default(),
+            slot_index: 0,
+            tx_viewing_key: None,
+        })
+    }
+}

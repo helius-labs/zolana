@@ -1,0 +1,97 @@
+use zolana_hasher::primitives::solana_owner_identity;
+use zolana_program::{
+    circuit::{
+        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxos, UtxoTrait,
+    },
+    conversion::ProofInput,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
+};
+use zolana_transaction::{Mint, WalletUtxo};
+
+use crate::{
+    benchmark::prove,
+    s27_escrow::{escrow_utxo, EscrowTerms},
+    shared::keypair,
+};
+
+#[derive(Clone, ProofInput)]
+pub struct Withdraw {
+    pub(crate) private: WithdrawPrivateInputs,
+    pub(crate) public: WithdrawPublicInputs,
+}
+
+#[derive(Clone, ProofInput)]
+pub(crate) struct WithdrawPrivateInputs {
+    pub(crate) tx_context: TxContext,
+    pub(crate) escrow: WalletUtxo,
+    pub(crate) terms: EscrowTerms,
+}
+
+#[derive(Clone, PublicInputs)]
+pub(crate) struct WithdrawPublicInputs {
+    pub(crate) unlock: u64,
+    pub(crate) owner_identity: [u8; 32],
+}
+
+#[deny(clippy::disallowed_types)]
+impl Circuit for <Withdraw as ProofInput>::Circuit {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        let private = &self.private;
+        let mut escrow = DataUtxo::new_close(&private.escrow, &private.terms)?;
+        escrow
+            .amount()?
+            .assert_not_zero("the escrow utxo holds nothing")?;
+        escrow.creator.key().identity()?.assert_equal(
+            &self.public.owner_identity,
+            "the signer is not the escrow creator",
+        )?;
+        self.public
+            .unlock
+            .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
+        let mut payout = TokenUtxos::new_init(&escrow.creator, &escrow.asset());
+        escrow.transfer_all(&mut payout)?;
+
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
+            .with_data_utxo(escrow)
+            .with_token_utxos(payout)
+            .check()
+    }
+}
+
+#[test]
+fn escrow_withdraw_prove_and_verify() {
+    let creator = keypair(5);
+    let address = creator.shielded_address().expect("creator address");
+    let payer = address.solana_address().expect("payer");
+    let (escrow, terms) = escrow_utxo(&creator, Mint::SOL, 250, 1_700_000_000);
+
+    let withdraw = Withdraw {
+        private: WithdrawPrivateInputs {
+            tx_context: TxContext::new(),
+            escrow,
+            terms,
+        },
+        public: WithdrawPublicInputs {
+            unlock: 1_700_000_000,
+            owner_identity: solana_owner_identity(payer.as_array()).expect("owner identity"),
+        },
+    };
+    let spp_proof_inputs = withdraw
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
+        .expect("withdraw proof inputs");
+    assert_eq!(
+        spp_proof_inputs
+            .output_utxos
+            .iter()
+            .map(|output| (output.owner_address, output.asset, output.amount))
+            .collect::<Vec<_>>(),
+        vec![(Some(address), Mint::SOL, 250)]
+    );
+
+    let prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
+    let result = prove(&prover, &withdraw, "withdraw proof");
+    prover
+        .verify(&result)
+        .expect("the compressed proof verifies");
+}

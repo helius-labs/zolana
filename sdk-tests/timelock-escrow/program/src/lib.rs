@@ -1,6 +1,12 @@
+#[cfg(any(feature = "circuits", feature = "wasm"))]
+pub mod circuits;
+#[cfg(feature = "circuits")]
+pub mod client;
 pub mod error;
 pub mod instructions;
-pub mod verifying_keys;
+pub mod zk {
+    zolana_macros::include_zk_programs!();
+}
 
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
@@ -12,6 +18,10 @@ pub mod tag {
 }
 
 pub const ESCROW_AUTHORITY_PDA_SEED: &[u8] = b"escrow_authority";
+
+pub fn escrow_authority_seeds(creator: &Address) -> [&[u8]; 2] {
+    [ESCROW_AUTHORITY_PDA_SEED, creator.as_array()]
+}
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
 mod entrypoint {

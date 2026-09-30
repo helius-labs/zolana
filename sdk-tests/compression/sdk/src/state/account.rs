@@ -3,6 +3,7 @@ use borsh::BorshDeserialize;
 pub use compression_example_program::state::AccountState;
 use solana_address::Address;
 use zolana_keypair::{PublicKey, ShieldedAddress, ViewingKey};
+use zolana_program::compression::CompressedAccountData;
 use zolana_transaction::{Data, DataRecord, Mint, SppProofOutputUtxo, Utxo};
 
 use crate::{err, shared::zero_nullifier_key};
@@ -26,7 +27,7 @@ impl AccountUtxo {
             blinding: self.state.blinding,
             ring_program_id: None,
             data: Data::new(vec![DataRecord::UtxoData(
-                self.state.to_vec().map_err(err)?,
+                borsh::to_vec(&self.state).map_err(err)?,
             )]),
         })
     }
@@ -42,10 +43,6 @@ impl AccountUtxo {
             data: self.utxo()?.data,
             ..SppProofOutputUtxo::default()
         })
-    }
-
-    pub fn output_data(&self) -> Result<Vec<u8>> {
-        self.state.to_output_data().map_err(err)
     }
 }
 

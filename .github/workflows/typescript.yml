@@ -118,3 +118,79 @@ jobs:
       - run: npm ci
       - run: just build-photon
       - run: just test-ts-e2e
+
+  escrow-e2e:
+    name: typescript / escrow e2e
+    runs-on: ubuntu-latest
+    needs: check
+    timeout-minutes: 120
+    env:
+      AGAVE_VERSION: v4.2.2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: typescript-escrow
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: wasm-pack
+      - name: Install Anza CLI
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
+      - name: Install SBF platform tools
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
+      - name: Cache proving keys
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
+      - name: Cache surfpool
+        id: surfpool-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/tools/surfpool
+          key: surfpool-${{ runner.os }}-${{ hashFiles('justfile') }}
+      - name: Install surfpool
+        if: steps.surfpool-cache.outputs.cache-hit != 'true'
+        run: just install-surfpool
+      - run: npm ci
+      - run: just test-escrow-ts
+
+  zk-program-wasm:
+    name: typescript / zk program wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: sdk-libs/program/tests/wasm/package-lock.json
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: zk-program-wasm
+      # Threaded builds need the pinned nightly with rust-src for build-std.
+      - name: Install the wasm toolchains
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup toolchain install nightly-2026-05-18 --profile minimal --component rust-src --target wasm32-unknown-unknown
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: wasm-pack
+      # The fixture key writer runs the snarkjs CLI.
+      - run: npm install -g snarkjs@0.7.6
+      - run: npx --yes playwright@1.63.0 install-deps chromium
+      - run: just test-zk-program-wasm

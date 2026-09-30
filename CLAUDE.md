@@ -72,9 +72,16 @@ program-tests/
 sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
+  instruction/         -- SBF-buildable shielded-pool instruction builders and the
+                          SPP hash and blinding derivations programs recompute;
+                          feature `cpi` (transact CPI)
   keypair/             -- shielded key material and hashes
-  program/             -- SBF-buildable SDK for programs: shielded-pool instruction
-                          builders and on-chain SPP derivations
+  macros/              -- zolana-macros: the ZK program derives and
+                          include_zk_programs!
+  program/             -- SDK for programs: re-exports zolana-instruction; feature
+                          `compression` (compressed accounts, SBF-buildable) and
+                          the host-only ZK program features `circuit`, `client`,
+                          `setup`; no default features
   program-test/        -- reusable local test/indexer harness
   transaction/         -- wallet, UTXO, encryption, and transaction logic
 
@@ -340,12 +347,14 @@ pub enum ShieldedPoolError {
   be cfg-gated: use `Address::find_program_address` on Solana target and do not
   pretend host tests can derive it unless a host implementation exists.
 
-## Instruction Builder Pattern (zolana-program crate)
+## Instruction Builder Pattern (zolana-instruction crate)
 
-Builders live in `sdk-libs/program/src/instruction/`, not in the interface
+Builders live in `sdk-libs/instruction/src/instruction/`, not in the interface
 crate: the shielded-pool program links the interface and must not carry client
-surface. `zolana-program` is `no_std` and SBF-buildable, so programs that CPI
-into SPP use the same builders as clients. Reference: `create_spl_interface.rs`
+surface. `zolana-instruction` is `no_std` and SBF-buildable, so programs that
+CPI into SPP use the same builders as clients. `zolana-transaction` depends on
+`zolana-instruction`. It cannot depend on `zolana-program`, which depends on
+`zolana-transaction` for its ZK program features. Reference: `create_spl_interface.rs`
 
 ```rust
 use alloc::vec;
@@ -376,13 +385,16 @@ impl CreateSplInterface {
 
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
-- Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/program/src/instruction/mod.rs`
-- Builders are imported as `zolana_program::instruction::<builder>`
+- Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/instruction/src/instruction/mod.rs`
+- Builders are imported as `zolana_program::instruction::<builder>` (re-exported
+  from `zolana_instruction`)
 - Builders for protocol operations (protocol and fee authority administration,
   tree creation, ring activation, forester maintenance) go behind the
-  non-default `protocol` feature (`#[cfg(feature = "protocol")]` on the module
-  or item and its re-export). `CreateSplInterface` stays ungated: the protocol
-  config can open it to everyone, and users register their own mints.
+  non-default `protocol` feature of `zolana-instruction`
+  (`#[cfg(feature = "protocol")]` on the module or item and its re-export),
+  which `zolana-program` exposes as `protocol-instructions`.
+  `CreateSplInterface` stays ungated: the protocol config can open it to
+  everyone, and users register their own mints.
 
 ### Instruction data
 
@@ -424,6 +436,11 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 1. Loading proving keys for big circuits takes a lot of time
 2. tests should start a prover server if not started yet
 3. The prover server should be lazy: load no proving keys on startup, load a key when a proof for it is first requested, then keep it loaded
+4. arkworks proving keys are saved and loaded in the memory-image format
+   (`Groth16Keys::save_image` / `load_image` / `from_image_bytes`, or the
+   sha256-verifying `from_image_checked`): one memory copy per section, no
+   curve validation. Use the canonical format or a zkey only where
+   circom/snarkjs compatibility requires it.
 
 ## SPP Transaction Proving Keys & Verifying Keys
 

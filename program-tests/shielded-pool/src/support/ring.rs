@@ -24,7 +24,7 @@ use zolana_interface::{
     verifying_keys::RingP256ProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{hash::sha256, pubkey::PublicKey, NullifierKey, ShieldedKeypair, SigningKey};
+use zolana_keypair::{pubkey::PublicKey, NullifierKey, ShieldedKeypair, SigningKey};
 use zolana_program::instruction::Transact;
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
@@ -34,7 +34,7 @@ use zolana_test_utils::transact::{
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::instructions::transact::PrivateTxHash;
+use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
 use zolana_wallet::SyncWalletAuthority;
 
 use super::fixtures::Pool;
@@ -216,7 +216,6 @@ impl RealRingTransact {
         let private_tx = PrivateTxHash::new(
             &private_inputs,
             &vec![zero; n_outputs],
-            &external_data_hash,
             &private_tx_blinding,
         )
         .hash()
@@ -234,7 +233,7 @@ impl RealRingTransact {
             tree_id_field(tree_id),
             private_tx,
         ];
-        let message_digest = sha256(&private_tx);
+        let message_digest = transact_message_hash(&private_tx, &external_data_hash);
         let p256_authorization = match rail {
             RingRail::Eddsa => None,
             RingRail::P256 => {

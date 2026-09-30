@@ -1,0 +1,26 @@
+{
+  "description": "Owner tags of the spare output slots a windowed custom ring transfer fills before its record output. Each spare slot is a zero-amount copy of the first output the sender owns, else of the last output, and publishes that output's owner tag: account index 0 when it is the change of a sender who pays the fee, else the inline view tag of the copied owner. Rust reads it from custom-rings/sdk/src/transfer.rs, TypeScript from sdk-libs/ts/test/ring-transfer.test.ts.",
+  "cases": [
+    {
+      "name": "fee_paying_sender_change",
+      "sender_pays_fee": true,
+      "keeps_change": true,
+      "copies": "sender",
+      "owner_tag": "account_0"
+    },
+    {
+      "name": "sponsored_sender_change",
+      "sender_pays_fee": false,
+      "keeps_change": true,
+      "copies": "sender",
+      "owner_tag": "inline"
+    },
+    {
+      "name": "no_change",
+      "sender_pays_fee": true,
+      "keeps_change": false,
+      "copies": "recipient",
+      "owner_tag": "inline"
+    }
+  ]
+}

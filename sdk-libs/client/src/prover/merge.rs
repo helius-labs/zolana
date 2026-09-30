@@ -17,7 +17,7 @@ use zolana_interface::{
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
+        merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
         MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
@@ -28,7 +28,7 @@ use crate::{
     prover::{
         field::{be, right_align, right_align_slice},
         transact::{
-            assembly::{assemble_inputs, assemble_outputs, private_tx_hash, OwnerMode},
+            assembly::{assemble_inputs, assemble_outputs, OwnerMode},
             witness::{attach_input_proofs, SpendProof},
         },
         MergeInputs, TreeSlotFields,
@@ -60,7 +60,6 @@ pub struct MergeProofResult {
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
     pub output_hash: [u8; 32],
-    pub private_tx_hash: [u8; 32],
     /// Recomputed on-chain from the instruction; surfaced so the caller need not
     /// re-derive it.
     pub external_data_hash: [u8; 32],
@@ -89,7 +88,6 @@ impl MergeProofResult {
             nullifiers: self.nullifiers.clone(),
             utxo_tree_root_index: self.utxo_tree_root_index,
             nullifier_tree_root_index: self.nullifier_tree_root_index,
-            private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
             cache_slot: self.cache_slot,
         }
@@ -219,20 +217,12 @@ impl MergeProver {
                 .zip(cache_slot),
         }
         .hash()?;
-        let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
-        let private_tx = private_tx_hash(
-            &assembled_inputs,
-            &assembled_outputs,
-            &external_data_hash,
-            &private_tx_blinding,
-        )?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
         let mut elements = vec![
             create_hash_chain_4_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
             tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
             tree_id_field(output_tree_id),
-            private_tx,
             external_data_hash,
             right_align(&[1u8]),
         ];
@@ -265,7 +255,6 @@ impl MergeProver {
             user_nullifier_pk: be(&nullifier_pubkey),
             user_nullifier_secret: be(&user_nullifier_secret),
             external_data_hash: be(&external_data_hash),
-            private_tx_hash: be(&private_tx),
             allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
@@ -278,7 +267,6 @@ impl MergeProver {
             utxo_tree_root_index: input_tree_context.utxo_tree_root_index,
             nullifier_tree_root_index: input_tree_context.nullifier_tree_root_index,
             output_hash,
-            private_tx_hash: private_tx,
             external_data_hash,
             expiry_unix_ts,
             eddsa_owner,

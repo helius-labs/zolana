@@ -18,7 +18,9 @@
     "test:ts": "npm run test --workspace @heliuslabs/zolana",
     "test:ts:e2e:sdk": "npm run test:e2e --workspace @heliuslabs/zolana",
     "test:ts:example": "npm run build:ts && vitest run --config sdk-tests/client/typescript/vitest.config.ts",
-    "test:ts:e2e": "npm run test:ts:e2e:sdk && npm run test:ts:example"
+    "test:ts:e2e": "npm run test:ts:e2e:sdk && npm run test:ts:example",
+    "check:ts:escrow": "oxfmt --check sdk-tests/timelock-escrow/typescript && oxlint --deny-warnings sdk-tests/timelock-escrow/typescript && tsc --noEmit --project sdk-tests/timelock-escrow/typescript/tsconfig.json",
+    "test:ts:escrow": "vitest run --config sdk-tests/timelock-escrow/typescript/vitest.config.ts"
   },
   "devDependencies": {
     "@solana/kit": "^8.3.0",

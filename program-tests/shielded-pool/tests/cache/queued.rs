@@ -228,7 +228,6 @@ fn prepare(
     let private = PrivateTxHash::new(
         &commitments,
         &hashes,
-        &external,
         &test_private_tx_blinding(&first_nullifier).expect("private blinding"),
     )
     .hash()
@@ -474,10 +473,10 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
     let steps: [Step; 11] = [
         (1, &[], &[(Some(0), 60), (Some(1), 40)]),
         (1, &[(0, 0)], &[(Some(2), 30), (Some(0), 30)]),
-        (2, &[(1, 0)], &[(None, 0), (Some(0), 30)]),
+        (2, &[(0, 0)], &[(None, 0), (Some(0), 30)]),
         (
             3,
-            &[(2, 1), (0, 2)],
+            &[(1, 1), (0, 2)],
             &[(Some(1), 70), (None, 0), (Some(3), 0)],
         ),
         (2, &[(0, 0), (1, 1)], &[(Some(0), 50), (Some(1), 50)]),
@@ -485,7 +484,7 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
         (1, &[(0, 20)], &[(Some(0), 20)]),
         (
             3,
-            &[(1, 1), (2, 2)],
+            &[(0, 1), (1, 2)],
             &[(Some(35), 80), (Some(2), 0), (Some(3), 0)],
         ),
         (2, &[(0, 35), (1, 0)], &[(Some(0), 75), (Some(1), 25)]),
@@ -840,7 +839,7 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
         StepSpec {
             index: 1,
             n_inputs: 2,
-            reads: &[(1, 9)],
+            reads: &[(0, 9)],
             outputs: &[(Some(4), 30), (None, 0)],
             deposit: 0,
             input_tree: &tree_x,

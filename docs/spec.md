@@ -346,7 +346,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 
 - `pubkey() -> PublicKey` — the scheme-tagged public key ([Glossary](#glossary)).
 - `sign_message(msg) -> Result<Signature>` — the scheme's native message signature: Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet), P256 as ECDSA over `SHA-256(msg)` normalized to low-S, matching Solana's secp256r1 precompile. PDA: error.
-- `sign_hash(hash: [u8; 32]) -> Result<Signature>` — P256 ECDSA over a caller-supplied digest; the proof verifies it against `SHA-256(private_tx_hash)`. Ed25519 owners sign digest bytes with `sign_message`; PDA: error.
+- `sign_hash(hash: [u8; 32]) -> Result<Signature>` — P256 ECDSA over a caller-supplied digest; the proof verifies it against `SHA-256(private_tx_hash || external_data_hash)`. Ed25519 owners sign digest bytes with `sign_message`; PDA: error.
 
 ## Nullifier Key
 
@@ -662,8 +662,8 @@ owner's nullifier secret.
 
 ## Empty UTXO
 
-Fixed-size circuits pad unused output slots with empty UTXOs, most often a
-sender's absent SPL or SOL change. The domain is `DummyDomain = 1`; every body
+Fixed-size circuits pad unused output slots with empty UTXOs, including absent
+change that no real output follows. The domain is `DummyDomain = 1`; every body
 field is zero except the derived [blinding](#output-blinding):
 
 ```
@@ -678,8 +678,8 @@ like a real output, and an owner who knows the seed can reconstruct it. The send
 ciphertext also stays fixed-size (amounts are fixed-width), so neither the output
 hash nor the ciphertext reveals whether the sender kept change.
 
-Empty change and padding outputs contribute `0` to the `private_tx_hash` output
-chain; their hashes still enter the public `output_utxo_hashes` chain.
+The `private_tx_hash` output chain skips dummy outputs; their hashes still
+enter the public `output_utxo_hashes` chain.
 
 The confidential default ring reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
 
@@ -774,8 +774,11 @@ struct TransferRecipientPlaintext {
 #### Sender
 
 The sender change bundle encodes SPL and SOL change at physical output slots
-`0` and `1`. Both positions are retained when either is empty. The reader uses
-the bundle's seed and `first_nullifier` to derive their [blindings](#output-blinding).
+`0` and `1`. Both positions are retained when either is empty. An empty slot is
+a dummy unless a real output follows it; then it is a zero-amount SOL output
+owned by the sender (see [Slot order](#slot-order)). The reader uses the
+bundle's seed and `first_nullifier` to derive their
+[blindings](#output-blinding).
 
 ```rust
 /// 58 B plaintext for confidential transfers with both `data` fields empty
@@ -847,7 +850,7 @@ struct RecipientSlot {
 
 Each output is one [`TransactOutput`](#transact): `utxo_hash`, `owner_tag`, and
 optional `data` ciphertext, in tree-append order (`0` SPL change, `1` SOL change,
-`2 + i` recipient `i`/dummy).
+`2 + i` recipient `i`, then dummies per [Slot order](#slot-order)).
 
 **Coverage convention** (a default-ring serialization rule, not program-enforced): an
 output with `data = Some` covers itself plus the immediately following `data = None`
@@ -997,9 +1000,10 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 The single public signal is `public_input_hash = HashChain4(fields)`. The table
 lists `fields` in preimage order; variant-only fields are omitted for other
 variants. `HashChain` folds left to right one element per Poseidon call;
-`RightHashChain` folds right to left; `HashChain4` folds left to right three
-elements per call; `RightHashChain4` folds right to left three elements per
-call, seeded with the last element:
+`NonZeroHashChain` is `HashChain` over the nonzero elements only, `0` when
+there are none; `RightHashChain` folds right to left; `HashChain4` folds left
+to right three elements per call; `RightHashChain4` folds right to left three
+elements per call, seeded with the last element:
 
 <a id="hash-chain-4"></a>
 ```
@@ -1029,9 +1033,9 @@ input could be zero-padded to look like a fixed-length one.
 | `tree_slot_chain` | commitment to the five input tree slots; see [Tree Slot Chain](#tree-slot-chain). SPP populates one slot per declared `tree_contexts` entry |
 | `output_tree_id` | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
-| P256 message hash (`RingP256` only) | `hash_bytes_32(SHA-256(private_tx_hash))`; SPP computes the digest, the circuit only hashes it |
+| P256 message hash (`RingP256` only) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit only hashes it |
 | `default_p256_owner_pk_hash` (`RingP256` only) | `hash_bytes_33(0x50 || p256_x)` when a spent P256 UTXO belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit checks it against the verified P256 key. Address slots do not force publication. |
-| `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input because SPP cannot recompute the private transaction hash. |
+| `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input, not part of the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
 | signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to [`signer_width`](#signer-width). `RingAuthority` uses only the payer (width 1). |
@@ -1111,7 +1115,7 @@ regardless of which tree it selected, so the tighter tree governs.
 
 **external_data_hash**
 
-Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. As a public input of the SPP proof, it commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A P256 owner signs it together with `private_tx_hash` (the P256 message hash above), so the owner's signature covers the entire transaction. A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
@@ -1180,7 +1184,7 @@ value while reusing the proof.
 | Balance Conservation | For each active asset, inputs plus public deposits equal outputs plus public withdrawals. Public slots contain distinct assets with nonzero net movements; unused slots are `(0, 0)`. |
 | Private transaction hash | Matches the [derived hash](#private-transaction-hash). |
 | UTXO data | `data_hash` enters `utxo_hash` unchecked. A real output with nonzero `data_hash` must be owned by a signer (`ConfidentialEddsa`, `RingEddsa`), a signer or the shared P256 key (`RingP256`), or a spent input's owner (`RingAuthority`). Application and ring proofs interpret the data before CPI into SPP. |
-| Dummy and address policy | Input domains and the capacity gate follow [Input slots](#input-slots). Dummy outputs are [empty UTXOs](#empty-utxo) with derived blindings. |
+| Dummy and address policy | Input domains and the capacity gate follow [Input slots](#input-slots). Dummy outputs are [empty UTXOs](#empty-utxo) with derived blindings. Dummies come last on both sides; see [Slot order](#slot-order). |
 
 <a id="input-slots"></a>
 **Input slots.** The domain selects exactly one kind:
@@ -1202,24 +1206,33 @@ without spending an existing UTXO, so `false` requires every input to be a real
 spend. Outputs are unaffected. Clients assume `true` for the height-40 nullifier
 tree; SPP's value is authoritative at verification.
 
+<a id="slot-order"></a>
+**Slot order.** Input slots hold spent UTXOs and addresses, in any order,
+followed only by padding. Output slots hold real outputs followed only by dummy
+outputs. Real outputs therefore keep the same slot index, and the same
+[blinding](#output-blinding), whatever the proof shape.
+
 <a id="private-transaction-hash"></a>
 **Private transaction hash.**
 
 ```
 private_tx_hash = Poseidon(input_utxo_hash_chain, output_utxo_hash_chain,
-                           address_nullifier_chain, external_data_hash,
-                           private_tx_blinding)
+                           address_nullifier_chain, private_tx_blinding)
 ```
 
-Each chain retains the physical slot order: input and output chains use real
-UTXO hashes and `0` elsewhere; the address chain uses address nullifiers and `0`
-elsewhere. This lets application proofs check the addresses they create.
-SPP, policy, and third-party proofs share `private_tx_hash` and its blinding.
+Each chain is a [`NonZeroHashChain`](#hash-chain-4) over one value per slot, in
+slot order: input and output chains use real UTXO hashes and `0` elsewhere; the
+address chain uses address nullifiers and `0` elsewhere. This lets application
+proofs check the addresses they create.
+
+The hash does not depend on padding or on the SPP shape, so a policy or
+third-party circuit can recompute it over its own slot count. SPP, policy, and
+third-party proofs share `private_tx_hash` and its blinding.
 
 A secret `private_tx_blinding` prevents observers testing candidate input hashes
 against the published transaction hash (see [Blinding Seed](#blinding-seed)).
 
-Padding contributes zero to the input chain, but `first_nullifier` still enters
+Padding does not enter the input chain, but `first_nullifier` still enters
 `private_tx_hash` through `private_tx_blinding`. Other padding nullifiers and the
 input roots are outside `private_tx_hash`; the Solana transaction signatures
 cover the full instruction.
@@ -1327,7 +1340,7 @@ The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 9 elements below: a shared 7-element prefix followed by the two-element variant tail. The prefix ends on a complete HashChain4 group, so extending its hash with the tail is equivalent to hashing the full chain (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 8 elements below: a shared 6-element prefix followed by the two-element variant tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
 
 | Element | Source |
 | --- | --- |
@@ -1335,7 +1348,6 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `output_utxo_hash` | instruction data |
 | `tree_slot_chain` | the [Tree Slot Chain](#tree-slot-chain), resolved from `input_tree` as for `transact` |
 | `output_tree_id` | raw `u16` id of `output_tree`, hashed into the output `utxo_hash` |
-| `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real |
 | variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity (`owner` when `eddsa_owner` is true, otherwise `owner_p256`) and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
@@ -1377,14 +1389,13 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Input cleanliness — `data_hash` | for each non-dummy input: `data_hash = 0`. UTXOs with `utxo_data` set are not mergeable. Applies to both rails. |
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. |
-| Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
 
 **Circuit shape**
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
-| 8 in 1 out (merge) | Reconsolidate fragmented balance | Exactly 8 input slots of the same owner/asset, 1 combined output. Fewer-than-8 real inputs pad with dummy slots (ownership, inclusion, and nullifier derivation skipped; the deterministic dummy nullifier and the zeroed input-hash contribution keep padding indistinguishable). `merge_transact` verifies against `merge_8_1`, `merge_ring` against `merge_ring_8_1`. |
+| 8 in 1 out (merge) | Reconsolidate fragmented balance | Exactly 8 input slots of the same owner/asset, 1 combined output. Fewer-than-8 real inputs pad with dummy slots (ownership, inclusion, and nullifier derivation skipped; the deterministic dummy nullifier keeps padding indistinguishable). `merge_transact` verifies against `merge_8_1`, `merge_ring` against `merge_ring_8_1`. |
 
 # SPP - Solana Privacy Program
 
@@ -1674,8 +1685,8 @@ struct TransactIxData {
     /// same name in [`utxo_hash`](#utxo-hash).
     data_hash: Option<[u8; 32]>,
     ring_data_hash: Option<[u8; 32]>,
-    /// All `M` outputs in tree-append order (SPL change, SOL change, then
-    /// recipients / dummies). Each `utxo_hash` is appended to the UTXO tree and
+    /// All `M` outputs in tree-append order (SPL change, SOL change, recipients,
+    /// then dummies). Each `utxo_hash` is appended to the UTXO tree and
     /// enters the proof's output hash chain; dummies carry a real-looking hash,
     /// so the vector does not reveal the recipient count. The `data` slots follow
     /// the [Output slot mapping](#output-slot-mapping) coverage convention.
@@ -1745,10 +1756,10 @@ tree also used for outputs, no extra owner signers, and no public legs:
 | Transact 36 in 2 out | 1616 | 3055 | 40 |
 | Ring transact EdDSA 36 in 2 out | 1616 | 3120 | 42 |
 | Ring transact P256 36 in 2 out | 1713 | 3217 | 42 |
-| Merge 8 in 1 out, direct | 528 | 1172 | 14 |
-| Merge 8 in 1 out, execute_sync | 562 | 1208 | 16 |
-| Merge 36 in 1 out, direct | 1424 | 2992 | 42 |
-| Merge 36 in 1 out, execute_sync | 1486 | 3056 | 44 |
+| Merge 8 in 1 out, direct | 496 | 1140 | 14 |
+| Merge 8 in 1 out, execute_sync | 530 | 1176 | 16 |
+| Merge 36 in 1 out, direct | 1392 | 2960 | 42 |
+| Merge 36 in 1 out, execute_sync | 1454 | 3024 | 44 |
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
@@ -1765,11 +1776,11 @@ choose a smaller proof shape, use fewer legs, or split the operation.
    (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
-5. `tree_contexts` holds between one and `MAX_INPUT_TREES = 2` entries, one per input tree account, and each entry's root indexes reference non-stale roots in its own tree. Every input's `tree_index` must be less than `tree_contexts.len()`. The index sequence starts at zero, never decreases, and never grows by more than one, giving each tree one contiguous run without skipped indexes. The last input must reference `tree_contexts.len() - 1`, so no declared context goes unused. Bounds and full coverage are checked separately from ordering. The same tree account may not be passed twice. See [Tree Slot Chain](#tree-slot-chain) and [`input_flags`](#input-flags).
+5. `tree_contexts` holds between one and `MAX_INPUT_TREES = 2` entries, one per input tree account, and each entry's root indexes reference non-stale roots in its own tree. Every input's `tree_index` must be less than `tree_contexts.len()`. Inputs may reference contexts in any order; each must be referenced by at least one input. The same tree account may not be passed twice. See [Tree Slot Chain](#tree-slot-chain) and [`input_flags`](#input-flags).
 6. Every tree account permits its respective write: nullifier insertion in each input tree and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.
-9. Insert each input's `nullifier_hash` into the nullifier queue of the tree its `tree_index` selects, and create its nullifier PDA funded from that same tree (`InsufficientNullifierPdaRent` if the tree would fall below `rent_minimum + fee_balance`). Each tree collects the insertion fee for its own inputs.
+9. Insert each input's `nullifier_hash` into the nullifier queue of the tree its `tree_index` selects, and create its nullifier PDA funded from that same tree (`InsufficientNullifierPdaRent` if the tree would fall below `rent_minimum + fee_balance`). Each tree queues its inputs' nullifiers in input order. Each tree collects the insertion fee for its own inputs.
 10. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`TransactEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1786,9 +1797,9 @@ GeneralEvent {
         .inputs
         .iter()
         .enumerate()
-        // `tree_index` selects the emitted tree. Queue numbers count up within
-        // one tree's run, so `seen[t]` is how many earlier inputs chose tree
-        // `t`; inputs are grouped, so each run is contiguous.
+        // `tree_index` selects the emitted tree. Each tree queues its inputs
+        // in input order, so `seen[t]` is how many earlier inputs chose tree
+        // `t`.
         .map(|(i, input)| Input {
             tree: event.input_trees[input.tree_index].tree,
             input_queue_seq: event.input_trees[input.tree_index].first_input_queue_seq
@@ -1993,8 +2004,8 @@ An indexer rebuilds the `GeneralEvent` from that body plus the data and account
 list of the instruction that sent the self-CPI, as given in its **Event**.
 
 ```rust
-/// One input tree. Queue inserts are sequential within one tree's contiguous
-/// run, so the `k`-th input that selects this tree has
+/// One input tree. The tree queues the inputs that select it in input order,
+/// so the `k`-th input that selects this tree has
 /// `input_queue_seq = first_input_queue_seq + k`. `transact` emits one entry per
 /// declared `tree_contexts` entry, in the same order; `merge` always emits one.
 struct InputTreeSequence {
@@ -2198,9 +2209,6 @@ struct MergeTransactIxData {
     /// (`owner_proof_input_hash(user_signing_pk)`) is derived from the
     /// registry account's ed25519 `owner` instead of its P256 `owner_p256`.
     eddsa_owner: bool,
-    /// Public input to the merge proof; defined under
-    /// [Merge Proof](#merge-proof---merge-zk-proof).
-    private_tx_hash: [u8; 32],
     /// Input nullifiers. Inserted into the nullifier queue and part of the
     /// public input hash. `u8` length prefix; length exactly 8.
     nullifiers: Vec<[u8; 32]>,
@@ -2234,8 +2242,8 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
-Serialized body: `271 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
-With discriminator, `N = 8`: `528 B`; with `~206 B` transaction overhead: `~734 B`.
+Serialized body: `239 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
+With discriminator, `N = 8`: `496 B`; with `~206 B` transaction overhead: `~702 B`.
 
 ### `merge_ring`
 
@@ -2312,7 +2320,7 @@ UTXOs can include a `ring_data` field interpreted by the ring program, hashed in
 
 # ZK Program Interface
 
-A ZK program is a third-party Solana program that runs a custom ZK circuit over user-owned UTXOs that hold `utxo_data` and CPIs SPP to settle the state transition. Circuit logic is program-defined; the protocol requires only that the proof commits to the SPP transaction via `private_tx_hash`. Authorization is the UTXO owner's signature over `private_tx_hash`; non-ring programs use no PDA signer (ring programs keep their `ring_config` signer).
+A ZK program is a third-party Solana program that runs a custom ZK circuit over user-owned UTXOs that hold `utxo_data` and CPIs SPP to settle the state transition. Circuit logic is program-defined; the protocol requires only that the proof commits to the SPP transaction via `private_tx_hash`. Authorization is the UTXO owner's signature over `private_tx_hash` and `external_data_hash`; non-ring programs use no PDA signer (ring programs keep their `ring_config` signer).
 
 # RPC
 

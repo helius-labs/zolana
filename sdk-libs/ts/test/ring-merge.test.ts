@@ -7,11 +7,7 @@ import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
 import type { Address, Bytes32, Bytes128 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
-import {
-  mergeDummyNullifier,
-  mergeOutputBlinding,
-  mergePrivateTxBlinding,
-} from "../src/keypair/merge/index.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { Merge, PreparedMerge } from "../src/transaction/instructions/builders.js";
 import { Data } from "../src/transaction/data.js";
 import { Utxo, ProofInputUtxo } from "../src/transaction/utxo.js";
@@ -53,7 +49,6 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
       outputTreeId,
       ring: { programId: RING },
       outputBlinding: mergeOutputBlinding(key, first.nullifier()),
-      privateTxBlinding: mergePrivateTxBlinding(key, first.nullifier()),
       dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
         mergeDummyNullifier(key, first.nullifier(), slot),
       ),

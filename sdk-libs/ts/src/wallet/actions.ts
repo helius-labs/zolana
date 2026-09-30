@@ -385,7 +385,10 @@ export function createSplit(params: SplitParams): CreatedSplit {
   const reserved = reservedUtxoKeys(params.wallet);
   const candidates = entries.filter(
     (entry) =>
-      trees.includes(entry.outputContext.tree) && isPlainUtxo(entry) && unreserved(reserved)(entry),
+      entry.utxo.amount > 0n &&
+      trees.includes(entry.outputContext.tree) &&
+      isPlainUtxo(entry) &&
+      unreserved(reserved)(entry),
   );
   const selected =
     named ??

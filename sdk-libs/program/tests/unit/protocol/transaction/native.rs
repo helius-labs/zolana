@@ -1,0 +1,211 @@
+use solana_address::Address;
+use zolana_keypair::ShieldedAddress;
+use zolana_program::{circuit::Field, ZkCircuit, ZkProgram};
+use zolana_transaction::{instructions::transact::SettlementTarget, Mint};
+
+use super::{
+    fixtures::{
+        broken, Asserted, Checked, Shape, COUNTER_OVERFLOWS, LEAVES, NO_INPUT, NO_TREE,
+        PRIVATE_TX_HASH, PUBLIC_HASH, TRANSACTION_HASH,
+    },
+    reference::Expected,
+    vectors::{
+        forgotten, fund, funds, payments, refresh, refreshes, settles, swept, unspent, Named,
+    },
+    wallets::{address, blinding, Spent, PAYER, RECIPIENT, SENDER, STRANGER, USDC},
+};
+use crate::harness::fixture::{native, rule_broken, Refusal};
+
+const CLOSE_LEAVES: &str = "a closed token utxo leaves a balance";
+
+fn honest<P: Shape>(named: Named<P>) -> Vec<(&'static str, Result<(), Refusal>)>
+where
+    Asserted<P>: ZkCircuit,
+{
+    named
+        .into_iter()
+        .map(|(name, program)| (name, native(&Asserted::honest(program))))
+        .collect()
+}
+
+fn holding<P>(named: Named<P>) -> Vec<(&'static str, Result<(), Refusal>)> {
+    named.into_iter().map(|(name, _)| (name, Ok(()))).collect()
+}
+
+fn against<P: Shape>(program: P, expected: Expected) -> Result<(), Refusal>
+where
+    Asserted<P>: ZkCircuit,
+{
+    native(&Asserted { program, expected })
+}
+
+#[test]
+fn every_shape_reproduces_the_native_private_transaction_and_public_hashes() {
+    assert_eq!(
+        (
+            honest(refreshes()),
+            honest(payments()),
+            honest(funds()),
+            honest(settles()),
+            native(&Asserted::honest(swept::<true>(300))),
+        ),
+        (
+            holding(refreshes()),
+            holding(payments()),
+            holding(funds()),
+            holding(settles()),
+            Ok(()),
+        )
+    );
+}
+
+#[test]
+fn each_hash_that_differs_from_the_native_one_breaks_exactly_its_rule() {
+    let (_, program) = refreshes().swap_remove(0);
+    let native_hashes = program.reference().expected();
+    let one = Field::from(1u64);
+    assert_eq!(
+        [
+            against(
+                program.clone(),
+                Expected {
+                    private_tx_hash: native_hashes.private_tx_hash + one,
+                    ..native_hashes
+                }
+            ),
+            against(
+                program.clone(),
+                Expected {
+                    transaction_hash: native_hashes.transaction_hash + one,
+                    ..native_hashes
+                }
+            ),
+            against(
+                program,
+                Expected {
+                    public_hash: native_hashes.public_hash + one,
+                    ..native_hashes
+                }
+            ),
+        ],
+        [
+            Err(broken(PRIVATE_TX_HASH)),
+            Err(broken(TRANSACTION_HASH)),
+            Err(broken(PUBLIC_HASH)),
+        ]
+    );
+}
+
+#[test]
+fn the_hashes_bind_the_blinding_seed_the_output_tree_the_transfers_and_the_public_inputs() {
+    let (_, refreshed) = refreshes().swap_remove(0);
+    let (_, over_latest) = refreshes().swap_remove(3);
+    let (_, settled) = settles().swap_remove(0);
+    let (_, paid) = payments().swap_remove(0);
+    let another_seed = {
+        let mut reference = refreshed.reference();
+        reference.blinding_seed = blinding(0x77);
+        reference.expected()
+    };
+    let the_latest_tree = {
+        let mut reference = over_latest.reference();
+        reference.output_tree_id = 7;
+        reference.expected()
+    };
+    let another_account = {
+        let mut reference = settled.reference();
+        reference.transfers[0].target = SettlementTarget::Sol {
+            user_sol_account: Address::new_from_array([0x42; 32]),
+        };
+        reference.expected()
+    };
+    let another_recipient = {
+        let mut reference = paid.reference();
+        reference.public = vec![address(STRANGER).owner_hash().expect("owner hash")];
+        reference.expected()
+    };
+    assert_eq!(
+        [
+            against(refreshed, another_seed),
+            against(over_latest, the_latest_tree),
+            against(settled, another_account),
+            against(paid, another_recipient),
+        ],
+        [
+            Err(broken(PRIVATE_TX_HASH)),
+            Err(broken(PRIVATE_TX_HASH)),
+            Err(broken(TRANSACTION_HASH)),
+            Err(broken(PUBLIC_HASH)),
+        ]
+    );
+}
+
+#[test]
+fn a_malformed_transaction_breaks_exactly_its_rule() {
+    let no_tree = refresh(Spent::token(SENDER, Mint::SOL, 5, 0), None);
+    assert_eq!(
+        [
+            native(&Checked {
+                program: forgotten()
+            }),
+            native(&Checked { program: unspent() }),
+            native(&Checked { program: no_tree }),
+            native(&Checked {
+                program: fund(300, 0, u64::MAX, 100)
+            }),
+            native(&Checked {
+                program: swept::<false>(300)
+            }),
+        ],
+        [
+            Err(broken(LEAVES)),
+            Err(broken(NO_INPUT)),
+            Err(broken(NO_TREE)),
+            Err(broken(COUNTER_OVERFLOWS)),
+            Err(rule_broken(CLOSE_LEAVES, super::fixtures::FILE)),
+        ]
+    );
+}
+
+type Slot = (Option<ShieldedAddress>, Mint, u64);
+
+fn slots<P: ZkProgram>(program: &P) -> Vec<Slot> {
+    program
+        .create_finalized_transaction(&address(SENDER), PAYER)
+        .expect("finalized transaction")
+        .output_utxos()
+        .iter()
+        .map(|output| (output.owner_address, output.asset, output.amount))
+        .collect()
+}
+
+#[test]
+fn only_a_trailing_token_output_of_zero_becomes_an_empty_slot() {
+    let sender = Some(address(SENDER));
+    let recipient = Some(address(RECIPIENT));
+    let empty = (None, Mint::default(), 0);
+    let [(_, kept), (_, emptied), (_, nothing_paid)] =
+        <[_; 3]>::try_from(payments()).expect("three payments");
+    let [(_, funded), (_, drained)] = <[_; 2]>::try_from(funds()).expect("two funds");
+    let [(_, partial), (_, withdrawn)] = <[_; 2]>::try_from(settles()).expect("two settles");
+    assert_eq!(
+        (
+            [slots(&kept), slots(&emptied), slots(&nothing_paid)],
+            [slots(&funded), slots(&drained), slots(&fund(40, 0, 0, 0))],
+            [slots(&partial), slots(&withdrawn)],
+        ),
+        (
+            [
+                vec![(sender, Mint::SOL, 100), (recipient, Mint::SOL, 400)],
+                vec![(sender, USDC, 0), (recipient, USDC, 3)],
+                vec![(sender, Mint::SOL, 7), empty],
+            ],
+            [
+                vec![(sender, Mint::SOL, 200), (sender, Mint::SOL, 100)],
+                vec![(sender, Mint::SOL, 0), (sender, Mint::SOL, 42)],
+                vec![(sender, Mint::SOL, 40), (sender, Mint::SOL, 0)],
+            ],
+            [vec![(sender, Mint::SOL, 230)], vec![empty]],
+        )
+    );
+}

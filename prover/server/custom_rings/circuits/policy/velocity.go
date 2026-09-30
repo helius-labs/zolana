@@ -87,12 +87,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 		shared.AssertWhen(api, api.Mul(policy.rowsEnabled, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
 	}
 	// Windowed spends must not use the namespace to claim addresses.
-	var noAddresses [NInputs]frontend.Variable
-	for i := range noAddresses {
-		noAddresses[i] = 0
-	}
-	emptyAddressChain := hashPrefix4(api, noAddresses[:], c.InputCountSelected[:])
-	api.AssertIsEqual(api.Mul(policy.windowEnabled, api.Sub(c.AddressChain, emptyAddressChain)), 0)
+	api.AssertIsEqual(api.Mul(policy.windowEnabled, c.AddressChain), 0)
 
 	// 2. Authenticate the record and open counters for its current window.
 	rangeChecker.Check(c.Record.Version, amountBits)

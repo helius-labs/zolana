@@ -655,7 +655,6 @@ fn bench_create_escrow(
         encoded.resolved_owner_tags,
         vec![],
     );
-    let external_data_hash = external_data.hash().expect("external data hash");
     let spp_proof_inputs = SppProofInputs {
         input_utxos,
         output_utxos: encoded.output_utxos,
@@ -715,7 +714,6 @@ fn bench_create_escrow(
         destination_asset: destination_asset_field,
         created_at: CREATED_AT,
         order_amount: ORDER_AMOUNT,
-        external_data_hash,
         private_tx_blinding,
         output_tree_id: BENCH_TREE_ID,
     }
@@ -937,7 +935,6 @@ fn bench_settle(
         encoded.resolved_owner_tags,
         vec![],
     );
-    let external_data_hash = external_data.hash().expect("external data hash");
     let spp_proof_inputs = SppProofInputs {
         input_utxos,
         output_utxos: encoded.output_utxos,
@@ -989,7 +986,6 @@ fn bench_settle(
         reservation_utxo_hash: reservation_in_hash,
         recipient_owner_hash,
         authority_owner_hash,
-        external_data_hash,
         private_tx_blinding,
         output_tree_id: BENCH_TREE_ID,
     }

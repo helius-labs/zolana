@@ -25,6 +25,17 @@ impl From<TimelockEscrowError> for ProgramError {
     }
 }
 
+impl From<crate::zk::VerifyError> for TimelockEscrowError {
+    fn from(error: crate::zk::VerifyError) -> Self {
+        match error {
+            crate::zk::VerifyError::PublicInputs => Self::HashingFailed,
+            crate::zk::VerifyError::MissingVerifyingKey | crate::zk::VerifyError::Proof => {
+                Self::ProofVerificationFailed
+            }
+        }
+    }
+}
+
 impl From<HasherError> for TimelockEscrowError {
     fn from(_: HasherError) -> Self {
         Self::HashingFailed
