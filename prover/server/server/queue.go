@@ -1076,10 +1076,18 @@ func (rq *RedisQueue) cleanupIndexEntry(queueName string, jobID string) {
 // version (the embedded lockfile prefix) is part of it, so a result cached
 // under another key set, or before proofs carried provingKeySha256, is never
 // replayed: clients reject such a proof, and every retry would hit it again.
-func ComputeInputHash(payload json.RawMessage) string {
+//
+// provingKey is the key file the submitting path named, empty on the pre-key
+// paths. It is part of the hash so that a proof or a refusal cached for a body
+// on one key's path is never replayed for the same body on another's.
+func ComputeInputHash(payload json.RawMessage, provingKey string) string {
 	hasher := sha256.New()
 	if manifest, err := provingkeys.Load(); err == nil {
 		hasher.Write([]byte(manifest.Prefix))
+		hasher.Write([]byte{0})
+	}
+	if provingKey != "" {
+		hasher.Write([]byte(provingKey))
 		hasher.Write([]byte{0})
 	}
 	hasher.Write(payload)

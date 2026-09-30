@@ -124,6 +124,11 @@ pub fn known_proving_keys() -> impl Iterator<Item = (&'static str, [u8; 32])> {
 }
 
 impl ExpectedProvingKey {
+    /// The key as a proof path names it, its file name without `.key`.
+    pub(crate) fn path_name(&self) -> &str {
+        self.name.strip_suffix(".key").unwrap_or(&self.name)
+    }
+
     /// A transfer circuit. The digest comes from [`CircuitId::proving_key_sha256`],
     /// the table the on-chain verifier picks its verifying key from.
     fn transfer(

@@ -30,7 +30,7 @@ This part explains the existing cli commands.
    Flags:  
    1. tree-depth *n* - Depth of the mock merkle tree  
    2. compressedAccounts *n* - Number of COMPRESSED_ACCOUNTs
-3. start - starts a api server with /prove and /metrics endpoints  
+3. start - starts a api server with /prove/<key> and /metrics endpoints  
    Flags:
    1. config: Config file, which may contain the following fields:
    1. keys *[string]* - String array of keys file paths  
@@ -38,6 +38,7 @@ This part explains the existing cli commands.
    3. Optional: json-logging *0/1* - Enables json logging  
    4. Optional: prover-address *address* - Address for the prover server, defaults to localhost:3000
    5. Optional: metrics-address *address* - Address for the metrics server, defaults to localhost:9998
+   6. Optional: serve *pattern* - Proving keys to prove, repeatable patterns over key names without `.key` (`transfer_*`, `*_36_*`), defaults to every key
 4. prove - Reads a prover system file, generates and returns proof based on prover parameters  
    Flags:  
    1. config: Config file, which may contain the following fields:

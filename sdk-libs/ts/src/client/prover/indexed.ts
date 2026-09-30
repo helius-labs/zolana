@@ -145,7 +145,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
   return result;
 }
 
-/** The `/prove/indexed` body for a request `decodeIndexedInputs` returned. */
+/** The `/prove/<key>/indexed` body for a request `decodeIndexedInputs` returned. */
 export function indexedRequestEnvelope(
   inputs: IndexedProofInputs,
   prepared: Readonly<Record<string, unknown>>,

@@ -182,7 +182,7 @@ func TestFailedRequeueFailsWithoutCachingTheInput(t *testing.T) {
 	if err := queue.StoreJobMeta(job.ID, worker.queueName, "transfer"); err != nil {
 		t.Fatal(err)
 	}
-	inputHash := ComputeInputHash(job.Payload)
+	inputHash := ComputeInputHash(job.Payload, job.ProvingKey)
 	if err := queue.SetInFlightJob(inputHash, job.ID, time.Minute); err != nil {
 		t.Fatal(err)
 	}

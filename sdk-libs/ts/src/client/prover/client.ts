@@ -101,6 +101,12 @@ const REQUEST_TIMEOUT_MS = 600_000;
  * hammering the prover while a genuinely long proof runs.
  */
 const INITIAL_POLL_INTERVAL_MS = 25;
+/**
+ * Prefix of every proof path: a proof is sent to `/prove/<key>`, `<key>` being
+ * its proving key's file name without `.key`. The key is in the path because a
+ * gateway routes and prices on the path alone, so it can send each key to its
+ * own prover pool at its own price.
+ */
 const PROVE_PATH = "/prove";
 const INDEXED_PATH = "/indexed";
 const HEALTH_PATH = "/health";
@@ -152,7 +158,6 @@ export interface ProvingKeyReport {
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
-  readonly #indexedUrl: URL;
   readonly #asyncPoll: AsyncPollConfig;
 
   constructor(
@@ -177,8 +182,6 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
     this.#url = url;
-    this.#indexedUrl = new URL(url);
-    this.#indexedUrl.pathname += INDEXED_PATH;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
@@ -189,13 +192,13 @@ export class ProverClient {
       nInputs: inputs.payload.inputs.length,
       nOutputs: inputs.payload.outputs.length,
     });
-    return parseCheckedProof(await this.#send(body, "sync", context), key);
+    return parseCheckedProof(await this.#send(body, "sync", key, context), key);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
     const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
-    return parseCheckedProof(await this.#send(body, "sync", context), key);
+    return parseCheckedProof(await this.#send(body, "sync", key, context), key);
   }
 
   async proveIndexed(
@@ -217,7 +220,7 @@ export class ProverClient {
           },
     );
     const body = JSON.stringify(indexedRequestEnvelope(inputs, prepared));
-    const result = parseIndexedResponse(await this.#send(body, "indexed", context), key);
+    const result = parseIndexedResponse(await this.#send(body, "indexed", key, context), key);
     resolvedTrees(inputs, result.resolution);
     return result;
   }
@@ -230,7 +233,7 @@ export class ProverClient {
     const body = indexedPolicyEnvelope(inputs, customRingPolicyProofRequest(inputs.policy));
     const key = provingKeyFor({ circuit: inputs.circuit });
     const result = parseIndexedResponse(
-      await this.#send(JSON.stringify(body), "indexed", context),
+      await this.#send(JSON.stringify(body), "indexed", key, context),
       key,
     );
     checkPolicyResolution(inputs, result.resolution);
@@ -243,7 +246,7 @@ export class ProverClient {
   ): Promise<Proof> {
     const body = JSON.stringify(customRingPolicyProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-policy" });
-    return parseCheckedProof(await this.#send(body, "queued", context), key);
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   async proveIndexedDeposit(
@@ -252,9 +255,10 @@ export class ProverClient {
   ): Promise<Proof> {
     const publicInputHash = checkedBytes(inputs.deposit.publicInputHash, 32, "public input hash");
     const body = indexedDepositEnvelope(inputs, customRingDepositProofRequest(inputs.deposit));
+    const key = provingKeyFor({ circuit: "custom-ring-deposit" });
     const result = parseIndexedResponse(
-      await this.#send(JSON.stringify(body), "indexed", context),
-      provingKeyFor({ circuit: "custom-ring-deposit" }),
+      await this.#send(JSON.stringify(body), "indexed", key, context),
+      key,
     );
     checkDepositResolution(publicInputHash, result.resolution);
     return result.proof;
@@ -266,7 +270,7 @@ export class ProverClient {
   ): Promise<Proof> {
     const body = JSON.stringify(customRingCompressedPolicyProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-compressed-policy" });
-    return parseCheckedProof(await this.#send(body, "queued", context), key);
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   async proveCustomRingRegisterKey(
@@ -275,7 +279,7 @@ export class ProverClient {
   ): Promise<Proof> {
     const body = JSON.stringify(customRingRegisterKeyProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-register-key" });
-    return parseCheckedProof(await this.#send(body, "queued", context), key);
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   async proveCustomRingDeposit(
@@ -284,7 +288,7 @@ export class ProverClient {
   ): Promise<Proof> {
     const body = JSON.stringify(customRingDepositProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-deposit" });
-    return parseCheckedProof(await this.#send(body, "queued", context), key);
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   async proveCustomRingDelegatePolicy(
@@ -298,7 +302,7 @@ export class ProverClient {
       policy: customRingPolicyProofRequest(inputs),
     });
     const key = provingKeyFor({ circuit: "custom-ring-delegate-policy" });
-    return parseCheckedProof(await this.#send(body, "queued", context), key);
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   async proveCustomRingBase(
@@ -307,7 +311,7 @@ export class ProverClient {
   ): Promise<Proof> {
     const body = JSON.stringify(customRingBaseProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-base" });
-    return parseCheckedProof(await this.#send(body, "queued", context), key);
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   /** The circuits the server serves. */
@@ -383,8 +387,15 @@ export class ProverClient {
     }
   }
 
-  async #send(body: string, route: Route, context?: RequestContext): Promise<unknown> {
-    const url = route === "indexed" ? this.#indexedUrl : this.#url;
+  async #send(
+    body: string,
+    route: Route,
+    key: ExpectedProvingKey,
+    context?: RequestContext,
+  ): Promise<unknown> {
+    const url = new URL(this.#url);
+    url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+    if (route === "indexed") url.pathname += INDEXED_PATH;
     let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
     const signal = composeSignal(context, "prove");
     try {
@@ -1248,17 +1259,17 @@ async function proverReason(response: Response): Promise<Readonly<{ reason?: str
 
 /** Indexed failures carry caller data in their message, only the `code` is read. */
 async function indexedHttpFailure(response: Response, attempt: number): Promise<ClientError> {
-  // An old prover has no indexed route and answers a bare 404.
-  if (response.status === 404) {
-    await response.body?.cancel();
+  const body = await errorBody(response);
+  const typed = indexedFailure(body);
+  if (typed !== undefined) return typed;
+  // An old prover has no indexed route and answers a bare 404. A coded one, such
+  // as a key the prover does not serve, is reported as it is.
+  if (response.status === 404 && !(isObject(body) && typeof body["code"] === "string")) {
     return new ClientError("CLIENT_PROVER_INDEXER_UNCONFIGURED");
   }
-  return (
-    indexedFailure(await errorBody(response)) ??
-    new ClientError("CLIENT_PROVER_HTTP", {
-      details: { method: "prove", status: response.status, attempts: attempt },
-    })
-  );
+  return new ClientError("CLIENT_PROVER_HTTP", {
+    details: { method: "prove", status: response.status, attempts: attempt },
+  });
 }
 
 function indexedFailure(body: unknown): ClientError | undefined {

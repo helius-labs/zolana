@@ -41,7 +41,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 
 func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
 	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
-	if _, err := worker.generatePreparedProof(&indexed.Resolved{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}); err == nil {
+	if _, err := worker.generatePreparedProof(&indexed.Resolved{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}, ""); err == nil {
 		t.Fatal("custom ring worker accepted a transfer proof")
 	}
 }
@@ -85,7 +85,7 @@ func TestCustomRingIsServedOnEveryRail(t *testing.T) {
 			t.Fatalf("%s skipped the queue the server has", want)
 		}
 		found := false
-		for _, circuit := range servedCircuits() {
+		for _, circuit := range servedCircuits(nil) {
 			if circuit == want {
 				found = true
 				break

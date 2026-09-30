@@ -2,7 +2,10 @@ package common
 
 import (
 	"path/filepath"
+	"slices"
+	"sort"
 	"testing"
+	"zolana/prover/prover/provingkeys"
 )
 
 func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
@@ -40,5 +43,38 @@ func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
 	}
 	if got := manager.determineRingKeyPath(TransferRingCircuitType); got != "" {
 		t.Fatalf("transfer ring resolved to the ring key %q", got)
+	}
+}
+
+// A proof's path names its key file, so the prover must name every key the
+// lockfile pins, and no other.
+func TestKeyFilesAreTheLockfileKeys(t *testing.T) {
+	manifest, err := provingkeys.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := make([]string, 0, len(manifest.Keys))
+	for name := range manifest.Keys {
+		pinned = append(pinned, name)
+	}
+	sort.Strings(pinned)
+	if got := KeyFiles(); !slices.Equal(got, pinned) {
+		t.Fatalf("key files %v, lockfile %v", got, pinned)
+	}
+}
+
+func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
+	for name, file := range map[string]string{
+		"transfer 6x6":          TransferKeyFile(TransferConfidentialCircuitType, 6, 6),
+		"ring authority 2x3":    TransferKeyFile(TransferRingAuthorityCircuitType, 2, 3),
+		"merge 8x2":             TransferKeyFile(MergeCircuitType, 8, 2),
+		"address append 40x100": BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
+		"transfer as a batch":   BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
+		"unknown custom ring":   RingKeyFile("custom-ring-unknown"),
+		"transfer as ring":      RingKeyFile(TransferConfidentialCircuitType),
+	} {
+		if file != "" {
+			t.Errorf("%s: got %q", name, file)
+		}
 	}
 }

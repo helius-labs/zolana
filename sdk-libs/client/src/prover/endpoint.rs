@@ -23,7 +23,7 @@ impl ProverEndpoint {
         }
     }
 
-    /// `path` is slash-separated segments, as in [`super::PROVE_PATH`].
+    /// `path` is slash-separated segments, such as `/prove/merge_8_1`.
     pub(crate) fn url(&self, path: &str) -> Result<Url, ClientError> {
         let invalid = || ClientError::Prover("invalid prover URL".into());
         let mut url = self.base.clone().ok_or_else(invalid)?;

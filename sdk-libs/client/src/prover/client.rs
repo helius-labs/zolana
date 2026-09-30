@@ -28,6 +28,8 @@ use crate::{
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
+/// Prefix of every proof path: a proof is sent to `/prove/<key>`, `<key>`
+/// being its proving key's file name without `.key`.
 pub const PROVE_PATH: &str = "/prove";
 pub const PROVING_KEYS_PATH: &str = "/proving-keys";
 /// Carries the indexer URL to the prover and the CLI, off argv.
@@ -355,7 +357,7 @@ impl ProverClient {
         Ok((status, text))
     }
 
-    /// One POST to `/prove`, retried for transport failures and for a queued
+    /// One POST to a proof path, retried for transport failures and for a queued
     /// request the prover shed. Returns the status alongside the body so the
     /// caller can act on a shed request.
     fn post(
@@ -429,7 +431,7 @@ impl ProverClient {
             route,
             key,
         } = request;
-        let url = self.endpoint.url(route.path())?;
+        let url = self.endpoint.url(&route.path(key))?;
         crate::prover::timing::note(0, "prover_request_bytes", body.len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
@@ -598,24 +600,30 @@ enum ProofRoute {
 }
 
 impl ProofRoute {
-    fn path(&self) -> &'static str {
+    /// The path of the proving key that proves the request. The key is in the
+    /// path because a gateway routes and prices on the path alone, so it can
+    /// send each key to its own prover pool at its own price.
+    fn path(&self, key: &ExpectedProvingKey) -> String {
+        let path = format!("{PROVE_PATH}/{}", key.path_name());
         match self {
-            Self::Complete => PROVE_PATH,
-            Self::Indexed => "/prove/indexed",
+            Self::Complete => path,
+            Self::Indexed => path + "/indexed",
         }
     }
 
     fn failure(&self, status: StatusCode, text: &str) -> ClientError {
-        if let Some(error) = serde_json::from_str(text)
-            .ok()
-            .as_ref()
-            .and_then(typed_failure)
-        {
+        let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
+        if let Some(error) = body.as_ref().and_then(typed_failure) {
             return error;
         }
         match self {
-            // Any 404 here means the prover serves no indexed route.
-            Self::Indexed if status == StatusCode::NOT_FOUND => {
+            // A 404 without an error code is the router's: the prover serves no
+            // indexed path. A coded one, such as a key the prover does not
+            // serve, is reported as it is.
+            Self::Indexed
+                if status == StatusCode::NOT_FOUND
+                    && body.as_ref().and_then(|body| body.get("code")).is_none() =>
+            {
                 ClientError::ProverIndexerUnconfigured
             }
             _ => ClientError::ProverServer(format!("status {status}: {text}")),
@@ -984,7 +992,7 @@ impl AsyncProverClient {
             route,
             key,
         } = request;
-        let url = self.endpoint.url(route.path())?;
+        let url = self.endpoint.url(&route.path(key))?;
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body, delivery).await?;
@@ -1406,12 +1414,12 @@ mod tests {
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
         if socks {
-            assert_paths(&requests, ["/prove", "/prove/status?jobId=proxy-job"]);
+            assert_paths(&requests, ["/prove/test", "/prove/status?jobId=proxy-job"]);
         } else {
             assert_paths(
                 &requests,
                 [
-                    "http://prover.invalid:3001/prove",
+                    "http://prover.invalid:3001/prove/test",
                     "http://prover.invalid:3001/prove/status?jobId=proxy-job",
                 ],
             );
@@ -1516,7 +1524,7 @@ mod tests {
         );
     }
 
-    /// The prover is queue-backed: `/prove` returns a job handle and the proof
+    /// The prover is queue-backed: a proof path returns a job handle and the proof
     /// is collected by polling. The gap between polls used to be
     /// `Duration::from_secs(poll_interval.max(1))`, so a proof the server
     /// finished in 270ms was not collected for a further second or more --
@@ -1579,7 +1587,7 @@ mod tests {
             .expect("queued proof should complete");
 
         let requests = server.requests();
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-custom"]);
+        assert_paths(&requests, ["/prove/test", "/prove/status?jobId=job-custom"]);
         assert!(
             requests.iter().all(|request| !request.sync_requested),
             "a custom request must not ask for a synchronous answer"
@@ -1964,7 +1972,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove/test",
                 "/prove/status?jobId=job-1",
                 "/prove/status?jobId=job-1",
             ],
@@ -1992,7 +2000,7 @@ mod tests {
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-failed"]);
+        assert_paths(&requests, ["/prove/test", "/prove/status?jobId=job-failed"]);
         let message = err.to_string();
         assert!(message.contains("async proof failed"));
         assert!(message.contains("prover rejected witness"));
@@ -2044,7 +2052,7 @@ mod tests {
         // time it spent waiting had not been charged against the deadline.
         assert_paths(
             &server.requests(),
-            ["/prove", "/prove/status?jobId=job-slow-status"],
+            ["/prove/test", "/prove/status?jobId=job-slow-status"],
         );
     }
 
@@ -2063,7 +2071,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove/test",
                 "/prove/status?jobId=job-slow",
                 "/prove/status?jobId=job-slow",
             ],
@@ -2082,7 +2090,10 @@ mod tests {
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-bad-json"]);
+        assert_paths(
+            &requests,
+            ["/prove/test", "/prove/status?jobId=job-bad-json"],
+        );
         assert!(err.to_string().contains("invalid status JSON"));
     }
 
@@ -2103,7 +2114,10 @@ mod tests {
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=missing-job"]);
+        assert_paths(
+            &requests,
+            ["/prove/test", "/prove/status?jobId=missing-job"],
+        );
         let message = err.to_string();
         assert!(message.contains("status 404 Not Found"));
         assert!(message.contains("job_not_found"));
@@ -2133,7 +2147,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove/test",
                 "/prove/status?jobId=job-transient",
                 "/prove/status?jobId=job-transient",
             ],
@@ -2166,7 +2180,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove/test",
                 "/prove/status?jobId=async-job",
                 "/prove/status?jobId=async-job",
             ],
@@ -2198,7 +2212,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove/test",
                 "/prove/status?jobId=async-transient",
                 "/prove/status?jobId=async-transient",
             ],
@@ -2218,7 +2232,7 @@ mod tests {
             .expect("a synchronous prover answers with the proof");
 
         let requests = server.requests();
-        assert_paths(&requests, ["/prove"]);
+        assert_paths(&requests, ["/prove/test"]);
         assert!(
             requests
                 .first()
@@ -2254,7 +2268,11 @@ mod tests {
         let requests = server.requests();
         assert_paths(
             &requests,
-            ["/prove", "/prove", "/prove/status?jobId=queued-after-shed"],
+            [
+                "/prove/test",
+                "/prove/test",
+                "/prove/status?jobId=queued-after-shed",
+            ],
         );
         assert!(
             requests
@@ -2337,8 +2355,8 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/v1/zolana/prove/indexed?api-key=secret",
-                "/v1/zolana/prove/indexed?api-key=secret",
+                "/v1/zolana/prove/transfer_confidential_1_1/indexed?api-key=secret",
+                "/v1/zolana/prove/transfer_confidential_1_1/indexed?api-key=secret",
                 "/v1/zolana/prove/status?api-key=secret&jobId=indexed-queued",
             ],
         );
@@ -2355,7 +2373,10 @@ mod tests {
             .prove_indexed(&request)
             .await
             .is_err());
-        assert_paths(&server.requests(), ["/prove/indexed"]);
+        assert_paths(
+            &server.requests(),
+            ["/prove/transfer_confidential_1_1/indexed"],
+        );
     }
 
     #[test]
@@ -2440,6 +2461,21 @@ mod tests {
             queued_prover_client(server.url()).send("{}", Delivery::InResponse, &test_key()),
             Err(ClientError::ProverServer(_))
         ));
+    }
+
+    /// A prover that does not serve the request's key refuses it with a coded
+    /// 404, which must not read as a prover without an indexer.
+    #[test]
+    fn a_coded_404_on_the_indexed_route_is_reported_as_it_is() {
+        let (request, _) = indexed_fixture();
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            404,
+            json!({"code": "proving_key_not_served", "message": "transfer_confidential_1_1 is not proved by this deployment"}),
+        )]);
+        let Err(error) = queued_prover_client(server.url()).prove_indexed(&request) else {
+            panic!("an unserved key was proved");
+        };
+        assert!(matches!(error, ClientError::ProverServer(_)), "{error:?}");
     }
 
     #[test]
