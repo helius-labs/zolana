@@ -201,7 +201,9 @@ describe("ring merge", () => {
         expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
         expect(fetch).toHaveBeenCalledOnce();
         expect(String(fetch.mock.calls[0]?.[0])).toMatch(
-          proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+          proofDataSource === "prover"
+            ? /\/prove\/[a-z0-9_-]+\/indexed$/u
+            : /\/prove\/[a-z0-9_-]+$/u,
         );
         const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
         expect(proofDataSource === "prover" ? body.prepared : body).toMatchObject({

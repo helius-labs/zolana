@@ -69,7 +69,7 @@ func TestInputHashIncludesTheProvingKeyVersion(t *testing.T) {
 	payloadOnly := sha256.Sum256(payload)
 	versioned := sha256.Sum256(append([]byte(manifest.Prefix+"\x00"), payload...))
 
-	got := ComputeInputHash(payload)
+	got := ComputeInputHash(payload, "")
 	if got == hex.EncodeToString(payloadOnly[:]) {
 		t.Fatal("input hash ignores the proving-key version")
 	}

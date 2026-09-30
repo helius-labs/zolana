@@ -154,8 +154,8 @@ fn gateway(base: &str, key: &str) -> String {
 }
 
 const GATEWAY_PATHS: [&str; 2] = [
-    "/v1/zolana/prove?api-key=test-key",
-    "/v1/zolana/prove/status?api-key=test-key&jobId=job-1",
+    "/v1/zolana/prove/test?api-key=test-key",
+    "/v1/zolana/prove/test/status?api-key=test-key&jobId=job-1",
 ];
 
 /// The failure is the one expected, and the key is not in its text.
@@ -180,7 +180,7 @@ fn a_proof_shed_by_a_prover_without_a_queue_is_retried() {
         .expect("a busy prover should be retried, not failed");
     assert_eq!(
         server.join().expect("mock prover thread"),
-        ["/prove", "/prove", "/prove"]
+        ["/prove/test", "/prove/test", "/prove/test"]
     );
 }
 
@@ -193,7 +193,7 @@ async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
         .expect("a busy prover should be retried, not failed");
     assert_eq!(
         server.join().expect("mock prover thread"),
-        ["/prove", "/prove", "/prove"]
+        ["/prove/test", "/prove/test", "/prove/test"]
     );
 }
 

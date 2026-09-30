@@ -389,7 +389,9 @@ describe("deposit disclosure", () => {
         indexerConfig: { requireSlot: 42n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
       });
       await expect(client.proveIndexedRingDeposit(indexed)).resolves.toHaveLength(192);
-      expect(String(indexedFetch.mock.lastCall?.[0])).toMatch(/\/prove\/indexed$/u);
+      expect(String(indexedFetch.mock.lastCall?.[0])).toMatch(
+        /\/prove\/custom_ring_deposit\/indexed$/u,
+      );
       expect(new Headers(indexedFetch.mock.lastCall?.[1]?.headers).get("X-Sync")).toBe("true");
       const wire: unknown = JSON.parse(String(indexedFetch.mock.lastCall?.[1]?.body));
       const decoder = wireDecoder(() => new Error("invalid body"));

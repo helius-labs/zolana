@@ -111,11 +111,14 @@ func calculateConcurrency(totalMemGB int) int {
 
 type ProofJob struct {
 	// Selects the Redis list, never serialized.
-	Indexed   bool            `json:"-"`
-	ID        string          `json:"id"`
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-	CreatedAt time.Time       `json:"createdAt"`
+	Indexed bool            `json:"-"`
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+	// The key file the submitting path named, which the worker holds the body
+	// to. Empty only for a job queued by a prover that predates key paths.
+	ProvingKey string    `json:"provingKey,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
 	// TreeID is the merkle tree pubkey - used for fair queuing across trees
 	// If empty, job goes to the default queue (backwards compatible)
 	TreeID string `json:"treeId,omitempty"`
@@ -143,6 +146,7 @@ type BaseQueueWorker struct {
 	execution           *Execution
 	queue               *RedisQueue
 	keyManager          *common.LazyKeyManager
+	served              *ServedKeys
 	queueName           string
 	processingQueueName string
 }
@@ -152,6 +156,8 @@ type WorkerConfig struct {
 	Keys    *common.LazyKeyManager
 	Indexer *indexed.Resolver
 	Ready   <-chan struct{}
+	// The proving keys this deployment proves; nil serves every key.
+	Served *ServedKeys
 }
 
 func NewAddressAppendQueueWorker(config WorkerConfig) *BaseQueueWorker {
@@ -179,6 +185,7 @@ func newQueueWorker(queueName string, config WorkerConfig, execution *Execution)
 		execution:           execution,
 		queue:               config.Queue,
 		keyManager:          config.Keys,
+		served:              config.Served,
 		queueName:           queueName,
 		processingQueueName: processingQueue(queueName),
 	}
@@ -273,7 +280,7 @@ func (w *BaseQueueWorker) processJobs(indexedJobs bool) bool {
 
 			// Add to failed queue with expiration reason
 			expirationErr := fmt.Errorf("job expired after %v (max: %v)", jobAge, JobExpirationTimeout)
-			expiredInputHash := ComputeInputHash(job.Payload)
+			expiredInputHash := ComputeInputHash(job.Payload, job.ProvingKey)
 			w.addToFailedQueue(job, expiredInputHash, expirationErr)
 			if metaErr := w.queue.MarkJobFailed(job.ID, w.failureDetails(job, expirationErr)); metaErr != nil {
 				logging.Logger().Warn().
@@ -309,7 +316,7 @@ func (w *BaseQueueWorker) processJobs(indexedJobs bool) bool {
 	// worker, so it is timed as "dedup": time spent here is admission rate lost,
 	// including on the cache-hit paths that return without ever proving.
 	dedupStart := time.Now()
-	inputHash := ComputeInputHash(job.Payload)
+	inputHash := ComputeInputHash(job.Payload, job.ProvingKey)
 
 	// Check if we already have a successful result for this input
 	if !job.Indexed {
@@ -503,7 +510,7 @@ func (w *BaseQueueWorker) processJobs(indexedJobs bool) bool {
 				Msg("Failed to mark job processing (status polls will still report queued)")
 		}
 
-		proof, err := w.generatePreparedProof(work)
+		proof, err := w.generatePreparedProof(work, job.ProvingKey)
 		w.removeFromProcessingQueue(processingItem)
 
 		proofDuration := time.Since(proofStartTime)
@@ -602,7 +609,7 @@ func (w *BaseQueueWorker) resolve(job *ProofJob, inputHash string) (*indexed.Res
 	return work, permit, true
 }
 
-func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved) (*common.Proof, error) {
+func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved, provingKey string) (*common.Proof, error) {
 	payload := work.Payload
 	proofRequestMeta, err := common.ParseProofRequestMeta(payload)
 	if err != nil {
@@ -615,7 +622,8 @@ func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved) (*common
 	timer := StartProofTimer(string(proofRequestMeta.CircuitType))
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(payload))
 
-	proof, proofError := circuitProver{keys: w.keyManager}.dispatch(proofRequestMeta.CircuitType, payload)
+	admission := keyAdmission{served: w.served, expected: provingKey}
+	proof, proofError := circuitProver{keys: w.keyManager, admission: admission}.dispatch(proofRequestMeta.CircuitType, payload)
 
 	if proofError != nil {
 		timer.ObserveError("proof_generation_failed")

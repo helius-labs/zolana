@@ -13,7 +13,7 @@ prover client they are given.
 Both modes support cached spends and merge outputs. The forester selects
 client fetching with `--client-proof-data`.
 
-Prover fetching sends locally prepared inputs to `/prove/indexed`. The prover
+Prover fetching sends locally prepared inputs to `/prove/<key>/indexed`. The prover
 resolves Merkle paths and root contexts. The SDK binds the returned roots to
 its original public statement and verifies the proof before returning
 transaction data. `IndexerRpcConfig.require_slot` sets the minimum indexer

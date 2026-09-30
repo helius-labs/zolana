@@ -124,6 +124,15 @@ pub fn known_proving_keys() -> impl Iterator<Item = (&'static str, [u8; 32])> {
 }
 
 impl ExpectedProvingKey {
+    /// The path of this key's proofs, `/prove/<key>`, `<key>` being the file
+    /// name without `.key`. A gateway routes and prices on the path alone, so
+    /// it can send each key, and each key's status polls, to its own prover
+    /// pool at its own price.
+    pub(crate) fn prove_path(&self) -> String {
+        let name = self.name.strip_suffix(".key").unwrap_or(&self.name);
+        format!("{}/{name}", super::PROVE_PATH)
+    }
+
     /// A transfer circuit. The digest comes from [`CircuitId::proving_key_sha256`],
     /// the table the on-chain verifier picks its verifying key from.
     fn transfer(

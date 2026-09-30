@@ -647,7 +647,7 @@ describe("prover request routing", () => {
     expect(bodies).toMatchObject([{ circuitType: "merge" }]);
     expect(deliveries).toEqual(["true"]);
     expect(redirects).toEqual(["error"]);
-    expect(urls[0]?.pathname).toBe("/zolana/prove");
+    expect(urls[0]?.pathname).toBe("/zolana/prove/merge_8_1");
     expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
@@ -1046,7 +1046,10 @@ describe("prover request routing", () => {
 
     await prover.prove(transferInputs());
 
-    expect(urls.map((url) => url.pathname)).toEqual(["/zolana/prove", "/zolana/prove/status"]);
+    expect(urls.map((url) => url.pathname)).toEqual([
+      "/zolana/prove/transfer_confidential_1_1",
+      "/zolana/prove/transfer_confidential_1_1/status",
+    ]);
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
@@ -1357,7 +1360,9 @@ describe("indexed policy proofs", () => {
     const prover = new ProverClient({ url: "https://prover.example", fetch });
     const result = await prover.proveIndexedPolicy(inputs);
     expect(result.resolution.publicInputHash).toEqual(hash);
-    expect(String(fetch.mock.calls[0]?.[0])).toContain("/prove/indexed");
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(
+      `/prove/${circuit.replaceAll("-", "_")}/indexed`,
+    );
     const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
     const decoder = wireDecoder(() => new Error("invalid body"));
     const body = decoder.record(wire, "body");
@@ -1431,6 +1436,12 @@ describe("indexed prover failures", () => {
       404,
       Response.json({ code: "indexer_unconfigured", message: SERVER_TEXT }, { status: 404 }),
       "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    // A key the prover does not serve is not a prover without an indexer.
+    [
+      404,
+      Response.json({ code: "proving_key_not_served", message: SERVER_TEXT }, { status: 404 }),
+      "CLIENT_PROVER_HTTP",
     ],
     [
       503,

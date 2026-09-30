@@ -473,6 +473,11 @@ func runCli() {
 						Name:  "circuit",
 						Usage: "Specify enabled circuits including custom-ring-base and custom-ring-policy",
 					},
+					&cli.StringSliceFlag{
+						Name:    "serve",
+						Usage:   "Proving keys this deployment proves, as patterns over key names without .key, e.g. 'transfer_*' or '*_36_*' (default: all). Each key is served at /prove/<key>",
+						EnvVars: []string{"PROVER_SERVE_KEYS"},
+					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
 						Usage: "Preload keys: none (lazy load all), all (preload everything), or a run mode (rpc, forester, forester-test, full, full-test, local-rpc)",
@@ -551,6 +556,11 @@ func runCli() {
 					if _, err := keyManager.CircuitKeyPaths(preloadCircuits); err != nil {
 						return err
 					}
+					served, err := server.ParseServedKeys(context.StringSlice("serve"))
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().Strs("keys", served.Names()).Msg("Serving proving keys")
 					transferConcurrency := context.Int("transfer-concurrency")
 					if transferConcurrency < 1 {
 						return fmt.Errorf("invalid transfer concurrency %d", transferConcurrency)
@@ -642,7 +652,7 @@ func runCli() {
 						startAll := len(enabledCircuits) == 0
 						var workersStarted []string
 
-						workerConfig := server.WorkerConfig{Queue: redisQueue, Keys: keyManager, Indexer: indexer, Ready: readiness.Done()}
+						workerConfig := server.WorkerConfig{Queue: redisQueue, Keys: keyManager, Indexer: indexer, Ready: readiness.Done(), Served: served}
 						startWorker := func(name string, worker server.QueueWorker) {
 							workers = append(workers, worker)
 							go worker.Start()
@@ -670,6 +680,7 @@ func runCli() {
 							TransferExecution: transferExecution,
 							ProverAddress:     context.String("prover-address"),
 							MetricsAddress:    context.String("metrics-address"),
+							Served:            served,
 						}
 
 						if redisQueue != nil {

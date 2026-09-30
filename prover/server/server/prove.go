@@ -19,8 +19,9 @@ var (
 )
 
 type circuitProver struct {
-	keys  *common.LazyKeyManager
-	trace *timing.Trace
+	keys      *common.LazyKeyManager
+	trace     *timing.Trace
+	admission keyAdmission
 }
 
 func (p circuitProver) prove(payload []byte) (*common.Proof, *Error) {
@@ -55,8 +56,12 @@ func (p circuitProver) transfer(payload []byte) (*common.Proof, *Error) {
 	if failure := p.decode(payload, &params); failure != nil {
 		return nil, failure
 	}
+	circuit := params.Variant.CircuitType()
+	if failure := p.admission.admit(common.TransferKeyFile(circuit, params.NInputs, params.NOutputs)); failure != nil {
+		return nil, failure
+	}
 	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetTransferSystem(params.Variant.CircuitType(), params.NInputs, params.NOutputs)
+	ps, err := p.keys.GetTransferSystem(circuit, params.NInputs, params.NOutputs)
 	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
@@ -67,6 +72,9 @@ func (p circuitProver) transfer(payload []byte) (*common.Proof, *Error) {
 func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
 	var params transfereddsaonly.P256TransferParameters
 	if failure := p.decode(payload, &params); failure != nil {
+		return nil, failure
+	}
+	if failure := p.admission.admit(common.TransferKeyFile(common.TransferP256RingCircuitType, params.NInputs, params.NOutputs)); failure != nil {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
@@ -89,6 +97,9 @@ func (p circuitProver) merge(circuit common.CircuitType, payload []byte) (*commo
 	if err := params.ValidateShape(); err != nil {
 		return nil, malformedBodyError(err)
 	}
+	if failure := p.admission.admit(common.TransferKeyFile(circuit, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)); failure != nil {
+		return nil, failure
+	}
 	finishKeys := p.trace.Start("keys")
 	ps, err := p.keys.GetTransferSystem(circuit, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
 	finishKeys()
@@ -104,6 +115,9 @@ func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common
 	finishParameters()
 	if err != nil {
 		return nil, customRingFailure(malformedBodyError(err))
+	}
+	if failure := p.admission.admit(common.RingKeyFile(circuit)); failure != nil {
+		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
 	ps, err := p.keys.GetRingSystem(circuit)
@@ -130,6 +144,9 @@ func customRingFailure(failure *Error) *Error {
 func (p circuitProver) batchAddressAppend(payload []byte) (*common.Proof, *Error) {
 	var params nullifiertree.BatchAddressAppendParameters
 	if failure := p.decode(payload, &params); failure != nil {
+		return nil, failure
+	}
+	if failure := p.admission.admit(common.BatchKeyFile(common.BatchAddressAppendCircuitType, params.TreeHeight, params.BatchSize)); failure != nil {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")

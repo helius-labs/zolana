@@ -196,7 +196,7 @@ async function serviceRequestUrls(
         { headers: { "content-type": "application/json" } },
       );
     }
-    if (path.endsWith("/prove")) {
+    if (/\/prove\/[a-z0-9_-]+$/u.test(path)) {
       return new Response(JSON.stringify(proofFor(String(init?.body))), {
         headers: { "content-type": "application/json" },
       });
@@ -310,7 +310,7 @@ describe("ZolanaClient", () => {
       overrides: {},
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove",
+        "https://rpc.example.com/zolana/prove/transfer_confidential_1_1",
       ],
     },
     {
@@ -318,7 +318,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove",
+        "https://rpc.example.com/zolana/prove/transfer_confidential_1_1",
       ],
     },
     {
@@ -326,7 +326,7 @@ describe("ZolanaClient", () => {
       overrides: { proverUrl: PROVER_URL },
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove",
+        "https://prover.example.com/api/prove/transfer_confidential_1_1",
       ],
     },
     {
@@ -334,7 +334,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL, proverUrl: PROVER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove",
+        "https://prover.example.com/api/prove/transfer_confidential_1_1",
       ],
     },
   ] satisfies readonly Readonly<{
@@ -350,7 +350,7 @@ describe("ZolanaClient", () => {
       serviceRequestUrls(RPC_URL, { indexerUrl: undefined, proverUrl: undefined }),
     ).resolves.toEqual([
       "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-      "https://rpc.example.com/zolana/prove",
+      "https://rpc.example.com/zolana/prove/transfer_confidential_1_1",
     ]);
   });
 
@@ -360,7 +360,7 @@ describe("ZolanaClient", () => {
 
     await expect(serviceRequestUrls(rpcUrl)).resolves.toEqual([
       "https://gateway.example.com/base/getShieldedTransactionsByNullifiers?cluster=devnet",
-      "https://gateway.example.com/base/prove?cluster=devnet",
+      "https://gateway.example.com/base/prove/transfer_confidential_1_1?cluster=devnet",
     ]);
     expect(rpcUrl.href).toBe(original);
   });
@@ -655,7 +655,9 @@ describe("ZolanaClient", () => {
     const proof = await keys.prove(proverInputs);
 
     expect(Object.keys(proof).sort()).toEqual(["a", "b", "c"]);
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3001/prove");
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:3001/prove/transfer_confidential_1_1",
+    );
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
       circuitType: "transfer-confidential",
       publicInputHash: `0x${proverInputs.payload.publicInputHash.toString(16)}`,
@@ -977,7 +979,9 @@ describe("prover indexer fetching", () => {
         const result = await client.proveTransact(transaction, keys);
         expect(result.treeContexts[0]?.utxoTreeRootIndex).toBe(rootIndex);
         expect(fetch).toHaveBeenCalledOnce();
-        expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/indexed$/u);
+        expect(String(fetch.mock.calls[0]?.[0])).toMatch(
+          /\/prove\/transfer_confidential_2_2\/indexed$/u,
+        );
       } finally {
         keys.destroy();
       }
@@ -1044,7 +1048,9 @@ describe("prover indexer fetching", () => {
         expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
         expect(fetch).toHaveBeenCalledOnce();
         expect(String(fetch.mock.calls[0]?.[0])).toMatch(
-          proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+          proofDataSource === "prover"
+            ? /\/prove\/[a-z0-9_-]+\/indexed$/u
+            : /\/prove\/[a-z0-9_-]+$/u,
         );
         const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
         const decoded = wireDecoder(() => new Error("invalid body")).record(body, "body");
@@ -1120,7 +1126,7 @@ describe("prover indexer fetching", () => {
       expect(state).not.toHaveBeenCalled();
       expect(nullifier).not.toHaveBeenCalled();
       expect(fetch).toHaveBeenCalledOnce();
-      expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/indexed$/u);
+      expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/transfer_ring_2_2\/indexed$/u);
       const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
       const decoder = wireDecoder(() => new Error("invalid body"));
       const payload = decoder.record(decoder.record(body, "body")["prepared"], "prepared");
@@ -1194,6 +1200,7 @@ describe("prover indexer fetching", () => {
         proverUrl: "https://prover.test/v1/zolana?api-key=secret",
         fetch,
       });
+      const indexedUrl = `https://prover.test/v1/zolana/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
       const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
       try {
         const result =
@@ -1205,17 +1212,13 @@ describe("prover indexer fetching", () => {
         );
         expect(fetch).toHaveBeenCalledTimes(fallback ? 3 : 1);
         if (fallback) {
-          expect(String(fetch.mock.calls[1]?.[0])).toBe(
-            "https://prover.test/v1/zolana/prove/indexed?api-key=secret",
-          );
+          expect(String(fetch.mock.calls[1]?.[0])).toBe(indexedUrl);
           expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
           expect(String(fetch.mock.calls[2]?.[0])).toBe(
-            "https://prover.test/v1/zolana/prove/status?api-key=secret&jobId=indexed-job",
+            "https://prover.test/v1/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
           );
         }
-        expect(String(fetch.mock.calls[0]?.[0])).toBe(
-          "https://prover.test/v1/zolana/prove/indexed?api-key=secret",
-        );
+        expect(String(fetch.mock.calls[0]?.[0])).toBe(indexedUrl);
         const decoder = wireDecoder(() => new Error("bad request"));
         const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
         const envelope = decoder.record(body, "request");

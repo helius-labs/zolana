@@ -37,7 +37,7 @@ func TestReadinessIsPublic(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatal(response.Code)
 	}
-	if !requiresAuthentication("/prove") {
+	if !requiresAuthentication("/prove/transfer_confidential_1_1") {
 		t.Fatal("proof endpoint lost authentication")
 	}
 }

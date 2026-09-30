@@ -2,7 +2,7 @@
 
 use reqwest::Url;
 
-use crate::error::ClientError;
+use crate::{error::ClientError, prover::ExpectedProvingKey};
 
 const API_KEY: &str = "api-key";
 const REDACTED: &str = "redacted";
@@ -23,7 +23,7 @@ impl ProverEndpoint {
         }
     }
 
-    /// `path` is slash-separated segments, as in [`super::PROVE_PATH`].
+    /// `path` is slash-separated segments, such as `/prove/merge_8_1`.
     pub(crate) fn url(&self, path: &str) -> Result<Url, ClientError> {
         let invalid = || ClientError::Prover("invalid prover URL".into());
         let mut url = self.base.clone().ok_or_else(invalid)?;
@@ -34,8 +34,14 @@ impl ProverEndpoint {
         Ok(url)
     }
 
-    pub(crate) fn status_url(&self, job_id: &str) -> Result<Url, ClientError> {
-        let mut url = self.url(&format!("{}/status", super::PROVE_PATH))?;
+    /// Where a queued proof of `key` is polled, so the poll reaches the pool
+    /// that queued it.
+    pub(crate) fn status_url(
+        &self,
+        key: &ExpectedProvingKey,
+        job_id: &str,
+    ) -> Result<Url, ClientError> {
+        let mut url = self.url(&format!("{}/status", key.prove_path()))?;
         url.query_pairs_mut().append_pair("jobId", job_id);
         Ok(url)
     }
@@ -141,12 +147,16 @@ mod tests {
     #[test]
     fn the_job_id_is_encoded_and_the_key_kept() {
         let endpoint = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?api-key=k");
+        let key = ExpectedProvingKey {
+            name: "merge_36_1.key".to_string(),
+            sha256: [0; 32],
+        };
         assert_eq!(
-            String::from(endpoint.status_url("job-1").unwrap()),
-            "https://gateway.invalid/v1/zolana/prove/status?api-key=k&jobId=job-1"
+            String::from(endpoint.status_url(&key, "job-1").unwrap()),
+            "https://gateway.invalid/v1/zolana/prove/merge_36_1/status?api-key=k&jobId=job-1"
         );
         // A `#` from the server must not push the key into a fragment.
-        let url = endpoint.status_url("a#b&c").unwrap();
+        let url = endpoint.status_url(&key, "a#b&c").unwrap();
         assert_eq!(url.query(), Some("api-key=k&jobId=a%23b%26c"));
         assert_eq!(url.fragment(), None);
     }

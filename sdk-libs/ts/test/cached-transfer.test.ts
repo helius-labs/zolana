@@ -752,7 +752,7 @@ describe("ZolanaClient.proveTransact reading from a cache", () => {
       ]);
       expect(fetch).toHaveBeenCalledOnce();
       expect(String(fetch.mock.calls[0]?.[0])).toMatch(
-        proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+        proofDataSource === "prover" ? /\/prove\/[a-z0-9_-]+\/indexed$/u : /\/prove\/[a-z0-9_-]+$/u,
       );
     },
   );
@@ -900,7 +900,7 @@ describe("a merge writing its output to a cache slot", () => {
         cache: { address: CACHE, slot: 2 },
       });
       expect(String(fetch.mock.calls[0]?.[0])).toMatch(
-        proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+        proofDataSource === "prover" ? /\/prove\/[a-z0-9_-]+\/indexed$/u : /\/prove\/[a-z0-9_-]+$/u,
       );
       expect(proved.data.cacheSlot).toBe(2);
       expect(proved.outputHash).toEqual(prepared.outputHash());
