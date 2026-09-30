@@ -6,6 +6,7 @@ use zolana_transaction::{Address, SpendableDecryptionResult};
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
     resolve::resolve_sync_with_config,
+    util::format_address,
     INDEXER_POLL, INDEXER_TIMEOUT,
 };
 use crate::{
@@ -22,6 +23,14 @@ pub(super) struct SyncContext {
 pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
     let ctx = sync_context(&opts)?;
     println!("ok sync utxos={}", ctx.spendable.utxos().count());
+    // UTXOs in these assets are left out until the asset is in the local
+    // asset config.
+    for asset_id in &ctx.spendable.unknown_asset_ids {
+        println!("warn sync unregistered_asset_id={asset_id}");
+    }
+    for mint in &ctx.spendable.unknown_mints {
+        println!("warn sync unregistered_mint={}", format_address(*mint));
+    }
     Ok(())
 }
 

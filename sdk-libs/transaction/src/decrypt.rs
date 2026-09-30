@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use borsh::BorshDeserialize;
 use solana_address::Address;
@@ -23,12 +23,25 @@ use crate::{
 pub struct DecryptionResult {
     pub utxos: Vec<WalletUtxo>,
     pub spent_nullifiers: HashSet<[u8; 32]>,
+    /// Asset ids read from decoded outputs that the asset registry does not
+    /// know. Those outputs are left out. The sender wrote the id and nothing on
+    /// chain checks it, so it is unverified: register the assets that exist
+    /// and decrypt again, and the commitment decides.
+    pub unknown_asset_ids: BTreeSet<u64>,
+    /// Mints named by deposits this wallet owns that the asset registry has no
+    /// id for. Those deposits are left out; register the mints and decrypt
+    /// again.
+    pub unknown_mints: BTreeSet<Address>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpendableDecryptionResult {
     pub balances: Balances,
     pub utxos_with_data: Vec<WalletUtxo>,
+    /// As on [`DecryptionResult`].
+    pub unknown_asset_ids: BTreeSet<u64>,
+    /// As on [`DecryptionResult`].
+    pub unknown_mints: BTreeSet<Address>,
 }
 
 impl SpendableDecryptionResult {
@@ -64,13 +77,28 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
         .flat_map(|tx| tx.nullifiers.iter().copied())
         .collect();
     let mut utxos = Vec::new();
+    let mut unknown_asset_ids = BTreeSet::new();
+    let mut unknown_mints = BTreeSet::new();
     for tx in transactions {
         for (position, slot) in tx.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
-            let Some(decoded) = decode_slot(shielded_keys, &address, tx, slot, slot_index, assets)?
-            else {
-                continue;
+            let decoded = match decode_slot(shielded_keys, &address, tx, slot, slot_index, assets) {
+                Ok(Some(decoded)) => decoded,
+                Ok(None) => continue,
+                // An asset the registry lacks leaves one output out and is
+                // reported, rather than failing the whole scan. Deposits name
+                // their mint, in the clear and after the owner check; every
+                // other output carries a registry id.
+                Err(TransactionError::UnknownAsset(asset_id)) => {
+                    unknown_asset_ids.insert(asset_id);
+                    continue;
+                }
+                Err(TransactionError::UnknownMint(mint)) => {
+                    unknown_mints.insert(mint);
+                    continue;
+                }
+                Err(error) => return Err(error),
             };
             for utxo in decoded.utxos {
                 let hash = slot.output_context.hash;
@@ -102,6 +130,8 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
     Ok(DecryptionResult {
         utxos,
         spent_nullifiers,
+        unknown_asset_ids,
+        unknown_mints,
     })
 }
 
@@ -181,6 +211,8 @@ pub fn verify_spendable<K: ShieldedKeys + ?Sized>(
     Ok(SpendableDecryptionResult {
         balances: Balances { assets: balances },
         utxos_with_data,
+        unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
+        unknown_mints: decrypted.unknown_mints.clone(),
     })
 }
 

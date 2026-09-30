@@ -81,6 +81,12 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
 
     println!("reading the sender's notes");
     let spendable = sender_utxos.fetch(&indexer)?;
+    if !spendable.unknown_asset_ids.is_empty() {
+        line("unregistered asset ids", spendable.unknown_asset_ids.len());
+    }
+    if !spendable.unknown_mints.is_empty() {
+        line("unregistered mints", spendable.unknown_mints.len());
+    }
     let (tree, selected) = select_candidates(&spendable, ctx.ring, mint, args.count).ok_or(
         MergeError::InsufficientNotes {
             mint,
