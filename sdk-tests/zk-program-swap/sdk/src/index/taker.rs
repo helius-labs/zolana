@@ -4,13 +4,12 @@ use anyhow::{anyhow, bail, Result};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_client::Rpc;
+use zolana_client::{user_registry::resolve_registered_address, Rpc};
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
-    serialization::confidential::Confidential, utxo::Blinding, DecodeCx, ShieldedTransaction,
-    UtxoSerialization,
+    serialization::confidential::Confidential, utxo::Blinding, AssetRegistry, DecodeCx,
+    ShieldedTransaction, UtxoSerialization,
 };
-use zolana_wallet::{resolve_registered_address, Wallet};
 
 use super::{
     poll::{collect_tagged, index_until},
@@ -41,12 +40,11 @@ pub struct TakerOrderCandidate {
 
 pub fn scan_taker(
     tx: &ShieldedTransaction,
-    wallet: &Wallet,
     keypair: &ShieldedKeypair,
+    registry: &AssetRegistry,
 ) -> Result<Option<TakerOrderCandidate>> {
-    let taker_tag = wallet
-        .identity
-        .signing_pubkey
+    let taker_tag = keypair
+        .signing_pubkey()
         .confidential_view_tag()
         .map_err(err)?;
     let Some(marker_message) = tx
@@ -68,8 +66,8 @@ pub fn scan_taker(
     let order_data = parse_order_data(&order_utxo_plaintext.data.records)?;
     Ok(Some(TakerOrderCandidate {
         source_amount: order_utxo_plaintext.amount,
-        source_mint: resolve_mint(&wallet.registry, order_utxo_plaintext.asset_id)?,
-        destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?.asset,
+        source_mint: resolve_mint(registry, order_utxo_plaintext.asset_id)?,
+        destination_mint: resolve_mint(registry, order_data.destination_asset_id)?.asset,
         order_utxo_blinding: order_utxo_plaintext.blinding,
         order_data,
         maker_pubkey: Pubkey::new_from_array(marker.maker_pubkey),
@@ -112,33 +110,26 @@ impl TakerOrderCandidate {
     }
 }
 
-pub fn index_taker<I: Rpc + Sync, R: Rpc>(
-    wallet: &mut Wallet,
+pub fn index_taker<I: Rpc, R: Rpc>(
     keypair: &ShieldedKeypair,
+    registry: &AssetRegistry,
     indexer: &I,
     rpc: &R,
     timeout: Duration,
 ) -> Result<Vec<TakerOrder>> {
-    index_until(
-        wallet,
-        keypair,
-        indexer,
-        timeout,
-        "taker orders",
-        |wallet| {
-            let taker_viewing_pubkey = wallet.identity.viewing_pubkey;
-            collect_tagged(wallet, indexer, |tx| {
-                let Some(candidate) = scan_taker(tx, wallet, keypair)? else {
-                    return Ok(None);
-                };
-                let maker_resolved_address =
-                    resolve_registered_address(rpc, candidate.maker_pubkey).map_err(err)?;
-                candidate
-                    .into_order(maker_resolved_address.address, taker_viewing_pubkey)
-                    .map(Some)
-            })
-        },
-    )
+    let taker_viewing_pubkey = keypair.viewing_pubkey();
+    index_until(timeout, "taker orders", || {
+        collect_tagged(keypair, indexer, |tx| {
+            let Some(candidate) = scan_taker(tx, keypair, registry)? else {
+                return Ok(None);
+            };
+            let maker_resolved_address =
+                resolve_registered_address(rpc, candidate.maker_pubkey).map_err(err)?;
+            candidate
+                .into_order(maker_resolved_address.address, taker_viewing_pubkey)
+                .map(Some)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -151,7 +142,7 @@ mod tests {
     #[test]
     fn scan_taker_reconstructs_terms_from_the_transaction() {
         let fixture = order_fixture();
-        let candidate = scan_taker(&fixture.tx, &fixture.wallet, &fixture.taker_keypair)
+        let candidate = scan_taker(&fixture.tx, &fixture.taker_keypair, &fixture.registry)
             .expect("scan")
             .expect("order candidate");
         let order = candidate
@@ -169,7 +160,7 @@ mod tests {
     #[test]
     fn into_order_rejects_a_wrong_maker_address() {
         let fixture = order_fixture();
-        let candidate = scan_taker(&fixture.tx, &fixture.wallet, &fixture.taker_keypair)
+        let candidate = scan_taker(&fixture.tx, &fixture.taker_keypair, &fixture.registry)
             .expect("scan")
             .expect("order candidate");
         let taker_address = fixture
@@ -189,12 +180,7 @@ mod tests {
         let fixture = order_fixture();
         let other_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([21u8; 32]))
             .expect("other keypair");
-        let other_wallet = Wallet::new(
-            other_keypair.shielded_address().expect("other address"),
-            fixture.wallet.registry.clone(),
-        )
-        .expect("other wallet");
-        assert!(scan_taker(&fixture.tx, &other_wallet, &other_keypair)
+        assert!(scan_taker(&fixture.tx, &other_keypair, &fixture.registry)
             .expect("scan")
             .is_none());
     }

@@ -3,6 +3,7 @@ mod deposit;
 mod material;
 mod registry;
 mod resolve;
+mod spend;
 mod sync;
 mod test_mint;
 mod transaction;

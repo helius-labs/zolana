@@ -20,14 +20,15 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
+use zolana_client::user_registry::ensure_registered;
 use zolana_client::Rpc;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::random_blinding;
+use zolana_test_utils::wallet::{sync_wallet, Filter};
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::{ensure_registered, sync_wallet, Filter};
 
 const EXPIRY: u64 = 2_000_000_000;
 
@@ -177,8 +178,8 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
     let (source_output_hash, destination_output_hash) = {
         let taker_address = taker.keypair.shielded_address()?;
         let order = index_taker(
-            &mut taker.wallet,
             &taker.keypair,
+            &taker.registry,
             localnet.client.indexer(),
             localnet.client.rpc(),
             Duration::from_secs(60),

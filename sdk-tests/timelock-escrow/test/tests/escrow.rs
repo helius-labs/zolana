@@ -19,11 +19,11 @@ use timelock_escrow_sdk::{
 };
 use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
+use zolana_test_utils::wallet::sync_wallet;
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::sync_wallet;
 
 // Timelock escrow lock-then-withdraw on the shielded pool, driven against a
 // real localnet (validator + Photon indexer + prover) that `setup()` starts.

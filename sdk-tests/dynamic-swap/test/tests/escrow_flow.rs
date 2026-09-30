@@ -21,10 +21,12 @@ use dynamic_swap_sdk::{
 };
 use shared::{escrow_authority_identity, get_slot_with_retry, send, setup_with_pair, wait_until};
 use solana_signer::Signer;
+use zolana_client::user_registry::resolve_registered_address;
 use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_keypair::random_blinding;
 use zolana_program::instruction::Transact;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Filter, Wallet};
 use zolana_transaction::{
     instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
@@ -32,9 +34,6 @@ use zolana_transaction::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
     Data, Utxo, SOL_MINT,
-};
-use zolana_wallet::{
-    resolve_registered_address, sync_wallet, Deposit, DepositParams, Filter, Wallet,
 };
 
 const PRICE: u64 = 5;

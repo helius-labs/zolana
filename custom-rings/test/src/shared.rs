@@ -38,6 +38,7 @@ use zolana_program_test::{
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
 };
 use zolana_ring_policy::{ListId, RuleTable};
+use zolana_test_utils::wallet::Wallet;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, localnet_indexer_url, localnet_rpc_url, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -46,7 +47,6 @@ use zolana_test_utils::{
 };
 use zolana_transaction::AssetRegistry;
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::Wallet;
 
 /// Funds the fee payer for the whole bootstrap (smart accounts, protocol
 /// config, tree allocation) plus every deposit a test drives through it.
@@ -559,7 +559,10 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
         .map_err(|e| anyhow!("actor address failed {e:?}"))?;
     let wallet =
         Wallet::new(address, assets.clone()).map_err(|e| anyhow!("actor wallet failed {e:?}"))?;
-    let wallet = wallet.with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
+    let wallet = wallet.with_ring_deposit_payload(
+        custom_ring_program_id()?,
+        zolana_ring_client::deposit_payload,
+    );
     Ok(TestWallet { wallet, keypair })
 }
 

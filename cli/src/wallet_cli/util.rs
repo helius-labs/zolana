@@ -2,12 +2,13 @@ use anyhow::{bail, Context, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use zolana_client::Rpc;
+use solana_signer::Signer;
+use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_interface::{
     pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
+use zolana_program::instruction::CreateAssociatedTokenAccount;
 use zolana_transaction::{Address, SOL_MINT};
-use zolana_wallet::create_associated_token_account_with_program;
 
 pub(super) use crate::cli_config::parse_pubkey;
 use crate::cli_config::CliConfigFile;
@@ -120,12 +121,20 @@ pub(super) fn ensure_owner_spl_token_account<R: Rpc>(
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
     let token_program = resolve_spl_token_program(rpc, &mint)?;
-    let expected = pda::associated_token_address_with_program(&owner, &mint, &token_program);
-    let (signature, token_account) =
-        create_associated_token_account_with_program(rpc, payer, &owner, &mint, &token_program)?;
-    if token_account != expected {
-        bail!("associated token account derivation returned {token_account}; expected {expected}");
-    }
+    // The create is idempotent: it succeeds whether or not the account exists.
+    let create = CreateAssociatedTokenAccount {
+        payer: payer.pubkey(),
+        owner,
+        mint,
+        token_program,
+    };
+    let token_account = create.address();
+    let signature = rpc.create_and_send_transaction(
+        &[create.instruction()],
+        Address::new_from_array(payer.pubkey().to_bytes()),
+        &[payer],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
     println!(
         "ok associated_token_account account={token_account} owner={owner} mint={mint} signature={signature}"
     );

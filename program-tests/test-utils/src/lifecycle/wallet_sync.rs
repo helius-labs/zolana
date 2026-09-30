@@ -1,8 +1,8 @@
 //! Wallet synchronization and explicit UTXO assertions.
 
+use crate::wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 use anyhow::Result;
 use zolana_transaction::{Address, Utxo};
-use zolana_wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 
 use super::LifecycleHarness;
 use crate::localnet::ZERO;

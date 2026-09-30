@@ -35,7 +35,6 @@ zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-program = { workspace = true }
 zolana-tree = { workspace = true }
-zolana-wallet = { workspace = true }
 mollusk-svm = { workspace = true }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 solana-account = { workspace = true }

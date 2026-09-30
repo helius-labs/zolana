@@ -1,10 +1,10 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
+use crate::wallet::{SyncWalletAuthority, Wallet};
 use solana_pubkey::Pubkey;
 use zolana_interface::{instruction::deposit_blinding, state::read_tree_id};
 use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_wallet::{SyncWalletAuthority, Wallet};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and

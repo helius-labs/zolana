@@ -51,6 +51,7 @@ use zolana_program::instruction::{
 };
 use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
 use zolana_test_utils::smart_account;
+use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
     localnet::start_shielded_pool_localnet,
@@ -69,7 +70,6 @@ use zolana_transaction::{
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
-use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,

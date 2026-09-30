@@ -26,6 +26,7 @@ zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
 zolana-api = { workspace = true, optional = true }
 num-bigint = { workspace = true }
@@ -51,6 +52,7 @@ solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-signature = { workspace = true }
+solana-signer = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
@@ -71,6 +73,9 @@ zolana-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
 wincode = { workspace = true }
+
+[[test]]
+name = "spendable"
 
 [[test]]
 name = "rpc"
@@ -136,3 +141,6 @@ required-features = ["proofs"]
 
 [[test]]
 name = "solana_rpc"
+
+[[test]]
+name = "user_registry"

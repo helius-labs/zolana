@@ -13,9 +13,9 @@ use zolana_program_test::{
     workspace_path,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
 // The whole per-transaction budget: a swap verifies an SPP proof and its own.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -141,15 +141,16 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         (maker_input.utxo.asset.asset, maker_input.utxo.amount),
         (spl_mint, MAKER_SHIELD_SPL)
     );
-    Deposit::new(DepositParams {
+    let taker_deposit = Deposit::new(DepositParams {
         recipient: &taker_shielded_keypair.shielded_address()?,
         asset: SOL_MINT,
         amount: DESTINATION_AMOUNT,
         spl_token_account: None,
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
-    })?
-    .send(&localnet.client, &payer, localnet.tree, &payer)?;
+    })?;
+    let taker_view_tag = taker_deposit.view_tag();
+    let taker_signature = taker_deposit.send(&localnet.client, &payer, localnet.tree, &payer)?;
 
     let maker_address = maker_shielded_keypair
         .shielded_address()
@@ -158,8 +159,10 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         .shielded_address()
         .map_err(|e| anyhow!("taker address: {e:?}"))?;
 
-    // The taker's deposit is wallet-owned, so discover it through the indexer.
-    // The maker-funded input is program-owned and retained explicitly above.
+    // The taker's deposit is wallet-owned, so discover it through the indexer
+    // once it is indexed. The maker-funded input is program-owned and retained
+    // explicitly above.
+    wait_for_indexed_utxo(&localnet.client, taker_view_tag, taker_signature);
     let maker_wallet =
         Wallet::new(maker_address, assets.clone()).map_err(|e| anyhow!("maker wallet: {e:?}"))?;
     let mut taker_wallet =

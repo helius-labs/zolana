@@ -9,8 +9,8 @@ use zolana_program_test::{
     fixture,
     localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
 };
+use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 use zolana_transaction::{AssetRegistry, SOL_MINT};
-use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
 // The whole per-transaction budget: the settlement verifies an SPP proof.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;

@@ -18,13 +18,14 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
+use zolana_client::user_registry::ensure_registered;
 use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
+use zolana_test_utils::wallet::Filter;
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::{ensure_registered, Filter};
 
 const EXPIRY: u64 = 2_000_000_000;
 
@@ -55,7 +56,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         localnet,
         maker,
         maker_input,
-        mut taker,
+        taker,
         spl_mint,
     } = setup(2)?;
     let swap_prover_client = SwapProverClient::new();
@@ -186,8 +187,8 @@ fn make_and_take_swap_inline() -> Result<()> {
     {
         let taker_address = taker.keypair.shielded_address()?;
         let order = index_taker(
-            &mut taker.wallet,
             &taker.keypair,
+            &taker.registry,
             localnet.client.indexer(),
             localnet.client.rpc(),
             Duration::from_secs(60),

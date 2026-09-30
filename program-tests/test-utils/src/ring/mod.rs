@@ -15,6 +15,7 @@ mod ring_transact;
 
 use std::ops::{Deref, DerefMut};
 
+use crate::wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -32,7 +33,6 @@ use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
     serialization::confidential::Confidential, ShieldedTransaction, Utxo, WalletUtxo,
 };
-use zolana_wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},

@@ -4,29 +4,19 @@ use anyhow::{bail, Result};
 use zolana_client::Rpc;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::ShieldedTransaction;
-use zolana_wallet::{sync_wallet, KeypairWalletAuthority, Wallet};
 
 use crate::err;
 
 const INDEX_POLL: Duration = Duration::from_millis(500);
 
-pub(crate) fn index_until<I: Rpc + Sync, T>(
-    wallet: &mut Wallet,
-    keypair: &ShieldedKeypair,
-    indexer: &I,
+pub(crate) fn index_until<T>(
     timeout: Duration,
     what: &str,
-    mut collect: impl FnMut(&Wallet) -> Result<Vec<T>>,
+    mut collect: impl FnMut() -> Result<Vec<T>>,
 ) -> Result<Vec<T>> {
-    let solana_pubkey = keypair
-        .shielded_address()
-        .and_then(|address| address.solana_address())
-        .map_err(err)?;
-    let authority = KeypairWalletAuthority::new(solana_pubkey, keypair);
     let deadline = Instant::now() + timeout;
     loop {
-        sync_wallet(wallet, &authority, indexer).map_err(err)?;
-        let found = collect(wallet)?;
+        let found = collect()?;
         if !found.is_empty() {
             return Ok(found);
         }
@@ -37,14 +27,13 @@ pub(crate) fn index_until<I: Rpc + Sync, T>(
     }
 }
 
-pub(crate) fn collect_tagged<I: Rpc + Sync, T>(
-    wallet: &Wallet,
+pub(crate) fn collect_tagged<I: Rpc, T>(
+    keypair: &ShieldedKeypair,
     indexer: &I,
     mut scan: impl FnMut(&ShieldedTransaction) -> Result<Option<T>>,
 ) -> Result<Vec<T>> {
-    let owner_tag = wallet
-        .identity
-        .signing_pubkey
+    let owner_tag = keypair
+        .signing_pubkey()
         .confidential_view_tag()
         .map_err(err)?;
     let mut found = Vec::new();

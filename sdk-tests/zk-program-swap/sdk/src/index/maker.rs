@@ -7,7 +7,6 @@ use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, ShieldedTransaction,
 };
-use zolana_wallet::Wallet;
 
 use super::{
     poll::{collect_tagged, index_until},
@@ -34,8 +33,8 @@ pub struct MakerOrder {
 /// order utxo hash matches the slot's committed leaf.
 pub fn scan_maker(
     tx: &ShieldedTransaction,
-    wallet: &Wallet,
     keypair: &ShieldedKeypair,
+    registry: &AssetRegistry,
 ) -> Result<Option<MakerOrder>> {
     let (Some(tx_viewing_pk), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
         return Ok(None);
@@ -48,7 +47,7 @@ pub fn scan_maker(
     }) else {
         return Ok(None);
     };
-    let maker_address = wallet.identity;
+    let maker_address = keypair.shielded_address().map_err(err)?;
     for (slot_index, slot, body) in unified_slots(tx) {
         let Ok(taker_viewing_pubkey) = Confidential::embedded_viewing_pk(&body) else {
             continue;
@@ -58,12 +57,9 @@ pub fn scan_maker(
         else {
             continue;
         };
-        let Some(order) = maker_order_candidate(
-            &wallet.registry,
-            maker_address,
-            plaintext,
-            taker_viewing_pubkey,
-        ) else {
+        let Some(order) =
+            maker_order_candidate(registry, maker_address, plaintext, taker_viewing_pubkey)
+        else {
             continue;
         };
         let Ok(order_utxo_hash) = order
@@ -109,20 +105,15 @@ fn maker_order_candidate(
     })
 }
 
-pub fn index_maker<I: Rpc + Sync>(
-    wallet: &mut Wallet,
+pub fn index_maker<I: Rpc>(
     keypair: &ShieldedKeypair,
+    registry: &AssetRegistry,
     indexer: &I,
     timeout: Duration,
 ) -> Result<Vec<MakerOrder>> {
-    index_until(
-        wallet,
-        keypair,
-        indexer,
-        timeout,
-        "maker orders",
-        |wallet| collect_tagged(wallet, indexer, |tx| scan_maker(tx, wallet, keypair)),
-    )
+    index_until(timeout, "maker orders", || {
+        collect_tagged(keypair, indexer, |tx| scan_maker(tx, keypair, registry))
+    })
 }
 
 #[cfg(test)]
@@ -133,7 +124,7 @@ mod tests {
     #[test]
     fn scan_maker_reconstructs_the_opening_from_the_makers_side() {
         let fixture = order_fixture();
-        let order = scan_maker(&fixture.tx, &fixture.maker_wallet, &fixture.maker_keypair)
+        let order = scan_maker(&fixture.tx, &fixture.maker_keypair, &fixture.registry)
             .expect("scan")
             .expect("own order");
         assert_eq!(
@@ -146,7 +137,7 @@ mod tests {
     fn scan_maker_ignores_transactions_of_other_makers() {
         let fixture = order_fixture();
         assert!(
-            scan_maker(&fixture.tx, &fixture.wallet, &fixture.taker_keypair)
+            scan_maker(&fixture.tx, &fixture.taker_keypair, &fixture.registry)
                 .expect("scan")
                 .is_none()
         );

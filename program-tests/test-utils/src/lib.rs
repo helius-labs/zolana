@@ -25,3 +25,4 @@ pub mod transact;
 mod wallet_discovery;
 
 pub mod utxo;
+pub mod wallet;

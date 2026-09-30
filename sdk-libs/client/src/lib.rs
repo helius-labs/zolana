@@ -2,8 +2,8 @@
 //! Use `SolanaRpc`, `ZolanaIndexer`, or `ProverClient` (or their async counterparts)
 //! when you need direct access to an individual service.
 //!
-//! Wallet state, syncing, transaction-building actions, and the user registry
-//! live in the `zolana-wallet` crate, which builds on this one.
+//! Note decryption lives in `zolana-transaction`; the SDK keeps no wallet
+//! state. The user registry helpers are in [`user_registry`].
 //!
 //! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
 //! `let _t = Phase::start(..)` guards through this crate are that, timing until
@@ -23,6 +23,8 @@ pub mod error;
 pub mod indexer;
 pub mod prover;
 pub mod rpc;
+pub mod spendable;
+pub mod user_registry;
 
 pub use authority::ProofAuthority;
 #[cfg(feature = "indexer-api")]
@@ -65,6 +67,7 @@ pub use rpc::{
     MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
+pub use spendable::SpendableUtxos;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

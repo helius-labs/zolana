@@ -1,8 +1,17 @@
 use borsh::BorshDeserialize;
-use zolana_event::{MessageData, OutputDataEncoding, ProoflessOutput};
+use solana_address::Address;
+use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
 use zolana_keypair::P256Pubkey;
 
-use crate::serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization};
+use crate::{
+    error::TransactionError,
+    serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization},
+};
+
+/// A ring program's reading of its framing around a ring deposit ciphertext:
+/// the recipient's ciphertext inside it, `None` when the ciphertext carries no
+/// framing, or an error when the framing does not parse.
+pub type DepositPayload = for<'a> fn(&'a [u8]) -> Result<Option<&'a [u8]>, TransactionError>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {
@@ -19,6 +28,16 @@ pub struct ShieldedTransaction {
     pub proofless: bool,
     pub ring_config: Option<solana_address::Address>,
     pub ring_program_id: Option<solana_address::Address>,
+}
+
+impl ShieldedTransaction {
+    /// A merge publishes no ciphertext and no transaction viewing key, and is
+    /// not a deposit. Other transactions can share that shape;
+    /// [`rebuild_merge`](crate::rebuild_merge) tells them apart by the
+    /// commitment.
+    pub fn may_be_merge(&self) -> bool {
+        !self.proofless && self.tx_viewing_pk.is_none() && self.salt.is_none()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,5 +75,43 @@ impl OutputSlot {
             return None;
         }
         Proofless::deserialize(body).ok()
+    }
+
+    /// Replaces the framing `ring_program_id` puts around its ring deposit
+    /// ciphertexts with the recipient's ciphertext inside it, which is what
+    /// [`decrypt`](crate::decrypt) opens. Other outputs, deposits of other
+    /// rings and unframed ciphertexts are left as published; framing that does
+    /// not parse is an error rather than a deposit that silently never opens.
+    pub fn unwrap_ring_deposit(
+        &mut self,
+        ring_program_id: &Address,
+        deposit_payload: DepositPayload,
+    ) -> Result<(), TransactionError> {
+        let Some(OutputDataEncoding::Encrypted(blob)) = self.output_data() else {
+            return Ok(());
+        };
+        let Some((&scheme, body)) = blob.split_first() else {
+            return Ok(());
+        };
+        if scheme != EncryptedScheme::RingDeposit.as_byte() {
+            return Ok(());
+        }
+        let Ok(mut output) = EncryptedRingDepositOutput::try_from_slice(body) else {
+            return Ok(());
+        };
+        if output.ring_program_id != *ring_program_id.as_array() {
+            return Ok(());
+        }
+        let Some(ciphertext) = deposit_payload(&output.encrypted.ciphertext)? else {
+            return Ok(());
+        };
+        output.encrypted.ciphertext = ciphertext.to_vec();
+        let serialize = |error: std::io::Error| TransactionError::Serialize(error.to_string());
+        let body = borsh::to_vec(&output).map_err(serialize)?;
+        self.payload = borsh::to_vec(&OutputDataEncoding::Encrypted(
+            [&[scheme][..], &body].concat(),
+        ))
+        .map_err(serialize)?;
+        Ok(())
     }
 }

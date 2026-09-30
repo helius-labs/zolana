@@ -90,6 +90,7 @@ use zolana_ring_rpc::{
     ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
     Unauthorized, Upstreams,
 };
+use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_test_utils::{
     smart_account,
     spl::{create_token_account, mint_to},
@@ -106,7 +107,6 @@ use zolana_transaction::{
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Lamports moved by the two transaction-shape probes. Small enough that the
 /// payer's airdrop covers both plus fees.

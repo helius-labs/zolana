@@ -1,7 +1,10 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use solana_signer::Signer;
-use zolana_client::{SolanaRpc, ZolanaIndexer};
-use zolana_wallet::{create_deposit, resolve_registered_address, DepositParams};
+use zolana_client::{
+    user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer,
+};
+use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
+use zolana_transaction::Address;
 
 use super::{
     material::load_sender_from_resolved_sync,
@@ -33,24 +36,38 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
-    let spl_token_program = if asset == zolana_transaction::SOL_MINT {
-        None
+    let deposit_asset = if asset == zolana_transaction::SOL_MINT {
+        DepositAsset::Sol
     } else {
-        Some(resolve_spl_token_program(
-            &rpc,
-            &solana_pubkey::Pubkey::new_from_array(asset.to_bytes()),
-        )?)
+        let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());
+        DepositAsset::Spl(DepositSplAccounts {
+            mint,
+            user_token: spl_token_account.context("SPL deposit needs a token account")?,
+            token_program: resolve_spl_token_program(&rpc, &mint)?,
+        })
     };
-    let deposit = create_deposit(DepositParams {
-        recipient: &recipient.address,
-        asset,
-        amount: opts.amount,
-        spl_token_account,
-        spl_token_program,
-        memo: None,
-    })?;
-    let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
-    let indexed = wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;
+    // The recipient's viewing key tags a deposit: it is how the recipient's
+    // wallet finds the output without knowing the sender.
+    let view_tag = recipient.address.viewing_pubkey.x();
+    let deposit = Deposit {
+        tree,
+        depositor: material.funding.pubkey(),
+        deposits: vec![AssetDeposit {
+            asset: deposit_asset,
+            view_tag,
+            owner: recipient.address.owner_hash()?,
+            amount: opts.amount,
+            memo: None,
+        }],
+    }
+    .instruction()?;
+    let signature = rpc.create_and_send_transaction(
+        &[deposit],
+        Address::new_from_array(material.funding.pubkey().to_bytes()),
+        &[&material.funding],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
+    let indexed = wait_for_indexed_utxo(&indexer, view_tag, signature)?;
     println!(
         "ok deposit amount={} mint={} to={} utxo_hash={} signature={}",
         opts.amount,

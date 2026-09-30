@@ -34,8 +34,8 @@ use zolana_test_utils::transact::{
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
+use zolana_test_utils::wallet::SyncWalletAuthority;
 use zolana_transaction::instructions::transact::PrivateTxHash;
-use zolana_wallet::SyncWalletAuthority;
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;

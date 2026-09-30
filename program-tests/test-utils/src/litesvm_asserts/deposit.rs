@@ -1,5 +1,6 @@
 //! Post-instruction checks for `deposit` (SOL deposits).
 
+use crate::wallet::{SyncWalletAuthority, Wallet};
 use solana_pubkey::Pubkey;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::Poseidon;
@@ -12,7 +13,6 @@ use zolana_merkle_tree::MerkleTree;
 use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::SOL_MINT;
-use zolana_wallet::{SyncWalletAuthority, Wallet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SolDepositSnapshot {

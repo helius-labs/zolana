@@ -15,12 +15,12 @@ use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, RingDepositAssertArgs,
     SolDepositOracle,
 };
+use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_transaction::{
     derive_output_blinding_seed, owner_utxo_hash, serialization::RingDepositPlaintext,
     utxo::derive_transact_output_blinding, AssetRegistry, Data, Utxo,
 };
 use zolana_tree::TreeAccount;
-use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use shielded_pool_tests::support::{
     fixtures::{register_mint, spl_depositor, Pool},

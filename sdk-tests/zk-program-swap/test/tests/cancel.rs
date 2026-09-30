@@ -18,13 +18,13 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
+use zolana_client::user_registry::ensure_registered;
 use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::ensure_registered;
 
 // The committed order expiry is already in the past, so the maker can cancel
 // immediately: the swap program requires `now > order_expiry`. The SPP relayer
@@ -50,7 +50,7 @@ const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 fn make_and_cancel_swap_inline() -> Result<()> {
     let TestEnv {
         localnet,
-        mut maker,
+        maker,
         maker_input,
         taker,
         spl_mint,
@@ -175,8 +175,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let maker_address = maker.keypair.shielded_address()?;
 
         let order = index_maker(
-            &mut maker.wallet,
             &maker.keypair,
+            &maker.registry,
             localnet.client.indexer(),
             Duration::from_secs(60),
         )?

@@ -8,8 +8,8 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
+use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
 use zolana_transaction::AssetRegistry;
-use zolana_wallet::{KeypairWalletAuthority, Wallet};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_depositor, Pool};
 
