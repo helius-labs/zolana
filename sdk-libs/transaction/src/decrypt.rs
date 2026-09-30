@@ -393,17 +393,15 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
     Ok(None)
 }
 
-/// A merge publishes no ciphertext and no transaction viewing key. Other
-/// transactions can share that shape; the rebuilt commitment tells them apart.
-fn is_merge(tx: &ShieldedTransaction) -> bool {
-    !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none()
-}
-
-enum MergeRebuild {
+/// What [`rebuild_merge`] made of one transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MergeRebuild {
+    /// The merge's outputs, each matching its published commitment.
     Rebuilt(Vec<WalletUtxo>),
-    /// Spends a note this batch has not produced yet, possibly another merge's
-    /// output.
+    /// It spends a UTXO the wallet does not hold yet, possibly another
+    /// merge's output.
     Pending,
+    /// Not a merge of this wallet's UTXOs.
     NotOurs,
 }
 
@@ -419,11 +417,11 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     utxos: &mut Vec<WalletUtxo>,
 ) -> Result<(), TransactionError> {
     let mut pending: Vec<&ShieldedTransaction> =
-        transactions.iter().filter(|tx| is_merge(tx)).collect();
+        transactions.iter().filter(|tx| tx.may_be_merge()).collect();
     while !pending.is_empty() {
         let mut unresolved = Vec::new();
         for tx in &pending {
-            match rebuild_merge(shielded_keys, address, tx, utxos)? {
+            match rebuild(shielded_keys, address, tx, utxos)? {
                 MergeRebuild::Rebuilt(rebuilt) => utxos.extend(rebuilt),
                 MergeRebuild::Pending => unresolved.push(*tx),
                 MergeRebuild::NotOurs => {}
@@ -437,7 +435,22 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     Ok(())
 }
 
-fn rebuild_merge<K: ShieldedKeys + ?Sized>(
+/// Rebuilds the outputs of `merge` from the UTXOs the wallet holds, found by
+/// nullifier. [`decrypt`] rebuilds the merges of one batch from that batch's
+/// candidates; a client that keeps UTXOs between syncs passes them here, since
+/// a merge's inputs were usually published in an earlier batch.
+pub fn rebuild_merge<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    merge: &ShieldedTransaction,
+    held: &[WalletUtxo],
+) -> Result<MergeRebuild, TransactionError> {
+    if !merge.may_be_merge() {
+        return Ok(MergeRebuild::NotOurs);
+    }
+    rebuild(shielded_keys, &shielded_keys.address()?, merge, held)
+}
+
+fn rebuild<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
     tx: &ShieldedTransaction,

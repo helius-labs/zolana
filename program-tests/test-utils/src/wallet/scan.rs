@@ -1,29 +1,24 @@
 use std::collections::{HashMap, HashSet};
 
-use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_event::OutputDataEncoding;
 use zolana_keypair::{
-    hash::owner_hash, viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey,
-    ViewingKey,
+    viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
 };
 use zolana_transaction::{
-    data::Data,
+    decrypt,
     error::TransactionError,
-    instructions::{
-        merge::{merge_dummy_nullifier, merge_output_blinding},
-        transact::{OutputContext, ShieldedTransaction},
-    },
+    instructions::transact::{OutputContext, ShieldedTransaction},
+    rebuild_merge,
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
         confidential::Confidential,
         plaintext::PlaintextTransfer,
         proofless::Proofless,
-        ring_deposit::RingDepositPlaintext,
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
-    AssetRegistry, EncryptedScheme, WalletUtxo,
+    AssetRegistry, EncryptedScheme, LocalShieldedKeys, MergeRebuild, WalletUtxo,
 };
 
 use super::authority::{SyncWalletAuthority, WalletSyncMaterial};
@@ -39,14 +34,6 @@ pub(super) struct TxIndex {
     pub(super) merge_sites: Vec<(usize, usize)>,
 }
 
-/// A merge publishes no per-transaction encryption material: no
-/// `tx_viewing_pk`, no `salt`, and it is not a proofless deposit. The index and
-/// the decoder must agree on this test, or a site routed to the merge path
-/// would be decoded with a viewing key it has no ciphertext for.
-fn is_merge_site(tx: &ShieldedTransaction) -> bool {
-    !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none()
-}
-
 impl TxIndex {
     pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
@@ -54,7 +41,10 @@ impl TxIndex {
         let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
             let mut classified = false;
-            if is_merge_site(tx) {
+            // The index and the decoder share `may_be_merge`, so a site routed
+            // to the merge path is never decoded with a viewing key it has no
+            // ciphertext for.
+            if tx.may_be_merge() {
                 for slot_index in 0..tx.output_slots.len() {
                     merge_sites.push((t, slot_index));
                     classified = true;
@@ -125,6 +115,7 @@ enum MergeResolution {
 
 pub(super) struct SyncCtx<'a> {
     deposit_payload: zolana_transaction::DepositPayload,
+    keys: LocalShieldedKeys,
     pub(super) nullifier_key: &'a NullifierKey,
     /// Every viewing key this wallet has held, current and rotated-out. A
     /// transfer addressed to a retired key is still addressed to this wallet,
@@ -600,7 +591,7 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        if tx.output_slots.get(site.1).is_none() || !is_merge_site(tx) {
+        if tx.output_slots.get(site.1).is_none() || !tx.may_be_merge() {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         }
@@ -735,44 +726,37 @@ impl SyncCtx<'_> {
                 };
                 match scheme {
                     EncryptedScheme::RingDeposit => {
-                        let Ok(mut output) = EncryptedRingDepositOutput::try_from_slice(body)
-                        else {
+                        // The SDK scan opens the deposit on its own, once the
+                        // ring's framing is unwrapped.
+                        let mut deposit_slot = slot.clone();
+                        deposit_slot.unwrap_ring_deposit(self.deposit_payload);
+                        let deposit = ShieldedTransaction {
+                            output_slots: vec![deposit_slot],
+                            ..tx.clone()
+                        };
+                        let opened = match decrypt(&self.keys, &[deposit], self.assets) {
+                            Ok(decrypted) => decrypted.utxos.into_iter().next(),
+                            Err(
+                                err @ (TransactionError::UnknownMint(_)
+                                | TransactionError::UnknownAsset(_)),
+                            ) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
+                            Err(err) => return Err(err),
+                        };
+                        let Some(opened) = opened else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        output.encrypted.ciphertext =
-                            (self.deposit_payload)(&output.encrypted.ciphertext)?.to_vec();
-                        let Ok(plaintext) = RingDepositPlaintext::decrypt(&output.encrypted, key)
-                        else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
-                        };
-                        let owner = owner_hash(&self.owner, &self.nullifier_pk)?;
-                        let actual_owner_utxo_hash =
-                            zolana_transaction::owner_utxo_hash(&owner, &plaintext.blinding)?;
-                        if actual_owner_utxo_hash != output.owner_utxo_hash {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
-                        }
-                        let utxo = plaintext.into_utxo(
-                            self.owner,
-                            zolana_transaction::Mint {
-                                asset: Address::new_from_array(output.asset),
-                                asset_id: self
-                                    .assets
-                                    .asset_id(&Address::new_from_array(output.asset))?,
-                            },
-                            output.amount,
-                            Address::new_from_array(output.ring_program_id),
-                        );
                         if self.store_recipient_utxos(
-                            vec![utxo.clone()],
+                            vec![opened.utxo.clone()],
                             slot_site,
-                            output.data_hash,
-                            Some(output.ring_data_hash),
+                            opened.data_hash,
+                            opened.ring_data_hash,
                         )? {
                             self.processed_slots.insert(site);
-                            self.record_deposit(tx, slot_site.output_context, &utxo);
+                            self.record_deposit(tx, slot_site.output_context, &opened.utxo);
                         }
                     }
                     EncryptedScheme::AnonymousRecipient => {
@@ -882,87 +866,35 @@ impl SyncCtx<'_> {
         Ok(outcome)
     }
 
-    /// Reconstruct a merge output deterministically: the wallet recomputes the
-    /// candidate UTXO from its spent inputs and the published first nullifier,
-    /// and stores it only if the canonical UTXO hash matches the on-chain
-    /// output commitment (`store_recipient_utxos` performs the check).
+    /// Rebuild a merge's outputs with [`rebuild_merge`] from the UTXOs this
+    /// wallet holds, and store the one published in this slot.
     fn reconstruct_merge(
         &mut self,
         tx: &ShieldedTransaction,
         site: (usize, usize),
     ) -> Result<MergeResolution, TransactionError> {
-        let Some(slot) = tx.output_slots.get(site.1) else {
-            self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
-        };
         let Some(slot_site) = self.slot_site(tx, site.1) else {
-            return Ok(MergeResolution::Complete);
-        };
-
-        let Some(first_nullifier) = tx.nullifiers.first() else {
-            return Ok(MergeResolution::Pending);
-        };
-        // The first nullifier must be one of ours: it both confirms the merge
-        // is this wallet's and seeds the deterministic dummy/output
-        // derivations (keyed by the owner's nullifier secret).
-        if !self.utxos.iter().any(|u| &u.nullifier == first_nullifier) {
-            return Ok(MergeResolution::Pending);
-        }
-
-        // Match this wallet's spent inputs in slot order; deterministic dummy
-        // nullifiers are skipped. A real nullifier we do not own means the
-        // merge is not ours (the proof binds a single owner).
-        let mut matched = Vec::new();
-        for (i, nullifier) in tx.nullifiers.iter().enumerate() {
-            if *nullifier == merge_dummy_nullifier(self.nullifier_key, first_nullifier, i as u8)? {
-                continue;
-            }
-            let Some(input_utxo) = self.utxos.iter().find(|u| &u.nullifier == nullifier) else {
-                return Ok(MergeResolution::Pending);
-            };
-            matched.push((
-                input_utxo.utxo.asset,
-                input_utxo.utxo.amount,
-                input_utxo.utxo.blinding,
-                input_utxo.utxo.ring_program_id,
-            ));
-        }
-        let Some(&(asset, _, _, ring_program_id)) = matched.first() else {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        if matched.iter().any(|m| m.0 != asset) {
-            self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
-        }
-        let mut amount = 0u64;
-        for m in &matched {
-            amount = amount
-                .checked_add(m.1)
-                .ok_or(TransactionError::SelectedBalanceOverflow)?;
-        }
-        let blinding = merge_output_blinding(self.nullifier_key, first_nullifier)?;
-        // A ring merge publishes the output ring-data hash as the slot payload.
-        let ring_data_hash: Option<[u8; 32]> = if ring_program_id.is_some() {
-            let Ok(hash) = <&[u8; 32]>::try_from(slot.payload.as_slice()) else {
+        let rebuilt = match rebuild_merge(&self.keys, tx, self.utxos.as_slice())? {
+            MergeRebuild::Rebuilt(rebuilt) => rebuilt,
+            MergeRebuild::Pending => return Ok(MergeResolution::Pending),
+            MergeRebuild::NotOurs => {
                 self.report.undecryptable_candidates += 1;
                 return Ok(MergeResolution::Complete);
-            };
-            Some(*hash)
-        } else {
-            None
+            }
         };
-        let utxo = Utxo {
-            owner: self.owner,
-            asset,
-            amount,
-            blinding,
-            ring_program_id,
-            data: Data::default(),
+        let Some(output) = rebuilt
+            .into_iter()
+            .find(|output| output.slot_index == slot_site.slot_index)
+        else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(MergeResolution::Complete);
         };
-        if self.store_recipient_utxos(vec![utxo.clone()], slot_site, None, ring_data_hash)? {
+        if self.store(output.utxo.clone(), slot_site, None, output.ring_data_hash)? {
             self.processed_slots.insert(site);
-            self.record_merge(tx, slot_site.output_context, &utxo);
+            self.record_merge(tx, slot_site.output_context, &output.utxo);
         }
         Ok(MergeResolution::Complete)
     }
@@ -1120,6 +1052,11 @@ impl Wallet {
         let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
             deposit_payload: self.deposit_payload,
+            keys: LocalShieldedKeys::new(
+                identity,
+                viewing_keys.clone(),
+                material.nullifier_key.clone(),
+            )?,
             owner: identity.signing_pubkey,
             nullifier_pk: identity.nullifier_pubkey,
             nullifier_key: &material.nullifier_key,

@@ -11,7 +11,7 @@ use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
     },
-    owner_utxo_hash,
+    owner_utxo_hash, rebuild_merge,
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousRecipientEncode},
         confidential::{Confidential, ConfidentialEncode},
@@ -20,9 +20,10 @@ use zolana_transaction::{
     },
     verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data, DataRecord,
     DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
-    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, RingDepositPlaintext,
-    ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult, TransactionError,
-    TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo, TRANSFER_PLAINTEXT,
+    LocalShieldedKeys, MergeRebuild, Mint, OutputContext, OutputSlot, OwnerCx,
+    RingDepositPlaintext, ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult,
+    TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo,
+    TRANSFER_PLAINTEXT,
 };
 
 fn owner_cx<'a>(owner: &ShieldedKeypair, assets: &'a AssetRegistry) -> OwnerCx<'a> {
@@ -1162,6 +1163,42 @@ fn merge_outputs_rebuild_from_inputs_in_the_batch_in_any_order() {
     assert_eq!(
         decrypt_spendable(&owner, &reversed, &assets).unwrap(),
         expected
+    );
+}
+
+#[test]
+fn a_merge_rebuilds_from_utxos_held_since_an_earlier_sync() {
+    let owner = keypair(47);
+    let assets = AssetRegistry::default();
+    let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    let earlier = [received(&owner, &first), received(&owner, &second)];
+    let held: Vec<_> = decrypt_spendable(&owner, &earlier, &assets)
+        .unwrap()
+        .utxos()
+        .cloned()
+        .collect();
+    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, None);
+
+    // The merge alone decrypts to nothing: its inputs are in the earlier batch.
+    assert_eq!(
+        decrypt(&owner, std::slice::from_ref(&merge), &assets)
+            .unwrap()
+            .utxos,
+        vec![]
+    );
+    assert_eq!(
+        rebuild_merge(&owner, &merge, &held).unwrap(),
+        MergeRebuild::Rebuilt(vec![merged])
+    );
+    assert_eq!(
+        rebuild_merge(&owner, &merge, &held[..1]).unwrap(),
+        MergeRebuild::Pending
+    );
+    // A transaction that publishes ciphertext is not a merge.
+    assert_eq!(
+        rebuild_merge(&owner, &earlier[0], &held).unwrap(),
+        MergeRebuild::NotOurs
     );
 }
 
