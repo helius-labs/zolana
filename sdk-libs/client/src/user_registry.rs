@@ -111,10 +111,7 @@ pub fn ensure_registered<R: Rpc>(
     let owner_address = Address::new_from_array(owner.to_bytes());
 
     if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
-        if record.owner_p256 == data.owner_p256
-            && record.nullifier_pubkey == data.nullifier_pubkey
-            && record.viewing_pubkey == data.viewing_pubkey
-        {
+        if holds_keys(&record, &data) {
             return Ok(None);
         }
         check_nullifier_unchanged(owner, &record, &data)?;
@@ -175,10 +172,7 @@ pub fn register_if_absent<R: Rpc>(
     let (user_record, _bump) = user_record_pda(&owner);
 
     if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
-        let matches = record.owner_p256 == data.owner_p256
-            && record.nullifier_pubkey == data.nullifier_pubkey
-            && record.viewing_pubkey == data.viewing_pubkey;
-        return Ok(if matches {
+        return Ok(if holds_keys(&record, &data) {
             StrictRegistration::Current
         } else {
             StrictRegistration::Mismatch
@@ -197,16 +191,20 @@ pub fn register_if_absent<R: Rpc>(
     Ok(StrictRegistration::Written(signature))
 }
 
-/// Build the unsigned v1 register/update message for an external Solana signer.
+/// Build the unsigned v1 message that registers `address` for an external
+/// Solana signer.
 ///
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
 ///
-/// `payer` funds the record's rent on a first registration and pays the
-/// transaction fee. `None` uses `owner`. With a sponsor the owner still signs
-/// but needs no SOL, so the transaction carries two signatures.
+/// `payer` funds the record's rent and pays the transaction fee. `None` uses
+/// `owner`. With a sponsor the owner still signs but needs no SOL, so the
+/// transaction carries two signatures.
 ///
-/// Returns `Ok(None)` when the on-chain record already matches `address`.
+/// Returns `Ok(None)` when the record already holds `address`. Fails with
+/// [`ClientError::UserRegistryKeysMismatch`] when it holds other keys: a
+/// registration never replaces them, because payments to the owner would go
+/// to the new keys. [`build_key_update_transaction`] replaces them explicitly.
 pub async fn build_registration_transaction<R: AsyncRpc>(
     rpc: &R,
     owner: Pubkey,
@@ -224,14 +222,7 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     unsigned_registration_message(payer, &instructions, blockhash).map(Some)
 }
 
-/// Blocking adapter for building the unsigned v1 register/update message.
-///
-/// P-256 addresses must supply a signature over
-/// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
-///
-/// `payer` funds the record's rent on a first registration and pays the
-/// transaction fee. `None` uses `owner`. With a sponsor the owner still signs
-/// but needs no SOL, so the transaction carries two signatures.
+/// Blocking [`build_registration_transaction`].
 pub fn build_registration_transaction_sync<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
@@ -249,6 +240,56 @@ pub fn build_registration_transaction_sync<R: Rpc>(
     unsigned_registration_message(payer, &instructions, blockhash).map(Some)
 }
 
+/// Build the unsigned v1 message that replaces the keys in `owner`'s record
+/// with `address`. Payments to `owner` then go to the new keys, and notes
+/// held by the old keys stay spendable only with the old keys.
+///
+/// Only the owner and viewing keys rotate: an `address` with another
+/// nullifier pubkey needs a new owner account, and this fails.
+///
+/// `proof` and `payer` are as for [`build_registration_transaction`]. Returns
+/// `Ok(None)` when the record already holds `address`, and fails with
+/// [`ClientError::UserRegistryRecordNotFound`] when there is no record.
+pub async fn build_key_update_transaction<R: AsyncRpc>(
+    rpc: &R,
+    owner: Pubkey,
+    address: &ShieldedAddress,
+    proof: Option<P256KeyBindingProof>,
+    payer: Option<Pubkey>,
+) -> Result<Option<VersionedMessage>, ClientError> {
+    let data = register_fields(address)?;
+    let record = fetch_user_record_optional_checked_async(rpc, owner).await?;
+    let Some(instructions) = key_update_instructions(owner, &data, record, proof)? else {
+        return Ok(None);
+    };
+    let (blockhash, _) = rpc.get_latest_blockhash().await?;
+    unsigned_registration_message(payer.unwrap_or(owner), &instructions, blockhash).map(Some)
+}
+
+/// Blocking [`build_key_update_transaction`].
+pub fn build_key_update_transaction_sync<R: Rpc>(
+    rpc: &R,
+    owner: Pubkey,
+    address: &ShieldedAddress,
+    proof: Option<P256KeyBindingProof>,
+    payer: Option<Pubkey>,
+) -> Result<Option<VersionedMessage>, ClientError> {
+    let data = register_fields(address)?;
+    let record = fetch_user_record_optional_checked(rpc, owner)?;
+    let Some(instructions) = key_update_instructions(owner, &data, record, proof)? else {
+        return Ok(None);
+    };
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    unsigned_registration_message(payer.unwrap_or(owner), &instructions, blockhash).map(Some)
+}
+
+/// Whether `record` publishes exactly the keys in `data`.
+fn holds_keys(record: &UserRecord, data: &RegisterData) -> bool {
+    record.owner_p256 == data.owner_p256
+        && record.nullifier_pubkey == data.nullifier_pubkey
+        && record.viewing_pubkey == data.viewing_pubkey
+}
+
 fn registration_instructions(
     owner: Pubkey,
     payer: Pubkey,
@@ -256,39 +297,34 @@ fn registration_instructions(
     existing: Option<UserRecord>,
     proof: Option<P256KeyBindingProof>,
 ) -> Result<Option<Vec<Instruction>>, ClientError> {
-    let (user_record, _bump) = user_record_pda(&owner);
-    let owner_p256 = data.owner_p256;
-    let registry_instruction = match existing {
-        Some(record)
-            if record.owner_p256 == data.owner_p256
-                && record.nullifier_pubkey == data.nullifier_pubkey
-                && record.viewing_pubkey == data.viewing_pubkey =>
-        {
-            return Ok(None);
+    match existing {
+        None => {
+            let (user_record, _bump) = user_record_pda(&owner);
+            register_instructions(user_record, owner, payer, data, proof).map(Some)
         }
-        Some(record) => {
-            check_nullifier_unchanged(owner, &record, &data)?;
-            Some(update_keys(
-                user_record,
-                owner,
-                UpdateKeysData {
-                    owner_p256: data.owner_p256,
-                    nullifier_pubkey: data.nullifier_pubkey,
-                    viewing_pubkey: data.viewing_pubkey,
-                },
-            ))
-        }
-        None => Some(register(user_record, owner, payer, data)),
+        Some(record) if holds_keys(&record, &data) => Ok(None),
+        Some(_) => Err(ClientError::UserRegistryKeysMismatch { owner }),
     }
-    .expect("non-current registration always has an instruction");
+}
 
-    Ok(Some(compose_key_binding_instructions(
-        user_record,
-        owner,
-        registry_instruction,
-        owner_p256,
-        proof,
-    )?))
+fn key_update_instructions(
+    owner: Pubkey,
+    data: &RegisterData,
+    existing: Option<UserRecord>,
+    proof: Option<P256KeyBindingProof>,
+) -> Result<Option<Vec<Instruction>>, ClientError> {
+    let (user_record, _bump) = user_record_pda(&owner);
+    match existing {
+        None => Err(ClientError::UserRegistryRecordNotFound {
+            owner,
+            record: user_record,
+        }),
+        Some(record) if holds_keys(&record, data) => Ok(None),
+        Some(record) => {
+            check_nullifier_unchanged(owner, &record, data)?;
+            update_key_instructions(user_record, owner, data, proof).map(Some)
+        }
+    }
 }
 
 fn unsigned_registration_message(
@@ -814,6 +850,108 @@ mod tests {
         .expect_err("Ed25519 registration with P256 proof must fail");
 
         assert!(matches!(error, ClientError::UnexpectedRegistryP256Proof));
+    }
+
+    fn ed25519_address(seed: u8) -> ShieldedAddress {
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
+            .and_then(|keypair| keypair.shielded_address())
+            .expect("ed25519 address")
+    }
+
+    /// `rpc` serving `owner`'s record holding `data`.
+    fn registry_holding(owner: Pubkey, data: RegisterData) -> MockRpc {
+        let (pda, bump) = user_record_pda(&owner);
+        let record = UserRecord {
+            owner: owner.to_bytes().into(),
+            bump,
+            owner_p256: data.owner_p256,
+            nullifier_pubkey: data.nullifier_pubkey,
+            viewing_pubkey: data.viewing_pubkey,
+            merging_enabled: false,
+        };
+        MockRpc {
+            account: Some((
+                Address::new_from_array(pda.to_bytes()),
+                account_for(&record),
+            )),
+        }
+    }
+
+    fn registry_instruction_tag(message: &VersionedMessage) -> u8 {
+        let account_keys = message.static_account_keys();
+        message
+            .instructions()
+            .iter()
+            .find(|instruction| {
+                account_keys.get(usize::from(instruction.program_id_index))
+                    == Some(&user_registry_program_id())
+            })
+            .and_then(|instruction| instruction.data.first().copied())
+            .expect("registry instruction tag")
+    }
+
+    #[test]
+    fn registration_builder_never_replaces_other_keys() {
+        let owner = Pubkey::new_unique();
+        let address = ed25519_address(7);
+        let other = registry_holding(owner, fields(&ed25519_address(8)));
+
+        let error = build_registration_transaction_sync(&other, owner, &address, None, None)
+            .expect_err("a record with other keys is a conflict");
+        assert!(matches!(
+            error,
+            ClientError::UserRegistryKeysMismatch { owner: got } if got == owner
+        ));
+
+        let current = registry_holding(owner, fields(&address));
+        let message = build_registration_transaction_sync(&current, owner, &address, None, None)
+            .expect("current record");
+        assert!(message.is_none());
+    }
+
+    #[test]
+    fn key_update_builder_replaces_keys() {
+        let owner = Pubkey::new_unique();
+        let address = ed25519_address(7);
+
+        let error =
+            build_key_update_transaction_sync(&MockRpc::default(), owner, &address, None, None)
+                .expect_err("no record to update");
+        assert!(matches!(
+            error,
+            ClientError::UserRegistryRecordNotFound { owner: got, .. } if got == owner
+        ));
+
+        // Another viewing key under the same nullifier pubkey.
+        let rotated = registry_holding(
+            owner,
+            RegisterData {
+                viewing_pubkey: fields(&ed25519_address(8)).viewing_pubkey,
+                ..fields(&address)
+            },
+        );
+        let message = build_key_update_transaction_sync(&rotated, owner, &address, None, None)
+            .expect("build key update")
+            .expect("keys differ");
+        assert_eq!(message.static_account_keys().first(), Some(&owner));
+        assert_eq!(
+            registry_instruction_tag(&message),
+            zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
+        );
+
+        let current = registry_holding(owner, fields(&address));
+        let message = build_key_update_transaction_sync(&current, owner, &address, None, None)
+            .expect("current record");
+        assert!(message.is_none());
+
+        let other = registry_holding(owner, fields(&ed25519_address(8)));
+        let error = build_key_update_transaction_sync(&other, owner, &address, None, None)
+            .expect_err("the nullifier pubkey never rotates");
+        assert!(matches!(error, ClientError::AddressResolution(_)));
+    }
+
+    fn fields(address: &ShieldedAddress) -> RegisterData {
+        register_fields(address).expect("register fields")
     }
 
     #[tokio::test]
