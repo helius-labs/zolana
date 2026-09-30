@@ -21,15 +21,16 @@ const customRingQueue = "zk_custom_ring_queue"
 
 // A custom-ring failure reaches the client as errCustomRingProof and nothing
 // else, because its cause can carry private inputs. The same cause has to land
-// in the server log, or an operator is left with "custom ring proof failed"
-// and no way to find out why. Each case drives a job through processJobs and
-// checks both ends.
+// in the server log, on the line that names the job, or an operator is left
+// with "custom ring proof failed" and no way to find out why. Each case drives
+// a job through processJobs and checks both ends.
 func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 	cases := []struct {
 		name       string
 		payload    []byte
 		keyManager *common.LazyKeyManager
 		cause      string
+		code       string
 	}{
 		{
 			name:    "request meta does not parse",
@@ -45,6 +46,7 @@ func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 			name:    "custom-ring request does not decode",
 			payload: []byte(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`),
 			cause:   "publicInputHash is not canonical hex",
+			code:    "malformed_body",
 		},
 		{
 			// A zero-value key manager has no loading map, so the first key
@@ -64,48 +66,109 @@ func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 
 			runOneJob(t, rq, customRingQueue, c.keyManager, "job-1", c.payload)
 
-			if !strings.Contains(logs.String(), c.cause) {
-				t.Errorf("server log is missing the cause %q:\n%s", c.cause, logs.String())
-			}
-			for _, clientVisible := range clientVisibleFailure(t, rq, "job-1") {
-				if clientVisible != errCustomRingProof.Error() {
-					t.Errorf("client sees %q, want %q", clientVisible, errCustomRingProof.Error())
-				}
-			}
+			assertCauseLoggedOnceWithJob(t, logs, c.cause, "job-1")
+			assertClientSees(t, rq, "job-1", errCustomRingProof.Error(), c.code)
 		})
 	}
 }
 
-// Redaction is specific to the custom-ring queue; other queues keep telling the
-// client what went wrong.
+// A failed Prove comes back from dispatch as a redacted *Error that carries
+// its cause, which processJobs hands to proofFailed. Running a real custom-ring
+// Prove needs that ring's proving key, so these cases start at proofFailed. The
+// cause and the job id have to share one log line, while the client reads the
+// redacted message and the code, never the cause. An indexed job is redacted to
+// errIndexedProof on every queue, and still logs the cause.
+func TestQueueProvingFailureLogsCauseOnceWithJob(t *testing.T) {
+	const cause = "prove: constraint #7 is not satisfied"
+	cases := []struct {
+		name    string
+		queue   string
+		indexed bool
+		failure *Error
+		want    error
+	}{
+		{"custom ring", customRingQueue, false, customRingProvingError(errors.New(cause)), errCustomRingProof},
+		{"indexed custom ring", customRingQueue, true, customRingProvingError(errors.New(cause)), errIndexedProof},
+		{"indexed transfer", "zk_transfer_queue", true, provingError(errors.New(cause)), errIndexedProof},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, rq := newTestQueue(t)
+			logs := captureLogs(t)
+			worker := newQueueWorker(c.queue, WorkerConfig{Queue: rq, Ready: readyNow()}, NewExecution(1))
+			job := &ProofJob{ID: "job-1", Indexed: c.indexed, Payload: validCustomRingBasePayload(t), CreatedAt: time.Now()}
+
+			worker.proofFailed(job, "", c.failure, time.Second)
+
+			assertCauseLoggedOnceWithJob(t, logs, cause, "job-1")
+			assertClientSees(t, rq, "job-1", c.want.Error(), "proving_error")
+		})
+	}
+}
+
+// Redaction is specific to the custom-ring queue and to indexed jobs; other
+// queues keep telling the client what went wrong.
 func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 	_, rq := newTestQueue(t)
 	captureLogs(t)
 
 	runOneJob(t, rq, "zk_transfer_queue", nil, "job-1", []byte(`{"circuitType":"custom-ring-base"}`))
 
-	const cause = "circuit custom-ring-base cannot run on zk_transfer_queue"
-	for _, clientVisible := range clientVisibleFailure(t, rq, "job-1") {
-		if clientVisible != cause {
-			t.Errorf("client sees %q, want %q", clientVisible, cause)
-		}
+	assertClientSees(t, rq, "job-1", "circuit custom-ring-base cannot run on zk_transfer_queue", "")
+}
+
+// The sync path redacts exactly what the queue path redacts and logs the
+// withheld cause the same way. A failure the client reads in full is not
+// logged.
+func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
+	const cause = "prove: constraint #7 is not satisfied"
+	cases := []struct {
+		name    string
+		indexed bool
+		failure *Error
+		message string
+		logged  int
+	}{
+		{"custom ring", false, customRingProvingError(errors.New(cause)), errCustomRingProof.Error(), 1},
+		{"indexed custom ring", true, customRingProvingError(errors.New(cause)), errIndexedProof.Error(), 1},
+		{"indexed transfer", true, provingError(errors.New(cause)), errIndexedProof.Error(), 1},
+		{"transfer", false, provingError(errors.New(cause)), cause, 0},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := captureLogs(t)
+
+			response := proveHandler{indexed: c.indexed}.syncProofFailure(common.CustomRingBaseCircuitType, c.failure)
+
+			if logged := len(logLinesMentioning(t, logs, cause)); logged != c.logged {
+				t.Errorf("cause logged %d times, want %d:\n%s", logged, c.logged, logs.String())
+			}
+			assertResponse(t, response, c.message, "proving_error")
+		})
 	}
 }
 
-func TestSyncCustomRingProvingErrorLogsCauseAndRedactsResponse(t *testing.T) {
-	const cause = "prove: constraint #7 is not satisfied"
-	logs := captureLogs(t)
-
-	response := customRingProvingError(common.CustomRingBaseCircuitType, errors.New(cause))
-
-	if !strings.Contains(logs.String(), cause) {
-		t.Errorf("server log is missing the cause %q:\n%s", cause, logs.String())
+func TestSyncPanicLogsValueAndRedactsIndexedResponse(t *testing.T) {
+	const value = "index out of range [3] with length 2"
+	cases := []struct {
+		indexed bool
+		message string
+	}{
+		{false, "internal error during proof processing: " + value},
+		{true, "internal error during proof processing: " + errIndexedProof.Error()},
 	}
-	if response.Message != errCustomRingProof.Error() {
-		t.Errorf("client sees %q, want %q", response.Message, errCustomRingProof.Error())
-	}
-	if response.Code != "proving_error" {
-		t.Errorf("response code = %q, want proving_error", response.Code)
+
+	for _, c := range cases {
+		logs := captureLogs(t)
+
+		response := proveHandler{indexed: c.indexed}.syncPanicFailure(common.CustomRingBaseCircuitType, value)
+
+		if logged := len(logLinesMentioning(t, logs, value)); logged != 1 {
+			t.Errorf("indexed=%v: panic value logged %d times, want 1:\n%s", c.indexed, logged, logs.String())
+		}
+		assertResponse(t, response, c.message, "unexpected_error")
 	}
 }
 
@@ -130,10 +193,10 @@ func runOneJob(t *testing.T, rq *RedisQueue, queueName string, keyManager *commo
 	}
 }
 
-// clientVisibleFailure returns the error text from both places a client can
-// read a failure: the job metadata behind the status endpoint, and
-// zk_failed_queue.
-func clientVisibleFailure(t *testing.T, rq *RedisQueue, jobID string) []string {
+// assertClientSees checks the failure in both places a client can read it: the
+// job metadata behind the status endpoint, and zk_failed_queue. An empty code
+// means the failure carries none.
+func assertClientSees(t *testing.T, rq *RedisQueue, jobID, message, code string) {
 	t.Helper()
 	meta, err := rq.GetJobMeta(jobID)
 	if err != nil || meta == nil {
@@ -143,7 +206,6 @@ func clientVisibleFailure(t *testing.T, rq *RedisQueue, jobID string) []string {
 	if !ok {
 		t.Fatalf("job metadata records no failure: %v", meta)
 	}
-	metaError, _ := failure["error"].(string)
 
 	entries, err := rq.Client.LRange(rq.Ctx, "zk_failed_queue", 0, -1).Result()
 	if err != nil || len(entries) != 1 {
@@ -157,9 +219,50 @@ func clientVisibleFailure(t *testing.T, rq *RedisQueue, jobID string) []string {
 	if err := json.Unmarshal(failed.Payload, &details); err != nil {
 		t.Fatalf("decode failure details: %v", err)
 	}
-	queueError, _ := details["error"].(string)
 
-	return []string{metaError, queueError}
+	for where, seen := range map[string]map[string]interface{}{"job metadata": failure, "zk_failed_queue": details} {
+		if seen["error"] != message {
+			t.Errorf("%s: client sees %q, want %q", where, seen["error"], message)
+		}
+		if seenCode, _ := seen["code"].(string); seenCode != code {
+			t.Errorf("%s: code = %q, want %q", where, seenCode, code)
+		}
+	}
+}
+
+// assertResponse checks what a sync client reads: MarshalJSON sends only the
+// code, the message, and a registry member.
+func assertResponse(t *testing.T, response *Error, message, code string) {
+	t.Helper()
+	if response.Message != message || response.Code != code {
+		t.Errorf("client sees %q (%s), want %q (%s)", response.Message, response.Code, message, code)
+	}
+}
+
+// assertCauseLoggedOnceWithJob checks that exactly one log line mentions the
+// cause and that the same line names the job.
+func assertCauseLoggedOnceWithJob(t *testing.T, logs *syncBuffer, cause, jobID string) {
+	t.Helper()
+	lines := logLinesMentioning(t, logs, cause)
+	if len(lines) != 1 || lines[0]["job_id"] != jobID {
+		t.Errorf("want one log line with the cause %q and job_id %q:\n%s", cause, jobID, logs.String())
+	}
+}
+
+func logLinesMentioning(t *testing.T, logs *syncBuffer, text string) []map[string]interface{} {
+	t.Helper()
+	var lines []map[string]interface{}
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if !strings.Contains(line, text) {
+			continue
+		}
+		var fields map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &fields); err != nil {
+			t.Fatalf("log line %q is not JSON: %v", line, err)
+		}
+		lines = append(lines, fields)
+	}
+	return lines
 }
 
 type syncBuffer struct {

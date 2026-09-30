@@ -509,16 +509,7 @@ func (w *BaseQueueWorker) processJobs(indexedJobs bool) bool {
 		proofDuration := time.Since(proofStartTime)
 
 		if err != nil {
-			// Logged raw, as for a panic above: failureDetails does the
-			// redaction for everything a client can read.
-			logging.Logger().Error().
-				Err(err).
-				Str("job_id", job.ID).
-				Str("queue", w.queueName).
-				Dur("duration", proofDuration).
-				Msg("Failed to process proof job")
-
-			w.fail(job, inputHash, err)
+			w.proofFailed(job, inputHash, err, proofDuration)
 		} else {
 			// Store result with timing information
 			proofWithTiming := &common.ProofWithTiming{
@@ -723,6 +714,20 @@ func (w *BaseQueueWorker) failureDetails(job *ProofJob, err error) map[string]in
 		}
 	}
 	return details
+}
+
+// proofFailed logs a failed proof and records it for the client. The log line
+// carries the unredacted cause next to the job id, as for a panic: it is the
+// only place that cause survives, because failureDetails redacts everything a
+// client can read.
+func (w *BaseQueueWorker) proofFailed(job *ProofJob, inputHash string, err error, duration time.Duration) {
+	logging.Logger().Error().
+		Err(loggedCause(err)).
+		Str("job_id", job.ID).
+		Str("queue", w.queueName).
+		Dur("duration", duration).
+		Msg("Failed to process proof job")
+	w.fail(job, inputHash, err)
 }
 
 func (w *BaseQueueWorker) fail(job *ProofJob, inputHash string, err error) {

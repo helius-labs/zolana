@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
@@ -114,20 +113,17 @@ func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common
 	}
 	proof, err := customring.RingProof{System: ps, Parameters: request, Timing: p.trace}.Prove()
 	if err != nil {
-		return nil, customRingProvingError(circuit, err)
+		return nil, customRingProvingError(err)
 	}
 	return proof, nil
 }
 
-// customRingProvingError logs the cause of a failed custom-ring proof and
-// returns the redacted error the client sees. The cause can carry private
-// inputs, so it goes to the server log and never into the response.
-func customRingProvingError(circuit common.CircuitType, err error) *Error {
-	logging.Logger().Error().
-		Err(err).
-		Str("circuit_type", string(circuit)).
-		Msg("Custom ring proof failed")
-	return provingError(errCustomRingProof)
+// customRingProvingError is the redacted error a client sees for a failed
+// custom-ring proof. The cause can carry private inputs, so it rides along
+// only as the unexported cause: the caller that reports the failure logs it
+// with loggedCause, and no response or stored failure ever includes it.
+func customRingProvingError(err error) *Error {
+	return withCause(provingError(errCustomRingProof), err)
 }
 
 func (p circuitProver) batchAddressAppend(payload []byte) (*common.Proof, *Error) {
