@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::config::TERMINATION_GRACE_PERIOD;
+use crate::{config::TERMINATION_GRACE_PERIOD, http::wait_for_port_closed};
 
 pub(crate) const PROCESS_SCOPE_ENV: &str = "ZOLANA_PROCESS_SCOPE_DIR";
 const RECEIPT_EXTENSION: &str = "owner";
@@ -195,9 +195,10 @@ fn stop_scope() -> Option<Option<PathBuf>> {
 /// Foreign listeners must remain running.
 pub(crate) fn require_scoped_port_available(port: u16) -> Result<()> {
     if process_scope()?.is_some() {
-        std::net::TcpListener::bind(("127.0.0.1", port)).with_context(|| {
-            format!("port {port} is occupied outside the stopped task services")
-        })?;
+        let occupied = || format!("port {port} is occupied outside the stopped task services");
+        // A stopped service keeps its socket until its last thread exits.
+        wait_for_port_closed(port, TERMINATION_GRACE_PERIOD).with_context(occupied)?;
+        std::net::TcpListener::bind(("127.0.0.1", port)).with_context(occupied)?;
     }
     Ok(())
 }
