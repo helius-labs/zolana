@@ -10,7 +10,8 @@ The circuits follow the padding-independent private transaction hash of
 
 - `private_tx_hash` is `Poseidon(input_chain, output_chain, address_chain, blinding)` and leaves
   out `external_data_hash`. Each chain is a nonzero hash chain: it skips zeros, takes the first
-  real value as it is and folds each later value in with Poseidon, so padding does not enter it.
+  real value as it is and hashes each later value with the running value using Poseidon, so
+  padding does not enter it.
 - Dummies come after every real slot, on the input side and on the output side. The SPP
   transact circuit enforces it, and `zolana_transaction` refuses a real slot after a dummy.
 - `zolana_transaction` computes the hash with
@@ -184,7 +185,7 @@ Proof inputs use plain Rust types that implement `ProofInput`:
   Inputs of at most 31 bytes are packed directly; longer inputs fold packed
   chunks through Poseidon. Raw field slices are not a public byte-hashing API.
 
-- Owners and assets are always preimages. The circuit hashes them itself, each once:
+- Owners and assets are preimages. The circuit hashes them itself, each once:
   `Asset::hash` is `hash_bytes(mint)`, `OwnerKey::identity` is `hash_bytes(tag || key)`,
   and `Owner::hash` is `Poseidon(identity, nullifier_pk)`. Two owners or two assets are
   compared on their packed preimage chunks, a few constraints and no hashing. A `TokenUtxos`
@@ -311,16 +312,14 @@ and `UtxoTrait::transfer` moves value from one to the other:
   and `asset()`. An owner's and an asset's hashes are shared between clones.
 - A `TokenUtxos` tracks a balance: its inputs plus deposits and the transfers it receives,
   minus withdrawals and the transfers it sends. The balance becomes an output to the token's
-  owner, the change for a token with inputs. The change is not passed around:
-  `with_token_utxos` creates it.
+  owner, the change for a token with inputs. `with_token_utxos` creates the change.
 - Any input after the first can be a dummy, so a wallet with fewer UTXOs than `N` spends
   them with dummies after them. The first input is real: the token takes its owner and asset
   from it. A dummy
   has the protocol's dummy domain, holds nothing, skips the owner and asset checks, and hashes
   as 0, which `private_tx_hash` skips.
 - `token.deposit(amount)` adds to the change balance and `token.withdraw(amount)` subtracts
-  from it. They only balance the UTXOs. The public amounts themselves are controlled by the
-  SPP proof.
+  from it. They only balance the UTXOs. The SPP proof controls the public amounts.
 - A `TokenUtxos` has a lifecycle like a `DataUtxo`, fixed when the circuit is written:
 
   | Lifecycle | Constructor | Inputs | Output |
@@ -342,7 +341,7 @@ and `UtxoTrait::transfer` moves value from one to the other:
   balances with an is-zero test per token output, folded from the last output back, so a
   prover cannot choose it. `Close` remains the lifecycle for a circuit that knows nothing is
   left: it takes no output slot and costs one constraint.
-- A `DataUtxo` output stays a real UTXO at a zero balance, because it carries state. Only its
+- A `DataUtxo` output stays a real UTXO at a zero balance, because it contains state. Only its
   closing lifecycles leave no output or, for a `UniqueDataUtxo`, the closed-address marker.
 
 ## The `circuit` method
@@ -380,7 +379,7 @@ impl Circuit for Escrow {
 - Inputs and outputs keep the order in which UTXOs are added. The SPP transaction puts the
   real outputs first, in this order, because an output's blinding depends on its index.
 - A dummy input hashes as 0 and the chain skips it. The circuit adds no padding: the SPP
-  transaction fills its unused output slots with empty UTXOs, which carry a ciphertext like
+  transaction fills its unused output slots with empty UTXOs, which include a ciphertext like
   every output, so the transaction does not show how many outputs are real.
 - `check` does the rest:
   1. asserts that the transfers net to zero over the UTXOs added,

@@ -73,7 +73,8 @@ sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
   instruction/         -- SBF-buildable shielded-pool instruction builders and the
-                          on-chain SPP derivations; feature `cpi` (transact CPI)
+                          SPP hash and blinding derivations programs recompute;
+                          feature `cpi` (transact CPI)
   keypair/             -- shielded key material and hashes
   macros/              -- zolana-macros: the ZK program derives and
                           include_zk_programs!
@@ -352,7 +353,7 @@ Builders live in `sdk-libs/instruction/src/instruction/`, not in the interface
 crate: the shielded-pool program links the interface and must not carry client
 surface. `zolana-instruction` is `no_std` and SBF-buildable, so programs that
 CPI into SPP use the same builders as clients. `zolana-transaction` depends on
-`zolana-instruction`, never on `zolana-program`, which depends on
+`zolana-instruction`. It cannot depend on `zolana-program`, which depends on
 `zolana-transaction` for its ZK program features. Reference: `create_spl_interface.rs`
 
 ```rust
@@ -438,8 +439,8 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 4. arkworks proving keys are saved and loaded in the memory-image format
    (`Groth16Keys::save_image` / `load_image` / `from_image_bytes`, or the
    sha256-verifying `from_image_checked`): one memory copy per section, no
-   curve validation. Always use it; the canonical format and zkeys exist
-   only where circom/snarkjs compatibility is required.
+   curve validation. Use the canonical format or a zkey only where
+   circom/snarkjs compatibility requires it.
 
 ## SPP Transaction Proving Keys & Verifying Keys
 

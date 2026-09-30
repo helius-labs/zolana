@@ -13,8 +13,8 @@ inputs (variables 1 and 2) and, where a condition is involved, `condition` as a 
 input, which adds its own row `c * (c - 1) = 0` labelled "a bool proof input is neither 0 nor
 1". `AssertEqual` asserts `left == right` with the rule "the sides are equal", `IsEqual`
 asserts `is_equal(left, right) == claimed` with "the claim is whether the sides are equal",
-`AssertNotEqual` asserts `left != right` with "the sides differ", `AssertEqualIf` asserts
-`left == right` if `condition`; `AssertEqualIfConstant<C>` does so under `Bool::constant(C)`,
+`AssertNotEqual` asserts `left != right` with "the sides differ", and `AssertEqualIf` asserts
+`left == right` if `condition`. `AssertEqualIfConstant<C>` does so under `Bool::constant(C)`,
 `ConditionInCircuit` under a constant taken from a proof input whose placeholder is `false`,
 `AssertEqualIfItself` asserts `left == left` if `condition`, and `EqualConstantsIf` and
 `ConstantsIf` assert `3 == 3` and `3 == 5` if `condition`. The array fixtures do the same over
@@ -84,7 +84,7 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
   - Severity: High
   - Suggested test: positive + negative + property; `tests/unit/ops/assert/native.rs`, `tests/unit/ops/assert/properties.rs`
 
-- [x] **INV-ASSERT-08: empty arrays are always equal**
+- [x] **INV-ASSERT-08: empty arrays are equal**
   - Covered by: `tests/unit/ops/assert/native.rs` `empty_arrays_are_always_equal_natively`
   - Kind: semantics
   - Statement: for `N = 0`, the native array `is_equal` is exactly `CircuitVar::constant(1)`, `assert_equal` and `assert_equal_if` under both conditions return exactly `Ok(())`, and `assert_not_equal` returns exactly `RuleBroken` with the fixture's rule.
@@ -178,7 +178,7 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
 - [x] **INV-ASSERT-19: a variable asserted against itself exports an empty product row**
   - Covered by: `tests/unit/ops/assert/r1cs.rs` `a_variable_asserted_against_itself_under_a_variable_condition_exports_an_empty_row`
   - Kind: constraint
-  - Statement: `left.assert_equal_if(&left, &condition, rule)` exports exactly the condition's boolean row and A = {}, B = {2: 1}, C = {}: `left - left` is a linear combination, not a constant, so the zero-difference arm is not taken and the row `0 * condition = 0` holds for every assignment. The row costs a constraint and binds nothing.
+  - Statement: `left.assert_equal_if(&left, &condition, rule)` exports exactly the condition's boolean row and A = {}, B = {2: 1}, C = {}: `left - left` is a linear combination, not a constant, so the zero-difference arm is not taken and the row `0 * condition = 0` holds for every assignment: it costs a constraint and restricts no variable.
   - Location: `src/circuit/builtins/ops/assert.rs:58-66` (`fn assert_equal_if`), `src/circuit/builtins/field/primitive.rs:26-31` (`fn constant_value`)
   - Severity: Medium
   - Suggested test: positive (golden rows); `tests/unit/ops/assert/r1cs.rs`
@@ -267,7 +267,7 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
   - Severity: Critical
   - Suggested test: negative + property; `tests/unit/ops/assert/r1cs.rs`, `tests/unit/ops/assert/properties.rs`
 
-- [x] **INV-ASSERT-30: a false condition binds neither side and a true one binds both**
+- [x] **INV-ASSERT-30: a false condition leaves both sides free and a true one leaves neither free**
   - Covered by: `tests/unit/ops/assert/r1cs.rs` `a_false_condition_binds_neither_side_and_a_true_one_binds_both`; `tests/unit/ops/assert/picus.rs` `picus_finds_the_right_side_free_whenever_the_condition_can_be_false`; `tests/unit/ops/assert/picus.rs` `picus_finds_every_binding_assertion_deterministic`
   - Kind: soundness
   - Statement: for every different pair under a false condition (variable or constant), `check_private_variables` reports exactly `left` and `right` free and a tampered right side is accepted; for every equal pair under a true variable condition it reports no free variable and a tampered right side is refused at row 1; Picus reports right exactly Unsafe for `AssertEqualIf` and `AssertEqualIfConstant<false>` and exactly Safe for `AssertEqualIfConstant<true>`.
@@ -284,10 +284,10 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/ops/assert/r1cs.rs`
 
-- [x] **INV-ASSERT-32: no private variable is free when the assertion binds**
+- [x] **INV-ASSERT-32: no private variable is free in an unconditional assertion**
   - Covered by: `tests/unit/ops/assert/r1cs.rs` `no_private_variable_is_free_when_the_assertion_binds`; `tests/unit/ops/assert/picus.rs` `picus_finds_every_binding_assertion_deterministic`
   - Kind: soundness
-  - Statement: `check_private_variables` reports no free variable for `AssertEqual` on every equal pair and for `AssertNotEqual` and `IsEqual` on every different pair; on every equal pair `IsEqual`'s only unbound variable is the hint (variable 4), reported exactly as tolerated with role `Multiplier`; Picus reports exactly Safe for `AssertEqual` with right promoted, `AssertNotEqual` with its inverse as output, `IsEqual` and `ArrayIsEqual<2>` with the claim promoted, `ArrayAssertEqual<3>` with every right element promoted and `ArrayAssertNotEqual<2>`.
+  - Statement: `check_private_variables` reports no free variable for `AssertEqual` on every equal pair and for `AssertNotEqual` and `IsEqual` on every different pair; on every equal pair `IsEqual`'s only unconstrained variable is the hint (variable 4), reported exactly as tolerated with role `Multiplier`; Picus reports exactly Safe for `AssertEqual` with right promoted, `AssertNotEqual` with its inverse as output, `IsEqual` and `ArrayIsEqual<2>` with the claim promoted, `ArrayAssertEqual<3>` with every right element promoted and `ArrayAssertNotEqual<2>`.
   - Location: `src/testing.rs` (`fn check_private_variables`), `src/prover/snarkjs.rs` (`fn picus_r1cs`)
   - Severity: Critical
   - Suggested test: negative + external (Picus); `tests/unit/ops/assert/r1cs.rs`, `tests/unit/ops/assert/picus.rs`
@@ -300,10 +300,10 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/ops/assert/r1cs.rs`
 
-- [x] **INV-ASSERT-49: assert_equal_unless with a variable skip binds the sides exactly when skip is false**
+- [x] **INV-ASSERT-49: assert_equal_unless with a variable skip forces the sides equal exactly when skip is false**
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `variable_skip_row_binds_the_trailing_asset_byte_exactly_when_the_input_is_not_dummy`; `tests/unit/protocol/utxo/r1cs.rs` `the_tag_check_is_skipped_exactly_for_a_dummy_input`
   - Kind: soundness
-  - Statement: the trailing asset-byte comparison of the second token input exports exactly `(right - left) * non_dummy = 0` under the asset rule, where the existing equality-test witness is 1 for a real input and 0 for a dummy. The pinned row accepts all equal operands and all skipped operands, and refuses unequal operands when enabled; the owner-tag check accepts every byte-valued tag for a dummy and only S/P for a real input. No additional negation row is needed because the dummy test already stores the not-equal witness.
+  - Statement: the trailing asset-byte comparison of the second token input exports exactly `(right - left) * non_dummy = 0` under the asset rule, where the existing equality-test witness is 1 for a real input and 0 for a dummy. The pinned row accepts all equal operands and all skipped operands, and refuses unequal operands when enabled; the owner-tag check accepts every byte-valued tag for a dummy and only S/P for a real input. The skip adds no negation row: the dummy test already stores the not-equal witness.
   - Location: `src/circuit/builtins/ops/assert.rs:160-162` (`fn assert_equal_unless`, the variable branch)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
@@ -332,7 +332,7 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
 - [x] **INV-ASSERT-36: a broken assertion fails natively with exactly the fixture's rule and file**
   - Covered by: `tests/unit/ops/assert/native.rs` `assert_equal_holds_natively_exactly_for_equal_sides`; `tests/unit/ops/assert/native.rs` `assert_not_equal_holds_natively_exactly_for_different_sides`; `tests/unit/ops/assert/native.rs` `assert_equal_if_holds_natively_for_every_pair_under_false_and_for_equal_sides_under_true`; `tests/unit/ops/assert/native.rs` `array_assertions_hold_natively_exactly_when_every_element_pair_is_equal`; `tests/unit/ops/assert/properties.rs` `natively_each_assertion_holds_exactly_when_its_relation_does` (property)
   - Kind: error
-  - Statement: every refused native assertion (`assert_equal` and `assert_equal_if` under true on different sides, `assert_not_equal` on equal sides, and their array forms including the default `assert_not_equal`) returns exactly `CircuitError.RuleBroken` with the rule passed in, located in the fixture's file: `#[track_caller]` carries the location through the array helpers and the trait default.
+  - Statement: every refused native assertion (`assert_equal` and `assert_equal_if` under true on different sides, `assert_not_equal` on equal sides, and their array forms including the default `assert_not_equal`) returns exactly `CircuitError.RuleBroken` with the rule passed in, located in the fixture's file: `#[track_caller]` passes the location through the array helpers and the trait default.
   - Location: `src/circuit/builtins/ops/assert.rs:10-163` (every `#[track_caller]` method and helper)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Medium
@@ -356,7 +356,7 @@ tag check of `client::Owner`'s `ProofInput`, which never skips (`Boolean::FALSE`
   - Severity: Medium
   - Suggested test: negative; `tests/unit/ops/assert/r1cs.rs`
 
-- [x] **INV-ASSERT-39: empty arrays can never be asserted different**
+- [x] **INV-ASSERT-39: empty arrays cannot be asserted different**
   - Covered by: `tests/unit/ops/assert/r1cs.rs` `empty_arrays_can_never_be_asserted_different`; `tests/unit/ops/assert/native.rs` `empty_arrays_are_always_equal_natively`
   - Kind: error
   - Statement: for `N = 0`, `ArrayAssertNotEqual::export_r1cs` returns exactly `CircuitError.RuleBroken` with "the sides differ", and `check_constraints` exactly `CircuitError.RuleBroken`: the conjunction of no flag is the constant true, so the placeholder itself breaks the rule.
@@ -559,7 +559,7 @@ branch vectors are 0 or 0, 0 or 1, 1 or 0, p - 1 or 1, (p - 1) / 2 or (p + 1) / 
 - [x] **INV-SELECT-13: a tampered product breaks the product row**
   - Covered by: `tests/unit/ops/select/r1cs.rs` `a_tampered_product_breaks_its_unlabelled_row`
   - Kind: soundness
-  - Statement: for every branch vector and condition, tampering the product variable is refused at row 1, which carries no `Check` label: `select` creates it outside any rule.
+  - Statement: for every branch vector and condition, tampering the product variable is refused at row 1, which has no `Check` label: `select` creates it outside any rule.
   - Location: `src/circuit/builtins/ops/select.rs:7-11` (`impl Select for CircuitVar`)
   - Error: `ProverErrorKind::ProofInputsBreakRule`
   - Severity: Critical
@@ -576,7 +576,7 @@ branch vectors are 0 or 0, 0 or 1, 1 or 0, p - 1 or 1, (p - 1) / 2 or (p + 1) / 
 - [x] **INV-SELECT-15: under a false condition exactly the unchosen branch is free**
   - Covered by: `tests/unit/ops/select/r1cs.rs` `under_a_false_condition_exactly_the_unchosen_branch_is_free`; `tests/unit/ops/select/picus.rs` `picus_finds_a_branch_free_whenever_it_can_go_unchosen`
   - Kind: soundness
-  - Statement: for every branch vector and form, `check_private_variables` reports exactly `if_true` (variable 1) free under false and no free variable under true; Picus reports each branch exactly Unsafe once promoted, and `if_false` exactly Unsafe under `Bool::constant(true)`: a select binds the chosen branch only.
+  - Statement: for every branch vector and form, `check_private_variables` reports exactly `if_true` (variable 1) free under false and no free variable under true; Picus reports each branch exactly Unsafe once promoted, and `if_false` exactly Unsafe under `Bool::constant(true)`: a select constrains only the chosen branch.
   - Location: `src/circuit/builtins/ops/select.rs:7-11`
   - Severity: Critical
   - Suggested test: negative + external (Picus); `tests/unit/ops/select/r1cs.rs`, `tests/unit/ops/select/picus.rs`

@@ -11,7 +11,7 @@ Widths: range checks 1/4/64/252/253; arithmetic maximum valid widths 126/251/252
 division 4/64/128 with quotient+divisor <=252. Small exported rows are derived by
 hand; wide rows/digests and circom constraint counts are pinned.
 
-No SPEC_DIVERGENCE was found against `../../spec.md` (Types and range checks).
+No SPEC_DIVERGENCE was found against `../spec.md` (Types and range checks).
 Compile-time invalid width combinations are outside these runtime fixtures; the
 public method const assertions remain the specification for those combinations.
 Picus Unknown is recorded as partial determinism coverage, never as proof.
@@ -22,9 +22,9 @@ integration load can produce Unknown for additional fixtures within the same bud
 
 All ten widening and narrowing alias pairs have separate macro-expanded tests.
 `Covered by` names in `conversions.rs` refer to every expansion of the named test.
-Groth16 is representative per fixture family; relation equivalence and witness checks
-cover the remaining operations. Constants and identity conversions add no independent
-relation beyond the already checked input/claim rows.
+Groth16 runs on one representative fixture per family; relation equivalence and witness
+checks cover the remaining operations. Constants and identity conversions add no
+independent relation beyond the already checked input/claim rows.
 
 ## Invariants
 
@@ -136,13 +136,13 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-CONSTRUCT-14: construction Groth16 interoperability**
   - Kind: interop
-  - Statement: For the Uint<64> maximum input fixture, snarkjs Groth16 setup/prove/verify succeeds with exactly no public inputs.
+  - Statement: For the Uint<64> maximum input fixture, snarkjs Groth16 setup/prove/verify succeeds with zero public inputs.
   - Location: `src/circuit/builtins/types/uint.rs:306` (`TryFrom`)
   - Severity: Medium
   - Suggested test: external; `tests/unit/uint/construction/external.rs`
   - Covered by: `tests/unit/uint/construction/external.rs` `snarkjs_proves_and_verifies_the_64_bit_range_check`
 
-- [x] **INV-UINT-CONSTRUCT-15: random construction witnesses are bound**
+- [x] **INV-UINT-CONSTRUCT-15: the rows fix random construction witnesses**
   - Kind: soundness
   - Statement: For every generated u64 input and positive tamper offset, the honest witness satisfies all rows and the changed value breaks exactly the width rule.
   - Location: `src/circuit/builtins/types/uint.rs:306` (`TryFrom`)
@@ -176,7 +176,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/construction/r1cs.rs`
   - Covered by: `tests/unit/uint/construction/r1cs.rs` `a_constant_uint_adds_no_range_check_row`
 
-- [x] **INV-UINT-CONST-04: constant claims are bound**
+- [x] **INV-UINT-CONST-04: the rows fix constant claims**
   - Kind: soundness
   - Statement: For every four-bit alternative claim to the constant 15 fixture, the proving rows accept exactly claim 15.
   - Location: `src/circuit/builtins/types/uint.rs:46` (`constant`)
@@ -202,7 +202,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/construction/r1cs.rs`
   - Covered by: `tests/unit/uint/construction/r1cs.rs` `from_bool_adds_no_row_beyond_the_bool_input_check`
 
-- [x] **INV-UINT-BOOL-03: boolean conversion binds its claim**
+- [x] **INV-UINT-BOOL-03: boolean conversion rows fix the claim**
   - Kind: soundness
   - Statement: For each boolean input and every four-bit candidate claim, the rows accept exactly the integer encoding of that boolean.
   - Location: `src/circuit/builtins/types/uint.rs:294` (`From<Bool>`)
@@ -228,7 +228,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/construction/r1cs.rs`
   - Covered by: `tests/unit/uint/construction/r1cs.rs` `into_circuit_var_adds_only_the_row_asserting_it`
 
-- [x] **INV-UINT-INTO-03: field conversion binds the output**
+- [x] **INV-UINT-INTO-03: field conversion rows fix the output**
   - Kind: soundness
   - Statement: Every tested wrong IntoVar claim breaks exactly its claim row.
   - Location: `src/circuit/builtins/types/uint.rs:300` (`From<Uint> for CircuitVar`)
@@ -494,7 +494,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/arithmetic/native.rs`
   - Covered by: `tests/unit/uint/arithmetic/native.rs` `empty_and_singleton_sums_have_the_integer_identity`
 
-- [x] **INV-UINT-SUM-08: random three-operand sums are bound**
+- [x] **INV-UINT-SUM-08: the rows fix random three-operand sums**
   - Kind: soundness
   - Statement: For every generated three-u64 vector, the sum is exactly the u128 host sum and incrementing its claim is refused.
   - Location: `src/circuit/builtins/types/uint.rs:99` (`sum`)
@@ -560,7 +560,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/arithmetic/native.rs`
   - Covered by: `tests/unit/uint/arithmetic/native.rs` `at_64_126_and_252_bits_every_checked_operation_refuses_exactly_past_the_edge`
 
-- [x] **INV-UINT-CHECKED-ADD-08: checked_add random fitting results are bound**
+- [x] **INV-UINT-CHECKED-ADD-08: the rows fix random fitting checked_add results**
   - Kind: soundness
   - Statement: For every generated fitting u64 pair, checked_add satisfies setup/proving checks and a false output is refused.
   - Location: `src/circuit/builtins/types/uint.rs:112` (`checked_add`)
@@ -626,7 +626,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/arithmetic/native.rs`
   - Covered by: `tests/unit/uint/arithmetic/native.rs` `at_64_126_and_252_bits_every_checked_operation_refuses_exactly_past_the_edge`
 
-- [x] **INV-UINT-CHECKED-MUL-08: checked_mul random fitting results are bound**
+- [x] **INV-UINT-CHECKED-MUL-08: the rows fix random fitting checked_mul results**
   - Kind: soundness
   - Statement: For every generated fitting u64 pair, checked_mul satisfies setup/proving checks and a false output is refused.
   - Location: `src/circuit/builtins/types/uint.rs:125` (`checked_mul`)
@@ -692,7 +692,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/arithmetic/native.rs`
   - Covered by: `tests/unit/uint/arithmetic/native.rs` `at_64_126_and_252_bits_every_checked_operation_refuses_exactly_past_the_edge`
 
-- [x] **INV-UINT-CHECKED-SUB-08: checked_sub random fitting results are bound**
+- [x] **INV-UINT-CHECKED-SUB-08: the rows fix random fitting checked_sub results**
   - Kind: soundness
   - Statement: For every generated fitting u64 pair, checked_sub satisfies setup/proving checks and a false output is refused.
   - Location: `src/circuit/builtins/types/uint.rs:138` (`checked_sub`)
@@ -768,7 +768,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `all_four_bit_comparisons_have_matching_setup_and_proving_rows_and_refuse_false_claims`
 
-- [x] **INV-UINT-LT-04: is_less_than claim is bound**
+- [x] **INV-UINT-LT-04: the claim row refuses an incremented is_less_than claim**
   - Kind: soundness
   - Statement: For every equal/unequal soundness vector, incrementing the is_less_than claim is refused by the named claim row.
   - Location: `src/circuit/builtins/types/uint.rs:168` (`is_less_than`)
@@ -818,7 +818,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `all_four_bit_comparisons_have_matching_setup_and_proving_rows_and_refuse_false_claims`
 
-- [x] **INV-UINT-LE-04: is_less_or_equal claim is bound**
+- [x] **INV-UINT-LE-04: the claim row refuses an incremented is_less_or_equal claim**
   - Kind: soundness
   - Statement: For every equal/unequal soundness vector, incrementing the is_less_or_equal claim is refused by the named claim row.
   - Location: `src/circuit/builtins/types/uint.rs:162` (`is_less_or_equal`)
@@ -868,7 +868,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `all_four_bit_comparisons_have_matching_setup_and_proving_rows_and_refuse_false_claims`
 
-- [x] **INV-UINT-MIN-04: min claim is bound**
+- [x] **INV-UINT-MIN-04: the claim row refuses an incremented min claim**
   - Kind: soundness
   - Statement: For every equal/unequal soundness vector, incrementing the min claim is refused by the named claim row.
   - Location: `src/circuit/builtins/types/uint.rs:185` (`min`)
@@ -918,7 +918,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `all_four_bit_comparisons_have_matching_setup_and_proving_rows_and_refuse_false_claims`
 
-- [x] **INV-UINT-MAX-04: max claim is bound**
+- [x] **INV-UINT-MAX-04: the claim row refuses an incremented max claim**
   - Kind: soundness
   - Statement: For every equal/unequal soundness vector, incrementing the max claim is refused by the named claim row.
   - Location: `src/circuit/builtins/types/uint.rs:190` (`max`)
@@ -968,7 +968,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `all_four_bit_comparisons_have_matching_setup_and_proving_rows_and_refuse_false_claims`
 
-- [x] **INV-UINT-EQ-04: is_equal claim is bound**
+- [x] **INV-UINT-EQ-04: the claim row refuses an incremented is_equal claim**
   - Kind: soundness
   - Statement: For every equal/unequal soundness vector, incrementing the is_equal claim is refused by the named claim row.
   - Location: `src/circuit/builtins/types/uint.rs:213` (`is_equal`)
@@ -1018,7 +1018,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `all_four_bit_comparisons_have_matching_setup_and_proving_rows_and_refuse_false_claims`
 
-- [x] **INV-UINT-TRAIT-EQ-04: Assert::is_equal claim is bound**
+- [x] **INV-UINT-TRAIT-EQ-04: the claim row refuses an incremented Assert::is_equal claim**
   - Kind: soundness
   - Statement: For every equal/unequal soundness vector, incrementing the Assert::is_equal claim is refused by the named claim row.
   - Location: `src/circuit/builtins/types/uint.rs:365` (`Assert::is_equal`)
@@ -1096,7 +1096,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-LT-03: assert_less_than coordinated forgeries fail**
   - Kind: soundness
-  - Statement: For every four-bit pair, the fully coordinated operand digits and comparison digits/inverse candidate satisfy the assert_less_than export exactly when x<y.
+  - Statement: For every four-bit pair, the coordinated operand digits and comparison digits/inverse candidate satisfy the assert_less_than export exactly when x<y.
   - Location: `src/circuit/builtins/types/uint.rs:156` (`assert_less_than`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
@@ -1138,7 +1138,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-LE-03: assert_less_or_equal coordinated forgeries fail**
   - Kind: soundness
-  - Statement: For every four-bit pair, the fully coordinated operand digits and comparison digits/inverse candidate satisfy the assert_less_or_equal export exactly when x<=y.
+  - Statement: For every four-bit pair, the coordinated operand digits and comparison digits/inverse candidate satisfy the assert_less_or_equal export exactly when x<=y.
   - Location: `src/circuit/builtins/types/uint.rs:146` (`assert_less_or_equal`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
@@ -1180,7 +1180,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-EQ-03: assert_equal coordinated forgeries fail**
   - Kind: soundness
-  - Statement: For every four-bit pair, the fully coordinated operand digits and comparison digits/inverse candidate satisfy the assert_equal export exactly when x=y.
+  - Statement: For every four-bit pair, the coordinated operand digits and comparison digits/inverse candidate satisfy the assert_equal export exactly when x=y.
   - Location: `src/circuit/builtins/types/uint.rs:195` (`assert_equal`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
@@ -1222,7 +1222,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-NE-03: assert_not_equal coordinated forgeries fail**
   - Kind: soundness
-  - Statement: For every four-bit pair, the fully coordinated operand digits and comparison digits/inverse candidate satisfy the assert_not_equal export exactly when x!=y.
+  - Statement: For every four-bit pair, the coordinated operand digits and comparison digits/inverse candidate satisfy the assert_not_equal export exactly when x!=y.
   - Location: `src/circuit/builtins/types/uint.rs:204` (`assert_not_equal`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
@@ -1264,7 +1264,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-TRAIT-ASSERT-EQ-03: Assert::assert_equal coordinated forgeries fail**
   - Kind: soundness
-  - Statement: For every four-bit pair, the fully coordinated operand digits and comparison digits/inverse candidate satisfy the Assert::assert_equal export exactly when x=y.
+  - Statement: For every four-bit pair, the coordinated operand digits and comparison digits/inverse candidate satisfy the Assert::assert_equal export exactly when x=y.
   - Location: `src/circuit/builtins/types/uint.rs:370` (`Assert::assert_equal`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
@@ -1306,7 +1306,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-TRAIT-ASSERT-NE-03: Assert::assert_not_equal coordinated forgeries fail**
   - Kind: soundness
-  - Statement: For every four-bit pair, the fully coordinated operand digits and comparison digits/inverse candidate satisfy the Assert::assert_not_equal export exactly when x!=y.
+  - Statement: For every four-bit pair, the coordinated operand digits and comparison digits/inverse candidate satisfy the Assert::assert_not_equal export exactly when x!=y.
   - Location: `src/circuit/builtins/types/uint.rs:387` (`Assert::assert_not_equal`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
@@ -1354,9 +1354,9 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `assertions_range_zero_and_selection_constrain_their_relations`
 
-- [x] **INV-UINT-RANGE-04: assert_in_range rejects coherent false witnesses**
+- [x] **INV-UINT-RANGE-04: assert_in_range rejects coordinated false witnesses**
   - Kind: soundness
-  - Statement: For every external false assert_in_range vector, the SDK exported rows reject its fully coordinated candidate witness.
+  - Statement: For every external false assert_in_range vector, the SDK exported rows reject its coordinated candidate witness.
   - Location: `src/circuit/builtins/types/uint.rs:174` (`assert_in_range`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/external.rs`
@@ -1396,9 +1396,9 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `assertions_range_zero_and_selection_constrain_their_relations`
 
-- [x] **INV-UINT-IF-04: Assert::assert_equal_if rejects coherent false witnesses**
+- [x] **INV-UINT-IF-04: Assert::assert_equal_if rejects coordinated false witnesses**
   - Kind: soundness
-  - Statement: For every external false Assert::assert_equal_if vector, the SDK exported rows reject its fully coordinated candidate witness.
+  - Statement: For every external false Assert::assert_equal_if vector, the SDK exported rows reject its coordinated candidate witness.
   - Location: `src/circuit/builtins/types/uint.rs:375` (`Assert::assert_equal_if`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/external.rs`
@@ -1438,9 +1438,9 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `assertions_range_zero_and_selection_constrain_their_relations`
 
-- [x] **INV-UINT-ASSERT-ZERO-04: assert_zero rejects coherent false witnesses**
+- [x] **INV-UINT-ASSERT-ZERO-04: assert_zero rejects coordinated false witnesses**
   - Kind: soundness
-  - Statement: For every external false assert_zero vector, the SDK exported rows reject its fully coordinated candidate witness.
+  - Statement: For every external false assert_zero vector, the SDK exported rows reject its coordinated candidate witness.
   - Location: `src/circuit/builtins/types/uint.rs:223` (`assert_zero`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/external.rs`
@@ -1480,9 +1480,9 @@ relation beyond the already checked input/claim rows.
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `assertions_range_zero_and_selection_constrain_their_relations`
 
-- [x] **INV-UINT-ASSERT-NONZERO-04: assert_not_zero rejects coherent false witnesses**
+- [x] **INV-UINT-ASSERT-NONZERO-04: assert_not_zero rejects coordinated false witnesses**
   - Kind: soundness
-  - Statement: For every external false assert_not_zero vector, the SDK exported rows reject its fully coordinated candidate witness.
+  - Statement: For every external false assert_not_zero vector, the SDK exported rows reject its coordinated candidate witness.
   - Location: `src/circuit/builtins/types/uint.rs:228` (`assert_not_zero`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/external.rs`
@@ -1608,13 +1608,13 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-DIV-06: coordinated division forgeries fail**
   - Kind: soundness
-  - Statement: For every enumerated four-bit quotient/remainder candidate and division edge vector, fully coordinated hints, claims and digits satisfy all rows exactly when d!=0, q*d+r=x and r<d.
+  - Statement: For every enumerated four-bit quotient/remainder candidate and division edge vector, coordinated hints, claims and digits satisfy all rows exactly when d!=0, q*d+r=x and r<d.
   - Location: `src/circuit/builtins/types/uint.rs:233` (`div_rem`)
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/uint/relations/r1cs.rs`
   - Covered by: `tests/unit/uint/relations/r1cs.rs` `division_refuses_every_dishonest_bounded_quotient_and_remainder_and_a_zero_divisor`
 
-- [x] **INV-UINT-DIV-07: both hints and outputs are bound**
+- [x] **INV-UINT-DIV-07: the rows fix both hints and outputs**
   - Kind: soundness
   - Statement: For every division soundness vector, changing either output or either internal division hint is refused.
   - Location: `src/circuit/builtins/types/uint.rs:233` (`div_rem`)
@@ -1715,7 +1715,7 @@ relation beyond the already checked input/claim rows.
   - Severity: High
   - Suggested test: external; `tests/unit/uint/arithmetic/picus.rs`
   - Covered by: `tests/unit/uint/arithmetic/picus.rs` `picus_checks_sum_determinism`
-  - Partial coverage: Both circuits returned Safe in the filtered run; the bounded test permits Unknown under load and rejects Unsafe, so this remains partial rather than promising unconditional Safe results.
+  - Partial coverage: Both circuits returned Safe in the filtered run; the bounded test permits Unknown under load and rejects Unsafe, so this remains partial.
 
 - [ ] **INV-UINT-PICUS-06: narrowing determinism**
   - Kind: equivalence
@@ -1724,7 +1724,7 @@ relation beyond the already checked input/claim rows.
   - Severity: High
   - Suggested test: external; `tests/unit/uint/conversions.rs`
   - Covered by: `tests/unit/uint/conversions.rs` `picus_checks_narrowing_determinism`
-  - Partial coverage: Both circuits returned Safe in the filtered run; the bounded test permits Unknown under load and rejects Unsafe, so this remains partial rather than promising unconditional Safe results.
+  - Partial coverage: Both circuits returned Safe in the filtered run; the bounded test permits Unknown under load and rejects Unsafe, so this remains partial.
 
 ### Generated conversion and assertion properties
 
@@ -1736,7 +1736,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: property; `tests/unit/uint/construction/properties.rs`
   - Covered by: `tests/unit/uint/construction/properties.rs` `random_constants_and_bool_conversions_keep_integer_values_and_bind_claims` (property)
 
-- [x] **INV-UINT-BOOL-04: generated boolean conversion claims are bound**
+- [x] **INV-UINT-BOOL-04: the equality rule fixes generated boolean conversion claims**
   - Kind: soundness
   - Statement: For every generated positive offset and both boolean inputs, changing the converted Uint claim by that offset is rejected by exactly its named native and proving equality rule.
   - Location: `src/circuit/builtins/types/uint.rs:294` (`From<Bool>`)
@@ -1744,7 +1744,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: property; `tests/unit/uint/construction/properties.rs`
   - Covered by: `tests/unit/uint/construction/properties.rs` `random_constants_and_bool_conversions_keep_integer_values_and_bind_claims` (property)
 
-- [x] **INV-UINT-INTO-04: generated field conversion claims are bound**
+- [x] **INV-UINT-INTO-04: the equality row fixes generated field conversion claims**
   - Kind: soundness
   - Statement: For every generated fitting alias input, the claim asserted after CircuitVar::from is exactly the integer input; incrementing that claim fails exactly its equality row.
   - Location: `src/circuit/builtins/types/uint.rs:300` (`From<Uint> for CircuitVar`)
@@ -1752,7 +1752,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: property; `tests/unit/uint/conversions.rs`
   - Covered by: `tests/unit/uint/conversions.rs` `random_conversion_roundtrips_hold_and_false_claims_are_rejected` (property)
 
-- [x] **INV-UINT-WIDEN-04: generated widened values bind their claims**
+- [x] **INV-UINT-WIDEN-04: the equality rule fixes generated widened claims**
   - Kind: soundness
   - Statement: For every generated fitting input in all ten widening alias pairs, the widened claim is exactly the input integer; incrementing it fails exactly the named equality rule.
   - Location: `src/circuit/builtins/types/uint.rs:326` (`conversions!`)
@@ -1762,7 +1762,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-LT-06: generated assertion candidates match host comparisons**
   - Kind: soundness
-  - Statement: For every generated u64 pair and deliberately equal and strictly ordered companion pairs, a coordinated assert_less_than witness satisfies all exported rows exactly when x<y; every rejected native case names the supplied rule.
+  - Statement: For every generated u64 pair and forced equal and strictly ordered companion pairs, a coordinated assert_less_than witness satisfies all exported rows exactly when x<y; every rejected native case names the supplied rule.
   - Location: `src/circuit/builtins/types/uint.rs:156` (`assert_less_than`)
   - Severity: Critical
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
@@ -1770,7 +1770,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-LE-06: generated assertion candidates match host comparisons**
   - Kind: soundness
-  - Statement: For every generated u64 pair and deliberately equal and strictly ordered companion pairs, a coordinated assert_less_or_equal witness satisfies all exported rows exactly when x<=y; every rejected native case names the supplied rule.
+  - Statement: For every generated u64 pair and forced equal and strictly ordered companion pairs, a coordinated assert_less_or_equal witness satisfies all exported rows exactly when x<=y; every rejected native case names the supplied rule.
   - Location: `src/circuit/builtins/types/uint.rs:146` (`assert_less_or_equal`)
   - Severity: Critical
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
@@ -1778,7 +1778,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-EQ-06: generated assertion candidates match host comparisons**
   - Kind: soundness
-  - Statement: For every generated u64 pair and deliberately equal and strictly ordered companion pairs, a coordinated assert_equal witness satisfies all exported rows exactly when x=y; every rejected native case names the supplied rule.
+  - Statement: For every generated u64 pair and forced equal and strictly ordered companion pairs, a coordinated assert_equal witness satisfies all exported rows exactly when x=y; every rejected native case names the supplied rule.
   - Location: `src/circuit/builtins/types/uint.rs:195` (`assert_equal`)
   - Severity: Critical
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
@@ -1786,7 +1786,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-ASSERT-NE-06: generated assertion candidates match host comparisons**
   - Kind: soundness
-  - Statement: For every generated u64 pair and deliberately equal and strictly ordered companion pairs, a coordinated assert_not_equal witness satisfies all exported rows exactly when x!=y; every rejected native case names the supplied rule.
+  - Statement: For every generated u64 pair and forced equal and strictly ordered companion pairs, a coordinated assert_not_equal witness satisfies all exported rows exactly when x!=y; every rejected native case names the supplied rule.
   - Location: `src/circuit/builtins/types/uint.rs:204` (`assert_not_equal`)
   - Severity: Critical
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
@@ -1794,7 +1794,7 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-TRAIT-ASSERT-EQ-06: generated assertion candidates match host comparisons**
   - Kind: soundness
-  - Statement: For every generated u64 pair and deliberately equal and strictly ordered companion pairs, a coordinated Assert::assert_equal witness satisfies all exported rows exactly when x=y; every rejected native case names the supplied rule.
+  - Statement: For every generated u64 pair and forced equal and strictly ordered companion pairs, a coordinated Assert::assert_equal witness satisfies all exported rows exactly when x=y; every rejected native case names the supplied rule.
   - Location: `src/circuit/builtins/types/uint.rs:370` (`Assert::assert_equal`)
   - Severity: Critical
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
@@ -1802,13 +1802,13 @@ relation beyond the already checked input/claim rows.
 
 - [x] **INV-UINT-TRAIT-ASSERT-NE-06: generated assertion candidates match host comparisons**
   - Kind: soundness
-  - Statement: For every generated u64 pair and deliberately equal and strictly ordered companion pairs, a coordinated Assert::assert_not_equal witness satisfies all exported rows exactly when x!=y; every rejected native case names the supplied rule.
+  - Statement: For every generated u64 pair and forced equal and strictly ordered companion pairs, a coordinated Assert::assert_not_equal witness satisfies all exported rows exactly when x!=y; every rejected native case names the supplied rule.
   - Location: `src/circuit/builtins/types/uint.rs:387` (`Assert::assert_not_equal`)
   - Severity: Critical
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
   - Covered by: `tests/unit/uint/relations/properties.rs` `random_assertions_match_host_relations_with_forced_equal_and_unequal_pairs` (property)
 
-- [x] **INV-UINT-IF-06: generated conditional equality binds enabled comparisons**
+- [x] **INV-UINT-IF-06: generated conditional equality enforces enabled comparisons**
   - Kind: soundness
   - Statement: For every generated operand pair, forced equal/unequal companions and both conditions, the coordinated conditional assertion witness satisfies all rows exactly when the condition is false or the operands are equal.
   - Location: `src/circuit/builtins/types/uint.rs:375` (`Assert::assert_equal_if`)
@@ -1832,7 +1832,7 @@ relation beyond the already checked input/claim rows.
   - Suggested test: property; `tests/unit/uint/relations/properties.rs`
   - Covered by: `tests/unit/uint/relations/properties.rs` `random_zero_checks_bind_the_predicate_and_enforce_both_zero_assertions` (property)
 
-- [x] **INV-UINT-ZERO-06: generated zero predicates bind their result**
+- [x] **INV-UINT-ZERO-06: the equality rule fixes generated is_zero results**
   - Kind: soundness
   - Statement: For every generated u64 value and forced zero/nonzero companions, the is_zero result is exactly the host zero predicate; flipping its claim fails exactly the named native and proving equality rule.
   - Location: `src/circuit/builtins/types/uint.rs:218` (`is_zero`)

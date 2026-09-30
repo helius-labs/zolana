@@ -2,9 +2,9 @@
 
 ID prefixes: `INV-POSEIDON`, `INV-HASH-CHAIN`, `INV-MEMBER`, `INV-INDEX`.
 
-The `hash_bytes` invariants and tests are owned by [`bytes.md`](bytes.md), under `INV-HASH-BYTES`; they are not duplicated here. Shared exporter invariants remain in `cross-cutting.md`.
+[`bytes.md`](bytes.md) lists the `hash_bytes` invariants and their tests under `INV-HASH-BYTES`. Shared exporter invariants live in `cross-cutting.md`.
 
-The exact matrix fixtures use private inputs only. Membership and selection intentionally permit some unused input values to vary. This is distinct from a dishonest claimed output, which must fail. Equality inverse hints at zero are explicitly tolerated multipliers; they are not claimed to have unique values.
+The exact matrix fixtures use private inputs only. Membership and selection permit some unused input values to vary, while a dishonest claimed output must still fail. Equality inverse hints at zero are tolerated multipliers, and no invariant claims their values are unique.
 
 ## Poseidon (`poseidon`)
 
@@ -67,7 +67,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
 
 - [x] **INV-POSEIDON-08: Honest hash satisfies every row**
   - Kind: completeness
-  - Statement: For every pinned supported vector, no exported row is unsatisfied.
+  - Statement: For every pinned supported vector, the honest witness satisfies every exported row.
   - Location: `src/circuit/builtins/gadgets/poseidon.rs:10-66` (`poseidon`, `parameters`)
   - Severity: High
   - Suggested test: positive/negative; `tests/unit/gadgets/poseidon/r1cs.rs`
@@ -166,7 +166,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
 
 - [x] **INV-HASH-CHAIN-01: Nonzero fold**
   - Kind: semantics
-  - Statement: For every pinned vector, the native result is exactly the protocol's nonzero hash chain: zero elements are skipped, the first nonzero element is the chain as it is, every later nonzero element folds in as Poseidon(chain,value), and a vector without a nonzero element chains to zero; an independent reference of that definition over `zolana_hasher`'s Poseidon returns the same chain, every Poseidon value a vector names is exactly that hash, and every vector of `test-vectors/nonzero_hash_chain.json` chains natively to exactly its output.
+  - Statement: For every pinned vector, the native result is exactly the protocol's nonzero hash chain: zero elements are skipped, the first nonzero element becomes the chain unchanged, every later nonzero element sets the chain to Poseidon(chain,value), and a vector with no nonzero element chains to zero; an independent reference of that definition over `zolana_hasher`'s Poseidon returns the same chain, every Poseidon value a vector names is exactly that hash, and every vector of `test-vectors/nonzero_hash_chain.json` chains natively to exactly its output.
   - Location: `src/circuit/builtins/gadgets/hash_chain.rs:9-27` (`nonzero_hash_chain`)
   - Severity: High
   - Suggested test: positive/negative; `tests/unit/gadgets/hash_chain/native.rs`
@@ -228,7 +228,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
   - Suggested test: positive/negative; `tests/unit/gadgets/hash_chain/r1cs.rs`
   - Covered by: `tests/unit/gadgets/hash_chain/r1cs.rs::the_proving_rows_refuse_a_tampered_chain_and_every_flipped_zero_test`.
 
-- [x] **INV-HASH-CHAIN-09: Only inverse hints are free**
+- [x] **INV-HASH-CHAIN-09: Only inverse hints are tolerated**
   - Kind: soundness
   - Statement: For every pinned chain, no constrained private variable is free; exactly the inverse hint of each zero value's zero test, and of each chain zero test that meets a zero chain (a value after the first whose earlier values chain to zero), is tolerated.
   - Location: `src/circuit/builtins/gadgets/hash_chain.rs:9-27` (`nonzero_hash_chain`)
@@ -255,7 +255,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
 
 - [x] **INV-HASH-CHAIN-12: circom hash-chain relation**
   - Kind: equivalence
-  - Statement: For every tested honest or dishonest vector padded to length three, SDK and a circom reference over circomlib Poseidon, which keeps the chain for a zero value and otherwise takes the value when the chain is zero and Poseidon(chain,value) when it is not, accept exactly the same relation.
+  - Statement: For every tested honest or dishonest vector padded to length three, the SDK and a circom reference accept exactly the same relation; the reference, built on circomlib Poseidon, keeps the chain for a zero value and otherwise takes the value when the chain is zero and Poseidon(chain,value) when it is not.
   - Location: `src/circuit/builtins/gadgets/hash_chain.rs:9-27` (`nonzero_hash_chain`)
   - Severity: High
   - Suggested test: external; `tests/unit/gadgets/hash_chain/external.rs`
@@ -299,7 +299,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
   - Location: `src/circuit/builtins/gadgets/hash_chain.rs:9-27` (`nonzero_hash_chain`)
   - Severity: High
   - Suggested test: external; `tests/unit/gadgets/hash_chain/picus.rs`
-  - Partial coverage: `tests/unit/gadgets/hash_chain/picus.rs::picus_checks_chain_determinism_with_a_bounded_timeout`; Each process has a 30-second limit. Unknown is recorded without claiming determinism; Unsafe fails the test.
+  - Partial coverage: `tests/unit/gadgets/hash_chain/picus.rs::picus_checks_chain_determinism_with_a_bounded_timeout`; each process has a 30-second limit. Unknown is recorded without claiming determinism; Unsafe fails the test.
 
 ## Membership query (`is_in`)
 
@@ -337,7 +337,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
 
 - [x] **INV-MEMBER-05: Honest membership rows**
   - Kind: completeness
-  - Statement: For every pinned vector, no row is unsatisfied by its honest membership witness.
+  - Statement: For every pinned vector, its honest membership witness satisfies every row.
   - Location: `src/circuit/builtins/gadgets/membership.rs:7-23` (`is_in`)
   - Severity: High
   - Suggested test: positive/negative; `tests/unit/gadgets/membership/r1cs.rs`
@@ -516,7 +516,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
   - Suggested test: property (proptest); `tests/unit/gadgets/membership/properties.rs`
   - Covered by: `tests/unit/gadgets/membership/properties.rs::membership_matches_slice_contains_for_random_sets`.
 
-- [x] **INV-MEMBER-25: Assertion intentionally has multiple members**
+- [x] **INV-MEMBER-25: Assertion has multiple satisfying members**
   - Kind: equivalence
   - Statement: For the three-member assertion with value promoted to an output, Picus returns exactly Unsafe in SDK and circom because several members can satisfy the relation.
   - Location: `src/circuit/builtins/gadgets/membership.rs:12-23` (`assert_in`)
@@ -566,7 +566,7 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
   - Suggested test: positive/negative; `tests/unit/gadgets/index/r1cs.rs`
   - Covered by: `tests/unit/gadgets/index/r1cs.rs::all_valid_indices_check_the_placeholder_and_bind_each_flag_and_selection`.
 
-- [x] **INV-INDEX-05: Every flag is bound**
+- [x] **INV-INDEX-05: Every flag is constrained**
   - Kind: soundness
   - Statement: For every valid index and each flag position, adding one to that flag is refused at exactly its claim row.
   - Location: `src/circuit/builtins/gadgets/index.rs:10-25` (`one_hot`)
@@ -766,6 +766,6 @@ The exact matrix fixtures use private inputs only. Membership and selection inte
 
 No SPEC_DIVERGENCE was found for these gadget semantics. The DSL specification names membership and indexing but does not prescribe their constraint counts; the exact costs above come from the source and exported matrices.
 
-A single-variable perturbation report does not establish uniqueness when several values can move together. In particular, `assert_in` constrains membership rather than selecting a unique set member. Its Picus Unsafe result is expected when the queried value is made an output; it is not a dishonest-membership acceptance.
+A single-variable perturbation report does not establish uniqueness when several values can move together. In particular, `assert_in` constrains membership rather than selecting a unique set member. Its Picus Unsafe result is expected when the queried value is made an output, and does not mean that the relation accepts a non-member.
 
-The Picus Poseidon and hash-chain invariants remain partial: at the 30-second limit the one-value chain returned Safe on the SDK relation and Unknown on circom, and the three-value chain returned Unknown on both. All standalone Poseidon arities returned Safe in the first run; a later concurrent run timed out on SDK arity ten. The external relation tests, output tampering, native references, pinned matrices and proof verification remain independently asserted.
+The Picus Poseidon and hash-chain invariants remain partial: at the 30-second limit the one-value chain returned Safe on the SDK relation and Unknown on circom, and the three-value chain returned Unknown on both. All standalone Poseidon arities returned Safe in the first run; a later concurrent run timed out on SDK arity ten. The external relation tests, output tampering, native references, pinned matrices and proof verification are asserted independently of Picus.

@@ -53,7 +53,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Severity: Critical
   - Suggested test: positive + negative; `tests/unit/protocol/transaction/native.rs`
 
-- [x] **INV-TX-03: each hash binds exactly its own part of the transaction**
+- [x] **INV-TX-03: each hash covers exactly its own part of the transaction**
   - Covered by: `tests/unit/protocol/transaction/native.rs` `the_hashes_bind_the_blinding_seed_the_output_tree_the_transfers_and_the_public_inputs`
   - Kind: native equivalence
   - Statement: against the reference with another blinding seed, a refresh breaks exactly the private transaction hash rule; with another settlement account, a settlement breaks exactly the transaction hash rule, its private hash still matching; with another recipient in the public fields, a payment breaks exactly the public hash rule.

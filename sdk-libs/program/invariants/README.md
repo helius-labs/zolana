@@ -10,8 +10,8 @@ It does not claim a proof over every possible program or witness.
 
 IDs and inclusive ranges refer to entries in the linked file. `[partial]` means the
 postcondition is not established, `[finding]` means an inherited failing reproduction is
-ignored. A listed ID is subject to its exact domain, widths and fixture scope; it does
-not broaden that invariant.
+ignored. A listed ID covers only the exact domain, widths and fixture scope of its
+invariant.
 
 `shared fixture`, `range-check fixture` and similar labels identify representative coverage,
 not a separate proof of the operation in that row. The Interop column includes both
@@ -151,7 +151,6 @@ inapplicable operation-specific error.
   cross-width equality, range/zero checks and division. Goldens use four-bit fixtures;
   wide counts and digests cover the specified 64–253-bit bounds. Groth16 targets construction,
   narrowing, checked multiplication, sum, less-than, division, selection and zero fixtures.
-  A shared less-than proof does not prove each assertion/min/max operation separately.
   `random_u64_relations_match_the_integer_reference` also checks selection and range;
   their semantic IDs are listed in Properties alongside the operation-specific generated
   checks for the other conversions and assertions. Compile-time invalid width combinations
@@ -168,12 +167,12 @@ inapplicable operation-specific error.
   route plus a variable-skip regression.
 - Asset and owner native hashes are compared to the native Zolana implementations. Their
   hash proofs are representative fixtures; their equality/select rows have separate native,
-  constraint and tamper checks. A hash proof is not a dedicated equality/select proof.
+  constraint and tamper checks.
 - Circuit `PublicTransfer` is crate-private. Its R1CS behavior is exercised through transaction
   flows; [`transfer.md`](transfer.md) separately checks native hash definitions and ordering.
   Balance tests cover token/data holder combinations; the standalone Groth16 balance fixture
-  is a withdrawal. Token initialization/change/burn and data updates are also composed into
-  transaction fixtures, rather than each receiving a standalone proof.
+  is a withdrawal. Token initialization/change/burn and data updates are also exercised
+  inside transaction fixtures, rather than each receiving a standalone proof.
 - Transaction native oracles rebuild the shapes using `FinalizedTransaction`. Refresh, payment, funded data-update and public-settlement interop fixtures
   have passing witness/tamper checks and Groth16 proofs. Burn/sweep paths have native and R1CS fixtures but no
   separately indexed Groth16 proof. Public hashes in the constraint-only asserted fixtures
@@ -237,7 +236,7 @@ covered by the active INV-UTXO-11 regression and native/proving/interop checks.
 Oversized balance and byte-splitting errors retain the caller location
 (INV-LEDGER-22 and INV-BYTES-SPLIT-13); their active regressions check caller files
 and lines through native and prover paths. The per-type checklists declare no additional
-`SPEC_DIVERGENCE` items beyond the documented findings. No operation/category remains without an indexed direct or explicitly shared reference.
+`SPEC_DIVERGENCE` items beyond the documented findings.
 
 **Additional transaction proofs:** INV-TX-18 (payment), INV-TX-19 (funded data update),
 and INV-TX-20 (public deposit/withdrawal) passed in the full external lane and are checked.
@@ -288,9 +287,7 @@ with file locks. Ceremony artifacts are local test material. Picus limits are pe
 ## Validation (2026-09-28)
 
 The current full SDK unit suite passes **661 tests with zero failures and zero
-ignored tests**. Native-value reads have an active characterization test, while
-R1CS setup/assignment/checking retain their active rejection test. The dummy
-commitment parity and caller-location regressions are active.
+ignored tests**.
 
 Validation also includes four-crate checks with all features/tests, two complete
 external runs, SDK/macros/example release suites, and subsequent focused checks
@@ -301,9 +298,7 @@ and refusal of the former incorrect commitment, plus escrow/withdrawal proof and
 functional lifecycle tests. No solver processes remained after the complete
 external runs.
 
-All **1,248 Covered-by references** resolve to passing tests. The **22 partial
-Picus invariants** still require a determinism result beyond their bounded checks.
-No ignored finding reproductions remain.
+All **1,248 Covered-by references** resolve to passing tests.
 
 The standalone variable-domain UTXO-hash fixture now has 2167 rows and 2178 variables;
 its keys must be generated for those updated matrices. TokenUtxos/DataUtxo transaction
@@ -316,7 +311,7 @@ byte-string hashing contract.
 Add stable IDs using [`PROMPT.md`](PROMPT.md), then implement fixtures and native, R1CS,
 property and external checks under the relevant `tests/unit/` directory. Keep external
 modules behind `external-tools`; use the shared fixture/equivalence/export harness.
-Tick only the postconditions actually asserted by passing tests. Record an unresolved
+Tick only the postconditions that passing tests assert. Record an unresolved
 postcondition as partial or a finding, name every `Covered by` test, and update this matrix
 and the totals after auditing those references. Shared or representative proof coverage
 must retain its scope label.

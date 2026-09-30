@@ -15,7 +15,7 @@ const HEADER: &str = "# ZK Program SDK -- Scenario Benchmark
 
 Constraints and proving time for every proof the scenario tests generate. \
 **Constraints** is the circuit's R1CS constraint count, taken from the same synthesis \
-its proving key is generated from. **Proof time** is the wall time of \
+its proving key is generated from. **Proof time** is the elapsed time of \
 `Groth16Prover::prove`, which runs the circuit natively, checks that the constraints \
 are satisfied, creates the Groth16 proof and verifies it once.
 

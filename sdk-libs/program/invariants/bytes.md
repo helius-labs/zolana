@@ -3,17 +3,17 @@
 ID prefixes: `INV-BYTES`, `INV-HASH-BYTES`. Tests live in `tests/unit/bytes/`.
 The public hash entry point is `Bytes<N>::hash_bytes()`: its input bytes are already
 range-checked and its length is fixed by N. Shared exporter/statement invariants
-remain in `cross-cutting.md`.
+live in `cross-cutting.md`.
 
 Source references use `src/circuit/builtins/types/bytes.rs`,
 `src/circuit/builtins/gadgets/hash_bytes.rs`, and `src/conversion/bytes.rs`.
-No SPEC_DIVERGENCE was found against `../../spec.md`.
+No SPEC_DIVERGENCE was found against `../spec.md`.
 
-Split and pack errors retain the conversion caller through the bit-decomposition
-helper. Both owned and borrowed split forms check the exact caller file and line
-for value-overflow and unsupported-width errors.
+Split and pack errors keep the conversion caller's location when they pass through the
+bit-decomposition helper. The tests check the exact caller file and line of value-overflow
+and unsupported-width errors for both owned and borrowed split forms.
 
-Picus `Unknown` is never a proof of determinism. The bounded checks below leave
+Picus `Unknown` does not prove determinism. The bounded checks below leave
 the corresponding invariants unticked; their tests reject `Unsafe` and print
 both verdicts. No test is ignored. The hash function is defined for a fixed
 byte length: leading zero bytes can alias across different lengths, as in the
@@ -320,7 +320,7 @@ native reference's documented contract.
 
 - [x] **INV-BYTES-PACK-06: Packing aliases refused**
   - Kind: soundness
-  - Statement: The malformed byte pair [0,258] claiming 258 is refused by exactly the second byte range check despite satisfying the packing equation.
+  - Statement: The byte pair [0,258] claiming 258 is refused by exactly the second byte range check despite satisfying the packing equation.
   - Location: `src/circuit/builtins/types/bytes.rs:78-83` (`try_from`).
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/bytes/convert/r1cs.rs`.
@@ -658,7 +658,7 @@ native reference's documented contract.
 
 - [x] **INV-HASH-BYTES-03: Checked big-endian packing**
   - Kind: semantics
-  - Statement: For every listed two-byte input [1,2] and [1,0], Bytes<2>::hash_bytes returns exactly its big-endian value, 258 and 256 respectively.
+  - Statement: For the two-byte inputs [1,2] and [1,0], Bytes<2>::hash_bytes returns exactly its big-endian value, 258 and 256 respectively.
   - Location: `src/circuit/builtins/gadgets/hash_bytes.rs:27-36` (`packed`).
   - Severity: High
   - Suggested test: positive/negative; `tests/unit/bytes/hash/native.rs`.
@@ -714,7 +714,7 @@ native reference's documented contract.
 
 - [x] **INV-HASH-BYTES-10: Hash preimage soundness**
   - Kind: soundness
-  - Statement: For every byte position of every tested chunk-boundary fixture, changing that preimage wire leaves a proving row unsatisfied in the checked Bytes<N> hash fixture.
+  - Statement: For every byte position of every tested chunk-boundary fixture of the checked Bytes<N> hash, changing that preimage wire leaves a proving row unsatisfied.
   - Location: `src/circuit/builtins/gadgets/hash_bytes.rs:12-25` (`hash_bytes`).
   - Severity: Critical
   - Suggested test: positive/negative; `tests/unit/bytes/hash/r1cs.rs`.

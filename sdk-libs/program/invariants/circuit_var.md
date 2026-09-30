@@ -153,7 +153,7 @@ non-canonical claim (p - 1) + 1 = p.
 - [x] **INV-CV-ADD-15: no private variable of the fixture is free**
   - Covered by: `tests/unit/circuit_var/add/r1cs.rs` `no_private_variable_is_free_in_any_form`
   - Kind: soundness
-  - Statement: for every valid vector and every operand form, `check_private_variables` reports exactly 1 constraint, exactly the fixture's private variables (3, or 2 with a constant operand), no free variable and no tolerated variable. `check_private_variables` perturbs one private variable at a time with random values: it finds a variable no constraint binds, but it does not prove the witness unique. Variables that can move together are not detected; that needs a determinism checker such as Picus. For addition, INV-CV-ADD-32 closes that gap with Picus.
+  - Statement: for every valid vector and every operand form, `check_private_variables` reports exactly 1 constraint, exactly the fixture's private variables (3, or 2 with a constant operand), no free variable and no tolerated variable. `check_private_variables` perturbs one private variable at a time with random values: it finds a variable that can change alone without breaking a constraint, but it misses variables that can only change together, so it does not prove the witness unique. INV-CV-ADD-32 proves that for addition with Picus.
   - Location: `src/prover/synthesis.rs:106-167` (`fn unconstrained_private_variables`), `src/testing.rs:70-99` (`fn check_private_variables`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/circuit_var/add/r1cs.rs`
@@ -161,7 +161,7 @@ non-canonical claim (p - 1) + 1 = p.
 - [x] **INV-CV-ADD-32: Picus proves every add fixture's sum fixed by its operands**
   - Covered by: `tests/unit/circuit_var/add/picus.rs` `picus_finds_every_form_safe_and_the_sum_fixed_by_its_operands`; `tests/unit/circuit_var/add/picus.rs` `picus_finds_the_sum_of_a_plus_a_and_a_plus_five_fixed`
   - Kind: soundness
-  - Statement: for every operand form, `run-picus --solver cvc5` reports exactly Safe for the `export_picus_r1cs` file, and exactly Safe once the sum is moved from the private inputs to the outputs: no two witnesses with the same left and right (or a, for `Double` and `PlusFive`) differ in the sum. This proves the witness unique given the operands, which the single-variable perturbation of INV-CV-ADD-15 does not.
+  - Statement: for every operand form, `run-picus --solver cvc5` reports exactly Safe for the `export_picus_r1cs` file, and exactly Safe once the sum is moved from the private inputs to the outputs: no two witnesses with the same left and right (or a, for `Double` and `PlusFive`) differ in the sum.
   - Location: `src/prover/snarkjs.rs:20-45` (`fn picus_r1cs`), `src/client/zk_circuit.rs:19-25` (`fn export_picus_r1cs`), `tests/unit/harness/picus.rs` (`fn verdict`, `fn promote`)
   - Severity: Critical
   - Suggested test: external (Picus); `tests/unit/circuit_var/add/picus.rs`
@@ -169,7 +169,7 @@ non-canonical claim (p - 1) + 1 = p.
 - [x] **INV-CV-ADD-33: Picus reports an operand no constraint fixes as unsafe**
   - Covered by: `tests/unit/circuit_var/add/picus.rs` `picus_finds_b_free_once_a_plus_b_minus_b_inlines_to_a`; `tests/unit/circuit_var/add/picus.rs` `picus_finds_an_operand_free_when_no_sum_is_asserted`
   - Kind: soundness
-  - Statement: Picus distinguishes a free variable from a fixed one on the add fixtures: in `AddThenSubtract`, whose row inlines to a - sum = 0, a and the sum are each exactly Safe once moved to the outputs and b is exactly Unsafe; in the deliberately unasserted fixture, the export with no outputs is exactly Safe and `right` moved to the outputs is exactly Unsafe.
+  - Statement: Picus distinguishes a free variable from a fixed one on the add fixtures: in `AddThenSubtract`, whose row inlines to a - sum = 0, a and the sum are each exactly Safe once moved to the outputs and b is exactly Unsafe; in `Unasserted`, the export with no outputs is exactly Safe and `right` moved to the outputs is exactly Unsafe.
   - Location: `src/prover/snarkjs.rs:20-45` (`fn picus_r1cs`), `tests/unit/harness/picus.rs` (`fn verdict`, `fn promote`)
   - Severity: Critical
   - Suggested test: external (Picus); `tests/unit/circuit_var/add/picus.rs`
@@ -453,7 +453,7 @@ non-canonical claim 1 - 1 = p.
 - [x] **INV-CV-SUB-16: no private variable of the fixture is free**
   - Covered by: `tests/unit/circuit_var/sub/r1cs.rs` `no_private_variable_is_free_in_any_form`
   - Kind: soundness
-  - Statement: for every valid vector and every operand form, `check_private_variables` reports exactly 1 constraint, exactly the fixture's private variables (3, or 2 with a constant operand), no free variable and no tolerated variable. The perturbation finds an unbound variable but does not prove the witness unique; INV-CV-SUB-17 does, with Picus.
+  - Statement: for every valid vector and every operand form, `check_private_variables` reports exactly 1 constraint, exactly the fixture's private variables (3, or 2 with a constant operand), no free variable and no tolerated variable. The perturbation finds a variable that can change alone without breaking a constraint, but does not prove the witness unique; INV-CV-SUB-17 does, with Picus.
   - Location: `src/prover/synthesis.rs:111-172` (`fn unconstrained_private_variables`), `src/testing.rs:70-99` (`fn check_private_variables`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/circuit_var/sub/r1cs.rs`
@@ -778,7 +778,7 @@ non-canonical claim 1 * 0 = p.
 - [x] **INV-CV-MUL-19: the perturbation check finds exactly the operands a zero partner frees**
   - Covered by: `tests/unit/circuit_var/mul/r1cs.rs` `no_private_variable_is_free_unless_its_partner_operand_is_zero`
   - Kind: soundness
-  - Statement: for every valid vector with both operands nonzero, `check_private_variables` reports exactly 2 constraints, 4 private variables and no free or tolerated variable for every variable form, and exactly 1 constraint and 2 private variables for every constant form; for every valid vector it reports as free exactly private variable 0 (left) when right is 0 and private variable 1 (right) when left is 0, and for a constant form exactly private variable 0 when k is 0, with no tolerated variable: a zero factor leaves its partner unbound, as the relation allows.
+  - Statement: for every valid vector with both operands nonzero, `check_private_variables` reports exactly 2 constraints, 4 private variables and no free or tolerated variable for every variable form, and exactly 1 constraint and 2 private variables for every constant form; for every valid vector it reports as free exactly private variable 0 (left) when right is 0 and private variable 1 (right) when left is 0, and for a constant form exactly private variable 0 when k is 0, with no tolerated variable: a zero factor leaves its partner free, as the relation allows.
   - Location: `src/prover/synthesis.rs:111-172` (`fn unconstrained_private_variables`), `src/testing.rs:70-99` (`fn check_private_variables`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/circuit_var/mul/r1cs.rs`
@@ -1302,7 +1302,7 @@ vectors claim 1 / 0 = 0, 1 and p - 1. The circom reference `inverse.circom` comp
   - Severity: High
   - Suggested test: positive; `tests/unit/circuit_var/inverse/r1cs.rs`
 
-- [x] **INV-CV-INV-09: the inverse witness and its row carry no label**
+- [x] **INV-CV-INV-09: the inverse witness and its row have no label**
   - Covered by: `tests/unit/circuit_var/inverse/r1cs.rs` `the_inverse_witness_and_its_row_carry_no_label`
   - Kind: constraint
   - Statement: `constraint_labels` of `Inverse` over x = 2 is exactly three labels: an `Allocation(Constrained)` "a field proof input" for private variable 0, one for private variable 1, and the `Check` labelled with the fixture's rule, in the fixture's file, over exactly row 1. Private variable 2 (w) has no allocation label, so it has no `Multiplier` role: unlike the inverse hint of an equality test, it is a gadget witness, which the Picus export makes an output (INV-CV-INV-27).
@@ -2342,7 +2342,7 @@ constraint per bit (`from_bits.circom`) and `is_bool.circom`.
 - [x] **INV-CV-BITS-37: generated Boolean checks admit exactly the host field members 0 and 1**
   - Covered by: `tests/unit/circuit_var/bits/properties.rs` `generated_boolean_checks_accept_exactly_zero_and_one` (property)
   - Kind: soundness
-  - Statement: for every generated non-Boolean canonical field value together with the explicitly included values 0 and 1, the accepted native and exported-row relation is exactly membership in the host field set {0,1}; a rejected native value returns exactly `NotZeroOrOne` at the fixture, and a rejected proving witness fails exactly row 0 with the Booleanity rule.
+  - Statement: for every generated non-Boolean canonical field value and for 0 and 1, the native run and the exported row accept a value exactly when it is in the host field set {0, 1}; a rejected native value returns exactly `NotZeroOrOne` at the fixture, and a rejected proving witness breaks exactly row 0 with the booleanity rule.
   - Location: `src/circuit/builtins/field/bits.rs:28-30` (`check_is_bool`), `src/circuit/builtins/field/bits.rs:52-64` (`assert_bool`)
   - Error: `CircuitErrorKind::NotZeroOrOne`, `ProverErrorKind::ProofInputsBreakRule`
   - Severity: Critical
@@ -2407,7 +2407,7 @@ read in `fixtures::read`, which also returns the line of the read.
 - [x] **INV-CV-CONST-06: native proof inputs are readable constants**
   - Covered by: `tests/unit/circuit_var/neg/constants.rs` `reading_a_proof_input_natively_returns_its_constant_value`
   - Kind: semantics
-  - Statement: for the canonical proof-input values 0, 1, 3 and p-1, the native allocator represents each input as a constant: reading it returns exactly that value, and native execution of `ReadsValue` returns exactly `Ok(())`. INV-CV-CONST-05 separately pins rejection during R1CS setup, assignment export and constraint checking.
+  - Statement: for the canonical proof-input values 0, 1, 3 and p - 1, the native allocator represents each input as a constant: reading it returns exactly that value, and the native run of `ReadsValue` returns exactly `Ok(())`. INV-CV-CONST-05 covers the refusal in R1CS setup, assignment export and constraint checking.
   - Location: `src/conversion/mod.rs` (`Allocator::witness`), `src/circuit/builtins/field/var.rs` (`value`)
   - Severity: Medium
   - Suggested test: positive characterization; `tests/unit/circuit_var/neg/constants.rs`

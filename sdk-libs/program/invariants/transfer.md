@@ -9,11 +9,11 @@ The circuit `PublicTransfer` and its `hash` are `pub(crate)`: a transfer is crea
 `UtxoTrait::deposit` and `withdraw` and hashed only inside `ConfidentialTransaction::check`, so
 no public fixture can instantiate it. Its R1CS rows, soundness, setup/proving shape, snarkjs
 interop and Picus run are therefore covered through the transaction flows in
-`transaction.md` (`INV-TX`, W8), not here. This file covers the native reference those flows
-are compared against, `program::PublicTransfer::hash` and `program::transaction_hash`,
-against a reference written out from `zolana-hasher` in `tests/unit/protocol/transfer/vectors.rs`
-(`hash_bytes`, `right_align`, `Poseidon::hashv`), and pins that the public builtins the
-circuit's `hash` composes (`Asset::constant(..).hash()`, `constant`, `Bytes::hash_bytes`,
+`transaction.md` (`INV-TX`, W8). This file checks the native reference those flows are
+compared against, `program::PublicTransfer::hash` and `program::transaction_hash`, against a
+reference written out from `zolana-hasher` in `tests/unit/protocol/transfer/vectors.rs`
+(`hash_bytes`, `right_align`, `Poseidon::hashv`). It also pins that the public builtins the
+circuit's `hash` calls (`Asset::constant(..).hash()`, `constant`, `Bytes::hash_bytes`,
 `poseidon`) give the native hash on constants. The vectors deposit and withdraw SOL and USDC,
 with amounts 0, 1, 2^32 and 2^64 - 1, the zero account, an account of 255s, and a mint equal
 to the account.
@@ -29,7 +29,7 @@ to the account.
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/transfer/native.rs`, `tests/unit/protocol/transfer/properties.rs`
 
-- [x] **INV-TRANSFER-02: the public builtins the circuit hash composes give the native hash on constants**
+- [x] **INV-TRANSFER-02: the public builtins the circuit hash calls give the native hash on constants**
   - Covered by: `tests/unit/protocol/transfer/native.rs` `the_public_builtins_the_circuit_transfer_hash_composes_give_the_native_hash_on_constants`
   - Kind: native equivalence
   - Statement: for every transfer vector, the value of `poseidon([Asset::constant(mint).hash(), constant(amount), constant(is_deposit), Bytes::constant(account).hash_bytes()])` is exactly `PublicTransfer::hash`.
@@ -38,7 +38,7 @@ to the account.
   - Suggested test: positive; `tests/unit/protocol/transfer/native.rs`
 
 ### Semantics
-- [x] **INV-TRANSFER-03: every single field change changes the transfer hash**
+- [x] **INV-TRANSFER-03: changing any one field changes the transfer hash**
   - Covered by: `tests/unit/protocol/transfer/native.rs` `every_single_field_change_changes_the_transfer_hash`
   - Kind: semantics
   - Statement: for every transfer vector and each change of exactly one of the mint, the direction, the amount (lowest bit flipped) and the account, the changed transfer's hash is exactly the reference hash of the change and differs from the original's.
@@ -65,7 +65,7 @@ to the account.
 - [x] **INV-TRANSFER-06: the transaction hash depends on the transfer order and the private hash**
   - Covered by: `tests/unit/protocol/transfer/native.rs` `the_transaction_hash_depends_on_the_transfer_order_and_the_private_hash`
   - Kind: semantics
-  - Statement: for two distinct transfers, swapping their order changes the transaction hash, so does changing the private hash, and one transfer's transaction hash differs from the private hash.
+  - Statement: for two distinct transfers, swapping their order changes the transaction hash and so does changing the private hash; the transaction hash of one transfer differs from the private hash.
   - Location: `src/program/transfer.rs:27-38`
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transfer/native.rs`
@@ -84,5 +84,4 @@ to the account.
 
 - Total: 7 (Critical 2, High 4, Medium 1); covered 7, partial 0; findings: none.
 - `INSUFFICIENT_INFO`: none. The Constraint, Completeness, Soundness, Shape and Interop cells
-  of the circuit `PublicTransfer::hash` stay with `transaction.md` (W8): it is crate-private
-  and reachable only through `ConfidentialTransaction::check`.
+  of the circuit `PublicTransfer::hash` stay with `transaction.md` (W8).

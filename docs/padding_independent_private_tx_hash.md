@@ -16,7 +16,7 @@ reproduces exactly:
   circuit left empty.
 - A logic circuit cannot spend a variable number of UTXOs without paying for the largest shape
   and fixing where the SPP places its dummies.
-- Clients pad outputs with owner-bound zero-value outputs, not [empty UTXOs](spec.md#empty-utxo).
+- Clients pad outputs with owned zero-value outputs, not [empty UTXOs](spec.md#empty-utxo).
   A padding output is then a real output, so its hash enters the output chain and the logic
   circuit has to create it.
 
@@ -59,7 +59,7 @@ private_tx_hash = Poseidon(nonzero_hash_chain(input_utxo_hashes),
 Unused output slots hold [empty UTXOs](spec.md#empty-utxo), as the spec already describes. An
 empty UTXO contributes `0` to the output chain, so it is skipped.
 
-An empty output publishes what an owner-bound padding output publishes today: the owner tag and a
+An empty output publishes what an owned padding output publishes today: the owner tag and a
 ciphertext of a zero-amount SOL plaintext for a real output owner, the sender when it owns one.
 The circuit already accepts that tag (see "Output owner tag" in
 [SPP Proof](spec.md#spp-proof---solana-privacy-zk-proof)). A wallet that decrypts the ciphertext
@@ -77,19 +77,21 @@ no participant is left for the tag. Its logic circuit creates a zero-value outpu
   after a nonzero step.
 - **Real entries are nonzero.** A UTXO hash or address nullifier equal to `0` is a Poseidon
   preimage of `0`. Skipping zero entries therefore never drops a real UTXO or address.
-- **What positions still bind.**
+- **Which positions the hash still fixes.**
   - Output `i`'s hash includes its [blinding](spec.md#output-blinding) `blinding_i`, so an
-    output is still bound to its slot. The logic circuit derives the blinding from its own output
-    index, and the SPP proof places real outputs first, in that order.
-  - `first_nullifier` enters through `private_tx_blinding` as before, so slot 0 stays bound.
-  - The order of real inputs, of real outputs and of addresses is bound. Only the positions of
-    dummies are not.
-- **External data.** Removing `external_data_hash` unbinds the logic proof from the ciphertexts
-  and the instruction fields, not the SPP proof. The SPP proof keeps it as a public input, the
-  P256 signature covers it, and the Solana transaction signatures cover the instruction. The
-  logic proof binds the UTXOs it spends and creates, and each input's nullifier stops a replay
-  into a second instruction. Public deposits and withdrawals are external data, so a logic
-  proof whose rules depend on them binds them in its own public input.
+    output's hash still depends on its slot. The logic circuit derives the blinding from its own
+    output index, and the SPP proof places real outputs first, in that order.
+  - `first_nullifier` enters through `private_tx_blinding` as before, so the hash still depends
+    on the input in slot 0.
+  - The hash depends on the order of real inputs, of real outputs and of addresses, and not on
+    the positions of dummies.
+- **External data.** Without `external_data_hash`, the logic proof no longer covers the
+  ciphertexts and the instruction fields; the SPP proof still does. The SPP proof keeps it as a
+  public input, the P256 signature covers it, and the Solana transaction signatures cover the
+  instruction. The logic proof covers the UTXOs it spends and creates, and each input's
+  nullifier stops a replay into a second instruction. Public deposits and withdrawals are
+  external data, so a logic proof whose rules depend on them includes them in its own public
+  input.
 
 ## Effect on ZK programs
 
@@ -111,7 +113,7 @@ All of the following change together, in one key rotation.
 | Other circuits that recompute the hash | `spp_merge/shared/transaction.go`, `circuits/ring-utils/private_tx_hash.go`, `sdk-libs/gnark-sdk/hash.go` and the gnark example circuits (`sdk-tests/dynamic-swap/prover`, timelock-escrow). |
 | Host mirrors | `prover/server/prover-test/spp/protocol/transcript.go` and `spptest`. |
 | Native hashers | A `nonzero_hash_chain` in `zolana-hasher`, used by `zolana_program::PrivateTxHash`, `SppProofInputs::private_tx_hash` (`sdk-libs/transaction`), the client proof assembly (`sdk-libs/client`), `custom-rings/policy` and the TS SDK (`client/prover`, `ring`, `transaction/instructions/transact.ts`). |
-| Output padding | `sdk-libs/transaction` pads with owner-bound zero outputs and pads with empty UTXOs instead. The TS SDK already pads with empty UTXOs, with random bytes in place of a ciphertext. |
+| Output padding | `sdk-libs/transaction` pads with empty UTXOs instead of owned zero outputs. The TS SDK already pads with empty UTXOs, with random bytes in place of a ciphertext. |
 | SPP program | The P256 digest in `programs/shielded-pool/src/instructions/transact/verify.rs` covers `private_tx_hash || external_data_hash`. |
 | ZK program examples | The SDKs that recompute the hash for their logic proofs (`sdk-tests/dynamic-swap/sdk`) switch to the new definition. |
 | Keys | Every transfer, merge, ring, policy and example circuit that computes the hash gets new proving and verifying keys, following [the rotation rules](spec.md#circuit-variants). |

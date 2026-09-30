@@ -72,10 +72,10 @@ implementation differences.
         2. choose a supported shape that fits both sides, or validate the
            caller's; not every input/output combination has one
         3. pad both sides, validate balance, and fix slot order and tree
-           assignment: real inputs keep the caller's order, in any tree
-           order, dummies follow them, and each input dummy is built for its
-           assigned tree. Output padding creates zero-amount sender-owned
-           notes after the caller's outputs and the change.
+           assignment: real inputs keep the caller's order, trees may
+           interleave, dummies follow the real inputs, and each input dummy is
+           built for its assigned tree. Output padding appends zero-amount
+           sender-owned notes after the caller's outputs and the change.
         4. take the first nullifier from the final input order; it seeds the
            output blindings and the transaction viewing key
     2. derive the slot values ***(client)***
@@ -111,10 +111,9 @@ implementation differences.
 
     `ZolanaClient::prove_transact`
 
-    1. on the P-256 rail, sign `sha256(private_tx_hash || external_data_hash)` as the
-       authorization,
-       `Tvc::sign_p256`. The transact rail authorizes through the Solana signer
-       in step 7 instead.
+    1. on the P-256 rail, sign `sha256(private_tx_hash || external_data_hash)`
+       as the authorization, `Tvc::sign_p256`. The transact rail authorizes
+       through the Solana signer in step 7 instead.
     2. send the input commitments; the prover fetches the state-inclusion and
        nullifier non-inclusion witnesses itself
     3. assemble the witness and request the proof,

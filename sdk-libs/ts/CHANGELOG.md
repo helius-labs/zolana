@@ -3,16 +3,16 @@
 ## 0.3.2-alpha — unreleased
 
 The private transaction hash no longer depends on padding, so one ZK program
-circuit works with every transaction shape, and a merge carries no private
-transaction hash. A transaction that a ZK program's WebAssembly bindings build
-decodes, seals and proves through the SDK, and the program forwards it to
-`transact` through a CPI.
+circuit works with every transaction shape, and a merge has no private
+transaction hash. The SDK decodes, seals and proves a transaction built by a ZK
+program's WebAssembly bindings, and the program forwards it to `transact`
+through a CPI.
 
 Breaking
 
-- `privateTxHash` no longer takes `externalDataHash`, starts each of its
-  input, output and address chains from the first nonzero entry and keeps its
-  value when padding moves between slots, `SppProofInputs.messageHash()`
+- `privateTxHash` no longer takes `externalDataHash` and hashes only the
+  nonzero entries of its input, output and address chains, so padding slots
+  leave its value unchanged, `SppProofInputs.messageHash()`
   returns a new digest that also covers the external data and a transfer's
   cache write, and `CustomRingPolicyProofRequest` drops `externalDataHash` and
   takes a zero `addressChain` for a transfer that creates no address → drop
@@ -31,13 +31,13 @@ Breaking
 - `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
   `CLIENT_INPUTS_NOT_GROUPED_BY_TREE` and
   `ShieldedPoolError.InputsNotGroupedByTree` are removed, leaving code 7063
-  unused, because a transfer may now spend inputs from different trees in any
-  order, a padding input that names a tree no real input opens fails with
+  unused, since a transfer may now spend inputs from different trees in any
+  order; a padding input that names a tree no real input opens fails with
   `CLIENT_INPUT_TREE_UNRESOLVED`, and `SppProofInputs` refuses a real input or
   output that follows a padding slot with `TRANSACTION_REAL_SLOT_AFTER_DUMMY` →
   drop handling of the removed codes, match the new ones and place padding
   after every real slot.
-- `PreparedTransfer.withInputTreeLast` is removed → drop the call, a
+- `PreparedTransfer.withInputTreeLast` is removed → drop the call; a
   transfer's inputs may reference their trees in any order.
 - `SppProofInputs` refuses a cache write the program would reject with
   `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
@@ -91,10 +91,10 @@ Changed
 Fixed
 
 - `proveCustomRingTransfer` on a ring with a spend window put padding before
-  the spend record, which the transaction proof refuses, the record now follows
+  the spend record, which the transaction proof refuses; the record now follows
   the spent UTXOs with padding inputs after it, and a spare slot before the
-  record output is a zero-amount copy of the sender's change, else of the last
-  output, that publishes the copied output's owner tag, so it adds no subject
+  record output is a zero-amount copy of the sender's change (else of the last
+  output) that publishes the copied output's owner tag, so it adds no subject
   to the ring's rules.
 
 ## 0.3.1-alpha — 2026-09-29

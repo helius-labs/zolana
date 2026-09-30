@@ -358,7 +358,7 @@ booleanity line per input, since circomlib's gates constrain none; `implies.circ
 - [x] **INV-BOOL-GATE-18: a tampered product is reported at its row with no label**
   - Covered by: `tests/unit/bool/r1cs.rs` `a_tampered_intermediate_witness_breaks_its_own_row`
   - Kind: error
-  - Statement: for every two-operand gate, `check_tampered` of the product witness returns exactly `ProverError.ProofInputsBreakRule` at row 2 with no label: the product row is emitted outside every `labels::check` and `Scope`, so the report names the row only.
+  - Statement: for every two-operand gate, `check_tampered` of the product witness returns exactly `ProverError.ProofInputsBreakRule` at row 2 with no label: the product row is added outside every `labels::check` and `Scope`, so the report names the row only.
   - Location: `src/circuit/builtins/field/primitive.rs:64-66` (`fn times`), `src/circuit/labels.rs:255-270` (`fn report`)
   - Error: `ProverErrorKind::ProofInputsBreakRule`
   - Severity: Medium
@@ -378,7 +378,7 @@ booleanity line per input, since circomlib's gates constrain none; `implies.circ
 - [x] **INV-BOOL-GATE-20: and, or, xor and nand are relation-equivalent to circomlib's gates**
   - Covered by: `tests/unit/bool/external.rs` `every_two_operand_gate_is_relation_equivalent_to_its_circom_reference`
   - Kind: equivalence
-  - Statement: for every boolean pair with its honest and its negated claim, every wrong claim on (1, 1) and every non-boolean pair, the SDK natively, the SDK export, circom's witness calculation and circom's R1CS each accept exactly when the claim is the truth-table entry of a boolean pair, against `and.circom`, `or.circom`, `xor.circom` and `nand.circom` (circomlib `AND`, `OR`, `XOR`, `NAND` with a booleanity line per input).
+  - Statement: for every boolean pair with its honest and its negated claim, every wrong claim on (1, 1) and every non-boolean pair, the SDK natively, the SDK export, circom's witness calculation and circom's R1CS each accept exactly when the claim is the truth-table entry of a boolean pair, against `and.circom`, `or.circom`, `xor.circom` and `nand.circom`.
   - Location: `src/circuit/builtins/types/boolean.rs:36-54`, `tests/unit/bool/circom/`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -386,7 +386,7 @@ booleanity line per input, since circomlib's gates constrain none; `implies.circ
 - [x] **INV-BOOL-GATE-21: implies is relation-equivalent to its own reference**
   - Covered by: `tests/unit/bool/external.rs` `every_two_operand_gate_is_relation_equivalent_to_its_circom_reference`
   - Kind: equivalence
-  - Statement: over the same cases as INV-BOOL-GATE-20, `implies` and `implies.circom` (`out <== 1 - a + a*b` with booleanity) accept exactly the same cases.
+  - Statement: over the same cases as INV-BOOL-GATE-20, `implies` and `implies.circom` accept exactly the same cases.
   - Location: `src/circuit/builtins/types/boolean.rs:56-58` (`fn implies`), `tests/unit/bool/circom/implies.circom`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -394,7 +394,7 @@ booleanity line per input, since circomlib's gates constrain none; `implies.circ
 - [x] **INV-BOOL-GATE-22: not is relation-equivalent to circomlib NOT**
   - Covered by: `tests/unit/bool/external.rs` `not_is_relation_equivalent_to_circomlib_not`
   - Kind: equivalence
-  - Statement: for both booleans with the honest claim and with the claim equal to the input, and for every non-boolean vector claiming 1 - x, `Not` and `not.circom` (circomlib `NOT` with booleanity) accept exactly the same cases.
+  - Statement: for both booleans with the honest claim and with the claim equal to the input, and for every non-boolean vector claiming 1 - x, `Not` and `not.circom` accept exactly the same cases.
   - Location: `src/circuit/builtins/types/boolean.rs:32-34` (`fn not`), `tests/unit/bool/circom/not.circom`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -590,7 +590,7 @@ over circomlib `IsZero`, each with a booleanity line per flag.
 - [x] **INV-BOOL-FOLD-16: all of three flags is relation-equivalent to circomlib MultiAND**
   - Covered by: `tests/unit/bool/external.rs` `all_of_three_flags_is_relation_equivalent_to_circomlib_multi_and`
   - Kind: equivalence
-  - Statement: for the eight flag combinations of length 3 with their honest and negated claims, and the deceptive [2, 0, 1] claiming 1, `Fold<all, 3>` and `multi_and.circom` (circomlib `MultiAND(3)` with booleanity) accept exactly the same cases in all four checks.
+  - Statement: for the eight flag combinations of length 3 with their honest and negated claims, and the deceptive [2, 0, 1] claiming 1, `Fold<all, 3>` and `multi_and.circom` accept exactly the same cases in all four checks.
   - Location: `src/circuit/builtins/types/boolean.rs:60-68` (`fn all`), `tests/unit/bool/circom/multi_and.circom`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -598,7 +598,7 @@ over circomlib `IsZero`, each with a booleanity line per flag.
 - [x] **INV-BOOL-FOLD-17: any of three flags is relation-equivalent to a reference over circomlib IsZero**
   - Covered by: `tests/unit/bool/external.rs` `any_of_three_flags_is_relation_equivalent_to_a_reference_over_circomlib_is_zero`
   - Kind: equivalence
-  - Statement: for the eight flag combinations of length 3 with their honest and negated claims, and the deceptive [1, p - 1, 0] claiming 0, `Fold<any, 3>` and `any.circom` (`1 - IsZero(sum)` with booleanity) accept exactly the same cases in all four checks.
+  - Statement: for the eight flag combinations of length 3 with their honest and negated claims, and the deceptive [1, p - 1, 0] claiming 0, `Fold<any, 3>` and `any.circom` accept exactly the same cases in all four checks.
   - Location: `src/circuit/builtins/types/boolean.rs:69-77` (`fn any`), `tests/unit/bool/circom/any.circom`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -777,7 +777,7 @@ branches as constants. The reference is circomlib `Mux1` with `c[0]` the false b
 - [x] **INV-BOOL-SEL-15: select is relation-equivalent to circomlib Mux1**
   - Covered by: `tests/unit/bool/external.rs` `select_is_relation_equivalent_to_circomlib_mux1`
   - Kind: equivalence
-  - Statement: for every boolean triple with the named branch and with the other branch claimed, and for every non-boolean condition, true branch and false branch whose claim and product are consistent, `Choose<0>` and `select.circom` (circomlib `Mux1` with booleanity) accept exactly the same cases in all four checks.
+  - Statement: for every boolean triple with the named branch and with the other branch claimed, and for every non-boolean condition, true branch and false branch whose claim and product are consistent, `Choose<0>` and `select.circom` accept exactly the same cases in all four checks.
   - Location: `src/circuit/builtins/ops/select.rs:7-11`, `tests/unit/bool/circom/select.circom`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -1126,7 +1126,7 @@ for `is_equal` is circomlib `IsEqual` with a booleanity line per input.
 - [x] **INV-BOOL-EQ-16: is_equal is relation-equivalent to circomlib IsEqual**
   - Covered by: `tests/unit/bool/external.rs` `every_two_operand_gate_is_relation_equivalent_to_its_circom_reference`
   - Kind: equivalence
-  - Statement: over the cases of INV-BOOL-GATE-20, `Variables<is_equal>` and `is_equal.circom` (circomlib `IsEqual` with booleanity) accept exactly the same cases in all four checks; the SDK exports exactly 4 constraints and 5 variables against exactly 9 and 10.
+  - Statement: over the cases of INV-BOOL-GATE-20, `Variables<is_equal>` and `is_equal.circom` accept exactly the same cases in all four checks; the SDK exports exactly 4 constraints and 5 variables against exactly 9 and 10.
   - Location: `src/circuit/builtins/types/boolean.rs:127-130`, `tests/unit/bool/circom/is_equal.circom`
   - Severity: High
   - Suggested test: external (circom); `tests/unit/bool/external.rs`
@@ -1162,9 +1162,9 @@ for `is_equal` is circomlib `IsEqual` with a booleanity line per input.
 - Total invariants: 121 (conversions 18, gates 27, folds 21, select 19, assertions 16, Assert impl 20)
 - Critical: 41; High: 52; Medium: 28
 - Covered: 121; Partial: 0; Findings: 0
-- SPEC_DIVERGENCE items: none. `../../spec.md` states that `Bool::try_from(&var)` checks a
-  0 or 1 value and that `CircuitVar::from` turns a `Bool` back into a value, and that `From`
-  widens from a `Bool` into a `Uint`; INV-BOOL-CONV-02, -03, -06 and -07 pin exactly that.
-- INSUFFICIENT_INFO items: none. `../../spec.md` does not describe the gates, the folds,
+- SPEC_DIVERGENCE items: none. `../spec.md` states that `Bool::try_from(&var)` checks a
+  0 or 1 value, that `CircuitVar::from` turns a `Bool` back into a value, and that `From`
+  widens a `Bool` into a `Uint`; INV-BOOL-CONV-02, -03, -06 and -07 pin exactly that.
+- INSUFFICIENT_INFO items: none. `../spec.md` does not describe the gates, the folds,
   `select` or the assertions; their invariants are derived from `src/` alone, against
   independent truth tables.

@@ -1,8 +1,8 @@
 # Cross-Cutting Invariants
 
 Invariants that hold for every builtin and every fixture. Each entry lists the builtins it
-applies to; the per-builtin files reference these IDs instead of duplicating them. For now
-the only builtin is `CircuitVar +`, whose fixtures cover every entry below.
+applies to, and the per-builtin files reference these IDs. For now the only builtin is
+`CircuitVar +`, whose fixtures cover every entry below.
 
 ## Native and R1CS runs
 
@@ -68,7 +68,7 @@ the only builtin is `CircuitVar +`, whose fixtures cover every entry below.
   - Severity: Medium
   - Suggested test: external (Racket, ps, kill); `tests/unit/harness/picus.rs`
 
-- [x] **INV-XC-07: Cached circom modules preserve independent witness executions**
+- [x] **INV-XC-07: cached circom modules keep witness calculations independent**
   - Covered by: `tests/unit/harness/circom.rs` `cached_modules_keep_calculations_and_assertion_handlers_independent`
   - Kind: interop
   - Statement: concurrent and repeated calculations on cached addition code accept exactly the honest claims, abort wrong claims in Abort mode, and return an unsatisfying witness in Ignore mode without affecting the next calculation; changing wasm bytes at the same path selects a new compiled artifact.

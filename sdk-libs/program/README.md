@@ -3,12 +3,12 @@
 The SDK for Solana programs built on the shielded pool (SPP). It has three parts:
 
 - **Instructions.** The crate re-exports [`zolana-instruction`](../instruction): the SPP
-  instruction builders, the `transact` CPI (feature `cpi`), and the on-chain SPP derivations.
-  Without features the crate is `no_std` and builds for SBF.
+  instruction builders, the `transact` CPI (feature `cpi`), and the SPP derivations a Solana
+  program recomputes. Without features the crate is `no_std` and builds for SBF.
 - **Compressed accounts.** `compression` keeps a pinocchio program's state as SPP UTXOs that
   one of its PDAs owns, and creates, updates and reads them through a `transact` CPI.
-- **ZK programs.** A program with its own Groth16 circuit, whose proof is bound to the SPP
-  transaction it CPIs. A `circuit` fn written in the DSL of `zolana_program::circuit` runs
+- **ZK programs.** A program with its own Groth16 circuit, whose proof shares `private_tx_hash`
+  with the SPP transaction it CPIs. A `circuit` fn written in the DSL of `zolana_program::circuit` runs
   twice:
   - natively on the client, where it builds the SPP transaction's inputs and outputs;
   - as R1CS in the prover, where it checks the constraints and the public hash.
@@ -42,7 +42,7 @@ No feature is on by default.
 | `wasm`, `wasm-prover`, `wasm-threads`, `wasm-verify` | The wasm bindings, the wasm prover, its thread pool and a wasm verifier. |
 | `external-tools` | Test only: the unit suite's cross-checks that spawn circom and snarkjs. |
 
-An on-chain program depends on the crate with `compression` or `cpi`. Its client enables
+A Solana program depends on the crate with `compression` or `cpi`. Its client enables
 `client`, and a key setup needs `setup` as well.
 
 ## Building a ZK program
@@ -70,7 +70,7 @@ zolana-program groups its modules by the phase that uses them:
 | `conversion/` | Between client and circuit values: `ProofInput`, `FromCircuit`, `Allocator`, `Records`, and bytes to fields and back. |
 | `client/` | The plain Rust side: `TxContext`, `Owner`, `ProgramOwner`, `DataUtxo`, and with feature `client`, `ZkProgram`, `ProgramTransaction` and `ZkCircuit`. |
 | `prover/` | `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis behind them. |
-| `hasher/` | The data hashes and discriminators that on-chain code and circuits share. |
+| `hasher/` | The data hashes and discriminators that Solana programs and circuits share. |
 | `compression/` | Compressed accounts for pinocchio programs. |
 | `wasm/` | The wasm bindings. |
 
@@ -97,10 +97,10 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`. |
-| `CompressedProof` | No feature, so programs and `compression` use it on chain. The 128-byte form an instruction contains, with a wincode layout. Feature `client` adds `CompressedProof::try_from(&proof)` from a `SolanaProof` and `CompressedProof::verify`, which decompresses and verifies it. |
+| `CompressedProof` | No feature, so Solana programs and `compression` use it. The 128-byte form an instruction contains, with a wincode layout. Feature `client` adds `CompressedProof::try_from(&proof)` from a `SolanaProof` and `CompressedProof::verify`, which decompresses and verifies it. |
 | `CircuitError` | What circuit code returns: a broken rule, a value out of range, a wrong length, a bounded `Vec` with too many or too few items (`TooManyItems`, `TooFewItems`, naming the field) or a bad owner or UTXO. `broken_rule()` names the rule and `location()` the `file:line:column` of the program's line that broke it. |
 | `ClientError` | What building a transaction returns: a circuit error, a slot that does not resolve or a transaction the SPP builder refuses. |
-| `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. A failing constraint carries its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. |
+| `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. The error of a failing constraint includes its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. |
 | `SourceLocation`, `SlotKind` | The `file:line:column` of an error, and the kind of slot a slot error names. |
 | `ProvingKey`, `VerifyingKey`, `Proof` | Features `client` or `setup`. The arkworks Groth16 types over BN254, without the curve parameter. |
 
@@ -119,7 +119,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | Name | What it is good for |
 | --- | --- |
 | `Field` | A native element of the BN254 scalar field that UTXO hashes and the public hash live in. It is a newtype over arkworks' `Fr`, with `From` for `u8` to `u128`, `bool` and `Fr`, `Fr::from(field)` back, and `+`, `-`, `*` and negation on native values. `is_zero`, `inverse`, `sqrt`, `pow` and `u64::try_from` / `u128::try_from` are available when preparing input values. |
-| `CircuitVar` | The value type inside `circuit`: a field element, a constant in the native run and a variable in R1CS. `+`, `-`, `*`, unary `-`, `+=`, `-=` and `*=` are field arithmetic that wraps around the modulus: a sum and a product by a constant are free, and a product of two variables costs one constraint. `inverse`, `div` and `pow` (by a constant exponent) are methods in the field; `inverse` and `div` refuse a zero divisor. `/`, `%`, `==` and `<` do not compile: the `/` and `%` errors point to `Uint::div_rem` and `CircuitVar::div`, and the `==` and `<` errors name the rules `UseAssertEqual` and `UseUintComparison`, for `assert_equal` or `is_equal` and the `Uint` comparisons. `CircuitVar::from` takes a `Bool` or a `Uint<BITS>`, and `Bool::try_from(&var)` and `Uint::try_from(&var)` check one back. `assert_product(other, product, rule)` constrains `self * other = product` in one row. |
+| `CircuitVar` | The value type inside `circuit`: a `Field` value, a constant in the native run and a variable in R1CS. `+`, `-`, `*`, unary `-`, `+=`, `-=` and `*=` are field arithmetic that wraps around the modulus: a sum and a product by a constant are free, and a product of two variables costs one constraint. `inverse`, `div` and `pow` (by a constant exponent) are methods in the field; `inverse` and `div` refuse a zero divisor. `/`, `%`, `==` and `<` do not compile: the `/` and `%` errors point to `Uint::div_rem` and `CircuitVar::div`, and the `==` and `<` errors name the rules `UseAssertEqual` and `UseUintComparison`, for `assert_equal` or `is_equal` and the `Uint` comparisons. `CircuitVar::from` takes a `Bool` or a `Uint<BITS>`, and `Bool::try_from(&var)` and `Uint::try_from(&var)` check one back. `assert_product(other, product, rule)` constrains `self * other = product` in one row. |
 | `CircuitSystem`, `ConstraintSystem` | The constraint system R1CS instantiation allocates into. `ConstraintSystem::new_ref()` makes one. |
 | `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a constant's value. Native execution represents proof inputs as constants, so `value` can read them. In R1CS, proof inputs are variables: reading one fails with `ReadsVariableValue` at the read's source location during setup or proving. A successful native run alone does not establish that a circuit can be proved; use `check_constraints`. |
 | `Assert` | Equality with a named rule on `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays: `assert_equal`, `assert_not_equal`, `assert_equal_if(condition)`, and `is_equal`, which returns a `Bool`. A zero check on a `CircuitVar` compares it with `zero()`: `is_equal(&zero())`, `assert_equal(&zero(), rule)` or `assert_not_equal(&zero(), rule)`. |
@@ -129,7 +129,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `Select` | Selection by a `Bool`, for `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
 | `is_in`, `assert_in` | Membership of a value in a set of `CircuitVar`s. |
 | `poseidon` | The circom Poseidon that zolana hashes with natively, built from light-poseidon's parameters. |
-| `nonzero_hash_chain` | The chain `private_tx_hash` folds input and output hashes with. It skips zeros, so dummies do not enter it. |
+| `nonzero_hash_chain` | The hash chain `private_tx_hash` computes over the input and output hashes. It skips zeros, so dummies do not enter it. |
 | `Bytes<N>::hash_bytes()` | A fixed-width commitment over checked bytes: 31-byte big-endian chunks folded with Poseidon. Use one `N` per protocol hash domain; leading zeroes are valid. |
 | `Bytes<N>` | `N` byte variables, each range-checked to 8 bits when allocated. `Bytes::<N>::try_from(&var)` splits a variable into big-endian bytes and `CircuitVar::try_from(&bytes)` packs them back, for `N` up to 31. |
 
@@ -140,11 +140,11 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `Asset` | A mint as bytes. `hash()` is the asset hash; `Asset::sol()` and `Asset::constant(&mint)` are constants. |
 | `OwnerKey` | The tag and key bytes. `identity()` is `hash_bytes(tag \|\| key)`, the value the program sees as `owner_identity`. |
 | `Owner` | An `OwnerKey` and the nullifier key. `hash()` is the owner hash. Owners compare by their packed preimage. |
-| `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxos`. A dummy carries no nullifier key. |
-| `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, this circuit carries them. |
+| `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxos`. A dummy has no nullifier key. |
+| `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, and this circuit includes them. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
-| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_close`. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, a real UTXO even at a zero balance because it carries state, or must be zero once closed. |
+| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_close`. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, a real UTXO even at a zero balance because it contains state, or must be zero once closed. |
 | `UniqueDataUtxo<S>` | A `DataUtxo` with an address the circuit derives from its owner, so one address holds the state. `new_init` creates the address, `new_mut` spends and replaces the state, `new_close` leaves the address closed and `new_burn` leaves nothing. The client does not create addresses yet: a transaction that creates one fails with `UnsupportedAddressCreation`. |
 | `TokenUtxos` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_close`, with dummies after the first. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. An output whose balance is zero at proof time, and that only empty outputs follow, is an empty UTXO: it keeps its slot and derived blinding, enters `private_tx_hash` as 0, and leaves no zero-amount UTXO. Dummies must come after every real output, so add change that may reach zero last. The circuit decides this from the balances, so a prover cannot choose it. `new_close` asserts that nothing is left and takes no slot. |
 | `UtxoTrait` | The value operations the UTXO types share: `owner`, `asset`, `amount`, `transfer` and `transfer_all` into a destination UTXO of any type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a closed destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `amount` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Balance`. |
@@ -199,8 +199,8 @@ fn assert_square_root(
 }
 ```
 
-Existing operations allocate their own intermediate values internally.
-External gadgets compose those operations and add all required equations,
+Existing operations allocate their own intermediate values.
+External gadgets build on those operations and add the required equations,
 range checks and bounds over their inputs. Native computation by the caller
 is not a constraint on the supplied values.
 
@@ -301,7 +301,7 @@ and the nullifier from the state instead of trusting instruction data.
 | `CompressedAccountData` | A program state: its data hash, and the address and blinding it stores. |
 | `CompressedAccountMeta` | What a client sends about an account's current UTXO besides its state: the address, the blinding and the root indexes it is proven against. Wrong values give a UTXO hash or nullifier no proof matches. |
 | `CompressedAccount` | A write to one account, which derefs to its state: `new_init` creates the account at a `NewAddress`, `new_mut` spends the current state. |
-| `SppTransactCpi` | Puts the accounts an instruction writes into one SPP transaction and invokes it, signed by the owning PDAs. It derives everything but the proof on chain: the blindings, the output UTXO hashes, the external data hash and the private transaction hash. |
+| `SppTransactCpi` | Puts the accounts an instruction writes into one SPP transaction and invokes it, signed by the owning PDAs. It derives everything but the proof in the Solana program: the blindings, the output UTXO hashes, the external data hash and the private transaction hash. |
 | `ReadRoots`, `load_tree_id` | Read an account without spending it: the program verifies its own proof of state-tree inclusion and nullifier-tree non-inclusion under the roots `ReadRoots::load` reads from the tree account, and `assert_unspent` checks that the nullifier PDA does not exist. |
 | `DataUtxo`, `UtxoKey`, `NO_RING_HASH` | An account's UTXO preimage, its hash and nullifier, and the ring hash of a UTXO outside any ring. |
 | `CompressedAccountError` | The errors, with their program error codes. |

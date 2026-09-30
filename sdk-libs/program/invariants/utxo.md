@@ -3,8 +3,7 @@
 Covers `src/circuit/protocol/utxo/`, against the native `zolana-keypair` and
 `zolana-transaction` values. Invariants every type shares live in `cross-cutting.md`. ID
 prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
-`tests/unit/protocol/{utxo,balance,token,data}/`. No invariant is extracted yet: run
-[`PROMPT.md`](PROMPT.md) for this area.
+`tests/unit/protocol/{utxo,balance,token,data}/`.
 
 ## Utxo (`hash`, the nullifier, `SpentInput`, `dummy`)
 
@@ -13,18 +12,19 @@ prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
 Covers `Utxo` of `src/circuit/protocol/utxo/input.rs` as `WalletUtxo` instantiates it
 (`src/conversion/utxo.rs`), against the native `zolana-transaction` commitment
 (`ProofInputUtxo::hash`, `utxo::Utxo::hash`, `SppProofOutputUtxo::hash`, `WalletUtxo::utxo_hash`)
-and nullifier (`utxo::Utxo::nullifier`); the tests live in `tests/unit/protocol/utxo/`. The
-fixtures in `tests/unit/protocol/utxo/fixtures.rs`: `UtxoHash` asserts `utxo.hash() == hash`
-with "the utxo hash is the native commitment" (wire 1 is `hash`), `Carried` asserts the
-utxo's `nullifier`, `latest_tree_id` and `has_latest_tree_id` equal claimed inputs (wires 1 to
-3) with "the utxo carries the claimed spend values", and `Instantiated` only instantiates.
+and nullifier (`utxo::Utxo::nullifier`). In `tests/unit/protocol/utxo/fixtures.rs`,
+`UtxoHash` asserts `utxo.hash() == hash` with "the utxo hash is the native commitment"
+(wire 1 is `hash`), `Carried` asserts the utxo's `nullifier`, `latest_tree_id` and
+`has_latest_tree_id` equal claimed inputs (wires 1 to 3) with "the utxo carries the
+claimed spend values", and `Instantiated` only instantiates.
 The preimages (`vectors.rs`) are an Ed25519 SOL token of 1, a P256 USDC token of 2^64 - 1, a
 PDA SOL token of 0, an Ed25519 data UTXO in a ring (data hash, ring data hash and ring
 program id set), a P256 token in tree 2^16 - 1 reporting latest tree 4, and a PDA data UTXO
 with blinding and data hash p - 1; dummy vectors use `SppProofInputUtxo::dummy_with_blinding`
-with boundary and generated blindings/tree ids. `SpentInput` and `Utxo::spent` are crate-private and built only by the `TokenUtxos`
-and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry from the
-`Utxo` are covered here (INV-UTXO-05, -08, -20, -21).
+with boundary and generated blindings/tree ids. `SpentInput` and `Utxo::spent` are
+crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOKEN`,
+`INV-DATA`, W8); the three fields they take from the `Utxo` are covered here
+(INV-UTXO-05, -08, -20, -21).
 
 ### Native equivalence
 - [x] **INV-UTXO-01: every preimage hashes to its native commitment**
@@ -84,7 +84,7 @@ and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry
   - Severity: High
   - Suggested test: positive + property; `tests/unit/protocol/utxo/native.rs`, `tests/unit/protocol/utxo/properties.rs`
 
-- [x] **INV-UTXO-08: the latest tree id and its flag carry the wallet's value**
+- [x] **INV-UTXO-08: the latest tree id and its flag hold the wallet's value**
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_latest_tree_id_and_its_flag_carry_the_wallets_value`
   - Kind: semantics
   - Statement: for every preimage, native `Carried` with the wallet's nullifier, `latest_tree_id.unwrap_or(0)` and `latest_tree_id.is_some()` returns exactly `Ok(())`.
@@ -111,7 +111,7 @@ and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry
 - [x] **INV-UTXO-11: the hash of a dummy is the native dummy commitment**
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_hash_of_a_dummy_is_the_native_dummy_commitment`; `tests/unit/protocol/utxo/r1cs.rs` `dummy_commitments_bind_the_tree_and_blinding_and_reject_hashed_dummy_preimages`; `tests/unit/protocol/utxo/properties.rs` `every_random_dummy_has_its_native_commitment_and_rejects_the_unmasked_preimages` (property)
   - Kind: native equivalence
-  - Statement: for every tested dummy wallet or constructed circuit dummy, including tree ids 0 and 65535, blindings 0, 1 and p-1, and generated canonical blindings/tree ids, `Utxo::hash` is exactly the native dummy commitment `Poseidon(1, tree, 0, 0, 0, Poseidon(0, 0), Poseidon(0, blinding))`. The former owner/asset-preimage commitment is rejected by the native claim rule and its exported/proving row.
+  - Statement: for every tested dummy wallet or constructed circuit dummy, including tree ids 0 and 65535, blindings 0, 1 and p-1, and generated canonical blindings/tree ids, `Utxo::hash` is exactly the native dummy commitment `Poseidon(1, tree, 0, 0, 0, Poseidon(0, 0), Poseidon(0, blinding))`. The owner/asset-preimage commitment is rejected by the native claim rule and its exported/proving row.
   - Location: `src/circuit/protocol/utxo/input.rs:59-65` (`fn hash`), `src/conversion/utxo.rs:28-41`
   - Severity: Medium
   - Suggested test: positive + negative + property; `tests/unit/protocol/utxo/native.rs`, `tests/unit/protocol/utxo/r1cs.rs`, `tests/unit/protocol/utxo/properties.rs`
@@ -188,10 +188,10 @@ and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
 
-- [x] **INV-UTXO-20: commitment witnesses have only documented carried fields and inverse hints unconstrained**
+- [x] **INV-UTXO-20: a commitment leaves only the carried fields and the inverse hints unconstrained**
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `only_the_carried_nullifier_and_latest_tree_id_are_unconstrained`; `tests/unit/protocol/utxo/r1cs.rs` `a_dummy_hash_has_no_free_wire_beyond_carried_fields_and_equality_inverse_hints`; `tests/unit/protocol/utxo/native.rs` `the_sdk_carries_a_nullifier_it_does_not_check`
   - Kind: soundness
-  - Statement: `check_private_variables(UtxoHash)` reports exactly 2167 constraints, 2177 private variables, no free variable, and exactly the "utxo nullifier" and "utxo latest tree id" allocations tolerated as `VariableRole::Carried` (the SPP proof constrains them, `../../spec.md`); natively, a wallet carrying another preimage's nullifier still holds `UtxoHash` and `Carried`. For a dummy, the report likewise contains no free variable and additionally tolerates exactly the two equality inverse hints (the conversion domain check and the hash domain check).
+  - Statement: `check_private_variables(UtxoHash)` reports exactly 2167 constraints, 2177 private variables, no free variable, and exactly the "utxo nullifier" and "utxo latest tree id" allocations tolerated as `VariableRole::Carried` (the SPP proof constrains them, `../spec.md`); natively, a wallet with another preimage's nullifier still holds `UtxoHash` and `Carried`. For a dummy, the report has no free variable either and also tolerates exactly the two equality inverse hints (the conversion domain check and the hash domain check).
   - Location: `src/conversion/utxo.rs:83-95`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`, `tests/unit/protocol/utxo/native.rs`
@@ -242,7 +242,7 @@ and `DataUtxo` spends (`INV-TOKEN`, `INV-DATA`, W8); the three fields they carry
 - [x] **INV-UTXO-26: snarkjs proves and verifies the utxo hash circuit for a data UTXO in a ring**
   - Covered by: `tests/unit/protocol/utxo/external.rs` `snarkjs_proves_and_verifies_the_utxo_hash_circuit_for_a_data_utxo_in_a_ring`; `tests/unit/protocol/utxo/external.rs` `snarkjs_proves_the_native_dummy_commitment_and_rejects_hashed_dummy_preimages`
   - Kind: interop
-  - Statement: snarkjs Groth16 setup, prove and verify on the `UtxoHash` export and either the data UTXO or native dummy assignment verifies with exactly the public signals `[]`.
+  - Statement: snarkjs Groth16 setup, prove and verify accept the `UtxoHash` export with either the data UTXO or the native dummy assignment, with exactly the public signals `[]`.
   - Location: `src/circuit/protocol/utxo/input.rs:59-91`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/utxo/external.rs`
@@ -498,7 +498,7 @@ built by `tests/unit/protocol/transaction/wallets.rs`. `Spend<N, LAST>` in
 - the owner hash, with "the owner is the first input's native owner"
 - the asset hash, with "the asset is the first input's native asset"
 
-`LAST` rewires the last instantiated input before the spend: `UNSPENDABLE` sets its domain to
+`LAST` modifies the last instantiated input before the spend: `UNSPENDABLE` sets its domain to
 7, and `KEYED` gives it the first input's owner with its nullifier key. The vectors
 (`vectors.rs`) are:
 
@@ -540,7 +540,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
 - [x] **INV-TOKEN-04: every input rule is enforced in R1CS for every input it applies to**
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `every_input_rule_owns_rows_for_every_input_it_applies_to`
   - Kind: constraint
-  - Statement: in `Spend<2>`, the first-input dummy rule owns exactly one row; the ring rule owns two rows per input and the program state rule one per input; the spendable, dummy-key rules own one row, the asset rule two and the owner rule three for the second input alone; `Spend<3>` doubles the per-later-input counts.
+  - Statement: in `Spend<2>`, the first-input dummy rule owns exactly one row; the ring rule owns two rows per input and the program state rule one per input; the spendable and dummy-key rules own one row, the asset rule two and the owner rule three for the second input alone; `Spend<3>` doubles the per-later-input counts.
   - Location: `src/circuit/protocol/utxo/token.rs:85-142` (`fn spend`)
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/token/r1cs.rs`
@@ -565,7 +565,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/token/r1cs.rs`
 
-- [x] **INV-TOKEN-07: an input's amount and blinding are bound by its hash, and a dummy's amount by its select**
+- [x] **INV-TOKEN-07: an input's hash constrains its amount and blinding, and a dummy's select constrains its amount**
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `a_tampered_amount_or_blinding_breaks_the_input_hash_and_a_dummys_amount_its_select`
   - Kind: soundness
   - Statement: tampering either real input's amount or blinding breaks a row of "a poseidon hash", the input's commitment, and tampering a dummy's amount breaks a row of "a token utxo's inputs", the select that zeroes it.
@@ -576,7 +576,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
 - [x] **INV-TOKEN-08: only the carried spend values are tolerated, and nothing is free**
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `the_carried_nullifiers_are_tolerated_and_no_other_variable_is_free`
   - Kind: soundness
-  - Statement: tampering a nullifier leaves every row satisfied (it is carried to `check`, INV-TX-09), `check_private_variables` reports no free variable and exactly 4 tolerated ones for 300 + 200 SOL and 6 with a dummy, and the balance of two inputs owns exactly one 64-bit check.
+  - Statement: tampering a nullifier leaves every row satisfied (it is passed on to `check`, INV-TX-09), `check_private_variables` reports no free variable and exactly 4 tolerated ones for 300 + 200 SOL and 6 with a dummy, and the balance of two inputs owns exactly one 64-bit check.
   - Location: `src/circuit/protocol/utxo/input.rs:64-71` (`fn spent`), `src/conversion/utxo.rs` (the carried allocations)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/token/r1cs.rs`
@@ -586,7 +586,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
 - [x] **INV-TOKEN-09: every malformed input set breaks exactly its rule**
   - Covered by: `tests/unit/protocol/token/native.rs` `every_malformed_input_set_breaks_exactly_its_rule`
   - Kind: error
-  - Statement: natively, located in the fixture's file, each of these returns exactly `RuleBroken` with its rule: no input ("a token utxo spends at least one input"), a dummy first ("the first input of a token utxo is a dummy"), a first or later input in a ring ("the utxo is in a ring"), a first or later input with program state ("the input carries program state"), a later input with domain 7 ("the utxo is not a spendable utxo"), SOL then USDC ("the inputs hold different assets"), the sender then a stranger ("the inputs belong to different owners"), and a dummy carrying the first input's owner ("a dummy input carries a nullifier key").
+  - Statement: natively, located in the fixture's file, each of these returns exactly `RuleBroken` with its rule: no input ("a token utxo spends at least one input"), a dummy first ("the first input of a token utxo is a dummy"), a first or later input in a ring ("the utxo is in a ring"), a first or later input with program state ("the input carries program state"), a later input with domain 7 ("the utxo is not a spendable utxo"), SOL then USDC ("the inputs hold different assets"), the sender then a stranger ("the inputs belong to different owners"), and a dummy with the first input's owner ("a dummy input carries a nullifier key").
   - Location: `src/circuit/protocol/utxo/token.rs:85-142` (`fn spend`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Critical
@@ -607,8 +607,8 @@ INV-TOKEN summary: 10 (Critical 5, High 5); covered 10.
 
 Covers `DataUtxo`, `UtxoData` and `checked_utxo_data` of `src/circuit/protocol/utxo/data.rs`,
 with the `Counter` state of `tests/unit/protocol/data/state.rs`, whose client and circuit
-hashes agree, and `Skewed`, whose do not. The fixtures in `tests/unit/protocol/data/fixtures.rs`
-are:
+hashes agree, and `Skewed`, whose hashes do not. The fixtures in
+`tests/unit/protocol/data/fixtures.rs` are:
 
 - `Held<BURN>`: `DataUtxo::new_mut` (or `new_burn`) of a counter input and its state; asserts
   the count, balance, owner hash and asset hash against the native values.
