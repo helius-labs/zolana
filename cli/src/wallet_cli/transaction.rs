@@ -222,9 +222,8 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         .iter()
         .map(|hash| parse_hex_array::<32>(hash))
         .collect::<Result<Vec<_>>>()?;
-    let inputs = merge_inputs(&ctx, asset, &hashes)?;
+    let (tree, inputs) = merge_inputs(&ctx, asset, &hashes)?;
     let num_inputs = inputs.len();
-    let tree = pda::tree(inputs[0].tree_id());
 
     let owner = ctx.material.owner_pubkey();
     let keypair = &ctx.material.keypair;
@@ -308,8 +307,13 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
 }
 
 /// The named utxos, or up to the default merge width of the smallest plain
-/// utxos on the asset's one tree.
-fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Result<Vec<WalletUtxo>> {
+/// utxos on the asset's one tree, and that tree. Every input is checked here,
+/// before the registry fetch and the proof requests.
+fn merge_inputs(
+    ctx: &SyncContext,
+    asset: Address,
+    hashes: &[[u8; 32]],
+) -> Result<(Address, Vec<WalletUtxo>)> {
     if hashes.is_empty() {
         let tree = spend_tree(&ctx.spendable, asset, is_plain_utxo)?;
         let mut candidates: Vec<&WalletUtxo> = ctx
@@ -326,7 +330,7 @@ fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Resul
         if candidates.len() < 2 {
             bail!("nothing to merge: fewer than two plain utxos");
         }
-        return Ok(candidates.into_iter().cloned().collect());
+        return Ok((tree, candidates.into_iter().cloned().collect()));
     }
     if !(2..=MAX_MERGE_INPUTS).contains(&hashes.len()) {
         bail!("--input takes 2 to {MAX_MERGE_INPUTS} utxos");
@@ -341,6 +345,9 @@ fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Resul
             .utxos()
             .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == *hash)
             .ok_or_else(|| anyhow::anyhow!("utxo {} is not spendable", hex::encode(hash)))?;
+        if !is_plain_utxo(entry) {
+            bail!("utxo {} carries a ring or data", hex::encode(hash));
+        }
         if selected
             .first()
             .is_some_and(|first| first.tree_id() != entry.tree_id())
@@ -349,7 +356,10 @@ fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Resul
         }
         selected.push(entry.clone());
     }
-    Ok(selected)
+    let Some(first) = selected.first() else {
+        bail!("--input takes 2 to {MAX_MERGE_INPUTS} utxos");
+    };
+    Ok((pda::tree(first.tree_id()), selected))
 }
 
 fn payer(ctx: &SyncContext) -> Address {
