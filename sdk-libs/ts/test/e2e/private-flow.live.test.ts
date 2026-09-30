@@ -34,6 +34,11 @@ import {
 import type { ApprovalHandler } from "../../src/transaction/wallet/intent.js";
 import { getAssociatedTokenAddress, getSplAssetVaultAddress } from "../../src/addresses.js";
 import type { ZolanaClient } from "../../src/client/client.js";
+import { compileUnsignedTransaction } from "../../src/flows/compile.js";
+import {
+  getRegisterInstructionAsync,
+  getSetMergingEnabledInstructionAsync,
+} from "../../src/instructions.js";
 import type { WalletUtxo } from "../../src/transaction/wallet/state.js";
 import {
   fetchUserRecord,
@@ -297,6 +302,43 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     harness = await liveHarness();
     expect(await harness.client.getAccount(harness.tree)).toBeDefined();
   }, 60_000);
+
+  it("registers a wallet and enables merging in one transaction", async () => {
+    const owner = await actor(harness.client, 131);
+    await fund(harness.client, owner);
+    const shielded = owner.keypair.shieldedAddress();
+    expect(
+      await fetchUserRecord({ rpc: harness.client, owner: owner.signer.address }),
+    ).toBeUndefined();
+
+    const transaction = compileUnsignedTransaction({
+      feePayer: owner.signer.address,
+      lifetime: await harness.client.getLatestBlockhash(),
+      computeUnitLimit: 200_000,
+      instructions: [
+        await getRegisterInstructionAsync({
+          owner: owner.signer,
+          nullifierPublicKey: shielded.nullifierPublicKey,
+          viewingPublicKey: shielded.viewingPublicKey.toBytes(),
+        }),
+        await getSetMergingEnabledInstructionAsync({ owner: owner.signer, enabled: true }),
+      ],
+    });
+    await signSendAndConfirm(harness.client, transaction, [owner.signer]);
+
+    const record = await fetchUserRecordChecked({
+      rpc: harness.client,
+      owner: owner.signer.address,
+    });
+    expect(record.mergingEnabled).toBe(true);
+    await expect(
+      validateRegisteredKeypair({
+        rpc: harness.client,
+        owner: owner.signer.address,
+        keypair: owner.keypair,
+      }),
+    ).resolves.toBeUndefined();
+  }, 120_000);
 
   it("covers SOL registration, multiple owners, sender change, spent state, and history", async () => {
     const alice = await actor(harness.client, 71);

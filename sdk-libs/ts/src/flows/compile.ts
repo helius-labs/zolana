@@ -2,6 +2,7 @@ import {
   appendTransactionMessageInstructions,
   compileTransaction,
   createTransactionMessage,
+  getCompiledTransactionMessageDecoder,
   pipe,
   setTransactionMessageConfig,
   setTransactionMessageFeePayer,
@@ -70,4 +71,12 @@ export function compileUnsignedTransaction(options: TransactionCompilerOptions):
     throw new ClientError("CLIENT_TRANSACTION_ASSEMBLY", { cause });
   }
   return checkedTransactionSize(compiled, options.sizeShape);
+}
+
+/** @internal A caller-supplied transaction still has to be version 1. */
+export function assertVersion1Transaction(transaction: Transaction): void {
+  const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+  if (compiled.version !== 1) {
+    throw new ClientError("CLIENT_TRANSACTION_ASSEMBLY");
+  }
 }

@@ -39,10 +39,20 @@ pub fn compile_message(
 /// repeat. A fee payer that also owns a shielded input is one account key but
 /// two entries in the caller's list, so the duplicates are dropped here rather
 /// than at every call site.
+pub(crate) fn ensure_version_1(message: &VersionedMessage) -> Result<(), ClientError> {
+    match message {
+        VersionedMessage::V1(_) => Ok(()),
+        VersionedMessage::Legacy(_) | VersionedMessage::V0(_) => {
+            Err(ClientError::UnsupportedTransactionVersion)
+        }
+    }
+}
+
 pub fn sign_transaction(
     message: VersionedMessage,
     signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
+    ensure_version_1(&message)?;
     let mut unique: Vec<(Pubkey, &dyn Signer)> = Vec::with_capacity(signers.len());
     for signer in signers {
         let pubkey = signer

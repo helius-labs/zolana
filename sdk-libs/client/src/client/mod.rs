@@ -55,7 +55,7 @@ pub struct ZolanaClient<R> {
     async_indexer: AsyncZolanaIndexer,
     async_prover: AsyncProverClient,
     cu_limit: u32,
-    cu_price_micro_lamports: Option<u64>,
+    priority_fee_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
 }
 
@@ -76,7 +76,7 @@ impl<R> ZolanaClient<R> {
             async_indexer,
             async_prover,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
-            cu_price_micro_lamports: None,
+            priority_fee_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
         }
     }
@@ -120,7 +120,7 @@ impl<R> ZolanaClient<R> {
             async_indexer: AsyncZolanaIndexer::new(indexer_url),
             async_prover: AsyncProverClient::new(prover_url),
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
-            cu_price_micro_lamports: None,
+            priority_fee_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
         }
     }
@@ -130,8 +130,8 @@ impl<R> ZolanaClient<R> {
         self
     }
 
-    pub fn with_compute_unit_price(mut self, micro_lamports: u64) -> Self {
-        self.cu_price_micro_lamports = Some(micro_lamports);
+    pub fn with_priority_fee(mut self, lamports: u64) -> Self {
+        self.priority_fee_lamports = Some(lamports);
         self
     }
 
@@ -140,7 +140,7 @@ impl<R> ZolanaClient<R> {
     pub fn compute_budget(&self) -> ComputeBudgetConfig {
         ComputeBudgetConfig {
             cu_limit: self.cu_limit,
-            cu_price_micro_lamports: self.cu_price_micro_lamports,
+            priority_fee_lamports: self.priority_fee_lamports,
         }
     }
 

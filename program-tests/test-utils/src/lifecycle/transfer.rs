@@ -2,10 +2,9 @@
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{assemble, ProofAuthority, ProverClient, SpendProof};
+use zolana_client::{assemble, ComputeBudgetConfig, ProofAuthority, ProverClient, SpendProof};
 use zolana_keypair::PublicKey;
 use zolana_program::instruction::Transact;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
@@ -16,7 +15,7 @@ use zolana_transaction::{
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{send_transaction, ZERO},
+    localnet::{send_transaction_with_budget, ZERO},
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
@@ -246,12 +245,12 @@ impl LifecycleHarness {
             data: ix_data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let sig = send_transaction(
+        let sig = send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, transfer_ix.clone()],
+            std::slice::from_ref(&transfer_ix),
             &fee_payer.pubkey(),
             &[&fee_payer],
+            ComputeBudgetConfig::new(1_400_000),
         )?;
         self.last_transact = Some((sig, transfer_ix));
 

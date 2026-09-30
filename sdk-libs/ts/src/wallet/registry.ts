@@ -1,15 +1,30 @@
 import {
   AccountRole,
   address,
+  fixEncoderSize,
   getAddressDecoder,
   getAddressEncoder,
+  getBooleanEncoder,
+  getBytesEncoder,
+  getNullableEncoder,
   getProgramDerivedAddress,
+  getStructEncoder,
+  getU8Encoder,
+  transformEncoder,
+  type AccountMeta,
+  type AccountSignerMeta,
 } from "@solana/kit";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
+import {
+  SYSTEM_PROGRAM,
+  signerAddress,
+  type SignerAccount,
+} from "../interface/instructions/index.js";
+import { copyBytes } from "../interface/internal.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
 import {
   type Address,
@@ -24,16 +39,35 @@ import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
 import { hex } from "../transaction/wallet/state.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { concat, equalBytes } from "./internal.js";
+import { equalBytes } from "./internal.js";
 
 type AccountReader = Pick<ChainReader, "getAccount">;
 type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
-const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
+const REGISTER = 0;
 const SET_MERGING_ENABLED = 1;
+const UPDATE_KEYS = 2;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
+
+function checkedBytesEncoder(size: number, name: string) {
+  return transformEncoder(fixEncoderSize(getBytesEncoder(), size), (value: Uint8Array) =>
+    copyBytes(value, size, name),
+  );
+}
+
+const registryKeysDataEncoder = getStructEncoder([
+  ["discriminator", getU8Encoder()],
+  ["ownerP256", getNullableEncoder(checkedBytesEncoder(33, "ownerP256"))],
+  ["nullifierPublicKey", checkedBytesEncoder(32, "nullifierPublicKey")],
+  ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
+]);
+
+const setMergingEnabledDataEncoder = getStructEncoder([
+  ["discriminator", getU8Encoder()],
+  ["enabled", getBooleanEncoder()],
+]);
 
 export interface ResolvedAddress {
   readonly owner: Address;
@@ -405,7 +439,7 @@ export async function buildRegistrationTransaction(
       context,
     );
     const payer = input.payer ?? input.owner;
-    const instruction = registrationInstruction(input.owner, payer, input.address, pda, existing);
+    const instruction = await registrationInstruction(input.owner, payer, input.address, existing);
     if (instruction === undefined) return undefined;
     const lifetime = await input.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
@@ -428,59 +462,111 @@ export async function buildSetMergingEnabledTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
-    const [recordAddress, lifetime] = await Promise.all([
-      internalUserRecordAddress(input.owner),
+    const [instruction, lifetime] = await Promise.all([
+      setMergingEnabledInstruction({ owner: input.owner, enabled: input.enabled }),
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({
       feePayer: input.owner,
       lifetime,
       computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
-      instructions: [
-        {
-          programAddress: USER_REGISTRY_PROGRAM_ID,
-          accounts: [
-            { address: recordAddress, role: AccountRole.WRITABLE },
-            { address: input.owner, role: AccountRole.READONLY_SIGNER },
-          ],
-          data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
-        },
-      ],
+      instructions: [instruction],
     });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_SET_MERGING_ENABLED", cause);
   }
 }
 
-function registrationInstruction(
+async function registrationInstruction(
   owner: Address,
   payer: Address,
   shieldedAddress: ShieldedAddress,
-  pda: Readonly<{ address: Address; bump: number }>,
   existing: UserRecord | undefined,
-): Instruction | undefined {
-  if (existing !== undefined && publishedKeysMatch(existing, shieldedAddress)) return undefined;
-  const ownerP256 =
-    shieldedAddress.signingPublicKey.signatureType() === "p256"
-      ? shieldedAddress.signingPublicKey.p256().toBytes()
-      : undefined;
+): Promise<Instruction | undefined> {
+  const keys = {
+    owner,
+    nullifierPublicKey: shieldedAddress.nullifierPublicKey,
+    viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
+  };
+  if (existing === undefined) return registerInstruction({ ...keys, payer });
+  if (publishedKeysMatch(existing, shieldedAddress)) return undefined;
+  if (!equalBytes(existing.nullifierPublicKey, keys.nullifierPublicKey)) {
+    throw new WalletError("WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH", { details: { owner } });
+  }
+  return updateKeysInstruction(keys);
+}
+
+export async function registerInstruction(
+  input: Readonly<{
+    owner: SignerAccount;
+    payer?: SignerAccount;
+    nullifierPublicKey: Bytes32;
+    viewingPublicKey: Bytes33;
+  }>,
+): Promise<Instruction> {
+  const userRecord = await internalUserRecordAddress(signerAddress(input.owner));
   return {
     programAddress: USER_REGISTRY_PROGRAM_ID,
     accounts: [
-      { address: pda.address, role: AccountRole.WRITABLE },
-      { address: owner, role: AccountRole.READONLY_SIGNER },
-      ...(existing === undefined
-        ? [
-            { address: payer, role: AccountRole.WRITABLE_SIGNER as const },
-            { address: SYSTEM_PROGRAM, role: AccountRole.READONLY as const },
-          ]
-        : []),
+      { address: userRecord, role: AccountRole.WRITABLE },
+      signerMeta(input.owner, AccountRole.READONLY_SIGNER),
+      signerMeta(input.payer ?? input.owner, AccountRole.WRITABLE_SIGNER),
+      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
     ],
-    data: concat(
-      Uint8Array.of(existing === undefined ? 0 : 2, ownerP256 === undefined ? 0 : 1),
-      ...(ownerP256 === undefined ? [] : [ownerP256]),
-      shieldedAddress.nullifierPublicKey,
-      shieldedAddress.viewingPublicKey.toBytes(),
-    ),
+    data: registryKeysDataEncoder.encode({
+      discriminator: REGISTER,
+      ownerP256: null,
+      nullifierPublicKey: input.nullifierPublicKey,
+      viewingPublicKey: input.viewingPublicKey,
+    }),
   };
+}
+
+export async function setMergingEnabledInstruction(
+  input: Readonly<{ owner: SignerAccount; enabled: boolean }>,
+): Promise<Instruction> {
+  const userRecord = await internalUserRecordAddress(signerAddress(input.owner));
+  return {
+    programAddress: USER_REGISTRY_PROGRAM_ID,
+    accounts: [
+      { address: userRecord, role: AccountRole.WRITABLE },
+      signerMeta(input.owner, AccountRole.READONLY_SIGNER),
+    ],
+    data: setMergingEnabledDataEncoder.encode({
+      discriminator: SET_MERGING_ENABLED,
+      enabled: input.enabled,
+    }),
+  };
+}
+
+async function updateKeysInstruction(
+  input: Readonly<{
+    owner: Address;
+    nullifierPublicKey: Bytes32;
+    viewingPublicKey: Bytes33;
+  }>,
+): Promise<Instruction> {
+  const userRecord = await internalUserRecordAddress(input.owner);
+  return {
+    programAddress: USER_REGISTRY_PROGRAM_ID,
+    accounts: [
+      { address: userRecord, role: AccountRole.WRITABLE },
+      { address: input.owner, role: AccountRole.READONLY_SIGNER },
+    ],
+    data: registryKeysDataEncoder.encode({
+      discriminator: UPDATE_KEYS,
+      ownerP256: null,
+      nullifierPublicKey: input.nullifierPublicKey,
+      viewingPublicKey: input.viewingPublicKey,
+    }),
+  };
+}
+
+function signerMeta(
+  account: SignerAccount,
+  role: AccountRole.READONLY_SIGNER | AccountRole.WRITABLE_SIGNER,
+): AccountMeta | AccountSignerMeta {
+  return typeof account === "string"
+    ? { address: signerAddress(account), role }
+    : { address: signerAddress(account), role, signer: account };
 }

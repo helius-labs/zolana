@@ -163,8 +163,12 @@ solana-rent = "4.2"
 # Pin solana-reward-info to 6.2.0: 6.3.0 pulls in wincode 0.6.0, which conflicts
 # with the wincode 0.5.x used by the rest of the agave 4.2 graph.
 solana-reward-info = "=6.2.0"
-solana-rpc-client = "4.1"
-solana-rpc-client-api = "4.1"
+# 4.1 encodes VersionedTransaction with serde: signatures, then the message.
+# A v1 transaction's wire format is the message, then a raw signature array,
+# and those swapped bytes are rejected with "invalid transaction config mask".
+# 4.2 encodes with wincode, which writes v1 in wire order.
+solana-rpc-client = "4.2"
+solana-rpc-client-api = "4.2"
 solana-sbpf = { version = "=0.21.1", default-features = false }
 solana-security-txt = "1.1.2"
 solana-secp256r1-program = "3.0"

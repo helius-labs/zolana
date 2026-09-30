@@ -20,7 +20,7 @@ use zolana_program_test::{
     create_tree_instructions, index_events, IndexedEvent, IndexedTransaction, ParsedInstruction,
     TestIndexer,
 };
-pub use zolana_test_utils::localnet::send_transaction;
+pub use zolana_test_utils::localnet::{send_transaction, send_transaction_with_budget};
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, external_data_hash,
     inline_outputs, input_utxo, new_transact_ix_data, output_owner_pk_hashes,

@@ -7,7 +7,7 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiTransactionStatusMeta,
 };
-use std::{fmt, str::FromStr};
+use std::fmt;
 
 use std::convert::TryFrom;
 
@@ -187,24 +187,17 @@ pub fn parse_instruction_groups(
     versioned_transaction: VersionedTransaction,
     meta: UiTransactionStatusMeta,
 ) -> Result<Vec<InstructionGroup>, IngesterError> {
-    let mut sdk_accounts = Vec::from(versioned_transaction.message.static_account_keys());
+    // Version 0 is the format that loads accounts through an address lookup
+    // table. Those transactions are not protocol transactions; skipping them
+    // keeps a block that also contains a legacy transfer ingestible.
     if versioned_transaction
         .message
         .address_table_lookups()
         .is_some()
     {
-        if let OptionSerializer::Some(loaded_addresses) = meta.loaded_addresses.clone() {
-            for address in loaded_addresses
-                .writable
-                .iter()
-                .chain(loaded_addresses.readonly.iter())
-            {
-                let sdk_pubkey = Pubkey::from_str(address)
-                    .map_err(|e| IngesterError::ParserError(e.to_string()))?;
-                sdk_accounts.push(sdk_pubkey);
-            }
-        }
+        return Ok(Vec::new());
     }
+    let sdk_accounts = Vec::from(versioned_transaction.message.static_account_keys());
 
     // Parse outer instructions and bucket them into groups
     let mut instruction_groups: Vec<InstructionGroup> = versioned_transaction
@@ -310,6 +303,8 @@ fn sdk_account(accounts: &[Pubkey], index: usize, context: &str) -> Result<Pubke
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     // Devnet slot 492480571.

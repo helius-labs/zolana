@@ -122,16 +122,13 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         data: ix_data,
     }
     .instruction();
-    // Proof verification needs more than the 200k default compute budget.
-    let compute_budget =
-        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-            1_400_000,
-        );
-    let transfer_sig = send_transaction(
+    // Proof verification needs more than the implicit per-instruction budget.
+    let transfer_sig = send_transaction_with_budget(
         &mut rpc,
-        &[compute_budget, transfer_ix],
+        &[transfer_ix],
         &payer.pubkey(),
         &[&payer],
+        zolana_client::ComputeBudgetConfig::new(1_400_000),
     )?;
     print_signature("encrypted_transfer", &transfer_sig);
 

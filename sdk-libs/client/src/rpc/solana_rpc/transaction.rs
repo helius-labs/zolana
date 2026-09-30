@@ -138,13 +138,8 @@ pub(super) fn instruction_groups_from_confirmed_transaction(
 
 /// Resolve a confirmed transaction's account keys and outer instructions.
 ///
-/// This client only sends v1, which loads no addresses, so `loaded_addresses`
-/// is always absent for its own transactions. It is still honoured because this
-/// decodes transactions off the chain rather than ones it just built: every
-/// shielded transaction confirmed before the move to v1 is a v0 one whose
-/// compiled instruction indexes only resolve once the looked-up keys are
-/// appended. Dropping this would not simplify anything, it would stop the
-/// client reading its own history.
+/// Version 1 carries every account in the message. A non-empty lookup list is
+/// a version 0 transaction, which this client does not decode.
 fn transaction_message_parts(
     transaction: EncodedTransaction,
     loaded_addresses: &OptionSerializer<UiLoadedAddresses>,
@@ -155,20 +150,16 @@ fn transaction_message_parts(
     let UiMessage::Raw(message) = transaction.message else {
         return Err(ClientError::Rpc("expected raw transaction message".into()));
     };
-    let mut account_keys = message
+    if let OptionSerializer::Some(loaded) = loaded_addresses {
+        if !loaded.writable.is_empty() || !loaded.readonly.is_empty() {
+            return Err(ClientError::AddressLookupTable);
+        }
+    }
+    let account_keys = message
         .account_keys
         .into_iter()
         .map(parse_pubkey)
         .collect::<Result<Vec<_>, _>>()?;
-    if let OptionSerializer::Some(loaded) = loaded_addresses {
-        let loaded_keys = loaded
-            .writable
-            .iter()
-            .chain(loaded.readonly.iter())
-            .map(parse_pubkey)
-            .collect::<Result<Vec<_>, _>>()?;
-        account_keys.extend(loaded_keys);
-    }
     let instructions = message
         .instructions
         .iter()

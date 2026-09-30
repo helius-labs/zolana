@@ -49,7 +49,7 @@ fn size_matches_signed_wire_bytes_with_repeated_accounts_and_priority_fees() {
         );
         for budget in [
             ComputeBudgetConfig::new(200_000),
-            ComputeBudgetConfig::new(200_000).with_compute_unit_price(25_000),
+            ComputeBudgetConfig::new(200_000).with_priority_fee(5_000),
         ] {
             let instructions = core::slice::from_ref(&instruction);
             let measured = transaction_size(&payer, instructions, budget).expect("measure");
@@ -63,7 +63,7 @@ fn header_fields_are_counted_at_the_wire_limit() {
     let payer = Keypair::new();
     for budget in [
         ComputeBudgetConfig::new(200_000),
-        ComputeBudgetConfig::new(200_000).with_compute_unit_price(25_000),
+        ComputeBudgetConfig::new(200_000).with_priority_fee(5_000),
     ] {
         let mut instruction = Instruction::new_with_bytes(Pubkey::new_unique(), &[], vec![]);
         let overhead = wire_size(core::slice::from_ref(&instruction), &[&payer], budget);

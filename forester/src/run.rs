@@ -35,7 +35,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use num_bigint::BigUint;
 use num_traits::Num;
 use solana_commitment_config::CommitmentConfig;
@@ -43,7 +43,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
-use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use zolana_client::{BatchAddressAppendInputs, ClientError, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
@@ -192,24 +192,12 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
     } else {
         ProofDataSource::Prover
     });
-    // A prover on another proving-key set would burn a batch proof that the
-    // program's verifying key then rejects; refuse it before draining.
-    let keys = prover
-        .check_proving_keys()
-        .map_err(|e| anyhow!("prover proving keys do not match this build: {e}"))?;
-    tracing::info!(prefix = %keys.prefix, "prover proving keys match the verifying keys");
-    if prover.proof_data_source() == ProofDataSource::Prover {
-        prover.check_indexed().map_err(|error| match error {
-            zolana_client::ClientError::ProverIndexerUnconfigured => anyhow!(
-                "prover serves no indexed proofs, restart it with an indexer or pass --client-proof-data"
-            ),
-            other => other.into(),
-        })?;
-    }
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
     let mut submitted_total: u64 = 0;
+    let mut keys_checked = false;
+    let mut indexed_checked = prover.proof_data_source() == ProofDataSource::Client;
     // Carried across passes: see ReferenceCache.
     let mut cache = ReferenceCache::default();
     loop {
@@ -217,6 +205,38 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         // by reading logs.
         crate::metrics::mark_run();
         report_queue_and_balance(&rpc_url, &member, opts.tree);
+
+        // A prover on another proving-key set would burn a batch proof that the
+        // program's verifying key then rejects; refuse it before draining. The
+        // check runs inside the loop, after the queue is reported, because the
+        // batch prover scales to zero on that report: exiting here, as it used
+        // to, kept the report from ever being scraped and the prover down.
+        if !keys_checked {
+            match prover.check_proving_keys() {
+                Ok(keys) => {
+                    tracing::info!(prefix = %keys.prefix, "prover proving keys match the verifying keys");
+                    keys_checked = true;
+                }
+                Err(err) if opts.watch && prover_unavailable(&err) => {
+                    wait_for_prover(&err, opts.poll_secs);
+                    continue;
+                }
+                Err(err) => bail!("prover proving-key check failed: {err}"),
+            }
+        }
+        if !indexed_checked {
+            match prover.check_indexed() {
+                Ok(()) => indexed_checked = true,
+                Err(err) if opts.watch && prover_unavailable(&err) => {
+                    wait_for_prover(&err, opts.poll_secs);
+                    continue;
+                }
+                Err(ClientError::ProverIndexerUnconfigured) => bail!(
+                    "prover serves no indexed proofs, restart it with an indexer or pass --client-proof-data"
+                ),
+                Err(err) => bail!("prover indexed check failed: {err}"),
+            }
+        }
 
         let remaining = opts
             .max_batches
@@ -226,7 +246,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
             break;
         }
 
-        let outcome = drain_once(
+        let outcome = match drain_once(
             &rpc_url,
             &prover,
             &photon,
@@ -237,7 +257,19 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
             remaining,
             opts.proof_concurrency,
             &mut cache,
-        )?;
+        ) {
+            Ok(outcome) => outcome,
+            // The same scale-to-zero reason: a batch can fill after the prover
+            // was released, and waiting keeps the forester reporting it.
+            Err(err) if opts.watch && prover_unavailable_in(&err) => {
+                // Witnesses built before the failure advanced the reference tree
+                // without the count recording it; rebuild rather than trust it.
+                cache.invalidate();
+                wait_for_prover(&err, opts.poll_secs);
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
             DrainOutcome::ProverNotReady { submitted } => {
@@ -278,6 +310,27 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
 
     tracing::info!(submitted_total, "forester run complete");
     Ok(())
+}
+
+/// The prover failed as a service: unreachable, starting, or answering with an
+/// error. A proving-key mismatch or a bad witness is not this, and still stops
+/// the forester.
+fn prover_unavailable(err: &ClientError) -> bool {
+    matches!(err, ClientError::ProverServer(_))
+}
+
+fn prover_unavailable_in(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<ClientError>()
+            .is_some_and(prover_unavailable)
+    })
+}
+
+fn wait_for_prover(err: &dyn fmt::Display, poll_secs: u64) {
+    crate::metrics::count_failure("prover_unavailable");
+    tracing::warn!(%err, poll_secs, "prover unavailable; waiting for it to come up");
+    thread::sleep(Duration::from_secs(poll_secs));
 }
 
 /// Publish queue depth, queue capacity, and payer balance for this iteration.
@@ -789,11 +842,14 @@ fn drain_once(
             // blocking, and `run` is documented to hold no Tokio runtime.
             let submitted = &submitted;
             in_flight.push_back(scope.spawn(move || {
+                // Kept typed, so the run loop can tell an unavailable prover apart.
                 let ProvenIndexedBatch {
                     old_root,
                     new_root,
                     proof: batch_update_proof,
-                } = batch.prove(prover)?;
+                } = batch
+                    .prove(prover)
+                    .with_context(|| format!("prove zkp-batch {zkp_index}"))?;
 
                 let signature = batch_update_nullifier_tree_once(ForestParams {
                     rpc_url,
@@ -984,7 +1040,9 @@ mod tests {
     #[test]
     fn indexer_retry_preserves_completed_submissions() {
         use super::*;
-        let result = Err(zolana_client::ClientError::IndexerProofDataNotReady.into());
+        let result =
+            Err(anyhow::Error::new(ClientError::IndexerProofDataNotReady)
+                .context("prove zkp-batch 3"));
         assert!(matches!(
             drain_result(result, 2).unwrap(),
             DrainOutcome::ProverNotReady { submitted: 2 }
@@ -999,6 +1057,43 @@ mod tests {
         let mut value = [0u8; 32];
         value[31] = byte;
         value
+    }
+
+    // The batch prover scales to zero. Waiting on it is what keeps the forester
+    // reporting the ready queue that scales it back up; exiting deadlocked
+    // devnet-c for four days. Anything else still stops the run.
+    #[test]
+    fn only_an_unavailable_prover_is_waited_for() {
+        let unreachable = ClientError::ProverServer("request failed after 3 attempt(s)".into());
+        assert!(prover_unavailable(&unreachable));
+        for fatal in [
+            ClientError::ProverProvingKeysMismatch {
+                mismatches: vec!["transfer_ring_2_2.key".into()],
+            },
+            ClientError::ProvingKeyMismatch {
+                key: "batch_address-append_40_250.key".into(),
+                expected: "aa".into(),
+                reported: "bb".into(),
+            },
+            ClientError::Prover("failed to start prover".into()),
+        ] {
+            assert!(!prover_unavailable(&fatal), "{fatal}");
+        }
+    }
+
+    #[test]
+    fn a_proof_error_keeps_its_cause_and_its_message() {
+        let err = anyhow::Error::new(ClientError::ProverServer("request failed".into()))
+            .context("prove zkp-batch 3");
+        assert!(prover_unavailable_in(&err));
+        // main prints `{err:#}`; the log line reads as it did before.
+        assert_eq!(
+            format!("{err:#}"),
+            "prove zkp-batch 3: prover server error: request failed"
+        );
+        assert!(!prover_unavailable_in(&anyhow!(
+            "reconstructed nullifier root does not match on-chain root"
+        )));
     }
 
     #[test]

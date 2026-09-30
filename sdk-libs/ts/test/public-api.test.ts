@@ -290,8 +290,9 @@ describe("public package surface", () => {
     const current = ShieldedKeypair.fromKeypair(
       SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
     ).shieldedAddress();
-    const replacement = ShieldedKeypair.fromKeypair(
-      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(1) as Bytes32),
+    const replacement = ShieldedKeypair.withViewingKey(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
+      ViewingKey.generate(),
     );
     const owner = replacement.shieldedAddress().solanaAddress();
     const pda = await internalUserRecordPda(owner);
@@ -355,8 +356,9 @@ describe("public package surface", () => {
     const current = ShieldedKeypair.fromKeypair(
       SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
     ).shieldedAddress();
-    const replacement = ShieldedKeypair.fromKeypair(
-      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(1) as Bytes32),
+    const replacement = ShieldedKeypair.withViewingKey(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
+      ViewingKey.generate(),
     );
     const owner = replacement.shieldedAddress().solanaAddress();
     const pda = await internalUserRecordPda(owner);

@@ -1,22 +1,35 @@
 #![cfg(feature = "solana-rpc")]
 
+use std::{
+    io::{ErrorKind, Read, Write},
+    net::{TcpListener, TcpStream},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
+
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
+use solana_hash::Hash;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::{Keypair, Signer};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::{Mocks, RpcClient},
 };
 use solana_rpc_client_api::{
-    config::UiAccountEncoding,
+    config::{RpcSendTransactionConfig, UiAccountEncoding},
     filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType},
     request::RpcRequest,
 };
 use solana_signature::Signature;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_client::{
+    rpc::{compile_message, sign_transaction, ComputeBudgetConfig},
     AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc, SolanaRpc,
 };
 
@@ -293,4 +306,152 @@ fn inner_instruction_without_stack_height_is_rejected() {
             .collect::<Vec<_>>(),
         vec![2]
     );
+}
+
+/// The bytes `sendTransaction` receives must be the v1 wire format: message
+/// first, then a raw signature array. serde field order (signatures, then
+/// message) is rejected on read with "invalid transaction config mask", which
+/// is what solana-rpc-client 4.1 sent for every v1 transaction.
+#[test]
+fn a_v1_send_encodes_the_message_ahead_of_its_signatures() {
+    let payer = Keypair::new();
+    let instruction = Instruction::new_with_bytes(
+        Pubkey::new_unique(),
+        &[1, 2, 3],
+        vec![AccountMeta::new(payer.pubkey(), true)],
+    );
+    let message = compile_message(
+        &payer.pubkey(),
+        core::slice::from_ref(&instruction),
+        Hash::default(),
+        ComputeBudgetConfig::new(200_000).with_priority_fee(5_000),
+    )
+    .expect("compile");
+    let transaction = sign_transaction(message, &[&payer]).expect("sign");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("local address");
+    let signature = transaction
+        .signatures
+        .first()
+        .copied()
+        .expect("signed transaction");
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut payload = read_send_transaction(&listener);
+        sender.send(payload.encoded).expect("test still listening");
+        let body = json!({
+            "jsonrpc": "2.0",
+            "result": signature.to_string(),
+            "id": payload.id,
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        payload
+            .stream
+            .write_all(response.as_bytes())
+            .expect("write response");
+    });
+
+    let rpc = SolanaRpc::new(format!("http://{address}"));
+    rpc.send_transaction_with_config(&transaction, RpcSendTransactionConfig::default())
+        .expect("send");
+
+    let encoded = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("sendTransaction body");
+    let bytes = STANDARD
+        .decode(encoded)
+        .expect("sendTransaction transaction is base64");
+    let decoded: VersionedTransaction =
+        wincode::deserialize(&bytes).expect("v1 wire bytes deserialize");
+    assert_eq!(decoded, transaction);
+}
+
+#[test]
+fn a_legacy_transaction_is_not_sent() {
+    use solana_message::{Message, VersionedMessage};
+    use solana_transaction::versioned::VersionedTransaction;
+
+    let payer = Keypair::new();
+    let message = VersionedMessage::Legacy(Message::new(&[], Some(&payer.pubkey())));
+    let transaction = VersionedTransaction::try_new(message, &[&payer]).expect("legacy signs");
+    let rpc = SolanaRpc::new("http://127.0.0.1:1");
+
+    let error = rpc
+        .send_transaction_with_config(&transaction, RpcSendTransactionConfig::default())
+        .expect_err("legacy send");
+    assert!(matches!(error, ClientError::UnsupportedTransactionVersion));
+}
+
+struct SendTransactionRequest {
+    stream: TcpStream,
+    id: Value,
+    encoded: String,
+}
+
+fn read_send_transaction(listener: &TcpListener) -> SendTransactionRequest {
+    let started = Instant::now();
+    listener.set_nonblocking(true).expect("nonblocking");
+    let mut stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "timed out waiting for sendTransaction"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("accept sendTransaction: {error}"),
+        }
+    };
+    stream.set_nonblocking(false).expect("blocking");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("read timeout");
+
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let header_end = loop {
+        let read = stream.read(&mut chunk).expect("read request");
+        assert!(read > 0, "client closed before sending a request");
+        buf.extend_from_slice(&chunk[..read]);
+        if let Some(end) = buf.windows(4).position(|window| window == b"\r\n\r\n") {
+            break end;
+        }
+    };
+    let headers = std::str::from_utf8(&buf[..header_end]).expect("request headers");
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if !name.eq_ignore_ascii_case("content-length") {
+                return None;
+            }
+            value.trim().parse::<usize>().ok()
+        })
+        .expect("content-length");
+    let body_at = header_end + 4;
+    while buf.len() < body_at + content_length {
+        let read = stream.read(&mut chunk).expect("read body");
+        assert!(read > 0, "truncated sendTransaction body");
+        buf.extend_from_slice(&chunk[..read]);
+    }
+    let body: Value = serde_json::from_slice(&buf[body_at..body_at + content_length])
+        .expect("sendTransaction json");
+    assert_eq!(body["method"].as_str(), Some("sendTransaction"));
+    let encoded = body["params"]
+        .get(0)
+        .and_then(Value::as_str)
+        .expect("base64 transaction")
+        .to_owned();
+    SendTransactionRequest {
+        stream,
+        id: body["id"].clone(),
+        encoded,
+    }
 }

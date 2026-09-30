@@ -166,18 +166,21 @@ carrying transaction simply fits.
   compute-unit limit or the loaded-accounts-data-size limit produces a
   transaction that cannot execute at all. `ComputeBudgetConfig::transaction_config`
   always writes both, and a test pins that.
-- **The priority fee is a flat lamport total**, not micro-lamports per compute
-  unit. `ComputeBudgetConfig::with_compute_unit_price` still takes the old unit
-  and converts with the runtime's own `ceil(price * cu_limit / 1_000_000)`, so
-  existing bids bill what they always did.
+- **The priority fee is a flat lamport total.** `ComputeBudgetConfig::with_priority_fee`
+  writes that total into the v1 header. It does not take micro-lamports per
+  compute unit.
 - **Signing rejects a repeated signer**, where legacy partial signing tolerated
   one. That bites whenever the fee payer also owns a shielded input, so sign
-  through `zolana_client::sign_transaction`, which deduplicates.
+  through `zolana_client::sign_transaction`, which deduplicates. Signing and
+  sending refuse a message that is not version 1.
 - **Read back at `max_supported_transaction_version: 1`.** A v1 transaction
-  requested at 0 comes back as an error rather than as the transaction.
-- v1 loads no addresses, but the RPC decode path still honours
-  `loaded_addresses`, because it reads transactions off the chain and every
-  shielded transaction confirmed before this migration is a v0 one.
+  requested at 0 comes back as an error rather than as the transaction. The
+  value is a maximum, not a filter: it is what lets a v1 transaction be
+  returned at all.
+- A non-empty `loaded_addresses` list is an error. Version 1 carries every
+  account in the message. Photon still decodes a legacy transaction that has
+  only static keys, and it skips a transaction that uses an address lookup
+  table instead of failing the block.
 
 There is a second ceiling that moves with the shape rather than the bytes:
 **v1 allows 64 account addresses**, and a wide spend adds one nullifier PDA per
