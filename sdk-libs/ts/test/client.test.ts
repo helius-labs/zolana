@@ -496,7 +496,7 @@ describe("ZolanaClient", () => {
   });
 
   it("accepts a nullifier response that reports how far the scan reached", async () => {
-    // Strict decoding must still accept the indexer's explicit scan frontier.
+    // Strict decoding must still accept the indexer's explicit stream tip.
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         new Response(
@@ -506,8 +506,8 @@ describe("ZolanaClient", () => {
             result: {
               context: { blockTime: 1, slot: 1 },
               transactions: [],
-              nextCursor: null,
-              scannedThrough: "Aw==",
+              next: null,
+              latest: { slot: 3, signature: "1".repeat(64) },
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -519,8 +519,8 @@ describe("ZolanaClient", () => {
       nullifiers: [bytes(7)],
     });
 
-    expect(response.nextCursor).toBeUndefined();
-    expect(response.scannedThrough).toEqual(Uint8Array.of(3));
+    expect(response.next).toBeUndefined();
+    expect(response.latest).toEqual({ slot: 3n, signature: "1".repeat(64) });
   });
 
   it("accepts tag responses that report how far the scan reached", async () => {
@@ -531,8 +531,8 @@ describe("ZolanaClient", () => {
         result: {
           context: { blockTime: 1, slot: 1 },
           [rows]: [],
-          nextCursor: null,
-          scannedThrough: "BA==",
+          next: null,
+          latest: { slot: 4, signature: "1".repeat(64) },
         },
       });
     const transactionFetch = vi.fn<typeof globalThis.fetch>(() =>
@@ -557,8 +557,8 @@ describe("ZolanaClient", () => {
       tags: [bytes(7)],
     });
 
-    expect(transactions.scannedThrough).toEqual(Uint8Array.of(4));
-    expect(encryptedUtxos.scannedThrough).toEqual(Uint8Array.of(4));
+    expect(transactions.latest).toEqual({ slot: 4n, signature: "1".repeat(64) });
+    expect(encryptedUtxos.latest).toEqual({ slot: 4n, signature: "1".repeat(64) });
   });
 
   it("forwards paginated nullifier lookups through the client facade", async () => {
@@ -571,7 +571,7 @@ describe("ZolanaClient", () => {
             result: {
               context: { blockTime: 1, slot: 1 },
               transactions: [],
-              nextCursor: "Ag==",
+              next: { slot: 2, signature: "1".repeat(64) },
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -583,11 +583,11 @@ describe("ZolanaClient", () => {
 
     const response = await instance.getShieldedTransactionsByNullifiers({
       nullifiers: [nullifier],
-      cursor: Uint8Array.of(1),
+      since: { slot: 1n, signature: "1".repeat(64) as Signature },
       limit: 1000,
     });
 
-    expect(response.nextCursor).toEqual(Uint8Array.of(2));
+    expect(response.next).toEqual({ slot: 2n, signature: "1".repeat(64) });
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
       "http://127.0.0.1:8784/getShieldedTransactionsByNullifiers",
     );
@@ -595,7 +595,7 @@ describe("ZolanaClient", () => {
       method: "getShieldedTransactionsByNullifiers",
       params: {
         nullifiers: [getBase58Decoder().decode(nullifier)],
-        cursor: "AQ==",
+        since: { slot: 1, signature: "1".repeat(64) },
         limit: 1000,
       },
     });
@@ -608,7 +608,11 @@ describe("ZolanaClient", () => {
       return Response.json({
         id: "test-account",
         jsonrpc: "2.0",
-        result: { context: { blockTime: 1, slot: 1 }, transactions: [], scannedThrough: "BA==" },
+        result: {
+          context: { blockTime: 1, slot: 1 },
+          transactions: [],
+          latest: { slot: 4, signature: "1".repeat(64) },
+        },
       });
     });
     const instance = client(fetch);
@@ -616,11 +620,16 @@ describe("ZolanaClient", () => {
       tags: [],
       ringProgramId: TREE,
       limit: 3,
-      cursor: Uint8Array.of(1),
+      since: { slot: 1n, signature: "1".repeat(64) as Signature },
     });
     expect(requests).toEqual([
       expect.objectContaining({
-        params: { tags: [], ringProgramId: TREE, limit: 3, cursor: "AQ==" },
+        params: {
+          tags: [],
+          ringProgramId: TREE,
+          limit: 3,
+          since: { slot: 1, signature: "1".repeat(64) },
+        },
       }),
     ]);
     await expect(instance.getShieldedTransactionsByTags({ tags: [] })).rejects.toThrow();

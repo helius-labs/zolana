@@ -1,13 +1,14 @@
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import type { Bytes32 } from "../src/interface/index.js";
+import type { Bytes32, Signature } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { Data, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import type { SyncDelta } from "../src/transaction/wallet/state.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+const SIGNATURE = "1".repeat(64) as Signature;
 const MINT = address("So11111111111111111111111111111111111111112");
 
 function filled(value: number): Bytes32 {
@@ -69,7 +70,7 @@ describe("wallet commit machinery", () => {
         staged,
         {
           cursors: {
-            transactions: new Map([["aa", filled(9)]]),
+            transactions: new Map([["aa", { slot: 9n, signature: SIGNATURE }]]),
             proofless: new Map(),
             nullifiers: new Map(),
           },
@@ -81,7 +82,7 @@ describe("wallet commit machinery", () => {
 
     expect(wallet.utxos()).toHaveLength(2);
     expect(wallet.lastSynced).toBe(7n);
-    expect(wallet._syncCursor("transactions", "aa")).toEqual(filled(9));
+    expect(wallet._syncCursor("transactions", "aa")).toEqual({ slot: 9n, signature: SIGNATURE });
     expect(wallet.registry.assetId(MINT)).toBe(2n);
     expect(wallet._revision).toBe(revision + 1);
   });
@@ -108,7 +109,7 @@ describe("wallet commit machinery", () => {
       wallet._commitSync(
         deltaFrom(staged, {
           cursors: {
-            transactions: new Map([["aa", filled(9)]]),
+            transactions: new Map([["aa", { slot: 9n, signature: SIGNATURE }]]),
             proofless: new Map(),
             nullifiers: new Map(),
           },
@@ -132,7 +133,7 @@ describe("wallet commit machinery", () => {
           {
             utxos: [entry, entry],
             cursors: {
-              transactions: new Map([["aa", filled(9)]]),
+              transactions: new Map([["aa", { slot: 9n, signature: SIGNATURE }]]),
               proofless: new Map(),
               nullifiers: new Map(),
             },
@@ -177,16 +178,16 @@ describe("wallet commit machinery", () => {
   it("clones independently, cursors included", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, [10n]);
-    wallet._setSyncCursor("transactions", "aa", filled(3));
+    wallet._setSyncCursor("transactions", "aa", { slot: 3n, signature: SIGNATURE });
 
     const clone = wallet._clone();
-    clone._setSyncCursor("transactions", "aa", filled(4));
+    clone._setSyncCursor("transactions", "aa", { slot: 4n, signature: SIGNATURE });
     clone._replace({ utxos: [], transactions: [], nullifiers: new Set() });
 
     expect(wallet.utxos()).toHaveLength(1);
-    expect(wallet._syncCursor("transactions", "aa")).toEqual(filled(3));
+    expect(wallet._syncCursor("transactions", "aa")).toEqual({ slot: 3n, signature: SIGNATURE });
     expect(clone.utxos()).toHaveLength(0);
-    expect(clone._syncCursor("transactions", "aa")).toEqual(filled(4));
+    expect(clone._syncCursor("transactions", "aa")).toEqual({ slot: 4n, signature: SIGNATURE });
   });
 
   it("serializes locked spans and survives a failing one", async () => {

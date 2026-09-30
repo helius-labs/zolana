@@ -68,7 +68,7 @@ import {
 import { buildRuleTable, memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import { recoverRingMemberNotes } from "../src/ring/recover.js";
-import { BLOCKHASH, ringAuditReader, transactionsPage } from "./helpers/clients.js";
+import { BLOCKHASH, chainPosition, ringAuditReader, transactionsPage } from "./helpers/clients.js";
 import {
   ownSources,
   ownedAccount,
@@ -682,7 +682,6 @@ describe("ring member recovery", () => {
             nullifiers: request.nullifiers.filter((nullifier) => nullifier.join() === spent.join()),
           }),
         ],
-        scannedThrough: new Uint8Array(1),
       }),
     );
     const client = {
@@ -722,7 +721,7 @@ describe("ring member recovery", () => {
         client: {
           ...client,
           getShieldedTransactionsByTags: async () =>
-            transactionsPage({ transactions: [transaction], nextCursor: new Uint8Array(1) }),
+            transactionsPage({ transactions: [transaction], next: chainPosition(1n) }),
         },
         ringProgramId: RING,
         auditor,

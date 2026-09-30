@@ -1,8 +1,9 @@
-import { blockhash, type Commitment } from "@solana/kit";
+import { blockhash, type Commitment, type Signature } from "@solana/kit";
 
 import type { ChainReader, IndexerReader, KitRpcAccess } from "../../src/client/index.js";
 import type { LatestBlockhash, SolanaRpc } from "../../src/client/kit.js";
 import type {
+  ChainPosition,
   GetEncryptedUtxosByTagsResponse,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -27,6 +28,11 @@ export const BLOCKHASH: LatestBlockhash = Object.freeze({
   blockhash: blockhash("11111111111111111111111111111111"),
   lastValidBlockHeight: 1n,
 });
+
+/** A fake indexer pages by slot, the signature only has to be valid base58. */
+export function chainPosition(slot: bigint): ChainPosition {
+  return Object.freeze({ slot, signature: "1".repeat(64) as Signature });
+}
 
 export function transactionsPage(
   overrides: Partial<GetShieldedTransactionsByTagsResponse> = {},

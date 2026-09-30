@@ -50,7 +50,7 @@ import {
 import { RingError } from "../src/ring/error.js";
 import { bigIntBytes } from "../src/transaction/internal.js";
 
-import { matchesPage, syncReads, transactionsPage } from "./helpers/clients.js";
+import { chainPosition, matchesPage, syncReads, transactionsPage } from "./helpers/clients.js";
 
 await initializePoseidon();
 
@@ -515,7 +515,6 @@ describe("lineage walk", () => {
             request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
           ),
         ),
-        scannedThrough: new Uint8Array([1]),
       }),
     );
     return {
@@ -590,19 +589,15 @@ describe("lineage walk", () => {
     await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
   });
 
-  it("keeps paging until a page carries scannedThrough", async () => {
+  it("keeps paging until a page carries no next position", async () => {
     const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
     const pages = [
-      transactionsPage({ nextCursor: new Uint8Array([1]) }),
-      transactionsPage({
-        transactions: [claim],
-        nextCursor: new Uint8Array([2]),
-        scannedThrough: new Uint8Array([2]),
-      }),
-      transactionsPage({ scannedThrough: new Uint8Array([3]) }),
+      transactionsPage({ next: chainPosition(1n) }),
+      transactionsPage({ transactions: [claim], latest: chainPosition(2n) }),
+      transactionsPage({ latest: chainPosition(3n) }),
     ];
     const byNullifiers = vi.fn(
-      async () => pages.shift() ?? transactionsPage({ scannedThrough: new Uint8Array([9]) }),
+      async () => pages.shift() ?? transactionsPage({ latest: chainPosition(9n) }),
     );
     const indexer = syncReads({ getShieldedTransactionsByNullifiers: byNullifiers });
     await expect(read(indexer)).resolves.toMatchObject({ entry: v0 });

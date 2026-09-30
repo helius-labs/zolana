@@ -4,8 +4,9 @@ use std::cell::{Cell, RefCell};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
-    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
+    rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+    ClientError, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
+    Rpc,
 };
 use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
@@ -281,14 +282,14 @@ impl Rpc for History {
             },
             transactions: self.transactions.clone(),
             output_tree_id: None,
-            next_cursor: None,
-            scanned_through: Some(Vec::new()),
+            next: None,
+            latest: None,
         })
     }
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        _cursor: Option<Vec<u8>>,
+        _since: Option<ChainPosition>,
         _limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -312,15 +313,15 @@ impl Rpc for History {
                 .cloned()
                 .collect(),
             output_tree_id: None,
-            next_cursor: None,
-            scanned_through: Some(Vec::new()),
+            next: None,
+            latest: None,
         })
     }
 
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        _cursor: Option<Vec<u8>>,
+        _since: Option<ChainPosition>,
         _limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -341,8 +342,8 @@ impl Rpc for History {
                 .cloned()
                 .collect(),
             output_tree_id: None,
-            next_cursor: Some(vec![1]),
-            scanned_through: Some(vec![1]),
+            next: None,
+            latest: None,
         })
     }
 }

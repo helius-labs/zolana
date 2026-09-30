@@ -15,7 +15,7 @@ use solana_signature::Signature;
 use zolana_client::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{
-        AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        AsyncRpc, ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
         MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
@@ -88,13 +88,13 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
             },
             "txViewingPk": STANDARD.encode(&tx_viewing_pk_bytes),
         }],
-        "nextCursor": STANDARD.encode([5, 6]),
+        "next": { "slot": 7, "signature": position(7, 6).signature.to_string() },
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
 
     let got = indexer
-        .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(vec![1, 2, 3]), Some(7), None)
+        .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(position(3, 1)), Some(7), None)
         .expect("encrypted UTXO lookup");
     let request = server.request();
 
@@ -104,7 +104,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         request.body["params"],
         json!({
             "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
-            "cursor": STANDARD.encode([1, 2, 3]),
+            "since": { "slot": 3, "signature": position(3, 1).signature.to_string() },
             "limit": 7,
         })
     );
@@ -131,8 +131,8 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
                 tx_viewing_pk: Some(tx_viewing_pk),
                 salt: None,
             }],
-            next_cursor: Some(vec![5, 6]),
-            scanned_through: None,
+            next: Some(position(7, 6)),
+            latest: None,
         }
     );
 }
@@ -165,7 +165,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
             "nullifiers": [encode_hash_string(nullifier)],
             "proofless": true,
         }],
-        "nextCursor": STANDARD.encode([23]),
+        "next": { "slot": 50, "signature": position(50, 14).signature.to_string() },
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -213,8 +213,8 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
                 ring_config: None,
                 ring_program_id: None,
             }],
-            next_cursor: Some(vec![23]),
-            scanned_through: None,
+            next: Some(position(50, 14)),
+            latest: None,
         }
     );
 }
@@ -267,7 +267,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
     let response = rpc_result(json!({
         "context": { "blockTime": 52, "slot": 1 },
         "transactions": [],
-        "nextCursor": null,
+        "latest": { "slot": 9, "signature": position(9, 2).signature.to_string() },
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -275,7 +275,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
     let got = indexer
         .get_shielded_transactions_by_nullifiers(
             vec![nullifier_a, nullifier_b],
-            Some(vec![1, 2]),
+            Some(position(2, 1)),
             Some(3),
             None,
         )
@@ -291,7 +291,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
                 encode_hash_string(nullifier_a),
                 encode_hash_string(nullifier_b)
             ],
-            "cursor": STANDARD.encode([1, 2]),
+            "since": { "slot": 2, "signature": position(2, 1).signature.to_string() },
             "limit": 3,
         })
     );
@@ -306,8 +306,8 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
             // field rather than naming a tree it cannot vouch for.
             output_tree_id: None,
             transactions: vec![],
-            next_cursor: None,
-            scanned_through: None,
+            next: None,
+            latest: Some(position(9, 2)),
         }
     );
 }
@@ -530,7 +530,6 @@ fn rejects_malformed_output_slot_hash() {
             "nullifiers": [],
             "proofless": true,
         }],
-        "nextCursor": null,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -656,6 +655,13 @@ fn bytes32(value: u8) -> [u8; 32] {
 
 fn signature(value: u8) -> Signature {
     Signature::from([value; 64])
+}
+
+fn position(slot: u64, byte: u8) -> ChainPosition {
+    ChainPosition {
+        slot,
+        signature: signature(byte),
+    }
 }
 
 fn encode_hash_string(hash: [u8; 32]) -> String {

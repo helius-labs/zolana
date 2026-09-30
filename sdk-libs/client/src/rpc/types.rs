@@ -8,7 +8,7 @@ pub use zolana_indexer_api::{
     GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
 };
 use zolana_keypair::P256Pubkey;
-pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
+pub use zolana_transaction::{ChainPosition, OutputContext, OutputSlot, ShieldedTransaction};
 
 use crate::{error::ClientError, prover::ProofCompressed};
 
@@ -52,8 +52,8 @@ pub struct GetEncryptedUtxosByTagsResponse {
     /// here rather than picking an id.
     pub output_tree_id: Option<u16>,
     pub matches: Vec<EncryptedUtxoMatch>,
-    pub next_cursor: Option<Vec<u8>>,
-    pub scanned_through: Option<Vec<u8>>,
+    pub next: Option<ChainPosition>,
+    pub latest: Option<ChainPosition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,15 +62,17 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// As on [`GetEncryptedUtxosByTagsResponse`].
     pub output_tree_id: Option<u16>,
     pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
-    pub scanned_through: Option<Vec<u8>>,
+    /// Last returned transaction when the limit truncated the scan.
+    pub next: Option<ChainPosition>,
+    /// Stream tip at the snapshot on a terminal page, including an empty one.
+    pub latest: Option<ChainPosition>,
 }
 
 /// Page through every shielded transaction emitted by one custom ring.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingHistoryOptions {
     pub ring_program_id: Address,
-    pub cursor: Option<Vec<u8>>,
+    pub since: Option<ChainPosition>,
     pub limit: Option<u32>,
 }
 
@@ -94,11 +96,11 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     /// As on [`GetEncryptedUtxosByTagsResponse`].
     pub output_tree_id: Option<u16>,
     pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
-    /// Where the indexer's scan reached. Set only on a page the limit did not
-    /// truncate. Unspent nullifiers match nothing, so `next_cursor` is `None`
-    /// for them and this is the only resume point.
-    pub scanned_through: Option<Vec<u8>>,
+    /// Last returned transaction when the limit truncated the scan.
+    pub next: Option<ChainPosition>,
+    /// Stream tip on a terminal page. An unspent nullifier matches nothing, so
+    /// the tip is its only resume point.
+    pub latest: Option<ChainPosition>,
 }
 
 /// Stream of shielded transactions pushed as they land, one per matching transaction.

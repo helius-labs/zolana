@@ -371,8 +371,8 @@ mod tests {
     use custom_ring_sdk::CustomRing;
     use solana_signature::Signature;
     use zolana_client::{
-        rpc::GetShieldedTransactionsByNullifiersResponse, Context,
-        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
+        rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+        Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
         ShieldedTransaction,
     };
     use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
@@ -750,7 +750,7 @@ mod tests {
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<[u8; 32]>,
-            _cursor: Option<Vec<u8>>,
+            _since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -761,15 +761,15 @@ mod tests {
                 },
                 output_tree_id: Some(0),
                 transactions: self.transactions.clone(),
-                next_cursor: None,
-                scanned_through: None,
+                next: None,
+                latest: None,
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            _cursor: Option<Vec<u8>>,
+            _since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -785,8 +785,8 @@ mod tests {
                     .filter(|tx| tx.nullifiers.iter().any(|spent| nullifiers.contains(spent)))
                     .cloned()
                     .collect(),
-                next_cursor: None,
-                scanned_through: Some(Vec::new()),
+                next: None,
+                latest: None,
             })
         }
     }

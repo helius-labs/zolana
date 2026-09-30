@@ -325,7 +325,7 @@ it.each([2, 3])("upgrades version %s without losing notes or history", (version)
   const loaded = deserializeWallet(JSON.stringify(old));
   expect(loaded.utxos()).toEqual(f.wallet.utxos());
   expect(loaded.pendingSubmissions()).toEqual([]);
-  expect(JSON.parse(serializeWallet(loaded))).toMatchObject({ version: 4 });
+  expect(JSON.parse(serializeWallet(loaded))).toMatchObject({ version: 5 });
 });
 
 it("saves an existing unknown signature when persistence is attached", async () => {

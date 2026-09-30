@@ -225,11 +225,11 @@ impl RingRpcClient {
             signature,
         } = lookup;
         wait_for("ring rpc to open the transaction".to_owned(), || {
-            let mut cursor = None;
+            let mut since = None;
             loop {
                 let mut request = GetDecryptedTransactionsRequest::read(ring);
-                if let Some(next) = cursor.take() {
-                    request = request.with_cursor(next)?;
+                if let Some(next) = since.take() {
+                    request = request.with_since(next);
                 }
                 let page = match self.decrypted_transactions(&request.sign(reader)?) {
                     Ok(page) => page,
@@ -254,8 +254,8 @@ impl RingRpcClient {
                         reason: skipped.reason,
                     });
                 }
-                match page.value.cursor {
-                    Some(next) => cursor = Some(next),
+                match page.value.next {
+                    Some(next) => since = Some(next),
                     None => return Ok(Probe::NotYet),
                 }
             }

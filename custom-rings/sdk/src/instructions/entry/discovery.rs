@@ -4,8 +4,8 @@
 
 use solana_address::Address;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, OutputSlot, Rpc,
-    ShieldedTransaction,
+    rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+    AsyncRpc, OutputSlot, Rpc, ShieldedTransaction,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_ring_policy::{entry_nullifier, ListEntry, ListId, ListNamespace, Member};
@@ -152,7 +152,7 @@ impl<L: LineageLookup> Lineages<'_, L> {
         while let Some(query) = walk.query() {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 query.nullifiers,
-                query.cursor,
+                query.since,
                 None,
                 None,
             )?;
@@ -168,7 +168,7 @@ impl<L: LineageLookup> Lineages<'_, L> {
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer
-                .get_shielded_transactions_by_nullifiers(query.nullifiers, query.cursor, None, None)
+                .get_shielded_transactions_by_nullifiers(query.nullifiers, query.since, None, None)
                 .await?;
             walk.absorb(page)?;
         }
@@ -178,14 +178,14 @@ impl<L: LineageLookup> Lineages<'_, L> {
 
 struct LineageQuery {
     nullifiers: Vec<[u8; 32]>,
-    cursor: Option<Vec<u8>>,
+    since: Option<ChainPosition>,
 }
 
 /// Every pending lineage advances one version per round, a round ends when the
 /// indexer returns its last page.
 struct LineageWalk<'a, L: LineageLookup> {
     heads: Vec<Head<'a, L>>,
-    cursor: Option<Vec<u8>>,
+    since: Option<ChainPosition>,
     spenders: Vec<ShieldedTransaction>,
 }
 
@@ -215,7 +215,7 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
             .collect::<Result<Vec<_>, EntryProofError>>()?;
         Ok(Self {
             heads,
-            cursor: None,
+            since: None,
             spenders: Vec::new(),
         })
     }
@@ -229,7 +229,7 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
             .collect();
         (!nullifiers.is_empty()).then(|| LineageQuery {
             nullifiers,
-            cursor: self.cursor.clone(),
+            since: self.since,
         })
     }
 
@@ -238,13 +238,9 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
         page: GetShieldedTransactionsByNullifiersResponse,
     ) -> Result<(), EntryProofError> {
         self.spenders.extend(page.transactions);
-        // A terminal page still names a cursor, only `scanned_through` ends the round.
-        self.cursor = if page.scanned_through.is_some() {
-            None
-        } else {
-            page.next_cursor
-        };
-        if self.cursor.is_some() {
+        // Only a truncated page names `next`, a terminal page ends the round.
+        self.since = page.next;
+        if self.since.is_some() {
             return Ok(());
         }
         let spenders = core::mem::take(&mut self.spenders);
@@ -439,7 +435,7 @@ pub(crate) mod tests {
         fn page(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
         ) -> GetShieldedTransactionsByNullifiersResponse {
             self.requests
                 .lock()
@@ -456,20 +452,25 @@ pub(crate) mod tests {
                 })
                 .cloned()
                 .collect();
-            let start = cursor.map_or(0, |cursor| usize::from(cursor[0]));
+            // The mock pages by index, so a position's slot is a row index.
+            let start = since.map_or(0, |position| position.slot as usize);
             let end = self
                 .page_size
                 .map_or(matching.len(), |size| (start + size).min(matching.len()));
             let rows = matching[start..end].to_vec();
-            // Photon treats a full page as truncated and names a cursor on any row.
+            // Photon treats a full page as truncated and names `next` only there.
             let truncated = self.page_size.is_some_and(|size| rows.len() >= size);
+            let position = ChainPosition {
+                slot: end as u64,
+                signature: Signature::default(),
+            };
             GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
                     slot: 0,
                 },
-                next_cursor: (!rows.is_empty()).then(|| vec![end as u8]),
-                scanned_through: (!truncated).then(|| vec![end as u8]),
+                next: truncated.then_some(position),
+                latest: (!truncated).then_some(position),
                 transactions: rows,
                 output_tree_id: None,
             }
@@ -480,11 +481,11 @@ pub(crate) mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Ok(self.page(nullifiers, cursor))
+            Ok(self.page(nullifiers, since))
         }
     }
 
@@ -493,11 +494,11 @@ pub(crate) mod tests {
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Ok(self.page(nullifiers, cursor))
+            Ok(self.page(nullifiers, since))
         }
     }
 
