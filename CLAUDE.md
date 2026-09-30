@@ -439,8 +439,8 @@ shielded-pool verifier when it exists (`transact/proof.rs`).
 ### Generate proving keys (`.key`)
 
 ```bash
-# All supported shapes, both rails -> prover/server/proving-keys/<rail>_<in>_<out>.key
-prover/server/scripts/generate_keys_transfer.sh
+# Every transfer rail and shape the lockfile pins, locally, with VKs + lock
+prover/server/scripts/keys.py rotate --set transfer --no-publish
 
 # One shape directly (--circuit flag = transfer (eddsa) | transfer-p256).
 # Key files mirror the vk modules: transfer_<shape>.key / transfer_p256_<shape>.key.
@@ -474,30 +474,67 @@ rotation writes a NEW folder and leaves old ones untouched (old CLI -> old keys,
 new CLI -> new keys; no CloudFront invalidation). CI caches
 `prover/server/proving-keys` keyed by the lockfile hash.
 
-Rotate keys with (needs the aws CLI + bucket write access):
+`prover/server/scripts/keys.py` is the one tool for the lockfile. It derives
+the key table (setup command, VK path, fingerprint family) from the key
+filenames in the lockfile, so every pinned key is covered without a list to
+keep in sync:
 
 ```bash
-prover/server/scripts/rotate_proving_keys.sh   # regen keys + vkeys + lock; upload new version folder
+keys.py check                                  # offline: schema, prefix hash, VK modules, fingerprints
+keys.py verify [--full]                        # read-only: every pinned key is served (HEAD+size / sha256)
+keys.py rotate --set transfer                  # regenerate + publish (aws CLI + bucket write access)
+keys.py rotate --key merge_8_1 --key merge_36_1
+keys.py rotate --set all --skip custom_ring_base --no-publish --out DIR
+keys.py publish DIR [--dry-run]                # publish a --no-publish or interrupted rotation
+keys.py rotate --add --key transfer_ring_6_2   # introduce a new shape
 ```
 
-It regenerates the proving keys, the interface + nullifier-tree verifying
-keys, the circuit fingerprints, and `proving-keys.lock`, then uploads the full set
-to the new `proving-keys/<version-hash>/` folder. Commit the regenerated lockfile
-together with the vkeys in ONE PR.
+Sets are `all`, a group (`transfer`, `merge`, `batch`, `custom-ring`) or one
+circuit (`transfer-ring`, `merge-ring`, `custom-ring-policy`, ...). `just
+rotate-spp-keys`, `build-spp-keys`, `publish-spp-keys`, `verify-spp-keys` and
+`check-spp-keys` wrap these; CI runs `check-spp-keys`. `check` owns what only
+keys.py generates (lockfile form and prefix, the key table, the `mod.rs`
+module lists and table names, fingerprint families); the digests themselves
+are held to the lockfile by the crates' `vk_proving_key_lock` tests and
+`sdk-libs/ts/test/proving-keys.test.ts`, and built or deployed programs by
+`zolana vks check` (see "Proving key checks" below).
+
+A rotation compiles the circuit fingerprints first and refuses to leave behind
+any key of a circuit whose fingerprint moved. It stages the keys, the
+regenerated Rust VKs (`program-libs/interface/src/verifying_keys/`,
+`program-libs/tree/src/nullifier_tree/verify/verifying_keys/`,
+`custom-rings/interface/src/*_verifying_key.rs`) with their `mod.rs` tables,
+the fingerprint pins, the TS SDK's `PROVING_KEY_SHA256S` table and the new
+lockfile in one directory, and refuses a VK whose embedded
+`VERIFYINGKEY_PROVING_KEY_SHA256` is not the digest it pins. Publishing copies unchanged keys inside S3,
+uploads regenerated or missing ones, downloads and hashes every uploaded key
+through CloudFront, and only then writes the repository; a failed publish
+keeps the directory for `keys.py publish DIR`. `--no-publish` writes the
+repository immediately and leaves an unpublished prefix: publish it before the
+PR merges. Commit the lockfile, VKs and fingerprints together in ONE PR.
+
+The six `custom_ring_*` keys are pinned with `source: "release"`: they are
+served from the `custom-ring-keys-v<N>` GitHub release (`just
+ensure-custom-ring-live-keys`), are excluded from the prefix hash, and are
+never uploaded to S3. Rotating them keeps the prefix and prints the release to
+publish.
 
 ### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
 
 ```bash
-# keys_dir: absolute, or relative to prover/server (default proving-keys)
-prover/server/scripts/regenerate_all_vkeys.sh [keys_dir]
+prover/server/scripts/keys.py vkeys [--set ...] [--check] [--keys-dir DIR]   # default prover/server/proving-keys
 ```
 
 Pipeline: `light-prover export-vk` writes the gnark `WriteRawTo` (uncompressed)
 vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <proving_key> <out_dir> <filename> [--insecure-test-setup]`
 calls `groth16_solana::vk::gnark::generate_bsb22_vk_file` to emit a
-`pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
-regenerated. The codegen lives in the `xtask` crate, which depends on the
-`groth16-solana` fork pinned by git rev in the root `Cargo.toml`.
+`pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, rustfmt formats it
+with the workspace config, and the module lists and `PROVING_KEY_SHA256S`
+tables of the interface and nullifier-tree `mod.rs` are regenerated from the
+lockfile (the custom-rings `lib.rs` table is kept by hand). keys.py never
+passes `--insecure-test-setup`: every key it manages is a protocol key. The
+codegen lives in the `xtask` crate, which depends on the `groth16-solana` fork
+pinned by git rev in the root `Cargo.toml`.
 `zolana-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.
 
@@ -514,10 +551,10 @@ randomness and emits `SetupKind::Production`, the setup an example deployment
 uses. Each crate exposes `PROVING_KEY_SHA256S` (key file name -> sha256), and
 `vk_proving_key_lock` tests pin every entry to `proving-keys.lock`.
 
-A vk regen that does not rotate keys exports from the keys the lockfile pins.
-Use the pinned keys, not whatever sits in `prover/server/proving-keys`: diff
-every local key against the lockfile first, and point the scripts at a
-directory of pinned keys when they differ. A correct regen only appends
+A vk regen that does not rotate keys exports from the keys the lockfile pins:
+`keys.py vkeys` hashes every local key first and refuses one that differs from
+its pin, so point `--keys-dir` at a directory of pinned keys when
+`prover/server/proving-keys` holds others. A correct regen only appends
 metadata; `vk_fingerprint` must pass without a re-pin.
 
 ### Proving key checks (deployed program <-> clients <-> prover)
@@ -550,8 +587,8 @@ key set fails before a transaction is built instead of on-chain:
   `tools/deploy-devnet.sh` runs it on the local build before deploying
   shielded-pool and on the deployed program after.
 - The TS SDK keeps its own table (`sdk-libs/ts/src/interface/proving-keys.ts`),
-  pinned to the lockfile by `test/proving-keys.test.ts`; a key rotation updates
-  it in the same PR.
+  pinned to the lockfile by `test/proving-keys.test.ts`; `keys.py rotate`
+  rewrites it together with the lockfile.
 
 ### BSB22 commitments (the two rails differ on purpose)
 

@@ -17,7 +17,7 @@ func TestReadMergeKeyDispatch(t *testing.T) {
 		t.Run(fmt.Sprintf("%d_inputs", nInputs), func(t *testing.T) {
 			keyPath := fmt.Sprintf("../../proving-keys/merge_%d_1.key", nInputs)
 			if _, err := os.Stat(keyPath); err != nil {
-				t.Skipf("merge key not present (%s); run scripts/generate_keys_merge.sh", keyPath)
+				t.Skipf("merge key not present (%s); the prover downloads it on first use", keyPath)
 			}
 
 			system, err := common.ReadSystemFromFile(keyPath)
