@@ -9,6 +9,11 @@ from pathlib import Path
 from aws_host import NGINX, gateway
 
 BACKEND = "python:3.12-alpine"
+# ECR Public caps anonymous pulls per source IP, and hosted runners share their
+# IPs, so it can refuse with "toomanyrequests: Data limit exceeded". Its
+# docker/library images mirror Docker Hub's official ones, so the pinned digest
+# pulls byte for byte from Docker Hub too.
+NGINX_MIRROR = NGINX.replace("public.ecr.aws/docker/library/", "docker.io/library/", 1)
 
 
 @unittest.skipUnless(os.environ.get("GPU_GATEWAY_TEST") == "1", "requires Docker")
@@ -90,10 +95,12 @@ assert request('/indexer', method='OPTIONS')[0] == 204
                 )
             return result
 
-        # A registry can throttle an anonymous pull; pulling first, with
-        # retries, keeps that apart from the gateway under test.
-        def pull(image):
-            for attempt in range(3):
+        # Pulled before the test starts, so a registry refusing an anonymous
+        # pull is not mistaken for a gateway failure. Returns the first
+        # reference that pulls.
+        def pull(*images):
+            errors = []
+            for image in images:
                 result = subprocess.run(
                     ["docker", "pull", "--quiet", image],
                     text=True,
@@ -101,9 +108,9 @@ assert request('/indexer', method='OPTIONS')[0] == 204
                     timeout=120,
                 )
                 if result.returncode == 0:
-                    return
-                time.sleep(5 * (attempt + 1))
-            self.fail(f"docker pull {image}: {result.stderr.strip()}")
+                    return image
+                errors.append(f"docker pull {image}: {result.stderr.strip()}")
+            self.fail("\n".join(errors))
 
         # nginx joins the backend's network namespace, which exists only
         # while the backend runs.
@@ -123,7 +130,7 @@ assert request('/indexer', method='OPTIONS')[0] == 204
             config.write_text(gateway(True))
             config.chmod(0o644)
             pull(BACKEND)
-            pull(NGINX)
+            nginx = pull(NGINX, NGINX_MIRROR)
             try:
                 docker(
                     "run",
@@ -145,7 +152,7 @@ assert request('/indexer', method='OPTIONS')[0] == 204
                     "container:" + name,
                     "-v",
                     f"{config}:/etc/nginx/nginx.conf:ro",
-                    NGINX,
+                    nginx,
                 )
                 docker("exec", name, "python", "-c", checks)
                 logs = docker("logs", name + "-nginx")
