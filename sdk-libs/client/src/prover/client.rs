@@ -116,7 +116,7 @@ const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
-/// Per-request bound on a `/prove/status` poll.
+/// Per-request bound on a status poll.
 ///
 /// The status endpoint reads one Redis key and returns; it is not the request
 /// that 600s was sized for. Sharing the prove timeout let a single hung poll
@@ -135,7 +135,7 @@ const STATUS_POLL_TIMEOUT_SECS: u64 = 30;
 /// `RetryConfig` (a client-held config with a `Default`).
 #[derive(Clone, Copy, Debug)]
 pub struct AsyncPollConfig {
-    /// Seconds between `/prove/status` polls (floored at 1 so it can't spin).
+    /// Seconds between status polls (floored at 1 so it can't spin).
     pub poll_interval_secs: u64,
     /// Wall-clock seconds to wait for a queued proof before returning a timeout
     /// error.
@@ -471,7 +471,7 @@ impl ProverClient {
         job_id: &str,
         key: &ExpectedProvingKey,
     ) -> Result<T, ClientError> {
-        let url = self.endpoint.status_url(job_id)?;
+        let url = self.endpoint.status_url(key, job_id)?;
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
@@ -600,11 +600,8 @@ enum ProofRoute {
 }
 
 impl ProofRoute {
-    /// The path of the proving key that proves the request. The key is in the
-    /// path because a gateway routes and prices on the path alone, so it can
-    /// send each key to its own prover pool at its own price.
     fn path(&self, key: &ExpectedProvingKey) -> String {
-        let path = format!("{PROVE_PATH}/{}", key.path_name());
+        let path = key.prove_path();
         match self {
             Self::Complete => path,
             Self::Indexed => path + "/indexed",
@@ -1070,7 +1067,7 @@ impl AsyncProverClient {
         job_id: &str,
         key: &ExpectedProvingKey,
     ) -> Result<T, ClientError> {
-        let url = self.endpoint.status_url(job_id)?;
+        let url = self.endpoint.status_url(key, job_id)?;
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -1414,13 +1411,16 @@ mod tests {
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
         if socks {
-            assert_paths(&requests, ["/prove/test", "/prove/status?jobId=proxy-job"]);
+            assert_paths(
+                &requests,
+                ["/prove/test", "/prove/test/status?jobId=proxy-job"],
+            );
         } else {
             assert_paths(
                 &requests,
                 [
                     "http://prover.invalid:3001/prove/test",
-                    "http://prover.invalid:3001/prove/status?jobId=proxy-job",
+                    "http://prover.invalid:3001/prove/test/status?jobId=proxy-job",
                 ],
             );
         }
@@ -1587,7 +1587,10 @@ mod tests {
             .expect("queued proof should complete");
 
         let requests = server.requests();
-        assert_paths(&requests, ["/prove/test", "/prove/status?jobId=job-custom"]);
+        assert_paths(
+            &requests,
+            ["/prove/test", "/prove/test/status?jobId=job-custom"],
+        );
         assert!(
             requests.iter().all(|request| !request.sync_requested),
             "a custom request must not ask for a synchronous answer"
@@ -1949,7 +1952,7 @@ mod tests {
                 json!({
                     "jobId": "job-1",
                     "status": "queued",
-                    "statusUrl": "/prove/status?jobId=job-1",
+                    "statusUrl": "/prove/test/status?jobId=job-1",
                 }),
             ),
             MockResponse::json(200, json!({ "status": "queued" })),
@@ -1973,8 +1976,8 @@ mod tests {
             &requests,
             [
                 "/prove/test",
-                "/prove/status?jobId=job-1",
-                "/prove/status?jobId=job-1",
+                "/prove/test/status?jobId=job-1",
+                "/prove/test/status?jobId=job-1",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -2000,7 +2003,10 @@ mod tests {
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove/test", "/prove/status?jobId=job-failed"]);
+        assert_paths(
+            &requests,
+            ["/prove/test", "/prove/test/status?jobId=job-failed"],
+        );
         let message = err.to_string();
         assert!(message.contains("async proof failed"));
         assert!(message.contains("prover rejected witness"));
@@ -2052,7 +2058,7 @@ mod tests {
         // time it spent waiting had not been charged against the deadline.
         assert_paths(
             &server.requests(),
-            ["/prove/test", "/prove/status?jobId=job-slow-status"],
+            ["/prove/test", "/prove/test/status?jobId=job-slow-status"],
         );
     }
 
@@ -2072,8 +2078,8 @@ mod tests {
             &requests,
             [
                 "/prove/test",
-                "/prove/status?jobId=job-slow",
-                "/prove/status?jobId=job-slow",
+                "/prove/test/status?jobId=job-slow",
+                "/prove/test/status?jobId=job-slow",
             ],
         );
         assert!(err.to_string().contains("async proof timed out after 1s"));
@@ -2092,7 +2098,7 @@ mod tests {
 
         assert_paths(
             &requests,
-            ["/prove/test", "/prove/status?jobId=job-bad-json"],
+            ["/prove/test", "/prove/test/status?jobId=job-bad-json"],
         );
         assert!(err.to_string().contains("invalid status JSON"));
     }
@@ -2116,7 +2122,7 @@ mod tests {
 
         assert_paths(
             &requests,
-            ["/prove/test", "/prove/status?jobId=missing-job"],
+            ["/prove/test", "/prove/test/status?jobId=missing-job"],
         );
         let message = err.to_string();
         assert!(message.contains("status 404 Not Found"));
@@ -2148,8 +2154,8 @@ mod tests {
             &requests,
             [
                 "/prove/test",
-                "/prove/status?jobId=job-transient",
-                "/prove/status?jobId=job-transient",
+                "/prove/test/status?jobId=job-transient",
+                "/prove/test/status?jobId=job-transient",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -2181,8 +2187,8 @@ mod tests {
             &requests,
             [
                 "/prove/test",
-                "/prove/status?jobId=async-job",
-                "/prove/status?jobId=async-job",
+                "/prove/test/status?jobId=async-job",
+                "/prove/test/status?jobId=async-job",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -2213,8 +2219,8 @@ mod tests {
             &requests,
             [
                 "/prove/test",
-                "/prove/status?jobId=async-transient",
-                "/prove/status?jobId=async-transient",
+                "/prove/test/status?jobId=async-transient",
+                "/prove/test/status?jobId=async-transient",
             ],
         );
     }
@@ -2271,7 +2277,7 @@ mod tests {
             [
                 "/prove/test",
                 "/prove/test",
-                "/prove/status?jobId=queued-after-shed",
+                "/prove/test/status?jobId=queued-after-shed",
             ],
         );
         assert!(
@@ -2357,7 +2363,7 @@ mod tests {
             [
                 "/v1/zolana/prove/transfer_confidential_1_1/indexed?api-key=secret",
                 "/v1/zolana/prove/transfer_confidential_1_1/indexed?api-key=secret",
-                "/v1/zolana/prove/status?api-key=secret&jobId=indexed-queued",
+                "/v1/zolana/prove/transfer_confidential_1_1/status?api-key=secret&jobId=indexed-queued",
             ],
         );
         assert!(requests[0].sync_requested);

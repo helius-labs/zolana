@@ -643,7 +643,7 @@ func (rq *RedisQueue) GetResult(jobID string) (interface{}, error) {
 	//
 	// This used to fall back to scanning zk_results_queue: an LRange of every
 	// stored proof, then a JSON unmarshal per entry, to find one job ID. Clients
-	// poll /prove/status from 25ms and back off, so a single transfer misses ten
+	// poll the status path from 25ms and back off, so a single transfer misses ten
 	// or more times before its proof lands -- and each of those misses dragged
 	// the whole results queue across the wire.
 	//
@@ -1077,9 +1077,10 @@ func (rq *RedisQueue) cleanupIndexEntry(queueName string, jobID string) {
 // under another key set, or before proofs carried provingKeySha256, is never
 // replayed: clients reject such a proof, and every retry would hit it again.
 //
-// provingKey is the key file the submitting path named, empty on the pre-key
-// paths. It is part of the hash so that a proof or a refusal cached for a body
-// on one key's path is never replayed for the same body on another's.
+// provingKey is the key file the submitting path named, empty only for a job
+// queued by a prover that predates key paths. It is part of the hash so that a
+// proof or a refusal cached for a body on one key's path is never replayed for
+// the same body on another's.
 func ComputeInputHash(payload json.RawMessage, provingKey string) string {
 	hasher := sha256.New()
 	if manifest, err := provingkeys.Load(); err == nil {

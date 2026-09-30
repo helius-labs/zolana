@@ -1215,7 +1215,7 @@ describe("prover indexer fetching", () => {
           expect(String(fetch.mock.calls[1]?.[0])).toBe(indexedUrl);
           expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
           expect(String(fetch.mock.calls[2]?.[0])).toBe(
-            "https://prover.test/v1/zolana/prove/status?api-key=secret&jobId=indexed-job",
+            "https://prover.test/v1/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
           );
         }
         expect(String(fetch.mock.calls[0]?.[0])).toBe(indexedUrl);

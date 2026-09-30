@@ -1048,7 +1048,7 @@ describe("prover request routing", () => {
 
     expect(urls.map((url) => url.pathname)).toEqual([
       "/zolana/prove/transfer_confidential_1_1",
-      "/zolana/prove/status",
+      "/zolana/prove/transfer_confidential_1_1/status",
     ]);
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");

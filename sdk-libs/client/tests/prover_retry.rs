@@ -155,7 +155,7 @@ fn gateway(base: &str, key: &str) -> String {
 
 const GATEWAY_PATHS: [&str; 2] = [
     "/v1/zolana/prove/test?api-key=test-key",
-    "/v1/zolana/prove/status?api-key=test-key&jobId=job-1",
+    "/v1/zolana/prove/test/status?api-key=test-key&jobId=job-1",
 ];
 
 /// The failure is the one expected, and the key is not in its text.

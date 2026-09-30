@@ -2,6 +2,7 @@ package main_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -26,8 +27,10 @@ const MetricsAddress = "localhost:9999"
 var instance server.RunningJob
 var serverStopped bool
 
-func proveEndpoint() string {
-	return "http://" + ProverAddress + "/prove"
+// proveEndpoint is the path of the address-append key for a tree height and
+// batch size.
+func proveEndpoint(treeHeight uint32, batchSize uint32) string {
+	return fmt.Sprintf("http://%s/prove/batch_address-append_%d_%d", ProverAddress, treeHeight, batchSize)
 }
 
 func StartServer(isLightweight bool) {
@@ -212,7 +215,7 @@ func runLightweightOnlyTests(t *testing.T) {
 }
 
 func testWrongMethod(t *testing.T) {
-	response, err := http.Get(proveEndpoint())
+	response, err := http.Get(proveEndpoint(40, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +242,7 @@ func runBatchAddressAppendTest(t *testing.T, treeHeight uint32, batchSize uint32
 	if err != nil {
 		t.Fatalf("Failed to marshal JSON: %v", err)
 	}
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
+	response, err := http.Post(proveEndpoint(treeHeight, batchSize), "application/json", bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		t.Fatalf("Failed to send POST request: %v", err)
 	}
@@ -278,7 +281,7 @@ func runBatchAddressAppendWithPreviousStateTest(t *testing.T, treeHeight uint32,
 		t.Fatalf("Failed to marshal first JSON: %v", err)
 	}
 
-	response1, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes1))
+	response1, err := http.Post(proveEndpoint(treeHeight, batchSize), "application/json", bytes.NewBuffer(jsonBytes1))
 	if err != nil {
 		t.Fatalf("Failed to send first POST request: %v", err)
 	}
@@ -301,7 +304,7 @@ func runBatchAddressAppendWithPreviousStateTest(t *testing.T, treeHeight uint32,
 		t.Fatalf("Failed to marshal second JSON: %v", err)
 	}
 
-	response2, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes2))
+	response2, err := http.Post(proveEndpoint(treeHeight, batchSize), "application/json", bytes.NewBuffer(jsonBytes2))
 	if err != nil {
 		t.Fatalf("Failed to send second POST request: %v", err)
 	}
@@ -338,7 +341,7 @@ func testBatchAddressAppendInvalidInput40_10(t *testing.T) {
 		t.Fatalf("Failed to marshal JSON: %v", err)
 	}
 
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
+	response, err := http.Post(proveEndpoint(treeHeight, batchSize), "application/json", bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		t.Fatalf("Failed to send POST request: %v", err)
 	}
@@ -375,7 +378,7 @@ func testBatchAddressAppendInvalidInput40_250(t *testing.T) {
 		t.Fatalf("Failed to marshal JSON: %v", err)
 	}
 
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
+	response, err := http.Post(proveEndpoint(treeHeight, batchSize), "application/json", bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		t.Fatalf("Failed to send POST request: %v", err)
 	}

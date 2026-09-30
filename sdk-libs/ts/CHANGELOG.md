@@ -33,9 +33,10 @@ Breaking
   `MERGE_INPUT_COUNT`, the eight-input default, or `MAX_MERGE_INPUTS` from
   `@heliuslabs/zolana/interface`.
 - `ProverClient` and `ZolanaClient` send each proof to the path of its proving
-  key, `/prove/<key>` or `/prove/<key>/indexed`, so a gateway can route and
-  price each key apart, and a prover that predates these paths answers 404 →
-  upgrade the prover before the SDK.
+  key, `/prove/<key>` or `/prove/<key>/indexed`, and poll a queued one at
+  `/prove/<key>/status`, so a gateway can route and price each key apart, and
+  a prover that predates these paths answers 404 → upgrade the prover before
+  the SDK.
 
 Added
 

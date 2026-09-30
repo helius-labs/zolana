@@ -289,7 +289,7 @@ type proveHandler struct {
 	enableQueue       bool
 	served            *ServedKeys
 	// The key file this request's path named, set per request by
-	// keyPathHandler; empty on /prove and /prove/indexed.
+	// keyPathHandler.
 	provingKey string
 	// Bounds proving done inside a request. Shared across requests, so it must
 	// be the same instance for every one of them.
@@ -653,9 +653,9 @@ func handleBoth(mux *http.ServeMux, path string, h http.Handler) {
 	mux.Handle(gatewayPrefix+path, h)
 }
 
-// registerProofPaths publishes prove on every key's paths, /prove/<key> and
-// /prove/<key>/indexed, and on the pre-key paths, bare and under the gateway
-// prefix.
+// registerProofPaths publishes every key's paths, bare and under the gateway
+// prefix: /prove/<key>, /prove/<key>/indexed and, with a queue,
+// /prove/<key>/status.
 func registerProofPaths(mux *http.ServeMux, prove proveHandler) {
 	complete := prove
 	complete.indexed = false
@@ -663,10 +663,10 @@ func registerProofPaths(mux *http.ServeMux, prove proveHandler) {
 	indexedProve.indexed = true
 	handleBoth(mux, "/prove/{key}", observeProofHTTP("complete", keyPathHandler{prove: complete}))
 	handleBoth(mux, "/prove/{key}/indexed", observeProofHTTP("indexed", keyPathHandler{prove: indexedProve}))
-	// The pre-key paths take any served key, so only the served set limits
-	// them. Kept until published clients send to key paths.
-	handleBoth(mux, "/prove", observeProofHTTP("complete", complete))
-	handleBoth(mux, "/prove/indexed", observeProofHTTP("indexed", indexedProve))
+	if prove.redisQueue != nil {
+		status := proofStatusHandler{redisQueue: prove.redisQueue}
+		handleBoth(mux, "/prove/{key}/status", keyStatusHandler{status: status, served: prove.served})
+	}
 }
 
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
@@ -710,133 +710,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	handleBoth(proverMux, "/proving-keys", provingKeysHandler{keyManager: keyManager})
 
 	if redisQueue != nil {
-		handleBoth(proverMux, "/prove/status", proofStatusHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/health", queueHealthHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
-
-		proverMux.HandleFunc("/queue/add", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
-
-			buf, err := io.ReadAll(r.Body)
-			if err != nil {
-				malformedBodyError(err).send(w)
-				return
-			}
-
-			proofRequestMeta, err := common.ParseProofRequestMeta(buf)
-			if err != nil {
-				malformedBodyError(err).send(w)
-				return
-			}
-
-			queueName := GetQueueNameForCircuit(proofRequestMeta.CircuitType)
-
-			// Compute input hash for deduplication
-			inputHash := ComputeInputHash(json.RawMessage(buf), "")
-
-			// Check for existing in-flight job with same input
-			dedupResult, err := redisQueue.DeduplicateJob(inputHash)
-			if err != nil {
-				logging.Logger().Error().
-					Err(err).
-					Str("input_hash", inputHash).
-					Msg("Failed to deduplicate job")
-				http.Error(w, "Failed to register job", http.StatusInternalServerError)
-				return
-			}
-
-			// If deduplicated to an existing job, return early
-			if dedupResult.IsDeduplicated {
-				response := map[string]interface{}{
-					"jobId":        dedupResult.JobID,
-					"status":       "already_queued",
-					"queue":        queueName,
-					"circuitType":  string(proofRequestMeta.CircuitType),
-					"message":      "Proof request with identical input already in queue. Returning existing job ID.",
-					"deduplicated": true,
-				}
-
-				logging.Logger().Info().
-					Str("existing_job_id", dedupResult.JobID).
-					Str("input_hash", inputHash).
-					Str("circuit_type", string(proofRequestMeta.CircuitType)).
-					Msg("Deduplicated proof request via /queue/add")
-
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusAccepted)
-				if err := json.NewEncoder(w).Encode(response); err != nil {
-					logging.Logger().Error().
-						Err(err).
-						Str("job_id", dedupResult.JobID).
-						Str("response_type", "deduplicated_queue_add_response").
-						Msg("Failed to encode JSON response")
-				}
-				return
-			}
-
-			// This is a new job
-			jobID := dedupResult.JobID
-
-			job := &ProofJob{
-				ID:         jobID,
-				Type:       "zk_proof",
-				Payload:    json.RawMessage(buf),
-				CreatedAt:  time.Now(),
-				TreeID:     proofRequestMeta.TreeID,
-				BatchIndex: proofRequestMeta.BatchIndex,
-			}
-
-			// Store job metadata BEFORE enqueueing to prevent race condition where worker
-			// picks up job before metadata exists, causing job_not_found on status checks
-			if err := redisQueue.StoreJobMeta(jobID, queueName, string(proofRequestMeta.CircuitType)); err != nil {
-				logging.Logger().Warn().
-					Err(err).
-					Str("job_id", jobID).
-					Str("queue", queueName).
-					Msg("Failed to store job metadata (will still attempt to enqueue)")
-			}
-
-			// Store input hash mapping for cleanup when job completes
-			redisQueue.StoreInputHash(jobID, inputHash)
-
-			err = redisQueue.EnqueueProof(queueName, job)
-			if err != nil {
-				// Clean up in-flight marker and metadata since we failed to enqueue
-				if delErr := redisQueue.DeleteInFlightJob(inputHash, jobID); delErr != nil {
-					logging.Logger().Error().Err(delErr).Str("job_id", jobID).Msg("Failed to cleanup in-flight marker after enqueue failure - may cause stale deduplication")
-				}
-				if delErr := redisQueue.DeleteJobMeta(jobID); delErr != nil {
-					logging.Logger().Error().Err(delErr).Str("job_id", jobID).Msg("Failed to cleanup job metadata after enqueue failure")
-				}
-				unexpectedError(err).send(w)
-				return
-			}
-
-			logging.Logger().Info().
-				Str("job_id", jobID).
-				Str("queue", queueName).
-				Str("circuit_type", string(proofRequestMeta.CircuitType)).
-				Msg("Enqueued proof job")
-
-			response := map[string]interface{}{
-				"jobId":       jobID,
-				"status":      "queued",
-				"queue":       queueName,
-				"circuitType": string(proofRequestMeta.CircuitType),
-				"message":     fmt.Sprintf("Job queued in %s", queueName),
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusAccepted)
-			err = json.NewEncoder(w).Encode(response)
-			if err != nil {
-				return
-			}
-		})
 	}
 
 	corsHandler := handlers.CORS(
@@ -1188,7 +1064,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		"circuitType":   string(meta.CircuitType),
 		"queue":         queueName,
 		"estimatedTime": estimatedTime,
-		"statusUrl":     fmt.Sprintf("/prove/status?jobId=%s", jobID),
+		"statusUrl":     fmt.Sprintf("%s?jobId=%s", statusPath(handler.provingKey), jobID),
 		"message":       fmt.Sprintf("Proof generation queued for %s circuit. Use statusUrl to check progress.", meta.CircuitType),
 	}
 

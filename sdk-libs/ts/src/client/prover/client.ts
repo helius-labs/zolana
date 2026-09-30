@@ -109,6 +109,7 @@ const INITIAL_POLL_INTERVAL_MS = 25;
  */
 const PROVE_PATH = "/prove";
 const INDEXED_PATH = "/indexed";
+const STATUS_PATH = "/status";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
 const UNCOMPRESSED_P256_LENGTH = 65;
@@ -116,8 +117,8 @@ type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
-/// returns a job handle instead of a proof, and the client polls
-/// `/prove/status` until it completes.
+/// returns a job handle instead of a proof, and the client polls the proving
+/// key's `/prove/<key>/status` until it completes.
 export interface AsyncPollConfig {
   /**
    * Ceiling for the gap between status polls. Polling starts at 25ms and
@@ -393,8 +394,7 @@ export class ProverClient {
     key: ExpectedProvingKey,
     context?: RequestContext,
   ): Promise<unknown> {
-    const url = new URL(this.#url);
-    url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+    const url = this.#keyUrl(key);
     if (route === "indexed") url.pathname += INDEXED_PATH;
     let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
     const signal = composeSignal(context, "prove");
@@ -457,7 +457,7 @@ export class ProverClient {
               typeof value["jobId"] === "string" &&
               value["proof"] === undefined
             ) {
-              return await this.#poll(value["jobId"], signal, route);
+              return await this.#poll(value["jobId"], signal, route, key);
             }
             return value;
           } finally {
@@ -476,12 +476,27 @@ export class ProverClient {
   /// Mirrors `poll_async`: request the status, then wait between attempts, with
   /// the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
   /// transport failure is transient, and every other status has its body read.
-  async #poll(jobId: string, signal: ComposedSignal, route: Route): Promise<unknown> {
+  /**
+   * `/prove/<key>`: every proof and its status poll go to its proving key's
+   * path, so a gateway sends both to the prover pool that serves the key.
+   */
+  #keyUrl(key: ExpectedProvingKey): URL {
+    const url = new URL(this.#url);
+    url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+    return url;
+  }
+
+  async #poll(
+    jobId: string,
+    signal: ComposedSignal,
+    route: Route,
+    key: ExpectedProvingKey,
+  ): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
     }
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, "/prove/status");
+    const url = this.#keyUrl(key);
+    url.pathname += STATUS_PATH;
     url.searchParams.set("jobId", jobId);
     const intervalCap = Math.max(INITIAL_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalCapMs);
     let interval = INITIAL_POLL_INTERVAL_MS;

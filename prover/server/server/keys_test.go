@@ -62,13 +62,13 @@ func TestKeyAdmission(t *testing.T) {
 		file      string
 		code      string
 	}{
-		"path key":                        {keyAdmission{expected: "merge_8_1.key"}, "merge_8_1.key", ""},
-		"another key than the path":       {keyAdmission{expected: "merge_8_1.key"}, "merge_36_1.key", "proving_key_mismatch"},
-		"unsupported shape on a key path": {keyAdmission{expected: "merge_8_1.key"}, "", "proving_key_mismatch"},
-		"pre-key path, served":            {keyAdmission{served: onlyMerges}, "merge_36_1.key", ""},
-		"pre-key path, not served":        {keyAdmission{served: onlyMerges}, "transfer_ring_2_3.key", "proving_key_not_served"},
+		"path key":                           {keyAdmission{expected: "merge_8_1.key"}, "merge_8_1.key", ""},
+		"another key than the path":          {keyAdmission{expected: "merge_8_1.key"}, "merge_36_1.key", "proving_key_mismatch"},
+		"unsupported shape on a key path":    {keyAdmission{expected: "merge_8_1.key"}, "", "proving_key_mismatch"},
+		"job without a path key, served":     {keyAdmission{served: onlyMerges}, "merge_36_1.key", ""},
+		"job without a path key, not served": {keyAdmission{served: onlyMerges}, "transfer_ring_2_3.key", "proving_key_not_served"},
 		// Left to the key manager, which reports the unsupported shape.
-		"pre-key path, unsupported shape": {keyAdmission{served: onlyMerges}, "", ""},
+		"job without a path key, unsupported shape": {keyAdmission{served: onlyMerges}, "", ""},
 	} {
 		failure := test.admission.admit(test.file)
 		code := ""
@@ -97,11 +97,13 @@ func transferRequest(t *testing.T) []byte {
 	return body
 }
 
-// proofMux serves the proof paths the way RunEnhanced does, without a queue.
-// The key manager has no keys, so a request that passes admission fails on the
-// missing key file rather than proving.
+// proofMux serves the proof paths the way RunEnhanced does. It has a queue, so
+// the status path is published, but proves in the response. The key manager
+// has no keys, so a request that passes admission fails on the missing key
+// file rather than proving.
 func proofMux(t *testing.T, served *ServedKeys) *http.ServeMux {
 	t.Helper()
+	_, queue := newTestQueue(t)
 	readiness := NewReadiness()
 	readiness.MarkReady()
 	mux := http.NewServeMux()
@@ -109,18 +111,20 @@ func proofMux(t *testing.T, served *ServedKeys) *http.ServeMux {
 		readiness:         readiness,
 		keyManager:        common.NewLazyKeyManager(t.TempDir(), &common.DownloadConfig{}),
 		transferExecution: NewExecution(1),
+		redisQueue:        queue,
 		served:            served,
 		admission:         newSyncAdmission(1),
 	})
-	handleBoth(mux, "/prove/status", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTeapot)
-	}))
 	return mux
 }
 
 func post(mux *http.ServeMux, path string, body []byte) *httptest.ResponseRecorder {
+	return serve(mux, http.MethodPost, path, body)
+}
+
+func serve(mux *http.ServeMux, method, path string, body []byte) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body)))
+	mux.ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewReader(body)))
 	return response
 }
 
@@ -151,36 +155,52 @@ func TestKeyPathHoldsTheBodyToItsKey(t *testing.T) {
 
 func TestKeyPathRefusesUnknownAndUnservedKeys(t *testing.T) {
 	mux := proofMux(t, servedKeys(t, "merge_*"))
-	for path, code := range map[string]string{
-		"/prove/transfer_confidential_9_9":         "unknown_proving_key",
-		"/prove/transfer_confidential_2_2":         "proving_key_not_served",
-		"/prove/transfer_confidential_2_2/indexed": "proving_key_not_served",
-		// The pre-key path takes any served key, and this one is not.
-		"/prove": "proving_key_not_served",
+	for _, test := range []struct{ method, path, code string }{
+		{http.MethodPost, "/prove/transfer_confidential_9_9", "unknown_proving_key"},
+		{http.MethodPost, "/prove/transfer_confidential_2_2", "proving_key_not_served"},
+		{http.MethodPost, "/prove/transfer_confidential_2_2/indexed", "proving_key_not_served"},
+		{http.MethodGet, "/prove/transfer_confidential_2_2/status?jobId=x", "proving_key_not_served"},
 	} {
 		for _, prefix := range []string{"", gatewayPrefix} {
-			response := post(mux, prefix+path, transferRequest(t))
-			if response.Code != http.StatusNotFound && response.Code != http.StatusBadRequest || errorCode(t, response) != code {
-				t.Errorf("%s%s: got %d %q, want %s", prefix, path, response.Code, response.Body.String(), code)
+			response := serve(mux, test.method, prefix+test.path, transferRequest(t))
+			if response.Code != http.StatusNotFound || errorCode(t, response) != test.code {
+				t.Errorf("%s %s%s: got %d %q, want %s", test.method, prefix, test.path, response.Code, response.Body.String(), test.code)
 			}
 		}
 	}
 }
 
-func TestKeyPathsLeaveStatusAndIndexedToTheirHandlers(t *testing.T) {
+func TestKeyPathsReachTheirHandlers(t *testing.T) {
 	mux := proofMux(t, nil)
 	for _, prefix := range []string{"", gatewayPrefix} {
-		response := httptest.NewRecorder()
-		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, prefix+"/prove/status?jobId=x", nil))
-		if response.Code != http.StatusTeapot {
-			t.Fatalf("%s/prove/status went to %d", prefix, response.Code)
+		// The status handler validates the job id before any lookup.
+		response := serve(mux, http.MethodGet, prefix+"/prove/merge_8_1/status?jobId=x", nil)
+		if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
+			t.Fatalf("%s status: got %d %q", prefix, response.Code, response.Body.String())
 		}
 		// No indexer is configured, so reaching the indexed handler is a 404
 		// that names it.
-		for _, path := range []string{"/prove/indexed", "/prove/transfer_confidential_2_2/indexed"} {
-			response = post(mux, prefix+path, indexedTransferRequest(t))
-			if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
-				t.Fatalf("%s%s: got %d %q", prefix, path, response.Code, response.Body.String())
+		response = post(mux, prefix+"/prove/transfer_confidential_2_2/indexed", indexedTransferRequest(t))
+		if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
+			t.Fatalf("%s indexed: got %d %q", prefix, response.Code, response.Body.String())
+		}
+	}
+}
+
+// Every proof names its key: there is no path that takes any key.
+func TestThereIsNoPathWithoutAKey(t *testing.T) {
+	mux := proofMux(t, nil)
+	for _, prefix := range []string{"", gatewayPrefix} {
+		if response := post(mux, prefix+"/prove", transferRequest(t)); response.Code != http.StatusNotFound {
+			t.Errorf("%s/prove: got %d", prefix, response.Code)
+		}
+		for _, test := range []struct{ method, path string }{
+			{http.MethodPost, "/prove/indexed"},
+			{http.MethodGet, "/prove/status?jobId=x"},
+		} {
+			response := serve(mux, test.method, prefix+test.path, transferRequest(t))
+			if response.Code != http.StatusNotFound || errorCode(t, response) != "unknown_proving_key" {
+				t.Errorf("%s %s%s: got %d %q", test.method, prefix, test.path, response.Code, response.Body.String())
 			}
 		}
 	}
@@ -197,6 +217,13 @@ func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
 	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove/transfer_confidential_1_1", nil), transferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("enqueue got %d %q", response.Code, response.Body.String())
+	}
+	var queued struct{ JobID, StatusURL string }
+	if err := json.Unmarshal(response.Body.Bytes(), &queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued.StatusURL != "/prove/transfer_confidential_1_1/status?jobId="+queued.JobID {
+		t.Fatalf("status url %q", queued.StatusURL)
 	}
 	job, err := queue.DequeueProof("zk_transfer_queue", 0)
 	if err != nil || job == nil {

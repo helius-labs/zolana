@@ -10,15 +10,18 @@ import (
 )
 
 // A proof is sent to the path of the proving key that proves it:
-// /prove/<key> and /prove/<key>/indexed, <key> being the key file name without
-// ".key" (transfer_p256_ring_2_3, merge_36_1, batch_address-append_40_250).
+// /prove/<key> and /prove/<key>/indexed, and a queued one is polled at
+// /prove/<key>/status, <key> being the key file name without ".key"
+// (transfer_p256_ring_2_3, merge_36_1, batch_address-append_40_250).
 //
 // The key is in the path because the Helius gateway routes and prices REST
 // calls on (method, path) alone and never reads the body. A proving key fixes
 // the cost of a proof and the hardware it suits, so the gateway can send each
-// key to a pool at a price. Which keys share a pool or a price is gateway
-// configuration; this server only proves the keys it serves and checks that a
-// body is the proof its path paid for.
+// key to a pool at a price. The poll carries the key for the same reason: the
+// gateway sends it where it sent the proof, to the pool whose queue holds the
+// job. Which keys share a pool or a price is gateway configuration; this
+// server only proves the keys it serves and checks that a body is the proof
+// its path paid for.
 const keyFileSuffix = ".key"
 
 // knownKeyFiles is every key file this binary proves.
@@ -91,8 +94,8 @@ func keyName(file string) string {
 // shape, and an indexed body only once the indexer has filled it in.
 type keyAdmission struct {
 	served *ServedKeys
-	// The key file the request's path named. Empty for /prove and
-	// /prove/indexed, which take any served key.
+	// The key file the request's path named. Empty only for a job queued by a
+	// prover that predates key paths.
 	expected string
 }
 
@@ -124,6 +127,23 @@ func keyNotServed(file string) *Error {
 	}
 }
 
+// pathKey resolves the key file a /prove/<key>/... path names, refusing a key
+// that does not exist or that this deployment does not serve.
+func pathKey(r *http.Request, served *ServedKeys) (string, *Error) {
+	file := r.PathValue("key") + keyFileSuffix
+	if !slices.Contains(knownKeyFiles, file) {
+		return "", &Error{
+			StatusCode: http.StatusNotFound,
+			Code:       "unknown_proving_key",
+			Message:    fmt.Sprintf("no proving key named %s", r.PathValue("key")),
+		}
+	}
+	if !served.Serves(file) {
+		return "", keyNotServed(file)
+	}
+	return file, nil
+}
+
 // keyPathHandler serves /prove/<key> and /prove/<key>/indexed: it resolves the
 // key the path names and hands the request to prove, which holds the body to
 // it.
@@ -132,20 +152,31 @@ type keyPathHandler struct {
 }
 
 func (handler keyPathHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	file := r.PathValue("key") + keyFileSuffix
-	if !slices.Contains(knownKeyFiles, file) {
-		(&Error{
-			StatusCode: http.StatusNotFound,
-			Code:       "unknown_proving_key",
-			Message:    fmt.Sprintf("no proving key named %s", r.PathValue("key")),
-		}).send(w)
-		return
-	}
-	if !handler.prove.served.Serves(file) {
-		keyNotServed(file).send(w)
+	file, refused := pathKey(r, handler.prove.served)
+	if refused != nil {
+		refused.send(w)
 		return
 	}
 	prove := handler.prove
 	prove.provingKey = file
 	prove.ServeHTTP(w, r)
+}
+
+// keyStatusHandler serves /prove/<key>/status. The job id alone finds the job;
+// the key only routes the poll to the pool that queued it.
+type keyStatusHandler struct {
+	status proofStatusHandler
+	served *ServedKeys
+}
+
+func (handler keyStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if _, refused := pathKey(r, handler.served); refused != nil {
+		refused.send(w)
+		return
+	}
+	handler.status.ServeHTTP(w, r)
+}
+
+func statusPath(file string) string {
+	return "/prove/" + keyName(file) + "/status"
 }

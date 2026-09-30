@@ -116,7 +116,7 @@ type ProofJob struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
 	// The key file the submitting path named, which the worker holds the body
-	// to. Empty for a job submitted on /prove or /prove/indexed.
+	// to. Empty only for a job queued by a prover that predates key paths.
 	ProvingKey string    `json:"provingKey,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 	// TreeID is the merkle tree pubkey - used for fair queuing across trees
