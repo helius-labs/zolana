@@ -32,6 +32,11 @@ pub struct DecryptionResult {
     /// id for. Those deposits are left out; register the mints and decrypt
     /// again.
     pub unknown_mints: BTreeSet<Address>,
+    /// Merges that spend a UTXO no batch has produced yet, including merges
+    /// that are not this wallet's. [`extend`](Self::extend) retries them with
+    /// every batch: the missing input can be another merge's output that a
+    /// later batch brings.
+    pub pending_merges: Vec<ShieldedTransaction>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -78,9 +83,10 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
 
 impl DecryptionResult {
     /// Adds the candidates of `transactions`, decrypting only those. A merge
-    /// among them is rebuilt from every candidate held so far, so its inputs
-    /// may come from an earlier call: a client that reads its transactions in
-    /// rounds decrypts each one once. Left unchanged on error.
+    /// among them, or one still pending from an earlier call, is rebuilt from
+    /// every candidate held so far, so its inputs may come from any call: a
+    /// client that reads its transactions in rounds decrypts each one once.
+    /// Left unchanged on error.
     pub fn extend<K: ShieldedKeys + ?Sized>(
         &mut self,
         shielded_keys: &K,
@@ -134,7 +140,12 @@ impl DecryptionResult {
         assign_nullifiers(shielded_keys, &mut found)?;
         let mut utxos = self.utxos.clone();
         utxos.extend(found);
-        rebuild_merges(shielded_keys, &address, transactions, &mut utxos)?;
+        let merges = self
+            .pending_merges
+            .iter()
+            .chain(transactions.iter().filter(|tx| tx.may_be_merge()))
+            .collect();
+        let pending_merges = rebuild_merges(shielded_keys, &address, merges, &mut utxos)?;
         utxos.sort_by_key(|utxo| {
             (
                 utxo.slot,
@@ -150,6 +161,7 @@ impl DecryptionResult {
         );
         self.unknown_asset_ids.extend(unknown_asset_ids);
         self.unknown_mints.extend(unknown_mints);
+        self.pending_merges = pending_merges;
         Ok(())
     }
 }
@@ -456,19 +468,17 @@ pub enum MergeRebuild {
     NotOurs,
 }
 
-/// Rebuilds the outputs of this wallet's merges. A merge publishes no
-/// ciphertext: its output carries the inputs' total under a blinding derived
-/// from the first nullifier, so the owner recomputes it from the notes it
-/// holds. A merge can spend another merge's output, so passes repeat until one
-/// resolves nothing new.
+/// Rebuilds the outputs of this wallet's merges and returns the ones still
+/// pending. A merge publishes no ciphertext: its output carries the inputs'
+/// total under a blinding derived from the first nullifier, so the owner
+/// recomputes it from the notes it holds. A merge can spend another merge's
+/// output, so passes repeat until one resolves nothing new.
 fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
-    transactions: &[ShieldedTransaction],
+    mut pending: Vec<&ShieldedTransaction>,
     utxos: &mut Vec<WalletUtxo>,
-) -> Result<(), TransactionError> {
-    let mut pending: Vec<&ShieldedTransaction> =
-        transactions.iter().filter(|tx| tx.may_be_merge()).collect();
+) -> Result<Vec<ShieldedTransaction>, TransactionError> {
     while !pending.is_empty() {
         let mut unresolved = Vec::new();
         for tx in &pending {
@@ -483,7 +493,7 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
         }
         pending = unresolved;
     }
-    Ok(())
+    Ok(pending.into_iter().cloned().collect())
 }
 
 /// Rebuilds the outputs of `merge` from the UTXOs the wallet holds, found by

@@ -1238,6 +1238,37 @@ fn extending_a_result_decrypts_only_the_new_transactions() {
 }
 
 #[test]
+fn a_merge_pending_on_a_later_batch_rebuilds_when_its_input_arrives() {
+    let owner = keypair(52);
+    let assets = AssetRegistry::default();
+    let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    // Ring merges, found only by their first nullifier: M0 spends `second`
+    // into X, M0' spends X into Y, and M1 spends `first` and Y. M1 is found
+    // through `first` a round before Y exists.
+    let (m0, x) = merge_publication(&owner, &[&second], 10, None);
+    let (m0_prime, y) = merge_publication(&owner, &[&x], 11, None);
+    let (m1, merged) = merge_publication(&owner, &[&first, &y], 12, None);
+    let rounds = [
+        vec![received(&owner, &first), received(&owner, &second)],
+        vec![m0.clone(), m1.clone()],
+        vec![m0_prime.clone()],
+    ];
+
+    let mut decrypted = DecryptionResult::default();
+    decrypted.extend(&owner, &rounds[0], &assets).unwrap();
+    decrypted.extend(&owner, &rounds[1], &assets).unwrap();
+    assert_eq!(decrypted.pending_merges, vec![m1]);
+    decrypted.extend(&owner, &rounds[2], &assets).unwrap();
+
+    assert_eq!(decrypted.pending_merges, vec![]);
+    let spendable = verify_spendable(&owner, &decrypted).unwrap();
+    assert_eq!(spendable.utxos().collect::<Vec<_>>(), vec![&merged]);
+    let all: Vec<_> = rounds.into_iter().flatten().collect();
+    assert_eq!(decrypted, decrypt(&owner, &all, &assets).unwrap());
+}
+
+#[test]
 fn merges_rebuild_nothing_without_every_input_or_a_matching_commitment() {
     let owner = keypair(43);
     let other = keypair(44);

@@ -216,20 +216,21 @@ fn deposit(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> (EncryptedUtxoMat
     (matched, deposited)
 }
 
-/// A merge of one input, its output tagged with `view_tag`.
+/// A merge of `inputs`, its output tagged with `view_tag`.
 fn merge(
     owner: &ShieldedKeypair,
-    input: &Note,
+    inputs: &[&Note],
     view_tag: [u8; 32],
     nonce: u8,
 ) -> (ShieldedTransaction, Note) {
-    let first = input.nullifier;
-    let mut nullifiers = vec![first];
+    let first = inputs[0].nullifier;
+    let mut nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
     nullifiers
-        .extend((1..MERGE_DEFAULT_INPUT_COUNT).map(|index| {
+        .extend((inputs.len()..MERGE_DEFAULT_INPUT_COUNT).map(|index| {
             merge_dummy_nullifier(&owner.nullifier_key, &first, index as u8).unwrap()
         }));
-    let mut utxo = input.utxo.clone();
+    let mut utxo = inputs[0].utxo.clone();
+    utxo.amount = inputs.iter().map(|input| input.utxo.amount).sum();
     utxo.blinding = merge_output_blinding(&owner.nullifier_key, &first).unwrap();
     let merged = note(owner, utxo, [0; 32]);
     let tx = ShieldedTransaction {
@@ -278,10 +279,10 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     let (first_deposit, first) = deposit(&owner, 30, 1);
     let (second_deposit, second) = deposit(&owner, 12, 2);
     // Owner-tagged, and returned again by the nullifier query.
-    let (tagged_merge, merged) = merge(&owner, &first, owner_tag, 3);
+    let (tagged_merge, merged) = merge(&owner, &[&first], owner_tag, 3);
     // Tagged by its first nullifier, as a ring merge is: only its nullifier
     // finds it, and only a second round finds the spend of its output.
-    let (untagged_merge, untagged_output) = merge(&owner, &second, second.nullifier, 4);
+    let (untagged_merge, untagged_output) = merge(&owner, &[&second], second.nullifier, 4);
     let indexer = Indexer {
         tagged: vec![tagged_merge.clone()],
         deposits: vec![first_deposit, second_deposit],
@@ -318,6 +319,40 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
+}
+
+#[test]
+fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
+    let owner = keypair(8);
+    let (first_deposit, first) = deposit(&owner, 30, 1);
+    let (second_deposit, second) = deposit(&owner, 12, 2);
+    // Ring merges, tagged only by their first nullifier. M1 spends `first` and
+    // Y, and the query for `first` finds it in the same round as M0, a round
+    // before M0' produces Y.
+    let (m0, x) = merge(&owner, &[&second], second.nullifier, 3);
+    let (m0_prime, y) = merge(&owner, &[&x], x.nullifier, 4);
+    let (m1, merged) = merge(&owner, &[&first, &y], first.nullifier, 5);
+    let indexer = Indexer {
+        deposits: vec![first_deposit, second_deposit],
+        spends: vec![m0, m0_prime, m1],
+        ..Indexer::default()
+    };
+
+    let assets = AssetRegistry::default();
+    let spendable = SpendableUtxos::new(&owner, &assets)
+        .fetch(&indexer)
+        .unwrap();
+
+    let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
+    assert_eq!(utxos, vec![merged.hash]);
+    assert_eq!(
+        spendable
+            .balances
+            .get_balance(Mint::SOL.asset)
+            .unwrap()
+            .amount,
+        42
+    );
 }
 
 /// A framing that marks framed ciphertexts with `frame`.
