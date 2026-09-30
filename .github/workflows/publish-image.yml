@@ -35,6 +35,7 @@ on:
     paths:
       - "services/photon/**"
       - "program-libs/**"
+      - "sdk-libs/event/**"
       - "sdk-libs/indexer-api/**"
       - ".cargo/**"
       - "Cargo.toml"
@@ -49,6 +50,7 @@ on:
     paths:
       - "services/photon/**"
       - "program-libs/**"
+      - "sdk-libs/event/**"
       - "sdk-libs/indexer-api/**"
       - ".cargo/**"
       - "Cargo.toml"
