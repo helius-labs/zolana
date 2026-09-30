@@ -582,7 +582,15 @@ func (w *BaseQueueWorker) resolve(job *ProofJob, inputHash string) (*indexed.Res
 		if w.stopCtx.Err() != nil {
 			w.requeue(job, inputHash)
 		} else {
-			w.fail(job, inputHash, indexedFailure(err))
+			failure := indexedFailure(err)
+			if indexerUnavailable(failure) {
+				logging.Logger().Error().
+					Err(err).
+					Str("job_id", job.ID).
+					Str("queue", w.queueName).
+					Msg("Indexer proof data unavailable")
+			}
+			w.fail(job, inputHash, failure)
 		}
 		return nil, nil, false
 	}

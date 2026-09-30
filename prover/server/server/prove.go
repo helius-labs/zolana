@@ -103,27 +103,28 @@ func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common
 	request, err := customring.DecodeRequest(circuit, payload)
 	finishParameters()
 	if err != nil {
-		return nil, malformedBodyError(err)
+		return nil, customRingFailure(malformedBodyError(err))
 	}
 	finishKeys := p.trace.Start("keys")
 	ps, err := p.keys.GetRingSystem(circuit)
 	finishKeys()
 	if err != nil {
-		return nil, provingError(fmt.Errorf("%s: %w", circuit, err))
+		return nil, customRingFailure(provingError(fmt.Errorf("%s: %w", circuit, err)))
 	}
 	proof, err := customring.RingProof{System: ps, Parameters: request, Timing: p.trace}.Prove()
 	if err != nil {
-		return nil, customRingProvingError(err)
+		return nil, customRingFailure(provingError(err))
 	}
 	return proof, nil
 }
 
-// customRingProvingError is the redacted error a client sees for a failed
-// custom-ring proof. The cause can carry private inputs, so it rides along
-// only as the unexported cause: the caller that reports the failure logs it
-// with loggedCause, and no response or stored failure ever includes it.
-func customRingProvingError(err error) *Error {
-	return withCause(provingError(errCustomRingProof), err)
+// customRingFailure is what a client reads of a failed custom-ring request,
+// on every path: errCustomRingProof under the failure's own code, so the code
+// still says whether the request or the proof failed. The text can carry
+// private inputs, so the failure rides along only as the unexported cause,
+// which the caller that reports it logs through loggedCause.
+func customRingFailure(failure *Error) *Error {
+	return withCause(&Error{StatusCode: failure.StatusCode, Code: failure.Code, Message: errCustomRingProof.Error()}, failure)
 }
 
 func (p circuitProver) batchAddressAppend(payload []byte) (*common.Proof, *Error) {

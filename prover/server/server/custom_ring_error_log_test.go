@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -64,7 +66,7 @@ func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 			_, rq := newTestQueue(t)
 			logs := captureLogs(t)
 
-			runOneJob(t, rq, customRingQueue, c.keyManager, "job-1", c.payload)
+			runOneJob(t, rq, customRingQueue, WorkerConfig{Keys: c.keyManager}, &ProofJob{ID: "job-1", Payload: c.payload})
 
 			assertCauseLoggedOnceWithJob(t, logs, c.cause, "job-1")
 			assertClientSees(t, rq, "job-1", errCustomRingProof.Error(), c.code)
@@ -87,8 +89,8 @@ func TestQueueProvingFailureLogsCauseOnceWithJob(t *testing.T) {
 		failure *Error
 		want    error
 	}{
-		{"custom ring", customRingQueue, false, customRingProvingError(errors.New(cause)), errCustomRingProof},
-		{"indexed custom ring", customRingQueue, true, customRingProvingError(errors.New(cause)), errIndexedProof},
+		{"custom ring", customRingQueue, false, customRingFailure(provingError(errors.New(cause))), errCustomRingProof},
+		{"indexed custom ring", customRingQueue, true, customRingFailure(provingError(errors.New(cause))), errIndexedProof},
 		{"indexed transfer", "zk_transfer_queue", true, provingError(errors.New(cause)), errIndexedProof},
 	}
 
@@ -113,7 +115,7 @@ func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 	_, rq := newTestQueue(t)
 	captureLogs(t)
 
-	runOneJob(t, rq, "zk_transfer_queue", nil, "job-1", []byte(`{"circuitType":"custom-ring-base"}`))
+	runOneJob(t, rq, "zk_transfer_queue", WorkerConfig{}, &ProofJob{ID: "job-1", Payload: []byte(`{"circuitType":"custom-ring-base"}`)})
 
 	assertClientSees(t, rq, "job-1", "circuit custom-ring-base cannot run on zk_transfer_queue", "")
 }
@@ -123,24 +125,26 @@ func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 // logged.
 func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
 	const cause = "prove: constraint #7 is not satisfied"
+	ring, transfer := common.CustomRingBaseCircuitType, common.TransferConfidentialCircuitType
 	cases := []struct {
 		name    string
+		circuit common.CircuitType
 		indexed bool
 		failure *Error
 		message string
 		logged  int
 	}{
-		{"custom ring", false, customRingProvingError(errors.New(cause)), errCustomRingProof.Error(), 1},
-		{"indexed custom ring", true, customRingProvingError(errors.New(cause)), errIndexedProof.Error(), 1},
-		{"indexed transfer", true, provingError(errors.New(cause)), errIndexedProof.Error(), 1},
-		{"transfer", false, provingError(errors.New(cause)), cause, 0},
+		{"custom ring", ring, false, customRingFailure(provingError(errors.New(cause))), errCustomRingProof.Error(), 1},
+		{"indexed custom ring", ring, true, customRingFailure(provingError(errors.New(cause))), errIndexedProof.Error(), 1},
+		{"indexed transfer", transfer, true, provingError(errors.New(cause)), errIndexedProof.Error(), 1},
+		{"transfer", transfer, false, provingError(errors.New(cause)), cause, 0},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			logs := captureLogs(t)
 
-			response := proveHandler{indexed: c.indexed}.syncProofFailure(common.CustomRingBaseCircuitType, c.failure)
+			response := proveHandler{indexed: c.indexed}.syncProofFailure(c.circuit, c.failure)
 
 			if logged := len(logLinesMentioning(t, logs, cause)); logged != c.logged {
 				t.Errorf("cause logged %d times, want %d:\n%s", logged, c.logged, logs.String())
@@ -150,39 +154,74 @@ func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
 	}
 }
 
-func TestSyncPanicLogsValueAndRedactsIndexedResponse(t *testing.T) {
+func TestSyncPanicLogsValueAndRedactsResponse(t *testing.T) {
 	const value = "index out of range [3] with length 2"
+	const prefix = "internal error during proof processing: "
+	ring, transfer := common.CustomRingBaseCircuitType, common.TransferConfidentialCircuitType
 	cases := []struct {
+		circuit common.CircuitType
 		indexed bool
 		message string
 	}{
-		{false, "internal error during proof processing: " + value},
-		{true, "internal error during proof processing: " + errIndexedProof.Error()},
+		{transfer, false, prefix + value},
+		{ring, false, prefix + errCustomRingProof.Error()},
+		{transfer, true, prefix + errIndexedProof.Error()},
+		{ring, true, prefix + errIndexedProof.Error()},
 	}
 
 	for _, c := range cases {
 		logs := captureLogs(t)
 
-		response := proveHandler{indexed: c.indexed}.syncPanicFailure(common.CustomRingBaseCircuitType, value)
+		response := proveHandler{indexed: c.indexed}.syncPanicFailure(c.circuit, value)
 
 		if logged := len(logLinesMentioning(t, logs, value)); logged != 1 {
-			t.Errorf("indexed=%v: panic value logged %d times, want 1:\n%s", c.indexed, logged, logs.String())
+			t.Errorf("%s indexed=%v: panic value logged %d times, want 1:\n%s", c.circuit, c.indexed, logged, logs.String())
 		}
 		assertResponse(t, response, c.message, "unexpected_error")
 	}
 }
 
+// A custom-ring request that does not decode fails before any proving key is
+// needed, so this one runs through the real sync handler. The client keeps the
+// malformed_body code, which says the request was at fault, but not the decode
+// error, which can quote request values.
+func TestSyncCustomRingDecodeFailureIsRedacted(t *testing.T) {
+	const cause = "publicInputHash is not canonical hex"
+	logs := captureLogs(t)
+	readiness := NewReadiness()
+	readiness.MarkReady()
+	handler := proveHandler{readiness: readiness, admission: newSyncAdmission(1)}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/prove", strings.NewReader(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`)))
+
+	body := decodeError(t, response)
+	if response.Code != http.StatusBadRequest || body["code"] != "malformed_body" || body["message"] != errCustomRingProof.Error() {
+		t.Errorf("client sees %d %v", response.Code, body)
+	}
+	if logged := len(logLinesMentioning(t, logs, cause)); logged != 1 {
+		t.Errorf("cause logged %d times, want 1:\n%s", logged, logs.String())
+	}
+}
+
 // runOneJob enqueues a job, lets one worker pick it up, and waits for the
-// proving goroutine to finish, on both the error and the panic path.
-func runOneJob(t *testing.T, rq *RedisQueue, queueName string, keyManager *common.LazyKeyManager, jobID string, payload []byte) {
+// proving goroutine to finish, on the error, the panic, and the resolution
+// failure path.
+func runOneJob(t *testing.T, rq *RedisQueue, queueName string, config WorkerConfig, job *ProofJob) {
 	t.Helper()
-	worker := newQueueWorker(queueName, WorkerConfig{Queue: rq, Keys: keyManager, Ready: readyNow()}, NewExecution(1))
-	job := &ProofJob{ID: jobID, Type: "zk_proof", Payload: payload, CreatedAt: time.Now()}
+	config.Queue, config.Ready = rq, readyNow()
+	worker := newQueueWorker(queueName, config, NewExecution(1))
+	job.Type, job.CreatedAt = "zk_proof", time.Now()
 	if err := rq.EnqueueProof(queueName, job); err != nil {
 		t.Fatalf("EnqueueProof: %v", err)
 	}
+	if job.Indexed {
+		// dispatchIndexed takes a resolving slot before each pop, and resolve
+		// gives it back.
+		worker.resolving <- struct{}{}
+	}
 
-	worker.processJobs(false)
+	worker.processJobs(job.Indexed)
 
 	finished := make(chan struct{})
 	go func() { worker.pending.Wait(); close(finished) }()
