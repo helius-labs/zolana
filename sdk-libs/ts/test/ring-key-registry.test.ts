@@ -37,6 +37,7 @@ import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
+import { bigIntBytes } from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 import { EncryptedScheme, encodeOutputData } from "../src/transaction/serialization/codecs.js";
@@ -64,7 +65,9 @@ import {
   sealNullifierKey,
   sealNullifierKeyWith,
   type RingKeyRegistrationClient,
+  type SealedNullifierKey,
 } from "../src/ring/key-registry.js";
+import { RingError } from "../src/ring/error.js";
 import { buildRuleTable, memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import { recoverRingMemberNotes } from "../src/ring/recover.js";
@@ -300,6 +303,19 @@ describe("key registry root", () => {
   });
 });
 
+function wrongKeyPassingPad(sealed: SealedNullifierKey): ViewingKey {
+  for (let scalar = 2n; scalar < 4096n; scalar++) {
+    const key = ViewingKey.fromBytes(bigIntBytes(scalar) as Bytes32);
+    try {
+      openNullifierKey(sealed, key).destroy();
+      return key;
+    } catch (error) {
+      if (!(error instanceof RingError && error.code === "RING_KEY_ENVELOPE_INVALID")) throw error;
+    }
+  }
+  throw new Error("no wrong key passes the pad byte");
+}
+
 async function registrationFixture(input: Readonly<{ registered?: boolean }> = {}) {
   const auditor = ViewingKey.fromBytes(AUDITOR_SK);
   const member = actor(3);
@@ -307,7 +323,12 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
   const [config, configBump] = await ringConfigPda(RING);
   const [rootAddress, rootBump] = await ringKeyRegistryRootPda(RING);
   const insertion = firstInsertion(identity);
-  const envelope = sealNullifierKey(member.keypair.nullifierKey(), auditor.publicKey());
+  // A pinned seal fixes which wrong key passes the pad byte.
+  const envelope = sealNullifierKeyWith(
+    ViewingKey.fromBytes(EPHEMERAL_SK),
+    member.keypair.nullifierKey(),
+    auditor.publicKey(),
+  );
   const key = registeredKeyHash({
     nullifierPublicKey: envelope.nullifierPublicKey,
     ciphertext: envelope.sealed.ciphertext,
@@ -552,8 +573,12 @@ describe("key registration flow", () => {
     });
     const opened = openRingSealedKey(entry, test.auditor);
     expect(opened.publicKey()).toEqual(test.member.keypair.nullifierPublicKey());
+    // The pad byte is no authenticator, inclusion refuses a wrong key that passes it.
     expect(() => openRingSealedKey(entry, ViewingKey.fromBytes(EPHEMERAL_SK))).toThrow(
-      "RING_KEY_ENVELOPE_INVALID",
+      /RING_KEY_(ENVELOPE|REGISTRY)_INVALID/,
+    );
+    expect(() => openRingSealedKey(entry, wrongKeyPassingPad(entry.sealed))).toThrow(
+      "RING_KEY_REGISTRY_INVALID",
     );
     const forged = { ...entry, proof: [filled(1) as Bytes32, ...entry.proof.slice(1)] };
     expect(() => openRingSealedKey(forged, test.auditor)).toThrow("RING_KEY_REGISTRY_INVALID");
