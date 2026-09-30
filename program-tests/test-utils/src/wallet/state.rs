@@ -3,7 +3,9 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use solana_address::Address;
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
 
-use crate::{error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, WalletUtxo};
+use zolana_transaction::{
+    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, WalletUtxo,
+};
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
 pub(crate) const SENDER_HISTORY_ROW_BASE: u64 = 1 << 63;

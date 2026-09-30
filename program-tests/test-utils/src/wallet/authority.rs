@@ -7,8 +7,7 @@ use zolana_keypair::{
     viewing_key::{random_salt, Salt, ViewTag},
     Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
-
-use crate::{
+use zolana_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -62,7 +61,7 @@ pub struct WalletSyncMaterial {
 
 /// Owner-scoped key authority for scanning, decrypting, encrypting, and
 /// authorizing one wallet. It is the sole source of key material;
-/// [`crate::Wallet`] stores only public identity and indexed state and never
+/// [`Wallet`](super::Wallet) stores only public identity and indexed state and never
 /// retains secrets.
 #[async_trait]
 pub trait WalletAuthority: Send + Sync {
@@ -379,7 +378,7 @@ fn encrypt_confidential_transfer_with<K: ViewingKeyTrait>(
                     return Err(TransactionError::MissingOutput);
                 };
                 *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                    crate::EncryptedScheme::RingConfidential.as_byte();
+                    zolana_transaction::EncryptedScheme::RingConfidential.as_byte();
                 message.data = borsh::to_vec(&zolana_event::OutputDataEncoding::Encrypted(blob))
                     .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
             }

@@ -50,7 +50,7 @@ const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 fn make_and_cancel_swap_inline() -> Result<()> {
     let TestEnv {
         localnet,
-        mut maker,
+        maker,
         maker_input,
         taker,
         spl_mint,
@@ -175,8 +175,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let maker_address = maker.keypair.shielded_address()?;
 
         let order = index_maker(
-            &mut maker.wallet,
             &maker.keypair,
+            &maker.registry,
             localnet.client.indexer(),
             Duration::from_secs(60),
         )?

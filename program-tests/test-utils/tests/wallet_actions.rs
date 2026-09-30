@@ -19,9 +19,11 @@ use zolana_event::OutputDataEncoding;
 use zolana_interface::{instruction::TransactProof, pda, SOL_ASSET_FIELD};
 use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_test_utils::wallet::{
-    create_transfer, create_withdrawal, sign_shielded_transaction, TransferParams, WithdrawalLeg,
-    WithdrawalParams,
+    create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
+    ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority,
+    TransferParams, Wallet, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
+use zolana_transaction::P256Signature;
 use zolana_transaction::{
     instructions::transact::{
         signed_magnitude_to_field, ConfidentialTransaction, SettlementTransfer, Shape,
@@ -30,10 +32,6 @@ use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     AssetRegistry, Data, Mint, SppProofOutputUtxo, TransactionError, Utxo, WalletUtxo, SOL_MINT,
-};
-use zolana_transaction::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority,
-    P256Signature, SyncWalletAuthority, Wallet, WalletAuthority,
 };
 
 fn test_keypair() -> ShieldedKeypair {
@@ -423,7 +421,7 @@ impl WalletAuthority for AsyncTestAuthority {
         sender_view_tag: [u8; 32],
         sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<zolana_transaction::EncryptedTransfer, TransactionError> {
+    ) -> Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,

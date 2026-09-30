@@ -17,10 +17,9 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode},
     },
-    Address, AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx,
-    ShieldedTransaction, Utxo, UtxoSerialization,
+    AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
+    Utxo, UtxoSerialization,
 };
-use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let mut signing_bytes = [0u8; 32];
@@ -32,14 +31,6 @@ pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let signing = SigningKey::from_p256_bytes(&signing_bytes).unwrap();
     let viewing = ViewingKey::from_bytes(&viewing_bytes).unwrap();
     ShieldedKeypair::with_viewing_key(signing, viewing).unwrap()
-}
-
-pub fn local_authority(keypair: &ShieldedKeypair) -> KeypairWalletAuthority<'_> {
-    KeypairWalletAuthority::new(Address::default(), keypair)
-}
-
-pub fn wallet_for(keypair: &ShieldedKeypair, registry: AssetRegistry) -> Wallet {
-    Wallet::new(keypair.shielded_address().unwrap(), registry).unwrap()
 }
 
 pub fn unique31(counter: &mut u64, prefix: u8) -> [u8; 32] {

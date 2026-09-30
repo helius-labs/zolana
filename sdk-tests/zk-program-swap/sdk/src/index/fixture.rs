@@ -4,7 +4,6 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use swap_prover::TAKE_MODE_DERIVED;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
-use zolana_transaction::Wallet;
 use zolana_transaction::{
     instructions::transact::{OutputContext, OutputSlot, SppProofInputs, SppProofOutputUtxo},
     utxo::{SppProofInputUtxo, Utxo},
@@ -19,8 +18,7 @@ use crate::{
 
 pub(crate) struct OrderFixture {
     pub(crate) tx: ShieldedTransaction,
-    pub(crate) wallet: Wallet,
-    pub(crate) maker_wallet: Wallet,
+    pub(crate) registry: AssetRegistry,
     pub(crate) taker_keypair: ShieldedKeypair,
     pub(crate) maker_keypair: ShieldedKeypair,
     pub(crate) order_utxo: OrderUtxo,
@@ -161,8 +159,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
 
     OrderFixture {
         tx: shielded_transaction(&spp_proof_inputs),
-        wallet: Wallet::new(taker_address, registry.clone()).expect("taker wallet"),
-        maker_wallet: Wallet::new(maker_address, registry).expect("maker wallet"),
+        registry,
         taker_keypair,
         maker_keypair,
         order_utxo,

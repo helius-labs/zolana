@@ -4,8 +4,8 @@ use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
     TransferSpec,
 };
+use zolana_test_utils::wallet::{PrivateTransactionDirection, PrivateTransactionKind};
 use zolana_transaction::{AssetRegistry, TransactionError, SOL_MINT};
-use zolana_transaction::{PrivateTransactionDirection, PrivateTransactionKind};
 
 const WINDOW: u64 = 8;
 

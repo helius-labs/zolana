@@ -1,6 +1,6 @@
 //! The rayon fan-out strategy for [`Wallet::sync_parallel`].
 //!
-//! There is no second scan here. The scan lives once in [`super::sync`], generic
+//! There is no second scan here. The scan lives once in [`super::scan`], generic
 //! over [`ProbeFanout`]; this module supplies the strategy that spreads the
 //! per-counterparty tag probes across a thread pool, plus the entry points that
 //! select it. A wallet with many known counterparties spends most of a scan
@@ -9,13 +9,13 @@
 //! serial under both strategies.
 
 use rayon::prelude::*;
+use zolana_transaction::{error::TransactionError, instructions::transact::ShieldedTransaction};
 
 use super::{
     authority::{SyncWalletAuthority, WalletSyncMaterial},
+    scan::ProbeFanout,
     state::{SyncReport, Wallet},
-    sync::ProbeFanout,
 };
-use crate::{error::TransactionError, instructions::transact::ShieldedTransaction};
 
 pub(super) struct RayonProbe;
 

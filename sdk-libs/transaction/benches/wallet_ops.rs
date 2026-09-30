@@ -1,10 +1,12 @@
-#[path = "../tests/wallet_common/mod.rs"]
-mod wallet_common;
+#[path = "../tests/transfer_fixtures/mod.rs"]
+mod transfer_fixtures;
 
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use wallet_common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
+use transfer_fixtures::{
+    build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec,
+};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     serialization::{
@@ -84,7 +86,7 @@ fn primitives(c: &mut Criterion) {
             &nullifier_pk,
             &[0u8; 32],
             &[0u8; 32],
-            wallet_common::TEST_TREE_ID,
+            transfer_fixtures::TEST_TREE_ID,
         )
         .unwrap();
 
@@ -129,7 +131,7 @@ fn primitives(c: &mut Criterion) {
                 black_box(&nullifier_pk),
                 &[0u8; 32],
                 &[0u8; 32],
-                wallet_common::TEST_TREE_ID,
+                transfer_fixtures::TEST_TREE_ID,
             )
             .unwrap()
         })
@@ -214,7 +216,7 @@ fn decrypt(c: &mut Criterion) {
     let mut split_input = sample_utxo(&alice, &mut counter);
     split_input.amount = 800;
     let (split_tx, _) =
-        wallet_common::split_transaction(&alice, &split_input, 8, unique31(&mut counter, 0xCC));
+        transfer_fixtures::split_transaction(&alice, &split_input, 8, unique31(&mut counter, 0xCC));
     let bodies: Vec<_> = split_tx
         .output_slots
         .iter()

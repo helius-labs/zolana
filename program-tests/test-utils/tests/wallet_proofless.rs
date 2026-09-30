@@ -4,11 +4,11 @@ use zolana_event::{encode_output_data, ProoflessOutput};
 const TEST_TREE_ID: u16 = 0;
 
 use zolana_keypair::ShieldedKeypair;
+use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_transaction::{
     Address, AssetRegistry, Data, Mint, OutputContext, OutputSlot, ShieldedTransaction, Utxo,
     SOL_MINT,
 };
-use zolana_transaction::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 fn self_consistent_deposit(
     keypair: &ShieldedKeypair,

@@ -1,5 +1,6 @@
 //! SOL and SPL ring deposits and their assertions.
 
+use crate::wallet::{KeypairWalletAuthority, Wallet};
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -20,7 +21,6 @@ use zolana_program_test::{
 use zolana_transaction::{
     owner_utxo_hash, serialization::RingDepositPlaintext, Data, Utxo, SOL_MINT,
 };
-use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{

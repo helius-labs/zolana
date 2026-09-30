@@ -11,8 +11,8 @@ use std::collections::HashMap;
 
 use wallet_common::{build_transfer, local_authority, wallet_for, TransferSpec, TEST_TREE_ID};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_test_utils::wallet::{PrivateTransactionDirection, PrivateTransactionKind, Wallet};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT};
-use zolana_transaction::{PrivateTransactionDirection, PrivateTransactionKind, Wallet};
 
 /// The notes and counters a batch of published transactions should leave
 /// behind, tracked independently of the wallet so the sync has something to be

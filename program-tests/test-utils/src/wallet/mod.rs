@@ -1,11 +1,17 @@
-//! The test harness wallet: network sync over the indexer and the
-//! transaction-building actions tests use to drive the programs.
+//! The test harness wallet: wallet state and its scan, the wallet
+//! authorities, network sync over the indexer and the transaction-building
+//! actions tests use to drive the programs.
 //!
 //! Test-only. SDK users sync by querying the indexer for their tags and
 //! decrypting with `zolana_transaction::decrypt_spendable`, and build
 //! transactions with `zolana_transaction` and `zolana_client` directly.
 
 pub mod actions;
+pub mod authority;
+#[cfg(feature = "parallel")]
+mod parallel;
+mod scan;
+mod state;
 pub mod sync;
 
 pub use actions::transaction::{sign_shielded_transaction, sign_shielded_transaction_sync};
@@ -20,6 +26,17 @@ pub use actions::{
     CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams, MergeParams, SelectedSpendInputs,
     SpendInputParams, SplitParams, SubmitMergeTransaction, SubmittedMerge, TransferParams,
     TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
+};
+pub use authority::{
+    AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope,
+    EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority, WalletAuthority,
+    WalletSyncMaterial,
+};
+pub use scan::SyncConfig;
+pub use state::{
+    CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus, RingBalance, SyncReport, ViewingKeyEntry,
+    Wallet, DEFAULT_TAG_WINDOW,
 };
 pub use sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,

@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::wallet::Wallet;
 use anyhow::{anyhow, Result};
 use solana_account::Account;
 use solana_address::Address;
@@ -28,7 +29,6 @@ use zolana_program::instruction::{
     CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree,
 };
 use zolana_smart_account_client::{execute_sync_each, execute_sync_ix};
-use zolana_transaction::Wallet;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
 use zolana_tree::NullifierTreeInitParams;
 

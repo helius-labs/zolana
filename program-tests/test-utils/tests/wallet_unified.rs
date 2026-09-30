@@ -4,7 +4,8 @@ use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
 #[cfg(feature = "parallel")]
-use zolana_transaction::PrivateTransactionDirection;
+use zolana_test_utils::wallet::PrivateTransactionDirection;
+use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
@@ -12,7 +13,6 @@ use zolana_transaction::{
     Address, AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
 };
-use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 const WINDOW: u64 = 8;
 

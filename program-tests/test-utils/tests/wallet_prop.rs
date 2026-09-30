@@ -8,8 +8,8 @@ use wallet_common::{
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 #[cfg(feature = "parallel")]
-use zolana_transaction::SyncReport;
-use zolana_transaction::Wallet;
+use zolana_test_utils::wallet::SyncReport;
+use zolana_test_utils::wallet::Wallet;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 
 const NUM_CPS: usize = 3;

@@ -7,8 +7,8 @@ use wallet_common::{
     TransferSpec,
 };
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
+use zolana_test_utils::wallet::{SyncReport, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
-use zolana_transaction::{SyncReport, Wallet, DEFAULT_TAG_WINDOW};
 
 const KNOWN_SENDERS: usize = 100;
 const KNOWN_RECIPIENTS: usize = 50;

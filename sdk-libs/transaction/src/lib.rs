@@ -21,7 +21,6 @@ pub mod keys;
 pub mod serialization;
 pub mod signature;
 pub mod utxo;
-pub mod wallet;
 
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
@@ -44,13 +43,6 @@ pub use utxo::wallet as spendable;
 pub use utxo::{
     derive_output_blinding_seed, derive_private_tx_blinding, owner_utxo_hash, Blinding, Utxo,
     WalletUtxo,
-};
-pub use wallet::{
-    AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, CursorStream,
-    EncryptedEnvelope, EncryptedTransfer, Filter, KeypairWalletAuthority, PrivateTransaction,
-    PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
-    PrivateTransactionStatus, RingBalance, SyncConfig, SyncReport, SyncWalletAuthority,
-    ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 

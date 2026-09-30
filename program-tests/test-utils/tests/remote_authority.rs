@@ -16,8 +16,8 @@ use zolana_keypair::{
     Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair,
     ShieldedKeypairTrait, SigningKey, ViewingKey,
 };
+use zolana_test_utils::wallet::{KeypairWalletAuthority, SyncWalletAuthority};
 use zolana_transaction::{Address, TransactionError};
-use zolana_transaction::{KeypairWalletAuthority, SyncWalletAuthority};
 
 const SIGNING_SECRET: [u8; 32] = [31u8; 32];
 

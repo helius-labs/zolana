@@ -16,13 +16,14 @@ use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, Curve, NullifierKey, ShieldedKeypair,
     SigningKey, ViewingKey,
 };
+use zolana_test_utils::wallet::{
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority,
+    SyncWalletAuthority,
+};
+use zolana_transaction::P256Signature;
 use zolana_transaction::{
     serialization::anonymous::AnonymousTransferSenderPlaintext, Address, SppProofOutputUtxo,
     TransactionError,
-};
-use zolana_transaction::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority,
-    P256Signature, SyncWalletAuthority,
 };
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};

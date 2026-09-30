@@ -37,7 +37,7 @@
 | | `Signer`, `VersionedTransaction` | Solana crates | Collect required signatures and produce the signed Solana transaction. |
 | **9. Send the transaction** | `VersionedTransaction`, `Signature` | Solana crates | Submit the signed transaction through RPC and retain its signature for tracking. |
 | **10. Confirm and update wallet state** | `Signature`, `GetShieldedTransactionsBySignatureResponse`, `IndexedShieldedTransaction`, `ShieldedTransaction` | Solana crates, `zolana-client`, `zolana-transaction` | Wait for confirmation and indexing, then retrieve published transaction data. |
-| | `Wallet`, `SyncReport`, `PrivateTransaction`, `PrivateTransactionId` | `zolana-transaction` | Track spent inputs, decrypt new outputs and update holdings, history and synchronization results. `PrivateTransaction` is a wallet history record. |
+| | `Wallet`, `SyncReport`, `PrivateTransaction`, `PrivateTransactionId` | `zolana-test-utils` (test harness) | Track spent inputs, decrypt new outputs and update holdings, history and synchronization results. `PrivateTransaction` is a wallet history record. |
 | | `WalletUtxo`, `AssetBalance` | `zolana-transaction` | Store newly discovered spendable notes and updated balances, ready for another selection. |
 
 | Types used across steps | Steps | How they are used |

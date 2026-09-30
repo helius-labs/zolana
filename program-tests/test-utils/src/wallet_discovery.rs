@@ -1,10 +1,10 @@
 //! Wallet-discovery assertion shared by the litesvm and test-validator deposit
 //! assert helpers.
 
+use crate::wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_program_test::DepositOutput;
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// One settled deposit as the discovery assert reads it.
 pub(crate) struct DiscoveredDeposit<'a> {

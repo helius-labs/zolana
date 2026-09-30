@@ -2,8 +2,8 @@
 //! Use `SolanaRpc`, `ZolanaIndexer`, or `ProverClient` (or their async counterparts)
 //! when you need direct access to an individual service.
 //!
-//! Wallet state and note scanning live in `zolana-transaction`. The user
-//! registry helpers are in [`user_registry`].
+//! Note decryption lives in `zolana-transaction`; the SDK keeps no wallet
+//! state. The user registry helpers are in [`user_registry`].
 //!
 //! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
 //! `let _t = Phase::start(..)` guards through this crate are that, timing until

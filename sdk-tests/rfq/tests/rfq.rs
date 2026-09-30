@@ -9,10 +9,10 @@ use shared::{send_cosigned, setup, TestEnv, BUY_USDC, SELL_SOL};
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_program::instruction::Transact;
-use zolana_test_utils::wallet::sync_wallet;
+use zolana_test_utils::wallet::{sync_wallet, Filter};
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
-    Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
 // `Transact` places the shielded-pool and System Program accounts after the

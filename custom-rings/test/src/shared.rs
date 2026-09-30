@@ -38,6 +38,7 @@ use zolana_program_test::{
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
 };
 use zolana_ring_policy::{ListId, RuleTable};
+use zolana_test_utils::wallet::Wallet;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, localnet_indexer_url, localnet_rpc_url, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -45,7 +46,6 @@ use zolana_test_utils::{
     spl::{create_mint, RegisterSplAsset},
 };
 use zolana_transaction::AssetRegistry;
-use zolana_transaction::Wallet;
 use zolana_user_registry_interface::user_registry_program_id;
 
 /// Funds the fee payer for the whole bootstrap (smart accounts, protocol

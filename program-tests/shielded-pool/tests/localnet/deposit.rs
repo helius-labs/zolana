@@ -17,11 +17,13 @@ use zolana_program_test::{
     ring_deposit_output_from_event, rpc_state_root, single_deposit_view, TestIndexer,
     ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
+use zolana_test_utils::wallet::{
+    KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+};
 use zolana_transaction::{
     derive_output_blinding_seed, utxo::derive_transact_output_blinding, AssetRegistry,
     ShieldedTransaction,
 };
-use zolana_transaction::{KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use shielded_pool_tests::support::localnet::{
     initialize_indexed_pool, print_signature, send_indexed, LocalnetPool,

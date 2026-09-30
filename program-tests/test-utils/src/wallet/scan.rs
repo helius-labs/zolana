@@ -7,15 +7,7 @@ use zolana_keypair::{
     hash::owner_hash, viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey,
     ViewingKey,
 };
-
-use super::state::{
-    CursorStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
-    DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
-};
-
-use super::authority::{SyncWalletAuthority, WalletSyncMaterial};
-use crate::{
+use zolana_transaction::{
     data::Data,
     error::TransactionError,
     instructions::{
@@ -32,6 +24,13 @@ use crate::{
     },
     utxo::Utxo,
     AssetRegistry, EncryptedScheme, WalletUtxo,
+};
+
+use super::authority::{SyncWalletAuthority, WalletSyncMaterial};
+use super::state::{
+    CursorStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
+    DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
 
 pub(super) struct TxIndex {
@@ -750,14 +749,14 @@ impl SyncCtx<'_> {
                         };
                         let owner = owner_hash(&self.owner, &self.nullifier_pk)?;
                         let actual_owner_utxo_hash =
-                            crate::owner_utxo_hash(&owner, &plaintext.blinding)?;
+                            zolana_transaction::owner_utxo_hash(&owner, &plaintext.blinding)?;
                         if actual_owner_utxo_hash != output.owner_utxo_hash {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         }
                         let utxo = plaintext.into_utxo(
                             self.owner,
-                            crate::Mint {
+                            zolana_transaction::Mint {
                                 asset: Address::new_from_array(output.asset),
                                 asset_id: self
                                     .assets

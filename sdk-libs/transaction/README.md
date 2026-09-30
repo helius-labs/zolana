@@ -4,9 +4,9 @@ UTXO serialization and private transaction construction: the encrypted and
 plaintext UTXO layouts, the builder that turns input and output UTXOs into a
 balanced transaction, and the hashes and proof inputs a prover consumes.
 
-The crate performs no IO. Fetching transactions and proofs is `zolana-client`.
-`decrypt_transactions` turns the transactions fetched for a wallet's tags into
-its balances; the SDK has no sync orchestration.
+The crate holds no state and performs no IO. Fetching transactions and proofs is
+`zolana-client`. A wallet syncs by fetching the transactions for its tags and
+decrypting them (step 1); the SDK keeps no wallet state.
 
 Steps marked ***(tvc)*** need key material. The rest run on values. The flow
 below describes the intended API; the Status section lists the remaining

@@ -8,6 +8,7 @@ publish = false
 
 [features]
 mollusk = ["dep:mollusk-svm", "dep:solana-program-error"]
+parallel = ["dep:rayon"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -18,6 +19,7 @@ groth16-solana = { workspace = true }
 mollusk-svm = { workspace = true, optional = true }
 num-bigint = { workspace = true }
 rand = { workspace = true }
+rayon = { workspace = true, optional = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 solana-account = { workspace = true }
@@ -48,6 +50,7 @@ zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
+proptest = { workspace = true }
 # smart_account::settings pins the Anchor discriminator scheme in its unit test.
 sha2 = { workspace = true }
 solana-rpc-client-api = { workspace = true }

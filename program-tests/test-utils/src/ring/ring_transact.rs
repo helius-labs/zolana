@@ -1,5 +1,6 @@
 //! Ring transfer and withdrawal operations.
 
+use crate::wallet::SyncWalletAuthority;
 use anyhow::{anyhow, Result};
 use solana_account::Account;
 use solana_address::Address;
@@ -29,7 +30,6 @@ use zolana_program_test::Rejection;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
 use zolana_transaction::instructions::transact::SppProofInputs;
 use zolana_transaction::utxo::SppProofInputUtxo;
-use zolana_transaction::SyncWalletAuthority;
 use zolana_transaction::{
     instructions::transact::canonical_shape, Data, ShieldedTransaction, Utxo, SOL_MINT,
 };
