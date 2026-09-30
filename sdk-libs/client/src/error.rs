@@ -176,6 +176,9 @@ pub enum ClientError {
     #[error("user registry record not found for {owner}: {record}")]
     UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },
 
+    #[error("the user registry record of {owner} holds other keys")]
+    UserRegistryKeysMismatch { owner: Pubkey },
+
     #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
     MultiplePublicSplAssets,
 
