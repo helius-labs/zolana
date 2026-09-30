@@ -263,7 +263,8 @@ ring-rpc-derived:
         --root-secret-file "$secret"
 
 # Ring keys and transfer shapes must match proving-keys.lock.
-ensure-custom-ring-live-keys: && check-custom-ring-keys
+# Pinned bytes only, `check-custom-ring-keys` ties them to the verifying keys.
+fetch-custom-ring-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     keys_dir="{{spp-keys-dir}}"
@@ -300,6 +301,8 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         installed "$name" || fetch "$name" "{{proving-keys-url}}/$name"
     done
 
+ensure-custom-ring-live-keys: fetch-custom-ring-keys check-custom-ring-keys
+
 # The committed verifying keys must be the export of the pinned proving keys.
 check-custom-ring-keys: build-prover-server
     #!/usr/bin/env bash
@@ -310,7 +313,7 @@ check-custom-ring-keys: build-prover-server
         module="${key#custom_ring_}"
         module="${module%.key}_verifying_key.rs"
         if [[ ! -f "{{spp-keys-dir}}/$key" ]]; then
-            echo "{{spp-keys-dir}}/$key is missing, run just ensure-custom-ring-live-keys" >&2
+            echo "{{spp-keys-dir}}/$key is missing, run just fetch-custom-ring-keys" >&2
             exit 1
         fi
         target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
@@ -391,7 +394,7 @@ test-ts-example: (_test-ts-live "test:ts:example")
 test-ts-example-optimized-merge-transfer:
     ZOLANA_TS_EXAMPLE=optimized-merge-transfer {{just_executable()}} _test-ts-live test:ts:example
 
-_test-ts-live test-script: build-programs build-prover-server build-cli ensure-custom-ring-live-keys
+_test-ts-live test-script: build-programs build-prover-server build-cli fetch-custom-ring-keys
     #!/usr/bin/env bash
     set -euo pipefail
     # A command substitution that exits nonzero is no `set -e` trigger, so the
@@ -1185,7 +1188,7 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
 # proof binds the verifiable encryption of the transaction viewing key to the
 # auditor key -- and assert the auditor client decrypts the outputs.
-test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
+test-custom-ring-validator filter="all()": fetch-custom-ring-keys build-prover-server build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
     # `eval "$(...)"` alone cannot fail the recipe: a command substitution that
@@ -1197,7 +1200,7 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
-    bash tools/test-ring-controls.sh ring
+    bash tools/test-ring-controls.sh ring -E '{{filter}}'
     tools/ci/nextest-suite.sh -p custom-ring-sdk -E 'binary(custom_ring_circuit)'
 
 # Two-ring shared policy source lifecycle on a local validator. One curator
@@ -1213,7 +1216,7 @@ test-custom-ring-rules: (_custom-ring-suite "policy_rules")
 # table of a live ring.
 test-custom-ring-repin: (_custom-ring-suite "policy_repin")
 
-_custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
+_custom-ring-suite test: fetch-custom-ring-keys build-prover-server build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
     program_ids=$(cargo run -q -p xtask -- program-ids)

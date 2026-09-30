@@ -358,8 +358,12 @@ jobs:
           - name: compression lifecycle
             recipe: test-compression-validator
             runner: ubuntu-latest
+          # Velocity is the slowest ring test.
           - name: custom-ring lifecycle
-            recipe: test-custom-ring-validator
+            recipe: test-custom-ring-validator 'not test(=a_velocity_ring_bounds_each_senders_outflow)'
+            runner: ubuntu-latest
+          - name: custom-ring velocity
+            recipe: test-custom-ring-validator 'test(=a_velocity_ring_bounds_each_senders_outflow)'
             runner: ubuntu-latest
           - name: custom-ring shared sources
             recipe: test-custom-ring-shared

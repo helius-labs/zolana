@@ -81,13 +81,10 @@ if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
   for binary in "$ZOLANA_PHOTON_BIN" "$ring_cli_bin"; do
     [[ -x "$binary" ]] || { echo "Missing prebuilt executable $binary, unset ZOLANA_PREBUILT to build it" >&2; exit 1; }
   done
-  ignored=()
-  if [[ "$suite" == windowed_concurrency ]]; then ignored=(--run-ignored only); fi
-  tools/ci/nextest-suite.sh -p custom-ring-test-validator --test "$suite" --no-capture ${ignored[@]+"${ignored[@]}"} "$@"
 else
   cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection
   cargo build --locked -p custom-ring-cli
-  ignored=()
-  if [[ "$suite" == windowed_concurrency ]]; then ignored=(--ignored); fi
-  cargo test --locked -p custom-ring-test-validator --test "$suite" "$@" -- --test-threads=1 --nocapture ${ignored[@]+"${ignored[@]}"}
 fi
+ignored=()
+if [[ "$suite" == windowed_concurrency ]]; then ignored=(--run-ignored only); fi
+tools/ci/nextest-suite.sh -p custom-ring-test-validator --test "$suite" --no-capture ${ignored[@]+"${ignored[@]}"} "$@"
