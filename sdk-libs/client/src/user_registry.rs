@@ -79,10 +79,7 @@ fn check_nullifier_unchanged(
     data: &RegisterData,
 ) -> Result<(), ClientError> {
     if record.nullifier_pubkey != data.nullifier_pubkey {
-        return Err(ClientError::AddressResolution(format!(
-            "user registry record for {owner} publishes a different nullifier pubkey, \
-             which never rotates; register the wallet under a new owner address"
-        )));
+        return Err(ClientError::UserRegistryNullifierKeyMismatch { owner });
     }
     Ok(())
 }
@@ -964,7 +961,10 @@ mod tests {
         let other = registry_holding(owner, fields(&ed25519_address(8)));
         let error = build_key_update_transaction_sync(&other, owner, &address, None, None)
             .expect_err("the nullifier pubkey never rotates");
-        assert!(matches!(error, ClientError::AddressResolution(_)));
+        assert!(matches!(
+            error,
+            ClientError::UserRegistryNullifierKeyMismatch { owner: got } if got == owner
+        ));
     }
 
     fn fields(address: &ShieldedAddress) -> RegisterData {
@@ -1347,7 +1347,10 @@ mod tests {
         let error = ensure_registered(&rpc, &funding, &keypair)
             .expect_err("a differing nullifier pubkey must not be published");
         assert!(
-            matches!(error, ClientError::AddressResolution(_)),
+            matches!(
+                error,
+                ClientError::UserRegistryNullifierKeyMismatch { owner: got } if got == owner
+            ),
             "unexpected error: {error:?}"
         );
         assert!(rpc.sent.borrow().is_none());
