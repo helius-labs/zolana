@@ -80,6 +80,7 @@ export {
 export {
   AssetMetadataCache,
   buildDepositTransaction,
+  buildKeyUpdateTransaction,
   buildMergeTransaction,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,

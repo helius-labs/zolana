@@ -229,6 +229,13 @@ no SOL, so the transaction carries two signatures.
 registered with the same keys. A recipient that never submitted this
 transaction fails a transfer with `WALLET_RECIPIENT_NOT_REGISTERED`.
 
+A registration never replaces keys that are already published. When the owner's
+record holds other keys, `buildRegistrationTransaction` rejects with
+`WALLET_USER_RECORD_KEYS_MISMATCH`, because payments to that owner would go to
+the new keys. `buildKeyUpdateTransaction` takes the same arguments and replaces
+the viewing key on purpose. The nullifier key never rotates, so a wallet with
+another nullifier key registers under a new owner.
+
 ### Private transfer
 
 A private transfer is sent to a Solana wallet address. The SDK looks up that
@@ -396,7 +403,7 @@ Common exports from `@heliuslabs/zolana` include:
   `getPrivateTransactions`, `serializeWallet`, `deserializeWallet`.
 - amounts: `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`,
   `parseAmount`.
-- registration: `buildRegistrationTransaction`.
+- registration: `buildRegistrationTransaction`, `buildKeyUpdateTransaction`.
 - Rings: `buildRingEntryTransaction`, `buildRingTransferTransaction`,
   `buildRingExitTransaction`, `buildRingWithdrawalTransaction`,
   `listRegisteredRings`, `RingRpc`.

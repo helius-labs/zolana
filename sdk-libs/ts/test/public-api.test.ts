@@ -28,6 +28,7 @@ import {
   ViewingKey,
   Wallet,
   buildDepositTransaction,
+  buildKeyUpdateTransaction,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
   createZolanaClient,
@@ -305,7 +306,7 @@ describe("public package surface", () => {
       ...current.viewingPublicKey.toBytes(),
       0,
     );
-    const transaction = await buildRegistrationTransaction({
+    const transaction = await buildKeyUpdateTransaction({
       client: {
         getAccount: vi.fn(async () => ({ owner: USER_REGISTRY_PROGRAM_ID, data, lamports: 1n })),
         getLatestBlockhash: vi.fn(async () => ({
@@ -372,7 +373,7 @@ describe("public package surface", () => {
       ...current.viewingPublicKey.toBytes(),
       0,
     );
-    const transaction = await buildRegistrationTransaction({
+    const transaction = await buildKeyUpdateTransaction({
       client: {
         getAccount: vi.fn(async () => ({ owner: USER_REGISTRY_PROGRAM_ID, data, lamports: 1n })),
         getLatestBlockhash: vi.fn(async () => ({
