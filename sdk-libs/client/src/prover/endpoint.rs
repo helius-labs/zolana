@@ -41,7 +41,7 @@ impl ProverEndpoint {
         key: &ExpectedProvingKey,
         job_id: &str,
     ) -> Result<Url, ClientError> {
-        let mut url = self.url(&format!("{}/status", key.prove_path()))?;
+        let mut url = self.url(&key.status_path())?;
         url.query_pairs_mut().append_pair("jobId", job_id);
         Ok(url)
     }

@@ -20,8 +20,8 @@ use crate::{
         backend::Prover,
         endpoint::{scrub, ProverEndpoint},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
-        proof::{proof_from_gnark_json, Proof},
-        proving_key::{parse_sha256_hex, ExpectedProvingKey, ProverKeys, ProvingKeyReport},
+        proof::{proof_from_value, Proof},
+        proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
     },
 };
@@ -561,37 +561,6 @@ impl ProverClient {
             }
         }
     }
-
-    /// Extract and parse a gnark proof from a proof value, accepting either a
-    /// plain proof object or a `{ proof, .. }` envelope, and check the proving
-    /// key the prover reports it used against `key`.
-    fn proof_from_value(
-        value: &serde_json::Value,
-        raw: &str,
-        key: &ExpectedProvingKey,
-    ) -> Result<Proof, ClientError> {
-        let proof_value = value.get("proof").unwrap_or(value);
-        if proof_value.is_null() {
-            return Err(ClientError::ProverServer(
-                "server returned a null proof".to_string(),
-            ));
-        }
-        let reported = match proof_value.get("provingKeySha256") {
-            None => None,
-            Some(reported) => Some(reported.as_str().and_then(parse_sha256_hex).ok_or_else(
-                || {
-                    ClientError::ProofParse(
-                        "provingKeySha256 is not 64 lowercase hex digits".to_string(),
-                    )
-                },
-            )?),
-        };
-        key.check(reported)?;
-        let proof_json = serde_json::to_string(proof_value)
-            .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
-        proof_from_gnark_json(&proof_json)
-            .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
-    }
 }
 
 enum ProofRoute {
@@ -666,7 +635,7 @@ impl ProverResponse for Proof {
         raw: &str,
         key: &ExpectedProvingKey,
     ) -> Result<Self, ClientError> {
-        ProverClient::proof_from_value(value, raw, key)
+        proof_from_value(value, raw, key)
     }
 }
 
@@ -681,7 +650,7 @@ impl ProverResponse for IndexedResponse {
         raw: &str,
         key: &ExpectedProvingKey,
     ) -> Result<Self, ClientError> {
-        let proof = ProverClient::proof_from_value(value, raw, key)?;
+        let proof = proof_from_value(value, raw, key)?;
         let resolution = value
             .get("proof")
             .unwrap_or(value)

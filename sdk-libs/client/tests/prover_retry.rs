@@ -1,6 +1,8 @@
 //! The prover client against a mock prover: a prover without a queue sheds
 //! queued requests with a 429 and the client retries them, and a gateway URL's
-//! `api-key` rides on every request and stays out of error text.
+//! `api-key` rides on every request and stays out of error text. A backend
+//! that forwards a request to a prover itself uses the client's paths and
+//! decodes the response as the client does.
 
 use std::{
     io::{Read, Write},
@@ -11,7 +13,7 @@ use std::{
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{AsyncProverClient, Delivery, ExpectedProvingKey, ProveRequest, ProverClient},
+    prover::{AsyncProverClient, Delivery, ExpectedProvingKey, Proof, ProveRequest, ProverClient},
     ClientError, Prover,
 };
 
@@ -195,6 +197,84 @@ async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
         server.join().expect("mock prover thread"),
         ["/prove/test", "/prove/test", "/prove/test"]
     );
+}
+
+/// A backend that forwards a request body to a prover itself posts it to the
+/// key's proof path and polls the key's status path: the paths the client
+/// uses.
+#[test]
+fn a_forwarding_backend_reaches_the_paths_the_client_uses() {
+    let (url, server) = serve(queued_then_proof());
+    ProverClient::new(url).prove(&QUEUED).expect("queued proof");
+    let key = QUEUED.proving_key().expect("the request's key");
+    assert_eq!(
+        server.join().expect("mock prover thread"),
+        [
+            key.prove_path(),
+            format!("{}?jobId=job-1", key.status_path())
+        ]
+    );
+    assert_eq!(
+        [key.prove_path(), key.status_path()],
+        ["/prove/test", "/prove/test/status"]
+    );
+}
+
+/// The proof, or the failure's text.
+fn outcome(result: Result<Proof, ClientError>) -> String {
+    match result {
+        Ok(proof) => format!("ok {proof:?}"),
+        Err(error) => error.to_string(),
+    }
+}
+
+/// A backend decodes a prover's response as the client does: the same proof
+/// from the same body, and the same failure.
+#[test]
+fn a_prover_response_decodes_as_the_client_decodes_it() {
+    let key = IN_RESPONSE.proving_key().expect("the request's key");
+    let reporting = |sha256: Option<Value>| {
+        let mut proof = proof();
+        let fields = proof.as_object_mut().expect("a proof object");
+        fields.remove("provingKeySha256");
+        if let Some(sha256) = sha256 {
+            fields.insert("provingKeySha256".to_string(), sha256);
+        }
+        proof
+    };
+    for (response, expected) in [
+        (proof(), "ok"),
+        (json!({ "proof": proof(), "proofDurationMs": 7 }), "ok"),
+        (
+            json!({ "proof": null }),
+            "prover server error: server returned a null proof",
+        ),
+        (
+            json!({ "proof": reporting(Some(json!("08".repeat(32)))) }),
+            "prover used proving key test.key with sha256 0808",
+        ),
+        (
+            json!({ "proof": reporting(None) }),
+            "prover did not report the proving key sha256 for test.key",
+        ),
+        (
+            json!({ "proof": reporting(Some(json!("0A".repeat(32)))) }),
+            "proof parse error: provingKeySha256 is not 64 lowercase hex digits",
+        ),
+        (
+            json!({ "proof": { "ar": ["0x1"], "provingKeySha256": "07".repeat(32) } }),
+            "proof parse error: could not parse proof",
+        ),
+    ] {
+        let (url, server) = serve(vec![(200, response.clone())]);
+        let served = outcome(ProverClient::new(url).prove(&IN_RESPONSE));
+        server.join().expect("mock prover thread");
+        let decoded = outcome(Proof::from_prover_response(&response.to_string(), &key));
+        assert!(decoded.starts_with(expected), "{response}: {decoded}");
+        assert_eq!(decoded, served, "{response}");
+    }
+    assert!(outcome(Proof::from_prover_response("not json", &key))
+        .starts_with("proof parse error: invalid response JSON"));
 }
 
 // The key used to ride inside the path (`...?api-key=<key>/prove`), and the
