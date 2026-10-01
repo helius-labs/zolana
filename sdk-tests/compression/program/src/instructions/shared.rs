@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use solana_address::address;
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{state::tree::read_tree_id, PROGRAM_ID_PUBKEY};
+use zolana_interface::PROGRAM_ID_PUBKEY;
 use zolana_program::{compression::SppTransactCpi, cpi::SppTransactAccounts};
 
 use crate::error::CompressionError;
@@ -76,16 +76,6 @@ impl<'a> TransitionAccounts<'a> {
             bump,
         })
     }
-}
-
-/// Raw id of a pool tree, read from its account. Every UTXO commitment folds it
-/// in as the second Poseidon element, so the program must use the same id the
-/// circuit was proven against rather than assuming one.
-pub fn tree_id(tree: &AccountView) -> Result<u16, ProgramError> {
-    let data = tree
-        .try_borrow()
-        .map_err(|_| CompressionError::InvalidAccounts)?;
-    read_tree_id(&data).ok_or_else(|| CompressionError::InvalidTree.into())
 }
 
 /// Invokes `cpi` through the transact accounts that follow the authority,

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use pinocchio::{error::ProgramError, Address};
+use pinocchio::Address;
 use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
 use zolana_interface::{
     event::OutputDataEncoding,
@@ -38,7 +38,7 @@ struct CounterState {
 }
 
 impl CompressedAccountData for CounterState {
-    fn data_hash(&self) -> Result<[u8; 32], ProgramError> {
+    fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError> {
         if self.count == 0 {
             return Ok([0u8; 32]);
         }
@@ -108,14 +108,14 @@ fn proof() -> TransactProof {
 
 fn build(
     accounts: Vec<CompressedAccount<'_, CounterState>>,
-) -> Result<TransactIxData, ProgramError> {
-    Ok(accounts
+) -> Result<TransactIxData, CompressedAccountError> {
+    accounts
         .into_iter()
         .try_fold(
             SppTransactCpi::new(proof()),
             SppTransactCpi::with_compressed_account,
         )?
-        .into_ix_data(OUTPUT_TREE_ID)?)
+        .into_ix_data(OUTPUT_TREE_ID)
 }
 
 /// The circuit's output blinding, spelled out from its Poseidon preimages
@@ -342,6 +342,7 @@ fn repeated_updates_with_unchanged_data_never_repeat_a_utxo() {
 #[test]
 fn into_ix_data_rejects_invalid_account_sets() {
     let (first, second) = (owner(4), owner(5));
+    let owners: Vec<PdaOwner> = (10..15).map(owner).collect();
     let other_context = TreeContext {
         utxo_tree_root_index: 1,
         ..STATE_CONTEXT
@@ -366,13 +367,17 @@ fn into_ix_data_rejects_invalid_account_sets() {
             ],
             CompressedAccountError::ConflictingTreeContexts,
         ),
+        (
+            owners
+                .iter()
+                .map(|owner| update(owner, STATE_CONTEXT, 9, 11))
+                .collect(),
+            CompressedAccountError::TooManyAccounts,
+        ),
     ];
 
     for (accounts, expected) in cases {
-        assert_eq!(
-            build(accounts).map(|ix| ix.private_tx_hash),
-            Err(expected.into())
-        );
+        assert_eq!(build(accounts).map(|ix| ix.private_tx_hash), Err(expected));
     }
 }
 
@@ -383,9 +388,9 @@ fn with_compressed_account_rejects_a_zero_new_data_hash() {
     assert_eq!(
         SppTransactCpi::new(proof())
             .with_compressed_account(create(&owner, 0))
-            .and_then(|cpi| Ok(cpi.into_ix_data(OUTPUT_TREE_ID)?))
+            .and_then(|cpi| cpi.into_ix_data(OUTPUT_TREE_ID))
             .map(|ix| ix.private_tx_hash),
-        Err(CompressedAccountError::ZeroDataHash.into())
+        Err(CompressedAccountError::ZeroDataHash)
     );
 }
 
@@ -401,6 +406,6 @@ fn new_mut_rejects_a_zero_current_data_hash() {
             STATE_TREE_ID
         )
         .map(|account| *account.input_nullifier()),
-        Err(CompressedAccountError::ZeroDataHash.into())
+        Err(CompressedAccountError::ZeroDataHash)
     );
 }

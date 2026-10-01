@@ -1,11 +1,10 @@
 use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
-use pinocchio::error::ProgramError;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::instruction::instruction_data::transact::TreeContext;
 
-use super::{DataUtxo, NewAddress, PdaOwner, UtxoKey};
+use super::{CompressedAccountError, DataUtxo, NewAddress, PdaOwner, UtxoKey};
 
 /// Program state kept as a compressed account. The SDK publishes it as
 /// plaintext borsh and commits to it through [`Self::data_hash`].
@@ -17,7 +16,7 @@ use super::{DataUtxo, NewAddress, PdaOwner, UtxoKey};
 /// the published state alone.
 pub trait CompressedAccountData: BorshSerialize {
     /// Commits to the state, a type tag and the address.
-    fn data_hash(&self) -> Result<[u8; 32], ProgramError>;
+    fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError>;
     fn address_mut(&mut self) -> &mut [u8; 32];
     fn blinding_mut(&mut self) -> &mut [u8; 32];
 }
@@ -92,7 +91,7 @@ impl<'a, A: CompressedAccountData> CompressedAccount<'a, A> {
         meta: &CompressedAccountMeta,
         mut input_account: A,
         tree_id: u16,
-    ) -> Result<Self, ProgramError> {
+    ) -> Result<Self, CompressedAccountError> {
         *input_account.address_mut() = meta.address;
         *input_account.blinding_mut() = meta.blinding;
         let current = DataUtxo {

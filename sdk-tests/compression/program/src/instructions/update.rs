@@ -3,12 +3,12 @@ use pinocchio::{AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
 use zolana_program::compression::{
-    CompressedAccount, CompressedAccountMeta, PdaOwner, SppTransactCpi,
+    load_tree_id, CompressedAccount, CompressedAccountMeta, PdaOwner, SppTransactCpi,
 };
 
 use crate::{
     error::{compressed_account_error, CompressionError},
-    instructions::shared::{invoke_signed_by_pda, tree_id, TransitionAccounts},
+    instructions::shared::{invoke_signed_by_pda, TransitionAccounts},
     state::AccountState,
 };
 
@@ -34,7 +34,7 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     } = wincode::deserialize_exact(data).map_err(|_| CompressionError::InvalidInstructionData)?;
 
     let parsed = TransitionAccounts::validate_and_parse(accounts)?;
-    let input_tree_id = tree_id(parsed.input_tree)?;
+    let input_tree_id = load_tree_id(parsed.input_tree).map_err(compressed_account_error)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
@@ -52,9 +52,12 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             ..AccountState::default()
         },
         input_tree_id,
-    )?;
+    )
+    .map_err(compressed_account_error)?;
     account.value = new_value;
     account.version = new_version;
-    let cpi = SppTransactCpi::new(proof).with_compressed_account(account)?;
+    let cpi = SppTransactCpi::new(proof)
+        .with_compressed_account(account)
+        .map_err(compressed_account_error)?;
     invoke_signed_by_pda(accounts, &authority, &pda, bump, cpi)
 }

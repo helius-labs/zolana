@@ -3,12 +3,12 @@ use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::instruction::instruction_data::transact::{TransactProof, TreeContext};
 use zolana_program::compression::{
-    AddressSeed, CompressedAccount, NewAddress, PdaOwner, SppTransactCpi,
+    load_tree_id, AddressSeed, CompressedAccount, NewAddress, PdaOwner, SppTransactCpi,
 };
 
 use crate::{
     error::{compressed_account_error, CompressionError},
-    instructions::shared::{invoke_signed_by_pda, tree_id, TransitionAccounts, DEFAULT_TREE},
+    instructions::shared::{invoke_signed_by_pda, TransitionAccounts, DEFAULT_TREE},
     state::AccountState,
 };
 
@@ -36,7 +36,7 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     {
         return Err(CompressionError::InvalidTree.into());
     }
-    let input_tree_id = tree_id(parsed.input_tree)?;
+    let input_tree_id = load_tree_id(parsed.input_tree).map_err(compressed_account_error)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
@@ -47,6 +47,8 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         CompressedAccount::new_init(&owner, address, address_tree_context);
     account.authority = authority.to_bytes();
     account.value = new_value;
-    let cpi = SppTransactCpi::new(proof).with_compressed_account(account)?;
+    let cpi = SppTransactCpi::new(proof)
+        .with_compressed_account(account)
+        .map_err(compressed_account_error)?;
     invoke_signed_by_pda(accounts, &authority, &pda, bump, cpi)
 }

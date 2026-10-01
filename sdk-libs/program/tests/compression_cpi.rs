@@ -64,7 +64,7 @@ struct CountState {
 }
 
 impl CompressedAccountData for CountState {
-    fn data_hash(&self) -> Result<[u8; 32], ProgramError> {
+    fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError> {
         Ok(right_align(&[self.count]))
     }
 
@@ -156,10 +156,9 @@ fn error_codes_are_stable() {
         (TooManyAccounts, 14009),
         (InputTreesNotContiguous, 14010),
         (ConflictingTreeContexts, 14011),
-        (InvalidOutputData, 14012),
-        (InvalidExternalData, 14013),
-        (HashingFailed, 14014),
-        (SerializationFailed, 14015),
+        (InvalidExternalData, 14012),
+        (HashingFailed, 14013),
+        (SerializationFailed, 14014),
     ] {
         assert_eq!(ProgramError::from(error), ProgramError::Custom(code));
     }

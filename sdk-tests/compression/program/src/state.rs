@@ -1,12 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use pinocchio::error::ProgramError;
 use zolana_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_program::compression::CompressedAccountData;
-
-use crate::error::CompressionError;
+use zolana_program::compression::{CompressedAccountData, CompressedAccountError};
 
 pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
 
@@ -24,9 +21,9 @@ pub struct AccountState {
 }
 
 impl CompressedAccountData for AccountState {
-    fn data_hash(&self) -> Result<[u8; 32], ProgramError> {
-        let authority_hash = hash_bytes(&self.authority).map_err(CompressionError::from)?;
-        let data_domain = hash_bytes(ACCOUNT_DATA_DOMAIN).map_err(CompressionError::from)?;
+    fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError> {
+        let authority_hash = hash_bytes(&self.authority)?;
+        let data_domain = hash_bytes(ACCOUNT_DATA_DOMAIN)?;
         Ok(Poseidon::hashv(&[
             &self.address,
             &data_domain,
@@ -34,8 +31,7 @@ impl CompressedAccountData for AccountState {
             &right_align(&self.value.to_be_bytes()),
             &right_align(&self.version.to_be_bytes()),
             &self.blinding,
-        ])
-        .map_err(CompressionError::from)?)
+        ])?)
     }
 
     fn address_mut(&mut self) -> &mut [u8; 32] {

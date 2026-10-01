@@ -31,14 +31,12 @@ pub enum CompressedAccountError {
     /// A transaction writes no compressed account.
     NoAccounts,
     /// A transaction writes more compressed accounts or trees than transact
-    /// can carry.
+    /// can carry, or a number of accounts with no supported square shape.
     TooManyAccounts,
     /// The inputs of one tree are not added one after another.
     InputTreesNotContiguous,
     /// Two inputs of one tree name different root indexes.
     ConflictingTreeContexts,
-    /// Output data is not a compressed account's output data.
-    InvalidOutputData,
     /// The external data does not match its settlement accounts or owner tags.
     InvalidExternalData,
     HashingFailed,
@@ -61,10 +59,9 @@ impl CompressedAccountError {
             Self::TooManyAccounts => 14009,
             Self::InputTreesNotContiguous => 14010,
             Self::ConflictingTreeContexts => 14011,
-            Self::InvalidOutputData => 14012,
-            Self::InvalidExternalData => 14013,
-            Self::HashingFailed => 14014,
-            Self::SerializationFailed => 14015,
+            Self::InvalidExternalData => 14012,
+            Self::HashingFailed => 14013,
+            Self::SerializationFailed => 14014,
         }
     }
 }
@@ -84,7 +81,6 @@ impl fmt::Display for CompressedAccountError {
             Self::TooManyAccounts => "too many compressed accounts or trees for one transaction",
             Self::InputTreesNotContiguous => "the inputs of one tree are not contiguous",
             Self::ConflictingTreeContexts => "inputs of one tree name different root indexes",
-            Self::InvalidOutputData => "output data is not a compressed account's",
             Self::InvalidExternalData => "external data does not match its accounts or owner tags",
             Self::HashingFailed => "hashing failed",
             Self::SerializationFailed => "serialization failed",

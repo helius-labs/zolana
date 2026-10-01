@@ -1,6 +1,5 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
 use zolana_program::compression::CompressedAccountError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
@@ -35,12 +34,6 @@ pub enum CompressionError {
 impl From<CompressionError> for ProgramError {
     fn from(error: CompressionError) -> Self {
         ProgramError::Custom(error as u32)
-    }
-}
-
-impl From<HasherError> for CompressionError {
-    fn from(_: HasherError) -> Self {
-        Self::HashingFailed
     }
 }
 

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use borsh::BorshSerialize;
-use pinocchio::{cpi::Signer, error::ProgramError, ProgramResult};
+use pinocchio::{cpi::Signer, ProgramResult};
 use zolana_interface::{
     event::OutputDataEncoding,
     instruction::{
@@ -11,6 +11,7 @@ use zolana_interface::{
         },
         tag::TRANSACT,
     },
+    shape::{Shape, SPP_SUPPORTED_SHAPES},
     N_PUBLIC_SLOTS,
 };
 
@@ -71,11 +72,16 @@ impl<'a> SppTransactCpi<'a> {
 
     /// Adds a write of `account`. Its state gets the blinding the circuit
     /// derives for its output slot, and is then hashed and published as it
-    /// stands.
+    /// stands. Each write takes one input and one output, so the number of
+    /// writes must be a square shape the pool supports.
     pub fn with_compressed_account<A: CompressedAccountData>(
         mut self,
         account: CompressedAccount<'a, A>,
-    ) -> Result<Self, ProgramError> {
+    ) -> Result<Self, CompressedAccountError> {
+        let count = self.writes.len() + 1;
+        if !SPP_SUPPORTED_SHAPES.contains(&Shape::new(count, count)) {
+            return Err(CompressedAccountError::TooManyAccounts);
+        }
         let CompressedAccount {
             owner,
             input,
