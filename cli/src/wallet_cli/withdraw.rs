@@ -5,7 +5,7 @@ use zolana_transaction::{instructions::transact::ConfidentialTransaction, Addres
 
 use super::{
     resolve::get_network,
-    spend::{select_notes, send_private, withdraw_to, Send},
+    spend::{send_private, withdraw_to, Send},
     sync::sync_context,
     transaction::{client, maybe_airdrop},
     util::{
@@ -32,7 +32,9 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?
             .map(|(_, token_program)| token_program);
 
-    let inputs = select_notes(&ctx.spendable, asset, opts.amount)?;
+    let inputs = ctx
+        .spendable
+        .select_spend(asset, opts.amount, &Default::default())?;
     let payer = Address::new_from_array(ctx.material.funding.pubkey().to_bytes());
     let mut transaction = ConfidentialTransaction::new(inputs, payer)?;
     let settlement = withdraw_to(

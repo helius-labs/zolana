@@ -14,17 +14,14 @@ use zolana_transaction::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::ConfidentialTransaction,
     },
-    Address, WalletUtxo, SOL_MINT,
+    is_default_ring_spendable, is_plain_utxo, Address, WalletUtxo, SOL_MINT,
 };
 use zolana_user_registry_interface::user_record_pda;
 
 use super::{
     material::WalletMaterial,
     resolve::{get_network, ResolvedNetworkOptions},
-    spend::{
-        is_default_ring_spendable, is_plain_utxo, select_notes, send_private, spend_tree,
-        withdraw_to, Send,
-    },
+    spend::{send_private, withdraw_to, Send},
     sync::{sync_context, wait_for_indexed_leaf, SyncContext},
     util::{
         ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey,
@@ -65,7 +62,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;
 
-    let inputs = select_notes(&ctx.spendable, asset, opts.amount)?;
+    let inputs = ctx
+        .spendable
+        .select_spend(asset, opts.amount, &Default::default())?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
     let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
         Some(registered) => {
@@ -187,7 +186,7 @@ fn split_input(
             .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
             .ok_or_else(|| anyhow::anyhow!("utxo {} is not spendable", hex::encode(hash)))?,
         None => {
-            let tree = spend_tree(&ctx.spendable, asset, is_plain_utxo)?;
+            let tree = pda::tree(ctx.spendable.spend_tree(asset, is_plain_utxo)?);
             ctx.spendable
                 .utxos()
                 .filter(|entry| {
@@ -319,7 +318,7 @@ fn merge_inputs(
     hashes: &[[u8; 32]],
 ) -> Result<(Address, Vec<WalletUtxo>)> {
     if hashes.is_empty() {
-        let tree = spend_tree(&ctx.spendable, asset, is_plain_utxo)?;
+        let tree = pda::tree(ctx.spendable.spend_tree(asset, is_plain_utxo)?);
         let mut candidates: Vec<&WalletUtxo> = ctx
             .spendable
             .utxos()

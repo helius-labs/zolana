@@ -155,6 +155,18 @@ pub enum TransactionError {
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 
+    #[error("no spendable balance of {asset}")]
+    NoSpendableBalance { asset: Address },
+
+    #[error("balance is spread over {trees} trees; merge each tree first")]
+    BalanceOnSeveralTrees { trees: usize },
+
+    #[error("{amount} needs more than {max_inputs} notes; merge first")]
+    SpendNeedsMerge { amount: u64, max_inputs: usize },
+
+    #[error("{amount} needs notes that are excluded from this spend")]
+    SpendNeedsExcludedNotes { amount: u64 },
+
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },
 

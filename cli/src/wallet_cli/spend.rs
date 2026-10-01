@@ -17,81 +17,9 @@ use zolana_interface::pda;
 use zolana_program::instruction::{
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_transaction::{
-    instructions::transact::{ConfidentialTransaction, MAX_SPEND_INPUTS},
-    Address, SpendableDecryptionResult, WalletUtxo, SOL_MINT,
-};
+use zolana_transaction::{instructions::transact::ConfidentialTransaction, Address, SOL_MINT};
 
 use super::sync::SyncContext;
-
-/// A ring-bound note's commitment covers its ring; the default-ring circuit
-/// does not.
-pub(super) fn is_default_ring_spendable(entry: &WalletUtxo) -> bool {
-    entry.utxo.ring_program_id.is_none() && entry.ring_data_hash.is_none()
-}
-
-/// No ring binding and no attached data: the only notes a split or a merge
-/// takes, since their spend input drops the committed data hashes.
-pub(super) fn is_plain_utxo(entry: &WalletUtxo) -> bool {
-    is_default_ring_spendable(entry) && entry.data_hash.is_none() && entry.utxo.data.is_empty()
-}
-
-/// The single tree holding the eligible notes of `asset`. A transact binds one
-/// input tree, so notes spread over several trees are merged per tree first.
-pub(super) fn spend_tree(
-    spendable: &SpendableDecryptionResult,
-    asset: Address,
-    eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Address> {
-    let mut trees: Vec<Address> = spendable
-        .utxos()
-        .filter(|entry| entry.utxo.asset.asset == asset && eligible(entry))
-        .map(|entry| pda::tree(entry.tree_id()))
-        .collect();
-    trees.sort();
-    trees.dedup();
-    match trees.as_slice() {
-        [tree] => Ok(*tree),
-        [] => bail!("no spendable balance"),
-        _ => bail!(
-            "balance is spread over {} trees; merge each tree first",
-            trees.len()
-        ),
-    }
-}
-
-/// Largest notes first, so a fragmented balance is covered with the fewest
-/// inputs, at most [`MAX_SPEND_INPUTS`] of them.
-pub(super) fn select_notes(
-    spendable: &SpendableDecryptionResult,
-    asset: Address,
-    amount: u64,
-) -> Result<Vec<WalletUtxo>> {
-    let tree = spend_tree(spendable, asset, is_default_ring_spendable)?;
-    let mut candidates: Vec<&WalletUtxo> = spendable
-        .utxos()
-        .filter(|entry| {
-            entry.utxo.asset.asset == asset
-                && pda::tree(entry.tree_id()) == tree
-                && is_default_ring_spendable(entry)
-        })
-        .collect();
-    candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
-    let total: u64 = candidates.iter().map(|entry| entry.utxo.amount).sum();
-    let mut selected = Vec::new();
-    let mut covered = 0u64;
-    for entry in candidates.into_iter().take(MAX_SPEND_INPUTS) {
-        covered += entry.utxo.amount;
-        selected.push(entry.clone());
-        if covered >= amount {
-            return Ok(selected);
-        }
-    }
-    if total >= amount {
-        bail!("{amount} needs more than {MAX_SPEND_INPUTS} notes; merge first");
-    }
-    bail!("insufficient balance: requested {amount}, available {total}")
-}
 
 /// Where a withdrawal settles: the recipient itself for SOL, its associated
 /// token account for SPL.
