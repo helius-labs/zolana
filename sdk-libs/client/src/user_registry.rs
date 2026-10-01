@@ -247,8 +247,9 @@ pub fn build_registration_transaction_sync<R: Rpc>(
 /// Only the owner and viewing keys rotate: an `address` with another
 /// nullifier pubkey needs a new owner account, and this fails.
 ///
-/// `proof` and `payer` are as for [`build_registration_transaction`]. Returns
-/// `Ok(None)` when the record already holds `address`, and fails with
+/// `proof` is as for [`build_registration_transaction`]. `payer` pays only the
+/// transaction fee, since the record already exists. Returns `Ok(None)` when
+/// the record already holds `address`, and fails with
 /// [`ClientError::UserRegistryRecordNotFound`] when there is no record.
 pub async fn build_key_update_transaction<R: AsyncRpc>(
     rpc: &R,
@@ -898,6 +899,22 @@ mod tests {
 
         let error = build_registration_transaction_sync(&other, owner, &address, None, None)
             .expect_err("a record with other keys is a conflict");
+        assert!(matches!(
+            error,
+            ClientError::UserRegistryKeysMismatch { owner: got } if got == owner
+        ));
+
+        // Another viewing key under the same nullifier pubkey: `update_keys`
+        // would accept this, so it is the case that used to be overwritten.
+        let rotated = registry_holding(
+            owner,
+            RegisterData {
+                viewing_pubkey: fields(&ed25519_address(8)).viewing_pubkey,
+                ..fields(&address)
+            },
+        );
+        let error = build_registration_transaction_sync(&rotated, owner, &address, None, None)
+            .expect_err("a rotated viewing key is a conflict, not an update");
         assert!(matches!(
             error,
             ClientError::UserRegistryKeysMismatch { owner: got } if got == owner
