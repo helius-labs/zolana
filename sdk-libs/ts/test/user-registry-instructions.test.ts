@@ -17,6 +17,7 @@ import {
   SigningKey,
   USER_REGISTRY_PROGRAM_ID,
   ViewingKey,
+  buildKeyUpdateTransaction,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
   type ShieldedAddress,
@@ -209,12 +210,45 @@ describe("buildRegistrationTransaction", () => {
     ]);
   });
 
-  it("updates the viewing key of an existing record", async () => {
+  it("refuses a record that holds other keys instead of replacing them", async () => {
+    const published = ShieldedKeypair.fromKeypair(signingKey(1)).shieldedAddress();
+    const owner = published.solanaAddress();
+    const client = await registryPublishing(owner, published);
+    const rotatedViewingKey = ShieldedKeypair.withViewingKey(signingKey(1), ViewingKey.generate());
+    const otherNullifierKey = ShieldedKeypair.fromKeypair(signingKey(3));
+
+    for (const address of [
+      rotatedViewingKey.shieldedAddress(),
+      otherNullifierKey.shieldedAddress(),
+    ]) {
+      await expect(buildRegistrationTransaction({ client, owner, address })).rejects.toMatchObject({
+        code: "WALLET_BUILD_REGISTRATION",
+        causeCode: "WALLET_USER_RECORD_KEYS_MISMATCH",
+      });
+    }
+  });
+
+  it("builds nothing when the record already matches", async () => {
+    const published = ShieldedKeypair.fromKeypair(signingKey(6)).shieldedAddress();
+    const owner = published.solanaAddress();
+
+    await expect(
+      buildRegistrationTransaction({
+        client: await registryPublishing(owner, published),
+        owner,
+        address: published,
+      }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("buildKeyUpdateTransaction", () => {
+  it("replaces the viewing key of an existing record", async () => {
     const published = ShieldedKeypair.fromKeypair(signingKey(1)).shieldedAddress();
     const replacement = ShieldedKeypair.withViewingKey(signingKey(1), ViewingKey.generate());
     const owner = published.solanaAddress();
 
-    const transaction = await buildRegistrationTransaction({
+    const transaction = await buildKeyUpdateTransaction({
       client: await registryPublishing(owner, published),
       owner,
       address: replacement.shieldedAddress(),
@@ -235,29 +269,45 @@ describe("buildRegistrationTransaction", () => {
     ]);
   });
 
-  it("refuses a key update that changes the nullifier key", async () => {
+  it("refuses a change of the nullifier key", async () => {
     const published = ShieldedKeypair.fromKeypair(signingKey(2)).shieldedAddress();
     const replacement = ShieldedKeypair.fromKeypair(signingKey(3)).shieldedAddress();
     const owner = published.solanaAddress();
 
     await expect(
-      buildRegistrationTransaction({
+      buildKeyUpdateTransaction({
         client: await registryPublishing(owner, published),
         owner,
         address: replacement,
       }),
     ).rejects.toMatchObject({
-      code: "WALLET_BUILD_REGISTRATION",
+      code: "WALLET_BUILD_KEY_UPDATE",
       causeCode: "WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH",
     });
   });
 
-  it("builds nothing when the record already matches", async () => {
+  it("refuses an owner without a record", async () => {
+    const keypair = ShieldedKeypair.fromKeypair(signingKey(4));
+    const owner = keypair.shieldedAddress().solanaAddress();
+
+    await expect(
+      buildKeyUpdateTransaction({
+        client: emptyRegistry,
+        owner,
+        address: keypair.shieldedAddress(),
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_KEY_UPDATE",
+      causeCode: "WALLET_USER_REGISTRY_RECORD_NOT_FOUND",
+    });
+  });
+
+  it("builds nothing when the record already holds the address", async () => {
     const published = ShieldedKeypair.fromKeypair(signingKey(6)).shieldedAddress();
     const owner = published.solanaAddress();
 
     await expect(
-      buildRegistrationTransaction({
+      buildKeyUpdateTransaction({
         client: await registryPublishing(owner, published),
         owner,
         address: published,

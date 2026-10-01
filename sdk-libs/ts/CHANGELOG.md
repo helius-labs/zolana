@@ -5,7 +5,8 @@
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Merges take up to 36 notes in one transaction, and wallet sync
-recovers the output of such a merge.
+recovers the output of such a merge. Registration never replaces an owner's
+published keys, and replacing them is its own transaction.
 
 Breaking
 
@@ -24,6 +25,13 @@ Breaking
   holders.
 - `ClientErrorCode` gains `CLIENT_PROVER_INDEXER_UNCONFIGURED` and
   `CLIENT_INDEXER_PROOF_DATA_NOT_READY` → handle both in exhaustive switches.
+- `buildRegistrationTransaction` rejects with `WALLET_BUILD_REGISTRATION` and
+  `causeCode` `WALLET_USER_RECORD_KEYS_MISMATCH` when the owner's record holds
+  other keys, where it used to replace the viewing key and send the owner's
+  payments to the new one → call `buildKeyUpdateTransaction` to replace the
+  viewing key on purpose.
+- `WalletErrorCode` gains `WALLET_BUILD_KEY_UPDATE` and
+  `WALLET_USER_RECORD_KEYS_MISMATCH` → handle both in exhaustive switches.
 - `CLIENT_INVALID_FIELD` and `CLIENT_INVALID_INTEGER` no longer copy the
   rejected value, a nullifier secret included, into `details` or the error's
   JSON, and their `ClientErrorDetailsMap` types drop `value` → read
@@ -51,6 +59,9 @@ Added
   `buildSplitTransaction`, `buildMergeTransaction` and the ring transaction
   builders wait out `CLIENT_INDEXER_PROOF_DATA_NOT_READY` up to the retry
   bound instead of failing.
+- `buildKeyUpdateTransaction(input)` replaces the viewing key published for an
+  owner, returns `undefined` when the record already holds the address, and
+  rejects a missing record and a changed nullifier key.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
   proof above eight, and `buildRingMergeTransaction` and

@@ -420,6 +420,13 @@ function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boole
   );
 }
 
+/**
+ * Registers `address` under `owner`. Returns `undefined` when the record
+ * already holds `address`, and rejects with `WALLET_USER_RECORD_KEYS_MISMATCH`
+ * when it holds other keys: a registration never replaces them, because
+ * payments to `owner` would then go to the new keys.
+ * {@link buildKeyUpdateTransaction} replaces them on purpose.
+ */
 export async function buildRegistrationTransaction(
   input: Readonly<{
     client: AccountReader & BlockhashProvider;
@@ -450,6 +457,47 @@ export async function buildRegistrationTransaction(
     });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_REGISTRATION", cause);
+  }
+}
+
+/**
+ * Replaces the viewing key in `owner`'s record with `address`'s. Payments to
+ * `owner` then go to the new key, and notes the old key holds stay spendable
+ * only with the old keys. The nullifier key never rotates, so an `address`
+ * with another one rejects with `WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH`.
+ * Returns `undefined` when the record already holds `address`, and rejects
+ * with `WALLET_USER_REGISTRY_RECORD_NOT_FOUND` when there is no record.
+ * `payer` pays only the transaction fee, since the record already exists.
+ */
+export async function buildKeyUpdateTransaction(
+  input: Readonly<{
+    client: AccountReader & BlockhashProvider;
+    owner: Address;
+    address: ShieldedAddress;
+    payer?: Address;
+  }>,
+  context?: RequestContext,
+): Promise<Transaction | undefined> {
+  try {
+    if (input.address.signingPublicKey.signatureType() === "p256") {
+      throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
+    }
+    const pda = await userRecordAddress(input.owner);
+    const existing = await fetchDecodedUserRecordAt(
+      { rpc: input.client, owner: input.owner, pda },
+      context,
+    );
+    const instruction = await keyUpdateInstruction(input.owner, input.address, existing);
+    if (instruction === undefined) return undefined;
+    const lifetime = await input.client.getLatestBlockhash(context);
+    return compileUnsignedTransaction({
+      feePayer: input.payer ?? input.owner,
+      lifetime,
+      computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
+      instructions: [instruction],
+    });
+  } catch (cause) {
+    throw wrapWalletError("WALLET_BUILD_KEY_UPDATE", cause);
   }
 }
 
@@ -490,10 +538,26 @@ async function registrationInstruction(
   };
   if (existing === undefined) return registerInstruction({ ...keys, payer });
   if (publishedKeysMatch(existing, shieldedAddress)) return undefined;
-  if (!equalBytes(existing.nullifierPublicKey, keys.nullifierPublicKey)) {
+  throw new WalletError("WALLET_USER_RECORD_KEYS_MISMATCH", { details: { owner } });
+}
+
+async function keyUpdateInstruction(
+  owner: Address,
+  shieldedAddress: ShieldedAddress,
+  existing: UserRecord | undefined,
+): Promise<Instruction | undefined> {
+  if (existing === undefined) {
+    throw new WalletError("WALLET_USER_REGISTRY_RECORD_NOT_FOUND", { details: { owner } });
+  }
+  if (publishedKeysMatch(existing, shieldedAddress)) return undefined;
+  if (!equalBytes(existing.nullifierPublicKey, shieldedAddress.nullifierPublicKey)) {
     throw new WalletError("WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH", { details: { owner } });
   }
-  return updateKeysInstruction(keys);
+  return updateKeysInstruction({
+    owner,
+    nullifierPublicKey: shieldedAddress.nullifierPublicKey,
+    viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
+  });
 }
 
 export async function registerInstruction(

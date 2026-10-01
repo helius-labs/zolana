@@ -70,6 +70,7 @@ export {
   walletSnapshotKey,
 } from "./snapshot-cipher.js";
 export {
+  buildKeyUpdateTransaction,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
   decodeUserRecordAccount,
