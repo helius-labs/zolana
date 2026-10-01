@@ -171,34 +171,9 @@ pub fn verify_spendable<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     decrypted: &DecryptionResult,
 ) -> Result<SpendableDecryptionResult, TransactionError> {
-    let address = shielded_keys.address()?;
     let mut by_mint: HashMap<Address, AssetBalance> = HashMap::new();
-    let mut claimed = HashSet::new();
     let mut utxos_with_data = Vec::new();
-    let mut verified = Vec::new();
-    for input in &decrypted.utxos {
-        if input.utxo.owner != address.signing_pubkey
-            || input.nullifier_pubkey != address.nullifier_pubkey
-            || (input.utxo.data.utxo_data().is_some() && input.data_hash.is_none())
-            || (input.utxo.data.ring_data().is_some() && input.ring_data_hash.is_none())
-        {
-            continue;
-        }
-        let hash = input.utxo.hash(
-            &address.nullifier_pubkey,
-            &input.data_hash.unwrap_or_default(),
-            &input.ring_data_hash.unwrap_or_default(),
-            input.tree_id,
-        )?;
-        if hash != input.utxo_hash {
-            continue;
-        }
-        if claimed.insert(hash) {
-            verified.push(input.clone());
-        }
-    }
-    assign_nullifiers(shielded_keys, &mut verified)?;
-    for wallet_utxo in verified {
+    for wallet_utxo in verify_owned(shielded_keys, decrypted)? {
         if decrypted.spent_nullifiers.contains(&wallet_utxo.nullifier) {
             continue;
         }
@@ -245,6 +220,43 @@ pub fn verify_spendable<K: ShieldedKeys + ?Sized>(
         unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
         unknown_mints: decrypted.unknown_mints.clone(),
     })
+}
+
+/// The UTXOs of `decrypted` this wallet owns, spent or not, in the order it
+/// holds them. Each commitment is recomputed from the decoded fields and must
+/// match the published one; a commitment counts once, and every nullifier is
+/// derived again rather than taken from `decrypted`. [`verify_spendable`] is
+/// this without the spent ones.
+pub fn verify_owned<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    decrypted: &DecryptionResult,
+) -> Result<Vec<WalletUtxo>, TransactionError> {
+    let address = shielded_keys.address()?;
+    let mut claimed = HashSet::new();
+    let mut verified = Vec::new();
+    for input in &decrypted.utxos {
+        if input.utxo.owner != address.signing_pubkey
+            || input.nullifier_pubkey != address.nullifier_pubkey
+            || (input.utxo.data.utxo_data().is_some() && input.data_hash.is_none())
+            || (input.utxo.data.ring_data().is_some() && input.ring_data_hash.is_none())
+        {
+            continue;
+        }
+        let hash = input.utxo.hash(
+            &address.nullifier_pubkey,
+            &input.data_hash.unwrap_or_default(),
+            &input.ring_data_hash.unwrap_or_default(),
+            input.tree_id,
+        )?;
+        if hash != input.utxo_hash {
+            continue;
+        }
+        if claimed.insert(hash) {
+            verified.push(input.clone());
+        }
+    }
+    assign_nullifiers(shielded_keys, &mut verified)?;
+    Ok(verified)
 }
 
 /// One slot's decoded contents. `data_hash` and `ring_data_hash` are the ones
