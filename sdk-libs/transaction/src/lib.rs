@@ -15,6 +15,7 @@ pub mod asset;
 pub mod data;
 pub mod decrypt;
 pub mod error;
+pub mod history;
 pub mod indexer_types;
 pub mod instructions;
 pub mod keys;
@@ -25,10 +26,11 @@ pub mod utxo;
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
-    decrypt, decrypt_spendable, rebuild_merge, verify_spendable, DecryptionResult, MergeRebuild,
-    SpendableDecryptionResult,
+    decrypt, decrypt_spendable, rebuild_merge, verify_owned, verify_spendable, DecryptionResult,
+    MergeRebuild, SpendableDecryptionResult,
 };
 pub use error::TransactionError;
+pub use history::{HistoryEntry, HistoryKind, WalletHistory};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
