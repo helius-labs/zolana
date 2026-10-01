@@ -185,6 +185,11 @@ Breaking
 - `UtxoData`, `DepositEntry.utxoData` and `RingDepositEntry.dataHash` are
   removed, so a deposit output never carries application data → attach data
   to a UTXO through a proven transaction instead.
+- `RingRpc` posts each method to its own path under the ring RPC URL, such as
+  `<url>/ringStatus`, and sends `RingRpcOptions.apiKey`, or a key already in
+  the URL, with every call while `RingRpc.url` leaves the key out → let a
+  proxy in front of a self-hosted ring RPC forward every POST path under that
+  URL.
 
 Added
 
