@@ -5,13 +5,16 @@
 //! application's own networking stack. The `zolana-client` prover clients
 //! send through the same traits.
 
-use std::{error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow, error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration,
+};
 
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
     Method,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use zeroize::Zeroizing;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
@@ -60,8 +63,10 @@ pub struct BlockingZolanaApi {
 /// prover client.
 pub trait HttpClient: fmt::Debug + Send + Sync {
     /// Send `request` and answer with the server's response, whatever its
-    /// status: the caller acts on the status. Fail only without a response,
-    /// with [`ApiError::HttpClient`].
+    /// status: the caller acts on the status. Fail only without a response:
+    /// with [`ApiError::HttpClient`] when no response arrived, and with
+    /// [`ApiError::ResponseLost`] when its status arrived and its body could
+    /// not be read.
     fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a>;
 }
 
@@ -75,13 +80,17 @@ pub trait BlockingHttpClient: fmt::Debug + Send + Sync {
 pub type HttpFuture<'a> = Pin<Box<dyn Future<Output = Result<HttpResponse, ApiError>> + Send + 'a>>;
 
 /// One request of an [`HttpClient`] or a [`BlockingHttpClient`].
-#[derive(Clone, Debug)]
+///
+/// Its `Debug` shows the header names and the body length only, with the
+/// URL's `api-key` masked: a header can carry a credential and a proof
+/// request's body carries the witness.
 pub struct HttpRequest {
     pub method: Method,
     pub url: String,
     pub headers: HeaderMap,
-    /// Empty for a `GET`.
-    pub body: Vec<u8>,
+    /// Empty for a `GET`. Wiped on drop: a proof request's body carries the
+    /// witness.
+    pub body: Zeroizing<Vec<u8>>,
     /// The caller's bound on the whole request, for a client that can keep
     /// one; the `reqwest` clients do. Without it the client's own bound
     /// applies.
@@ -94,7 +103,7 @@ impl HttpRequest {
             method: Method::GET,
             url: url.into(),
             headers: HeaderMap::new(),
-            body: Vec::new(),
+            body: Zeroizing::new(Vec::new()),
             timeout: None,
         }
     }
@@ -107,7 +116,7 @@ impl HttpRequest {
             method: Method::POST,
             url: url.into(),
             headers,
-            body,
+            body: Zeroizing::new(body),
             timeout: None,
         }
     }
@@ -120,6 +129,19 @@ impl HttpRequest {
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
+    }
+}
+
+impl fmt::Debug for HttpRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("url", &redact_api_key(&self.url))
+            .field("headers", &self.headers.keys().collect::<Vec<_>>())
+            .field("body_len", &self.body.len())
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }
 
@@ -136,16 +158,19 @@ impl HttpClient for reqwest::Client {
                 method,
                 url,
                 headers,
-                body,
+                mut body,
                 timeout,
             } = request;
-            let mut builder = self.request(method, url).headers(headers).body(body);
+            let mut builder = self
+                .request(method, url)
+                .headers(headers)
+                .body(std::mem::take(&mut *body));
             if let Some(timeout) = timeout {
                 builder = builder.timeout(timeout);
             }
             let response = builder.send().await?;
             let status = response.status();
-            let body = response.text().await?;
+            let body = response.text().await.map_err(response_lost)?;
             Ok(HttpResponse { status, body })
         })
     }
@@ -157,18 +182,25 @@ impl BlockingHttpClient for reqwest::blocking::Client {
             method,
             url,
             headers,
-            body,
+            mut body,
             timeout,
         } = request;
-        let mut builder = self.request(method, url).headers(headers).body(body);
+        let mut builder = self
+            .request(method, url)
+            .headers(headers)
+            .body(std::mem::take(&mut *body));
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
         let response = builder.send()?;
         let status = response.status();
-        let body = response.text()?;
+        let body = response.text().map_err(response_lost)?;
         Ok(HttpResponse { status, body })
     }
+}
+
+fn response_lost(error: reqwest::Error) -> ApiError {
+    ApiError::ResponseLost(Box::new(error))
 }
 
 #[derive(Debug)]
@@ -177,6 +209,10 @@ pub enum ApiError {
     /// A custom [`HttpClient`] or [`BlockingHttpClient`] failed before it had
     /// a response.
     HttpClient(Box<dyn StdError + Send + Sync>),
+    /// The response's status arrived and its body could not be read. The
+    /// server got the request and may have acted on it, so a request that is
+    /// not safe to repeat, such as a proof, is not sent again.
+    ResponseLost(Box<dyn StdError + Send + Sync>),
     Response {
         status: reqwest::StatusCode,
         body: String,
@@ -193,29 +229,26 @@ pub enum ApiError {
     MissingResult(&'static str),
 }
 
+/// Every `api-key` value is masked: a `reqwest` error and a custom client's
+/// failure both tend to name the URL, and the URL carries the key.
 impl fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Request(error) => write!(formatter, "request error: {error}"),
-            Self::HttpClient(error) => write!(formatter, "HTTP client error: {error}"),
-            Self::Response { status, body } => {
-                write!(formatter, "HTTP response error {status}: {body}")
-            }
+        let text = match self {
+            Self::Request(error) => format!("request error: {error}"),
+            Self::HttpClient(error) => format!("HTTP client error: {error}"),
+            Self::ResponseLost(error) => format!("failed to read response body: {error}"),
+            Self::Response { status, body } => format!("HTTP response error {status}: {body}"),
             Self::JsonRpc {
                 method,
                 code,
                 message,
-            } => write!(
-                formatter,
-                "JSON-RPC error from {method}: code={code:?} message={message:?}"
-            ),
-            Self::InvalidRequest { field, message } => {
-                write!(formatter, "invalid {field}: {message}")
-            }
+            } => format!("JSON-RPC error from {method}: code={code:?} message={message:?}"),
+            Self::InvalidRequest { field, message } => format!("invalid {field}: {message}"),
             Self::MissingResult(method) => {
-                write!(formatter, "JSON-RPC response from {method} omitted result")
+                format!("JSON-RPC response from {method} omitted result")
             }
-        }
+        };
+        formatter.write_str(&redact_api_key(&text))
     }
 }
 
@@ -223,7 +256,7 @@ impl StdError for ApiError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::Request(error) => Some(error),
-            Self::HttpClient(error) => Some(error.as_ref()),
+            Self::HttpClient(error) | Self::ResponseLost(error) => Some(error.as_ref()),
             _ => None,
         }
     }
@@ -611,6 +644,34 @@ impl BlockingZolanaApi {
     }
 }
 
+const API_KEY_PARAMETER: &str = "api-key=";
+
+/// `text` with the value after every `api-key=` replaced by `redacted`. The
+/// value ends at the first character a query value does not use unencoded.
+fn redact_api_key(text: &str) -> Cow<'_, str> {
+    let lowercase = text.to_ascii_lowercase();
+    if !lowercase.contains(API_KEY_PARAMETER) {
+        return Cow::Borrowed(text);
+    }
+    let mut redacted = String::with_capacity(text.len());
+    let mut start = 0;
+    while let Some(found) = lowercase
+        .get(start..)
+        .and_then(|rest| rest.find(API_KEY_PARAMETER))
+    {
+        let value_start = start + found + API_KEY_PARAMETER.len();
+        let rest = text.get(value_start..).unwrap_or_default();
+        let value_len = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || "-._~%+/=".contains(c)))
+            .unwrap_or(rest.len());
+        redacted.push_str(text.get(start..value_start).unwrap_or_default());
+        redacted.push_str("redacted");
+        start = value_start + value_len;
+    }
+    redacted.push_str(text.get(start..).unwrap_or_default());
+    Cow::Owned(redacted)
+}
+
 fn optional_limit(value: Option<u64>) -> Result<Option<Limit>, ApiError> {
     value
         .map(|value| {
@@ -801,7 +862,7 @@ mod tests {
         );
         assert_eq!(request.timeout, None);
         let body: serde_json::Value =
-            serde_json::from_slice(&request.body).expect("the API sends JSON");
+            serde_json::from_slice(request.body.as_slice()).expect("the API sends JSON");
         assert_eq!(body["jsonrpc"], JSON_RPC_VERSION);
         assert_eq!(body["method"], "getShieldedTransactionsBySignature");
         assert!(body["params"]["txSignature"].is_string(), "{body}");
@@ -864,6 +925,47 @@ mod tests {
         let error = call(0, "").unwrap_err();
         assert!(matches!(error, ApiError::HttpClient(_)));
         assert_eq!(error.to_string(), "HTTP client error: offline");
+    }
+
+    #[test]
+    fn errors_mask_the_api_key() {
+        let error = ApiError::HttpClient(
+            "connect error for https://gw.test/v1?API-KEY=SECRET-1&page=2 and https://gw.test/v1?api-key=SECRET-2"
+                .into(),
+        );
+        assert_eq!(
+            error.to_string(),
+            "HTTP client error: connect error for https://gw.test/v1?API-KEY=redacted&page=2 and https://gw.test/v1?api-key=redacted"
+        );
+        let error =
+            ApiError::ResponseLost("reset reading https://gw.test/v1?api-key=SECRET".into());
+        assert_eq!(
+            error.to_string(),
+            "failed to read response body: reset reading https://gw.test/v1?api-key=redacted"
+        );
+        assert_eq!(
+            ApiError::HttpClient("offline".into()).to_string(),
+            "HTTP client error: offline"
+        );
+    }
+
+    #[test]
+    fn a_request_prints_no_secret() {
+        let request = HttpRequest::post_json(
+            "https://gw.test/v1/prove?api-key=SECRET",
+            br#"{"nullifierSecret":"WITNESS"}"#.to_vec(),
+        )
+        .with_header(
+            HeaderName::from_static("x-token"),
+            HeaderValue::from_static("TOKEN"),
+        );
+        let printed = format!("{request:?}");
+        assert!(printed.contains("api-key=redacted"), "{printed}");
+        assert!(printed.contains("x-token"), "{printed}");
+        assert!(printed.contains("body_len: 29"), "{printed}");
+        for secret in ["SECRET", "WITNESS", "TOKEN"] {
+            assert!(!printed.contains(secret), "{printed}");
+        }
     }
 
     #[test]

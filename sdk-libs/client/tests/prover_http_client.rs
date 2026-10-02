@@ -1,7 +1,7 @@
 //! The prover clients send through any `zolana_api` HTTP client: a fake one
 //! here, in place of a prover. It records what the clients send and answers
 //! a proof in the response, a queued proof with its status polls, and the
-//! proving-keys read.
+//! proving-keys read, or fails as a custom client can.
 
 use std::{
     sync::{Arc, Mutex},
@@ -49,7 +49,15 @@ impl ProveRequest for Request {
 }
 
 /// One scripted answer: a response, or a failure without one.
-type Answer = Result<(u16, Value), &'static str>;
+type Answer = Result<(u16, Value), Failure>;
+
+#[derive(Debug)]
+enum Failure {
+    /// No response arrived.
+    NoResponse(&'static str),
+    /// The status arrived and the body was lost.
+    BodyLost(&'static str),
+}
 
 /// Answers requests in the scripted order and records them.
 #[derive(Debug)]
@@ -76,7 +84,10 @@ impl FakeClient {
             .unwrap()
             .pop()
             .expect("more requests than scripted answers");
-        let (status, body) = answer.map_err(|failure| ApiError::HttpClient(failure.into()))?;
+        let (status, body) = answer.map_err(|failure| match failure {
+            Failure::NoResponse(reason) => ApiError::HttpClient(reason.into()),
+            Failure::BodyLost(reason) => ApiError::ResponseLost(reason.into()),
+        })?;
         Ok(HttpResponse {
             status: StatusCode::from_u16(status).expect("a valid status"),
             body: body.to_string(),
@@ -147,14 +158,14 @@ fn header<'a>(request: &'a HttpRequest, name: &str) -> Option<&'a str> {
 }
 
 /// A proof `POST`: a JSON body on the key's proof path, the rail in a header
-/// and the proof timeout left to the client.
+/// and the client's proof timeout on the request.
 fn assert_proof_post(request: &HttpRequest, rail: &str) {
     assert_eq!(request.method, Method::POST);
     assert_eq!(request.url, PROVE_URL);
     assert_eq!(header(request, "content-type"), Some("application/json"));
     assert_eq!(header(request, rail), Some("true"));
-    assert_eq!(request.body, br#"{"inputs":1}"#);
-    assert_eq!(request.timeout, None);
+    assert_eq!(request.body.as_slice(), br#"{"inputs":1}"#);
+    assert_eq!(request.timeout, Some(Duration::from_secs(600)));
 }
 
 /// A status poll or a check: a bare `GET`, bounded on its own.
@@ -258,7 +269,7 @@ fn the_client_answers_as_the_prover_does() {
 /// and a failed check is reported with the client's reason.
 #[test]
 fn a_client_failure_is_retried_and_reported() {
-    let mut failed_then_proof = vec![Err("offline")];
+    let mut failed_then_proof = vec![Err(Failure::NoResponse("offline"))];
     failed_then_proof.extend(proof_in_response());
     let (client, requests) = FakeClient::answering(failed_then_proof);
     ProverClient::with_client(PROVER_URL.to_string(), client)
@@ -269,12 +280,70 @@ fn a_client_failure_is_retried_and_reported() {
     assert_proof_post(&requests[0], "x-sync");
     assert_proof_post(&requests[1], "x-sync");
 
-    let (client, _) = FakeClient::answering(vec![Err("offline")]);
+    let (client, _) = FakeClient::answering(vec![Err(Failure::NoResponse("offline"))]);
     let error = ProverClient::with_client(PROVER_URL.to_string(), client)
         .check_proving_keys()
         .expect_err("the client fails");
     assert_eq!(
         error.to_string(),
-        "prover server error: proving keys request failed: offline"
+        "prover server error: proving keys request failed: HTTP client error: offline"
     );
+}
+
+/// A custom client's failure names the URL, `api-key` and all; the key stays
+/// out of the error on the check and on a proof that exhausts its retries.
+#[test]
+fn a_client_failure_keeps_the_api_key_out() {
+    const FAILURE: &str = "connect error for https://gw/v1?api-key=SECRET";
+    let failing = |count| {
+        (0..count)
+            .map(|_| Err(Failure::NoResponse(FAILURE)))
+            .collect()
+    };
+    let (client, _) = FakeClient::answering(failing(1));
+    let check = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .check_proving_keys()
+        .expect_err("the client fails");
+    let (client, _) = FakeClient::answering(failing(3));
+    let proof = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .prove(&IN_RESPONSE)
+        .expect_err("every attempt fails");
+    for error in [check, proof] {
+        let error = error.to_string();
+        assert!(!error.contains("SECRET"), "{error}");
+        assert!(error.contains("https://gw/v1?api-key=redacted"), "{error}");
+    }
+}
+
+/// A body lost after the prover answered is not posted again: the prover has
+/// the witness and may be proving it.
+#[test]
+fn a_lost_proof_response_is_not_resubmitted() {
+    let (client, requests) = FakeClient::answering(vec![Err(Failure::BodyLost("reset"))]);
+    let error = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .prove(&IN_RESPONSE)
+        .expect_err("the body is lost");
+    assert_eq!(
+        error.to_string(),
+        "prover server error: failed to read response body: reset"
+    );
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_proof_post(&requests[0], "x-sync");
+}
+
+#[tokio::test]
+async fn an_async_lost_proof_response_is_not_resubmitted() {
+    let (client, requests) = FakeClient::answering(vec![Err(Failure::BodyLost("reset"))]);
+    let error = AsyncProverClient::with_client(PROVER_URL.to_string(), client)
+        .prove(&IN_RESPONSE)
+        .await
+        .expect_err("the body is lost");
+    assert_eq!(
+        error.to_string(),
+        "prover server error: failed to read response body: reset"
+    );
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_proof_post(&requests[0], "x-sync");
 }

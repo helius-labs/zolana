@@ -849,7 +849,9 @@ fn a_blocking_client_without_a_prover_fails_before_any_request() {
 }
 
 /// A blocking client holds no async indexer, so its async methods fail with a
-/// named error instead of reaching a service it was never given.
+/// named error instead of reaching a service it was never given. The RPC never
+/// confirms, so a confirmation that waited for it first would run out its
+/// window and fail with the RPC's error instead.
 #[test]
 fn a_blocking_client_fails_async_calls_with_a_named_error() {
     let payer = Keypair::new();
@@ -861,14 +863,20 @@ fn a_blocking_client_fails_async_calls_with_a_named_error() {
     let signature = Signature::from([23u8; 64]);
     let server = MockIndexerServer::respond_with(Vec::new());
     let client = ZolanaClient::new_blocking(
-        MockSubmitRpc::new(signature),
+        MockSubmitRpc::new(signature).unconfirmed(),
         ZolanaIndexer::new(server.url()),
     );
 
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     assert!(matches!(
-        runtime.block_on(client.confirm_private_transaction(signature)),
-        Err(ClientError::AsyncIndexerUnconfigured)
+        runtime.block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                client.confirm_private_transaction(signature),
+            )
+            .await
+        }),
+        Ok(Err(ClientError::AsyncIndexerUnconfigured))
     ));
     assert!(matches!(
         runtime.block_on(AsyncRpc::prove(&client, transaction.clone(), &owner)),
@@ -926,6 +934,7 @@ struct MockSubmitRpc {
     signature: Signature,
     view_tags: Vec<[u8; 32]>,
     sent: Arc<Mutex<Vec<VersionedTransaction>>>,
+    confirms: bool,
 }
 
 impl MockSubmitRpc {
@@ -934,7 +943,13 @@ impl MockSubmitRpc {
             signature,
             view_tags: Vec::new(),
             sent: Arc::new(Mutex::new(Vec::new())),
+            confirms: true,
         }
+    }
+
+    fn unconfirmed(mut self) -> Self {
+        self.confirms = false;
+        self
     }
 
     fn with_view_tags(mut self, view_tags: Vec<[u8; 32]>) -> Self {
@@ -970,7 +985,7 @@ impl Rpc for MockSubmitRpc {
     }
 
     fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
-        Ok(true)
+        Ok(self.confirms)
     }
 
     fn transact_output_view_tags_from_signature(
@@ -984,7 +999,7 @@ impl Rpc for MockSubmitRpc {
 #[async_trait]
 impl AsyncRpc for MockSubmitRpc {
     async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
-        Ok(true)
+        Ok(self.confirms)
     }
 
     async fn transact_output_view_tags_from_signature(

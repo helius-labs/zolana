@@ -374,8 +374,9 @@ impl ProverClient {
     }
 
     /// One POST to a proof path, retried for transport failures and for a queued
-    /// request the prover shed. Returns the status alongside the body so the
-    /// caller can act on a shed request.
+    /// request the prover shed. A response lost after its status arrived is
+    /// not retried: the prover has the request and may be proving it. Returns
+    /// the status alongside the body so the caller can act on a shed request.
     fn post(
         &self,
         url: &Url,
@@ -396,6 +397,9 @@ impl ProverClient {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
                 Ok(HttpResponse { status, body }) => return Ok((status, body)),
+                Err(error @ ApiError::ResponseLost(_)) => {
+                    return Err(ClientError::ProverServer(error.to_string()));
+                }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
@@ -686,24 +690,30 @@ fn get_request(url: Url) -> HttpRequest {
 }
 
 /// A proof submission. The rail rides in a header: `X-Sync` asks for the
-/// proof in the response, `X-Async` for a job handle.
+/// proof in the response, `X-Async` for a job handle. The proof timeout rides
+/// on the request, so a custom client gets the same bound as the default one.
 fn proof_request(url: &Url, body: &str, delivery: Delivery) -> HttpRequest {
     let rail = match delivery {
         Delivery::InResponse => "x-sync",
         Delivery::Queued => "x-async",
     };
-    HttpRequest::post_json(url.as_str(), body.as_bytes().to_vec()).with_header(
-        HeaderName::from_static(rail),
-        HeaderValue::from_static("true"),
-    )
+    HttpRequest::post_json(url.as_str(), body.as_bytes().to_vec())
+        .with_header(
+            HeaderName::from_static(rail),
+            HeaderValue::from_static("true"),
+        )
+        .with_timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
 }
 
 fn get_failed(path: &str, error: ApiError) -> ClientError {
-    ClientError::ProverServer(format!(
-        "{} failed: {}",
-        get_label(path),
-        transport_error(error)
-    ))
+    match error {
+        ApiError::ResponseLost(_) => ClientError::ProverServer(error.to_string()),
+        error => ClientError::ProverServer(format!(
+            "{} failed: {}",
+            get_label(path),
+            transport_error(error)
+        )),
+    }
 }
 
 fn post_failed(attempts: usize, error: ApiError) -> ClientError {
@@ -713,12 +723,11 @@ fn post_failed(attempts: usize, error: ApiError) -> ClientError {
     ))
 }
 
-/// The failure's text. A `reqwest` error names the URL, so its `api-key` is
-/// masked; a custom client's failure is reported as it is.
+/// The failure's text, `api-key` masked: a `reqwest` error through `scrub`,
+/// which keeps its own wording, and any other through `ApiError`'s display.
 fn transport_error(error: ApiError) -> String {
     match error {
         ApiError::Request(error) => scrub(error).to_string(),
-        ApiError::HttpClient(error) => error.to_string(),
         error => error.to_string(),
     }
 }
@@ -1026,6 +1035,9 @@ impl AsyncProverClient {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
                 }
                 Ok(HttpResponse { status, body }) => return Ok((status, body)),
+                Err(error @ ApiError::ResponseLost(_)) => {
+                    return Err(ClientError::ProverServer(error.to_string()));
+                }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
                 }
