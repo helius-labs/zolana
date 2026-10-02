@@ -3,16 +3,23 @@ use std::{
     env,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread::sleep,
     time::{Duration, Instant},
 };
 
-use reqwest::redirect::Policy;
-use reqwest::{StatusCode, Url};
+use reqwest::{
+    header::{HeaderName, HeaderValue},
+    redirect::Policy,
+    StatusCode, Url,
+};
 use serde::Deserialize;
 use tokio::time::sleep as async_sleep;
 use zeroize::Zeroizing;
+use zolana_api::{ApiError, BlockingHttpClient, HttpClient, HttpRequest, HttpResponse};
 
 use crate::{
     error::ClientError,
@@ -20,8 +27,8 @@ use crate::{
         backend::Prover,
         endpoint::{scrub, ProverEndpoint},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
-        proof::{proof_from_gnark_json, Proof},
-        proving_key::{parse_sha256_hex, ExpectedProvingKey, ProverKeys, ProvingKeyReport},
+        proof::{proof_from_value, Proof},
+        proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
     },
 };
@@ -209,7 +216,7 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
 /// Blocking client for the transfer proving endpoints of the prover server.
 pub struct ProverClient {
     endpoint: ProverEndpoint,
-    http: reqwest::blocking::Client,
+    http: Arc<dyn BlockingHttpClient>,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
@@ -219,7 +226,7 @@ pub struct ProverClient {
 /// Async client for the transfer proving endpoints of the prover server.
 pub struct AsyncProverClient {
     endpoint: ProverEndpoint,
-    http: reqwest::Client,
+    http: Arc<dyn HttpClient>,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
@@ -254,25 +261,25 @@ impl ProverClient {
     }
 
     pub fn new(server_address: String) -> Self {
-        Self {
-            endpoint: ProverEndpoint::parse(&server_address),
-            http: build_http_client(None).expect("failed to build HTTP client"),
-            async_poll: AsyncPollConfig::default(),
-            delivery: Delivery::InResponse,
-            proof_data_source: ProofDataSource::default(),
-        }
+        Self::with_client(
+            server_address,
+            build_http_client(None).expect("failed to build HTTP client"),
+        )
     }
 
-    /// Use a caller-provided HTTP client instead of the default one.
+    /// Send every request through `http` instead of the default client:
+    /// proof submissions, status polls and the checks.
     ///
-    /// Mirrors `ZolanaApi::with_client`. Pass a client built without
-    /// `.no_proxy()` (and with whatever proxy configuration is needed) to
-    /// route proof traffic through a proxy such as Tor. `new()` keeps the
-    /// default direct behavior.
-    pub fn with_client(server_address: String, http: reqwest::blocking::Client) -> Self {
+    /// Mirrors `BlockingZolanaApi::with_client`. `http` is a `reqwest`
+    /// client, built without `.no_proxy()` and with whatever proxy
+    /// configuration is needed to route proof traffic through a proxy such as
+    /// Tor, or the application's own networking stack. The paths, headers,
+    /// retries, polling and proof checks stay with the client; `http` only
+    /// carries each request and answers with the server's response.
+    pub fn with_client(server_address: String, http: impl BlockingHttpClient + 'static) -> Self {
         Self {
             endpoint: ProverEndpoint::parse(&server_address),
-            http,
+            http: Arc::new(http),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
@@ -291,8 +298,9 @@ impl ProverClient {
     /// through the proxy. Use an HTTPS prover URL to protect the witness in transit;
     /// proxying does not hide the witness from the prover itself.
     pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
-        self.http = build_http_client(Some(prover_proxy(proxy_url)?))
+        let http = build_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
+        self.http = Arc::new(http);
         Ok(self)
     }
 
@@ -358,24 +366,17 @@ impl ProverClient {
 
     fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
         let url = self.endpoint.url(path)?;
-        let response = self
+        let HttpResponse { status, body } = self
             .http
-            .get(url)
-            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-            .send()
-            .map_err(|e| {
-                ClientError::ProverServer(format!("{} failed: {}", get_label(path), scrub(e)))
-            })?;
-        let status = response.status();
-        let text = response.text().map_err(|e| {
-            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
-        })?;
-        Ok((status, text))
+            .send(get_request(url))
+            .map_err(|error| get_failed(path, error))?;
+        Ok((status, body))
     }
 
     /// One POST to a proof path, retried for transport failures and for a queued
-    /// request the prover shed. Returns the status alongside the body so the
-    /// caller can act on a shed request.
+    /// request the prover shed. A response lost after its status arrived is
+    /// not retried: the prover has the request and may be proving it. Returns
+    /// the status alongside the body so the caller can act on a shed request.
     fn post(
         &self,
         url: &Url,
@@ -383,44 +384,28 @@ impl ProverClient {
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
         let mut attempt = 0;
-        let response = loop {
+        loop {
             attempt += 1;
-            let mut request = self
-                .http
-                .post(url.clone())
-                .header("Content-Type", "application/json");
-            if delivery == Delivery::InResponse {
-                request = request.header("X-Sync", "true");
-            } else {
-                request = request.header("X-Async", "true");
-            }
-            match request.body(body.to_string()).send() {
+            match self.http.send(proof_request(url, body, delivery)) {
                 // A prover without a queue proves a queued request in the
                 // response too, and sheds it the same way while it is busy.
                 Ok(response)
-                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                    if response.status == StatusCode::TOO_MANY_REQUESTS
                         && delivery == Delivery::Queued
                         && attempt < PROVE_MAX_ATTEMPTS =>
                 {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
-                Ok(response) => break response,
+                Ok(HttpResponse { status, body }) => return Ok((status, body)),
+                Err(error @ ApiError::ResponseLost(_)) => {
+                    return Err(ClientError::ProverServer(error.to_string()));
+                }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
-                Err(e) => {
-                    return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {}",
-                        scrub(e)
-                    )));
-                }
+                Err(error) => return Err(post_failed(attempt, error)),
             }
-        };
-        let status = response.status();
-        let text = response.text().map_err(|e| {
-            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
-        })?;
-        Ok((status, text))
+        }
     }
 
     fn send(
@@ -515,11 +500,7 @@ impl ProverClient {
         let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let response = match self
-                .http
-                .get(url.clone())
-                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-                .send()
+            let HttpResponse { status, body: text } = match self.http.send(get_request(url.clone()))
             {
                 Ok(response) => response,
                 Err(_) => {
@@ -528,12 +509,7 @@ impl ProverClient {
                     continue;
                 }
             };
-            let status = response.status();
             if status.is_client_error() {
-                let text = match response.text() {
-                    Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {}", scrub(e)),
-                };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
                 )));
@@ -543,15 +519,6 @@ impl ProverClient {
                 interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 continue;
             }
-
-            let text = match response.text() {
-                Ok(text) => text,
-                Err(_) => {
-                    wait_or_timeout(job_id, started, max_wait, interval_ms)?;
-                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
-                    continue;
-                }
-            };
             let value: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
 
@@ -576,37 +543,6 @@ impl ProverClient {
                 }
             }
         }
-    }
-
-    /// Extract and parse a gnark proof from a proof value, accepting either a
-    /// plain proof object or a `{ proof, .. }` envelope, and check the proving
-    /// key the prover reports it used against `key`.
-    fn proof_from_value(
-        value: &serde_json::Value,
-        raw: &str,
-        key: &ExpectedProvingKey,
-    ) -> Result<Proof, ClientError> {
-        let proof_value = value.get("proof").unwrap_or(value);
-        if proof_value.is_null() {
-            return Err(ClientError::ProverServer(
-                "server returned a null proof".to_string(),
-            ));
-        }
-        let reported = match proof_value.get("provingKeySha256") {
-            None => None,
-            Some(reported) => Some(reported.as_str().and_then(parse_sha256_hex).ok_or_else(
-                || {
-                    ClientError::ProofParse(
-                        "provingKeySha256 is not 64 lowercase hex digits".to_string(),
-                    )
-                },
-            )?),
-        };
-        key.check(reported)?;
-        let proof_json = serde_json::to_string(proof_value)
-            .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
-        proof_from_gnark_json(&proof_json)
-            .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
     }
 }
 
@@ -682,7 +618,7 @@ impl ProverResponse for Proof {
         raw: &str,
         key: &ExpectedProvingKey,
     ) -> Result<Self, ClientError> {
-        ProverClient::proof_from_value(value, raw, key)
+        proof_from_value(value, raw, key)
     }
 }
 
@@ -697,7 +633,7 @@ impl ProverResponse for IndexedResponse {
         raw: &str,
         key: &ExpectedProvingKey,
     ) -> Result<Self, ClientError> {
-        let proof = ProverClient::proof_from_value(value, raw, key)?;
+        let proof = proof_from_value(value, raw, key)?;
         let resolution = value
             .get("proof")
             .unwrap_or(value)
@@ -745,6 +681,55 @@ fn indexed_from_health(status: StatusCode, text: &str) -> Result<(), ClientError
 /// `/proving-keys` reads as "proving keys request" in transport errors.
 fn get_label(path: &str) -> String {
     format!("{} request", path.trim_start_matches('/').replace('-', " "))
+}
+
+/// A status poll or a check: one small read, bounded on its own so a hung
+/// one cannot hold a worker for the proof timeout.
+fn get_request(url: Url) -> HttpRequest {
+    HttpRequest::get(url).with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+}
+
+/// A proof submission. The rail rides in a header: `X-Sync` asks for the
+/// proof in the response, `X-Async` for a job handle. The proof timeout rides
+/// on the request, so a custom client gets the same bound as the default one.
+fn proof_request(url: &Url, body: &str, delivery: Delivery) -> HttpRequest {
+    let rail = match delivery {
+        Delivery::InResponse => "x-sync",
+        Delivery::Queued => "x-async",
+    };
+    HttpRequest::post_json(url.as_str(), body.as_bytes().to_vec())
+        .with_header(
+            HeaderName::from_static(rail),
+            HeaderValue::from_static("true"),
+        )
+        .with_timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
+}
+
+fn get_failed(path: &str, error: ApiError) -> ClientError {
+    match error {
+        ApiError::ResponseLost(_) => ClientError::ProverServer(error.to_string()),
+        error => ClientError::ProverServer(format!(
+            "{} failed: {}",
+            get_label(path),
+            transport_error(error)
+        )),
+    }
+}
+
+fn post_failed(attempts: usize, error: ApiError) -> ClientError {
+    ClientError::ProverServer(format!(
+        "request failed after {attempts} attempt(s): {}",
+        transport_error(error)
+    ))
+}
+
+/// The failure's text, `api-key` masked: a `reqwest` error through `scrub`,
+/// which keeps its own wording, and any other through `ApiError`'s display.
+fn transport_error(error: ApiError) -> String {
+    match error {
+        ApiError::Request(error) => scrub(error).to_string(),
+        error => error.to_string(),
+    }
 }
 
 impl Prover for ProverClient {
@@ -844,22 +829,19 @@ impl AsyncProverClient {
     }
 
     pub fn new(server_address: String) -> Self {
-        Self {
-            endpoint: ProverEndpoint::parse(&server_address),
-            http: build_async_http_client(None).expect("failed to build HTTP client"),
-            async_poll: AsyncPollConfig::default(),
-            delivery: Delivery::InResponse,
-            proof_data_source: ProofDataSource::default(),
-        }
+        Self::with_client(
+            server_address,
+            build_async_http_client(None).expect("failed to build HTTP client"),
+        )
     }
 
-    /// Use a caller-provided HTTP client instead of the default one.
+    /// Send every request through `http` instead of the default client.
     ///
     /// Async counterpart of [`ProverClient::with_client`].
-    pub fn with_client(server_address: String, http: reqwest::Client) -> Self {
+    pub fn with_client(server_address: String, http: impl HttpClient + 'static) -> Self {
         Self {
             endpoint: ProverEndpoint::parse(&server_address),
-            http,
+            http: Arc::new(http),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
@@ -881,8 +863,9 @@ impl AsyncProverClient {
     /// # }
     /// ```
     pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
-        self.http = build_async_http_client(Some(prover_proxy(proxy_url)?))
+        let http = build_async_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
+        self.http = Arc::new(http);
         Ok(self)
     }
 
@@ -977,20 +960,12 @@ impl AsyncProverClient {
 
     async fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
         let url = self.endpoint.url(path)?;
-        let response = self
+        let HttpResponse { status, body } = self
             .http
-            .get(url)
-            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-            .send()
+            .send(get_request(url))
             .await
-            .map_err(|e| {
-                ClientError::ProverServer(format!("{} failed: {}", get_label(path), scrub(e)))
-            })?;
-        let status = response.status();
-        let text = response.text().await.map_err(|e| {
-            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
-        })?;
-        Ok((status, text))
+            .map_err(|error| get_failed(path, error))?;
+        Ok((status, body))
     }
 
     async fn send(
@@ -1051,42 +1026,22 @@ impl AsyncProverClient {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let mut request = self
-                .http
-                .post(url.clone())
-                .header("Content-Type", "application/json");
-            if delivery == Delivery::InResponse {
-                request = request.header("X-Sync", "true");
-            } else {
-                request = request.header("X-Async", "true");
-            }
-            match request.body(body.to_string()).send().await {
+            match self.http.send(proof_request(url, body, delivery)).await {
                 Ok(response)
-                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                    if response.status == StatusCode::TOO_MANY_REQUESTS
                         && delivery == Delivery::Queued
                         && attempt < PROVE_MAX_ATTEMPTS =>
                 {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
                 }
-                Ok(response) => {
-                    let status = response.status();
-                    let text = response.text().await.map_err(|e| {
-                        ClientError::ProverServer(format!(
-                            "failed to read response body: {}",
-                            scrub(e)
-                        ))
-                    })?;
-                    return Ok((status, text));
+                Ok(HttpResponse { status, body }) => return Ok((status, body)),
+                Err(error @ ApiError::ResponseLost(_)) => {
+                    return Err(ClientError::ProverServer(error.to_string()));
                 }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
                 }
-                Err(e) => {
-                    return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {}",
-                        scrub(e)
-                    )));
-                }
+                Err(error) => return Err(post_failed(attempt, error)),
             }
         }
     }
@@ -1106,26 +1061,16 @@ impl AsyncProverClient {
         let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let response = match self
-                .http
-                .get(url.clone())
-                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-                .send()
-                .await
-            {
-                Ok(response) => response,
-                Err(_) => {
-                    async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
-                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
-                    continue;
-                }
-            };
-            let status = response.status();
-            if status.is_client_error() {
-                let text = match response.text().await {
-                    Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {}", scrub(e)),
+            let HttpResponse { status, body: text } =
+                match self.http.send(get_request(url.clone())).await {
+                    Ok(response) => response,
+                    Err(_) => {
+                        async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
+                        interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
+                        continue;
+                    }
                 };
+            if status.is_client_error() {
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
                 )));
@@ -1135,15 +1080,6 @@ impl AsyncProverClient {
                 interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 continue;
             }
-
-            let text = match response.text().await {
-                Ok(text) => text,
-                Err(_) => {
-                    async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
-                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
-                    continue;
-                }
-            };
             let value: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
 

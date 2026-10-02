@@ -12,10 +12,20 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 /// permanent internal bug as `-32603` with the body scrubbed, so `-32603` is
 /// retried and the caller is handed the last one it saw rather than a bare
 /// timeout.
+///
+/// A custom HTTP client that fails without a response is retried as a
+/// `reqwest` timeout or connection failure is: it cannot say which it was. A
+/// response lost while reading its body is retried too: every indexer call
+/// is a read.
+///
+/// The message comes from `ApiError`'s display, which masks the `api-key`.
 pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
         zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
+            ClientError::IndexerUnavailable(message)
+        }
+        zolana_api::ApiError::HttpClient(_) | zolana_api::ApiError::ResponseLost(_) => {
             ClientError::IndexerUnavailable(message)
         }
         zolana_api::ApiError::Response { status, .. }
@@ -85,5 +95,32 @@ mod tests {
                 "code {code}"
             );
         }
+    }
+
+    #[test]
+    fn retries_a_custom_client_that_got_no_response() {
+        let error = indexer_error(zolana_api::ApiError::HttpClient("offline".into()));
+        assert!(
+            matches!(&error, ClientError::IndexerUnavailable(message) if message.contains("offline")),
+            "{error:?}"
+        );
+        let error = indexer_error(zolana_api::ApiError::ResponseLost("reset".into()));
+        assert!(
+            matches!(&error, ClientError::IndexerUnavailable(message) if message.contains("reset")),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_custom_client_failure_keeps_the_api_key_out() {
+        let error = indexer_error(zolana_api::ApiError::HttpClient(
+            "connect error for https://gw/v1?api-key=SECRET".into(),
+        ));
+        let message = error.to_string();
+        assert!(!message.contains("SECRET"), "{message}");
+        assert!(
+            message.contains("https://gw/v1?api-key=redacted"),
+            "{message}"
+        );
     }
 }

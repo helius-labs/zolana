@@ -11,4 +11,8 @@ reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
+zeroize = { workspace = true }
 zolana-indexer-api = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

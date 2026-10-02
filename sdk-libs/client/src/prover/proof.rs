@@ -10,7 +10,10 @@ use zolana_interface::instruction::{
     NullifierTreeProof,
 };
 
-use crate::error::ClientError;
+use crate::{
+    error::ClientError,
+    prover::proving_key::{parse_sha256_hex, ExpectedProvingKey},
+};
 
 /// The single BSB22 Pedersen commitment a proof carries: the commitment point and
 /// its proof-of-knowledge (uncompressed G1, big-endian, not negated). Present only
@@ -200,6 +203,39 @@ impl Proof {
         proof_from_gnark_json(json)
             .ok_or_else(|| ClientError::ProofParse("invalid gnark proof JSON".to_string()))
     }
+}
+
+/// Decode a prover's response to a proof request for `key`, parsed into
+/// `value`, `raw` being its text: the gnark proof JSON alone or as the
+/// `proof` of a `{ proof, .. }` envelope. A null proof is rejected, and so is
+/// a proof whose reported `provingKeySha256` is missing or not `key`'s.
+pub(crate) fn proof_from_value(
+    value: &serde_json::Value,
+    raw: &str,
+    key: &ExpectedProvingKey,
+) -> Result<Proof, ClientError> {
+    let proof_value = value.get("proof").unwrap_or(value);
+    if proof_value.is_null() {
+        return Err(ClientError::ProverServer(
+            "server returned a null proof".to_string(),
+        ));
+    }
+    let reported =
+        match proof_value.get("provingKeySha256") {
+            None => None,
+            Some(reported) => Some(reported.as_str().and_then(parse_sha256_hex).ok_or_else(
+                || {
+                    ClientError::ProofParse(
+                        "provingKeySha256 is not 64 lowercase hex digits".to_string(),
+                    )
+                },
+            )?),
+        };
+    key.check(reported)?;
+    let proof_json = serde_json::to_string(proof_value)
+        .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
+    proof_from_gnark_json(&proof_json)
+        .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
 }
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)

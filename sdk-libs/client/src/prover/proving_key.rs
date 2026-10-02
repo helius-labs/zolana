@@ -133,6 +133,13 @@ impl ExpectedProvingKey {
         format!("{}/{name}", super::PROVE_PATH)
     }
 
+    /// The path a queued proof of this key is polled on,
+    /// `/prove/<key>/status`, with the job id the prover returned as the
+    /// `jobId` query parameter.
+    pub(crate) fn status_path(&self) -> String {
+        format!("{}/status", self.prove_path())
+    }
+
     /// A transfer circuit. The digest comes from [`CircuitId::proving_key_sha256`],
     /// the table the on-chain verifier picks its verifying key from.
     fn transfer(
