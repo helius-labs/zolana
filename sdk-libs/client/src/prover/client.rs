@@ -263,6 +263,22 @@ impl ProverClient {
         }
     }
 
+    /// Use a caller-provided HTTP client instead of the default one.
+    ///
+    /// Mirrors `ZolanaApi::with_client`. Pass a client built without
+    /// `.no_proxy()` (and with whatever proxy configuration is needed) to
+    /// route proof traffic through a proxy such as Tor. `new()` keeps the
+    /// default direct behavior.
+    pub fn with_client(server_address: String, http: reqwest::blocking::Client) -> Self {
+        Self {
+            endpoint: ProverEndpoint::parse(&server_address),
+            http,
+            async_poll: AsyncPollConfig::default(),
+            delivery: Delivery::InResponse,
+            proof_data_source: ProofDataSource::default(),
+        }
+    }
+
     /// Route all proof submissions and status polls through an explicit proxy.
     ///
     /// Connections are direct by default. Environment proxy settings, including
@@ -831,6 +847,19 @@ impl AsyncProverClient {
         Self {
             endpoint: ProverEndpoint::parse(&server_address),
             http: build_async_http_client(None).expect("failed to build HTTP client"),
+            async_poll: AsyncPollConfig::default(),
+            delivery: Delivery::InResponse,
+            proof_data_source: ProofDataSource::default(),
+        }
+    }
+
+    /// Use a caller-provided HTTP client instead of the default one.
+    ///
+    /// Async counterpart of [`ProverClient::with_client`].
+    pub fn with_client(server_address: String, http: reqwest::Client) -> Self {
+        Self {
+            endpoint: ProverEndpoint::parse(&server_address),
+            http,
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
@@ -1808,6 +1837,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn with_client_uses_the_supplied_blocking_transport() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, prover_keys_body())]);
+        let http = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("custom HTTP client");
+        let report = ProverClient::with_client(server.url().to_string(), http)
+            .check_proving_keys()
+            .expect("matching prover");
+        assert_paths(&server.requests(), ["/proving-keys"]);
+        assert_eq!(report.prefix.as_str(), "proving-keys/test");
+    }
+
     /// A prover without the endpoint predates the check and fails it.
     #[test]
     fn check_proving_keys_rejects_a_prover_without_the_endpoint() {
@@ -1895,6 +1938,20 @@ mod tests {
     async fn async_check_proving_keys_reads_the_prover_report() {
         let server = MockServer::respond_with(vec![MockResponse::json(200, prover_keys_body())]);
         let report = AsyncProverClient::new(server.url().to_string())
+            .check_proving_keys()
+            .await
+            .expect("matching prover");
+        assert_eq!(report.prefix, "proving-keys/test");
+    }
+
+    #[tokio::test]
+    async fn with_client_uses_the_supplied_async_transport() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, prover_keys_body())]);
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("custom HTTP client");
+        let report = AsyncProverClient::with_client(server.url().to_string(), http)
             .check_proving_keys()
             .await
             .expect("matching prover");
