@@ -269,6 +269,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
                 circuit_id: 0,
             });
         }
+        let prover = self.blocking_prover()?;
         let commitments = transaction.input_utxo_hashes()?;
         let witnesses = self.blocking_indexer().input_witnesses(
             &commitments,
@@ -282,7 +283,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         )?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.blocking_prover().prove_transfer(inputs)?;
+        let proof = prover.prove_transfer(inputs)?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {
