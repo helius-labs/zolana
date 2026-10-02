@@ -85,7 +85,8 @@ Source: [encryption](../src/instructions/transact/encryption.rs),
 ## Settlement and external data
 
 Source: [settlement](../src/instructions/transact/settlement.rs),
-[external data](../src/instructions/transact/external_data.rs).
+[external data](../src/instructions/transact/external_data.rs),
+[withdrawal to an account](../src/instructions/transact/mod.rs).
 
 | ID | Kind / severity | Invariant | Coverage / required assertions |
 |---|---|---|---|
@@ -99,6 +100,16 @@ Source: [settlement](../src/instructions/transact/settlement.rs),
 | INV-TX-SETTLE-08 | pre / H | `with_ring_hashes` refuses to overwrite either already-populated hash with `RingHashesAlreadySet`. | [x] `settlement.rs::ring_hashes_can_be_set_once_and_neither_existing_field_can_be_overwritten`. |
 | INV-TX-SETTLE-09 | wire / C | SOL settlement account pairs contain `SOL_INTERFACE` then the user SOL account; SPL pairs contain mint then user token account. Instruction legs preserve direction/amount and derive the SPL interface bump from that mint. | [x] `settlement.rs::ordered_settlement_accounts_and_instruction_legs_survive_builder_encryption`. SPL bump is independently derived from the address primitive and literal protocol seed, not a hardcoded bump vector. |
 | INV-TX-SETTLE-10 | wire / C | External-data owner resolution requires one resolved tag per output; only `Account` tags append the supplied resolved address to the hash preimage. Inline owner addresses are already encoded in the output. | [x] `settlement.rs::external_hash_uses_canonical_bytes_and_only_resolves_account_owner_tags`. |
+| INV-TX-SETTLE-11 | post / C | `withdraw_to` records a withdrawal to `recipient` for SOL, and for an SPL mint to `recipient`'s associated token account under the given token program. It returns the matching `transact` settlement account group: the SOL recipient, or the mint, its SPL interface, that same token account and the token program. | [x] `settlement.rs::withdraw_to_settles_sol_to_the_recipient_and_spl_to_its_associated_token_account`. The token account and the interface are derived from the literal protocol seeds, not the SDK's PDA helpers. |
+| INV-TX-SETTLE-12 | pre / H | `withdraw_to` rejects an SPL mint without a token program with `MissingSplTokenProgram { mint }` and an SPL mint that no real input holds with `UnknownMint`. A failed call records no transfer. | [x] `settlement.rs::withdraw_to_refuses_an_spl_mint_without_its_token_program_or_without_an_input`. |
+
+## Deposits
+
+Source: [deposit](../src/instructions/deposit.rs).
+
+| ID | Kind / severity | Invariant | Coverage / required assertions |
+|---|---|---|---|
+| INV-TX-DEPOSIT-01 | post / H | `deposit_to` builds a deposit entry with the given asset and amount and no memo, owned by the recipient's owner hash and tagged with the recipient's bootstrap view tag, the tag its wallet scans for. | [x] `deposit.rs::a_wallet_deposit_is_owned_by_the_recipient_and_carries_the_tag_its_wallet_scans_for`. |
 
 ## UTXOs and commitments
 

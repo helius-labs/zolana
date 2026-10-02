@@ -5,53 +5,17 @@
 //! keypair, let the client fetch the input proofs and prove, then sign with the
 //! funding key and send.
 
-use anyhow::{bail, Result};
-use solana_pubkey::Pubkey;
+use anyhow::Result;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     sign_transaction, Rpc, RpcSendTransactionConfig, SignedPrivateTransaction, SolanaRpc,
     ZolanaClient,
 };
-use zolana_interface::pda;
-use zolana_program::instruction::{
-    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
-};
-use zolana_transaction::{instructions::transact::ConfidentialTransaction, Address, SOL_MINT};
+use zolana_program::instruction::TransactInterfaceTransferAccounts;
+use zolana_transaction::instructions::transact::ConfidentialTransaction;
 
 use super::sync::SyncContext;
-
-/// Where a withdrawal settles: the recipient itself for SOL, its associated
-/// token account for SPL.
-pub(super) fn withdraw_to(
-    transaction: &mut ConfidentialTransaction,
-    recipient: Pubkey,
-    asset: Address,
-    amount: u64,
-    spl_token_program: Option<Pubkey>,
-) -> Result<TransactInterfaceTransferAccounts> {
-    if asset == SOL_MINT {
-        transaction.withdraw_sol(amount, recipient)?;
-        return Ok(TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
-        ));
-    }
-    let Some(token_program) = spl_token_program else {
-        bail!("SPL withdrawal needs the mint's token program");
-    };
-    let mint = Pubkey::new_from_array(asset.to_bytes());
-    let user_token_account =
-        pda::associated_token_address_with_program(&recipient, &mint, &token_program);
-    transaction.withdraw(asset, amount, user_token_account)?;
-    Ok(TransactInterfaceTransferAccounts::SplWithdrawal(
-        TransactSplWithdrawalAccounts {
-            mint,
-            spl_interface: pda::spl_interface(&mint),
-            user_token_account,
-            token_program,
-        },
-    ))
-}
 
 /// How a spend is sent.
 pub(super) enum Send {
