@@ -442,6 +442,56 @@ async fn with_prover_replaces_the_prover_server_when_async() {
     assert_recorded_one_completed_transfer(&prover);
 }
 
+/// A prover given for one submission proves it in place of the client's own
+/// prover, and the client fetches the proof data itself even where its own
+/// prover would take the prover server's indexed route.
+#[test]
+fn a_prover_given_for_one_submission_replaces_the_clients() {
+    let own = RecordingProver::default();
+    let with_own_prover = |server: &MockIndexerServer| {
+        ZolanaClient::new(
+            MockSubmitRpc::new(Signature::default()),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+        )
+        .with_prover(own.clone())
+    };
+    // This client proves on the prover server's indexed route, where the
+    // server, not the client, reads the proof data. The mock indexer answers
+    // only the two reads, so a request on that route fails the test.
+    let on_indexed_route = |server: &MockIndexerServer| {
+        ZolanaClient::from_urls(
+            MockSubmitRpc::new(Signature::default()),
+            server.url(),
+            server.url(),
+        )
+        .expect("loopback urls")
+    };
+    for client in [
+        &with_own_prover as &dyn Fn(&MockIndexerServer) -> ZolanaClient<MockSubmitRpc>,
+        &on_indexed_route,
+    ] {
+        let (sender, signed, server) = with_prover_fixture();
+        let given = RecordingProver::default();
+        let result = client(&server).finish_submission_unsigned_sync_with_prover(
+            &signed,
+            signed.transaction.payer,
+            &sender,
+            &given,
+        );
+        assert!(
+            matches!(result, Err(ClientError::Prover(message)) if message == "recording prover")
+        );
+        assert_recorded_one_completed_transfer(&given);
+        let mut requests = server.requests();
+        requests.sort();
+        assert_eq!(requests, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+    }
+    assert!(own.requests.lock().unwrap().is_empty());
+}
+
 #[test]
 fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
     let payer = Keypair::new();
