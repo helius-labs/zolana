@@ -1,10 +1,11 @@
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::MergeTransactIxDataRef,
+        instruction_data::merge_transact::{merge_circuit_width, MergeTransactIxDataRef},
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
@@ -21,7 +22,7 @@ pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
     /// registry record -- both the signing identity and nullifier public key.
     /// Verified against `merge_<n_inputs>_1`.
-    Registry {
+    Default {
         signing_pk_field: [u8; 32],
         nullifier_pk: [u8; 32],
     },
@@ -40,7 +41,7 @@ impl MergeOwnerBinding {
     /// external data hash exactly as the binding selects the verifying key.
     pub fn instruction_tag(&self) -> u8 {
         match self {
-            MergeOwnerBinding::Registry { .. } => MERGE_TRANSACT,
+            MergeOwnerBinding::Default { .. } => MERGE_TRANSACT,
             MergeOwnerBinding::Ring { .. } => RING_MERGE_TRANSACT,
         }
     }
@@ -91,10 +92,17 @@ impl<'a> MergeProof<'a> {
         )
     }
 
+    /// The circuit width the sent nullifiers select; slots past them are
+    /// compact padding.
+    fn circuit_width(&self) -> Result<usize, ProgramError> {
+        merge_circuit_width(self.ix.nullifiers.len())
+            .ok_or(ShieldedPoolError::InvalidMergeShape.into())
+    }
+
     fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
-        let vk = match (&self.derived.owner_binding, self.ix.nullifiers.len()) {
-            (MergeOwnerBinding::Registry { .. }, 8) => &merge_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Registry { .. }, 36) => &merge_36_1::VERIFYINGKEY,
+        let vk = match (&self.derived.owner_binding, self.circuit_width()?) {
+            (MergeOwnerBinding::Default { .. }, 8) => &merge_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Default { .. }, 36) => &merge_36_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 36) => &merge_ring_36_1::VERIFYINGKEY,
             _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
@@ -119,7 +127,7 @@ impl<'a> MergeProof<'a> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
         let prefix_hash = create_hash_chain_4_from_slice(&[
-            create_hash_chain_4_from_slice(&self.ix.nullifiers)?,
+            create_padded_right_hash_chain_4(&self.ix.nullifiers, self.circuit_width()?)?,
             *self.ix.output_utxo_hash,
             populated_tree_slots_hash_chain(core::slice::from_ref(&self.derived.tree_slot))?,
             self.derived.output_tree_id,
@@ -136,7 +144,7 @@ impl<'a> MergeProof<'a> {
                 *output_ring_data_hash,
                 *ring_program_id,
             ]),
-            MergeOwnerBinding::Registry {
+            MergeOwnerBinding::Default {
                 signing_pk_field,
                 nullifier_pk,
             } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),

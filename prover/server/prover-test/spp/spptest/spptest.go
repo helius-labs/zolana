@@ -78,6 +78,12 @@ func MustHashChain4(t testing.TB, inputs []*big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
+func MustRightHashChain4(t testing.TB, inputs []*big.Int) *big.Int {
+	t.Helper()
+	value, err := protocol.RightHashChain4(inputs)
+	return MustHash(t, value, err)
+}
+
 func MustNonZeroHashChain(t testing.TB, inputs []*big.Int) *big.Int {
 	t.Helper()
 	value, err := protocol.NonZeroHashChain(inputs)

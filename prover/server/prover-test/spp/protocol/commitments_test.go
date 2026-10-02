@@ -426,6 +426,12 @@ func mustHashChain4(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
+func mustRightHashChain4(t *testing.T, inputs []*big.Int) *big.Int {
+	t.Helper()
+	value, err := RightHashChain4(inputs)
+	return mustHash(t, value, err)
+}
+
 func TestHashChain4FoldsThreeElementsPerCall(t *testing.T) {
 	full := mustHashChain4(t, []*big.Int{fe(1), fe(2), fe(3), fe(4)})
 	if want := mustPoseidon(t, 5, []*big.Int{fe(1), fe(2), fe(3), fe(4)}); full.Cmp(want) != 0 {

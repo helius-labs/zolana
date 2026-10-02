@@ -8,7 +8,7 @@ use zolana_event::OutputDataEncoding;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_padded_input_count, MergeProofInputs,
+        merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
         MergeTransaction,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -92,7 +92,7 @@ fn recover(
 fn merge_count_boundaries_are_explicit() {
     let owner = keypair(7);
     for (count, padded) in [
-        (0, Some(8)),
+        (0, None),
         (1, Some(8)),
         (7, Some(8)),
         (8, Some(8)),
@@ -102,7 +102,7 @@ fn merge_count_boundaries_are_explicit() {
         (37, None),
         (usize::MAX, None),
     ] {
-        assert_eq!(merge_padded_input_count(count), padded);
+        assert_eq!(merge_circuit_width(count), padded);
     }
     assert_eq!(
         MergeTransaction::new(vec![]).err(),
@@ -185,6 +185,73 @@ fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
             result.output_hash().unwrap()
         );
     }
+}
+
+/// `new_compact` pads the merge circuit with compact slots. Each still derives
+/// the deterministic dummy nullifier of its slot, which its non-inclusion
+/// witness is fetched by, and publishes 0 instead.
+#[test]
+fn compact_merge_pads_with_compact_slots() {
+    let owner = keypair(7);
+    for (count, padded) in [(3, 8), (9, 36)] {
+        let notes = inputs(&owner, count);
+        let result = MergeTransaction::new_compact(notes.clone())
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        assert_eq!(result.input_utxos.len(), padded);
+        for (actual, expected) in result.input_utxos.iter().zip(&notes) {
+            assert_preserved(actual, expected);
+        }
+        let padding: Vec<_> = result.input_utxos.iter().skip(notes.len()).collect();
+        assert!(padding.iter().all(|input| input.is_compact()));
+        assert!(padding
+            .iter()
+            .all(|input| input.published_nullifier() == [0u8; 32]));
+        let first = result.input_utxos.first().unwrap().nullifier;
+        let expected: Vec<_> = (notes.len()..padded)
+            .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first, slot as u8).unwrap())
+            .collect();
+        assert_eq!(result.dummy_nullifiers(), expected);
+        result.check_padding().expect("compact merge padding");
+    }
+}
+
+/// SPP fills compact padding back in at the end and picks the circuit from the
+/// sent count, so a merge with compact padding elsewhere or at another width
+/// is refused before proving.
+#[test]
+fn merge_padding_must_match_what_spp_fills_back_in() {
+    let owner = keypair(7);
+    let compact = MergeTransaction::new_compact(inputs(&owner, 3))
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let tree_id = compact.input_utxos.first().unwrap().tree_id;
+
+    let mut dummy_after_compact = compact.clone();
+    *dummy_after_compact.input_utxos.get_mut(4).unwrap() =
+        SppProofInputUtxo::dummy(tree_id).unwrap();
+    assert!(matches!(
+        dummy_after_compact.check_padding(),
+        Err(TransactionError::InputAfterCompactPadding { index: 4 })
+    ));
+
+    let mut too_wide = compact;
+    too_wide
+        .input_utxos
+        .resize(36, SppProofInputUtxo::compact(tree_id).unwrap());
+    assert!(matches!(
+        too_wide.check_padding(),
+        Err(TransactionError::CompactMergeWidthMismatch { sent: 3, width: 36 })
+    ));
+
+    MergeTransaction::new(inputs(&owner, 3))
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap()
+        .check_padding()
+        .expect("deterministic dummies fill the circuit");
 }
 
 #[test]

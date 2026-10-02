@@ -306,6 +306,7 @@ impl VelocityPlanInput<'_> {
             tree_id: facts.live.tree_id,
             leaf_index: facts.live.leaf_index,
             cache_slot: None,
+            compact: false,
         };
         let output = SppProofOutputUtxo {
             asset: Mint::SOL,
@@ -322,6 +323,7 @@ impl VelocityPlanInput<'_> {
             owner_tag: Some(facts.namespace.to_bytes()),
             data: Data::default(),
             cache_slot: None,
+            compact: false,
         };
         let counters_body = CountersSeal {
             tx: self.tx_viewing_key,
@@ -466,6 +468,7 @@ mod tests {
             tree_id: 0,
             leaf_index: 0,
             cache_slot: None,
+            compact: false,
         }
     }
 

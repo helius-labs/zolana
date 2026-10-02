@@ -17,8 +17,8 @@ use zolana_interface::instruction::instruction_data::{
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
-        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
-        MERGE_SUPPORTED_INPUT_COUNTS,
+        merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
@@ -325,8 +325,8 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// The merge view decoder accepts exactly the supported input counts and
-    /// reads back the one root-index pair whatever its value.
+    /// The merge view decoder accepts every input count some supported circuit
+    /// holds and reads back the one root-index pair whatever its value.
     #[test]
     fn merge_shape_guard_accepts_exactly_the_supported_shapes(
         owned in strategies::merge_ix_data(),
@@ -345,7 +345,7 @@ proptest! {
         let bytes = resized.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            MERGE_SUPPORTED_INPUT_COUNTS.contains(&nullifier_count)
+            merge_circuit_width(nullifier_count).is_some()
         );
     }
 
@@ -355,19 +355,19 @@ proptest! {
     fn merge_ring_wrapper_enforces_the_embedded_shape(
         merge in strategies::merge_ix_data(),
         view_tag in any::<[u8; 32]>(),
-        drop_last_nullifier in any::<bool>(),
+        clear_nullifiers in any::<bool>(),
     ) {
         let mut owned = MergeRingIxData {
             output_ring_data_hash: view_tag,
             merge,
         };
-        if drop_last_nullifier {
-            owned.merge.nullifiers.pop();
+        if clear_nullifiers {
+            owned.merge.nullifiers.clear();
         }
         let bytes = owned.serialize().expect("serialize merge_ring ix");
         prop_assert_eq!(
             MergeRingIxDataRef::from_bytes(&bytes).is_ok(),
-            !drop_last_nullifier
+            !clear_nullifiers
         );
     }
 

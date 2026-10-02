@@ -1,15 +1,10 @@
 use zolana_keypair::ShieldedAddress;
 
-use super::{MergeProofInputs, MAX_MERGE_INPUTS, MERGE_SUPPORTED_INPUT_COUNTS};
-use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo};
-
-pub fn merge_padded_input_count(real_inputs: usize) -> Option<usize> {
-    MERGE_SUPPORTED_INPUT_COUNTS
-        .iter()
-        .copied()
-        .filter(|supported| *supported >= real_inputs)
-        .min()
-}
+use super::{merge_circuit_width, MergeProofInputs, MAX_MERGE_INPUTS};
+use crate::{
+    error::TransactionError, instructions::transact::real_slot_after_dummy,
+    utxo::SppProofInputUtxo, Mint, WalletUtxo,
+};
 
 pub(crate) fn validate_merge_inputs(
     inputs: &[WalletUtxo],
@@ -19,7 +14,7 @@ pub(crate) fn validate_merge_inputs(
         return Err(TransactionError::NoInputs);
     }
     let padded_input_count =
-        merge_padded_input_count(inputs.len()).ok_or(TransactionError::TooManyInputs {
+        merge_circuit_width(inputs.len()).ok_or(TransactionError::TooManyInputs {
             got: inputs.len(),
             max: MAX_MERGE_INPUTS,
         })?;
@@ -69,10 +64,15 @@ pub(crate) struct MergeInputs {
     pub padded_input_count: usize,
 }
 
+/// Pad with one dummy per entry of `dummy_nullifiers`, the slot's derived
+/// merge dummy nullifier. With `compact` set the padding is compact: it
+/// publishes 0 instead, while the circuit still proves the derived nullifier
+/// absent.
 pub(crate) fn pad_with_dummies(
     inputs: &mut Vec<SppProofInputUtxo>,
     padded_input_count: usize,
     dummy_nullifiers: &[[u8; 32]],
+    compact: bool,
 ) -> Result<(), TransactionError> {
     let want =
         padded_input_count
@@ -81,15 +81,19 @@ pub(crate) fn pad_with_dummies(
                 got: inputs.len(),
                 max: padded_input_count,
             })?;
+    let tree_id = inputs.first().ok_or(TransactionError::NoInputs)?.tree_id;
     if dummy_nullifiers.len() != want {
         return Err(TransactionError::IncompleteDerivation {
             got: dummy_nullifiers.len(),
             want,
         });
     }
-    let tree_id = inputs.first().ok_or(TransactionError::NoInputs)?.tree_id;
     for nullifier in dummy_nullifiers {
-        let mut input = SppProofInputUtxo::dummy(tree_id)?;
+        let mut input = if compact {
+            SppProofInputUtxo::compact(tree_id)?
+        } else {
+            SppProofInputUtxo::dummy(tree_id)?
+        };
         input.nullifier = *nullifier;
         inputs.push(input);
     }
@@ -121,6 +125,30 @@ impl MergeProofInputs {
             .collect()
     }
 
+    /// SPP fills compact padding back in at the end and picks the circuit from
+    /// the sent count, so compact padding must come last and a merge carrying
+    /// it must be exactly as wide as its sent inputs select.
+    pub fn check_padding(&self) -> Result<(), TransactionError> {
+        if let Some(index) =
+            real_slot_after_dummy(self.input_utxos.iter().map(SppProofInputUtxo::is_compact))
+        {
+            return Err(TransactionError::InputAfterCompactPadding { index });
+        }
+        let width = self.input_utxos.len();
+        let sent = self
+            .input_utxos
+            .iter()
+            .filter(|input| !input.is_compact())
+            .count();
+        if sent != width && merge_circuit_width(sent) != Some(width) {
+            return Err(TransactionError::CompactMergeWidthMismatch { sent, width });
+        }
+        Ok(())
+    }
+
+    /// The nullifiers to fetch non-inclusion witnesses for besides the real
+    /// spends: every padding slot, compact or not. Compact padding publishes 0
+    /// but proves its derived nullifier absent.
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()

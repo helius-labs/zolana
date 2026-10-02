@@ -99,6 +99,10 @@ required-features = ["indexer-api"]
 [[test]]
 name = "assembly_vectors"
 
+# Hermetic: the public input hash vectors the TS SDK pins.
+[[test]]
+name = "public_input_hash_vectors"
+
 # Hermetic: pure witness assembly across two input trees.
 [[test]]
 name = "multi_tree_spend"

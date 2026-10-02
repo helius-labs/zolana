@@ -17,6 +17,26 @@ fn validate(
     actual_inputs: usize,
     actual_outputs: usize,
 ) -> ProgramResult {
+    validate_with(
+        circuit,
+        instruction,
+        actual_inputs,
+        actual_outputs,
+        [1u8; 32],
+        [1u8; 32],
+    )
+}
+
+/// `nullifier` and `utxo_hash` fill every sent input and output; zero marks
+/// compact padding, which the instruction never carries.
+fn validate_with(
+    circuit: CircuitId,
+    instruction: InstructionTag,
+    actual_inputs: usize,
+    actual_outputs: usize,
+    nullifier: [u8; 32],
+    utxo_hash: [u8; 32],
+) -> ProgramResult {
     let ix = TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [0u8; 32],
@@ -26,7 +46,7 @@ fn validate(
         proof: TransactProof::zeroed(),
         inputs: (0..actual_inputs)
             .map(|_| InputUtxo {
-                nullifier_hash: [0u8; 32],
+                nullifier_hash: nullifier,
                 tree_index: 0,
             })
             .collect(),
@@ -35,7 +55,7 @@ fn validate(
         ring_data_hash: None,
         outputs: (0..actual_outputs)
             .map(|_| TransactOutput {
-                utxo_hash: [0u8; 32],
+                utxo_hash,
                 owner_tag: OwnerTag::Inline([0u8; 32]),
                 data: None,
             })
@@ -102,10 +122,13 @@ fn selector_dimensions_are_fail_closed() {
     let valid = CircuitId::ConfidentialEddsa(2, 3, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
-    assert_eq!(
-        validate(valid, InstructionTag::Transact, 1, 3),
-        invalid_shape
-    );
+    for (inputs, outputs) in [(0, 3), (3, 3), (2, 4)] {
+        assert_eq!(
+            validate(valid, InstructionTag::Transact, inputs, outputs),
+            invalid_shape,
+            "{inputs} inputs, {outputs} outputs"
+        );
+    }
     assert_eq!(
         validate(
             CircuitId::ConfidentialEddsa(2, 3, 2),
@@ -175,6 +198,43 @@ fn selector_dimensions_are_fail_closed() {
     assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 3), Ok(()));
 }
 
+/// The instruction carries at least one input and at most the circuit's slots;
+/// the missing suffix is compact padding. A sent zero would be indistinguishable
+/// from that padding, so it is rejected.
+#[test]
+fn compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected() {
+    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
+    for (inputs, outputs) in [(1, 3), (2, 1), (1, 0)] {
+        assert_eq!(
+            validate(circuit, InstructionTag::Transact, inputs, outputs),
+            Ok(()),
+            "{inputs} inputs, {outputs} outputs"
+        );
+    }
+    assert_eq!(
+        validate_with(
+            circuit,
+            InstructionTag::Transact,
+            1,
+            0,
+            [0u8; 32],
+            [1u8; 32]
+        ),
+        Err(ShieldedPoolError::ZeroInputNullifier.into())
+    );
+    assert_eq!(
+        validate_with(
+            circuit,
+            InstructionTag::Transact,
+            1,
+            1,
+            [1u8; 32],
+            [0u8; 32]
+        ),
+        Err(ShieldedPoolError::ZeroOutputUtxoHash.into())
+    );
+}
+
 /// A cached selector rides the same instruction as its rail: the cache picks no
 /// circuit, so it cannot move a spend between the default and ring tags. Ring
 /// authority has no cached twin at all.
@@ -235,6 +295,42 @@ fn cache_writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheW
         };
     }
     out
+}
+
+/// With compact padding the instruction sends fewer slots than the circuit
+/// has. Cache reads and writes are checked against the sent slots, so a read
+/// count or a write target that only the compact padding would cover is
+/// rejected.
+#[test]
+fn a_cached_selector_counts_only_the_sent_slots() {
+    use zolana_interface::verifying_keys::CacheAccess;
+    for (read_bitmap, write_slots, valid) in [
+        (0b1, CacheAccess::NO_WRITES, true),
+        (0b11, CacheAccess::NO_WRITES, false),
+        (0, cache_writes(&[(0, 5)]), true),
+        (0, cache_writes(&[(1, 5)]), false),
+        (0, cache_writes(&[(2, 5)]), false),
+    ] {
+        let access = CacheAccess {
+            read_bitmap,
+            write_slots,
+        };
+        let expected = if valid {
+            Ok(())
+        } else {
+            Err(ShieldedPoolError::InvalidCacheBitmap.into())
+        };
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsaCached(2, 3, 3, access),
+                InstructionTag::Transact,
+                1,
+                1
+            ),
+            expected,
+            "{access:?}"
+        );
+    }
 }
 
 #[test]

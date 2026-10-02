@@ -452,7 +452,9 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
-    use zolana_interface::instruction::instruction_data::MERGE_SUPPORTED_INPUT_COUNTS;
+    use zolana_interface::instruction::instruction_data::{
+        merge_circuit_width, MERGE_SUPPORTED_INPUT_COUNTS,
+    };
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
@@ -844,22 +846,24 @@ fn tx_size(args: Vec<String>) {
     // addr` the distinct message addresses the 64 cap applies to.
     println!("Builder layouts with nullifier PDAs (one writable PDA per input):");
     println!(
-        "| {:<36} | {:>8} | {:>11} | {:>18} |",
+        "| {:<42} | {:>8} | {:>11} | {:>18} |",
         "transaction", "accounts", "ix data (B)", "v1 tx (B/addr)",
     );
-    println!("|{:-<38}|{:-<10}|{:-<13}|{:-<20}|", "", "", "", "");
+    println!("|{:-<44}|{:-<10}|{:-<13}|{:-<20}|", "", "", "", "");
     let tree = Pubkey::new_unique();
     let ring_config = Pubkey::new_unique();
     let transact_row = |label: String, ix: Instruction| {
         println!(
-            "| {:<36} | {:>8} | {:>11} | {:>18} |",
+            "| {:<42} | {:>8} | {:>11} | {:>18} |",
             label,
             ix.accounts.len(),
             ix.data.len(),
             v1_cell(v1_tx_size(std::slice::from_ref(&ix))),
         );
     };
-    let transact_ix = |n: usize, m: usize, circuit: Option<CircuitId>| -> Instruction {
+    // `(circuit_n, circuit_m)` is the circuit shape. A circuit wider than the
+    // sent `n` and `m` uses compact padding, which the instruction leaves out.
+    let transact_ix = |n: usize, m: usize, (circuit_n, circuit_m): (usize, usize)| -> Instruction {
         let spec = transfer_layout(
             m,
             OwnerTag::Account(0),
@@ -870,9 +874,8 @@ fn tx_size(args: Vec<String>) {
         for (index, input) in data.inputs.iter_mut().enumerate() {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
-        if let Some(circuit) = circuit {
-            data.circuit = circuit;
-        }
+        data.circuit =
+            CircuitId::ConfidentialEddsa(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
         zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
@@ -911,7 +914,16 @@ fn tx_size(args: Vec<String>) {
     for (n, m) in [(2usize, 3usize), (3, 3), (5, 3), (36, 2)] {
         transact_row(
             format!("transact {n} in {m} out, transfer"),
-            transact_ix(n, m, None),
+            transact_ix(n, m, (n, m)),
+        );
+    }
+    for (n, m, circuit) in [(1usize, 3usize, (2usize, 3usize)), (9, 2, (36, 2))] {
+        transact_row(
+            format!(
+                "transact {n} in {m} out, {}x{} compact",
+                circuit.0, circuit.1
+            ),
+            transact_ix(n, m, circuit),
         );
     }
     {
@@ -941,7 +953,8 @@ fn tx_size(args: Vec<String>) {
             ),
         );
     }
-    for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
+    // A count below its circuit width is a merge with compact padding.
+    for input_count in MERGE_SUPPORTED_INPUT_COUNTS.into_iter().chain([3, 9]) {
         use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
         use zolana_program::instruction::MergeTransact;
         let nullifiers = (0..input_count)
@@ -969,6 +982,12 @@ fn tx_size(args: Vec<String>) {
             cache: None,
         }
         .instruction();
+        let label = match merge_circuit_width(input_count) {
+            Some(width) if width != input_count => {
+                format!("merge {input_count} in 1 out, {width} compact")
+            }
+            _ => format!("merge {input_count} in 1 out"),
+        };
         let merge_ix_accounts = merge_ix.accounts.len();
         let merge_ix_data_len = merge_ix.data.len();
         let sync_ix = zolana_smart_account_client::execute_sync_ix(
@@ -978,15 +997,15 @@ fn tx_size(args: Vec<String>) {
             std::slice::from_ref(&merge_ix),
         );
         println!(
-            "| {:<36} | {:>8} | {:>11} | {:>18} |",
-            format!("merge {input_count} in 1 out, direct"),
+            "| {:<42} | {:>8} | {:>11} | {:>18} |",
+            format!("{label}, direct"),
             merge_ix_accounts,
             merge_ix_data_len,
             v1_cell(v1_tx_size(std::slice::from_ref(&merge_ix))),
         );
         println!(
-            "| {:<36} | {:>8} | {:>11} | {:>18} |",
-            format!("merge {input_count} in 1 out, execute_sync"),
+            "| {:<42} | {:>8} | {:>11} | {:>18} |",
+            format!("{label}, execute_sync"),
             sync_ix.accounts.len(),
             sync_ix.data.len(),
             v1_cell(v1_tx_size(std::slice::from_ref(&sync_ix))),

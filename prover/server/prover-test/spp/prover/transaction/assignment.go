@@ -91,7 +91,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees)
+	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees, tx.CompactPadding)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -116,7 +116,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	outputs, err := buildOutputWitnesses(shape, tx.Outputs, firstNullifier, outputBlindingSeed, trees.outputTreeID)
+	outputs, err := buildOutputWitnesses(shape, tx.Outputs, firstNullifier, outputBlindingSeed, trees.outputTreeID, tx.CompactPadding)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -342,7 +342,7 @@ func buildPublicInputs(
 	trees proofTrees,
 ) (protocol.PublicInputs, error) {
 	// Padding must reuse an owner identity already bound to real transaction
-	// content.
+	// content. Compact padding publishes owner tag 0 instead.
 	var participantTag *big.Int
 	for _, ownerPkHash := range inputs.inputOwnerPkHashes {
 		if ownerPkHash != nil && ownerPkHash.Sign() != 0 {
@@ -359,7 +359,8 @@ func buildPublicInputs(
 		}
 	}
 	for i, ownerPkHash := range outputs.outputOwnerPkHashes {
-		if participantTag != nil && (ownerPkHash == nil || ownerPkHash.Sign() == 0) {
+		isCompact := outputs.hashes[i].Sign() == 0
+		if participantTag != nil && !isCompact && (ownerPkHash == nil || ownerPkHash.Sign() == 0) {
 			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}

@@ -81,11 +81,11 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	if inputs.OutputTreeID == nil {
 		return nil, fmt.Errorf("spp: public input hash: output tree id is required")
 	}
-	nullifierChain, err := HashChain4(inputs.Nullifiers)
+	nullifierChain, err := RightHashChain4(inputs.Nullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier chain: %w", err)
 	}
-	outputChain, err := HashChain4(inputs.OutputUtxoHashes)
+	outputChain, err := RightHashChain4(inputs.OutputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash output chain: %w", err)
 	}
@@ -117,7 +117,7 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.InputFlags,
 	)
 	if inputs.BindOutputOwnerTags {
-		outputOwnerChain, err := HashChain4(inputs.OutputOwnerPkHashes)
+		outputOwnerChain, err := RightHashChain4(inputs.OutputOwnerPkHashes)
 		if err != nil {
 			return nil, fmt.Errorf("spp: public input hash output owner chain: %w", err)
 		}

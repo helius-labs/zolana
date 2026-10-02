@@ -14,6 +14,7 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
 import { CACHE_CAPACITY } from "../../interface/state.js";
@@ -31,7 +32,7 @@ import {
   bytesToBigInt,
   checkedBytes,
   field,
-  hashChain4,
+  rightHashChain4,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import {
@@ -108,11 +109,15 @@ export function assembleMergeWithProofs(
 function checkedMergeCacheTarget(cache: MergeCacheTarget): MergeCacheTarget {
   const candidate: unknown = cache;
   if (typeof candidate !== "object" || candidate === null) {
-    throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", { details: { field: "cache" } });
+    throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", {
+      details: { field: "cache" },
+    });
   }
   addressBytes(cache.address);
   if (!Number.isSafeInteger(cache.slot) || cache.slot < 0 || cache.slot >= CACHE_CAPACITY) {
-    throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", { details: { field: "slot" } });
+    throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", {
+      details: { field: "slot" },
+    });
   }
   return Object.freeze({ address: cache.address, slot: cache.slot });
 }
@@ -135,7 +140,11 @@ function assembleMergeUnchecked(
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
   if (proofs.length !== realInputs.length) {
     throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
-      details: { expected: realInputs.length, state: proofs.length, nullifier: proofs.length },
+      details: {
+        expected: realInputs.length,
+        state: proofs.length,
+        nullifier: proofs.length,
+      },
     });
   }
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
@@ -154,6 +163,8 @@ function assembleMergeUnchecked(
   let proofIndex = 0;
   let dummyIndex = 0;
   for (const [index, input] of prepared.inputs.entries()) {
+    // A padding slot proves non-inclusion of its deterministic dummy
+    // nullifier; compact padding publishes 0 in its place.
     if (input.isDummy()) {
       if (inputTree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
       const nullifier = dummyNullifiers[dummyIndex];
@@ -174,7 +185,11 @@ function assembleMergeUnchecked(
         });
       }
       checkNullifierRoot(inputTree, proof, index);
-      const converted = createDummyTransferInput(input, proof, nullifier);
+      const converted = createDummyTransferInput(
+        input,
+        proof,
+        input.isCompact() ? input.publishedNullifier() : nullifier,
+      );
       inputs.push(converted);
       continue;
     }
@@ -216,7 +231,9 @@ function assembleMergeUnchecked(
         !equal(proof.state.root, inputTree.slot.utxoRoot) ||
         proof.state.rootIndex !== inputTree.utxoRootIndex
       ) {
-        throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", { details: { index } });
+        throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", {
+          details: { index },
+        });
       }
       checkNullifierRoot(inputTree, proof.nullifier, index);
     }
@@ -243,6 +260,38 @@ function assembleMergeUnchecked(
       publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
     }),
   });
+}
+
+interface MergePublicInputFields {
+  /** One per circuit slot, 0 for compact padding. */
+  readonly nullifiers: readonly bigint[];
+  readonly outputHash: bigint;
+  readonly outputTreeId: TreeId;
+  readonly privateTxHash: bigint;
+  readonly externalDataHash: bigint;
+  /**
+   * The owner binding: the signing and nullifier public keys on the plain
+   * rail, the output ring data hash and ring program id on a ring merge.
+   */
+  readonly owner: readonly [bigint, bigint];
+}
+
+/**
+ * The merge public inputs without the tree slots, which
+ * `resolvedPublicInputHash` inserts. The nullifier chain folds to the right
+ * over the circuit width; the 1 is the dummy-input policy merge always
+ * publishes. Mirrors the element order of Rust `MergeProver::build`.
+ */
+export function mergePublicInputs(input: MergePublicInputFields): readonly bigint[] {
+  return [
+    rightHashChain4(input.nullifiers),
+    input.outputHash,
+    bytesToBigInt(treeIdField(input.outputTreeId)),
+    input.privateTxHash,
+    input.externalDataHash,
+    1n,
+    ...input.owner,
+  ];
 }
 
 interface PreparedMergeAssembly {
@@ -273,15 +322,29 @@ export function prepareMerge(
   });
   const dummyNullifiers = prepared.dummyNullifiers();
   let dummyIndex = 0;
-  const inputs = prepared.inputs.map((input) => {
+  // A padding slot's deterministic dummy nullifier is what the prover fetches
+  // the witness for; compact padding publishes 0 and carries it in its lookup.
+  const slots = prepared.inputs.map((input, index) => {
     const nullifier = input.isDummy() ? dummyNullifiers[dummyIndex++] : input.nullifier();
     if (nullifier === undefined) throw new ClientError("CLIENT_INVALID_MERGE");
     const owner =
       input.isDummy() || input.utxo.owner.signatureType() === "p256"
         ? 0n
         : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
-    return prepareInput(input, { owner, treeSlot: 0, nullifier });
+    return Object.freeze({
+      input: prepareInput(input, {
+        owner,
+        treeSlot: 0,
+        nullifier: input.isCompact() ? input.publishedNullifier() : nullifier,
+      }),
+      lookup: Object.freeze({
+        treeSlot: 0,
+        commitment: commitments[index] ?? null,
+        nullifier: input.isCompact() ? nullifier : null,
+      }),
+    });
   });
+  const inputs = slots.map((slot) => slot.input);
   const inputHashes = commitments.map(
     (commitment) => commitment ?? (new Uint8Array(32) as Bytes32),
   );
@@ -317,17 +380,20 @@ export function prepareMerge(
     "merge owner public key",
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
-  const publicInputs = [
-    hashChain4(nullifiers.map(bytesToBigInt)),
-    bytesToBigInt(outputHash),
-    outputTreeIdField,
-    bytesToBigInt(privateTxHash),
-    bytesToBigInt(externalDataHash),
-    1n,
-    ...(prepared.output.ringProgramId === undefined
-      ? [ownerPublicKeyHash, bytesField(prepared.nullifierPublicKey, "merge nullifier public key")]
-      : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)]),
-  ].map(asField);
+  const publicInputs = mergePublicInputs({
+    nullifiers: nullifiers.map(bytesToBigInt),
+    outputHash: bytesToBigInt(outputHash),
+    outputTreeId: prepared.outputTreeId,
+    privateTxHash: bytesToBigInt(privateTxHash),
+    externalDataHash: bytesToBigInt(externalDataHash),
+    owner:
+      prepared.output.ringProgramId === undefined
+        ? [
+            ownerPublicKeyHash,
+            bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
+          ]
+        : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
+  }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
@@ -347,9 +413,7 @@ export function prepareMerge(
       circuit: "merge",
       payload,
       trees: Object.freeze([{ tree, id: prepared.inputTreeId }]),
-      lookups: Object.freeze(
-        commitments.map((commitment) => Object.freeze({ treeSlot: 0, commitment })),
-      ),
+      lookups: Object.freeze(slots.map((slot) => slot.lookup)),
       publicInputs: Object.freeze(publicInputs),
     }),
     finish(inputTree: MergeInputTree): Omit<MergeAssembly, "proverInputs"> {
@@ -372,8 +436,11 @@ export function prepareMerge(
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
           eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
+          // The trailing compact padding is left out; SPP fills it back in.
           nullifiers: Object.freeze(
-            nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
+            nullifiers
+              .filter((_nullifier, index) => !prepared.inputs[index]?.isCompact())
+              .map((nullifier) => new Uint8Array(nullifier) as Bytes32),
           ),
           utxoTreeRootIndex,
           nullifierTreeRootIndex,
@@ -409,7 +476,10 @@ function validateMergeTree(prepared: PreparedMerge, tree: Address): void {
   // and the instruction would name different trees.
   if (treeAddress(prepared.inputTreeId) !== tree) {
     throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
-      details: { proofTree: treeAddress(prepared.inputTreeId), submitTree: tree },
+      details: {
+        proofTree: treeAddress(prepared.inputTreeId),
+        submitTree: tree,
+      },
     });
   }
   // The merge instruction appends its output to the same tree it spends from,
@@ -420,7 +490,10 @@ function validateMergeTree(prepared: PreparedMerge, tree: Address): void {
     prepared.outputTreeId !== prepared.inputTreeId
   ) {
     throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
-      details: { expected: prepared.inputTreeId, actual: prepared.outputTreeId },
+      details: {
+        expected: prepared.inputTreeId,
+        actual: prepared.outputTreeId,
+      },
     });
   }
 }
@@ -434,7 +507,9 @@ function checkNullifierRoot(
     !equal(proof.root, inputTree.slot.nullifierRoot) ||
     proof.rootIndex !== inputTree.nullifierRootIndex
   ) {
-    throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", { details: { index } });
+    throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", {
+      details: { index },
+    });
   }
 }
 
@@ -443,7 +518,10 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
   const actual = prepared.inputs.length;
   if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(actual)) {
     throw new ClientError("CLIENT_INVALID_MERGE_SHAPE", {
-      details: { expected: mergePaddedInputCount(actual) ?? MAX_MERGE_INPUTS, actual },
+      details: {
+        expected: mergePaddedInputCount(actual) ?? MAX_MERGE_INPUTS,
+        actual,
+      },
     });
   }
   let total = 0n;

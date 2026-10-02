@@ -23,62 +23,62 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "custom_ring_policy.key": "1ebc92edebf9f7e6e4c53194a8035e21b6785bee0e8c4e2f7422b1e44d1a72a1",
   "custom_ring_register_key.key":
     "926bc02fe4d70f3d8163e190a572be82f8a0506e4ce734525fd3f92cf40c3357",
-  "merge_36_1.key": "c05dc613ce883772e1c05647372d3e6c3c4b625520c70c99f0ebd2f96b032566",
-  "merge_8_1.key": "a07f3162ea07718f682107fb471049401b0f61bc19d2f54ba3753f631e9530db",
-  "merge_ring_36_1.key": "568950c44c8377ce78c5e03e384ae420218e6987cf9e3aba184017cbc0ac0e29",
-  "merge_ring_8_1.key": "599ea8df030a25d60a5f6249bafddd4d592cb2c3684aeb8b0e7ced3d213d3fa2",
+  "merge_36_1.key": "1016cdc79936663de73fa25d4bd8ebb056b51f0d471a3f353af740bb7e795192",
+  "merge_8_1.key": "f59571876452541eaf20cfc583a082b9b6cc788bf85719bd337398b2d962ad23",
+  "merge_ring_36_1.key": "a0887f5431f12dfa16f6f2e661f4688c0d45538c96c7a1e7f50f41e232ca13c8",
+  "merge_ring_8_1.key": "9a191ebe9f60c8006b03f9c45850b252246d1767e100f4510b0d271767d41ad4",
   "transfer_confidential_1_1.key":
-    "3f7f1ad4afc1d8a8172eb04ee56493be8a6a05f6d89c212ccbc9d42c799de994",
+    "329c4f7d4a7e68b06c49876bd6c3f22ab89c7679c978c866c4a6cdfb92d9a998",
   "transfer_confidential_1_2.key":
-    "48200e966af55ac370128e9e79d6a5b422be048d9bec2dc3f0f91d2092013c99",
+    "542d4eff2a8826bcbe6088dd10ac2da0d11e606d70ccb27610e483a372d1cbc9",
   "transfer_confidential_1_8.key":
-    "35564a323f154743f58d71ff40315d7504dbf55be4cc60d060d0bec2bf4eb8cc",
+    "e7fd7c2866d2335038497bb24d91a88a6ecf760731efb0befce91ab4174e79ce",
   "transfer_confidential_2_2.key":
-    "e95ea566da49db5ffa4996a7ad044fa27eb2490f4b7a6290c9511ff991fd9b90",
+    "1e76d991cad1c33444a9d7c18b855861abb3f5b03451a0e9386c8d86c061b73b",
   "transfer_confidential_2_3.key":
-    "5deb467c5101c60341f2041762774c19d96da2984472ac9c5461ef5686881838",
+    "e7c41dfcbfd8cd9367860e866e95632cb64b7bedd9a4c6cb56af81f1c39cb84a",
   "transfer_confidential_36_2.key":
-    "7c144baeab0a95ddf997bddaef9ba490d11e04c9fa0fa39eb5466d3a771adc92",
+    "f957d9d4e0f0e724ebe3553f35baea43f45f2544e1d15f4957752a4139dfaaba",
   "transfer_confidential_3_3.key":
-    "deefea4760b4330520e00f8babebb9539883ac85f8cc3eba53373d0098f7aaf4",
+    "40bd74eff9865e53be3eeaebaee8d81c04b8a3b6d1607a6968b24284805e7dcc",
   "transfer_confidential_4_3.key":
-    "cb7118fbda360e3b5f7377626619a4f560f9cf25c97b8de69675968321a5b336",
+    "f4af25c73d0c4b40b52b82cbe1f390030f034bf01adf33050a317c9fc1bc6f79",
   "transfer_confidential_4_4.key":
-    "e71eed09c5d349e68553f065051ca479ff22f523f01176bfb0d24db7706aacc7",
+    "f427fa6c6d70d50a5c206bbe1ae5430d5210e03c299d1896cb318ae2e94f499c",
   "transfer_confidential_5_3.key":
-    "7fca62e7d512b3d128f0d39f366116056b689b42781ab00365e4c1ac84d4c80a",
+    "b543b4bd6f428d582875c1e0eb3ecf2f954b0b2ed39609cbff69cbd77a46a2f8",
   "transfer_confidential_5_4.key":
-    "a9bfb2414951a7fe20a86e0cc040e131a6d088d1f181f3186cd37c1bedbddcd7",
-  "transfer_p256_ring_1_1.key": "17cff01e615492feb8ad9f993f914b4391e1063a42f09ea6d983aeceb8cd4378",
-  "transfer_p256_ring_1_2.key": "758cdf47d86c1b0027494fdd8b75609d75b09474a19fe7924dea7a9cdd3a85fe",
-  "transfer_p256_ring_1_8.key": "cd9153cea4d5b292284c23761167b7f95d7c43cc9f4afffb7616bb8041f11500",
-  "transfer_p256_ring_2_2.key": "270a1f4c94f1ea3f3b5f18e9a093cb6aaac346f39a600feb5ca848d17aca0fbe",
-  "transfer_p256_ring_2_3.key": "f2cdab193e8bd5593439dfe537f06a857e17ae31b1a5f7ed316f2a337b698915",
-  "transfer_p256_ring_36_2.key": "86c295d36ad58ef0352d47ee7119af4ba89e8581dd610604e7712ca912bbc334",
-  "transfer_p256_ring_3_3.key": "1a4d13b95d9e1ae8988f91599680bfaa0cad3b94a56bd964df74c0c56c991a5f",
-  "transfer_p256_ring_4_3.key": "22dda5a1c782b2bc45ad1b6beb3ff5337d68e2df8cf38f82fe50806c2be6355d",
-  "transfer_p256_ring_4_4.key": "448f1827f463cf2e14009b5f420de4da46fe5c10d4097ef268f3d97f166e0b10",
-  "transfer_p256_ring_5_3.key": "76e61116810353db8950a3923a51bc34a206ba8610e30f12f2a86b04a6c2a040",
-  "transfer_p256_ring_5_4.key": "90678dfe1f38fa329261c567605aad3ea525e75a07b2c8ee074d9264f1719365",
-  "transfer_ring_1_1.key": "09009322531ca9380b174ae82c324ffcf1f3692f8efda822ee85da302bc1df3c",
-  "transfer_ring_1_2.key": "bb1da6113ce4f20cfc062703a7c86e78a5dacc7123a8e3f39deb3f0a19fd69fc",
-  "transfer_ring_1_8.key": "2adef2103706bc1c6077df9e2313271eff3075c52b1cb544b77072edbc62ad7c",
-  "transfer_ring_2_2.key": "b6d58e31a03abb044032e844177c3804e6d8729970543e2583094720c136ae6f",
-  "transfer_ring_2_3.key": "ee3a8b30a90454f1db40eb5d70458f9db05628eb0bf04259909a9dedf0cf1b9d",
-  "transfer_ring_36_2.key": "4e4decd490528df1ef4fe3fdb4bb55d7c13e8c348eb20350e0ffe3ce40634574",
-  "transfer_ring_3_3.key": "8515fe347cd41cd5428b1f64653747353848f996e2b44ccb93fdb7921246e17c",
-  "transfer_ring_4_3.key": "e9a9b0ec39efb9aac72186843ee5ac6410434f2714d38f3c5ef6f58c899dcfab",
-  "transfer_ring_4_4.key": "b984211480a0547ec38626fcd1f09f9fde0ed9a5d61a62b3f3880443540bdf24",
-  "transfer_ring_5_3.key": "11e505a662b7cefca9db757049c32044096b2bf28d2cecfeab42e82e73b142ae",
-  "transfer_ring_5_4.key": "e173ec1d7220c837ac0f55616f09d0bcf05e7266aa8f1833b1c0dfaa6133e1bc",
+    "7c16743714e757447470956aa2017261e836ad2711bca63a230c92aaea949f7e",
+  "transfer_p256_ring_1_1.key": "e6a59ecfb0c09c1fc3af7a8b6783012bdec9e153f6af2cf31c276eea5082c13a",
+  "transfer_p256_ring_1_2.key": "e3a5c3182017b3d02c5a3a4fdc023d210616586e26bc753771343f15f16b78f1",
+  "transfer_p256_ring_1_8.key": "87eb080c65036b0d5d2bd22c37e4f318d15bec75f9abe6178ffeaa01b5997c00",
+  "transfer_p256_ring_2_2.key": "03006e7bd8591c0c9446cc77517797239bbd437cc3f3204e18ba40a693af7e8d",
+  "transfer_p256_ring_2_3.key": "697ca72692d82042743915ff032e9110ebe6528a110db2e25cb9d5ce388d41fd",
+  "transfer_p256_ring_36_2.key": "8e3d929f8700ceac799b0235cf831b6db42a436461e213da84b2f53aff9d687e",
+  "transfer_p256_ring_3_3.key": "ca824818029bf25c3cd954e300db4176d84556908788eee951b95b55228756db",
+  "transfer_p256_ring_4_3.key": "0ac7f0b6de9a46c8a92d6c6396e5ed3fa79d7e85d7f248c1d1255ca9e0c5db2b",
+  "transfer_p256_ring_4_4.key": "8b1c2269a01b7b18b7b8af78d6503b988090bf96fe674ab99fed761423c61f97",
+  "transfer_p256_ring_5_3.key": "fdd5ca4c35c3415bf7a09c8788143773f020427a490d7f2b0a28c84c2b3b2197",
+  "transfer_p256_ring_5_4.key": "4cf9770d0a3e26f05cd5602bfe40408d10cef1752ad72526b02a72ceeea1d688",
+  "transfer_ring_1_1.key": "c29831966e1d395526c50704ab2184382688a8aa8a1a2dbf0751e69f3e117347",
+  "transfer_ring_1_2.key": "acfba67724c5dd61706db0ce19332be1209d9ac9fa81189522f47cef76aa60a4",
+  "transfer_ring_1_8.key": "7e3ffc229050a1d6d6a9e4348b6bd11604108c53599c319a3dd59f5158059ba3",
+  "transfer_ring_2_2.key": "e7330afca55fee5cda6e02412d30d5191359d0528460790a215d90bb01c7a333",
+  "transfer_ring_2_3.key": "919951294d38d80400254aa6d349bfb2fd910c70aaee458e52d5d77f62ce4def",
+  "transfer_ring_36_2.key": "fe77128789e649ad0ac461262e4282c2887d6ac34b44622c913d4b58226b4467",
+  "transfer_ring_3_3.key": "5b551fd7f43ec513d09bfba09e00e47842ac70ebd3abff2e8fc47a9f7f80d777",
+  "transfer_ring_4_3.key": "3a4d687eacf434144195dd5e8d197aae2ccf6a2ff01ee38c23d4c5de10c79128",
+  "transfer_ring_4_4.key": "b823647102dd91acd90facb5eeb50803eb745b146ea0ba3ac059d10c90fe5257",
+  "transfer_ring_5_3.key": "5e0c0dfc352592aa52c6f6f5b81b1cd585c661c9f3492258332e0ec2621445cd",
+  "transfer_ring_5_4.key": "847519de8b1bad0d4f715faa6a982026590c114f3a9906a0e1e56d1537cfa988",
   "transfer_ring_authority_1_1.key":
-    "c036435a11d56b856c18c2377caef97a41d6a18321df3b132cef0b58127dac51",
+    "b86ed2842d8e3b6f522fc40ac9a0d69e9f880ff042a6b7f606533406d06302f4",
   "transfer_ring_authority_2_2.key":
-    "8f17f191c50329c2912fa9b575fe6eee4bd885aba88a374a257becae4a7edf0a",
+    "6c6ed93af4dd604a24005873907167bf71b867163b6b3725089426aa22143d7d",
   "transfer_ring_authority_3_3.key":
-    "54fd75fe9058267173e2952c6435adc3b24347f79409ec79cd7cf4bff3f19daa",
+    "af9c9ba90015efeb0d14e8760587a052d72539dfdc0b85a984aa10e52ead306a",
   "transfer_ring_authority_4_4.key":
-    "b6872c00c1c1557ca54d2976d1c49ccbbb5456763726493a543df53c2a07cdad",
+    "1b274be694d93ff29eba85b756fd7c2c0bcc74e4299b0407fee58a6ff00cf76a",
 });
 
 /** A prove request's circuit, as the prover names its key file. */

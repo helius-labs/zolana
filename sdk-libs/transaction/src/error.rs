@@ -108,6 +108,15 @@ pub enum TransactionError {
     #[error("output slot {index} is real but follows a dummy; dummy outputs must come last")]
     RealOutputAfterDummy { index: usize },
 
+    #[error("input slot {index} follows compact padding; compact padding must come last")]
+    InputAfterCompactPadding { index: usize },
+
+    #[error("output slot {index} follows compact padding; compact padding must come last")]
+    OutputAfterCompactPadding { index: usize },
+
+    #[error("{sent} sent merge inputs select a different circuit than the {width}-input merge")]
+    CompactMergeWidthMismatch { sent: usize, width: usize },
+
     /// Padding is hashed under a declared input tree. A dummy naming any other
     /// tree is a caller mistake: its commitment and nullifier both fold the tree
     /// id in, so it cannot be relabelled after the fact.

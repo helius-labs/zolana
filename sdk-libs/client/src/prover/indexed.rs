@@ -92,6 +92,11 @@ pub struct IndexedLookup {
     pub tree_slot: u8,
     #[serde(serialize_with = "serialize_commitment")]
     pub commitment: Option<[u8; 32]>,
+    /// The nullifier to fetch the slot's non-inclusion witness by when the
+    /// witness does not name it: compact padding publishes 0 and carries its
+    /// derived nullifier here.
+    #[serde(serialize_with = "serialize_commitment")]
+    pub nullifier: Option<[u8; 32]>,
 }
 
 pub struct IndexedProofData {
@@ -602,6 +607,7 @@ mod tests {
             inputs: vec![IndexedLookup {
                 tree_slot: 0,
                 commitment: Some(scalar_one()),
+                nullifier: None,
             }],
             public_inputs: vec![scalar_one(); 17],
         }

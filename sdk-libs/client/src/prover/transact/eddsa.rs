@@ -41,6 +41,9 @@ pub struct TransferProver {
 pub struct TransferProofResult {
     pub inputs: TransferInputs,
     pub public_input_hash: [u8; 32],
+    /// Every circuit slot's published value, 0 for compact padding. The
+    /// instruction carries only the slots before the compact padding, so derive
+    /// nullifier PDAs from the instruction data, not from these.
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],

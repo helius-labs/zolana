@@ -400,7 +400,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
 	publicInputPreimage := []*big.Int{
-		hashChain4(t, pubNullifiers),
+		spptest.MustRightHashChain4(t, pubNullifiers),
 		outHash,
 		spptest.MustTreeSlotsHashChain(t, treeSlots),
 		outputTreeID,

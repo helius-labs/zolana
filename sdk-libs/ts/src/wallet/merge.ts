@@ -46,6 +46,7 @@ export interface MergeParams {
   readonly keys: ShieldedKeys;
   readonly asset: Address;
   readonly inputs?: readonly Bytes32[];
+  readonly compact?: boolean;
 }
 
 /** @internal */
@@ -102,6 +103,7 @@ export async function createMerge(
         keys: params.keys,
         inputs,
         invalidAnswers: () => new WalletError("WALLET_KEYS_BATCH_MISMATCH"),
+        ...(params.compact === true ? { compact: true } : {}),
       },
       context,
     );
@@ -161,6 +163,12 @@ export interface MergeTransactionParams {
   readonly asset?: Address;
   /** Up to `MAX_MERGE_INPUTS` named notes, else the `MERGE_INPUT_COUNT` smallest. */
   readonly inputs?: readonly Bytes32[];
+  /**
+   * Pads the merge with compact padding, which the transaction leaves out and
+   * which costs no nullifier account, queue entry or tree leaf, but reveals the
+   * real input count. Off by default.
+   */
+  readonly compact?: boolean;
   readonly approve?: ApprovalHandler;
 }
 
@@ -178,6 +186,7 @@ export async function buildMergeTransaction(
         keys: input.keys,
         asset: input.asset ?? SOL_MINT,
         ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
+        ...(input.compact === true ? { compact: true } : {}),
       },
       context,
     );

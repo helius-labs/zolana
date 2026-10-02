@@ -10,7 +10,10 @@ use zolana_client::{
     TransferP256Inputs, TreeSlotFields,
 };
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{
+        create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
+        create_right_hash_chain_from_slice,
+    },
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
 };
 use zolana_interface::{
@@ -227,8 +230,8 @@ impl RealRingTransact {
         let published_output_owner_pk_hashes = vec![zero; n_outputs];
 
         let mut chain = vec![
-            create_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
-            create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
+            create_right_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
+            create_right_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
             tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
             tree_id_field(tree_id),
             private_tx,
@@ -258,7 +261,7 @@ impl RealRingTransact {
             pack_input_flags(true, std::iter::repeat_n(0u8, n_inputs)).expect("input flags");
         chain.push(input_flags);
         chain.push(
-            create_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
+            create_right_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
                 .expect("output owner chain"),
         );
         // This helper spends from the state tree, so both ring rails publish the

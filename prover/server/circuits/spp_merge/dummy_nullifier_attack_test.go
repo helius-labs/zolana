@@ -24,12 +24,26 @@ import (
 // derived deterministically in-circuit via
 // MergeDummyNullifier(nullifierSecret, firstNullifier, slotIndex) and bound
 // to the published signal (shared/inputs.go), and distinctness covers
-// real and dummy slots alike.
+// real and dummy slots alike. A dummy may instead publish 0 (compact padding),
+// which SPP never queues; see compact_test.go.
 
 // refreshDefaultPublicInputHash recomputes the default-rail public input hash
 // from the fixture's current public columns, so a mutated witness fails only on
 // the constraint under test, not the hash binding.
 func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
+	t.Helper()
+	refreshPublicInputHash(t, f, f.userSigningPkHash, f.userNullifierPk)
+}
+
+// refreshRingPublicInputHash is refreshDefaultPublicInputHash for the ring rail.
+func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
+	t.Helper()
+	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID)
+}
+
+// refreshPublicInputHash hashes the common public columns followed by the
+// rail-specific tail.
+func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.Int) {
 	t.Helper()
 	asBigInts := func(vs []frontend.Variable) []*big.Int {
 		out := make([]*big.Int, len(vs))
@@ -38,17 +52,15 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 		}
 		return out
 	}
-	f.publicInputHash = hashChain4(t, []*big.Int{
-		hashChain4(t, asBigInts(f.public.Nullifiers)),
+	f.publicInputHash = hashChain4(t, append([]*big.Int{
+		spptest.MustRightHashChain4(t, asBigInts(f.public.Nullifiers)),
 		f.public.OutputHash.(*big.Int),
 		spptest.MustTreeSlotsHashChain(t, publicTreeSlots(f.public.TreeSlots)),
 		f.public.OutputTreeID.(*big.Int),
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
-		f.userSigningPkHash,
-		f.userNullifierPk,
-	})
+	}, tail...))
 }
 
 // TestMergeRejectsVictimNullifierInDummySlot (INV-MERGE-16): publishing the first real

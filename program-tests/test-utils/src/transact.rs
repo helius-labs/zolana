@@ -606,11 +606,31 @@ pub fn dummy_input(
     tree_id: u16,
 ) -> Result<(TransferInput, [u8; 32])> {
     let input_utxo = SppProofInputUtxo::dummy_with_blinding(expand_blinding(blinding), tree_id)?;
-    let nullifier = input_utxo.nullifier();
-    let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
+    Ok((dummy_witness(&input_utxo, nf_tree)?, input_utxo.nullifier()))
+}
+
+/// One compact padding input: a dummy over blinding 0 that publishes nullifier
+/// 0, with a real non-inclusion witness for its derived nullifier from
+/// `nf_tree`, since the circuit checks non-inclusion for every slot. The
+/// instruction leaves it out, as the client's `assemble_inputs` does.
+pub fn compact_input(
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    tree_id: u16,
+) -> Result<TransferInput> {
+    dummy_witness(&SppProofInputUtxo::compact(tree_id)?, nf_tree)
+}
+
+/// The witness of a padding slot: the non-inclusion proof of its derived
+/// nullifier from `nf_tree`, publishing what the slot publishes.
+fn dummy_witness(
+    input_utxo: &SppProofInputUtxo,
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+) -> Result<TransferInput> {
+    let non_inclusion =
+        nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&input_utxo.nullifier()))?;
     let zero = [0u8; 32];
-    let input = TransferInput {
-        utxo: ProofInputUtxo::try_from(&input_utxo)?,
+    Ok(TransferInput {
+        utxo: ProofInputUtxo::try_from(input_utxo)?,
         is_dummy: be(&fe(1)),
         state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
         state_path_index: be(&zero),
@@ -619,13 +639,12 @@ pub fn dummy_input(
         nullifier_low_path_elements: non_inclusion.merkle_proof.iter().map(be).collect(),
         nullifier_low_path_index: be(&fe(non_inclusion.leaf_index as u64)),
         tree_slot: BigUint::ZERO,
-        nullifier: be(&nullifier),
+        nullifier: be(&input_utxo.published_nullifier()),
         owner_pk_hash: be(&zero),
         // Padding nullifies under the zero secret, which is public, so the slot
         // is complete as built.
         nullifier_secret: Some(be(&zero)),
-    };
-    Ok((input, nullifier))
+    })
 }
 
 /// The nullifier a dummy input over `blinding` derives (over the dummified utxo

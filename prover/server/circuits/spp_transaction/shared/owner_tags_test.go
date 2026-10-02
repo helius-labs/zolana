@@ -58,6 +58,7 @@ func (c *maskedDummyTagCircuit) Define(api frontend.API) error {
 	return AssertMaskedDummyOutputTags(
 		api,
 		[]UtxoCircuitFields{c.Real, c.Dummy},
+		[]frontend.Variable{0, 0},
 		[]frontend.Variable{c.RealPublished, c.DummyPublished},
 		Signers(c.PublicIdentities[:]),
 	)

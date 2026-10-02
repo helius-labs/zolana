@@ -35,6 +35,9 @@ pub struct SppProofOutputUtxo {
     pub owner_tag: Option<[u8; 32]>,
     pub data: Data,
     pub cache_slot: Option<u8>,
+    /// Compact padding: a dummy that publishes hash 0, so the instruction leaves
+    /// it out and SPP appends nothing for it.
+    pub compact: bool,
 }
 
 impl SppProofOutputUtxo {
@@ -127,6 +130,9 @@ impl SppProofOutputUtxo {
     /// to. The tree id is transaction context, not an output field: the same
     /// output body commits differently in every tree.
     pub fn hash(&self, tree_id: u16) -> Result<[u8; 32], TransactionError> {
+        if self.is_compact() {
+            return Ok([0u8; 32]);
+        }
         if self.is_dummy() {
             return dummy_utxo_hash(&self.blinding, tree_id);
         }
@@ -149,5 +155,9 @@ impl SppProofOutputUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.owner_address.is_none()
+    }
+
+    pub fn is_compact(&self) -> bool {
+        self.is_dummy() && self.compact
     }
 }

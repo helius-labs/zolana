@@ -230,6 +230,7 @@ impl PaddedMerge {
         tree_id: u16,
         input_count: usize,
         ring: Option<Pubkey>,
+        compact: bool,
     ) -> Self {
         let nullifier_key = keypair.nullifier_key();
         let nullifier_root = deposits.nullifier_root;
@@ -272,6 +273,9 @@ impl PaddedMerge {
                 Address::new_from_array(ring.to_bytes()),
                 None,
             ),
+            None if compact => {
+                zolana_transaction::instructions::merge::MergeTransaction::new_compact(notes)
+            }
             None => zolana_transaction::instructions::merge::MergeTransaction::new(notes),
         }
         .expect("merge");
@@ -284,8 +288,14 @@ impl PaddedMerge {
             .first()
             .expect("real input")
             .nullifier;
-        // Explicit larger shapes exercise every supported verifier with real padding.
-        for slot in transaction.input_utxos.len()..input_count {
+        // Explicit larger shapes exercise every supported verifier with real
+        // padding. A compact merge's width follows from its real count instead.
+        let padded_count = if compact {
+            transaction.input_utxos.len()
+        } else {
+            input_count
+        };
+        for slot in transaction.input_utxos.len()..padded_count {
             let mut dummy =
                 zolana_transaction::utxo::SppProofInputUtxo::dummy(tree_id).expect("dummy");
             dummy.nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot as u8)
@@ -343,6 +353,21 @@ impl RealMergeProof {
     }
 
     fn build_with_cache(self, pool: &mut Pool, cache: Option<MergeCacheTarget>) -> RealMerge {
+        self.build_with(pool, cache, false)
+    }
+
+    /// Compact padding fills the circuit width past the real inputs; the
+    /// instruction carries only the real nullifiers.
+    pub fn build_compact(self, pool: &mut Pool) -> RealMerge {
+        self.build_with(pool, None, true)
+    }
+
+    fn build_with(
+        self,
+        pool: &mut Pool,
+        cache: Option<MergeCacheTarget>,
+        compact: bool,
+    ) -> RealMerge {
         let RealMergeProof {
             input_count,
             real_input_count,
@@ -379,7 +404,15 @@ impl RealMergeProof {
             transaction,
             proofs,
             dummy_nullifier_proofs,
-        } = PaddedMerge::assemble(&deposits, &keypair, tree, tree_id, input_count, None);
+        } = PaddedMerge::assemble(
+            &deposits,
+            &keypair,
+            tree,
+            tree_id,
+            input_count,
+            None,
+            compact,
+        );
 
         let result = MergeProver {
             transaction,
@@ -613,6 +646,7 @@ impl RealRingMergeProof {
             tree_id,
             input_count,
             Some(ring_program_id),
+            false,
         );
 
         let result = MergeProver {

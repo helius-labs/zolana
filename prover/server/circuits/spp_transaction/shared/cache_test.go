@@ -87,7 +87,7 @@ func rechain(t testing.TB, c *CachedInputs) {
 func refreshCachedHash(t testing.TB, c *defaultring.DefaultRingEddsaOnlyCircuit) {
 	t.Helper()
 	chain := func(values []frontend.Variable) *big.Int {
-		h, err := protocol.HashChain4(spptest.ToBigInts(values))
+		h, err := protocol.RightHashChain4(spptest.ToBigInts(values))
 		if err != nil {
 			t.Fatal(err)
 		}

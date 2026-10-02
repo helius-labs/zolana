@@ -80,26 +80,59 @@ func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionReque
 func TestProveTransferWithDummyPadding(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	payerPubkey, payerHash, owner, nullifierSecret := proveTestOwner(t)
+	tx := solTransferRequest(t, payerPubkey, owner, nullifierSecret, []int64{60, 40},
+		[]ProofUtxoRequest{solOutput(owner, 100, 2000)})
+	proveAndVerify(t, shape, tx, payerHash)
+}
 
-	// Two inputs owned by the same Solana payer; distinct blindings give
-	// distinct UTXO hashes and nullifiers. They fund a single real output, so
-	// the second output slot in the 2-2 shape is a dummy.
-	inputUtxos := []protocol.Utxo{
+// TestProveTransferWithCompactPadding proves compact padding in both
+// directions: a 1-in/3-out transfer leaves input slot 1 compact in the 2-3
+// shape, and a 2-in/1-out transfer leaves output slot 1 compact in the 2-2
+// shape.
+func TestProveTransferWithCompactPadding(t *testing.T) {
+	payerPubkey, payerHash, owner, nullifierSecret := proveTestOwner(t)
+	cases := []struct {
+		shape   protocol.Shape
+		amounts []int64
+		outputs []ProofUtxoRequest
+	}{
 		{
-			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
-			Amount: big.NewInt(60), Blinding: big.NewInt(1000),
-			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+			shape:   protocol.Shape{NInputs: 2, NOutputs: 3},
+			amounts: []int64{100},
+			outputs: []ProofUtxoRequest{solOutput(owner, 50, 2000), solOutput(owner, 30, 2001), solOutput(owner, 20, 2002)},
 		},
 		{
-			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
-			Amount: big.NewInt(40), Blinding: big.NewInt(1001),
-			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+			shape:   protocol.Shape{NInputs: 2, NOutputs: 2},
+			amounts: []int64{60, 40},
+			outputs: []ProofUtxoRequest{solOutput(owner, 100, 2000)},
 		},
 	}
+	for _, c := range cases {
+		tx := solTransferRequest(t, payerPubkey, owner, nullifierSecret, c.amounts, c.outputs)
+		tx.CompactPadding = true
+		proveAndVerify(t, c.shape, tx, payerHash)
+	}
+}
 
-	stateEntries := make([]ProofStateEntry, len(inputUtxos))
-	inputs := make([]ProofInputRequest, len(inputUtxos))
-	for i, input := range inputUtxos {
+// solTransferRequest spends one payer-owned SOL input per amount. Distinct
+// blindings give distinct UTXO hashes and nullifiers.
+func solTransferRequest(
+	t *testing.T,
+	payerPubkey [32]byte,
+	owner *big.Int,
+	nullifierSecret *big.Int,
+	amounts []int64,
+	outputs []ProofUtxoRequest,
+) ProofTransactionRequest {
+	t.Helper()
+	stateEntries := make([]ProofStateEntry, len(amounts))
+	inputs := make([]ProofInputRequest, len(amounts))
+	for i, amount := range amounts {
+		input := protocol.Utxo{
+			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
+			Amount: big.NewInt(amount), Blinding: big.NewInt(int64(1000 + i)),
+			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+		}
 		inputHash, err := protocol.UtxoHash(input, big.NewInt(0))
 		if err != nil {
 			t.Fatal(err)
@@ -120,8 +153,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 			NullifierSecret: proofFieldInput(nullifierSecret),
 		}
 	}
-
-	tx := ProofTransactionRequest{
+	return ProofTransactionRequest{
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
@@ -130,12 +162,25 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		RingDataHash:             proofFieldInput(big.NewInt(0)),
 		StateEntries:             stateEntries,
 		Inputs:                   inputs,
-		Outputs: []ProofUtxoRequest{
-			solOutput(owner, 100, 2000),
-		},
+		Outputs:                  outputs,
 	}
+}
 
-	proveAndVerify(t, shape, tx, payerHash)
+func TestSentSlotsDropsOnlyTrailingCompactPadding(t *testing.T) {
+	values := []*big.Int{big.NewInt(5), big.NewInt(0), big.NewInt(7), big.NewInt(0), big.NewInt(0)}
+	assertSlots := func(name string, got, want []*big.Int) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %v want %v", name, got, want)
+		}
+		for i := range want {
+			if got[i].Cmp(want[i]) != 0 {
+				t.Fatalf("%s: got %v want %v", name, got, want)
+			}
+		}
+	}
+	assertSlots("sent slots", sentSlots(values), []*big.Int{big.NewInt(5), big.NewInt(0), big.NewInt(7)})
+	assertSlots("all-compact slots", sentSlots([]*big.Int{big.NewInt(0)}), []*big.Int{})
 }
 
 // TestProveShieldWithAllDummyInputs proves a deposit (shield) inside a 1-2 shape

@@ -43,6 +43,10 @@ type ProofTransactionRequest struct {
 	NullifierEntries       []string `json:"nullifier_entries"`
 	DataHash               string   `json:"data_hash"`
 	RingDataHash           string   `json:"ring_data_hash"`
+	// CompactPadding pads unused slots with compact padding (nullifier and hash
+	// 0, left out of the instruction) instead of random dummies. Input slot 0
+	// stays a random dummy when the transaction spends nothing.
+	CompactPadding bool `json:"compact_padding"`
 }
 
 type InterfaceTransferRequest struct {
@@ -274,15 +278,11 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		TxViewingPk:   parse.BytesHex(txViewingPk),
 		Salt:          parse.BytesHex(salt),
 		Proof:         &common.Proof{Proof: proof},
-		// Real-length public transcript. transcript.{nullifiers,outputHashes} are
-		// padded to the circuit shape (reals first, then dummy slots), but the
-		// on-chain TransactData wants the real-length arrays and pads
-		// internally. Slicing at the source makes every bundle consumer correct
-		// instead of each one re-slicing (the e2e fixture builder did the
-		// latter). The root indices are transaction-level, so they no longer
-		// have to match the nullifier count.
-		Nullifiers:             proofBigIntHexes(transcript.nullifiers[:len(tx.Inputs)]),
-		OutputUtxoHashes:       proofBigIntHexes(transcript.outputHashes[:len(tx.Outputs)]),
+		// The instruction carries every slot except the trailing compact
+		// padding, which SPP fills back in with zeros. The root indices are
+		// transaction-level, so they need not match the nullifier count.
+		Nullifiers:             proofBigIntHexes(sentSlots(transcript.nullifiers)),
+		OutputUtxoHashes:       proofBigIntHexes(sentSlots(transcript.outputHashes)),
 		InputTreeID:            tx.InputTreeID,
 		OutputTreeID:           tx.OutputTreeID,
 		UtxoTreeRootIndex:      utxoRootIndices,
@@ -339,6 +339,15 @@ func normalizedInterfaceTransfers(transfers []InterfaceTransferRequest) ([]Inter
 		out = append(out, normalized)
 	}
 	return out, nil
+}
+
+// sentSlots drops the trailing compact padding (zero values) of a slot vector.
+func sentSlots(values []*big.Int) []*big.Int {
+	end := len(values)
+	for end > 0 && values[end-1].Sign() == 0 {
+		end--
+	}
+	return values[:end]
 }
 
 func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) (ProofSigningPayloadTransaction, error) {

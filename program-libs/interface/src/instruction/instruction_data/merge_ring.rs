@@ -43,7 +43,7 @@ impl<'a> MergeRingIxDataRef<'a> {
 mod tests {
     use super::*;
     use crate::instruction::instruction_data::merge_transact::{
-        MergeProof, MERGE_DEFAULT_INPUT_COUNT,
+        MergeProof, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     };
 
     fn data() -> MergeRingIxData {
@@ -82,10 +82,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_shape() {
-        let mut owned = data();
-        owned.merge.nullifiers.pop();
-        let bytes = owned.serialize().unwrap();
-        assert!(MergeRingIxDataRef::from_bytes(&bytes).is_err());
+    fn rejects_empty_and_oversized_nullifier_lists() {
+        for count in [0, MAX_MERGE_INPUTS + 1] {
+            let mut owned = data();
+            owned.merge.nullifiers = vec![[1u8; 32]; count];
+            let bytes = owned.serialize().unwrap();
+            assert!(
+                MergeRingIxDataRef::from_bytes(&bytes).is_err(),
+                "{count} nullifiers"
+            );
+        }
     }
 }

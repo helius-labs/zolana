@@ -97,6 +97,7 @@ func (c *CustomRingP256Circuit) transaction(
 		Shape:             c.Shape,
 		Nullifiers:        c.Public.Nullifiers,
 		OutputHashes:      c.Public.OutputHashes,
+		OutputIsCompact:   shared.CompactSlots(api, c.Public.OutputHashes),
 		TreeSlots:         c.Public.TreeSlots,
 		OutputTreeID:      c.Public.OutputTreeID,
 		Inputs:            c.Private.Inputs,
@@ -115,7 +116,7 @@ func (c *CustomRingP256Circuit) transaction(
 			c.Public.DefaultP256OwnerPkHash,
 		},
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
+			gadget.RightHashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
 		},
 	}
 }
@@ -182,6 +183,7 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
+		tx.OutputIsCompact,
 		c.Public.PublishedOutputOwnerPkHashes,
 		dummyIdentities,
 	); err != nil {

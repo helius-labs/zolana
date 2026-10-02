@@ -63,11 +63,6 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, fmt.Errorf("unexpected fallback roots")
 		}
 	}
-	for _, input := range request.Inputs {
-		if input.Nullifier != nil {
-			return nil, fmt.Errorf("unexpected lookup nullifier")
-		}
-	}
 	var prepared preparedProof
 	shape := common.ProofShape{Circuit: request.CircuitType}
 	switch request.CircuitType {
@@ -140,7 +135,20 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		if len(*input.state) != 0 || len(*input.exclusion) != 0 || (*input.stateIndex).Sign() != 0 || (*input.exclusionIndex).Sign() != 0 || (*input.low).Sign() != 0 || (*input.high).Sign() != 0 {
 			return nil, fmt.Errorf("prepared request contains indexer data")
 		}
-		if _, err := hashField(input.nullifier); err != nil {
+		// Compact padding publishes nullifier 0 but proves non-inclusion of its
+		// derived dummy nullifier, which the lookup carries.
+		compact := input.dummy && input.nullifier.Sign() == 0
+		if compact != (lookup.Nullifier != nil) {
+			return nil, fmt.Errorf("input lookup mismatch")
+		}
+		if compact {
+			nullifier, err := lookup.Nullifier.field()
+			if err != nil {
+				return nil, err
+			}
+			prepared.inputs[index].nullifier = nullifier
+		}
+		if _, err := hashField(prepared.inputs[index].nullifier); err != nil {
 			return nil, err
 		}
 	}

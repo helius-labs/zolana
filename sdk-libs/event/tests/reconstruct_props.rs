@@ -23,8 +23,8 @@ use zolana_event_parser::{
     ParsedInstruction,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT, InputUtxo, InterfaceTransfer,
-    OwnerTag, TransactOutput,
+    instruction_data::merge_transact::MAX_MERGE_INPUTS, InputUtxo, InterfaceTransfer, OwnerTag,
+    TransactOutput,
 };
 
 /// Leaves room for `first_input_queue_seq + position` without overflow.
@@ -324,7 +324,9 @@ proptest! {
 
     #[test]
     fn merge_reconstruction_mirrors_instruction_data(
-        nullifiers in prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
+        // Compact padding leaves the trailing slots out, so a merge carries any
+        // count from 1 to the widest circuit.
+        nullifiers in prop::collection::vec(any::<[u8; 32]>(), 1..=MAX_MERGE_INPUTS),
         output_utxo_hash in any::<[u8; 32]>(),
         output_view_tag in any::<[u8; 32]>(),
         first_input_queue_seq in 0..=MAX_FIRST_QUEUE_SEQ,

@@ -242,9 +242,20 @@ export interface ProofResolution {
   readonly publicInputHash: Bytes32;
 }
 
+/**
+ * What the prover fetches for one input slot: the commitment of a real spend,
+ * and for compact padding the derived nullifier its witness is taken for,
+ * since the slot publishes 0.
+ */
+export interface IndexedProofLookup {
+  readonly treeSlot: number;
+  readonly commitment: Bytes32 | null;
+  readonly nullifier: Bytes32 | null;
+}
+
 export type IndexedProofInputs = Readonly<{
   readonly trees: readonly IndexedTree[];
-  readonly lookups: readonly Readonly<{ treeSlot: number; commitment: Bytes32 | null }>[];
+  readonly lookups: readonly IndexedProofLookup[];
   readonly publicInputs: readonly Field[];
   readonly minContextSlot?: bigint;
 }> &

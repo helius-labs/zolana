@@ -44,6 +44,7 @@ func buildOutputWitnesses(
 	firstNullifier *big.Int,
 	outputBlindingSeed *big.Int,
 	outputTreeID *big.Int,
+	compactPadding bool,
 ) (outputWitnesses, error) {
 	outputs := outputWitnesses{
 		outputs:             make([]txcircuit.UtxoCircuitFields, shape.NOutputs),
@@ -92,6 +93,11 @@ func buildOutputWitnesses(
 		hash, err := protocol.UtxoHash(utxo, outputTreeID)
 		if err != nil {
 			return outputWitnesses{}, fmt.Errorf("dummy output %d hash: %w", i, err)
+		}
+		// Compact padding publishes hash 0; the circuit still derives the
+		// slot's blinding.
+		if compactPadding {
+			hash = big.NewInt(0)
 		}
 		outputs.outputs[i] = dummyUtxoFields(blinding)
 		outputs.hashes[i] = hash

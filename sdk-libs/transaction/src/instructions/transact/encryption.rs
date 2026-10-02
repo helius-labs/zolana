@@ -4,7 +4,7 @@ use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
 
-use super::{sender_owner_tag, ConfidentialTransaction, SppProofOutputUtxo};
+use super::{sender_owner_tag, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
     instructions::transact::{shape::canonical_shape, ExternalData, SppProofInputs},
@@ -139,7 +139,11 @@ impl ConfidentialTransaction {
                 Ok(Some(message))
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
-        let dummy_len = if self.outputs.iter().any(SppProofOutputUtxo::is_dummy) {
+        let dummy_len = if self
+            .outputs
+            .iter()
+            .any(|output| output.is_dummy() && !output.is_compact())
+        {
             dummy_ciphertext_len(self.ring_program_id, salt)?
         } else {
             0
@@ -151,6 +155,10 @@ impl ConfidentialTransaction {
         for (slot_index, ((output, owner_tag), slot)) in
             self.outputs.iter().zip(owner_tags).zip(slots).enumerate()
         {
+            // Compact padding is the trailing suffix SPP fills back in.
+            if output.is_compact() {
+                continue;
+            }
             let data = match slot {
                 Some(slot) if slot.view_tag != owner_tag.resolved => {
                     return Err(TransactionError::OwnerTagMismatch { slot_index });
@@ -206,6 +214,13 @@ impl ConfidentialTransaction {
         let sender_tag = self.sender_owner_tag(sender)?;
         let mut owner_tags = Vec::with_capacity(self.outputs.len());
         for (slot_index, output) in self.outputs.iter().enumerate() {
+            if output.is_compact() {
+                owner_tags.push(ResolvedOwnerTag {
+                    tag: OwnerTag::Inline([0u8; 32]),
+                    resolved: [0u8; 32],
+                });
+                continue;
+            }
             let Some(address) = output.owner_address else {
                 let resolved = output
                     .owner_tag
