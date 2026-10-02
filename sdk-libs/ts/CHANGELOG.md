@@ -120,6 +120,8 @@ spend it from there before the tree holds it.
 
 Breaking
 
+- `ZolanaClient` requires the new proving-key checksums → use the prover
+  and programs built with the matching key manifest from this release.
 - `buildRegistrationTransaction` adds the `payer` account the user-registry
   program now requires for a first registration → rebuild any unsigned
   registration transaction an earlier release built, the program rejects it.

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"zolana/prover/prover/keyimage"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -201,7 +203,7 @@ func (ps *TransferProofSystem) WriteTo(w io.Writer) (int64, error) {
 		}
 	}
 
-	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	keyWritten, err := keyimage.Write(w, ps.ProvingKey)
 	totalWritten += keyWritten
 	if err != nil {
 		return totalWritten, err
@@ -244,7 +246,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	ps.RequiresP256 = requiresP256 != 0
 
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	keyRead, err := keyimage.Read(r, ps.ProvingKey)
 	totalRead += keyRead
 	if err != nil {
 		return totalRead, err
@@ -270,7 +272,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 func (ps *RingProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 
-	written, err := ps.ProvingKey.WriteTo(w)
+	written, err := keyimage.Write(w, ps.ProvingKey)
 	total += written
 	if err != nil {
 		return total, err
@@ -288,7 +290,7 @@ func (ps *RingProofSystem) WriteTo(w io.Writer) (int64, error) {
 func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var total int64
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	read, err := ps.ProvingKey.UnsafeReadFrom(r)
+	read, err := keyimage.Read(r, ps.ProvingKey)
 	total += read
 	if err != nil {
 		return total, err
@@ -320,7 +322,7 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 	defer file.Close()
 
 	hasher := sha256.New()
-	reader := io.TeeReader(file, hasher)
+	reader := io.TeeReader(bufio.NewReaderSize(file, 1<<20), hasher)
 	if _, err := read(reader); err != nil {
 		return digest, err
 	}
@@ -429,7 +431,7 @@ func (ps *BatchProofSystem) WriteTo(w io.Writer) (int64, error) {
 		}
 	}
 
-	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	keyWritten, err := keyimage.Write(w, ps.ProvingKey)
 	totalWritten += keyWritten
 	if err != nil {
 		return totalWritten, err
@@ -469,7 +471,7 @@ func (ps *BatchProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	}
 
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	keyRead, err := keyimage.Read(r, ps.ProvingKey)
 	totalRead += keyRead
 	if err != nil {
 		return totalRead, err
