@@ -654,10 +654,6 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         taker_in,
         source_output,
         destination_output,
-        external_data_hash: spp_proof_inputs
-            .external_data
-            .hash()
-            .expect("external data hash"),
         private_tx_blinding: spp_proof_inputs
             .private_tx_blinding()
             .expect("private tx blinding"),
@@ -846,10 +842,6 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         taker_in,
         source_output,
         destination_output,
-        external_data_hash: spp_proof_inputs
-            .external_data
-            .hash()
-            .expect("external data hash"),
         private_tx_blinding: spp_proof_inputs
             .private_tx_blinding()
             .expect("private tx blinding"),
@@ -1007,10 +999,6 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         order_utxo: order_utxo.clone(),
         taker_viewing_pubkey,
         source_output,
-        external_data_hash: spp_proof_inputs
-            .external_data
-            .hash()
-            .expect("external data hash"),
         private_tx_blinding: spp_proof_inputs
             .private_tx_blinding()
             .expect("private tx blinding"),

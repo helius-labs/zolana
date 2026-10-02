@@ -228,7 +228,6 @@ mod tests {
         let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
             &[change_hash, order_utxo_hash],
-            &external_data_hash,
             &spp_proof_inputs
                 .private_tx_blinding()
                 .expect("private tx blinding"),
@@ -236,7 +235,7 @@ mod tests {
         .hash()
         .expect("private tx hash");
         assert_eq!(
-            zolana_keypair::hash::sha256(&expected),
+            zolana_keypair::hash::sha256(&[expected, external_data_hash].concat()),
             spp_proof_inputs.message_hash().expect("message hash")
         );
     }
@@ -330,7 +329,6 @@ mod tests {
                 change.hash(OUTPUT_TREE_ID).expect("change hash"),
                 order_output_utxo.hash(OUTPUT_TREE_ID).expect("order hash"),
             ],
-            &external_data_hash,
             &spp_proof_inputs
                 .private_tx_blinding()
                 .expect("private tx blinding"),
@@ -338,6 +336,9 @@ mod tests {
         .hash()
         .expect("private tx hash");
         let message_hash = spp_proof_inputs.message_hash().expect("message hash");
-        assert_eq!(zolana_keypair::hash::sha256(&expected), message_hash);
+        assert_eq!(
+            zolana_keypair::hash::sha256(&[expected, external_data_hash].concat()),
+            message_hash
+        );
     }
 }

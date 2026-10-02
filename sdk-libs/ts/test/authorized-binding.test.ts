@@ -63,7 +63,7 @@ function fundedWallet(keypair: ShieldedKeypair, asset: Address = SOL_MINT): Wall
   return wallet;
 }
 
-async function authorize(kind: "transfer" | "withdrawal" | "split") {
+async function authorize(kind: "transfer" | "withdrawal" | "split", amount = 25n) {
   const keypair = spendingKeypair();
   const asset = kind === "withdrawal" ? SPL_MINT : SOL_MINT;
   const wallet = fundedWallet(keypair, asset);
@@ -80,7 +80,7 @@ async function authorize(kind: "transfer" | "withdrawal" | "split") {
             payer: feePayer,
             recipient: ShieldedKeypair.generate().shieldedAddress(),
             asset,
-            amount: 25n,
+            amount,
           })
         ).transaction
       : kind === "withdrawal"
@@ -90,7 +90,7 @@ async function authorize(kind: "transfer" | "withdrawal" | "split") {
               payer: feePayer,
               recipient: RECIPIENT,
               asset,
-              amount: 25n,
+              amount,
             })
           ).transaction
         : createSplit({ wallet, payer: feePayer, asset, parts: 2 }).transaction;
@@ -181,6 +181,42 @@ describe("authorized transaction binding", () => {
         mismatch,
       ]),
     ).toThrowError(expect.objectContaining({ details: { field: "shape" } }));
+  });
+
+  it("admits only a zero-amount SOL change in a self-paid full SPL withdrawal", async () => {
+    const { material } = await authorize("withdrawal", 100n);
+    expect(material.senderOutputCount).toBe(1);
+    const change = material.proofInputs.outputs[0];
+    if (change === undefined) throw new Error("expected the SOL change output");
+    expect(change.isDummy()).toBe(false);
+    expect(change.asset).toBe(SOL_MINT);
+    expect(change.amount).toBe(0n);
+    expect(() => checkAuthorizedBinding(material, mismatch)).not.toThrow();
+    const funded = material.proofInputs.outputs.map((output, index) =>
+      index === 0
+        ? createProofOutput({
+            ownerAddress: material.owner,
+            asset: SOL_MINT,
+            amount: 1n,
+            blinding: output.blinding,
+            data: output.data,
+          })
+        : output,
+    );
+    expectMismatch(
+      Object.freeze({
+        ...material,
+        proofInputs: new SppProofInputs({
+          payer: material.proofInputs.payer,
+          inputUtxos: material.proofInputs.inputUtxos,
+          outputs: funded,
+          externalData: material.proofInputs.externalData,
+          blindingSeed: material.proofInputs.blindingSeed,
+          outputTreeId: material.proofInputs.outputTreeId,
+        }),
+      }),
+      "change",
+    );
   });
 
   it("rejects a coherent clone before the prover sees it", async () => {

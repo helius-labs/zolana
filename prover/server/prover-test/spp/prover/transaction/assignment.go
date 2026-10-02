@@ -138,7 +138,6 @@ func buildProofAssignment(
 		inputs.hashes,
 		outputs.privateTxHashes,
 		addressNullifiers,
-		external.hash,
 		privateTxBlinding,
 	)
 	if err != nil {

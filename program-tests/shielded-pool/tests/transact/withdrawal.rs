@@ -279,7 +279,6 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
         &[change_output_hash, zero, zero],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -499,7 +498,6 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let private_tx = PrivateTxHash::new(
         &[zero, zero],
         &[shielded_hash, zero, zero],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -703,7 +701,6 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let private_tx = PrivateTxHash::new(
         &[zero, zero],
         &[shielded_hash, zero, zero],
-        &external_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -1022,7 +1019,6 @@ fn phase_transfer_to_recipient(
     let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
-        &transfer_external_hash,
         &transfer_private_tx_blinding,
     )
     .hash()
@@ -1243,7 +1239,6 @@ fn phase_withdraw_recipient_utxo(
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[withdraw_change_output_hash, zero, zero],
-        &withdraw_external_hash,
         &withdraw_private_tx_blinding,
     )
     .hash()

@@ -3,7 +3,6 @@ use zolana_transaction::{
     serialization::anonymous::*, utxo::derive_transact_output_blinding, AssetRegistry, Data,
     DataRecord, Mint, OwnerCx, TransactionError, Utxo, UtxoSerialization, SOL_ASSET_ID,
 };
-const SOL_CHANGE_SLOT: u32 = 1;
 
 fn plaintext(data: Data) -> AnonymousTransferRecipientPlaintext {
     AnonymousTransferRecipientPlaintext {
@@ -69,8 +68,7 @@ fn sender_change_takes_the_derived_blinding() {
         owner: PublicKey::zeroed(),
         asset: Mint::SOL,
         amount: 9,
-        blinding: derive_transact_output_blinding(&first_nullifier, &[5u8; 32], SOL_CHANGE_SLOT)
-            .unwrap(),
+        blinding: derive_transact_output_blinding(&first_nullifier, &[5u8; 32], 0).unwrap(),
         ring_program_id: None,
         data: Data::default(),
     }];

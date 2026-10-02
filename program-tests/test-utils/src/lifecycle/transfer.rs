@@ -9,8 +9,8 @@ use zolana_keypair::PublicKey;
 use zolana_program::instruction::Transact;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
 use zolana_transaction::{
-    serialization::confidential::Confidential, Data, ShieldedTransaction, Utxo, WalletUtxo,
-    SOL_MINT,
+    serialization::confidential::Confidential, Data, ShieldedTransaction, SppProofOutputUtxo, Utxo,
+    WalletUtxo, SOL_MINT,
 };
 
 use super::LifecycleHarness;
@@ -280,11 +280,11 @@ impl LifecycleHarness {
                 expected.push((from, from_keypair.signing_pubkey(), asset, change));
             }
         }
-        expected.resize(
-            finalized_outputs.len(),
-            (from, from_keypair.signing_pubkey(), SOL_MINT, 0),
-        );
-        assert_eq!(indexed.output_slots.len(), expected.len());
+        assert_eq!(indexed.output_slots.len(), finalized_outputs.len());
+        assert!(finalized_outputs
+            .iter()
+            .skip(expected.len())
+            .all(SppProofOutputUtxo::is_dummy));
         for (position, (actor, owner, asset, amount)) in expected.into_iter().enumerate() {
             let output = &finalized_outputs[position];
             assert_eq!(

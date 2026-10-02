@@ -628,6 +628,10 @@ class SyncPass {
           const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
           if (
             this.#isSelf(recipientKey) &&
+            (position === 0 ||
+              (candidate.asset === SOL_MINT &&
+                change.length === 1 &&
+                change[0]?.asset !== SOL_MINT)) &&
             equal(candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash)
           ) {
             change.push(candidate);

@@ -1,5 +1,6 @@
 import { address } from "@solana/kit";
 
+import { NO_CACHE_WRITES, bindCacheWrite } from "../../interface/cache.js";
 import {
   externalDataHash as interfaceExternalDataHash,
   type SettlementAccounts,
@@ -12,10 +13,12 @@ import {
   type Shape,
   validateSppShape,
 } from "../../interface/shape.js";
+import { CACHE_CAPACITY } from "../../interface/state.js";
 import {
   type Address,
   type Bytes16,
   type Bytes32,
+  type CacheWrite,
   type InterfaceTransfer,
   type OwnerTag,
   type Signature,
@@ -33,11 +36,12 @@ import {
   bigIntBytes,
   checkU64,
   checked,
+  concat,
   copy,
   decodeAddress,
   equal,
-  hashChain4,
   hashBytes,
+  nonZeroHashChain,
   poseidon,
   sha256Bytes,
 } from "../internal.js";
@@ -61,8 +65,8 @@ export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
 
 /**
- * Fixed number of leading sender-owned output slots in a transfer: SPL change at
- * slot 0, SOL change at slot 1. Recipients always start at slot 2.
+ * The maximum number of sender-owned change outputs that lead a transfer: an
+ * SPL change, then a SOL change. Recipients follow the change outputs present.
  */
 export const SENDER_SLOT_COUNT = 2;
 
@@ -443,7 +447,6 @@ export interface PrivateTxHashInput {
    * chain of zeros of the same length.
    */
   readonly addressNullifiers?: readonly Bytes32[];
-  readonly externalDataHash: Bytes32;
   /**
    * The private transaction blinding, `privateTxBlinding(firstNullifier,
    * secret)`. Every other preimage element is public or computable, so
@@ -454,13 +457,24 @@ export interface PrivateTxHashInput {
 }
 
 /**
- * `Poseidon(hashChain4(inputs), hashChain4(outputs), hashChain4(address
- * nullifiers), external_data_hash, blinding)`, the value a transact proof
- * publishes and the owners sign over. The circuit reads one address nullifier per input slot, so
- * a set of a different length would silently shift the address chain rather
- * than fail.
+ * The value a transact proof publishes: `Poseidon(nz(inputs), nz(outputs),
+ * nz(address nullifiers), blinding)`, where `nz` is `nonZeroHashChain`. The
+ * circuit reads one address nullifier per input slot, so a set of any other
+ * length is refused.
  */
 export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
+  const addressChain = privateTxAddressChain(input);
+  return poseidon([
+    nonZeroHashChain(input.inputHashes),
+    nonZeroHashChain(input.outputHashes),
+    addressChain,
+    checked<Bytes32>(input.blinding, 32, "private tx blinding"),
+  ]);
+}
+
+export function privateTxAddressChain(
+  input: Pick<PrivateTxHashInput, "inputHashes" | "addressNullifiers">,
+): Bytes32 {
   if (
     input.addressNullifiers !== undefined &&
     input.addressNullifiers.length !== input.inputHashes.length
@@ -470,14 +484,19 @@ export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
       actual: input.addressNullifiers.length,
     });
   }
-  const addressNullifiers = input.addressNullifiers ?? input.inputHashes.map(() => copy(ZERO_32));
-  return poseidon([
-    hashChain4(input.inputHashes),
-    hashChain4(input.outputHashes),
-    hashChain4(addressNullifiers),
-    input.externalDataHash,
-    checked<Bytes32>(input.blinding, 32, "private tx blinding"),
-  ]);
+  return nonZeroHashChain(input.addressNullifiers ?? []);
+}
+
+export function sppPrivateTxHashInput(proofInputs: SppProofInputs): PrivateTxHashInput {
+  return Object.freeze({
+    inputHashes: proofInputs.inputUtxos.map((input) =>
+      input.isDummy() ? copy(ZERO_32) : input.hash(),
+    ),
+    outputHashes: proofInputs.outputs.map((output) =>
+      output.isDummy() ? copy(ZERO_32) : output.hash(proofInputs.outputTreeId),
+    ),
+    blinding: proofInputs.privateTxBlinding(),
+  });
 }
 
 export interface EncryptedTransaction {
@@ -516,7 +535,6 @@ export function createEncryptedTransaction(
         outputHashes: outputs.map((entry) =>
           entry.isDummy() ? copy(ZERO_32) : entry.hash(input.outputTreeId),
         ),
-        externalDataHash: input.externalData.hash(),
         blinding,
       });
     },
@@ -526,21 +544,12 @@ export function createEncryptedTransaction(
 /**
  * The trees one proof spends from, in the order the inputs first name them.
  * Mirrors Rust `input_tree_ids`: a transact permits `MAX_INPUT_TREES` trees,
- * and each tree owns one contiguous run of inputs, so an input's tree index
- * never decreases and every run's nullifiers stay consecutive under their own
- * tree.
+ * and inputs from different trees may interleave.
  */
 export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId[] {
   const trees: TreeId[] = [];
   inputs.forEach((input, index) => {
-    const open = trees.at(-1);
-    if (open === input.treeId) return;
-    if (trees.includes(input.treeId)) {
-      throw new TransactionError("TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE", {
-        index,
-        treeId: input.treeId,
-      });
-    }
+    if (trees.includes(input.treeId)) return;
     if (trees.length === MAX_INPUT_TREES) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
         index,
@@ -571,6 +580,94 @@ export function singleInputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
 export interface CacheAccounts {
   readonly read?: Address;
   readonly write?: Address;
+}
+
+export type CacheWriteRefusal =
+  | Readonly<{ reason: "withoutWriteCache"; index: number }>
+  | Readonly<{ reason: "paddingOutput"; index: number }>
+  | Readonly<{ reason: "fractionalSlot"; index: number; slot: number }>
+  | Readonly<{ reason: "slotOutOfRange"; index: number; slot: number }>
+  | Readonly<{ reason: "duplicateSlot"; index: number; slot: number }>
+  | Readonly<{ reason: "unusedWriteCache" }>;
+
+export function cacheWriteSlots(
+  outputs: readonly ProofOutputUtxo[],
+  cache: Address | undefined,
+  refuse: (refusal: CacheWriteRefusal) => Error,
+): readonly CacheWrite[] {
+  const writes: CacheWrite[] = [];
+  outputs.forEach((output, index) => {
+    const slot = output.cacheSlot;
+    if (slot === undefined) return;
+    if (cache === undefined) throw refuse({ reason: "withoutWriteCache", index });
+    if (output.isDummy()) throw refuse({ reason: "paddingOutput", index });
+    if (!Number.isInteger(slot)) throw refuse({ reason: "fractionalSlot", index, slot });
+    if (slot < 0 || slot >= CACHE_CAPACITY) {
+      throw refuse({ reason: "slotOutOfRange", index, slot });
+    }
+    if (writes.some((entry) => entry.slot === slot)) {
+      throw refuse({ reason: "duplicateSlot", index, slot });
+    }
+    writes.push(Object.freeze({ output: index, slot }));
+  });
+  if (cache !== undefined && writes.length === 0) throw refuse({ reason: "unusedWriteCache" });
+  return Object.freeze([...writes, ...NO_CACHE_WRITES.slice(writes.length)]);
+}
+
+export function cacheBoundExternalDataHash(
+  externalData: ExternalData,
+  writeSlots: readonly CacheWrite[],
+  writeCache: Address | undefined,
+): Bytes32 {
+  return bindCacheWrite(
+    externalData.hash(),
+    writeCache === undefined ? undefined : { cache: writeCache, writeSlots },
+  );
+}
+
+export function transactMessageHash(privateTxHash: Bytes32, externalDataHash: Bytes32): Bytes32 {
+  return sha256Bytes(
+    concat(
+      checked<Bytes32>(privateTxHash, 32, "private tx hash"),
+      checked<Bytes32>(externalDataHash, 32, "external data hash"),
+    ),
+  );
+}
+
+function checkDummiesLast(
+  slots: readonly Readonly<{ isDummy(): boolean }>[],
+  side: "input" | "output",
+): void {
+  const firstDummy = slots.findIndex((slot) => slot.isDummy());
+  if (firstDummy < 0) return;
+  const index = slots.findIndex((slot, position) => position > firstDummy && !slot.isDummy());
+  if (index >= 0) {
+    throw new TransactionError("TRANSACTION_REAL_SLOT_AFTER_DUMMY", { side, index });
+  }
+}
+
+function transactionCacheWriteRefusal(refusal: CacheWriteRefusal): TransactionError {
+  switch (refusal.reason) {
+    case "withoutWriteCache":
+      return new TransactionError("TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE", {
+        index: refusal.index,
+      });
+    case "paddingOutput":
+      return new TransactionError("TRANSACTION_CACHED_DUMMY_OUTPUT", { index: refusal.index });
+    case "fractionalSlot":
+    case "slotOutOfRange":
+      return new TransactionError("TRANSACTION_CACHE_SLOT_OUT_OF_RANGE", {
+        index: refusal.index,
+        slot: refusal.slot,
+      });
+    case "duplicateSlot":
+      return new TransactionError("TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT", {
+        index: refusal.index,
+        slot: refusal.slot,
+      });
+    case "unusedWriteCache":
+      return new TransactionError("TRANSACTION_UNUSED_WRITE_CACHE");
+  }
 }
 
 export class SppProofInputs {
@@ -640,7 +737,10 @@ export class SppProofInputs {
   }
 
   checkShape(): Shape {
-    return exactShape(this.inputUtxos.length, this.outputs.length);
+    const shape = exactShape(this.inputUtxos.length, this.outputs.length);
+    checkDummiesLast(this.inputUtxos, "input");
+    checkDummiesLast(this.outputs, "output");
+    return shape;
   }
 
   /** The trees the inputs are spent from, in the order they name them. */
@@ -697,23 +797,24 @@ export class SppProofInputs {
 
   /** The private transaction hash the proof publishes. */
   privateTxHash(): Bytes32 {
-    const inputHashes = this.inputUtxos.map((input) =>
-      input.isDummy() ? copy(ZERO_32) : input.hash(),
-    );
-    const outputHashes = this.outputs.map((output) =>
-      output.isDummy() ? copy(ZERO_32) : output.hash(this.outputTreeId),
-    );
-    return privateTxHash({
-      inputHashes,
-      outputHashes,
-      externalDataHash: this.externalData.hash(),
-      blinding: this.privateTxBlinding(),
-    });
+    return privateTxHash(sppPrivateTxHashInput(this));
   }
 
-  /** The digest the owners sign: `sha256(privateTxHash)`. */
+  /**
+   * The digest the owners sign: `sha256(privateTxHash || externalDataHash)`,
+   * where the external data hash includes the cache write, as the proof
+   * publishes it.
+   */
   messageHash(): Bytes32 {
-    return sha256Bytes(this.privateTxHash());
+    const { write } = this.cacheAccounts;
+    return transactMessageHash(
+      this.privateTxHash(),
+      cacheBoundExternalDataHash(
+        this.externalData,
+        cacheWriteSlots(this.outputs, write, transactionCacheWriteRefusal),
+        write,
+      ),
+    );
   }
 }
 
@@ -741,9 +842,6 @@ export const WithdrawalTarget = Object.freeze({
   },
 });
 
-/** Whether `prepare` keeps a change slot holding no value. */
-export type ChangeLayout = "padded" | "compact";
-
 export interface PreparedTransfer {
   /** `"opaque"` names no private input owner in the padding tags. */
   readonly ownerMode: "signed" | "opaque";
@@ -753,7 +851,7 @@ export interface PreparedTransfer {
   readonly firstNullifier: Bytes32;
   /** The private root seed; only the prover request may carry it. */
   readonly blindingSeed: Bytes32;
-  /** The trees the inputs are spent from, one contiguous run of inputs each. */
+  /** The trees the inputs are spent from, in first-use order. */
   readonly inputTreeIds: readonly TreeId[];
   /** The tree the outputs are appended to. */
   readonly outputTreeId: TreeId;
@@ -762,14 +860,10 @@ export interface PreparedTransfer {
   readonly interfaceTransfers: readonly SettlementTransfer[];
   /** Leading outputs the sender owns, Rust `PreparedOutputLayout::sender_output_count`. */
   readonly senderOutputCount: number;
-  /** Mirrors Rust `ChangeLayout`. */
-  readonly changeLayout: ChangeLayout;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
-  /** Mirrors Rust `move_input_tree_last`, a new first input rederives every output blinding. */
-  withInputTreeLast(treeId: TreeId): PreparedTransfer;
-  /** Appends the velocity record after the dummy padding, Rust `append_record_slots`. */
+  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and last among the outputs. */
   withAppendedSlot(
     extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
   ): PreparedTransfer;
@@ -807,7 +901,6 @@ export class ConfidentialTransfer {
   #outputTreeId: TreeId = DEFAULT_TREE_ID;
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
-  #changeLayout: ChangeLayout = "padded";
   #ringProgramId?: Address;
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
@@ -830,12 +923,6 @@ export class ConfidentialTransfer {
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payer = feePayer;
-  }
-
-  /** Mirrors Rust `ConfidentialTransfer::with_compact_change`. */
-  withCompactChange(): this {
-    this.#changeLayout = "compact";
-    return this;
   }
 
   /**
@@ -961,21 +1048,9 @@ export class ConfidentialTransfer {
         amount: splChange,
         ...ring,
       });
-    } else if (this.#changeLayout === "padded") {
-      layouts.push({
-        asset: ZERO_ADDRESS,
-        amount: 0n,
-        ownerTag: this.#owner.confidentialViewTag(),
-      });
     }
     if (hasSolChange) {
       layouts.push({ ownerAddress: this.#owner, asset: ZERO_ADDRESS, amount: solChange, ...ring });
-    } else if (this.#changeLayout === "padded") {
-      layouts.push({
-        asset: ZERO_ADDRESS,
-        amount: 0n,
-        ownerTag: this.#owner.confidentialViewTag(),
-      });
     }
     const senderOutputCount = layouts.length;
     layouts.push(
@@ -991,8 +1066,7 @@ export class ConfidentialTransfer {
       })),
     );
     // The circuit recomputes every output blinding from the first nullifier,
-    // the derived seed, and the slot's final physical index, so a compact
-    // transfer's change blindings differ from a padded one's.
+    // the derived seed, and the slot's final physical index.
     const outputSeed = outputBlindingSeed(firstNullifier, this.#blindingSeed);
     const outputs = layouts.map((layout, index) =>
       createProofOutput({
@@ -1040,7 +1114,6 @@ export class ConfidentialTransfer {
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
       senderOutputCount,
-      changeLayout: this.#changeLayout,
     });
   }
 
@@ -1067,10 +1140,13 @@ export class ConfidentialTransfer {
   }
 }
 
+type RecordPadding = Readonly<{ start: number; end: number; template?: number }>;
+
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withInputTreeLast" | "withAppendedSlot"
->;
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
+> &
+  Readonly<{ recordPadding?: RecordPadding }>;
 
 export function prepareRingAuthorityTransfer(
   input: Readonly<{
@@ -1167,7 +1243,6 @@ export function prepareRingAuthorityTransfer(
     payer: input.payer,
     interfaceTransfers: [],
     senderOutputCount,
-    changeLayout: "compact",
   });
 }
 
@@ -1179,42 +1254,13 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
-    withInputTreeLast: (treeId: TreeId): PreparedTransfer => moveInputTreeLast(fields, treeId),
     withAppendedSlot: (
       extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
     ): PreparedTransfer => appendRecordSlot(fields, extension),
   });
 }
 
-function moveInputTreeLast(fields: PreparedTransferFields, treeId: TreeId): PreparedTransfer {
-  const inputs = [
-    ...fields.inputs.filter((input) => input.treeId !== treeId),
-    ...fields.inputs.filter((input) => input.treeId === treeId),
-  ];
-  const trees = inputTreeIds(inputs);
-  if (!trees.includes(treeId) && trees.length === MAX_INPUT_TREES) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
-      got: trees.length + 1,
-      max: MAX_INPUT_TREES,
-    });
-  }
-  const first = inputs[0];
-  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
-  if (first === fields.inputs[0]) {
-    return preparedTransfer({ ...fields, inputs, inputTreeIds: trees });
-  }
-  const firstNullifier = first.nullifier();
-  const outputSeed = outputBlindingSeed(firstNullifier, fields.blindingSeed);
-  const outputs = fields.outputs.map((output, index) =>
-    createProofOutput({
-      ...outputInit(output),
-      blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
-    }),
-  );
-  return preparedTransfer({ ...fields, inputs, outputs, firstNullifier, inputTreeIds: trees });
-}
-
-/** Mirrors Rust `append_record_slots`. */
+/** Mirrors Rust `RecordSlots::append`. */
 function appendRecordSlot(
   fields: PreparedTransferFields,
   extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
@@ -1226,22 +1272,29 @@ function appendRecordSlot(
   if (!supported)
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...extension.shape });
   const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
-  const ownerTag = fields.owner.confidentialViewTag();
-  const inputs = [...fields.inputs];
-  const lastTreeId = fields.inputTreeIds.at(-1);
-  if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
-  // A dummy rides the run before it, only a real spend opens a tree.
-  while (inputs.length + 1 < extension.shape.inputs) {
-    inputs.push(ProofInputUtxo.dummy(undefined, lastTreeId));
+  const inputs = [...fields.inputs.filter((input) => !input.isDummy()), extension.input];
+  while (inputs.length < extension.shape.inputs) {
+    inputs.push(ProofInputUtxo.dummy(undefined, extension.input.treeId));
   }
+  const sender = fields.owner.signingPublicKey.toBytes();
+  const senderOutput = fields.outputs.findIndex(
+    (output) =>
+      output.ownerAddress !== undefined &&
+      equal(output.ownerAddress.signingPublicKey.toBytes(), sender),
+  );
+  const templateIndex =
+    senderOutput >= 0
+      ? senderOutput
+      : fields.outputs.findLastIndex((output) => output.ownerAddress !== undefined);
+  const template = fields.outputs[templateIndex];
   const outputs = [...fields.outputs];
   while (outputs.length + 1 < extension.shape.outputs) {
     outputs.push(
       createProofOutput({
-        asset: ZERO_ADDRESS,
+        ownerAddress: template?.ownerAddress ?? fields.owner,
+        asset: template?.asset ?? ZERO_ADDRESS,
         amount: 0n,
         blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
-        ownerTag,
       }),
     );
   }
@@ -1255,7 +1308,11 @@ function appendRecordSlot(
       reason: "recordBlinding",
     });
   }
-  inputs.push(extension.input);
+  const recordPadding: RecordPadding = {
+    start: fields.outputs.length,
+    end: outputs.length,
+    ...(template === undefined ? {} : { template: templateIndex }),
+  };
   outputs.push(extension.output);
   return preparedTransfer({
     ...fields,
@@ -1263,6 +1320,7 @@ function appendRecordSlot(
     outputs,
     inputTreeIds: inputTreeIds(inputs),
     shape: extension.shape,
+    recordPadding,
   });
 }
 
@@ -1330,36 +1388,26 @@ function finalizeTransfer(
     : { kind: "inline", value: senderResolved };
 
   const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
-  // A dummy is hashed under the tree of the run it sits in, both here for the
-  // nullifier the client requests a non-inclusion witness for and in the
-  // prover, which rehashes the slot under that run's tree. Padding closes the
-  // last run, so the tree indexes never decrease.
   const lastTreeId = prepared.inputTreeIds.at(-1);
   if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
-  let runTreeId = lastTreeId;
-  const inputUtxos = prepared.inputs.map((input) => {
-    if (!input.isDummy()) {
-      runTreeId = input.treeId;
-      return input;
-    }
-    return input.treeId === runTreeId ? input : input.withTreeId(runTreeId);
-  });
+  const inputUtxos = [...prepared.inputs];
   while (inputUtxos.length < prepared.shape.inputs) {
     inputUtxos.push(ProofInputUtxo.dummy(undefined, lastTreeId));
   }
 
   // Length-matched random ciphertext for every position without a real encoding:
-  // padded slots and zero-value change slots.
+  // padded slots and slots the payload leaves empty.
   const needsDummyCiphertext =
     padCount > 0 || prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
   const dummyLength = needsDummyCiphertext ? dummyCiphertextLength(encrypted.salt) : 0;
 
   // 1:1 output assembly. Every published slot carries its own ciphertext.
   // Change positions keep the compact sender tag; recipient positions take
-  // the inline tag of their ciphertext; padded and zero-value positions carry a
+  // the inline tag of their ciphertext; padded positions carry a
   // length-matched random ciphertext under the pad tag.
   const outputs: TransactOutput[] = [];
   const resolved: Bytes32[] = [];
+  const padding = prepared.recordPadding;
   for (let index = 0; index < outputUtxos.length; index++) {
     const output = outputUtxos[index];
     if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
@@ -1372,6 +1420,15 @@ function finalizeTransfer(
         data: randomBytes(dummyLength),
       });
       resolved.push(padTag);
+    } else if (padding !== undefined && index >= padding.start && index < padding.end) {
+      const ownerTag =
+        padding.template === undefined ? senderTag : outputs[padding.template]?.ownerTag;
+      const tag = padding.template === undefined ? senderResolved : resolved[padding.template];
+      if (ownerTag === undefined || tag === undefined) {
+        throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
+      }
+      outputs.push({ utxoHash, ownerTag, data: slot?.data ?? randomBytes(dummyLength) });
+      resolved.push(tag);
     } else if (index < prepared.senderOutputCount) {
       outputs.push({
         utxoHash,

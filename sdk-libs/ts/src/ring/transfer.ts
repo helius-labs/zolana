@@ -10,7 +10,7 @@ import type {
   RingSpendRecordReader,
   WalletKeys,
 } from "../client/ports.js";
-import { bigintToBytes, hashChain4, inputTreeAddress } from "../client/internal.js";
+import { inputTreeAddress } from "../client/internal.js";
 import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js";
 import {
   RING_INLINE_ASSET_SLOTS,
@@ -49,6 +49,8 @@ import {
   SppProofInputs,
   createExternalData,
   inputTreeIds,
+  privateTxAddressChain,
+  sppPrivateTxHashInput,
   type PreparedTransfer,
 } from "../transaction/instructions/transact.js";
 import {
@@ -462,7 +464,7 @@ async function buildRingSpend<R>(
       fetchRingCoSigner(params.client, params.ringProgramId, context),
       resolveRingOutputTree(params.client, params.outputTree, context),
     ]);
-    // A windowed ring appends the spend record as the last input slot.
+    // A windowed ring spends the spend record in one input slot after the real inputs.
     const maxInputs =
       windowedPolicy(ringConfigs) === undefined ? RING_INPUT_SLOTS : RING_INPUT_SLOTS - 1;
     if (retry.entries !== undefined) checkRetainedEntries(params.wallet, retry.entries);
@@ -481,9 +483,9 @@ async function buildRingSpend<R>(
     retry.entries = selected;
     retry.reservation = reservation;
     const inputs = selected.map((entry) => ringProofInput(entry, address, params.client));
-    const transfer = new ConfidentialTransfer(address, inputs, params.feePayer)
-      .withOutputTreeId(outputTree.treeId)
-      .withCompactChange();
+    const transfer = new ConfidentialTransfer(address, inputs, params.feePayer).withOutputTreeId(
+      outputTree.treeId,
+    );
     if (strategy.changeRing === "ring") {
       transfer.withRingProgramId(params.ringProgramId);
     }
@@ -630,7 +632,7 @@ async function buildRingWithdrawal(
   );
 }
 
-/** Mirrors Rust `CustomRingTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
+/** Mirrors Rust `CustomRingTransfer::prove`: the auditor message enters the external data before the SPP proof commits to it. */
 export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
@@ -692,13 +694,6 @@ async function proveRingTransferStatement(
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
   }
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
-  // A padded change slot pushes the custom-ring instruction past the packet limit
-  // even behind an address lookup table.
-  if (input.prepared.changeLayout !== "compact") {
-    throw new RingError("RING_PADDED_CHANGE", {
-      details: { remedy: "prepare the transfer with ConfidentialTransfer.withCompactChange" },
-    });
-  }
   let prepared = input.prepared;
   checkRingMembership(prepared, input.ringProgramId);
   const ringId = hashBytes(addressBytes(input.ringProgramId, "ringProgramId")) as Bytes32;
@@ -752,7 +747,6 @@ async function proveRingTransferStatement(
         },
         context,
       );
-      prepared = prepared.withInputTreeLast(facts.live.treeId);
       plan = planVelocity({
         facts,
         movement,
@@ -808,9 +802,16 @@ async function proveRingTransferStatement(
       }),
     );
     const openings = ringOpenings(proofInputs);
-    // The record slot is the last input and output, never a rule subject.
+    const recordInput =
+      plan === undefined
+        ? undefined
+        : proofInputs.inputUtxos.findLastIndex((input) => !input.isDummy());
+    const nIn = recordInput === undefined ? openings.nIn : recordInput + 1;
+    // The record slot is the last real input and the last output, never a rule subject.
     const subjectInputs =
-      plan === undefined ? proofInputs.inputUtxos : proofInputs.inputUtxos.slice(0, -1);
+      recordInput === undefined
+        ? proofInputs.inputUtxos
+        : proofInputs.inputUtxos.slice(0, Math.max(recordInput, 0));
     const subjectOutputs =
       plan === undefined ? proofInputs.outputs : proofInputs.outputs.slice(0, -1);
     const policyRound =
@@ -866,7 +867,7 @@ async function proveRingTransferStatement(
             { outputTree },
             context,
           );
-    // The audit statement rehashes the auditor message SPP already folded into privateTxHash.
+    // The audit statement rehashes the auditor message SPP already hashed into the external data hash.
     const message = parseAuditorMessage(encrypted.auditorMessage.data);
     const common = {
       data,
@@ -939,6 +940,7 @@ async function proveRingTransferStatement(
       revocationTreeIndexes: policyRound.revocationTreeIndexes,
       ...(countersDisclosureHash === undefined ? {} : { countersDisclosureHash }),
     };
+    const privateTxPreimage = sppPrivateTxHashInput(proofInputs);
     const policyRequest: CustomRingPolicyProofRequest = {
       publicInputHash: policyPublicInputHash(statement),
       privateTxHash: data.privateTxHash,
@@ -946,18 +948,15 @@ async function proveRingTransferStatement(
       ephemeralSecret: encrypted.audit.ephemeralSecret,
       auditorPublicKey: config.auditorPublicKey.toUncompressed(),
       salt: encrypted.salt,
-      nIn: openings.nIn,
+      nIn,
       nOut: openings.nOut,
       inputs: openings.inputs,
       outputs: openings.outputs.map((opening, index) => {
         const key = escrow?.keys[index];
         return key === undefined ? opening : Object.freeze({ ...opening, key });
       }),
-      // Both MUST equal the preimage the SPP assembly folds into
-      // `privateTxHash`, else the gnark witness is unsatisfiable.
-      addressChain: ringAddressChain(openings.nIn),
-      externalDataHash: proofInputs.externalData.hash(),
-      privateTxBlinding: proofInputs.privateTxBlinding(),
+      addressChain: privateTxAddressChain(privateTxPreimage),
+      privateTxBlinding: privateTxPreimage.blinding,
       sources: policyRound.sources,
       policyLen: policyRound.config.ruleCount,
       rules: paddedRows(policyRound.config.rules, RING_RULE_SLOTS),
@@ -1078,18 +1077,6 @@ function paddedRows(rows: readonly Bytes32[], width: number): readonly Bytes32[]
   return Object.freeze(
     Array.from({ length: width }, (_, index) => rows[index] ?? (new Uint8Array(32) as Bytes32)),
   );
-}
-
-/**
- * SPP folds one zero address slot per input into `privateTxHash`, the ring
- * proof binds the same chain over `nIn` zero fields. Mirrors Rust `proof.rs`.
- * @internal
- */
-export function ringAddressChain(nIn: number): Bytes32 {
-  return bigintToBytes(
-    hashChain4(Array.from({ length: nIn }, () => 0n)),
-    "address chain",
-  ) as Bytes32;
 }
 
 /** Mirrors Rust `RingMembership::validate`. @internal */

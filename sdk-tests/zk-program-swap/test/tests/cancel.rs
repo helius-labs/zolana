@@ -237,10 +237,6 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             order_utxo: order_utxo.clone(),
             taker_viewing_pubkey,
             source_output,
-            external_data_hash: cancel_spp_proof_inputs
-                .external_data
-                .hash()
-                .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?,
             private_tx_blinding: cancel_spp_proof_inputs
                 .private_tx_blinding()
                 .map_err(|e| anyhow!("cancel private tx blinding: {e:?}"))?,

@@ -91,7 +91,6 @@ fn sample_params() -> TakeProofInputParams {
         order_utxo,
         source_output,
         destination_output,
-        external_data_hash: fe(8),
         private_tx_blinding: derive_private_tx_blinding(&first_nullifier, &blinding_seed).unwrap(),
         input_tree_id: INPUT_TREE_ID,
         output_tree_id: OUTPUT_TREE_ID,
@@ -114,7 +113,6 @@ fn refresh_hashes(inputs: &mut TakeProofInputs) {
             inputs.source_output.hash().unwrap(),
             inputs.destination_output.hash().unwrap(),
         ],
-        &inputs.external_data_hash,
         &inputs.private_tx_blinding,
     )
     .hash()

@@ -17,8 +17,7 @@ pub struct TakeProofInputParams {
     pub taker_in: SppProofOutputUtxo,
     pub source_output: SppProofOutputUtxo,
     pub destination_output: SppProofOutputUtxo,
-    pub external_data_hash: [u8; 32],
-    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// `SppProofInputs::private_tx_blinding()`, the last `private_tx_hash`
     /// preimage element.
     pub private_tx_blinding: [u8; 32],
     /// Raw id of the tree the order and taker UTXOs are spent from.
@@ -100,7 +99,6 @@ impl TakeProofInputParams {
                 source_output.hash().map_err(err)?,
                 destination_output.hash().map_err(err)?,
             ],
-            &self.external_data_hash,
             &self.private_tx_blinding,
         )
         .hash()
@@ -121,7 +119,6 @@ impl TakeProofInputParams {
             taker_in,
             source_output,
             destination_output,
-            external_data_hash: self.external_data_hash,
             private_tx_blinding: self.private_tx_blinding,
         })
     }

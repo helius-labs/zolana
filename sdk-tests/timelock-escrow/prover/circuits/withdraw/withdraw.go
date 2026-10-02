@@ -19,7 +19,6 @@ type Circuit struct {
 	OwnerPkField frontend.Variable
 	NullifierPk  frontend.Variable
 
-	ExternalDataHash  frontend.Variable
 	PrivateTxBlinding frontend.Variable
 }
 
@@ -32,7 +31,6 @@ func (c *Circuit) Define(api frontend.API) error {
 		api,
 		[]frontend.Variable{escrowInputUtxoHash},
 		[]frontend.Variable{sourceOutputUtxoHash},
-		c.ExternalDataHash,
 		c.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(privateTxHash, c.Public.PrivateTxHash)

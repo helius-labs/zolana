@@ -3,8 +3,9 @@ use zolana_keypair::hash::sha256;
 pub use zolana_program::PrivateTxHash;
 
 use super::{
+    cache::{cache_bound_external_data_hash, cache_write_slots},
     shape::{Shape, SPP_SUPPORTED_SHAPES},
-    validate_input_tree_order, ExternalData, SppProofOutputUtxo,
+    ExternalData, SppProofOutputUtxo,
 };
 use crate::{
     error::TransactionError,
@@ -52,54 +53,32 @@ impl SppProofInputs {
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
-        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         let n_in = self.input_utxos.len();
         let n_out = self.output_utxos.len();
-        SPP_SUPPORTED_SHAPES
+        let shape = SPP_SUPPORTED_SHAPES
             .into_iter()
             .find(|shape| shape.n_inputs() == n_in && shape.n_outputs() == n_out)
-            .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
+            .ok_or(TransactionError::UnsupportedShape { n_in, n_out })?;
+        self.check_dummies_last()?;
+        Ok(shape)
     }
 
-    fn signing_external_data_hash(&self) -> Result<[u8; 32], TransactionError> {
-        use zolana_interface::{
-            state::cache::bind_cache_write,
-            verifying_keys::{valid_cache_writes, CacheAccess, CacheWrite},
-        };
-        let mut writes = CacheAccess::NO_WRITES;
-        let selected = self
-            .output_utxos
-            .iter()
-            .enumerate()
-            .filter_map(|(index, output)| output.cache_slot.map(|slot| (index, output, slot)));
-        for (position, (index, output, slot)) in selected.enumerate() {
-            let entry = writes
-                .get_mut(position)
-                .ok_or(TransactionError::InvalidCacheWrite)?;
-            if output.is_dummy() || self.cache_accounts.write.is_none() {
-                return Err(TransactionError::InvalidCacheWrite);
-            }
-            *entry = CacheWrite {
-                output: u8::try_from(index).map_err(|_| TransactionError::InvalidCacheWrite)?,
-                slot,
-            };
-        }
-        if !valid_cache_writes(&writes, self.output_utxos.len())
-            || (self.cache_accounts.write.is_some() && writes == CacheAccess::NO_WRITES)
+    fn check_dummies_last(&self) -> Result<(), TransactionError> {
+        if let Some(index) =
+            real_slot_after_dummy(self.input_utxos.iter().map(SppProofInputUtxo::is_dummy))
         {
-            return Err(TransactionError::InvalidCacheWrite);
+            return Err(TransactionError::RealInputAfterDummy { index });
         }
-        Ok(bind_cache_write(
-            self.external_data.hash()?,
-            self.cache_accounts
-                .write
-                .as_ref()
-                .map(|cache| (cache.as_array(), &writes)),
-        )?)
+        if let Some(index) =
+            real_slot_after_dummy(self.output_utxos.iter().map(SppProofOutputUtxo::is_dummy))
+        {
+            return Err(TransactionError::RealOutputAfterDummy { index });
+        }
+        Ok(())
     }
 
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
-        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
+        self.check_dummies_last()?;
         let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
         for input_utxo in &self.input_utxos {
             if input_utxo.is_dummy() {
@@ -118,14 +97,29 @@ impl SppProofInputs {
             }
         }
 
-        let external_data_hash = self.signing_external_data_hash()?;
-        let private_tx = PrivateTxHash::new(
-            &input_hashes,
-            &output_hashes,
-            &external_data_hash,
-            &self.private_tx_blinding()?,
-        )
-        .hash()?;
-        Ok(sha256(&private_tx))
+        let external_data_hash = cache_bound_external_data_hash(
+            &self.external_data,
+            &cache_write_slots(&self.output_utxos, self.cache_accounts.write)?,
+            self.cache_accounts.write,
+        )?;
+        let private_tx =
+            PrivateTxHash::new(&input_hashes, &output_hashes, &self.private_tx_blinding()?)
+                .hash()?;
+        Ok(transact_message_hash(&private_tx, &external_data_hash))
     }
+}
+
+fn real_slot_after_dummy(mut dummies: impl Iterator<Item = bool>) -> Option<usize> {
+    let mut padded = false;
+    dummies.position(|dummy| {
+        padded |= dummy;
+        padded && !dummy
+    })
+}
+
+pub fn transact_message_hash(
+    private_tx_hash: &[u8; 32],
+    external_data_hash: &[u8; 32],
+) -> [u8; 32] {
+    sha256(&[private_tx_hash.as_slice(), external_data_hash.as_slice()].concat())
 }

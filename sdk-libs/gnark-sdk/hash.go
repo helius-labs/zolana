@@ -36,10 +36,10 @@ func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
 // PrivateTxHash is the private transaction hash of a transaction that creates
 // no address, so every address nullifier is 0. inputs and outputs are UTXO
 // hashes in transaction slot order, with 0 for a padding slot.
-func PrivateTxHash(api frontend.API, inputs, outputs []frontend.Variable, externalDataHash, privateTxBlinding frontend.Variable) frontend.Variable {
+func PrivateTxHash(api frontend.API, inputs, outputs []frontend.Variable, privateTxBlinding frontend.Variable) frontend.Variable {
 	addressNullifiers := make([]frontend.Variable, len(inputs))
 	for i := range addressNullifiers {
 		addressNullifiers[i] = 0
 	}
-	return spp.PrivateTxHashCircuit(api, inputs, outputs, addressNullifiers, externalDataHash, privateTxBlinding)
+	return spp.PrivateTxHashCircuit(api, inputs, outputs, addressNullifiers, privateTxBlinding)
 }

@@ -8,10 +8,11 @@ use p256::{
 use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, p256_owner_identity};
 use zolana_interface::instruction::instruction_data::transact::TreeContext;
-use zolana_keypair::{hash::sha256, Curve};
+use zolana_keypair::Curve;
 use zolana_transaction::{
-    instructions::transact::PublicTransfers, utxo::program_id_proof_input_hash, ExternalData,
-    P256Signature, SppProofOutputUtxo,
+    instructions::transact::{transact_message_hash, PublicTransfers},
+    utxo::program_id_proof_input_hash,
+    ExternalData, P256Signature, SppProofOutputUtxo,
 };
 
 use crate::{
@@ -105,6 +106,7 @@ impl RingTransferP256Prover {
             inputs: &self.inputs,
             authorization: &self.authorization,
             private_tx: &private_tx,
+            external_data_hash: &external_data_hash,
             published_owners: &published_output_owner_pk_hashes,
         }
         .prepare()?;
@@ -172,6 +174,7 @@ pub(crate) struct P256AuthorizationPreparation<'a> {
     pub inputs: &'a [TransferInputUtxo],
     pub authorization: &'a P256Signature,
     pub private_tx: &'a [u8; 32],
+    pub external_data_hash: &'a [u8; 32],
     pub published_owners: &'a [[u8; 32]],
 }
 
@@ -185,7 +188,7 @@ pub(crate) struct PreparedP256Authorization {
 
 impl P256AuthorizationPreparation<'_> {
     pub fn prepare(self) -> Result<PreparedP256Authorization, ClientError> {
-        let message_digest = sha256(self.private_tx);
+        let message_digest = transact_message_hash(self.private_tx, self.external_data_hash);
         validate_authorization(self.inputs, self.authorization, &message_digest)?;
 
         let public_key = self.authorization.pubkey.to_p256()?;

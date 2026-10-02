@@ -49,7 +49,6 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 		inputHashes,
 		privateOutputHashes,
 		noAddressNullifiers(len(inputHashes)),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshDefaultRingPublicInputHash(t, assignment)

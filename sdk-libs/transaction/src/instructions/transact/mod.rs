@@ -6,8 +6,10 @@
 //! derives the change outputs and pads both inputs and outputs to a declared or
 //! automatically selected [`Shape`], then encrypts the result into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
-//! the SPP and ring proofs.
+//! the SPP and ring proofs, and [`transact_message_hash`] the digest a P256
+//! owner signs over it and the external data hash.
 
+mod cache;
 mod encryption;
 pub mod external_data;
 mod inputs;
@@ -23,9 +25,10 @@ use zolana_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
+pub use cache::{cache_bound_external_data_hash, cache_write_slots};
 pub use encryption::ResolvedOwnerTag;
 pub use external_data::{ExternalData, SettlementTransfer};
-pub use inputs::{pad_input_utxos, validate_input_tree_order};
+pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;
 pub use ring::inputs_require_p256;
 pub use settlement::{
@@ -36,7 +39,7 @@ pub use shape::{
     auto_shapes, canonical_shape, resolve_shape, Shape, SPP_CONSOLIDATION_SHAPE,
     SPP_SUPPORTED_SHAPES,
 };
-pub use transaction::{CacheAccounts, PrivateTxHash, SppProofInputs};
+pub use transaction::{transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs};
 
 use ring::sender_owner_tag;
 
@@ -114,8 +117,7 @@ impl ConfidentialTransaction {
     /// Steps:
     /// 1. Require a real input in the first slot.
     /// 2. Verify real inputs and require padding to use their trees.
-    /// 3. Require each tree to occupy one contiguous run, including padding.
-    /// 4. Read the first nullifier and initialize the transaction with a fresh
+    /// 3. Read the first nullifier and initialize the transaction with a fresh
     ///    blinding seed and no outputs or public transfers.
     pub fn new(inputs: Vec<WalletUtxo>, payer: Address) -> Result<Self, TransactionError> {
         // 1. Require a real input in the first slot.
@@ -172,20 +174,7 @@ impl ConfidentialTransaction {
             }
         }
 
-        // 3. Require one contiguous run per tree, preserving the input order.
-        let mut seen = Vec::new();
-        for (index, input) in inputs.iter().enumerate() {
-            let tree_id = input.tree_id;
-            if seen.last() == Some(&tree_id) {
-                continue;
-            }
-            if seen.contains(&tree_id) {
-                return Err(TransactionError::InterleavedInputTrees { index, tree_id });
-            }
-            seen.push(tree_id);
-        }
-
-        // 4. Read the first nullifier and initialize the transaction.
+        // 3. Read the first nullifier and initialize the transaction.
         let first_nullifier = inputs.first().ok_or(TransactionError::NoInputs)?.nullifier;
 
         Ok(Self {
@@ -200,27 +189,6 @@ impl ConfidentialTransaction {
             ring_program_id: None,
             padded_inputs: None,
         })
-    }
-
-    /// Stable within each run, the first nullifier follows the new order.
-    pub fn move_input_tree_last(&mut self, tree_id: u16) -> Result<&mut Self, TransactionError> {
-        if !self.input_tree_ids.contains(&tree_id) || self.input_tree_ids.last() == Some(&tree_id) {
-            return Ok(self);
-        }
-        if self.padded_inputs.is_some() {
-            return Err(TransactionError::OutputUtxosAlreadyPadded);
-        }
-        let (mut inputs, run): (Vec<_>, Vec<_>) = self
-            .inputs
-            .iter()
-            .cloned()
-            .partition(|input| input.tree_id != tree_id);
-        inputs.extend(run);
-        let reordered = Self::new(inputs, self.payer)?;
-        self.inputs = reordered.inputs;
-        self.first_nullifier = reordered.first_nullifier;
-        self.input_tree_ids = reordered.input_tree_ids;
-        Ok(self)
     }
 
     /// Transfer SPL tokens to a recipient shielded address.

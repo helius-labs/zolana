@@ -188,7 +188,6 @@ impl IndexedProofRequest {
             return Err(invalid());
         }
         let mut next_tree = 0usize;
-        let mut previous = None;
         for (index, (lookup, input)) in data.inputs.iter().zip(metadata.inputs.iter()).enumerate() {
             let slot = usize::from(lookup.tree_slot);
             if slot >= data.trees.len()
@@ -234,13 +233,16 @@ impl IndexedProofRequest {
             {
                 return Err(invalid());
             }
-            if previous != Some(slot) {
-                if slot != next_tree || dummy {
+            // Inputs from different trees may interleave. A real input opens
+            // trees in first-use order, and a dummy only joins an open tree.
+            if slot == next_tree {
+                if dummy {
                     return Err(invalid());
                 }
                 next_tree += 1;
+            } else if slot > next_tree {
+                return Err(invalid());
             }
-            previous = Some(slot);
         }
         if next_tree != data.trees.len() {
             return Err(invalid());

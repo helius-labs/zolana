@@ -90,27 +90,50 @@ func RightHashChain4(inputs []*big.Int) (*big.Int, error) {
 	return h, nil
 }
 
+// NonZeroHashChain mirrors gadget.NonZeroHashChain: zero entries leave h
+// unchanged, the first nonzero v becomes h, and every later nonzero v folds as
+// h = Poseidon(h, v). A chain without a nonzero entry is 0.
+func NonZeroHashChain(inputs []*big.Int) (*big.Int, error) {
+	h := new(big.Int)
+	for i, input := range inputs {
+		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
+			return nil, fmt.Errorf("spp: nonzero hash chain: %w", err)
+		}
+		if input.Sign() == 0 {
+			continue
+		}
+		if h.Sign() == 0 {
+			h = new(big.Int).Set(input)
+			continue
+		}
+		next, err := poseidon.Hash([]*big.Int{h, input})
+		if err != nil {
+			return nil, fmt.Errorf("spp: nonzero hash chain step %d: %w", i, err)
+		}
+		h = next
+	}
+	return h, nil
+}
+
 // PrivateTxHash mirrors PrivateTxHashGadget. addressNullifiers is the address
 // category (the nullifier, i.e. the compressed address, of every address slot;
-// 0 for real spends and padding); it has the same length as inputUtxoHashes.
-// blinding is the transaction's private blinding, which the circuit rejects
-// when zero.
+// 0 for real spends and padding). blinding is the transaction's private
+// blinding, which the circuit rejects when zero.
 func PrivateTxHash(
 	inputUtxoHashes []*big.Int,
 	outputUtxoHashes []*big.Int,
 	addressNullifiers []*big.Int,
-	externalDataHash *big.Int,
 	blinding *big.Int,
 ) (*big.Int, error) {
-	inputChain, err := HashChain4(inputUtxoHashes)
+	inputChain, err := NonZeroHashChain(inputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash input chain: %w", err)
 	}
-	outputChain, err := HashChain4(outputUtxoHashes)
+	outputChain, err := NonZeroHashChain(outputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash output chain: %w", err)
 	}
-	addressChain, err := HashChain4(addressNullifiers)
+	addressChain, err := NonZeroHashChain(addressNullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash address chain: %w", err)
 	}
@@ -119,7 +142,6 @@ func PrivateTxHash(
 		inputChain,
 		outputChain,
 		addressChain,
-		externalDataHash,
 		blinding,
 	})
 	if err != nil {

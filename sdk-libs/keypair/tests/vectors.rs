@@ -11,7 +11,7 @@
 //!
 //! The `merge_recovery` section is computed by `zolana-transaction` (the merge
 //! derivations live there); this file carries it through unchanged and
-//! `sdk-libs/transaction/tests/cases/merge_derivation.rs` asserts it.
+//! `sdk-libs/transaction/tests/merge.rs` asserts it.
 
 use serde::{Deserialize, Serialize};
 use zolana_keypair::{
@@ -98,6 +98,7 @@ struct MergeRecovery {
     output_blinding: String,
     dummy_slot_index: u8,
     dummy_nullifier: String,
+    private_tx_blinding: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

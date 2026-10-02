@@ -89,8 +89,7 @@ export interface InputUtxo {
   readonly nullifierHash: Bytes32;
   /**
    * Which of `TransactInstructionData.treeContexts` this input was proved
-   * against. It must not decrease from one input to the next, so every tree
-   * owns one contiguous run of inputs.
+   * against. Inputs from different trees may interleave.
    */
   readonly treeIndex: number;
 }

@@ -261,7 +261,6 @@ function dataTransitionInputs(
     inputHashes: [slot.inputHash],
     outputHashes: [hashes.utxoHash],
     ...(slot.addressNullifier === undefined ? {} : { addressNullifiers: [slot.addressNullifier] }),
-    externalDataHash: external,
     blinding: txBlinding,
   });
   const namespaceHash = signerIdentity(namespace.address);

@@ -315,7 +315,6 @@ func refreshDummyOutputPrivateTxHash(t testing.TB, assignment *testAssignment) {
 		[]*big.Int{inputHash},
 		[]*big.Int{realOutputHash, big.NewInt(0)},
 		noAddressNullifiers(1),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash

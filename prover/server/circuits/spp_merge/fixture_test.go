@@ -348,7 +348,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		inputHashChainInputs,
 		[]*big.Int{outHash},
 		addressNullifiers,
-		externalDataHash,
 		privateTxBlinding,
 	)
 	if err != nil {

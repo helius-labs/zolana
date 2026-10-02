@@ -19,7 +19,6 @@ export {
 } from "./transact.js";
 export type {
   CacheAccounts,
-  ChangeLayout,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,

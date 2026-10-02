@@ -31,6 +31,7 @@ use crate::{
         SourceOwnerEntry, VelocityProofInput, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
     },
     shared::source_map,
+    transfer::record_input_position,
     CurrentKeyRegistryRoot, PoolTree, TransferError,
 };
 
@@ -308,15 +309,25 @@ impl<'a> CustomRingWitnessInput<'a> {
             .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
-    /// A windowed ring carries the record as its last input and output.
+    /// A windowed ring places the record at its last real input and its last output.
     fn has_record(&self) -> bool {
         self.velocity.window_slots != 0
+    }
+
+    fn active_input_count(&self) -> usize {
+        match self.has_record() {
+            true => record_input_position(self.inputs).map_or(0, |record| record + 1),
+            false => self.inputs.len(),
+        }
     }
 
     /// Rule subjects skip the record slot the circuit excludes.
     fn rule_inputs(&self) -> &[SppProofInputUtxo] {
         match self.has_record() {
-            true => &self.inputs[..self.inputs.len().saturating_sub(1)],
+            true => self
+                .inputs
+                .get(..self.active_input_count().saturating_sub(1))
+                .unwrap_or_default(),
             false => self.inputs,
         }
     }
@@ -648,7 +659,7 @@ impl ResolvedWitness<'_> {
             sources: *self.sources.slots(),
             inputs,
             outputs,
-            n_in: input.inputs.len() as u8,
+            n_in: input.active_input_count() as u8,
             n_out: input.outputs.len() as u8,
             rules: table.rules,
             policy_len: table.rule_count,
@@ -1357,6 +1368,66 @@ mod tests {
         };
         let guarded = Rule::require(Subject::Sender, ListId::Allow).above(u64::MAX);
         assert!(!input.guard_exempts(&guarded, &member).expect("sender"));
+    }
+
+    #[test]
+    fn a_windowed_witness_ends_its_active_inputs_at_the_record() {
+        let owner = ShieldedKeypair::new_ed25519().expect("owner");
+        let real = |tree_id: u16| -> SppProofInputUtxo {
+            zolana_test_utils::utxo::wallet(
+                zolana_transaction::Utxo {
+                    owner: owner.signing_pubkey(),
+                    asset: zolana_transaction::Mint::SOL,
+                    amount: 1,
+                    blinding: zolana_keypair::random_blinding(),
+                    ring_program_id: None,
+                    data: zolana_transaction::Data::default(),
+                },
+                &owner.nullifier_key,
+                tree_id,
+                0,
+                None,
+                None,
+            )
+            .expect("input")
+            .into()
+        };
+        let inputs = [
+            real(0),
+            real(9),
+            SppProofInputUtxo::dummy(9).expect("dummy"),
+            SppProofInputUtxo::dummy(9).expect("dummy"),
+        ];
+        let nullifiers = |inputs: &[SppProofInputUtxo]| {
+            inputs
+                .iter()
+                .map(SppProofInputUtxo::nullifier)
+                .collect::<Vec<_>>()
+        };
+        let config = config(&EMPTY);
+        let windowed = CustomRingWitnessInput {
+            policy: &EMPTY,
+            policy_config: &config,
+            inputs: &inputs,
+            outputs: &[],
+            output_tree_id: 0,
+            velocity: VelocityProofInput {
+                window_slots: 10,
+                ..velocity_off()
+            },
+            key_registry: None,
+        };
+        assert_eq!(windowed.active_input_count(), 2);
+        assert_eq!(
+            nullifiers(windowed.rule_inputs()),
+            nullifiers(inputs.get(..1).expect("money input"))
+        );
+        let unwindowed = CustomRingWitnessInput {
+            velocity: velocity_off(),
+            ..windowed
+        };
+        assert_eq!(unwindowed.active_input_count(), inputs.len());
+        assert_eq!(nullifiers(unwindowed.rule_inputs()), nullifiers(&inputs));
     }
 
     struct ProofRpc {

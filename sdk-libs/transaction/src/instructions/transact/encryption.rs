@@ -1,9 +1,10 @@
 use borsh::BorshDeserialize;
+use solana_address::Address;
 use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{random_salt, PublicKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
 
-use super::{sender_owner_tag, ConfidentialTransaction};
+use super::{sender_owner_tag, ConfidentialTransaction, SppProofOutputUtxo};
 use crate::{
     error::TransactionError,
     instructions::transact::{shape::canonical_shape, ExternalData, SppProofInputs},
@@ -13,7 +14,7 @@ use crate::{
         UtxoSerialization,
     },
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
-    EncryptedScheme,
+    Data, EncryptedScheme, SOL_ASSET_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,7 +58,7 @@ impl ConfidentialTransaction {
     ///    the input and output slots.
     /// 2. Derive and assign output blindings using the final slot order.
     /// 3. Resolve output owner tags and public settlement transfers.
-    /// 4. Encrypt each output using a fresh salt from the OS RNG.
+    /// 4. Encrypt each real output using a fresh salt from the OS RNG.
     /// 5. Check each encrypted slot's owner tag and assemble its commitment,
     ///    owner tag and ciphertext in output order.
     /// 6. Build the external data and return the assembled proof inputs.
@@ -95,16 +96,16 @@ impl ConfidentialTransaction {
         let owner_tags = self.owner_tags(&sender.signing_pubkey)?;
         let interface_transfers = self.interface_transfers()?;
 
-        // 4. Encrypt each output with a fresh OS RNG salt.
+        // 4. Encrypt each real output with a fresh OS RNG salt.
         let salt = random_salt();
         let slots = self
             .outputs
             .iter()
             .enumerate()
             .map(|(slot_index, output)| {
-                let address = output
-                    .owner_address
-                    .ok_or(TransactionError::OutputWithoutOwner { slot_index })?;
+                let Some(address) = output.owner_address else {
+                    return Ok(None);
+                };
                 let mut message = Confidential::encode_plaintext(
                     &ConfidentialOutputPlaintext {
                         asset_id: output.asset.asset_id,
@@ -135,9 +136,14 @@ impl ConfidentialTransaction {
                     message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
                         .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
                 }
-                Ok(message)
+                Ok(Some(message))
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
+        let dummy_len = if self.outputs.iter().any(SppProofOutputUtxo::is_dummy) {
+            dummy_ciphertext_len(self.ring_program_id, salt)?
+        } else {
+            0
+        };
 
         // 5. Check owner tags and assemble commitments and ciphertexts in order.
         let mut transact_outputs = Vec::with_capacity(slots.len());
@@ -145,13 +151,20 @@ impl ConfidentialTransaction {
         for (slot_index, ((output, owner_tag), slot)) in
             self.outputs.iter().zip(owner_tags).zip(slots).enumerate()
         {
-            if slot.view_tag != owner_tag.resolved {
-                return Err(TransactionError::OwnerTagMismatch { slot_index });
-            }
+            let data = match slot {
+                Some(slot) if slot.view_tag != owner_tag.resolved => {
+                    return Err(TransactionError::OwnerTagMismatch { slot_index });
+                }
+                Some(slot) => slot.data,
+                None => std::iter::repeat_with(random_salt)
+                    .flatten()
+                    .take(dummy_len)
+                    .collect(),
+            };
             transact_outputs.push(TransactOutput {
                 utxo_hash: output.hash(self.output_tree_id)?,
                 owner_tag: owner_tag.tag,
-                data: Some(slot.data),
+                data: Some(data),
             });
             resolved_owner_tags.push(owner_tag.resolved);
         }
@@ -193,11 +206,17 @@ impl ConfidentialTransaction {
         let sender_tag = self.sender_owner_tag(sender)?;
         let mut owner_tags = Vec::with_capacity(self.outputs.len());
         for (slot_index, output) in self.outputs.iter().enumerate() {
-            let resolved = output
-                .owner_address
-                .ok_or(TransactionError::OutputWithoutOwner { slot_index })?
-                .signing_pubkey
-                .confidential_view_tag()?;
+            let Some(address) = output.owner_address else {
+                let resolved = output
+                    .owner_tag
+                    .ok_or(TransactionError::DummyOutputWithoutOwnerTag { slot_index })?;
+                owner_tags.push(ResolvedOwnerTag {
+                    tag: OwnerTag::Inline(resolved),
+                    resolved,
+                });
+                continue;
+            };
+            let resolved = address.signing_pubkey.confidential_view_tag()?;
             owner_tags.push(if resolved == sender_tag.resolved {
                 sender_tag
             } else {
@@ -209,4 +228,29 @@ impl ConfidentialTransaction {
         }
         Ok(owner_tags)
     }
+}
+
+fn dummy_ciphertext_len(
+    ring_program_id: Option<Address>,
+    salt: [u8; SALT_LEN],
+) -> Result<usize, TransactionError> {
+    let throwaway = ViewingKey::new();
+    Ok(Confidential::encode_plaintext(
+        &ConfidentialOutputPlaintext {
+            asset_id: SOL_ASSET_ID,
+            amount: 0,
+            blinding: [0u8; 32],
+            ring_program_id,
+            data: Data::default(),
+        },
+        [0u8; 32],
+        &ConfidentialEncode {
+            recipient_pubkey: throwaway.pubkey(),
+            tx: throwaway,
+            salt,
+            slot_index: 0,
+        },
+    )?
+    .data
+    .len())
 }

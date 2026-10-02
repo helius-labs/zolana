@@ -12,16 +12,14 @@ pub struct EscrowProofInputs {
     pub escrow_utxo: ProofInputUtxo,
     pub change: ProofInputUtxo,
     pub source_input_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
     pub private_tx_blinding: [u8; 32],
 }
 
 impl EscrowProofInputs {
     fn witness(&self) -> ProofInputMap {
-        let scalars: [(&str, [u8; 32]); 4] = [
+        let scalars: [(&str, [u8; 32]); 3] = [
             ("PrivateTxHash", self.private_tx_hash),
             ("SourceInputHash", self.source_input_hash),
-            ("ExternalDataHash", self.external_data_hash),
             ("PrivateTxBlinding", self.private_tx_blinding),
         ];
         let mut map = HashMap::new();
@@ -67,7 +65,6 @@ mod tests {
             escrow_utxo: ProofInputUtxo::default(),
             change: ProofInputUtxo::default(),
             source_input_hash: [3; 32],
-            external_data_hash: [4; 32],
             private_tx_blinding: [5; 32],
         }
     }
@@ -80,7 +77,6 @@ mod tests {
         let mut expected: Vec<String> = vec![
             "PrivateTxHash".to_string(),
             "SourceInputHash".to_string(),
-            "ExternalDataHash".to_string(),
             "PrivateTxBlinding".to_string(),
         ];
         expected.extend(expected_escrow_terms_witness_keys("Terms"));

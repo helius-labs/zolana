@@ -339,8 +339,9 @@ function checkStatement(inputs: IndexedProofInputs): void {
     )
       throw invalid();
   });
+  // Inputs from different trees may interleave, so a dummy only needs an
+  // earlier input to have opened the tree it names.
   const used = new Set<number>();
-  let previous = -1;
   inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];
     const cached = inputs.circuit === "merge" ? 0n : (inputs.payload.cacheIsCached[index] ?? 0n);
@@ -351,16 +352,14 @@ function checkStatement(inputs: IndexedProofInputs): void {
       throw invalid();
     if (
       input === undefined ||
-      lookup.treeSlot < previous ||
       lookup.treeSlot >= inputs.trees.length ||
       BigInt(lookup.treeSlot) !== input.treeSlot ||
       (input.isDummy !== 0n && input.isDummy !== 1n) ||
       (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n)
     )
       throw invalid();
-    if (lookup.treeSlot !== previous && input.isDummy === 1n) throw invalid();
+    if (input.isDummy === 1n && !used.has(lookup.treeSlot)) throw invalid();
     if (lookup.commitment !== null) bytesField(lookup.commitment, "commitment");
-    previous = lookup.treeSlot;
     used.add(lookup.treeSlot);
   });
   if (used.size !== inputs.trees.length) throw invalid();

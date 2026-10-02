@@ -14,18 +14,16 @@ pub struct WithdrawProofInputs {
     pub nullifier_pk: [u8; 32],
     pub escrow_utxo: ProofInputUtxo,
     pub source_output: ProofInputUtxo,
-    pub external_data_hash: [u8; 32],
     pub private_tx_blinding: [u8; 32],
 }
 
 impl WithdrawProofInputs {
     fn witness(&self) -> ProofInputMap {
-        let scalars: [(&str, [u8; 32]); 6] = [
+        let scalars: [(&str, [u8; 32]); 5] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
             ("OwnerPkField", self.owner_pk_field),
             ("NullifierPk", self.nullifier_pk),
-            ("ExternalDataHash", self.external_data_hash),
             ("PrivateTxBlinding", self.private_tx_blinding),
         ];
         let mut map = HashMap::new();
@@ -73,7 +71,6 @@ mod tests {
             nullifier_pk: [5; 32],
             escrow_utxo: ProofInputUtxo::default(),
             source_output: ProofInputUtxo::default(),
-            external_data_hash: [6; 32],
             private_tx_blinding: [7; 32],
         }
     }
@@ -88,7 +85,6 @@ mod tests {
             "Public_PrivateTxHash".to_string(),
             "OwnerPkField".to_string(),
             "NullifierPk".to_string(),
-            "ExternalDataHash".to_string(),
             "PrivateTxBlinding".to_string(),
         ];
         expected.extend(expected_escrow_terms_witness_keys("Terms"));

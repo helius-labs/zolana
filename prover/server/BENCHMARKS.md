@@ -1,9 +1,11 @@
 # SPP proving benchmarks
 
 Results appended by `scripts/bench_spp.sh` (`just prover bench-spp`), which
-runs `BenchmarkProveByShape` over both ownership rails (solana, p256) and
-every supported shape. Times are proving only; circuit compilation and
-Groth16 setup are excluded.
+runs `BenchmarkProveByShape` over every supported shape of the custom-ring
+EdDSA-only transact circuit (`NewCustomRingEddsaOnlyCircuit`), including the
+36x2 consolidation shape. The 2026-06-12 sections below predate that circuit
+and cover the solana and p256 ownership rails. Times are proving only; circuit
+compilation and Groth16 setup are excluded.
 
 ## 2026-06-12 — 32e4fac (spp/1-circuit) — Apple M5 Pro — benchtime 5x (solana rail only, pre-p256 bench)
 

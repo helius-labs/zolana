@@ -11,9 +11,7 @@ use zolana_interface::{
 };
 use zolana_keypair::Curve;
 use zolana_transaction::{
-    instructions::transact::{
-        validate_input_tree_order, PrivateTxHash, PublicTransfers, Shape, SPP_SUPPORTED_SHAPES,
-    },
+    instructions::transact::{PrivateTxHash, PublicTransfers, Shape, SPP_SUPPORTED_SHAPES},
     utxo::SppProofInputUtxo,
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -68,7 +66,6 @@ pub(crate) struct AssembledInputs {
     /// this is where those accounts are derived from.
     pub tree_ids: Vec<u16>,
     /// Each assembled input's index into `tree_contexts`, in slot order.
-    /// Non-decreasing, so every tree owns one contiguous run of inputs.
     pub input_tree_indexes: Vec<u8>,
 }
 
@@ -149,7 +146,7 @@ pub(crate) enum OwnerMode {
 }
 
 /// One tree a set of padded inputs is spent from: the raw id its UTXOs are
-/// hashed under, and the two roots every input in its run is proven against.
+/// hashed under, and the two roots every input from it is proven against.
 /// It fills one circuit tree slot.
 ///
 /// The tree account is `pda::tree(tree_id)` and is not carried: the id is what
@@ -223,8 +220,8 @@ impl InputTrees {
 /// raw id its inputs are hashed under, which is the only name either a real
 /// input or a dummy carries. SPP resolves one root pair per declared tree, so
 /// every real input from a tree must share its UTXO root and root index, and
-/// every non-inclusion proof of that tree's run (its padding included) must
-/// share its nullifier root and root index.
+/// every non-inclusion proof of that tree (its padding included) must share
+/// its nullifier root and root index.
 fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, ClientError> {
     let mut trees: Vec<InputTree> = Vec::with_capacity(1);
 
@@ -305,10 +302,10 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
 /// padding decisions: each slot with a [`SpendProof`] is a real input hashed
 /// under its own tree's id; each slot without one is a dummy hashed under the
 /// tree it was assigned, with a zero private owner hash and its own nullifier
-/// non-inclusion witness. Inputs must already be grouped tree by tree in
-/// first-use order, including padding. Assembly preserves the order committed
-/// by the signing hash. A transaction must spend at least one real input, because
-/// the input trees come from the real ones.
+/// non-inclusion witness. Inputs from different trees may interleave.
+/// Assembly preserves the order committed by the signing hash. A transaction
+/// must spend at least one real input, because the input trees come from the
+/// real ones.
 pub(crate) fn assemble_inputs(
     input_utxos: &[TransferInputUtxo],
     owner_mode: &OwnerMode,
@@ -322,7 +319,6 @@ pub(crate) fn assemble_inputs(
         input.validate(index)?;
     }
     let trees = resolve_input_trees(input_utxos)?;
-    validate_input_tree_order(input_utxos.iter().map(|input_utxo| input_utxo.utxo.tree_id))?;
 
     let mut inputs = Vec::with_capacity(input_utxos.len());
     let mut input_hashes = Vec::with_capacity(input_utxos.len());
@@ -429,33 +425,30 @@ pub(crate) fn assemble_inputs(
     })
 }
 
-/// Convert the already-padded outputs into circuit witness fields. A dummy output
-/// (`owner_hash == 0`: empty change or tail padding) still puts its real hash in the
-/// public `output_hashes` but contributes `0` to the private-tx hash chain.
 /// The private transaction hash, from the vectors one assembly pass produced.
 ///
-/// Every rail folds the same four values in the same order, and the two hash
-/// vectors are the ones `assemble_inputs` and `assemble_outputs` emit -- not a
-/// second selection of them. A rail that picked `output_hashes` where this
-/// picks `private_tx_output_hashes` would publish a hash the circuit does not
-/// agree with, and nothing would report it until the proof failed to verify.
-/// One construction site is what stops the two vectors being confused rail by
-/// rail.
+/// Every rail hashes the same chains and blinding in the same order, from the
+/// vectors `assemble_inputs` and `assemble_outputs` return. A rail that used
+/// `output_hashes` where this uses `private_tx_output_hashes` would publish a
+/// hash the circuit rejects, and nothing would report it until the proof
+/// failed to verify. This single construction site keeps every rail on the
+/// same vectors.
 pub(crate) fn private_tx_hash(
     inputs: &AssembledInputs,
     outputs: &AssembledOutputs,
-    external_data_hash: &[u8; 32],
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], ClientError> {
     Ok(PrivateTxHash::new(
         &inputs.input_hashes,
         &outputs.private_tx_output_hashes,
-        external_data_hash,
         private_tx_blinding,
     )
     .hash()?)
 }
 
+/// Convert the already-padded outputs into circuit witness fields. A dummy output
+/// (`owner_hash == 0`) still puts its real hash in the public `output_hashes` but
+/// contributes `0` to the private-tx hash chain.
 pub(crate) fn assemble_outputs(
     outputs: &[SppProofOutputUtxo],
     output_tree_id: u16,
@@ -699,7 +692,7 @@ pub(crate) fn assemble_transaction(
     }
     let outputs = assemble_outputs(outputs, output_tree_id)?;
     let blinding = derive_private_tx_blinding(first_nullifier, blinding_seed)?;
-    let private_tx_hash = private_tx_hash(&inputs, &outputs, external_data_hash, &blinding)?;
+    let private_tx_hash = private_tx_hash(&inputs, &outputs, &blinding)?;
     Ok(AssembledTransaction {
         inputs,
         outputs,
@@ -1188,7 +1181,9 @@ mod tests {
         beyond.cache_slot = Some(36);
         assert!(matches!(
             derive(&inputs, &[beyond], writing()),
-            Err(ClientError::CacheWriteSlotOutOfRange { index: 0, slot: 36 })
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::CacheSlotOutOfRange { slot: 36 }
+            ))
         ));
         assert!(matches!(
             derive(
@@ -1196,16 +1191,22 @@ mod tests {
                 &[cached_output(1, 5), cached_output(2, 5)],
                 writing()
             ),
-            Err(ClientError::DuplicateCacheWriteSlot { index: 1, slot: 5 })
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::DuplicateCacheWriteSlot { index: 1, slot: 5 }
+            ))
         ));
         let nine: Vec<_> = (0..9).map(|slot| cached_output(slot + 1, slot)).collect();
         assert!(matches!(
             derive(&inputs, &nine, writing()),
-            Err(ClientError::TooManyCacheWrites { index: 8, max: 8 })
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::TooManyCacheWrites { index: 8, max: 8 }
+            ))
         ));
         assert!(matches!(
             derive(&inputs, &[cached_output(1, 5)], CacheAccounts::default()),
-            Err(ClientError::CachedOutputWithoutWriteCache { index: 0 })
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::CachedOutputWithoutWriteCache { index: 0 }
+            ))
         ));
         let padding = SppProofOutputUtxo {
             cache_slot: Some(1),
@@ -1213,11 +1214,15 @@ mod tests {
         };
         assert!(matches!(
             derive(&inputs, &[padding], writing()),
-            Err(ClientError::CachedDummyOutput { index: 0 })
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::CachedDummyOutput
+            ))
         ));
         assert!(matches!(
             derive(&inputs, &[output(1)], writing()),
-            Err(ClientError::UnusedWriteCache)
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::UnusedWriteCache
+            ))
         ));
     }
 
@@ -1311,7 +1316,7 @@ mod tests {
     }
 
     #[test]
-    fn interleaved_inputs_are_rejected_without_reordering() {
+    fn interleaved_inputs_are_assembled_without_reordering() {
         for last in [
             input_utxo_in(3, 4, 0x11, 3, 0x33),
             dummy_in(4, Some((0x33, 7))),
@@ -1321,15 +1326,10 @@ mod tests {
                 input_utxo_in(2, 1, 0x12, 4, 0x34),
                 last,
             ];
-            assert!(matches!(
-                assemble_inputs(&input_utxos, &OwnerMode::RingP256),
-                Err(ClientError::Transaction(
-                    zolana_transaction::TransactionError::InterleavedInputTrees {
-                        index: 2,
-                        tree_id: 4
-                    }
-                ))
-            ));
+            let assembled = assemble_inputs(&input_utxos, &OwnerMode::RingP256)
+                .expect("assemble interleaved inputs");
+            assert_eq!(assembled.tree_ids, vec![4, 1]);
+            assert_eq!(assembled.input_tree_indexes, vec![0, 1, 0]);
         }
     }
 

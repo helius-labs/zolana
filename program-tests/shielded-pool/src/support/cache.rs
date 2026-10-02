@@ -187,7 +187,6 @@ impl CachedSpendFixture {
         let private_tx = PrivateTxHash::new(
             &commitments,
             &private_outputs,
-            &external_data_hash,
             &test_private_tx_blinding(&first_nullifier).expect("private tx blinding"),
         )
         .hash()

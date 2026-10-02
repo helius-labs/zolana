@@ -587,10 +587,6 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
     let withdraw_proof_inputs = WithdrawProofInputParams {
         escrow_utxo: escrow_utxo.clone(),
         source_output,
-        external_data_hash: spp_proof_inputs
-            .external_data
-            .hash()
-            .expect("external data hash"),
         private_tx_blinding: spp_proof_inputs
             .private_tx_blinding()
             .expect("private tx blinding"),

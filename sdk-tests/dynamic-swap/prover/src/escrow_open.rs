@@ -31,7 +31,6 @@ pub struct EscrowOpenProofInputs {
     pub order_out: ProofInputUtxo,
     pub reservation_out: ProofInputUtxo,
     pub maker_change: ProofInputUtxo,
-    pub external_data_hash: [u8; 32],
     pub private_tx_blinding: [u8; 32],
 }
 
@@ -66,10 +65,6 @@ impl EscrowOpenProofInputs {
         map.insert(
             "OrderAmount".to_string(),
             vec![self.order_amount.to_string()],
-        );
-        map.insert(
-            "ExternalDataHash".to_string(),
-            vec![decimal(&self.external_data_hash)],
         );
         map.insert(
             "PrivateTxBlinding".to_string(),
@@ -117,7 +112,6 @@ mod tests {
             order_out: ProofInputUtxo::default(),
             reservation_out: ProofInputUtxo::default(),
             maker_change: ProofInputUtxo::default(),
-            external_data_hash: [5; 32],
             private_tx_blinding: [9; 32],
         }
     }
@@ -136,7 +130,6 @@ mod tests {
             "Public_SourceAsset".to_string(),
             "Public_DestinationAsset".to_string(),
             "OrderAmount".to_string(),
-            "ExternalDataHash".to_string(),
             "PrivateTxBlinding".to_string(),
         ];
         for prefix in [

@@ -95,7 +95,6 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParameters {
 		NIn:                1,
 		NOut:               1,
 		AddressChain:       big.NewInt(0x77),
-		ExternalDataHash:   big.NewInt(0x5eed),
 		PrivateTxBlinding:  big.NewInt(0x5b1d),
 		TreeSlots:          zeroedTreeSlots(),
 		AddressTreeID:      big.NewInt(0x0f),
@@ -171,9 +170,9 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int)
 	for i := 0; i < int(p.NOut); i++ {
 		outputs = append(outputs, openingHash(t, p.Outputs[i]))
 	}
-	p.PrivateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
-		spptest.MustHashChain4(t, inputs), spptest.MustHashChain4(t, outputs),
-		p.AddressChain, p.ExternalDataHash, p.PrivateTxBlinding,
+	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{
+		spptest.MustNonZeroHashChain(t, inputs), spptest.MustNonZeroHashChain(t, outputs),
+		p.AddressChain, p.PrivateTxBlinding,
 	})
 	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
 	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))

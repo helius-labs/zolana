@@ -93,11 +93,6 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 			return request, nil, err
 		}
 	}
-	for index, input := range request.Inputs {
-		if !policyCircuit(request.CircuitType) && index > 0 && input.TreeSlot < request.Inputs[index-1].TreeSlot {
-			return request, nil, fmt.Errorf("interleaved input trees")
-		}
-	}
 	prepared, err := decodePrepared(request)
 	return request, prepared, err
 }

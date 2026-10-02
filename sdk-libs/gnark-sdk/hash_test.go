@@ -112,13 +112,12 @@ func TestHashBytesMatchesProtocol(t *testing.T) {
 type privateTxHashCircuit struct {
 	Inputs            []frontend.Variable
 	Outputs           []frontend.Variable
-	ExternalDataHash  frontend.Variable
 	PrivateTxBlinding frontend.Variable
 	Expected          frontend.Variable `gnark:",public"`
 }
 
 func (c *privateTxHashCircuit) Define(api frontend.API) error {
-	hash := gnarksdk.PrivateTxHash(api, c.Inputs, c.Outputs, c.ExternalDataHash, c.PrivateTxBlinding)
+	hash := gnarksdk.PrivateTxHash(api, c.Inputs, c.Outputs, c.PrivateTxBlinding)
 	api.AssertIsEqual(hash, c.Expected)
 	return nil
 }
@@ -132,7 +131,6 @@ func TestPrivateTxHashMatchesProtocol(t *testing.T) {
 			assignment := &privateTxHashCircuit{
 				Inputs:            make([]frontend.Variable, shape.inputs),
 				Outputs:           make([]frontend.Variable, shape.outputs),
-				ExternalDataHash:  17,
 				PrivateTxBlinding: 19,
 			}
 			for i := range inputs {
@@ -147,7 +145,7 @@ func TestPrivateTxHashMatchesProtocol(t *testing.T) {
 				outputs[i] = big.NewInt(int64(200 + i))
 				assignment.Outputs[i] = outputs[i]
 			}
-			hash := must(t)(protocol.PrivateTxHash(inputs, outputs, addressNullifiers, big.NewInt(17), big.NewInt(19)))
+			hash := must(t)(protocol.PrivateTxHash(inputs, outputs, addressNullifiers, big.NewInt(19)))
 			assignment.Expected = hash
 			cs := compile(t, &privateTxHashCircuit{
 				Inputs:  make([]frontend.Variable, shape.inputs),

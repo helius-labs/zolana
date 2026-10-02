@@ -41,6 +41,21 @@ impl<'a> DecodeCx<'a> {
     }
 }
 
+pub(crate) struct ChangeSlots {
+    pub spl: u32,
+    pub sol: u32,
+    pub recipients: u32,
+}
+
+pub(crate) fn change_slots(spl_present: bool, sol_present: bool) -> ChangeSlots {
+    let sol = u32::from(spl_present);
+    ChangeSlots {
+        spl: 0,
+        sol,
+        recipients: sol + u32::from(sol_present),
+    }
+}
+
 pub struct OwnerCx<'a> {
     pub owner: PublicKey,
     pub assets: &'a AssetRegistry,

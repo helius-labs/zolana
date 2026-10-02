@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_client::Rpc;
 use zolana_event::OutputDataEncoding;
-use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use zolana_interface::{instruction::OwnerTag, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_transaction::{
     instructions::transact::{
@@ -12,7 +12,7 @@ use zolana_transaction::{
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
-    Data, Mint, Utxo,
+    Data, Mint, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
@@ -149,14 +149,54 @@ impl TransferHarness {
         let shape = tx.check_shape().unwrap();
         assert_eq!(tx.input_utxos.len(), shape.n_inputs());
         assert_eq!(tx.output_utxos.len(), shape.n_outputs());
-        while expected.len() < shape.n_outputs() {
-            expected.push((sender.shielded_address().unwrap(), Mint::SOL, 0));
-        }
         let first_nullifier = tx.first_nullifier().unwrap();
         let seed = derive_output_blinding_seed(&first_nullifier, &tx.blinding_seed).unwrap();
         let tx_key = sender
             .get_transaction_viewing_key(&first_nullifier)
             .unwrap();
+        let dummy_tag = owners
+            .first()
+            .unwrap()
+            .signing_pubkey()
+            .confidential_view_tag()
+            .unwrap();
+        let real_len = tx
+            .external_data
+            .outputs
+            .first()
+            .and_then(|encoded| encoded.data.as_ref())
+            .map(Vec::len);
+        for (slot, (output, encoded)) in tx
+            .output_utxos
+            .iter()
+            .zip(&tx.external_data.outputs)
+            .enumerate()
+            .skip(expected.len())
+        {
+            assert_eq!(
+                output,
+                &SppProofOutputUtxo {
+                    blinding: derive_transact_output_blinding(&first_nullifier, &seed, slot as u32)
+                        .unwrap(),
+                    owner_tag: Some(dummy_tag),
+                    ..Default::default()
+                }
+            );
+            assert_eq!(
+                (
+                    encoded.utxo_hash,
+                    encoded.owner_tag,
+                    tx.external_data.resolved_owner_tags.get(slot),
+                    encoded.data.as_ref().map(Vec::len)
+                ),
+                (
+                    output.hash(tx.output_tree_id).unwrap(),
+                    OwnerTag::Inline(dummy_tag),
+                    Some(&dummy_tag),
+                    real_len
+                )
+            );
+        }
         for (slot, ((output, encoded), (owner, asset, amount))) in tx
             .output_utxos
             .iter()

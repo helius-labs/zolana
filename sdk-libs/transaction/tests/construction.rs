@@ -15,8 +15,8 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::transact::{
         canonical_shape, inputs_require_p256, pad_input_utxos, resolve_shape,
-        validate_input_tree_order, ConfidentialTransaction, PublicTransferRequest,
-        SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
+        ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
+        SppProofOutputUtxo,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
@@ -205,31 +205,21 @@ fn constructor_requires_preimage_hashes_but_accepts_hash_only_inputs() {
 }
 
 #[test]
-fn constructor_enforces_declared_contiguous_trees_and_preserves_input_order() {
+fn constructor_enforces_declared_trees_and_preserves_interleaved_input_order() {
     let owner = keypair(1);
-    let ordered = vec![
+    let interleaved = vec![
         wallet_utxo(&owner, Mint::SOL, 1, 9, 1),
-        dummy(&owner, 9),
         wallet_utxo(&owner, Mint::SOL, 2, 4, 2),
+        wallet_utxo(&owner, Mint::SOL, 3, 9, 3),
         dummy(&owner, 4),
+        dummy(&owner, 9),
     ];
-    let tx = ConfidentialTransaction::new(ordered.clone(), payer(&owner)).unwrap();
-    assert_eq!(tx.inputs(), ordered);
+    let tx = ConfidentialTransaction::new(interleaved.clone(), payer(&owner)).unwrap();
+    assert_eq!(tx.inputs(), interleaved);
     assert_eq!(tx.input_tree_ids(), [9, 4]);
-    assert_eq!(*tx.first_nullifier(), ordered.first().unwrap().nullifier);
-    let mut interleaved = ordered;
-    interleaved.push(dummy(&owner, 9));
-    let expected = E::InterleavedInputTrees {
-        index: 4,
-        tree_id: 9,
-    };
-    error(
-        validate_input_tree_order(interleaved.iter().map(|n| n.tree_id)),
-        expected.clone(),
-    );
-    error(
-        ConfidentialTransaction::new(interleaved, payer(&owner)),
-        expected,
+    assert_eq!(
+        *tx.first_nullifier(),
+        interleaved.first().unwrap().nullifier
     );
     error(
         ConfidentialTransaction::new(
@@ -391,19 +381,15 @@ fn shape_selection_boundaries_and_explicit_consolidation() {
             .collect::<Vec<_>>(),
         [6, 0]
     );
+    proof.input_utxos.get_mut(1).unwrap().tree_id = 9;
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN36_OUT2);
+    assert!(proof.message_hash().is_ok());
+    assert!(proof.input_utxo_hashes().is_ok());
     proof.output_utxos.pop();
     error(
         proof.check_shape(),
         E::UnsupportedShape { n_in: 36, n_out: 1 },
     );
-    proof.input_utxos.get_mut(1).unwrap().tree_id = 9;
-    let expected = E::InterleavedInputTrees {
-        index: 2,
-        tree_id: 7,
-    };
-    error(proof.check_shape(), expected.clone());
-    error(proof.message_hash(), expected.clone());
-    error(proof.input_utxo_hashes(), expected);
 }
 
 #[test]
@@ -561,15 +547,11 @@ fn explicit_output_fields_survive_padding_and_change_uses_asset_first_use_order(
     assert_eq!(
         padding,
         &SppProofOutputUtxo {
-            asset: Mint::SOL,
-            amount: 0,
-            blinding: padding.blinding, // Padding randomness has no fixed value.
-            owner_address: Some(sender),
-            owner_tag: Some(sender.confidential_view_tag().unwrap()),
+            owner_tag: Some(address.confidential_view_tag().unwrap()),
             ..Default::default()
         }
     );
-    assert!(!padding.is_dummy());
+    assert!(padding.is_dummy());
     let mut max = builder(&owner, u64::MAX);
     max.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
     assert_eq!(max.outputs().first().unwrap().amount, u64::MAX);
@@ -646,8 +628,11 @@ fn assert_recovery(
     readers: &[&ShieldedKeypair],
     expected: &[(Mint, u64, ShieldedAddress, Option<Address>, Data)],
 ) {
-    assert_eq!(proof.output_utxos.len(), expected.len());
-    assert_eq!(proof.external_data.outputs.len(), expected.len());
+    assert_eq!(
+        proof.output_utxos.iter().filter(|o| !o.is_dummy()).count(),
+        expected.len()
+    );
+    assert_eq!(proof.external_data.outputs.len(), proof.output_utxos.len());
     let registry = AssetRegistry::new([(2, mint(2).asset), (3, mint(3).asset)]).unwrap();
     let seed = derive_output_blinding_seed(&proof.first_nullifier().unwrap(), &proof.blinding_seed)
         .unwrap();
@@ -745,6 +730,59 @@ fn assert_recovery(
     }
 }
 
+fn slot_len(proof: &SppProofInputs, index: usize) -> usize {
+    proof
+        .external_data
+        .outputs
+        .get(index)
+        .and_then(|published| published.data.as_ref())
+        .map(Vec::len)
+        .unwrap()
+}
+
+fn assert_dummies(
+    proof: &SppProofInputs,
+    real: usize,
+    tag: [u8; 32],
+    ring: Option<Address>,
+    real_len: usize,
+) {
+    let first = proof.first_nullifier().unwrap();
+    let seed = derive_output_blinding_seed(&first, &proof.blinding_seed).unwrap();
+    assert!(proof.output_utxos.len() > real);
+    for (index, (output, published)) in proof
+        .output_utxos
+        .iter()
+        .zip(&proof.external_data.outputs)
+        .enumerate()
+        .skip(real)
+    {
+        assert_eq!(
+            output,
+            &SppProofOutputUtxo {
+                blinding: derive_transact_output_blinding(&first, &seed, index as u32).unwrap(),
+                ring_program_id: ring,
+                owner_tag: Some(tag),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            (
+                published.utxo_hash,
+                published.owner_tag,
+                proof.external_data.resolved_owner_tags.get(index),
+                published.data.as_ref().map(Vec::len)
+            ),
+            (
+                output.hash(proof.output_tree_id).unwrap(),
+                OwnerTag::Inline(tag),
+                Some(&tag),
+                Some(real_len)
+            )
+        );
+    }
+}
+
 #[test]
 fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output() {
     let owner = keypair(1);
@@ -820,9 +858,11 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
         if case % 2 == 0 {
             tx.pad_utxos(expected_shape, &sender).unwrap();
         }
-        while expected.len() < expected_shape.n_outputs() {
-            expected.push((Mint::SOL, 0, sender, None, Data::default()));
-        }
+        let dummy_tag = if sol_change > 0 || spl_change > 0 {
+            sender.confidential_view_tag().unwrap()
+        } else {
+            receiver.confidential_view_tag().unwrap()
+        };
         let proof = tx.encrypt(&owner).unwrap();
         assert_eq!(proof.check_shape().unwrap(), expected_shape);
         assert_eq!(proof.output_tree_id, 12);
@@ -877,6 +917,9 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
             }
         );
         assert_recovery(&proof, &tx_key, &[&owner, &recipient], &expected);
+        if expected.len() < expected_shape.n_outputs() {
+            assert_dummies(&proof, expected.len(), dummy_tag, None, slot_len(&proof, 0));
+        }
     }
 }
 
@@ -911,34 +954,77 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
             .unwrap();
         tx.pad_utxos(Shape::IN1_OUT8, &sender).unwrap();
         let proof = tx.encrypt(&owner).unwrap();
-        let mut expected = vec![
+        let expected = vec![
             (Mint::SOL, 2, receiver, Some(ring), Data::default()),
             (Mint::SOL, 3, receiver, None, Data::default()),
             (Mint::SOL, 1, receiver, Some(other_ring), Data::default()),
             (Mint::SOL, 4, sender, Some(ring), Data::default()),
         ];
-        expected.extend((0..4).map(|_| (Mint::SOL, 0, sender, Some(ring), Data::default())));
         assert_recovery(&proof, &key, &[&owner, &recipient], &expected);
+        assert_dummies(
+            &proof,
+            expected.len(),
+            sender.confidential_view_tag().unwrap(),
+            Some(ring),
+            slot_len(&proof, 0),
+        );
         for output in proof.external_data.outputs.iter().take(3) {
             assert_eq!(
                 output.owner_tag,
                 OwnerTag::Inline(receiver.confidential_view_tag().unwrap())
             );
         }
-        for output in proof.external_data.outputs.iter().skip(3) {
-            assert_eq!(
-                output.owner_tag,
-                if relayed {
-                    OwnerTag::Inline(sender.confidential_view_tag().unwrap())
-                } else {
-                    OwnerTag::Account(0)
-                }
-            );
-        }
+        assert_eq!(
+            proof.external_data.outputs.get(3).unwrap().owner_tag,
+            if relayed {
+                OwnerTag::Inline(sender.confidential_view_tag().unwrap())
+            } else {
+                OwnerTag::Account(0)
+            }
+        );
     }
     let mut tx = builder(&owner, 1);
-    tx.add_output_utxo(SppProofOutputUtxo::default()).unwrap();
-    error(tx.encrypt(&owner), E::OutputWithoutOwner { slot_index: 0 });
+    error(
+        tx.add_output_utxo(SppProofOutputUtxo::default()),
+        E::OutputWithoutOwner { slot_index: 0 },
+    );
+    assert!(tx.outputs().is_empty());
+}
+
+#[test]
+fn dummies_name_the_input_owner_and_a_self_paid_full_withdrawal_keeps_a_zero_change() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let tag = sender.confidential_view_tag().unwrap();
+    let withdrawal = |payer: Address| {
+        let input = wallet_utxo(&owner, Mint::SOL, 5, 7, 1);
+        let key = owner
+            .viewing_key
+            .get_transaction_viewing_key(&input.nullifier)
+            .unwrap();
+        let mut tx = ConfidentialTransaction::new(vec![input], payer).unwrap();
+        tx.withdraw_sol(5, payer).unwrap();
+        tx.pad_utxos(Shape::IN1_OUT2, &sender).unwrap();
+        (tx.encrypt(&owner).unwrap(), key)
+    };
+
+    let (self_paid, key) = withdrawal(payer(&owner));
+    assert_recovery(
+        &self_paid,
+        &key,
+        &[&owner],
+        &[(Mint::SOL, 0, sender, None, Data::default())],
+    );
+    assert_eq!(
+        self_paid.external_data.outputs.first().unwrap().owner_tag,
+        OwnerTag::Account(0)
+    );
+    let real_len = slot_len(&self_paid, 0);
+    assert_dummies(&self_paid, 1, tag, None, real_len);
+
+    let (relayed, _) = withdrawal(Address::new_from_array([99; 32]));
+    assert_eq!(relayed.check_shape().unwrap(), Shape::IN1_OUT2);
+    assert_dummies(&relayed, 0, tag, None, real_len);
 }
 
 #[test]

@@ -404,16 +404,28 @@ fn tree_contexts(count: usize) -> Vec<TreeContext> {
 fn input_tree_contexts_accept_contiguous_runs_up_to_the_program_limit() {
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0]), &tree_contexts(1)),
-        Ok(())
+        Ok([1, 0])
     );
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 0, 1, 1, 1]), &tree_contexts(2)),
-        Ok(())
+        Ok([2, 3])
     );
     let every_slot: Vec<u8> = (0..MAX_INPUT_TREES as u8).collect();
     assert_eq!(
         validate_input_tree_contexts(&inputs(&every_slot), &tree_contexts(MAX_INPUT_TREES)),
-        Ok(())
+        Ok([1; MAX_INPUT_TREES])
+    );
+}
+
+#[test]
+fn input_tree_contexts_accept_interleaved_trees() {
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 1, 0]), &tree_contexts(2)),
+        Ok([2, 1])
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[1, 0, 1, 0]), &tree_contexts(2)),
+        Ok([2, 2])
     );
 }
 
@@ -430,10 +442,6 @@ fn input_tree_contexts_reject_every_invalid_grouping() {
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 2]), &tree_contexts(2)),
         Err(ShieldedPoolError::InputTreeIndexOutOfRange)
-    );
-    assert_eq!(
-        validate_input_tree_contexts(&inputs(&[0, 1, 0]), &tree_contexts(2)),
-        Err(ShieldedPoolError::InputsNotGroupedByTree)
     );
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 0]), &tree_contexts(2)),
