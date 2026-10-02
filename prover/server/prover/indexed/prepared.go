@@ -122,17 +122,21 @@ func decodePrepared(request Request) (*preparedProof, error) {
 	if !shape.Supported() || len(prepared.inputs) != len(request.Inputs) || len(prepared.inputs) == 0 || len(prepared.inputs) > 36 || len(*prepared.slots) != 0 || (*prepared.hash).Sign() != 0 {
 		return nil, fmt.Errorf("invalid prepared shape")
 	}
+	// Inputs from different trees may interleave, so a dummy only needs an
+	// earlier input to have opened the tree it names.
+	opened := make([]bool, len(request.Trees))
 	for index, input := range prepared.inputs {
 		lookup := request.Inputs[index]
 		if input.cached && (input.dummy || request.CircuitType == common.TransferRingAuthorityCircuitType) {
 			return nil, fmt.Errorf("invalid cached input")
 		}
-		if input.dummy && (index == 0 || lookup.TreeSlot != request.Inputs[index-1].TreeSlot) {
+		if input.dummy && (int(lookup.TreeSlot) >= len(opened) || !opened[lookup.TreeSlot]) {
 			return nil, fmt.Errorf("input tree starts with a dummy")
 		}
 		if input.slot == nil || !input.slot.IsUint64() || input.slot.Uint64() != uint64(lookup.TreeSlot) || int(lookup.TreeSlot) >= len(request.Trees) || (input.dummy || input.cached) != (lookup.Commitment == nil) {
 			return nil, fmt.Errorf("input lookup mismatch")
 		}
+		opened[lookup.TreeSlot] = true
 		if len(*input.state) != 0 || len(*input.exclusion) != 0 || (*input.stateIndex).Sign() != 0 || (*input.exclusionIndex).Sign() != 0 || (*input.low).Sign() != 0 || (*input.high).Sign() != 0 {
 			return nil, fmt.Errorf("prepared request contains indexer data")
 		}

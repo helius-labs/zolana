@@ -21,9 +21,7 @@ use zolana_interface::{
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_transaction::{
-    instructions::transact::{
-        inputs_require_p256, validate_input_tree_order, PrivateTxHash, SppProofInputs,
-    },
+    instructions::transact::{inputs_require_p256, PrivateTxHash, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
@@ -124,7 +122,6 @@ impl IndexedTransferPreparation {
         {
             return Err(ClientError::P256TransactUnsupported);
         }
-        validate_input_tree_order(transaction.input_utxos.iter().map(|input| input.tree_id))?;
         let mut trees: Vec<IndexedTree> = Vec::new();
         let mut lookups = Vec::new();
         let mut local_inputs = Vec::new();
@@ -132,22 +129,28 @@ impl IndexedTransferPreparation {
         let mut nullifiers = Vec::new();
         let mut indexes = Vec::new();
         for input in &transaction.input_utxos {
-            if trees.last().is_none_or(|tree| tree.id != input.tree_id) {
-                if input.is_dummy() {
-                    return Err(ClientError::NoInputs);
-                }
-                if trees.len() == MAX_INPUT_TREES {
-                    return Err(ClientError::TooManyInputTrees {
-                        got: trees.len() + 1,
-                        max: MAX_INPUT_TREES,
+            // Inputs from different trees may interleave; a dummy joins the
+            // tree it names, which a real input must already have opened.
+            let position = match trees.iter().position(|tree| tree.id == input.tree_id) {
+                Some(position) => position,
+                None => {
+                    if input.is_dummy() {
+                        return Err(ClientError::NoInputs);
+                    }
+                    if trees.len() == MAX_INPUT_TREES {
+                        return Err(ClientError::TooManyInputTrees {
+                            got: trees.len() + 1,
+                            max: MAX_INPUT_TREES,
+                        });
+                    }
+                    trees.push(IndexedTree {
+                        id: input.tree_id,
+                        tree: zolana_interface::pda::tree(input.tree_id).to_bytes().into(),
                     });
+                    trees.len() - 1
                 }
-                trees.push(IndexedTree {
-                    id: input.tree_id,
-                    tree: zolana_interface::pda::tree(input.tree_id).to_bytes().into(),
-                });
-            }
-            let tree_slot = u8::try_from(trees.len() - 1).map_err(|_| ClientError::NoInputs)?;
+            };
+            let tree_slot = u8::try_from(position).map_err(|_| ClientError::NoInputs)?;
             let utxo = ProofInputUtxo::try_from(input)?;
             let hash = utxo.hash()?;
             let nullifier = input.nullifier;
@@ -201,13 +204,9 @@ impl IndexedTransferPreparation {
         let outputs = assemble_outputs(&transaction.output_utxos, transaction.output_tree_id)?;
         let external_hash = cache.external_data_hash;
         let blinding = derive_private_tx_blinding(first, &transaction.blinding_seed)?;
-        let private_tx = PrivateTxHash::new(
-            &input_hashes,
-            &outputs.private_tx_output_hashes,
-            &external_hash,
-            &blinding,
-        )
-        .hash()?;
+        let private_tx =
+            PrivateTxHash::new(&input_hashes, &outputs.private_tx_output_hashes, &blinding)
+                .hash()?;
         let movements = transaction.public_transfers()?;
         let signers = if authority_rail {
             vec![zolana_hasher::primitives::solana_owner_identity(
@@ -232,6 +231,7 @@ impl IndexedTransferPreparation {
                     inputs: &proof_inputs,
                     authorization,
                     private_tx: &private_tx,
+                    external_data_hash: &external_hash,
                     published_owners: owners.as_deref().unwrap_or_default(),
                 }
                 .prepare()?,

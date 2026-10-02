@@ -580,6 +580,7 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         output_blinding: String,
         dummy_slot_index: u8,
         dummy_nullifier: String,
+        private_tx_blinding: String,
     }
     let vector: Vectors =
         serde_json::from_str(include_str!("../../../test-vectors/key_derivation.json")).unwrap();
@@ -627,6 +628,7 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         .unwrap()
     );
     let private = merge_private_tx_blinding(&key, &first).unwrap();
+    assert_eq!(hex::encode(private), vector.private_tx_blinding);
     assert_ne!(private, output);
     assert_ne!(private, dummy);
     assert_ne!(

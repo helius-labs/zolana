@@ -165,8 +165,11 @@ pub(crate) fn process_merge_core(
     create_nullifier_pdas(
         accounts.payer,
         accounts.input_tree,
-        &mut accounts.nullifier_pdas,
-        ix.nullifiers.iter(),
+        accounts
+            .nullifier_pdas
+            .iter_mut()
+            .map(|nullifier_pda| &mut **nullifier_pda)
+            .zip(ix.nullifiers.iter()),
         &input_tree_result,
     )?;
     let tree_write = {

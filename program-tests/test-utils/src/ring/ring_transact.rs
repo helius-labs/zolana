@@ -744,11 +744,10 @@ impl RingHarness {
                 expected.push((from, from_keypair.signing_pubkey(), asset, change, false));
             }
         }
+        if expected.is_empty() && self.actor(from).solana_signer.is_some() {
+            expected.push((from, from_keypair.signing_pubkey(), SOL_MINT, 0, false));
+        }
         assert!(expected.len() <= indexed.output_slots.len());
-        expected.resize(
-            indexed.output_slots.len(),
-            (from, from_keypair.signing_pubkey(), SOL_MINT, 0, false),
-        );
         for (position, (actor, owner, asset, amount, recipient)) in expected.into_iter().enumerate()
         {
             let note = self.build_expected(

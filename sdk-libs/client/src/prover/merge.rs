@@ -220,12 +220,8 @@ impl MergeProver {
         }
         .hash()?;
         let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
-        let private_tx = private_tx_hash(
-            &assembled_inputs,
-            &assembled_outputs,
-            &external_data_hash,
-            &private_tx_blinding,
-        )?;
+        let private_tx =
+            private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
         let mut elements = vec![
             create_hash_chain_4_from_slice(&assembled_inputs.nullifiers)?,

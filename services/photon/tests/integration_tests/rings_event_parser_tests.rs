@@ -2020,8 +2020,8 @@ fn unshield_transaction_info() -> TransactionInfo {
     )
 }
 
-/// Inputs grouped by tree, as the program requires: two from `TEST_TREE`, one
-/// from `SECOND_TEST_TREE`, each numbered from its own tree's first sequence.
+/// Two inputs from `TEST_TREE` and one from `SECOND_TEST_TREE`, each numbered
+/// from its own tree's first sequence.
 fn two_tree_transfer_transaction_info() -> TransactionInfo {
     transact_transaction_info(
         5,

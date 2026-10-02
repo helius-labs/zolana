@@ -43,6 +43,19 @@ pub fn create_right_hash_chain_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32
     Ok(hash_chain)
 }
 
+pub fn create_nonzero_hash_chain_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
+    inputs
+        .iter()
+        .filter(|input| **input != [0u8; 32])
+        .try_fold([0u8; 32], |hash_chain, input| {
+            if hash_chain == [0u8; 32] {
+                Ok(*input)
+            } else {
+                Poseidon::hashv(&[&hash_chain, input])
+            }
+        })
+}
+
 fn create_hash_chain<'a>(
     mut inputs: impl Iterator<Item = &'a [u8; 32]>,
 ) -> Result<[u8; 32], HasherError> {

@@ -73,9 +73,13 @@ implementation differences.
         2. choose a supported shape that fits both sides, or validate the
            caller's; not every input/output combination has one
         3. pad both sides, validate balance, and fix slot order and tree
-           assignment: group inputs by tree, real input first, and build each
-           input dummy for its assigned tree. Output padding creates
-           zero-amount sender-owned notes.
+           assignment: real inputs keep the caller's order, which may
+           interleave trees, and dummies follow them, each built for its
+           assigned tree. Output padding appends dummy outputs after the
+           caller's outputs and the change. Each dummy publishes the view tag
+           of an input owner other than the fee payer, else of a real output
+           owner; a transaction naming neither keeps a zero-amount SOL change
+           for the sender.
         4. take the first nullifier from the final input order; it seeds the
            output blindings and the transaction viewing key
     2. derive the slot values ***(client)***
@@ -85,8 +89,9 @@ implementation differences.
     3. encrypt ***(tvc)***
         1. derive the transaction viewing key from the first nullifier
         2. take the caller's salt (`random_salt`, or a constant in a fixture)
-        3. encrypt each slot to the owner it already names, attaching that
-           owner's view tag
+        3. encrypt each real slot to the owner it already names, attaching
+           that owner's view tag; a dummy slot carries random bytes of a real
+           slot's length
     4. hash the external data, `ExternalData::hash` ***(client)***
         1. serialize the filled slots with their owner tags, the transaction
            viewing pubkey, the salt, and the interface transfers
@@ -96,12 +101,13 @@ implementation differences.
     5. hash the private transaction, `PrivateTxHash::new(..).hash()`
        ***(client)***
         1. input commitments from step 2 and output commitments from 4.2: zero
-           for circuit dummy slots, the real commitment for sender-owned
-           zero-value outputs
-        2. the external data hash
-        3. the private transaction blinding, derived from the first nullifier
+           for circuit dummy slots, the real commitment for every real output,
+           a zero-value one included
+        2. the private transaction blinding, derived from the first nullifier
            and the seed. It stays private, so the published hash cannot be
            tested against guessed inputs.
+        3. each chain folds only its nonzero entries, so padding slots do not
+           change the hash
     6. **result:** an immutable transaction with every slot filled, its
        commitments, `external_data_hash`, and `private_tx_hash`, which the
        proof covers and the transact instruction publishes
@@ -110,7 +116,8 @@ implementation differences.
 
     `ZolanaClient::prove_transact`
 
-    1. on the P-256 rail, sign `sha256(private_tx_hash)` as the authorization,
+    1. on the P-256 rail, sign `sha256(private_tx_hash || external_data_hash)`
+       as the authorization,
        `Tvc::sign_p256`. The transact rail authorizes through the Solana signer
        in step 7 instead.
     2. send the input commitments; the prover fetches the state-inclusion and

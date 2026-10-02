@@ -177,7 +177,6 @@ func TestCustomRingAuthorityDummyInputRequiresStateRoot(t *testing.T) {
 		},
 		spptest.ToBigInts(assignment.OutputHashes()),
 		noAddressNullifiers(shape.NInputs),
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshRingAuthorityPublicInputHash(t, assignment)
@@ -256,7 +255,6 @@ func buildRingAuthorityAssignmentWithAddressInput(
 		inputHashes,
 		spptest.ToBigInts(assignment.OutputHashes()),
 		addressNullifiers,
-		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
 	refreshRingAuthorityPublicInputHash(t, assignment)

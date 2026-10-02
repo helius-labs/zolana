@@ -240,7 +240,6 @@ impl<'a> DelegateTransfer<'a> {
             .map(PoolTree::from_id)
             .ok_or(zolana_transaction::TransactionError::NoInputs)?;
         let program_id = self.ring.program_id();
-        // Padding joins the last input group, SPP requires contiguous groups.
         let padding_tree_id = self
             .inputs
             .last()
@@ -422,7 +421,6 @@ impl StagedDelegateTransfer {
         let request = TierRequestInput {
             pending: self.pending_proof,
             private_tx_hash: spp.private_tx_hash().try_into()?,
-            external_data: &self.prepared.external_data,
             private_tx_blinding: self.prepared.private_tx_blinding()?,
         }
         .policy(statement)?

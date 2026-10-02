@@ -56,7 +56,6 @@ type Core struct {
 	SourceOutput      gnarksdk.Utxo
 	DestinationOutput gnarksdk.Utxo
 
-	ExternalDataHash  frontend.Variable
 	PrivateTxBlinding frontend.Variable
 }
 
@@ -73,7 +72,6 @@ func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
 		api,
 		[]frontend.Variable{orderInputUtxoHash, takerInputUtxoHash},
 		[]frontend.Variable{sourceOutputUtxoHash, destinationOutputUtxoHash},
-		f.ExternalDataHash,
 		f.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(recomputedPrivateTxHash, privateTxHash)

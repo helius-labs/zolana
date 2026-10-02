@@ -52,7 +52,7 @@ pub fn process_transact_ix(
         .map_err(caused_by(ProgramError::InvalidInstructionData))?;
     // 2. Validate declared circuit type and the declared input trees.
     validate_circuit_type(&ix, instruction)?;
-    validate_input_tree_contexts(&ix.inputs, &ix.tree_contexts)?;
+    let tree_input_counts = validate_input_tree_contexts(&ix.inputs, &ix.tree_contexts)?;
 
     // 3. Check proof is not expired.
     let clock = Clock::get()?;
@@ -93,7 +93,12 @@ pub fn process_transact_ix(
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
     // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
-    let input_tree_sequences = apply_input_trees(&mut transact_accounts, &ix, &mut proof_inputs)?;
+    let input_tree_sequences = apply_input_trees(
+        &mut transact_accounts,
+        &ix,
+        tree_input_counts,
+        &mut proof_inputs,
+    )?;
     bind_cached_inputs(cache.as_ref(), &ix, &mut proof_inputs)?;
     // 11. Append new utxo hashes.
     let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;

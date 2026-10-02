@@ -13,8 +13,7 @@ use crate::{
 /// Steps:
 /// 1. Reject an input count above the shape's capacity.
 /// 2. Collect the declared tree IDs and select the last tree for padding.
-/// 3. Append dummies until the input count matches the shape. For ordered
-///    inputs, this extends the last tree's contiguous run.
+/// 3. Append dummies until the input count matches the shape.
 pub fn pad_input_utxos(
     input_utxos: &mut Vec<SppProofInputUtxo>,
     shape: Shape,
@@ -64,22 +63,6 @@ pub(super) fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, T
         });
     }
     Ok(tree_ids)
-}
-
-pub fn validate_input_tree_order(
-    tree_ids: impl IntoIterator<Item = u16>,
-) -> Result<(), TransactionError> {
-    let mut seen = Vec::new();
-    for (index, tree_id) in tree_ids.into_iter().enumerate() {
-        if seen.last() == Some(&tree_id) {
-            continue;
-        }
-        if seen.contains(&tree_id) {
-            return Err(TransactionError::InterleavedInputTrees { index, tree_id });
-        }
-        seen.push(tree_id);
-    }
-    Ok(())
 }
 
 impl SppProofInputs {
@@ -143,7 +126,6 @@ impl SppProofInputs {
     }
 
     pub fn input_utxo_hashes(&self) -> Result<Vec<&SppProofInputUtxo>, TransactionError> {
-        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         Ok(self
             .input_utxos
             .iter()

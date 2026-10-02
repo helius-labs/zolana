@@ -605,7 +605,6 @@ fn bench_transfer_shape(
     let private_tx = PrivateTxHash::new(
         &vec![zero; n_inputs],
         &private_outputs,
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()
@@ -889,7 +888,6 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
         &[change_output_hash, zero, zero],
-        &external_data_hash,
         &private_tx_blinding,
     )
     .hash()

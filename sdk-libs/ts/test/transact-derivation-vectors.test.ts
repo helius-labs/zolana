@@ -17,8 +17,7 @@ import {
   treeSlotHash,
   treeSlotsHashChain,
 } from "../src/interface/tree-slot.js";
-import { type Bytes31, type Bytes32, NullifierKey } from "../src/keypair/index.js";
-import { mergePrivateTxBlinding } from "../src/keypair/merge/index.js";
+import type { Bytes32 } from "../src/keypair/index.js";
 import {
   outputBlindingSeed,
   privateTxBlinding,
@@ -76,16 +75,6 @@ describe("shared transact derivation vectors (test-vectors/transact_derivation.j
     expect(hex(transactOutputBlinding(firstNullifier, outputSeed, 0))).not.toBe(
       hex(transactOutputBlinding(firstNullifier, outputSeed, 1)),
     );
-    const secret = new Uint8Array(31);
-    secret[30] = section.merge_nullifier_secret;
-    const nullifierKey = NullifierKey.fromSecret(secret as Bytes31);
-    try {
-      expect(hex(mergePrivateTxBlinding(nullifierKey, firstNullifier))).toBe(
-        section.merge_private_tx_blinding,
-      );
-    } finally {
-      nullifierKey.destroy();
-    }
     expect(() => transactOutputBlinding(firstNullifier, outputSeed, -1)).toThrow(RangeError);
   });
 

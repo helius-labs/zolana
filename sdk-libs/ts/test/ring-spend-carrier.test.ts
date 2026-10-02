@@ -150,7 +150,7 @@ describe("compressed spend record carrier", () => {
       const proofInputs = new SppProofInputs({
         payer: ADDRESS,
         inputUtxos: [input],
-        outputs: [dummy, f.output],
+        outputs: [f.output, dummy],
         blindingSeed: field(23),
         outputTreeId: 4,
         externalData: createExternalData({
@@ -159,21 +159,21 @@ describe("compressed spend record carrier", () => {
           messages: f.transaction.messages,
           resolvedOwnerTags: [NAMESPACE, NAMESPACE],
           outputs: [
-            { utxoHash: dummy.hash(4), ownerTag: { kind: "inline", value: NAMESPACE } },
             {
               utxoHash: f.hashes.utxoHash,
               ownerTag: { kind: "inline", value: NAMESPACE },
               data: carrier.payload,
             },
+            { utxoHash: dummy.hash(4), ownerTag: { kind: "inline", value: NAMESPACE } },
           ],
         }),
       });
       const framed = frameDummyOutputs(proofInputs);
-      expect(framed.externalData.outputs[0]?.data).toHaveLength(carrier.payload.length);
+      expect(framed.externalData.outputs[1]?.data).toHaveLength(carrier.payload.length);
       expect(
-        readOutputData(framed.externalData.outputs[0]?.data ?? new Uint8Array()),
+        readOutputData(framed.externalData.outputs[1]?.data ?? new Uint8Array()),
       ).toMatchObject({ encoding: "encrypted", scheme: EncryptedScheme.confidential });
-      expect(framed.externalData.outputs[1]).toEqual(proofInputs.externalData.outputs[1]);
+      expect(framed.externalData.outputs[0]).toEqual(proofInputs.externalData.outputs[0]);
       expect(framed.outputs.map((output) => output.hash(4))).toEqual(
         proofInputs.outputs.map((output) => output.hash(4)),
       );

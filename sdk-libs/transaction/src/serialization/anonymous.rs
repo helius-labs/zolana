@@ -2,17 +2,13 @@ use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{change_slots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, Mint, P256PubkeySchema, PublicKeySchema,
 };
-
-/// Physical output slots the sender bundle describes.
-const SPL_CHANGE_SLOT: u32 = 0;
-const SOL_CHANGE_SLOT: u32 = 1;
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousTransferRecipientPlaintext {
@@ -86,10 +82,11 @@ impl AnonymousTransferSenderPlaintext {
         Ok(parsed)
     }
 
-    /// The bundle names the two sender change slots positionally and cannot say
-    /// that one of them was dropped, so a slot's logical position is also its
-    /// physical output index. `first_nullifier` is the transaction's; it is what
-    /// makes each derived blinding unique to that transaction.
+    /// A zero amount marks a change output as absent. The present change
+    /// outputs lead the transaction, the SPL change first, so the SOL change
+    /// sits at slot 1 only when an SPL change precedes it. `first_nullifier`
+    /// is the transaction's; it is what makes each derived blinding unique to
+    /// that transaction.
     pub fn into_utxos(
         self,
         first_nullifier: &[u8; 32],
@@ -102,6 +99,7 @@ impl AnonymousTransferSenderPlaintext {
         if self.sol_amount == 0 && !self.sol_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
+        let slots = change_slots(self.spl_amount > 0, self.sol_amount > 0);
         let mut utxos = Vec::new();
         if self.spl_amount > 0 {
             utxos.push(Utxo {
@@ -111,7 +109,7 @@ impl AnonymousTransferSenderPlaintext {
                 blinding: derive_transact_output_blinding(
                     first_nullifier,
                     &self.blinding_seed,
-                    SPL_CHANGE_SLOT,
+                    slots.spl,
                 )?,
                 ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                 data: self.spl_data,
@@ -125,7 +123,7 @@ impl AnonymousTransferSenderPlaintext {
                 blinding: derive_transact_output_blinding(
                     first_nullifier,
                     &self.blinding_seed,
-                    SOL_CHANGE_SLOT,
+                    slots.sol,
                 )?,
                 ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                 data: self.sol_data,

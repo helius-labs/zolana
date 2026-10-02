@@ -1,3 +1,4 @@
+import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { Address, Bytes16, Bytes32 } from "../../src/interface/index.js";
@@ -13,6 +14,7 @@ import {
 import {
   EncryptedScheme,
   anonymousRecipientUtxo,
+  anonymousSenderFromUtxos,
   anonymousSenderUtxos,
   confidentialPlaintextFromUtxo,
   decodeAnonymousRecipient,
@@ -33,6 +35,7 @@ import {
   encryptAnonymous,
   encryptConfidential,
   encryptSplit,
+  plaintextTransferFromUtxos,
   plaintextTransferUtxos,
   splitBundleUtxos,
 } from "../../src/transaction/serialization/index.js";
@@ -246,13 +249,11 @@ describe("manifest-verified transaction serialization", () => {
       splAmount: 0n,
       solAmount: 36n,
     });
-    // The disclosed seed plus the first nullifier recovers the SOL change
-    // blinding at its fixed slot, 1.
     expect(
       anonymousSenderUtxos(decodedSender, assets, SOL_MINT, firstNullifier).map(
         (utxo) => utxo.blinding,
       ),
-    ).toEqual([blinding(1)]);
+    ).toEqual([blinding(0)]);
 
     const split = {
       ownerPublicKey: keypair.signingPublicKey(),
@@ -318,12 +319,85 @@ describe("manifest-verified transaction serialization", () => {
     expect(decodedPlaintext).toMatchObject({
       sender: { spl: { amount: 7n }, solAmount: 8n },
     });
-    // SPL change at slot 0, SOL change at slot 1, the first recipient at slot 2.
     expect(
       plaintextTransferUtxos(decodedPlaintext, assets, SOL_MINT, firstNullifier).map(
         (utxo) => utxo.blinding,
       ),
     ).toEqual([blinding(0), blinding(1), blinding(2)]);
+  });
+
+  it("places the present change outputs first and the recipients after them", () => {
+    const inputs = section(load(), "inputs");
+    const { keypair, recipient } = keys(inputs);
+    const { firstNullifier, outputSeed, blinding } = slotBlindings(inputs);
+    const mint = address("SysvarC1ock11111111111111111111111111111111");
+    const assets = new AssetRegistry([[2n, mint]]);
+    const owner = { owner: keypair.signingPublicKey(), assets };
+    const cx = { blindingSeed: outputSeed, firstNullifier };
+    const view = (utxos: readonly Utxo[]) =>
+      utxos.map((utxo) => ({
+        owner: hex(utxo.owner.toBytes()),
+        asset: utxo.asset,
+        amount: utxo.amount,
+        blinding: hex(utxo.blinding),
+      }));
+    for (const splPresent of [false, true]) {
+      for (const solPresent of [false, true]) {
+        const change = [
+          ...(splPresent ? [{ asset: mint, amount: 7n }] : []),
+          ...(solPresent ? [{ asset: SOL_MINT, amount: 8n }] : []),
+        ].map(
+          ({ asset, amount }, slot) =>
+            new Utxo({
+              owner: keypair.signingPublicKey(),
+              asset,
+              amount,
+              blinding: blinding(slot),
+              data: new Data(),
+            }),
+        );
+        const utxos = [
+          ...change,
+          new Utxo({
+            owner: recipient.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 9n,
+            blinding: blinding(change.length),
+            data: new Data(),
+          }),
+        ];
+        const plaintext = plaintextTransferFromUtxos(utxos, owner, cx);
+        expect(plaintext.recipientSlots).toHaveLength(1);
+        expect(
+          view(
+            plaintextTransferUtxos(
+              decodePlaintextTransfer(encodePlaintextTransfer(plaintext)),
+              assets,
+              SOL_MINT,
+              firstNullifier,
+            ),
+          ),
+        ).toEqual(view(utxos));
+        if (change.length === 0) continue;
+        const sender = anonymousSenderFromUtxos(change, owner, {
+          ...cx,
+          recipientViewingPublicKeys: [],
+        });
+        expect(
+          view(
+            anonymousSenderUtxos(
+              decodeAnonymousSender(encodeAnonymousSender(sender)),
+              assets,
+              SOL_MINT,
+              firstNullifier,
+            ),
+          ),
+        ).toEqual(view(change));
+        expect(() => plaintextTransferFromUtxos([...utxos].reverse(), owner, cx)).toThrowError(
+          expect.objectContaining({ code: "TRANSACTION_INVALID_OUTPUT_POSITION" }),
+        );
+      }
+    }
   });
 
   it("matches proofless and split-encrypted fixed layouts", () => {

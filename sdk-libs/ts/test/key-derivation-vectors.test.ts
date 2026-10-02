@@ -26,7 +26,11 @@ import {
   type Bytes31,
   type Bytes32,
 } from "../src/keypair/index.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergePrivateTxBlinding,
+} from "../src/keypair/merge/index.js";
 
 type RailVectors = Readonly<{
   signing_secret: string;
@@ -76,6 +80,7 @@ type KeyDerivationVectors = Readonly<{
     output_blinding: string;
     dummy_slot_index: number;
     dummy_nullifier: string;
+    private_tx_blinding: string;
   }>;
   derivation_input_guard: readonly Readonly<{
     name: string;
@@ -197,6 +202,9 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     expect(hex(mergeOutputBlinding(nullifierKey, firstNullifier))).toBe(section.output_blinding);
     expect(hex(mergeDummyNullifier(nullifierKey, firstNullifier, section.dummy_slot_index))).toBe(
       section.dummy_nullifier,
+    );
+    expect(hex(mergePrivateTxBlinding(nullifierKey, firstNullifier))).toBe(
+      section.private_tx_blinding,
     );
   });
 

@@ -475,7 +475,11 @@ impl<'a> TransactProof<'a> {
             *self.ix.private_tx_hash,
         ]);
         if self.ix.circuit.is_p256() {
-            let message_digest = Sha256::hash(self.ix.private_tx_hash).map_err(caused_by(
+            let message_digest = Sha256::hashv(&[
+                self.ix.private_tx_hash.as_slice(),
+                self.derived.external_data_hash.as_slice(),
+            ])
+            .map_err(caused_by(
                 ShieldedPoolError::TransactProofVerificationFailed,
             ))?;
             fields.push(hash_bytes(&message_digest)?);

@@ -338,7 +338,7 @@ describe("ring merge", () => {
     expect(prepared.outputTreeId).toBe(7);
   });
 
-  it.each([2, 9, 36])("chains one zero address per padded slot of a %i-input merge", (count) => {
+  it.each([2, 9, 36])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
     const assembly = assembleMergeWithProofs(
@@ -353,7 +353,6 @@ describe("ring merge", () => {
           spend.isDummy() ? (new Uint8Array(32) as Bytes32) : spend.hash(),
         ),
         outputHashes: [assembly.outputHash],
-        externalDataHash: assembly.externalDataHash,
         blinding: prepared.privateTxBlinding(),
       }),
     );

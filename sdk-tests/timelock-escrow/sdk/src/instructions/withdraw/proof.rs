@@ -9,8 +9,7 @@ use crate::{err, shared::check_output_utxo, state::EscrowUtxo};
 pub struct WithdrawProofInputParams {
     pub escrow_utxo: EscrowUtxo,
     pub source_output: SppProofOutputUtxo,
-    pub external_data_hash: [u8; 32],
-    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// `SppProofInputs::private_tx_blinding()`, the last `private_tx_hash`
     /// preimage element.
     pub private_tx_blinding: [u8; 32],
     /// Raw id of the tree the escrow UTXO is spent from.
@@ -44,7 +43,6 @@ impl WithdrawProofInputParams {
         let private_tx_hash = PrivateTxHash::new(
             &[escrow_utxo.hash().map_err(err)?],
             &[source_output.hash().map_err(err)?],
-            &self.external_data_hash,
             &self.private_tx_blinding,
         )
         .hash()
@@ -64,7 +62,6 @@ impl WithdrawProofInputParams {
             nullifier_pk: creator.nullifier_pubkey,
             escrow_utxo,
             source_output,
-            external_data_hash: self.external_data_hash,
             private_tx_blinding: self.private_tx_blinding,
         })
     }

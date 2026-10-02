@@ -73,7 +73,7 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 | `asset_id` | `u64` | Asset identifier in UTXOs; `1` is SOL, each SPL mint `≥ 2`. The mint→`asset_id` map is the SPP `Asset registry` PDA. See [spec.md](../../docs/spec.md#glossary). |
 | `CompressedShieldedAddress` | `[u8; 65]` | `(owner_hash [u8;32], viewing_pk P256Pubkey[33])`. See [spec.md](../../docs/spec.md#shielded-address). |
 | `order UTXO` | — | The SPP [UTXO](../../docs/spec.md#utxo) holding the source funds: `asset = source_asset_id`, `amount = source_amount`, `owner = order-authority PDA` (seeds `[b"order_authority"]`), nullifier secret `= 0`, `utxo_data = order terms`. Spendable only by the swap program. See [Order Terms](#order-terms). |
-| `marker message` | — | The SPP `transact` message (`view_tag`, `data`) `make` appends as the taker's discovery tag: `view_tag` is the taker's confidential view tag, `data` a plaintext [`MarkerData`](#make) the program writes. Committed in `private_tx_hash` via the transact's external-data hash; the `view_tag` is unenforced: a wrong tag only means the taker does not index the trade. |
+| `marker message` | — | The SPP `transact` message (`view_tag`, `data`) `make` appends as the taker's discovery tag: `view_tag` is the taker's confidential view tag, `data` a plaintext [`MarkerData`](#make) the program writes. Committed by the SPP proof through the transact's external-data hash; the `view_tag` is unenforced: a wrong tag only means the taker does not index the trade. |
 | `MarkerData` | Borsh | `{ order_utxo_hash: [u8;32], maker_pubkey: [u8;32] }`, the plaintext `make` writes into the transact's single marker message. `order_utxo_hash` locates the order UTXO slot; `maker_pubkey` is the `make` signer's Solana pubkey, which the taker resolves to the maker's registered shielded address via the user registry. See [make](#make). |
 | `Order terms` | — | The fields committed in the order UTXO's `utxo_data` (record tag `0x02`), hashed into the order UTXO `utxo_hash` via `data_hash`: `destination_asset_id`, `destination_amount`, `maker_address`, `expiry`, `taker_pk_fe`, `take_mode`. See [Order Terms](#order-terms). |
 | `private_tx_hash` | `[u8; 32]` | Commitment to the SPP `transact` a swap proof authorizes: the link between a swap proof and the SPP transaction. See [spec.md](../../docs/spec.md#zk-program-interface). |
@@ -209,8 +209,8 @@ recomputing the order UTXO `utxo_hash`. The program requires exactly one transac
 with the plaintext [`MarkerData`](#glossary) `{ order_utxo_hash,
 maker_pubkey }` (the order UTXO hash read from transact output index 1, the pubkey from the
 signer), so ordinary wallet sync finds the trade and
-can locate the matching order UTXO slot to decrypt. The message is committed in `private_tx_hash` via
-the external-data hash, so the SPP proof only verifies if the maker proved over the exact
+can locate the matching order UTXO slot to decrypt. The message is committed by the SPP
+proof through the external-data hash, so the SPP proof only verifies for the exact
 `MarkerData` the program writes; only the marker's `view_tag` is unenforced: a wrong tag means the
 taker does not index the trade.
 
@@ -386,8 +386,7 @@ still comes from the existing SPP prover.
 
 Proves the order UTXO output commits the order terms. Matches the 1-in/2-out transact
 (source UTXO in; change + order UTXO out), padded to the SPP `(2, 2)` proving shape. The marker message
-enters `private_tx_hash` through the free external-data hash and is enforced
-by the SPP proof.
+is committed by the SPP proof through the external-data hash, which the make proof does not read.
 
 - **Public inputs:** `private_tx_hash` only; the program feeds
   it to the verifier straight from `TransactIxData`.
@@ -397,9 +396,9 @@ by the SPP proof.
   (the order-authority PDA, which SPP enforces at spend time).
 - **Constraints:**
   - The `private_tx_hash` recomputation mirrors the padded transact exactly: `chain([source_input,
-    0])` over inputs, `chain([change, order_utxo])` over outputs, `chain([0, 0])` over
-    addresses. The source input hash and external-data hash are free witnesses; the change slot
-    contributes 0 when the change amount is 0.
+    0])` over inputs and `chain([change, order_utxo])` over outputs, each folding only its nonzero
+    entries, and the zero chain over addresses. The source input hash is a free witness; the change
+    slot contributes nothing when the change amount is 0.
   - The order UTXO output committed in `private_tx_hash` has `data_hash = Poseidon(order terms)`
     with `maker_address` hashed in as a field element, ring fields 0, and a nonzero amount, so the
     public SPP order UTXO output commits the terms.

@@ -3,20 +3,13 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_interface::MAX_OUTPUTS;
 use zolana_keypair::{viewing_key::ViewTag, PublicKey};
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{change_slots, ChangeSlots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, Mint, PublicKeySchema, TRANSFER_PLAINTEXT,
 };
-
-/// Physical output slots the bundle describes. It names the two sender change
-/// slots positionally and has no way to say that one was dropped, so a slot's
-/// logical position is also its physical output index.
-const SPL_CHANGE_SLOT: u32 = 0;
-const SOL_CHANGE_SLOT: u32 = 1;
-const RECIPIENT_SLOT_BASE: u32 = 2;
 
 /// The widest supported shape's output count. No transact output sits beyond
 /// this slot, so it bounds both the derivation and the reverse lookup below.
@@ -39,6 +32,10 @@ pub struct TransferPlaintextSender {
 }
 
 impl TransferPlaintextSender {
+    fn change_slots(&self) -> ChangeSlots {
+        change_slots(self.spl.is_some(), self.sol_amount.is_some())
+    }
+
     fn into_indexed_utxos(
         self,
         first_nullifier: &[u8; 32],
@@ -53,6 +50,7 @@ impl TransferPlaintextSender {
             return Err(TransactionError::DataWithoutOutput);
         }
         let view_tag = self.owner_pubkey.confidential_view_tag()?;
+        let slots = self.change_slots();
         let mut utxos = Vec::new();
         if let Some(spl) = self.spl {
             utxos.push((
@@ -64,7 +62,7 @@ impl TransferPlaintextSender {
                     blinding: derive_transact_output_blinding(
                         first_nullifier,
                         blinding_seed,
-                        SPL_CHANGE_SLOT,
+                        slots.spl,
                     )?,
                     ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                     data: self.spl_data,
@@ -81,7 +79,7 @@ impl TransferPlaintextSender {
                     blinding: derive_transact_output_blinding(
                         first_nullifier,
                         blinding_seed,
-                        SOL_CHANGE_SLOT,
+                        slots.sol,
                     )?,
                     ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                     data: self.sol_data,
@@ -163,6 +161,10 @@ impl TransferPlaintextUtxos {
         ring_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
         let mut utxos = Vec::new();
+        let recipient_base = self
+            .sender
+            .as_ref()
+            .map_or(0, |sender| sender.change_slots().recipients);
         if let Some(sender) = self.sender {
             utxos.extend(sender.into_indexed_utxos(
                 first_nullifier,
@@ -174,7 +176,7 @@ impl TransferPlaintextUtxos {
         for (i, recipient) in self.recipient_slots.into_iter().enumerate() {
             let slot = u32::try_from(i)
                 .ok()
-                .and_then(|i| i.checked_add(RECIPIENT_SLOT_BASE))
+                .and_then(|i| i.checked_add(recipient_base))
                 .filter(|slot| *slot < MAX_OUTPUT_SLOTS)
                 .ok_or(TransactionError::TooManyOutputs)?;
             let blinding =
@@ -229,7 +231,7 @@ impl UtxoSerialization for PlaintextTransfer {
 
     fn from_utxos(
         utxos: &[Utxo],
-        _: &OwnerCx,
+        owner: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
         let mut sender_owner = None;
@@ -238,7 +240,6 @@ impl UtxoSerialization for PlaintextTransfer {
         let mut spl_data = Data::default();
         let mut sol_data = Data::default();
         let mut recipient_slots = Vec::new();
-        let mut previous_position = None;
         // The blinding is the only record of which physical slot an output sat
         // in, and the derivation is not invertible, so recover the slot by
         // re-deriving every candidate a shape can hold.
@@ -256,42 +257,29 @@ impl UtxoSerialization for PlaintextTransfer {
                 }
             }
             let position = slot.ok_or(TransactionError::MissingOutput)?;
-            if previous_position.is_some_and(|previous| position <= previous) {
+            if usize::try_from(position).ok() != Some(index) {
                 return Err(TransactionError::InvalidPlaintextOutputPosition { index, position });
             }
-            previous_position = Some(position);
-            match position {
-                SPL_CHANGE_SLOT => {
-                    sender_owner = Some(utxo.owner);
-                    spl = Some(TransferPlaintextSplChange {
-                        amount: utxo.amount,
-                        asset_id: utxo.asset.asset_id,
-                    });
-                    spl_data = utxo.data.clone();
-                }
-                SOL_CHANGE_SLOT => {
-                    sender_owner = Some(utxo.owner);
-                    sol_amount = Some(utxo.amount);
-                    sol_data = utxo.data.clone();
-                }
-                position => {
-                    let expected = u32::try_from(recipient_slots.len())
-                        .ok()
-                        .and_then(|count| count.checked_add(RECIPIENT_SLOT_BASE))
-                        .ok_or(TransactionError::TooManyOutputs)?;
-                    if position != expected {
-                        return Err(TransactionError::InvalidPlaintextOutputPosition {
-                            index,
-                            position,
-                        });
-                    }
-                    recipient_slots.push(TransferPlaintextRecipient {
-                        owner_pubkey: utxo.owner,
-                        asset_id: utxo.asset.asset_id,
-                        amount: utxo.amount,
-                        data: utxo.data.clone(),
-                    });
-                }
+            let change = recipient_slots.is_empty() && utxo.owner == owner.owner;
+            let is_sol = utxo.asset.asset == Mint::SOL.asset;
+            if change && index == 0 && !is_sol {
+                sender_owner = Some(utxo.owner);
+                spl = Some(TransferPlaintextSplChange {
+                    amount: utxo.amount,
+                    asset_id: utxo.asset.asset_id,
+                });
+                spl_data = utxo.data.clone();
+            } else if change && is_sol && sol_amount.is_none() {
+                sender_owner = Some(utxo.owner);
+                sol_amount = Some(utxo.amount);
+                sol_data = utxo.data.clone();
+            } else {
+                recipient_slots.push(TransferPlaintextRecipient {
+                    owner_pubkey: utxo.owner,
+                    asset_id: utxo.asset.asset_id,
+                    amount: utxo.amount,
+                    data: utxo.data.clone(),
+                });
             }
         }
         let sender = sender_owner.map(|owner_pubkey| TransferPlaintextSender {

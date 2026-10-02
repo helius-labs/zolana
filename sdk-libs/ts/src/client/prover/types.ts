@@ -307,7 +307,6 @@ export interface CustomRingPolicyProofRequest {
   readonly inputs: readonly CustomRingOpening[];
   readonly outputs: readonly CustomRingOpening[];
   readonly addressChain: Bytes32;
-  readonly externalDataHash: Bytes32;
   readonly privateTxBlinding: Bytes32;
   readonly sources: readonly CustomRingSourceOwner[];
   readonly policyLen: number;

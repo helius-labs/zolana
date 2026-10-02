@@ -42,8 +42,9 @@ impl NullifierPdaRent {
 }
 
 /// What the input tree assigned while its nullifiers were queued. Queue inserts
-/// are sequential within one instruction, so input `i` took
-/// `input_tree.first_input_queue_seq + i`; the event relies on the same fact.
+/// are sequential within one instruction, so the tree's `i`-th input in input
+/// order took `input_tree.first_input_queue_seq + i`; the event relies on the
+/// same fact.
 pub(crate) struct InputTreeResult {
     pub input_tree: InputTreeSequence,
     pub forester_fee: u64,
@@ -55,9 +56,9 @@ pub(crate) struct InputTreeResult {
 /// forester fee from the payer in the same pass. The tree funds each PDA's
 /// rent; the payer pays the fee.
 ///
-/// Callers must supply one PDA per nullifier, in matching order: transact
-/// splits an exact-length group and both merge parsers collect one PDA per
-/// input. The zip below relies on those equal counts.
+/// Callers must supply each PDA paired with its nullifier, in the order the
+/// tree queued them: transact selects the tree's inputs in input order and
+/// both merge parsers collect one PDA per input.
 ///
 /// Collect the fee before any rent top-up: its Transfer CPI includes the tree,
 /// and a CPI boundary syncs only its own accounts into the transaction context.
@@ -65,11 +66,10 @@ pub(crate) struct InputTreeResult {
 /// the runtime's UnbalancedInstruction check.
 #[inline(never)]
 #[profile]
-pub(crate) fn create_nullifier_pdas<'n>(
+pub(crate) fn create_nullifier_pdas<'p, 'n>(
     payer: &AccountView,
     tree: &mut AccountView,
-    nullifier_pdas: &mut [&mut AccountView],
-    nullifiers: impl Iterator<Item = &'n [u8; 32]>,
+    nullifier_pdas: impl Iterator<Item = (&'p mut AccountView, &'n [u8; 32])>,
     input_tree: &InputTreeResult,
 ) -> ProgramResult {
     let rent_sysvar = Rent::get()?;
@@ -84,9 +84,7 @@ pub(crate) fn create_nullifier_pdas<'n>(
     let first_queue_index = input_tree.input_tree.first_input_queue_seq;
     collect_forester_fee(payer, tree, input_tree.forester_fee)?;
 
-    for (position, (nullifier_pda, nullifier)) in
-        (0u64..).zip(nullifier_pdas.iter_mut().zip(nullifiers))
-    {
+    for (position, (nullifier_pda, nullifier)) in (0u64..).zip(nullifier_pdas) {
         let queue_index = first_queue_index
             .checked_add(position)
             .ok_or(ProgramError::ArithmeticOverflow)?;

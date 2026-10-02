@@ -793,7 +793,6 @@ export function customRingPolicyProofRequest(
     }),
     outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(openingJson),
     addressChain: hex32(inputs.addressChain, "addressChain"),
-    externalDataHash: hex32(inputs.externalDataHash, "externalDataHash"),
     privateTxBlinding: hex32(inputs.privateTxBlinding, "privateTxBlinding"),
     sources: sized(inputs.sources, RING_SOURCE_SLOTS, "sources").map(sourceJson),
     policyLen: u8(inputs.policyLen, "policyLen"),

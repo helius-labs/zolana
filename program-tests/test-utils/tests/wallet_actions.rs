@@ -16,7 +16,10 @@ use test_indexer::TestIndexer;
 use transfer_fixture::transfer_prover;
 use zolana_client::{AsyncRpc, ClientError, Rpc, TransferProver};
 use zolana_event::OutputDataEncoding;
-use zolana_interface::{instruction::TransactProof, pda, SOL_ASSET_FIELD};
+use zolana_interface::{
+    instruction::{OwnerTag, TransactProof},
+    pda, SOL_ASSET_FIELD,
+};
 use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_test_utils::wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
@@ -94,10 +97,47 @@ fn assert_outputs(
     sender: &ShieldedKeypair,
     expected: &[(zolana_keypair::ShieldedAddress, Mint, u64)],
 ) {
-    assert_eq!(tx.output_utxos.len(), expected.len());
     let first = tx.first_nullifier().unwrap();
     let seed = derive_output_blinding_seed(&first, &tx.blinding_seed).unwrap();
     let viewing_key = sender.get_transaction_viewing_key(&first).unwrap();
+    assert!(expected.len() <= tx.output_utxos.len());
+    let sender_tag = sender.signing_pubkey().confidential_view_tag().unwrap();
+    let real_len = tx
+        .external_data
+        .outputs
+        .first()
+        .and_then(|output| output.data.as_ref())
+        .map(Vec::len);
+    for (index, (output, encoded)) in tx
+        .output_utxos
+        .iter()
+        .zip(&tx.external_data.outputs)
+        .enumerate()
+        .skip(expected.len())
+    {
+        assert_eq!(
+            output,
+            &SppProofOutputUtxo {
+                blinding: derive_transact_output_blinding(&first, &seed, index as u32).unwrap(),
+                owner_tag: Some(sender_tag),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            (
+                encoded.utxo_hash,
+                encoded.owner_tag,
+                tx.external_data.resolved_owner_tags.get(index),
+                encoded.data.as_ref().map(Vec::len)
+            ),
+            (
+                output.hash(tx.output_tree_id).unwrap(),
+                OwnerTag::Inline(sender_tag),
+                Some(&sender_tag),
+                real_len
+            )
+        );
+    }
     for (index, ((output, encoded), (owner, asset, amount))) in tx
         .output_utxos
         .iter()
@@ -162,7 +202,6 @@ fn transfer_round_trip_outputs_and_slots() {
         &[
             (recipient.shielded_address().unwrap(), Mint::SOL, 60),
             (sender.shielded_address().unwrap(), Mint::SOL, 40),
-            (sender.shielded_address().unwrap(), Mint::SOL, 0),
         ],
     );
     assert!(tx.external_data.interface_transfers.is_empty());
@@ -191,10 +230,14 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     };
     assert_eq!(sizes(&without), sizes(&with));
     assert!(sizes(&with).iter().all(|n| *n > 0));
-    assert!(without
-        .output_utxos
-        .iter()
-        .all(|output| output.owner_address.is_some()));
+    assert_eq!(
+        without
+            .output_utxos
+            .iter()
+            .map(SppProofOutputUtxo::is_dummy)
+            .collect::<Vec<_>>(),
+        [false, true, true]
+    );
 }
 
 #[test]
@@ -236,7 +279,6 @@ fn assemble_carries_ciphertext_and_decrypts() {
         &[
             (recipient.shielded_address().unwrap(), Mint::SOL, 60),
             (sender.shielded_address().unwrap(), Mint::SOL, 40),
-            (sender.shielded_address().unwrap(), Mint::SOL, 0),
         ],
     );
 }
@@ -262,10 +304,7 @@ fn withdrawal_sets_external_data_and_change() {
     assert_outputs(
         &tx,
         &sender,
-        &[
-            (sender.shielded_address().unwrap(), Mint::SOL, 40),
-            (sender.shielded_address().unwrap(), Mint::SOL, 0),
-        ],
+        &[(sender.shielded_address().unwrap(), Mint::SOL, 40)],
     );
 }
 

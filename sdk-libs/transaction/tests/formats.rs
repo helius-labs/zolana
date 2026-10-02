@@ -329,7 +329,7 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
 }
 
 #[test]
-fn sender_slots_remain_physical_when_change_is_absent_and_recipients_start_at_two() {
+fn present_change_outputs_lead_and_recipients_follow_them() {
     let owner = keypair(41);
     let spl = Mint::new(Address::new_from_array([45; 32]), 9);
     let assets = AssetRegistry::new([(9, spl.asset)]).unwrap();
@@ -363,9 +363,11 @@ fn sender_slots_remain_physical_when_change_is_absent_and_recipients_start_at_tw
                 plain_sender.spl_data = anonymous.spl_data.clone();
                 plain_sender.sol_data = anonymous.sol_data.clone();
                 let mut expected = vec![];
-                for (present, amount, mint, slot) in
-                    [(spl_present, 23, spl, 0), (sol_present, 31, Mint::SOL, 1)]
-                {
+                let sol_slot = u32::from(spl_present);
+                for (present, amount, mint, slot) in [
+                    (spl_present, 23, spl, 0),
+                    (sol_present, 31, Mint::SOL, sol_slot),
+                ] {
                     if present {
                         let mut utxo = wallet_utxo(&owner, mint, amount, 0, 1).utxo;
                         utxo.blinding =
@@ -382,8 +384,10 @@ fn sender_slots_remain_physical_when_change_is_absent_and_recipients_start_at_tw
                     expected
                 );
                 let mut receiver = wallet_utxo(&keypair(42), Mint::SOL, 17, 0, 1).utxo;
+                let receiver_slot = u32::from(spl_present) + u32::from(sol_present);
                 receiver.blinding =
-                    derive_transact_output_blinding(&first_nullifier, &seed, 2).unwrap();
+                    derive_transact_output_blinding(&first_nullifier, &seed, receiver_slot)
+                        .unwrap();
                 expected.push(receiver);
                 assert_eq!(
                     plain
@@ -432,9 +436,10 @@ fn plaintext_encoder_rejects_unknown_duplicate_reordered_and_gapped_positions() 
     };
     for (positions, index, position) in [
         (vec![0, 0], 1, 0),
-        (vec![1, 0], 1, 0),
+        (vec![1, 0], 0, 1),
         (vec![3], 0, 3),
-        (vec![2, 4], 1, 4),
+        (vec![0, 2], 1, 2),
+        (vec![0, 1, 3], 2, 3),
     ] {
         let notes: Vec<_> = positions.into_iter().map(at).collect();
         assert_eq!(
@@ -450,7 +455,7 @@ fn plaintext_encoder_rejects_unknown_duplicate_reordered_and_gapped_positions() 
         ),
         Err(TransactionError::MissingOutput)
     );
-    for positions in [vec![1, 2, 3], vec![0, 2], vec![2, 3]] {
+    for positions in [vec![0], vec![0, 1], vec![0, 1, 2]] {
         let notes: Vec<_> = positions.into_iter().map(at).collect();
         let parsed = PlaintextTransfer::from_utxos(&notes, &cx, &encode).unwrap();
         assert_eq!(PlaintextTransfer::into_utxos(parsed, &cx).unwrap(), notes);
@@ -458,14 +463,14 @@ fn plaintext_encoder_rejects_unknown_duplicate_reordered_and_gapped_positions() 
     let mut widest = plaintext();
     widest.sender = None;
     let recipient = widest.recipient_slots.first().unwrap().clone();
-    widest.recipient_slots = vec![recipient.clone(); zolana_interface::MAX_OUTPUTS - 2];
+    widest.recipient_slots = vec![recipient.clone(); zolana_interface::MAX_OUTPUTS];
     assert_eq!(
         widest
             .clone()
             .into_utxos(&[1; 32], &assets, None)
             .unwrap()
             .len(),
-        zolana_interface::MAX_OUTPUTS - 2
+        zolana_interface::MAX_OUTPUTS
     );
     widest.recipient_slots.push(recipient);
     assert_eq!(

@@ -82,27 +82,24 @@ fn the_mutation_private_tx_hash_matches_the_transact_preimage() {
     let input = [1u8; 32];
     let output = [2u8; 32];
     let address = [3u8; 32];
-    let external = [4u8; 32];
     let blinding = [5u8; 32];
     assert_eq!(
-        mutation_private_tx_hash(input, output, address, &external, &blinding).unwrap(),
+        mutation_private_tx_hash(input, output, address, &blinding).unwrap(),
         PrivateTxHash {
             input_hashes: &[input],
             output_hashes: &[output],
             address_nullifiers: Some(&[address]),
-            external_data_hash: &external,
             blinding: &blinding,
         }
         .hash()
         .unwrap()
     );
     assert_eq!(
-        mutation_private_tx_hash(input, output, [0u8; 32], &external, &blinding).unwrap(),
+        mutation_private_tx_hash(input, output, [0u8; 32], &blinding).unwrap(),
         PrivateTxHash {
             input_hashes: &[input],
             output_hashes: &[output],
             address_nullifiers: None,
-            external_data_hash: &external,
             blinding: &blinding,
         }
         .hash()

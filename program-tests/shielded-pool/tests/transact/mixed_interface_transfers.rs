@@ -340,7 +340,6 @@ fn prove_spend(
     let private_tx = PrivateTxHash::new(
         &[note.utxo_hash, [0u8; 32]],
         &output_private_hashes,
-        &external_hash,
         &private_tx_blinding,
     )
     .hash()

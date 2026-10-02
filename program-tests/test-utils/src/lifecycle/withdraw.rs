@@ -15,7 +15,7 @@ use zolana_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
-use zolana_transaction::{Utxo, SOL_MINT};
+use zolana_transaction::{SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use super::LifecycleHarness;
 use crate::{
@@ -159,26 +159,24 @@ impl LifecycleHarness {
         let indexed = wait_for_indexed_transaction(&self.indexer, sender_view_tag, sig);
 
         assert_eq!(indexed.output_slots.len(), finalized_outputs.len());
-        for (position, output) in finalized_outputs.iter().enumerate() {
-            let expected_amount = if position == 0 { input_sum - amount } else { 0 };
-            assert_eq!(
-                (output.asset.asset, output.amount),
-                (SOL_MINT, expected_amount)
-            );
-            let note = self.build_expected(
-                from,
-                from_keypair.signing_pubkey(),
-                SOL_MINT,
-                expected_amount,
-                super::transfer::decode_output_blinding(
-                    &from_keypair.viewing_key,
-                    &indexed,
-                    position as u32,
-                )?,
-                &indexed,
-            )?;
-            self.actor_mut(from).expected.push(note);
-        }
+        let (change, dummies) = finalized_outputs
+            .split_first()
+            .ok_or_else(|| anyhow!("withdrawal without a change slot"))?;
+        assert!(dummies.iter().all(SppProofOutputUtxo::is_dummy));
+        let change_amount = input_sum - amount;
+        assert_eq!(
+            (change.asset.asset, change.amount),
+            (SOL_MINT, change_amount)
+        );
+        let note = self.build_expected(
+            from,
+            from_keypair.signing_pubkey(),
+            SOL_MINT,
+            change_amount,
+            super::transfer::decode_output_blinding(&from_keypair.viewing_key, &indexed, 0)?,
+            &indexed,
+        )?;
+        self.actor_mut(from).expected.push(note);
         self.indexed.push(indexed);
 
         // The withdrawn SOL is custodied in `sol_interface` and drained to the

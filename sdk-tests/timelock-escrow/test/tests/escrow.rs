@@ -233,10 +233,6 @@ fn escrow_then_withdraw() -> Result<()> {
     let withdraw_proof_inputs = WithdrawProofInputParams {
         escrow_utxo: escrow_utxo.clone(),
         source_output,
-        external_data_hash: withdraw_spp_proof_inputs
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("withdraw external data hash: {e:?}"))?,
         private_tx_blinding: withdraw_spp_proof_inputs
             .private_tx_blinding()
             .map_err(|e| anyhow!("withdraw private tx blinding: {e:?}"))?,

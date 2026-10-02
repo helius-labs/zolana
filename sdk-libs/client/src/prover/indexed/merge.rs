@@ -183,7 +183,6 @@ impl IndexedMergePreparation {
         let private = PrivateTxHash::new(
             &input_hashes,
             &outputs.private_tx_output_hashes,
-            &external,
             &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
         )
         .hash()?;

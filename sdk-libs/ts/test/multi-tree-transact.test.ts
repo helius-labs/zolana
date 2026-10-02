@@ -250,6 +250,53 @@ describe("a transact spending from two trees", () => {
   });
 });
 
+describe("slot order", () => {
+  function reordered(
+    proofInputs: SppProofInputs,
+    slots: Readonly<{
+      inputUtxos?: SppProofInputs["inputUtxos"];
+      outputs?: SppProofInputs["outputs"];
+    }>,
+  ): SppProofInputs {
+    return new SppProofInputs({
+      payer: proofInputs.payer,
+      inputUtxos: slots.inputUtxos ?? proofInputs.inputUtxos,
+      outputs: slots.outputs ?? proofInputs.outputs,
+      externalData: proofInputs.externalData,
+      blindingSeed: proofInputs.blindingSeed,
+      outputTreeId: proofInputs.outputTreeId,
+    });
+  }
+
+  it("refuses a real input after padding", () => {
+    const { proofInputs } = twoTreeFixture();
+    const [first, second, dummy] = proofInputs.inputUtxos;
+    if (first === undefined || second === undefined || dummy === undefined) expect.unreachable();
+
+    expect(() => reordered(proofInputs, { inputUtxos: [first, dummy, second] })).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_REAL_SLOT_AFTER_DUMMY",
+        details: { side: "input", index: 2 },
+      }),
+    );
+  });
+
+  it("refuses a real output after a dummy output", () => {
+    const { proofInputs } = twoTreeFixture();
+    const [real, firstPad, secondPad] = proofInputs.outputs;
+    if (real === undefined || firstPad === undefined || secondPad === undefined) {
+      expect.unreachable();
+    }
+
+    expect(() => reordered(proofInputs, { outputs: [firstPad, real, secondPad] })).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_REAL_SLOT_AFTER_DUMMY",
+        details: { side: "output", index: 1 },
+      }),
+    );
+  });
+});
+
 describe("input tree grouping", () => {
   const utxos = (treeIds: readonly number[]): readonly ProofInputUtxo[] =>
     treeIds.map((treeId, index) => ProofInputUtxo.dummy(blinding(20 + index), treeId));
@@ -259,10 +306,8 @@ describe("input tree grouping", () => {
     expect(singleInputTreeId(utxos([3, 3]))).toBe(3);
   });
 
-  it("refuses a run that reopens a tree an earlier run closed", () => {
-    expect(() => inputTreeIds(utxos([0, 1, 0]))).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE" }),
-    );
+  it("accepts inputs that return to an earlier tree", () => {
+    expect(inputTreeIds(utxos([0, 1, 0]))).toEqual([0, 1]);
     expect(() => singleInputTreeId(utxos([0, 1]))).toThrow(
       expect.objectContaining({ code: "TRANSACTION_INPUT_TREE_MISMATCH" }),
     );
@@ -382,7 +427,7 @@ describe("a client proving from two trees", () => {
         proofInputs,
         LocalKeys.fromKeypair(fixture.keypair, client.proofService),
       ),
-    ).rejects.toThrow("CLIENT_INPUTS_NOT_GROUPED_BY_TREE");
+    ).rejects.toThrow("CLIENT_INPUT_TREE_UNRESOLVED");
     expect(getMerkleProofs.mock.calls.map((call) => call[0])).toEqual([treeAddress(TREE_0.treeId)]);
   });
 });

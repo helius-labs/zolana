@@ -50,8 +50,7 @@ pub struct SettleProofInputParams {
     pub recipient_owner_hash: [u8; 32],
     /// The `Pair` account's on-chain `authority_owner_hash`.
     pub authority_owner_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
-    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// `SppProofInputs::private_tx_blinding()`, the last `private_tx_hash`
     /// preimage element. The spent inputs carry their own tree ids.
     pub private_tx_blinding: [u8; 32],
     /// Raw id of the tree the recipient, maker-counter and maker-source outputs
@@ -184,7 +183,6 @@ impl SettleProofInputParams {
                 maker_counter.hash().map_err(err)?,
                 maker_source.hash().map_err(err)?,
             ],
-            &self.external_data_hash,
             &self.private_tx_blinding,
         )
         .hash()
@@ -218,7 +216,6 @@ impl SettleProofInputParams {
             recipient_out,
             maker_counter,
             maker_source,
-            external_data_hash: self.external_data_hash,
             private_tx_blinding: self.private_tx_blinding,
         })
     }

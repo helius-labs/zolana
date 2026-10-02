@@ -137,9 +137,8 @@ func buildAssignment(t *testing.T, f fixture) *PrivateTxHashCircuit {
 	for i := range f.outputs {
 		outputHashes[i] = f.outputs[i].chainElement(t)
 	}
-	externalDataHash := big.NewInt(0xABCDEF)
 	blinding := big.NewInt(0xB11D)
-	privateTxHash, err := protocol.PrivateTxHash(inputHashes, outputHashes, addressNullifiers, externalDataHash, blinding)
+	privateTxHash, err := protocol.PrivateTxHash(inputHashes, outputHashes, addressNullifiers, blinding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +148,6 @@ func buildAssignment(t *testing.T, f fixture) *PrivateTxHashCircuit {
 			PrivateTxHash: privateTxHash,
 			RingProgramID: big.NewInt(fixtureRingProgramID),
 		},
-		ExternalDataHash:  externalDataHash,
 		PrivateTxBlinding: blinding,
 	}
 	for i := range f.inputs {
@@ -200,7 +198,6 @@ func TestPrivateTxHashCircuitRejectsDummyFoldedByHash(t *testing.T) {
 		inputHashes,
 		outputHashes,
 		addressNullifiers,
-		big.NewInt(0xABCDEF),
 		big.NewInt(0xB11D),
 	)
 	if err != nil {

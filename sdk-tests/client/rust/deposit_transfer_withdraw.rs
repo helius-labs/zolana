@@ -11,18 +11,11 @@ use zolana_program::instruction::{
 use zolana_transaction::{
     decrypt_spendable,
     instructions::transact::{ConfidentialTransaction, Shape},
-    Address, AssetBalance, AssetRegistry, Balances, WalletUtxo, SOL_MINT,
+    Address, AssetRegistry, Balances, WalletUtxo, SOL_MINT,
 };
 
 /// Step 2 of the flow for the single-input case: the largest note that covers
 /// `amount`.
-///
-/// Not `utxos.first()`. A padded transfer leaves the sender a zero-amount note
-/// in slot 0 -- the SPL change slot, empty because the transfer moves no SPL
-/// asset -- and notes come back in publication order, so `first()` picks the
-/// one worth nothing and the next transaction spends an input slot on it.
-/// Zero-amount notes are real UTXOs the balance reports; they are just never
-/// what you want to spend.
 fn select_input_utxo(balances: &Balances, mint: Address, amount: u64) -> Result<WalletUtxo> {
     balances
         .get_balance(mint)
@@ -32,16 +25,6 @@ fn select_input_utxo(balances: &Balances, mint: Address, amount: u64) -> Result<
         .max_by_key(|utxo| utxo.utxo.amount)
         .cloned()
         .ok_or_else(|| anyhow!("no private note covers {amount} of {mint}"))
-}
-
-/// How many of a balance's notes are worth nothing. A padded confidential
-/// transaction leaves one behind every time, and no path reclaims them.
-fn zero_amount_notes(balance: &AssetBalance) -> usize {
-    balance
-        .utxos
-        .iter()
-        .filter(|utxo| utxo.utxo.amount == 0)
-        .count()
 }
 
 const DEPOSIT_AMOUNT: u64 = 1_000_000_000;
@@ -198,9 +181,7 @@ fn main() -> Result<()> {
             // SPL: .get_balance(spl.mint)
             .expect("failed to fetch sender's utxo");
         assert_eq!(sender_balance.amount, DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
-        // The sender owns the change and the trailing zero-value padding note.
-        assert_eq!(sender_balance.utxos.len(), 2);
-        assert_eq!(zero_amount_notes(sender_balance), 1);
+        assert_eq!(sender_balance.utxos.len(), 1);
 
         sender_balances
     };
@@ -280,11 +261,7 @@ fn main() -> Result<()> {
             sender_balance.amount,
             DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT
         );
-        // Three: the change, plus one zero-amount note from each of the two
-        // confidential transactions. Nothing reclaims them, so they accumulate
-        // one per transfer for as long as the wallet keeps transacting.
-        assert_eq!(sender_balance.utxos.len(), 3);
-        assert_eq!(zero_amount_notes(sender_balance), 2);
+        assert_eq!(sender_balance.utxos.len(), 1);
 
         // The public side, for comparison: the withdrawal moved value out.
         let solana_balance = client.get_balance(sender.pubkey())?;

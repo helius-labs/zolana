@@ -41,6 +41,11 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
+        if output.is_dummy() {
+            return Err(TransactionError::OutputWithoutOwner {
+                slot_index: self.outputs.len(),
+            });
+        }
         self.outputs.push(output);
         Ok(self)
     }
@@ -52,7 +57,9 @@ impl ConfidentialTransaction {
     ///    transfers.
     /// 2. Require at most three assets and calculate change for each one.
     /// 3. Append nonzero change in asset first-use order, using the transaction's ring.
-    /// 4. Check output capacity, append output padding and verify balance.
+    /// 4. Check output capacity, append dummy outputs that publish a
+    ///    participant's view tag and verify balance. A transaction naming no
+    ///    participant keeps a zero-amount SOL change for the sender.
     /// 5. Convert wallet inputs to proof inputs, append dummy inputs and commit
     ///    both vectors. Errors leave the original transaction unchanged.
     pub fn pad_utxos(
@@ -97,18 +104,33 @@ impl ConfidentialTransaction {
             });
         }
 
-        // 4. Check output capacity, append padding and verify balance.
+        // 4. Check output capacity, append dummy outputs and verify balance.
+        let dummy_owner_tag = match self.dummy_owner_tag(&outputs, sender)? {
+            Some(tag) => tag,
+            None => {
+                outputs.push(SppProofOutputUtxo {
+                    owner_address: Some(*sender),
+                    asset: Mint::SOL,
+                    ring_program_id: self.ring_program_id,
+                    ..Default::default()
+                });
+                sender.signing_pubkey.confidential_view_tag()?
+            }
+        };
         if outputs.len() > shape.n_outputs() {
             return Err(TransactionError::TooManyOutputsForShape {
                 got: outputs.len(),
                 max: shape.n_outputs(),
             });
         }
-        while outputs.len() < shape.n_outputs() {
-            let mut output = SppProofOutputUtxo::new(Mint::SOL, 0, *sender)?;
-            output.ring_program_id = self.ring_program_id;
-            outputs.push(output);
-        }
+        outputs.resize(
+            shape.n_outputs(),
+            SppProofOutputUtxo {
+                ring_program_id: self.ring_program_id,
+                owner_tag: Some(dummy_owner_tag),
+                ..Default::default()
+            },
+        );
         for asset in self.assets(&outputs)? {
             let available = self
                 .input_sum(&asset)
@@ -130,6 +152,39 @@ impl ConfidentialTransaction {
         self.outputs = outputs;
         self.padded_inputs = Some(inputs);
         Ok(self)
+    }
+
+    fn dummy_owner_tag(
+        &self,
+        outputs: &[SppProofOutputUtxo],
+        sender: &ShieldedAddress,
+    ) -> Result<Option<[u8; 32]>, TransactionError> {
+        if let Some(tag) = self.named_input_owner_tag()? {
+            return Ok(Some(tag));
+        }
+        let owners = || outputs.iter().filter_map(|output| output.owner_address);
+        let Some(owner) = owners()
+            .find(|owner| owner.signing_pubkey == sender.signing_pubkey)
+            .or_else(|| owners().next())
+        else {
+            return Ok(None);
+        };
+        Ok(Some(owner.signing_pubkey.confidential_view_tag()?))
+    }
+
+    fn named_input_owner_tag(&self) -> Result<Option<[u8; 32]>, TransactionError> {
+        let payer = self.payer.to_bytes();
+        for input in self
+            .inputs
+            .iter()
+            .filter(|input| !input.utxo.owner.is_zero())
+        {
+            let tag = input.utxo.owner.confidential_view_tag()?;
+            if tag != payer {
+                return Ok(Some(tag));
+            }
+        }
+        Ok(None)
     }
 
     pub(super) fn internal_add_output_utxo(

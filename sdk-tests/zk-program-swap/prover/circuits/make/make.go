@@ -17,7 +17,6 @@ type Circuit struct {
 	Change    gnarksdk.Utxo
 
 	SourceInputHash   frontend.Variable
-	ExternalDataHash  frontend.Variable
 	PrivateTxBlinding frontend.Variable
 }
 
@@ -32,7 +31,6 @@ func (c *Circuit) Define(api frontend.API) error {
 		api,
 		[]frontend.Variable{c.SourceInputHash, 0},
 		[]frontend.Variable{changeOutputUtxoHash, orderOutputUtxoHash},
-		c.ExternalDataHash,
 		c.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)

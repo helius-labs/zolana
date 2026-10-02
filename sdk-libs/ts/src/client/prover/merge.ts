@@ -14,6 +14,7 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
 import { CACHE_CAPACITY } from "../../interface/state.js";
 import type {
@@ -31,7 +32,6 @@ import {
   checkedBytes,
   field,
   hashChain4,
-  poseidon,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import {
@@ -282,8 +282,8 @@ export function prepareMerge(
         : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     return prepareInput(input, { owner, treeSlot: 0, nullifier });
   });
-  const inputHashes = commitments.map((commitment) =>
-    commitment === null ? 0n : bytesToBigInt(commitment),
+  const inputHashes = commitments.map(
+    (commitment) => commitment ?? (new Uint8Array(32) as Bytes32),
   );
   const nullifiers = inputs.map((input) =>
     checkedBytes(bigintToBytes(input.nullifier, "nullifier"), 32, "nullifier"),
@@ -306,16 +306,11 @@ export function prepareMerge(
   const firstNullifier = nullifiers[0];
   if (firstNullifier === undefined) throw new ClientError("CLIENT_NO_INPUTS");
   const privateTxBlinding = prepared.privateTxBlinding();
-  const privateTxHash = bigintToBytes(
-    poseidon([
-      hashChain4(inputHashes),
-      bytesToBigInt(outputHash),
-      hashChain4(Array.from({ length: inputHashes.length }, () => 0n)),
-      bytesToBigInt(externalDataHash),
-      bytesField(privateTxBlinding, "merge private tx blinding"),
-    ]),
-    "merge private tx hash",
-  ) as Bytes32;
+  const privateTxHash = computePrivateTxHash({
+    inputHashes,
+    outputHashes: [outputHash],
+    blinding: privateTxBlinding,
+  });
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerProofInputHash(),

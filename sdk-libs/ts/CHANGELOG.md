@@ -6,7 +6,9 @@ SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Merges take up to 36 notes in one transaction, and wallet sync
 recovers the output of such a merge. Registration never replaces an owner's
-published keys, and replacing them is its own transaction.
+published keys, and replacing them is its own transaction. The private
+transaction hash ignores padding and no longer covers the external data, which
+P-256 owners now sign alongside it.
 
 Breaking
 
@@ -45,6 +47,45 @@ Breaking
   `/prove/<key>/status`, so a gateway can route and price each key apart, and
   a prover that predates these paths answers 404 → upgrade the prover before
   the SDK.
+- `privateTxHash` no longer takes `externalDataHash` and skips zero entries in
+  its input, output and address chains, so padding no longer changes it,
+  `SppProofInputs.messageHash()` returns a new digest that also covers the
+  external data and a transfer's cache write, and `CustomRingPolicyProofRequest` drops `externalDataHash` and
+  takes a zero `addressChain` for a transfer that creates no address → drop
+  `externalDataHash` from hand-built hash inputs and policy requests, sign
+  again, and prove against the program and prover of this release.
+- `PreparedTransfer.withInputTreeLast`, `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
+  `CLIENT_INPUTS_NOT_GROUPED_BY_TREE` and
+  `ShieldedPoolError.InputsNotGroupedByTree` are removed, leaving code 7063
+  unused, because a transfer may now spend inputs from different trees in any
+  order, a padding input that names a tree no real input uses fails with
+  `CLIENT_INPUT_TREE_UNRESOLVED`, and `SppProofInputs` refuses a real input or
+  output that follows a padding slot with `TRANSACTION_REAL_SLOT_AFTER_DUMMY` →
+  drop the calls and the handling of the removed codes, handle the new ones and
+  place padding after every real slot.
+- `TransactionErrorCode` gains `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
+  `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` and `TRANSACTION_UNUSED_WRITE_CACHE`,
+  which `SppProofInputs.messageHash()` throws for a cache write the program
+  would reject → handle them in exhaustive switches.
+- `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
+  proving keys, so `ProverClient` rejects a proof from a prover on the previous
+  keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
+  release.
+- `ConfidentialTransfer.withCompactChange`, `ChangeLayout`,
+  `PreparedTransfer.changeLayout` and `RING_PADDED_CHANGE` are removed because
+  `ConfidentialTransfer.prepare` places only the change outputs it keeps first,
+  SPL before SOL, with the recipients right after them, and
+  `SENDER_SLOT_COUNT` is now the maximum number of change outputs rather than
+  the recipients' first slot → drop the calls and the handling of the removed
+  code, and read the change output count from
+  `PreparedTransfer.senderOutputCount`.
+- `anonymousSenderUtxos`, `plaintextTransferUtxos`, `anonymousSenderFromUtxos`
+  and `plaintextTransferFromUtxos` put the SOL change at slot 0 when there is
+  no SPL change and the recipients right after the change outputs present, and
+  `plaintextTransferFromUtxos` takes its UTXOs in slot order from slot 0 and
+  refuses any other order with `TRANSACTION_INVALID_OUTPUT_POSITION`, so a
+  bundle built by an earlier release without an SPL change no longer recovers
+  its outputs → build transfers and their bundles with this release.
 
 Added
 
@@ -67,6 +108,11 @@ Added
   proof above eight, and `buildRingMergeTransaction` and
   `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
 
+Changed
+
+- UTXO selection for transfers, withdrawals, merges and splits skips
+  zero-amount UTXOs.
+
 Fixed
 
 - A proof a prover of this release refused with `429` could be refused again
@@ -75,6 +121,15 @@ Fixed
   as one the Rust SDK built, and the merged note now appears in the wallet.
 - `ZolanaClient.proveMerge` could throw an error other than `ClientError`, and
   every `ZolanaClient` proving method now throws a `ClientError`.
+- `proveCustomRingTransfer` on a ring with a spend window put padding before
+  the spend record, which the transaction proof refuses, and now places the
+  record after the spent UTXOs and before the padding inputs, and fills a
+  spare output slot before the record output with a zero-amount copy of the
+  sender's change, else of the last output, so that slot adds no subject to
+  the ring's rules.
+- `buildWithdrawalTransaction` failed with `WALLET_BUILD_WITHDRAWAL` when an
+  owner who also pays the fee withdrew the whole balance of an SPL mint, and
+  now builds that withdrawal with a zero-amount SOL change output.
 
 ## 0.3.1-alpha — 2026-09-29
 

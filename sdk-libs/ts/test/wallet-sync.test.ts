@@ -1020,32 +1020,33 @@ describe("wallet sync", () => {
       transfer: ConfidentialTransfer,
       identity: ReturnType<ShieldedKeypair["shieldedAddress"]>,
     ) => void,
+    splAmount?: bigint,
   ) {
     const keypair = ShieldedKeypair.generate();
     const identity = keypair.shieldedAddress();
-    const wallet = new Wallet({ identity });
-    const blinding = bytes(14);
-    const utxo = new Utxo({
-      owner: keypair.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 100n,
-      blinding,
+    const wallet = new Wallet({
+      identity,
+      registry: new AssetRegistry(splAmount === undefined ? [] : [[2n, SPL_MINT]]),
     });
-    const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
-    wallet._replace({
-      ...wallet._state(),
-      utxos: [
-        {
-          utxo,
-          outputContext: { hash, tree: TREE, leafIndex: 0n },
-          nullifier: keypair.nullifier(hash, blinding),
-          spent: false,
-        },
-      ],
+    const held = [
+      { asset: SOL_MINT, amount: 100n, blinding: bytes(14) },
+      ...(splAmount === undefined
+        ? []
+        : [{ asset: SPL_MINT, amount: splAmount, blinding: bytes(16) }]),
+    ].map(({ asset, amount, blinding }, leafIndex) => {
+      const utxo = new Utxo({ owner: keypair.signingPublicKey(), asset, amount, blinding });
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(leafIndex) },
+        nullifier: keypair.nullifier(hash, blinding),
+        spent: false,
+      };
     });
+    wallet._replace({ ...wallet._state(), utxos: held });
     const transfer = new ConfidentialTransfer(
       identity,
-      [ProofInputUtxo.fromKeypair(utxo, keypair)],
+      held.map(({ utxo }) => ProofInputUtxo.fromKeypair(utxo, keypair)),
       identity.solanaAddress(),
     );
     configure(transfer, identity);
@@ -1063,7 +1064,7 @@ describe("wallet sync", () => {
           outputContext: {
             hash: output.utxoHash,
             tree: TREE,
-            leafIndex: BigInt(index + 1),
+            leafIndex: BigInt(index + held.length),
           },
           payload: output.data ?? new Uint8Array(),
         })),
@@ -1108,6 +1109,16 @@ describe("wallet sync", () => {
     transactions = wallet.privateTransactions();
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.direction).toBe("selfTransfer");
+  });
+
+  it("reads the SOL change that follows an SPL change as change, not as a recipient", async () => {
+    const { wallet } = await syncConfidentialSelfSend(
+      (transfer, identity) => transfer.send(identity, SPL_MINT, 5n),
+      30n,
+    );
+    expect(wallet.privateTransactions()).toMatchObject([
+      { kind: "privateTransfer", direction: "selfTransfer", asset: SPL_MINT, amount: 5n },
+    ]);
   });
 
   it("replaces a row recorded with a stale amount instead of keeping both", async () => {

@@ -21,6 +21,14 @@ const MAX_OUTPUT_SLOTS = SPP_SUPPORTED_SHAPES.reduce(
   0,
 );
 
+function changeSlots(
+  splPresent: boolean,
+  solPresent: boolean,
+): Readonly<{ spl: number; sol: number; recipients: number }> {
+  const sol = splPresent ? 1 : 0;
+  return { spl: 0, sol, recipients: sol + (solPresent ? 1 : 0) };
+}
+
 /**
  * The type prefix each encrypted family writes into its plaintext body. These
  * live beside the reader and the writer that enforce them so a wire-format
@@ -499,8 +507,9 @@ export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlainte
 /**
  * Rust `AnonymousTransferSenderPlaintext::into_utxos`. The bundle's
  * `blindingSeed` is the derived output seed; the change slots' blindings
- * follow from it and the transaction's first nullifier at the fixed change
- * positions, SPL at 0 and SOL at 1.
+ * follow from it and the transaction's first nullifier. A zero amount marks a
+ * change output as absent. The SPL change sits at slot 0, and the SOL change
+ * at slot 1 after an SPL change, else at slot 0.
  */
 export function anonymousSenderUtxos(
   value: AnonymousSenderPlaintext,
@@ -515,6 +524,7 @@ export function anonymousSenderUtxos(
   if (value.solAmount === 0n && !value.solData.isEmpty()) {
     throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
   }
+  const slots = changeSlots(value.splAmount > 0n, value.solAmount > 0n);
   const values: Utxo[] = [];
   if (value.splAmount > 0n) {
     const ring = resolveRingProgramId(ringProgramId, value.splData);
@@ -523,7 +533,7 @@ export function anonymousSenderUtxos(
         owner: value.ownerPublicKey,
         asset: assets.resolve(value.splAssetId),
         amount: value.splAmount,
-        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 0),
+        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, slots.spl),
         data: value.splData,
         ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
@@ -536,7 +546,7 @@ export function anonymousSenderUtxos(
         owner: value.ownerPublicKey,
         asset: solMint,
         amount: value.solAmount,
-        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 1),
+        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, slots.sol),
         data: value.solData,
         ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
@@ -615,11 +625,11 @@ export function decodePlaintextTransfer(
 }
 
 /**
- * Rust `TransferPlaintextUtxos::into_utxos`. Slot 0 is the sender's SPL
- * change, slot 1 its SOL change, and recipients follow from slot 2; the
- * position, with the disclosed output seed and the transaction's first
- * nullifier, derives each blinding, so it is also the position the published
- * output slot must sit at.
+ * Rust `TransferPlaintextUtxos::into_utxos`. The sender's change outputs
+ * present lead, SPL before SOL, and the recipients follow them. Each blinding
+ * derives from the output's slot, the disclosed output seed and the
+ * transaction's first nullifier, so each output must be published at that
+ * slot.
  */
 export function plaintextTransferUtxos(
   value: TransferPlaintextUtxos,
@@ -630,6 +640,7 @@ export function plaintextTransferUtxos(
 ): readonly Utxo[] {
   const values: Utxo[] = [];
   const { sender } = value;
+  const slots = changeSlots(sender?.spl !== undefined, sender?.solAmount !== undefined);
   if (sender) {
     if (!sender.spl && !sender.splData.isEmpty()) {
       throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
@@ -644,7 +655,7 @@ export function plaintextTransferUtxos(
           owner: sender.ownerPublicKey,
           asset: assets.resolve(sender.spl.assetId),
           amount: sender.spl.amount,
-          blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 0),
+          blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, slots.spl),
           data: sender.splData,
           ...(ring === undefined ? {} : { ringProgramId: ring }),
         }),
@@ -657,7 +668,7 @@ export function plaintextTransferUtxos(
           owner: sender.ownerPublicKey,
           asset: solMint,
           amount: sender.solAmount,
-          blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 1),
+          blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, slots.sol),
           data: sender.solData,
           ...(ring === undefined ? {} : { ringProgramId: ring }),
         }),
@@ -665,7 +676,7 @@ export function plaintextTransferUtxos(
     }
   }
   value.recipientSlots.forEach((recipient, index) => {
-    const position = index + 2;
+    const position = index + slots.recipients;
     if (position >= MAX_OUTPUT_SLOTS) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
     const ring = resolveRingProgramId(ringProgramId, recipient.data);
     values.push(
@@ -1138,72 +1149,50 @@ export function plaintextTransferFromUtxos(
 ): TransferPlaintextUtxos {
   const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
   const firstNullifier = checked<Bytes32>(cx.firstNullifier, 32, "first nullifier");
-  let senderOwner: ShieldedPublicKey | undefined;
+  const ownerBytes = owner.owner.toBytes();
   let spl: TransferPlaintextSplChange | undefined;
   let solAmount: bigint | undefined;
   let splData = new Data();
   let solData = new Data();
-  const recipients: (readonly [number, TransferPlaintextRecipient])[] = [];
-  const seen = new Set<number>();
+  const recipientSlots: TransferPlaintextRecipient[] = [];
   for (const [index, utxo] of utxos.entries()) {
     validateRing(utxo, owner.ringProgramId, index);
     const position = blindingPosition(firstNullifier, blindingSeed, utxo.blinding);
     if (position === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
-    if (seen.has(position)) {
+    if (position !== index) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
     }
-    seen.add(position);
-    if (position === 0) {
-      validateOwner(utxo, owner.owner, index);
-      if (utxo.asset === SOL_MINT) {
-        throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
-      }
-      senderOwner = owner.owner;
+    const change = recipientSlots.length === 0 && equal(utxo.owner.toBytes(), ownerBytes);
+    if (change && index === 0 && utxo.asset !== SOL_MINT) {
       spl = { amount: utxo.amount, assetId: owner.assets.assetId(utxo.asset) };
       splData = new Data(utxo.data.records());
-    } else if (position === 1) {
-      validateOwner(utxo, owner.owner, index);
-      if (utxo.asset !== SOL_MINT) {
-        throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
-      }
-      senderOwner = owner.owner;
+    } else if (change && utxo.asset === SOL_MINT && solAmount === undefined) {
       solAmount = utxo.amount;
       solData = new Data(utxo.data.records());
     } else {
-      recipients.push([
-        position,
-        {
-          ownerPublicKey: utxo.owner,
-          assetId: owner.assets.assetId(utxo.asset),
-          amount: utxo.amount,
-          data: new Data(utxo.data.records()),
-        },
-      ]);
-    }
-  }
-  recipients.sort(([left], [right]) => left - right);
-  for (const [offset, [position]] of recipients.entries()) {
-    const expected = offset + 2;
-    if (expected >= MAX_OUTPUT_SLOTS) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
-    if (position !== expected) {
-      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
+      recipientSlots.push({
+        ownerPublicKey: utxo.owner,
+        assetId: owner.assets.assetId(utxo.asset),
+        amount: utxo.amount,
+        data: new Data(utxo.data.records()),
+      });
     }
   }
   return {
     typePrefix: TRANSFER_PLAINTEXT,
     blindingSeed,
-    ...(senderOwner === undefined
+    ...(spl === undefined && solAmount === undefined
       ? {}
       : {
           sender: {
-            ownerPublicKey: senderOwner,
+            ownerPublicKey: owner.owner,
             ...(spl === undefined ? {} : { spl }),
             ...(solAmount === undefined ? {} : { solAmount }),
             splData,
             solData,
           },
         }),
-    recipientSlots: recipients.map(([, recipient]) => recipient),
+    recipientSlots,
   };
 }
 
@@ -1243,15 +1232,21 @@ export function anonymousSenderFromUtxos(
   let solData = new Data();
   let splSeen = false;
   let solSeen = false;
+  const slots = changeSlots(
+    utxos.some((utxo) => utxo.asset !== SOL_MINT && utxo.amount > 0n),
+    utxos.some((utxo) => utxo.asset === SOL_MINT && utxo.amount > 0n),
+  );
   for (const [index, utxo] of utxos.entries()) {
     validateOwner(utxo, owner.owner, index);
     validateRing(utxo, owner.ringProgramId, index);
     if (utxo.asset === SOL_MINT) {
       if (
         solSeen ||
-        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, 1))
+        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.sol))
       ) {
-        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 1 });
+        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
+          position: slots.sol,
+        });
       }
       solSeen = true;
       solAmount = utxo.amount;
@@ -1259,9 +1254,11 @@ export function anonymousSenderFromUtxos(
     } else {
       if (
         splSeen ||
-        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, 0))
+        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.spl))
       ) {
-        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 0 });
+        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
+          position: slots.spl,
+        });
       }
       splSeen = true;
       splAssetId = owner.assets.assetId(utxo.asset);

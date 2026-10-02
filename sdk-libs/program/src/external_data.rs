@@ -12,9 +12,8 @@ pub type SettlementAccounts = [[u8; 32]; 2];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransactInputs {
-    /// The spent inputs in slot order. Each carries the `tree_index` of the
-    /// tree it is nullified in, and the indexes are non-decreasing, so every
-    /// tree owns one contiguous run.
+    /// The spent inputs in slot order, which may interleave trees. Each has the
+    /// `tree_index` of the tree it is nullified in.
     pub inputs: Vec<InputUtxo>,
     /// One root-index pair per input tree, in the order the tree accounts are
     /// passed.

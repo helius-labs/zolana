@@ -4,12 +4,8 @@ use borsh::BorshSerialize;
 use pinocchio::{cpi::Signer, ProgramResult};
 use zolana_interface::{
     event::OutputDataEncoding,
-    instruction::{
-        instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
-            TreeContext,
-        },
-        tag::TRANSACT,
+    instruction::instruction_data::transact::{
+        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
     },
     shape::{Shape, SPP_SUPPORTED_SHAPES},
     N_PUBLIC_SLOTS,
@@ -156,7 +152,6 @@ impl<'a> SppTransactCpi<'a> {
         let mut tree_contexts: Vec<(u16, TreeContext)> = Vec::new();
         let mut outputs = Vec::with_capacity(self.writes.len());
         let mut output_hashes = Vec::with_capacity(self.writes.len());
-        let mut owner_tags = Vec::with_capacity(self.writes.len());
 
         for write in self.writes {
             let tree_index = tree_index(&mut tree_contexts, write.tree_id, write.tree_context)?;
@@ -184,18 +179,15 @@ impl<'a> SppTransactCpi<'a> {
                 data: Some(write.data),
             });
             output_hashes.push(output_hash);
-            owner_tags.push(pda);
         }
 
         let external = TransactExternalData::from_outputs(outputs);
-        let external_data_hash = external.hash(TRANSACT, &[], &owner_tags)?;
         let private_tx_blinding =
             derive_private_tx_blinding(&first_nullifier, &ACCOUNT_BLINDING_SEED)?;
         let private_tx_hash = PrivateTxHash {
             input_hashes: &input_hashes,
             output_hashes: &output_hashes,
             address_nullifiers: Some(&address_nullifiers),
-            external_data_hash: &external_data_hash,
             blinding: &private_tx_blinding,
         }
         .hash()?;

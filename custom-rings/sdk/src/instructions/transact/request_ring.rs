@@ -193,7 +193,6 @@ pub struct CustomRingPolicyProofRequest {
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub address_chain: [u8; 32],
-    pub external_data_hash: [u8; 32],
     pub private_tx_blinding: [u8; 32],
     pub sources: [SourceOwnerEntry; MAX_SOURCES],
     pub policy_len: u8,
@@ -308,7 +307,6 @@ impl CustomRingPolicyProofRequest {
             inputs: self.inputs.iter().map(opening_json).collect(),
             outputs: self.outputs.iter().map(opening_json).collect(),
             address_chain: field_hex(&self.address_chain),
-            external_data_hash: field_hex(&self.external_data_hash),
             private_tx_blinding: field_hex(&self.private_tx_blinding),
             sources: self.sources.iter().map(source_json).collect(),
             policy_len: self.policy_len,
@@ -599,8 +597,6 @@ pub(crate) struct CustomRingPolicyProofRequestJson {
     outputs: Vec<CustomRingOpeningJson>,
     #[serde(rename = "addressChain")]
     address_chain: String,
-    #[serde(rename = "externalDataHash")]
-    external_data_hash: String,
     #[serde(rename = "privateTxBlinding")]
     private_tx_blinding: String,
     sources: Vec<CustomRingSourceJson>,
@@ -661,7 +657,6 @@ mod tests {
             inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
             outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
             address_chain: [0u8; 32],
-            external_data_hash: [6u8; 32],
             private_tx_blinding: [7u8; 32],
             sources: [SourceOwnerEntry::default(); MAX_SOURCES],
             policy_len: 1,
@@ -697,7 +692,6 @@ mod tests {
                 "auditorPk",
                 "circuitType",
                 "ephSk",
-                "externalDataHash",
                 "inlineAssets",
                 "inlineCount",
                 "inlineLimits",
