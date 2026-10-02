@@ -27,6 +27,7 @@ import {
   type Bytes32,
 } from "../src/keypair/index.js";
 import {
+  mergeAmountMask,
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
@@ -80,6 +81,7 @@ type KeyDerivationVectors = Readonly<{
     output_blinding: string;
     dummy_slot_index: number;
     dummy_nullifier: string;
+    amount_mask: string;
     private_tx_blinding: string;
   }>;
   derivation_input_guard: readonly Readonly<{
@@ -203,6 +205,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     expect(hex(mergeDummyNullifier(nullifierKey, firstNullifier, section.dummy_slot_index))).toBe(
       section.dummy_nullifier,
     );
+    expect(hex(mergeAmountMask(nullifierKey, firstNullifier))).toBe(section.amount_mask);
     expect(hex(mergePrivateTxBlinding(nullifierKey, firstNullifier))).toBe(
       section.private_tx_blinding,
     );

@@ -9,6 +9,7 @@ import {
   roleExpansion,
 } from "../../keypair/derivation.js";
 import {
+  mergeAmountMask,
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
@@ -54,6 +55,7 @@ export type DeriveRequest =
   | Readonly<{ kind: "nullifier"; utxoHash: Bytes32; blinding: Bytes32 }>
   | Readonly<{ kind: "mergeDummyNullifier"; firstNullifier: Bytes32; slotIndex: number }>
   | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>
+  | Readonly<{ kind: "mergeAmountMask"; firstNullifier: Bytes32 }>
   | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>;
 
 /**
@@ -247,6 +249,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
         return mergeDummyNullifier(this.#nullifier, request.firstNullifier, request.slotIndex);
       case "mergeOutputBlinding":
         return mergeOutputBlinding(this.#nullifier, request.firstNullifier);
+      case "mergeAmountMask":
+        return mergeAmountMask(this.#nullifier, request.firstNullifier);
       case "mergePrivateTxBlinding":
         return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
     }

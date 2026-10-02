@@ -1,4 +1,5 @@
-import { mergePaddedInputCount } from "../../interface/constants.js";
+import { decodeMergeOutputDerivation } from "../../interface/codecs/index.js";
+import { mergeUnmaskedAmount } from "../../keypair/merge/index.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -132,7 +133,7 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
+    if (tx.merge) {
       for (const slotIndex of tx.outputSlots.keys()) {
         mergeSites.push({ transaction, slot: slotIndex });
         classified = true;
@@ -938,87 +939,129 @@ class SyncPass {
     }
   }
 
-  /** Missing inputs may be outputs of another merge in the same batch. */
+  /**
+   * The merged output from its ciphertext when that reproduces the
+   * commitment, otherwise from the masked amount and the first published
+   * nullifier, which the proof binds. Any held input names the owner and the
+   * asset, so an input the owner never received does not hide the output.
+   * Missing inputs may be outputs of another merge in the same batch.
+   */
   #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
     const slot = tx.outputSlots[site.slot];
+    const message = tx.messages[0];
+    const derivation =
+      message === undefined ? undefined : decodeMergeOutputDerivation(message.data);
     const firstNullifier = tx.nullifiers[0];
-    if (
-      slot === undefined ||
-      firstNullifier === undefined ||
-      !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
-    ) {
-      return false;
-    }
-
-    // A merge publishes its sent nullifiers; compact padding is left out.
-    if (mergePaddedInputCount(tx.nullifiers.length) === undefined) {
+    if (slot === undefined || derivation === undefined || firstNullifier === undefined) {
       this.undecryptableCandidates++;
       return true;
     }
-    // Requested together so one round answers both, and read before any
-    // matching: a pending derivation means "not yet", never "not a merge".
-    const dummyNullifiers = tx.nullifiers.map((_, index) =>
-      this.#keys.derive({ kind: "mergeDummyNullifier", firstNullifier, slotIndex: index }),
-    );
-    const outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
-    if (outputBlinding === undefined || dummyNullifiers.some((value) => value === undefined)) {
+    const ringDataHash = derivation.outputRingDataHash;
+    const held = tx.nullifiers
+      .map((nullifier) => this.#utxos.find((entry) => equal(entry.nullifier, nullifier)))
+      .find((entry) => entry !== undefined);
+    // Requested together so one round answers the ciphertext and the fallback.
+    const opened = this.#openMergeCiphertext(tx, slot, site.slot);
+    const outputBlinding =
+      held === undefined
+        ? undefined
+        : this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
+    const mask =
+      held === undefined
+        ? undefined
+        : this.#keys.derive({ kind: "mergeAmountMask", firstNullifier });
+    if (opened === "pending") return false;
+    if (opened !== undefined && this.#storeMerge(tx, slot, siteKey, opened, ringDataHash)) {
+      return true;
+    }
+    if (held === undefined || outputBlinding === undefined || mask === undefined) return false;
+
+    const amount = mergeUnmaskedAmount(derivation.maskedAmount, mask);
+    if (amount === undefined) {
+      this.undecryptableCandidates++;
+      return true;
+    }
+    const ringProgramId = held.utxo.ringProgramId;
+    const utxo = new Utxo({
+      owner: this.#owner,
+      asset: held.utxo.asset,
+      amount,
+      blinding: outputBlinding,
+      ...(ringProgramId === undefined ? {} : { ringProgramId }),
+    });
+    if (!this.#storeMerge(tx, slot, siteKey, utxo, ringDataHash)) this.undecryptableCandidates++;
+    return true;
+  }
+
+  /**
+   * The merge ciphertext opened with this wallet's viewing key, `"pending"`
+   * while the key memo has no answer, or `undefined` when it is missing,
+   * addressed elsewhere, or does not decode. The merger chose it, so the
+   * caller checks it against the commitment.
+   */
+  #openMergeCiphertext(
+    tx: IndexedShieldedTransaction,
+    slot: IndexedShieldedTransaction["outputSlots"][number],
+    slotIndex: number,
+  ): Utxo | "pending" | undefined {
+    if (tx.txViewingPublicKey === undefined || tx.salt === undefined) return undefined;
+    let ciphertext: Uint8Array;
+    let viewingPublicKey: P256PublicKey | undefined;
+    try {
+      const frame = readOutputData(slot.payload);
+      if (
+        frame.encoding !== "encrypted" ||
+        (frame.scheme !== EncryptedScheme.confidential &&
+          frame.scheme !== EncryptedScheme.ringConfidential)
+      ) {
+        return undefined;
+      }
+      const embedded = splitEmbeddedKey(frame.body);
+      viewingPublicKey = this.#viewingPublicKeys.find((key) =>
+        equal(key.toBytes(), embedded.key.toBytes()),
+      );
+      ciphertext = embedded.rest;
+    } catch {
+      return undefined;
+    }
+    if (viewingPublicKey === undefined) return undefined;
+    const decrypted = this.#keys.decrypt({
+      ciphertext,
+      viewingPublicKey,
+      txViewingPublicKey: tx.txViewingPublicKey,
+      salt: tx.salt,
+      slotIndex,
+      label: "transfer",
+    });
+    if (decrypted === undefined) return "pending";
+    try {
+      return confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Stores `utxo` as the merge's output if it hashes to the commitment. */
+  #storeMerge(
+    tx: IndexedShieldedTransaction,
+    slot: IndexedShieldedTransaction["outputSlots"][number],
+    siteKey: string,
+    utxo: Utxo,
+    ringDataHash: Bytes32 | undefined,
+  ): boolean {
+    if (
+      !equal(
+        utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, ringDataHash),
+        slot.outputContext.hash,
+      )
+    ) {
       return false;
     }
-
-    try {
-      const matched: WalletUtxo[] = [];
-      for (const [index, nullifier] of tx.nullifiers.entries()) {
-        const dummy = dummyNullifiers[index];
-        if (dummy !== undefined && equal(nullifier, dummy)) {
-          continue;
-        }
-        const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
-        if (entry === undefined) {
-          return false;
-        }
-        matched.push(entry);
-      }
-      const first = matched[0];
-      if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      let amount = 0n;
-      for (const entry of matched) {
-        amount += entry.utxo.amount;
-        if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
-      }
-      const ringProgramId = first.utxo.ringProgramId;
-      if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const ringDataHash =
-        ringProgramId === undefined
-          ? undefined
-          : slot.payload.length === 32
-            ? (copy(slot.payload) as Bytes32)
-            : null;
-      if (ringDataHash === null) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const utxo = new Utxo({
-        owner: this.#owner,
-        asset: first.utxo.asset,
-        amount,
-        blinding: outputBlinding,
-        ...(ringProgramId === undefined ? {} : { ringProgramId }),
-      });
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
-        this.#processedSlots.add(siteKey);
-        this.#recordMerge(tx, slot.outputContext, utxo);
-      }
-      return true;
-    } catch (error) {
-      this.#recordUndecryptable(error, siteKey);
-      return true;
+    if (this.#store(utxo, slot.outputContext, undefined, ringDataHash) !== "pending") {
+      this.#processedSlots.add(siteKey);
+      this.#recordMerge(tx, slot.outputContext, utxo);
     }
+    return true;
   }
 
   /** The published transaction key and salt every encrypted scheme opens under. */

@@ -10,6 +10,7 @@ import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interf
 import type { Address, Bytes32, Bytes128 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import {
+  mergeAmountMask,
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
@@ -62,6 +63,7 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
       ring: { programId: RING },
       outputBlinding: mergeOutputBlinding(key, first.nullifier()),
       privateTxBlinding: mergePrivateTxBlinding(key, first.nullifier()),
+      amountMask: mergeAmountMask(key, first.nullifier()),
       dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
         mergeDummyNullifier(key, first.nullifier(), slot),
       ),

@@ -32,7 +32,12 @@ import type {
   TransactInstructionData,
 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeAmountMask,
+  mergeDummyNullifier,
+  mergeMaskedAmount,
+  mergeOutputBlinding,
+} from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
@@ -635,6 +640,7 @@ function ringTransaction(
       messages: [],
       nullifiers: [...(input.nullifiers ?? [])],
       proofless: false,
+      merge: false,
     };
   }
   const encrypted = encryptCustomRingTransfer(tx, {
@@ -669,6 +675,7 @@ function ringTransaction(
     messages: [encrypted.auditorMessage],
     nullifiers: [...(input.nullifiers ?? [])],
     proofless: false,
+    merge: false,
   };
 }
 
@@ -795,15 +802,24 @@ function mergeTransaction(
         eventIndex: 0,
         ringProgramId: RING,
         proofless: false,
+        merge: true,
         nullifiers,
         outputSlots: [
           {
             viewTag: first.nullifier,
             outputContext,
-            payload: ringDataHash,
+            payload: new Uint8Array(),
           },
         ],
-        messages: [],
+        messages: [
+          {
+            viewTag: first.nullifier,
+            data: new Uint8Array([
+              ...mergeMaskedAmount(utxo.amount, mergeAmountMask(key, first.nullifier)),
+              ...ringDataHash,
+            ]),
+          },
+        ],
       },
       note: {
         utxo,
@@ -843,6 +859,7 @@ describe("recovery closure", () => {
       eventIndex: 0,
       ringProgramId: RING,
       proofless: true,
+      merge: false,
       nullifiers: [],
       messages: [],
       outputSlots: [

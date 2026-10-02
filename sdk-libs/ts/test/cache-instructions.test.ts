@@ -130,8 +130,15 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
     utxoTreeRootIndex: 4,
     nullifierTreeRootIndex: 10,
     ...(cacheSlot === undefined ? {} : { cacheSlot }),
+    maskedAmount: new Uint8Array(32) as Bytes32,
+    txViewingPk: new Uint8Array(33) as Bytes33,
+    salt: new Uint8Array(16) as Bytes16,
+    outputData: new Uint8Array(),
   };
 }
+
+/** The masked amount, key, salt and empty ciphertext after the cache option. */
+const MERGE_TAIL = 32 + 33 + 16 + 2;
 
 function lastAccounts(accounts: readonly { address: Address; role: AccountRole }[], count: number) {
   return accounts.slice(-count).map((account) => [account.address, account.role]);
@@ -427,9 +434,9 @@ describe("merge cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-    expect(cached.data).toHaveLength(1 + 528);
-    expect(Array.from(cached.data?.slice(-2) ?? [])).toEqual([1, 7]);
-    expect(plain.data?.at(-1)).toBe(0);
+    expect(cached.data).toHaveLength(1 + 528 + MERGE_TAIL);
+    expect(Array.from(cached.data?.slice(-2 - MERGE_TAIL, -MERGE_TAIL) ?? [])).toEqual([1, 7]);
+    expect(plain.data?.at(-1 - MERGE_TAIL)).toBe(0);
   });
 
   it.each([
@@ -452,7 +459,9 @@ describe("merge cache accounts", () => {
     expect(() => encodeMergeTransactInstructionData(mergeData(CACHE_CAPACITY))).toThrow(
       expect.objectContaining({ code: "INTERFACE_INVALID_INTEGER" }),
     );
-    expect(encodeMergeTransactInstructionData(mergeData(CACHE_CAPACITY - 1)).at(-1)).toBe(35);
+    expect(
+      encodeMergeTransactInstructionData(mergeData(CACHE_CAPACITY - 1)).at(-1 - MERGE_TAIL),
+    ).toBe(35);
   });
 
   it("commits the external data hash to the cache address and slot", () => {

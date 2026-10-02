@@ -1,6 +1,8 @@
 import type {
   Address,
+  Bytes16,
   Bytes32,
+  Bytes33,
   MergeTransactInstructionData,
   RequestContext,
 } from "../../interface/types.js";
@@ -269,6 +271,8 @@ interface MergePublicInputFields {
   readonly outputTreeId: TreeId;
   readonly privateTxHash: bigint;
   readonly externalDataHash: bigint;
+  /** The output amount plus the owner's merge amount mask. */
+  readonly maskedAmount: bigint;
   /**
    * The owner binding: the signing and nullifier public keys on the plain
    * rail, the output ring data hash and ring program id on a ring merge.
@@ -290,6 +294,7 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.privateTxHash,
     input.externalDataHash,
     1n,
+    input.maskedAmount,
     ...input.owner,
   ];
 }
@@ -386,6 +391,7 @@ export function prepareMerge(
     outputTreeId: prepared.outputTreeId,
     privateTxHash: bytesToBigInt(privateTxHash),
     externalDataHash: bytesToBigInt(externalDataHash),
+    maskedAmount: bytesToBigInt(prepared.maskedAmount),
     owner:
       prepared.output.ringProgramId === undefined
         ? [
@@ -405,6 +411,7 @@ export function prepareMerge(
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
+    maskedAmount: asField(bytesToBigInt(prepared.maskedAmount)),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
   });
@@ -445,6 +452,12 @@ export function prepareMerge(
           utxoTreeRootIndex,
           nullifierTreeRootIndex,
           ...(cache === undefined ? {} : { cacheSlot: cache.slot }),
+          maskedAmount: new Uint8Array(prepared.maskedAmount) as Bytes32,
+          txViewingPk: new Uint8Array(
+            prepared.encryptedOutput?.txViewingPk ?? new Uint8Array(33),
+          ) as Bytes33,
+          salt: new Uint8Array(prepared.encryptedOutput?.salt ?? new Uint8Array(16)) as Bytes16,
+          outputData: new Uint8Array(prepared.encryptedOutput?.outputData ?? new Uint8Array()),
         });
       return Object.freeze({
         expiryUnixTs,

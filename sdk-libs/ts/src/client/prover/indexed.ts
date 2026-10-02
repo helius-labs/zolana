@@ -121,6 +121,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               ? {}
               : { userNullifierSecret: field("userNullifierSecret") }),
             allowDummyInputs: field("allowDummyInputs"),
+            maskedAmount: field("maskedAmount"),
             outputRingDataHash: field("outputRingDataHash"),
           },
         }
@@ -317,7 +318,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
     inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+      (inputs.circuit === "merge" ? 9 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {

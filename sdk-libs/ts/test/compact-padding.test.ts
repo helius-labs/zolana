@@ -298,6 +298,7 @@ describe("compact padding", () => {
         nullifierPublicKey: prepared.nullifierPublicKey,
         dummyNullifiers,
         privateTxBlinding: prepared.privateTxBlinding(),
+        maskedAmount: prepared.maskedAmount,
         outputTreeId: prepared.outputTreeId,
       });
     const compact = () => ProofInputUtxo.compact(prepared.inputTreeId);
@@ -344,6 +345,7 @@ describe("compact padding", () => {
           inputs: [first],
           outputBlinding: randomBlinding(),
           privateTxBlinding: randomBlinding(),
+          amountMask: randomBlinding(),
           dummyNullifiers: [],
           ring: { programId: PAYER },
           compact: true,

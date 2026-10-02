@@ -2,10 +2,14 @@ import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
-import { mergePaddedInputCount } from "../interface/constants.js";
+import { decodeMergeOutputDerivation } from "../interface/codecs/index.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import { readRingDepositCapsule } from "./deposit-capsule.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../keypair/merge/index.js";
+import {
+  mergeAmountMask,
+  mergeOutputBlinding,
+  mergeUnmaskedAmount,
+} from "../keypair/merge/index.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
@@ -68,8 +72,6 @@ interface Candidate {
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
 }
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 export async function recoverRingMemberNotes(
   input: RingRecoveryParams,
@@ -183,13 +185,7 @@ export async function recoverRingMemberNotes(
       if (!transaction.nullifiers.some((nullifier) => requested.has(bytesKey(nullifier)))) continue;
       for (const nullifier of transaction.nullifiers) spent.add(bytesKey(nullifier));
       const slot = transaction.outputSlots[0];
-      if (
-        transaction.proofless ||
-        transaction.txViewingPublicKey !== undefined ||
-        transaction.salt !== undefined ||
-        transaction.outputSlots.length !== 1 ||
-        slot === undefined
-      )
+      if (!transaction.merge || transaction.outputSlots.length !== 1 || slot === undefined)
         continue;
       const hash = bytesKey(slot.outputContext.hash);
       if (
@@ -391,45 +387,34 @@ async function recoverMerge(
   known: ReadonlyMap<string, Candidate>,
   treeIds: Map<Address, TreeId>,
 ): Promise<Candidate | undefined> {
+  // The proof binds the masked amount to the first published nullifier, so
+  // any input the member holds rebuilds the output, even when the merger spent
+  // a note the member never received.
   const firstNullifier = transaction.nullifiers[0];
   const slot = transaction.outputSlots[0];
+  const message = transaction.messages[0];
+  const derivation = message === undefined ? undefined : decodeMergeOutputDerivation(message.data);
+  const ringDataHash = derivation?.outputRingDataHash;
   if (
     firstNullifier === undefined ||
     slot === undefined ||
-    mergePaddedInputCount(transaction.nullifiers.length) === undefined ||
-    slot.payload.length !== 32
-  )
+    derivation === undefined ||
+    ringDataHash === undefined
+  ) {
     return undefined;
-  const first = known.get(bytesKey(firstNullifier));
-  if (first === undefined || first.utxo.ringProgramId !== input.ringProgramId) return undefined;
-  const real = new Set<string>();
-  let padded = false;
-  let amount = 0n;
-  for (const [index, nullifier] of transaction.nullifiers.entries()) {
-    if (equal(nullifier, mergeDummyNullifier(input.nullifierKey, firstNullifier, index))) {
-      padded = true;
-      continue;
-    }
-    const key = bytesKey(nullifier);
-    const predecessor = known.get(key);
-    if (
-      padded ||
-      real.has(key) ||
-      predecessor === undefined ||
-      predecessor.utxo.asset !== first.utxo.asset ||
-      predecessor.utxo.ringProgramId !== input.ringProgramId ||
-      predecessor.utxo.data.utxoData() !== undefined ||
-      predecessor.dataHash?.some((byte) => byte !== 0)
-    )
-      return undefined;
-    real.add(key);
-    amount += predecessor.utxo.amount;
-    if (amount > U64_MAX) return undefined;
   }
-  const ringDataHash = new Uint8Array(slot.payload) as Bytes32;
+  const held = transaction.nullifiers
+    .map((nullifier) => known.get(bytesKey(nullifier)))
+    .find((candidate) => candidate !== undefined);
+  if (held === undefined || held.utxo.ringProgramId !== input.ringProgramId) return undefined;
+  const amount = mergeUnmaskedAmount(
+    derivation.maskedAmount,
+    mergeAmountMask(input.nullifierKey, firstNullifier),
+  );
+  if (amount === undefined) return undefined;
   const utxo = new Utxo({
     owner: input.source.signingPublicKey,
-    asset: first.utxo.asset,
+    asset: held.utxo.asset,
     amount,
     blinding: mergeOutputBlinding(input.nullifierKey, firstNullifier),
     ringProgramId: input.ringProgramId,

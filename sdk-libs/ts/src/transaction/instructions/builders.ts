@@ -1,10 +1,13 @@
-import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32, Bytes33, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
+  mergeAmountMask,
   mergeDummyNullifier,
+  mergeMaskedAmount,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
+import { ViewingKey } from "../../keypair/viewing-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 
@@ -31,6 +34,7 @@ import { type AssetRegistry } from "../asset.js";
 import {
   SppProofInputs,
   createExternalData,
+  encodeConfidentialSlots,
   singleInputTreeId,
   type InputUtxoContext,
 } from "./transact.js";
@@ -47,6 +51,17 @@ function checkedU64(value: bigint, field: string): bigint {
   return value;
 }
 
+/**
+ * The merged output encrypted to its owner under a one-time transaction key.
+ * Nothing on chain checks it; a wallet uses it only when it reproduces the
+ * commitment.
+ */
+export type MergeEncryptedOutput = Readonly<{
+  txViewingPk: Bytes33;
+  salt: Bytes16;
+  outputData: Uint8Array;
+}>;
+
 export class PreparedMerge {
   readonly inputs: readonly ProofInputUtxo[];
   readonly output: ProofOutputUtxo;
@@ -57,6 +72,9 @@ export class PreparedMerge {
   readonly inputTreeId: TreeId;
   /** The tree the merged output is appended to. */
   readonly outputTreeId: TreeId;
+  /** The output amount plus the owner's merge amount mask, which the proof binds. */
+  readonly maskedAmount: Bytes32;
+  readonly encryptedOutput: MergeEncryptedOutput | undefined;
   readonly #dummyNullifiers: readonly Bytes32[];
   readonly #privateTxBlinding: Bytes32;
 
@@ -76,6 +94,9 @@ export class PreparedMerge {
       /** `mergePrivateTxBlinding(firstNullifier)`. */
       privateTxBlinding: Bytes32;
       outputTreeId: TreeId;
+      /** `mergeMaskedAmount(output.amount, mergeAmountMask(firstNullifier))`. */
+      maskedAmount: Bytes32;
+      encryptedOutput?: MergeEncryptedOutput | undefined;
     }>,
   ) {
     if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(input.inputs.length)) {
@@ -146,6 +167,8 @@ export class PreparedMerge {
       "merge private tx blinding",
     );
     this.outputTreeId = checkedTreeId(input.outputTreeId);
+    this.maskedAmount = checked<Bytes32>(input.maskedAmount, 32, "merge masked amount");
+    this.encryptedOutput = input.encryptedOutput;
   }
 
   /** The merged output's commitment in `outputTreeId`. */
@@ -244,6 +267,13 @@ export class Merge {
       privateTxBlinding: Bytes32;
       /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
       dummyNullifiers: readonly Bytes32[];
+      /** `mergeAmountMask(firstNullifier)`. */
+      amountMask: Bytes32;
+      /**
+       * Encrypts the merged output to its owner when given; without it the
+       * owner rebuilds the output from the masked amount alone.
+       */
+      assets?: AssetRegistry;
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
       /**
@@ -302,28 +332,36 @@ export class Merge {
           : ProofInputUtxo.dummy(undefined, inputTreeId),
       );
     }
+    const output = createProofOutput({
+      ownerAddress: address,
+      asset,
+      amount,
+      blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
+      ...(input.ring === undefined
+        ? {}
+        : {
+            ringProgramId: input.ring.programId,
+            ...(input.ring.outputDataHash === undefined
+              ? {}
+              : { ringDataHash: input.ring.outputDataHash }),
+          }),
+    });
+    const encryptedOutput =
+      input.assets === undefined ? undefined : encryptMergeOutput(output, input.assets);
     this.#prepared = new PreparedMerge({
       inputs: padded,
-      output: createProofOutput({
-        ownerAddress: address,
-        asset,
-        amount,
-        blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
-        ...(input.ring === undefined
-          ? {}
-          : {
-              ringProgramId: input.ring.programId,
-              ...(input.ring.outputDataHash === undefined
-                ? {}
-                : { ringDataHash: input.ring.outputDataHash }),
-            }),
-      }),
+      output,
       expiryUnixTs: U64_MAX,
       signingPublicKey: owner,
       nullifierPublicKey: address.nullifierPublicKey,
       dummyNullifiers: input.dummyNullifiers,
       privateTxBlinding: input.privateTxBlinding,
       outputTreeId: checkedTreeId(input.outputTreeId ?? DEFAULT_TREE_ID),
+      maskedAmount: mergeMaskedAmount(
+        amount,
+        checked<Bytes32>(input.amountMask, 32, "merge amount mask"),
+      ),
+      encryptedOutput,
     });
   }
 
@@ -332,7 +370,7 @@ export class Merge {
     keypair: ShieldedKeypair,
     inputs: readonly ProofInputUtxo[],
     outputTreeId: TreeId = DEFAULT_TREE_ID,
-    options: Readonly<{ compact?: boolean }> = {},
+    options: Readonly<{ compact?: boolean; assets?: AssetRegistry }> = {},
   ): Merge {
     const first = inputs[0];
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -347,8 +385,10 @@ export class Merge {
         dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
+        amountMask: mergeAmountMask(nullifierKey, firstNullifier),
         outputTreeId,
         ...(options.compact === true ? { compact: true } : {}),
+        ...(options.assets === undefined ? {} : { assets: options.assets }),
       });
     } finally {
       nullifierKey.destroy();
@@ -369,6 +409,8 @@ export class Merge {
       dummyNullifiers: this.#prepared.dummyNullifiers(),
       privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: this.#prepared.outputTreeId,
+      maskedAmount: this.#prepared.maskedAmount,
+      encryptedOutput: this.#prepared.encryptedOutput,
     });
     return this;
   }
@@ -384,8 +426,27 @@ export class Merge {
       dummyNullifiers: this.#prepared.dummyNullifiers(),
       privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: checkedTreeId(outputTreeId),
+      maskedAmount: this.#prepared.maskedAmount,
+      encryptedOutput: this.#prepared.encryptedOutput,
     });
     return this;
+  }
+}
+
+/** Encrypts under a one-time key: the owner opens it with their viewing key alone. */
+function encryptMergeOutput(output: ProofOutputUtxo, assets: AssetRegistry): MergeEncryptedOutput {
+  const tx = ViewingKey.generate();
+  try {
+    const salt = randomSalt();
+    const [slot] = encodeConfidentialSlots([output], assets, tx, salt);
+    if (slot === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
+    return Object.freeze({
+      txViewingPk: tx.publicKey().toBytes() as Bytes33,
+      salt,
+      outputData: slot.data,
+    });
+  } finally {
+    tx.destroy();
   }
 }
 

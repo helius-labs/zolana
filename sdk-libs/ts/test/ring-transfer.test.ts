@@ -259,6 +259,7 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
     messages: external.messages,
     nullifiers: proofInputs.inputUtxos.map((input) => input.nullifier()),
     proofless: false,
+    merge: false,
   };
 }
 

@@ -203,6 +203,7 @@ function shieldedTransactions(
         return hexBytes(value) as Bytes32;
       }),
       proofless: transaction.proofless === true,
+      merge: transaction.merge === true,
     };
   });
 }

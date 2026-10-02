@@ -62,6 +62,7 @@ describe("merge tree guards", () => {
           dummyNullifiers: prepared.dummyNullifiers(),
           privateTxBlinding: prepared.privateTxBlinding(),
           outputTreeId: prepared.outputTreeId,
+          maskedAmount: prepared.maskedAmount,
         });
         expect(() => assembleMergeWithProofs(inconsistent, [], submitTree)).toThrow(
           expect.objectContaining({

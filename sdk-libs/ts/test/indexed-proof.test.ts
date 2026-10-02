@@ -162,8 +162,9 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(8);
     expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
-    expect(publicInputs).toHaveLength(8);
-    expect(publicInputs[7]).toBe(payload["userNullifierPk"]);
+    expect(publicInputs).toHaveLength(9);
+    expect(publicInputs[6]).toBe(payload["maskedAmount"]);
+    expect(publicInputs[8]).toBe(payload["userNullifierPk"]);
     for (const provingKeySha256 of [undefined, "00".repeat(32)]) {
       fetch.mockResolvedValueOnce(Response.json({ ...STANDARD_PROOF, provingKeySha256 }));
       await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({

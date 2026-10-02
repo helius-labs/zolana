@@ -525,6 +525,7 @@ describe("list writes", () => {
       messages: [],
       nullifiers: [nullifier],
       proofless: false,
+      merge: false,
     };
   }
 

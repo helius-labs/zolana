@@ -332,10 +332,14 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .option(value.cacheSlot, (output, slot) => {
       output.u8(unsigned(slot, CACHE_CAPACITY - 1, "cacheSlot"), "cacheSlot");
-    });
+    })
+    .bytes(value.maskedAmount, 32, "maskedAmount")
+    .bytes(value.txViewingPk, 33, "txViewingPk")
+    .bytes(value.salt, 16, "salt");
+  byteVector(writer, value.outputData, "outputData");
 }
 
-const MERGE_FIXED_DATA_LENGTH = 271;
+const MERGE_FIXED_DATA_LENGTH = 354;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
@@ -345,8 +349,27 @@ export function encodeMergeTransactInstructionData(
     writeMergeData,
     MERGE_FIXED_DATA_LENGTH +
       32 * value.nullifiers.length +
-      (value.cacheSlot === undefined ? 0 : 1),
+      (value.cacheSlot === undefined ? 0 : 1) +
+      value.outputData.length,
   );
+}
+
+/**
+ * The message of a rebuilt merge event: the masked output amount, then a ring
+ * merge's output ring-data hash. `undefined` unless exactly 32 or 64 bytes.
+ * Mirrors Rust `MergeOutputDerivation::decode`.
+ */
+export function decodeMergeOutputDerivation(
+  data: Uint8Array,
+): Readonly<{ maskedAmount: Bytes32; outputRingDataHash?: Bytes32 }> | undefined {
+  if (data.length !== 32 && data.length !== 64) return undefined;
+  const maskedAmount = data.slice(0, 32) as Bytes32;
+  return data.length === 32
+    ? Object.freeze({ maskedAmount })
+    : Object.freeze({
+        maskedAmount,
+        outputRingDataHash: data.slice(32, 64) as Bytes32,
+      });
 }
 
 export function mergeExternalDataHash(

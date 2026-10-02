@@ -720,6 +720,7 @@ function mergeProverRequest(
     externalDataHash: hex(inputs.externalDataHash, "externalDataHash"),
     privateTxHash: hex(inputs.privateTxHash, "privateTxHash"),
     allowDummyInputs: hex(inputs.allowDummyInputs, "allowDummyInputs"),
+    maskedAmount: hex(inputs.maskedAmount, "maskedAmount"),
     outputRingDataHash: hex(inputs.outputRingDataHash, "outputRingDataHash"),
     ringProgramId: hex(inputs.ringProgramId, "ringProgramId"),
   });

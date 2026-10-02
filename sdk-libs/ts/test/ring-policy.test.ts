@@ -504,6 +504,7 @@ describe("lineage walk", () => {
       messages: [],
       nullifiers: [nullifier],
       proofless: false,
+      merge: false,
     };
   }
 

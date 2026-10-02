@@ -7,8 +7,10 @@ client's indexer round trip before each proof, and the client route stays
 available. Merges take up to 36 notes in one transaction, wallet sync
 recovers the output of such a merge, and transfers and merges can leave their
 unused slots out of the transaction at the cost of revealing the real counts.
-Registration never replaces an owner's published keys, and replacing them is
-its own transaction. The private transaction hash ignores padding and no longer
+A merge publishes its output amount masked under the owner's nullifier secret
+and an encrypted copy of its output, so the owner recovers the output even when
+the merger spends a note the owner never received. Registration never replaces
+an owner's published keys, and replacing them is its own transaction. The private transaction hash ignores padding and no longer
 covers the external data, which P-256 owners now sign alongside it.
 
 Breaking
@@ -96,6 +98,19 @@ Breaking
   refuses any other order with `TRANSACTION_INVALID_OUTPUT_POSITION`, so a
   bundle built by an earlier release without an SPL change no longer recovers
   its outputs → build transfers and their bundles with this release.
+- `Merge` requires `amountMask`, the `mergeAmountMask(firstNullifier)` derive
+  request answer, `PreparedMerge` requires `maskedAmount`,
+  `MergeTransactInstructionData` requires `maskedAmount`, `txViewingPk`, `salt`
+  and `outputData`, `MergeInputs` requires `maskedAmount`, and a merge proves a
+  ninth public input → derive the mask with `mergeAmountMask` or answer the new
+  `mergeAmountMask` kind in custom `ShieldedKeys`, and prove against the
+  program and prover of this release.
+- `IndexedShieldedTransaction` requires `merge`, which wallet sync reads in
+  place of inferring a merge from a missing transaction key, and the indexer
+  decoder rejects a transaction without it → run the indexer of this release
+  and set `merge` in hand-built transactions.
+- `ShieldedPoolError` gains `NonCanonicalMaskedAmount` (7080) → handle it in
+  exhaustive switches.
 
 Added
 
@@ -133,6 +148,13 @@ Added
   fetch and is `null` for every other slot.
 - Wallet sync recovers the output of a compact merge, which publishes only the
   nullifiers it sends.
+- Wallet sync opens a merge's encrypted output when it matches the published
+  commitment and otherwise rebuilds the output from its masked amount and any
+  input the wallet holds, so a merge whose first input the owner never
+  received still pays the owner.
+- `buildMergeTransaction`, `buildRingMergeTransaction` and the `assets` option
+  of `Merge` and `Merge.fromKeypair` encrypt the merged output to its owner,
+  which `PreparedMerge.encryptedOutput` exposes as a `MergeEncryptedOutput`.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
   proof above eight, and `buildRingMergeTransaction` and

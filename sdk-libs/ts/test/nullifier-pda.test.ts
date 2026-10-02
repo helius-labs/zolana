@@ -232,6 +232,10 @@ describe("nullifier PDA accounts", () => {
       nullifiers,
       utxoTreeRootIndex: 0,
       nullifierTreeRootIndex: 0,
+      maskedAmount: filled(48, 32) as Bytes32,
+      txViewingPk: filled(2, 33) as Bytes33,
+      salt: filled(49, 16) as Bytes16,
+      outputData: filled(50, 40),
     };
     const instruction = await mergeTransactInstruction({
       inputTree: TREE,

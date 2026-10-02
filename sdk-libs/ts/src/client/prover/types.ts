@@ -108,6 +108,8 @@ export interface MergeInputs {
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;
+  /** The output amount plus the owner's merge amount mask. */
+  readonly maskedAmount: Field;
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
   readonly ringProgramId: Field;

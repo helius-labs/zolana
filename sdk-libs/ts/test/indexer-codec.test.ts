@@ -34,6 +34,7 @@ describe("ring spend record wire", () => {
     messages: [],
     nullifiers: [],
     proofless: false,
+    merge: false,
   };
   const found = {
     context: { slot: 1, blockTime: 2 },
@@ -243,6 +244,7 @@ describe("Photon tree metadata", () => {
     messages: [],
     nullifiers: [],
     proofless: false,
+    merge: false,
   };
   const context = { blockTime: 0, slot: 1 };
 

@@ -117,6 +117,8 @@ export interface IndexedShieldedTransaction {
   readonly messages: readonly RingsMessage[];
   readonly nullifiers: readonly Hash[];
   readonly proofless: boolean;
+  /** Emitted by `merge_transact` or `merge_ring`. */
+  readonly merge: boolean;
   /**
    * The ring's config account (its `ring_auth` PDA), absent when no ring
    * authorized this transaction. Observed directly on the transaction.

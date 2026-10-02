@@ -1,7 +1,16 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
-import { type Bytes32, bigIntToBytes, checkedBytes, concatBytes, copyBytes } from "../bytes.js";
+import { BN254_SCALAR_ORDER } from "../../hasher/index.js";
 import {
+  type Bytes32,
+  bigIntToBytes,
+  bytesToBigInt,
+  checkedBytes,
+  concatBytes,
+  copyBytes,
+} from "../bytes.js";
+import {
+  DOMAIN_MERGE_AMOUNT_MASK,
   DOMAIN_MERGE_DUMMY_NULLIFIER,
   DOMAIN_MERGE_OUTPUT_BLINDING_V1,
   DOM_SEP_KEY,
@@ -79,6 +88,38 @@ export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: 
   } finally {
     secret.fill(0);
   }
+}
+
+export function mergeAmountMask(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
+  const secret = alignedNullifierSecret(nullifierKey);
+  try {
+    return poseidon([
+      fieldU32(DOMAIN_MERGE_AMOUNT_MASK),
+      secret,
+      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    ]) as Bytes32;
+  } finally {
+    secret.fill(0);
+  }
+}
+
+/** `amount + mask` in the BN254 scalar field; mirrors Rust `merge_masked_amount`. */
+export function mergeMaskedAmount(amount: bigint, mask: Bytes32): Bytes32 {
+  const value =
+    (amount + bytesToBigInt(checkedBytes<Bytes32>(mask, 32, "amount mask"))) % BN254_SCALAR_ORDER;
+  return bigIntToBytes(value) as Bytes32;
+}
+
+/**
+ * Inverts `mergeMaskedAmount`; `undefined` when the published value does not
+ * encode a u64 under this mask. Mirrors Rust `merge_unmasked_amount`.
+ */
+export function mergeUnmaskedAmount(maskedAmount: Bytes32, mask: Bytes32): bigint | undefined {
+  const masked = bytesToBigInt(checkedBytes<Bytes32>(maskedAmount, 32, "masked amount"));
+  if (masked >= BN254_SCALAR_ORDER) return undefined;
+  const amount =
+    (masked + BN254_SCALAR_ORDER - (bytesToBigInt(mask) % BN254_SCALAR_ORDER)) % BN254_SCALAR_ORDER;
+  return amount <= 0xffff_ffff_ffff_ffffn ? amount : undefined;
 }
 
 /**

@@ -390,6 +390,7 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
     "messages",
     "nullifiers",
     "proofless",
+    "merge",
     "ringConfig",
     "ringProgramId",
   ]);
@@ -409,6 +410,7 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
     messages: array(record["messages"], `${path}.messages`, message),
     nullifiers: array(record["nullifiers"], `${path}.nullifiers`, checkedHash),
     proofless: boolean(record["proofless"], `${path}.proofless`),
+    merge: boolean(record["merge"], `${path}.merge`),
     ...(ringConfig === undefined ? {} : { ringConfig }),
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };

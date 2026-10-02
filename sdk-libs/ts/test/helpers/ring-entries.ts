@@ -64,6 +64,7 @@ export function lineage(
       messages: [],
       nullifiers: [spent],
       proofless: false,
+      merge: false,
     });
     spent = hashes.nullifier;
     last = { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier };
