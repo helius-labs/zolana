@@ -128,6 +128,18 @@ pub enum TransactionError {
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 
+    #[error("no spendable balance of {asset}")]
+    NoSpendableBalance { asset: Address },
+
+    #[error("balance is spread over {trees} trees; merge each tree first")]
+    BalanceOnSeveralTrees { trees: usize },
+
+    #[error("{amount} needs more than {max_inputs} notes; merge first")]
+    SpendNeedsMerge { amount: u64, max_inputs: usize },
+
+    #[error("{amount} needs notes that are excluded from this spend")]
+    SpendNeedsExcludedNotes { amount: u64 },
+
     #[error("input {index} returns to tree {tree_id}; group inputs by tree before signing")]
     InterleavedInputTrees { index: usize, tree_id: u16 },
 
@@ -148,6 +160,9 @@ pub enum TransactionError {
 
     #[error("expected an SPL mint; use the SOL-specific method for SOL")]
     ExpectedSplMint,
+
+    #[error("SPL mint {mint} needs its token program")]
+    MissingSplTokenProgram { mint: Address },
 
     #[error("public transfer sum overflow for asset {asset}")]
     PublicTransferOverflow { asset: Address },

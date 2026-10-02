@@ -1,7 +1,7 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_interface::error::ShieldedPoolError;
+use zolana_interface::{error::ShieldedPoolError, pda};
 use zolana_keypair::KeypairError;
 use zolana_program::instruction::DepositBuildError;
 use zolana_transaction::TransactionError;
@@ -143,11 +143,21 @@ pub enum ClientError {
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 
-    #[error("SPL token program is required for mint {mint}")]
-    MissingSplTokenProgram { mint: Pubkey },
+    #[error("SPL mint account {mint} was not found")]
+    SplMintNotFound { mint: solana_address::Address },
 
-    #[error("mint {mint} is owned by unsupported SPL token program {owner}")]
+    #[error(
+        "mint {mint} is owned by unsupported token program {owner}; expected {} or {}",
+        pda::spl_token_program_id(),
+        pda::spl_token_2022_program_id()
+    )]
     UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },
+
+    #[error("mint {mint} is not registered with the shielded pool")]
+    SplAssetNotRegistered { mint: solana_address::Address },
+
+    #[error("the shielded pool's asset registry account for mint {mint} is invalid")]
+    InvalidSplAssetRegistry { mint: solana_address::Address },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),

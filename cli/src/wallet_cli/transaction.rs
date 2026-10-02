@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use zolana_client::{
+    asset::fetch_token_program,
     prover::merge::MergeProver,
     user_registry::{
         fetch_user_record_checked, resolved_address_from_record, try_resolve_registered_address,
@@ -14,22 +15,16 @@ use zolana_transaction::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::ConfidentialTransaction,
     },
-    Address, WalletUtxo, SOL_MINT,
+    is_default_ring_spendable, is_plain_utxo, Address, WalletUtxo, SOL_MINT,
 };
 use zolana_user_registry_interface::user_record_pda;
 
 use super::{
     material::WalletMaterial,
     resolve::{get_network, ResolvedNetworkOptions},
-    spend::{
-        is_default_ring_spendable, is_plain_utxo, select_notes, send_private, spend_tree,
-        withdraw_to, Send,
-    },
+    spend::{send_private, Send},
     sync::{sync_context, wait_for_indexed_leaf, SyncContext},
-    util::{
-        ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey,
-        resolve_spl_token_program,
-    },
+    util::{ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey},
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
 
@@ -61,7 +56,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;
 
-    let inputs = select_notes(&ctx.spendable, asset, opts.amount)?;
+    let inputs = ctx
+        .spendable
+        .select_spend(asset, opts.amount, &Default::default())?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
     let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
         Some(registered) => {
@@ -73,14 +70,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
             ("shielded", Vec::new())
         }
         None => {
-            let spl_token_program = spl_token_program(&client, asset)?;
-            let settlement = withdraw_to(
-                &mut transaction,
-                recipient,
-                asset,
-                opts.amount,
-                spl_token_program,
-            )?;
+            let token_program = fetch_token_program(&client, asset)?;
+            let settlement =
+                transaction.withdraw_to(asset, opts.amount, recipient, token_program)?;
             ("withdraw", vec![settlement])
         }
     };
@@ -183,7 +175,7 @@ fn split_input(
             .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
             .ok_or_else(|| anyhow::anyhow!("utxo {} is not spendable", hex::encode(hash)))?,
         None => {
-            let tree = spend_tree(&ctx.spendable, asset, is_plain_utxo)?;
+            let tree = pda::tree(ctx.spendable.spend_tree(asset, is_plain_utxo)?);
             ctx.spendable
                 .utxos()
                 .filter(|entry| {
@@ -315,7 +307,7 @@ fn merge_inputs(
     hashes: &[[u8; 32]],
 ) -> Result<(Address, Vec<WalletUtxo>)> {
     if hashes.is_empty() {
-        let tree = spend_tree(&ctx.spendable, asset, is_plain_utxo)?;
+        let tree = pda::tree(ctx.spendable.spend_tree(asset, is_plain_utxo)?);
         let mut candidates: Vec<&WalletUtxo> = ctx
             .spendable
             .utxos()
@@ -364,18 +356,6 @@ fn merge_inputs(
 
 fn payer(ctx: &SyncContext) -> Address {
     Address::new_from_array(ctx.material.funding.pubkey().to_bytes())
-}
-
-/// The token program of an SPL `asset`; `None` for SOL.
-pub(super) fn spl_token_program<R: Rpc>(
-    rpc: &R,
-    asset: Address,
-) -> Result<Option<solana_pubkey::Pubkey>> {
-    if asset == SOL_MINT {
-        return Ok(None);
-    }
-    let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());
-    Ok(Some(resolve_spl_token_program(rpc, &mint)?))
 }
 
 pub(super) fn maybe_airdrop(

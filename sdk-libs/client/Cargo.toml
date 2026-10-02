@@ -75,6 +75,9 @@ serial_test = { workspace = true }
 wincode = { workspace = true }
 
 [[test]]
+name = "asset"
+
+[[test]]
 name = "spendable"
 
 [[test]]
