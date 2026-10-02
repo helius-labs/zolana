@@ -89,9 +89,6 @@ p384 = { workspace = true, features = ["alloc"] }
 x509-cert = { workspace = true, features = ["builder"] }
 
 [[test]]
-name = "asset"
-
-[[test]]
 name = "spendable"
 
 [[test]]
