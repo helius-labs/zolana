@@ -18,6 +18,7 @@ pub mod error;
 pub mod indexer_types;
 pub mod instructions;
 pub mod keys;
+pub mod selection;
 pub mod serialization;
 pub mod signature;
 pub mod utxo;
@@ -35,6 +36,7 @@ pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
     TransactionKeyRequest,
 };
+pub use selection::{is_default_ring_spendable, is_plain_utxo};
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
