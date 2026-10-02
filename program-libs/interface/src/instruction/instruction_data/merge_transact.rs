@@ -60,6 +60,16 @@ pub struct MergeTransactIxData {
     /// Both merge instructions reject extra accounts, including when this is
     /// `None`.
     pub cache_slot: Option<u8>,
+    /// Output amount plus the owner's merge amount mask, bound by the proof so
+    /// the owner can rebuild the output without knowing every input.
+    pub masked_amount: [u8; 32],
+    /// Transaction viewing key and salt of `output_data`. The program does not
+    /// read them or the ciphertext, so a wallet treats all three as untrusted.
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    /// Confidential ciphertext of the merged output, or empty.
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub output_data: Vec<u8>,
 }
 
 impl MergeTransactIxData {
@@ -95,6 +105,10 @@ pub struct MergeTransactIxDataRef<'a> {
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
     pub cache_slot: Option<u8>,
+    pub masked_amount: &'a [u8; 32],
+    pub tx_viewing_pk: &'a [u8; 33],
+    pub salt: &'a [u8; 16],
+    pub output_data: &'a [u8],
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
@@ -175,6 +189,10 @@ mod tests {
             nullifier_tree_root_index: 10,
             private_tx_hash: [3u8; 32],
             eddsa_owner: false,
+            masked_amount: [5u8; 32],
+            tx_viewing_pk: [6u8; 33],
+            salt: [7u8; 16],
+            output_data: Vec::new(),
         }
     }
 
@@ -196,13 +214,17 @@ mod tests {
         );
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.eddsa_owner, owned.eddsa_owner);
+        assert_eq!(view.masked_amount, &owned.masked_amount);
+        assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
+        assert_eq!(view.salt, &owned.salt);
+        assert_eq!(view.output_data, owned.output_data.as_slice());
     }
 
     #[test]
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        assert_eq!(bytes.len(), 271 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 354 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

@@ -85,7 +85,8 @@ async fn fetch_rings_transactions_by_signature(
             pt.event_index AS event_index,
             pt.tx_viewing_pk AS tx_viewing_pk,
             pt.salt AS salt,
-            pt.proofless AS proofless
+            pt.proofless AS proofless,
+            pt.source_instruction_tag AS source_instruction_tag
          FROM rings_transactions pt
          WHERE pt.signature = {signature} {event_filter}
          ORDER BY pt.event_index ASC

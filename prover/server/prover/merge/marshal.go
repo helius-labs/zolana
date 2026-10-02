@@ -47,6 +47,7 @@ type MergeParametersJSON struct {
 	PrivateTxHash       string `json:"privateTxHash"`
 	PublicInputHash     string `json:"publicInputHash"`
 	AllowDummyInputs    string `json:"allowDummyInputs"`
+	MaskedAmount        string `json:"maskedAmount"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
 	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
 	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
@@ -88,6 +89,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
+		MaskedAmount:        common.FeHex(p.MaskedAmount),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -163,6 +165,9 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.AllowDummyInputs, err = common.FeFromHex(params.AllowDummyInputs); err != nil {
+		return err
+	}
+	if p.MaskedAmount, err = common.FeFromHex(params.MaskedAmount); err != nil {
 		return err
 	}
 	if p.Asset, err = common.FeFromHex(params.Asset); err != nil {

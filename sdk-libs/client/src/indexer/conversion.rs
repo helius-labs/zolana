@@ -126,6 +126,7 @@ pub(super) fn convert_shielded_transaction(
             .collect(),
         nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
+        merge: item.merge,
         ring_config: item.ring_config.map(|key| key.0),
         ring_program_id: item.ring_program_id.map(|key| key.0),
     })

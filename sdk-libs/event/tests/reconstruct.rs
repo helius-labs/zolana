@@ -5,12 +5,12 @@ mod support;
 use solana_pubkey::Pubkey;
 use support::{
     emit_event_data, emit_instruction, input_trees, input_trees_in_order, merge_event, merge_ix,
-    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT,
-    TX_VIEWING_PK,
+    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, MERGE_CIPHERTEXT,
+    MERGE_MASKED_AMOUNT, MERGE_SALT, MERGE_TX_VIEWING_PK, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
-    OutputUtxo, SplTransfer, TransactEvent,
+    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeOutputDerivation, MessageData,
+    NullifierTreeUpdateEvent, OutputUtxo, SplTransfer, TransactEvent,
 };
 use zolana_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
@@ -497,7 +497,10 @@ fn merge_with_more_than_one_input_tree_is_not_reconstructible_yet() {
     );
 }
 
-fn expected_merge(output_view_tag: [u8; 32], output_data: Vec<u8>) -> GeneralEvent {
+fn expected_merge(
+    output_view_tag: [u8; 32],
+    output_ring_data_hash: Option<[u8; 32]>,
+) -> GeneralEvent {
     GeneralEvent {
         inputs: (0..8u64)
             .map(|i| Input {
@@ -509,11 +512,18 @@ fn expected_merge(output_view_tag: [u8; 32], output_data: Vec<u8>) -> GeneralEve
         outputs: vec![OutputUtxo {
             view_tag: output_view_tag,
             utxo_hash: [0xC0; 32],
-            data: output_data,
+            data: MERGE_CIPHERTEXT.to_vec(),
         }],
-        messages: Vec::new(),
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
+        messages: vec![MessageData {
+            view_tag: output_view_tag,
+            data: MergeOutputDerivation {
+                masked_amount: MERGE_MASKED_AMOUNT,
+                output_ring_data_hash,
+            }
+            .encode(),
+        }],
+        tx_viewing_pk: MERGE_TX_VIEWING_PK,
+        salt: MERGE_SALT,
         first_output_leaf_index: 9,
         output_tree: OUTPUT_TREE,
         spl_transfers: Vec::new(),
@@ -537,11 +547,11 @@ fn merge_transact_event_rebuilds_eight_inputs_and_the_owner_indexed_output() {
     )
     .expect("reconstruct merge");
 
-    assert_eq!(event, expected_merge([0xD0; 32], Vec::new()));
+    assert_eq!(event, expected_merge([0xD0; 32], None));
 }
 
 #[test]
-fn merge_ring_event_republishes_the_output_ring_data_hash() {
+fn merge_ring_event_republishes_the_output_ring_data_hash_in_its_message() {
     let spp = Pubkey::new_unique();
     let src = source(
         spp,
@@ -559,7 +569,7 @@ fn merge_ring_event_republishes_the_output_ring_data_hash() {
     )
     .expect("reconstruct merge ring");
 
-    assert_eq!(event, expected_merge([0x40; 32], vec![0xE0; 32]));
+    assert_eq!(event, expected_merge([0x40; 32], Some([0xE0; 32])));
 }
 
 #[test]
@@ -679,16 +689,16 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
     for ring in [false, true] {
         let mut merge = merge_ix([0xC0; 32]);
         merge.cache_slot = Some(35);
-        let (tag, bytes, output_data) = if ring {
+        let (tag, bytes, output_ring_data_hash) = if ring {
             let mut wrapper = merge_ring_ix([0xC0; 32], [0xE0; 32]);
             wrapper.merge = merge;
             (
                 tag::RING_MERGE_TRANSACT,
                 wrapper.serialize().unwrap(),
-                vec![0xE0; 32],
+                Some([0xE0; 32]),
             )
         } else {
-            (tag::MERGE_TRANSACT, merge.serialize().unwrap(), Vec::new())
+            (tag::MERGE_TRANSACT, merge.serialize().unwrap(), None)
         };
         let src = source(
             Pubkey::new_unique(),
@@ -702,6 +712,6 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
             &emit_event_data(EventKind::Merge, &merge_event([0xD0; 32])),
         )
         .unwrap();
-        assert_eq!(event, expected_merge([0xD0; 32], output_data));
+        assert_eq!(event, expected_merge([0xD0; 32], output_ring_data_hash));
     }
 }

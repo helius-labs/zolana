@@ -60,6 +60,7 @@ func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.I
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
+		f.public.MaskedAmount.(*big.Int),
 	}, tail...))
 }
 

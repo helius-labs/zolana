@@ -16,7 +16,19 @@ const (
 	MergeOutputBlindingDomainV1 = 0x544d4f42
 	// MergeDummyNullifierDomain = "TMDN"
 	MergeDummyNullifierDomain = 0x544d444e
+	// MergeAmountMaskDomain = "TMAM"
+	MergeAmountMaskDomain = 0x544d414d
 )
+
+// MergeAmountMask derives the pad the circuit adds to the merged output's
+// amount before publishing it. The owner recomputes it from the nullifier
+// secret and the published first nullifier, so the output amount is
+// recoverable even when an input UTXO is unknown to the owner.
+func MergeAmountMask(api frontend.API, nullifierSecret, firstNullifier frontend.Variable) frontend.Variable {
+	return gadget.PoseidonHash(api, []frontend.Variable{
+		MergeAmountMaskDomain, nullifierSecret, firstNullifier,
+	})
+}
 
 // MergeOutputBlinding derives the merged output's blinding from the owner's
 // nullifier secret and the first (always real) input's single-use nullifier.

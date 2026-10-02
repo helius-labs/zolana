@@ -379,6 +379,10 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
         store(&mut rpc, cache, cache_state);
         let data = MergeTransactIxData {
             cache_slot: Some(if case == "slot" { 36 } else { 0 }),
+            masked_amount: [0u8; 32],
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            output_data: Vec::new(),
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),

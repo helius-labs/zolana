@@ -78,6 +78,9 @@ type CommonPublicInputs struct {
 	TreeSlots []transaction.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
+	// Output amount plus MergeAmountMask, so the owner recovers the amount
+	// without knowing every input.
+	MaskedAmount frontend.Variable
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
@@ -132,6 +135,7 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 		p.PrivateTxHash,
 		p.ExternalDataHash,
 		p.AllowDummyInputs,
+		p.MaskedAmount,
 	}
 }
 
@@ -233,6 +237,10 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	for i := range t.Inputs {
 		sumInputs = api.Add(sumInputs, t.Inputs[i].Amount)
 	}
+	api.AssertIsEqual(
+		t.Public.MaskedAmount,
+		api.Add(sumInputs, MergeAmountMask(api, t.UserNullifierSecret, nullifiers[0])),
+	)
 
 	outputBlinding := MergeOutputBlinding(api, t.UserNullifierSecret, nullifiers[0])
 	outputHash := constrainOutput(

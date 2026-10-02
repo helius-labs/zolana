@@ -15,8 +15,8 @@ use support::{
     transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
-    SplTransfer, TransactEvent,
+    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MergeOutputDerivation,
+    MessageData, OutputUtxo, SplTransfer, TransactEvent,
 };
 use zolana_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, InstructionGroup,
@@ -332,15 +332,26 @@ proptest! {
         first_input_queue_seq in 0..=MAX_FIRST_QUEUE_SEQ,
         output_leaf_index in any::<u64>(),
         ring_data_hash in prop::option::of(any::<[u8; 32]>()),
+        masked_amount in any::<[u8; 32]>(),
+        tx_viewing_pk_x in any::<[u8; 32]>(),
+        salt in any::<[u8; 16]>(),
+        output_data in prop::collection::vec(any::<u8>(), 0..256),
     ) {
         let spp = Pubkey::new_unique();
+        let mut tx_viewing_pk = [0x02u8; 33];
+        if let Some(x) = tx_viewing_pk.get_mut(1..) {
+            x.copy_from_slice(&tx_viewing_pk_x);
+        }
         let mut merge = merge_ix(output_utxo_hash);
         merge.nullifiers = nullifiers.clone();
-        let (source_tag, ix_bytes, output_data) = match ring_data_hash {
+        merge.masked_amount = masked_amount;
+        merge.tx_viewing_pk = tx_viewing_pk;
+        merge.salt = salt;
+        merge.output_data = output_data.clone();
+        let (source_tag, ix_bytes) = match ring_data_hash {
             None => (
                 tag::MERGE_TRANSACT,
                 merge.serialize().expect("serialize merge"),
-                Vec::new(),
             ),
             Some(ring_data_hash) => {
                 let mut ring = merge_ring_ix(output_utxo_hash, ring_data_hash);
@@ -348,7 +359,6 @@ proptest! {
                 (
                     tag::RING_MERGE_TRANSACT,
                     ring.serialize().expect("serialize merge ring"),
-                    ring_data_hash.to_vec(),
                 )
             }
         };
@@ -370,9 +380,16 @@ proptest! {
                 utxo_hash: output_utxo_hash,
                 data: output_data,
             }],
-            messages: Vec::new(),
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
+            messages: vec![MessageData {
+                view_tag: output_view_tag,
+                data: MergeOutputDerivation {
+                    masked_amount,
+                    output_ring_data_hash: ring_data_hash,
+                }
+                .encode(),
+            }],
+            tx_viewing_pk,
+            salt,
             first_output_leaf_index: output_leaf_index,
             output_tree: OUTPUT_TREE,
             spl_transfers: Vec::new(),

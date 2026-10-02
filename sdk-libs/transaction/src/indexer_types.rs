@@ -26,18 +26,11 @@ pub struct ShieldedTransaction {
     pub messages: Vec<MessageData>,
     pub nullifiers: Vec<[u8; 32]>,
     pub proofless: bool,
+    /// Emitted by `merge_transact` or `merge_ring`, as the indexer reads it
+    /// from the source instruction.
+    pub merge: bool,
     pub ring_config: Option<solana_address::Address>,
     pub ring_program_id: Option<solana_address::Address>,
-}
-
-impl ShieldedTransaction {
-    /// A merge publishes no ciphertext and no transaction viewing key, and is
-    /// not a deposit. Other transactions can share that shape;
-    /// [`rebuild_merge`](crate::rebuild_merge) tells them apart by the
-    /// commitment.
-    pub fn may_be_merge(&self) -> bool {
-        !self.proofless && self.tx_viewing_pk.is_none() && self.salt.is_none()
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

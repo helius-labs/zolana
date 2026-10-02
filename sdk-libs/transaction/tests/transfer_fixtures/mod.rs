@@ -209,6 +209,7 @@ pub fn build_transfer(
         messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     };
@@ -342,6 +343,7 @@ pub fn build_unified_transfer(
         messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     };
@@ -422,6 +424,7 @@ pub fn split_transaction(
             messages: vec![],
             nullifiers: vec![first_nullifier],
             proofless: false,
+            merge: false,
             ring_config: None,
             ring_program_id: None,
         },

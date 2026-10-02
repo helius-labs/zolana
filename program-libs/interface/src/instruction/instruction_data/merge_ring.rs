@@ -65,6 +65,10 @@ mod tests {
                 nullifier_tree_root_index: 10,
                 private_tx_hash: [3u8; 32],
                 eddsa_owner: false,
+                masked_amount: [5u8; 32],
+                tx_viewing_pk: [6u8; 33],
+                salt: [7u8; 16],
+                output_data: vec![9u8; 4],
             },
         }
     }

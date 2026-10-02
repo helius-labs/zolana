@@ -25,6 +25,10 @@ fn create_data(nonce: u64) -> CreateCacheData {
 fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot,
+        masked_amount: [0u8; 32],
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        output_data: Vec::new(),
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [1u8; 32],

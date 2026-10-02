@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
 	merge "zolana/prover/circuits/spp_merge"
@@ -303,6 +304,14 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	amountMask, err := poseidon.Hash([]*big.Int{
+		big.NewInt(mergeshared.MergeAmountMaskDomain), nullifierSecret, nullifiers[0],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	maskedAmount := new(big.Int).Add(outAmount, amountMask)
+	maskedAmount.Mod(maskedAmount, ecc.BN254.ScalarField())
 	outputOwnerHash := userOwnerHash
 	if options.outputNullifierPk != nil {
 		outputOwnerHash, err = protocol.OwnerHash(ownerKeyHash, options.outputNullifierPk)
@@ -407,6 +416,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		privateTxHash,
 		externalDataHash,
 		allowDummyInputs,
+		maskedAmount,
 	}
 	switch options.rail {
 	case defaultFixtureRail:
@@ -433,6 +443,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID
+	public.MaskedAmount = maskedAmount
 	for k, slot := range treeSlots {
 		public.TreeSlots[k] = transaction.TreeSlot{
 			ID:            slot.ID,

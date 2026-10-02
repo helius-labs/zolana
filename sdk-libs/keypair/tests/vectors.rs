@@ -98,6 +98,7 @@ struct MergeRecovery {
     output_blinding: String,
     dummy_slot_index: u8,
     dummy_nullifier: String,
+    amount_mask: String,
     private_tx_blinding: String,
 }
 

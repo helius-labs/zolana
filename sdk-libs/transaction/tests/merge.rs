@@ -634,7 +634,8 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
 fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
     use zolana_keypair::NullifierKey;
     use zolana_transaction::instructions::merge::{
-        merge_private_tx_blinding, DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+        merge_amount_mask, merge_private_tx_blinding, DOMAIN_MERGE_AMOUNT_MASK,
+        DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
     };
     #[derive(serde::Deserialize)]
     struct Vectors {
@@ -647,6 +648,7 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         output_blinding: String,
         dummy_slot_index: u8,
         dummy_nullifier: String,
+        amount_mask: String,
         private_tx_blinding: String,
     }
     let vector: Vectors =
@@ -694,10 +696,18 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         )
         .unwrap()
     );
+    let mask = merge_amount_mask(&key, &first).unwrap();
+    assert_eq!(hex::encode(mask), vector.amount_mask);
+    assert_eq!(DOMAIN_MERGE_AMOUNT_MASK, u32::from_be_bytes(*b"TMAM"));
+    assert_ne!(mask, output);
+    assert_ne!(mask, dummy);
+    assert_ne!(mask, merge_amount_mask(&other_key, &first).unwrap());
+    assert_ne!(mask, merge_amount_mask(&key, &other_first).unwrap());
     let private = merge_private_tx_blinding(&key, &first).unwrap();
     assert_eq!(hex::encode(private), vector.private_tx_blinding);
     assert_ne!(private, output);
     assert_ne!(private, dummy);
+    assert_ne!(private, mask);
     assert_ne!(
         private,
         merge_private_tx_blinding(&other_key, &first).unwrap()

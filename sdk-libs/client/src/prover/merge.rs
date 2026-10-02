@@ -18,8 +18,8 @@ use zolana_interface::{
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
-        MERGE_SUPPORTED_INPUT_COUNTS,
+        merge_amount_mask, merge_dummy_nullifier, merge_masked_amount, merge_output_blinding,
+        merge_private_tx_blinding, MergeProofInputs, MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
 };
@@ -68,6 +68,9 @@ pub struct MergeProofResult {
     pub nullifier_tree_root_index: u16,
     pub output_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
+    /// The output amount under the owner's merge amount mask, as the proof
+    /// binds it.
+    pub masked_amount: [u8; 32],
     /// Recomputed on-chain from the instruction; surfaced so the caller need not
     /// re-derive it.
     pub external_data_hash: [u8; 32],
@@ -99,6 +102,10 @@ impl MergeProofResult {
             private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
             cache_slot: self.cache_slot,
+            masked_amount: self.masked_amount,
+            tx_viewing_pk: self.tx_viewing_pk,
+            salt: self.salt,
+            output_data: self.output_data.data.clone(),
         }
     }
 
@@ -231,6 +238,10 @@ impl MergeProver {
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
+        let masked_amount = merge_masked_amount(
+            total,
+            &merge_amount_mask(&self.nullifier_key, &first_nullifier)?,
+        );
         let mut elements = vec![
             create_padded_right_hash_chain_4(
                 &assembled_inputs.nullifiers,
@@ -242,6 +253,7 @@ impl MergeProver {
             private_tx,
             external_data_hash,
             right_align(&[1u8]),
+            masked_amount,
         ];
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
@@ -274,6 +286,7 @@ impl MergeProver {
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             allow_dummy_inputs: BigUint::from(1u8),
+            masked_amount: be(&masked_amount),
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
@@ -286,6 +299,7 @@ impl MergeProver {
             nullifier_tree_root_index: input_tree_context.nullifier_tree_root_index,
             output_hash,
             private_tx_hash: private_tx,
+            masked_amount,
             external_data_hash,
             expiry_unix_ts,
             eddsa_owner,

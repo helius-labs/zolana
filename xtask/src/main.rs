@@ -953,6 +953,7 @@ fn tx_size(args: Vec<String>) {
             ),
         );
     }
+    let (merge_tx_viewing_pk, merge_salt, merge_output_data) = sample_merge_ciphertext();
     // A count below its circuit width is a merge with compact padding.
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS.into_iter().chain([3, 9]) {
         use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
@@ -962,6 +963,10 @@ fn tx_size(args: Vec<String>) {
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
             cache_slot: None,
+            masked_amount: [0u8; 32],
+            tx_viewing_pk: merge_tx_viewing_pk,
+            salt: merge_salt,
+            output_data: merge_output_data.clone(),
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
@@ -1011,6 +1016,51 @@ fn tx_size(args: Vec<String>) {
             v1_cell(v1_tx_size(std::slice::from_ref(&sync_ix))),
         );
     }
+}
+
+/// The ciphertext a merge builder publishes for a one-input merge; every merge
+/// output encrypts the same plaintext layout, so its length is the merge's.
+fn sample_merge_ciphertext() -> ([u8; 33], [u8; 16], Vec<u8>) {
+    use zolana_keypair::ShieldedKeypair;
+    use zolana_transaction::{instructions::merge::MergeTransaction, Data, Mint, Utxo, WalletUtxo};
+    let keypair = ShieldedKeypair::new_ed25519().expect("sample keypair");
+    let nullifier_pubkey = keypair
+        .shielded_address()
+        .expect("sample address")
+        .nullifier_pubkey;
+    let mut blinding = [0u8; 32];
+    blinding[31] = 1;
+    let utxo = Utxo {
+        owner: keypair.signing_pubkey(),
+        asset: Mint::SOL,
+        amount: 1,
+        blinding,
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let utxo_hash = utxo
+        .hash(&nullifier_pubkey, &[0; 32], &[0; 32], 0)
+        .expect("sample commitment");
+    let input = WalletUtxo {
+        nullifier: keypair
+            .nullifier(&utxo_hash, &blinding)
+            .expect("sample nullifier"),
+        utxo,
+        nullifier_pubkey,
+        utxo_hash,
+        data_hash: None,
+        ring_data_hash: None,
+        tree_id: 0,
+        leaf_index: 0,
+        slot: 0,
+        tx_signature: Default::default(),
+        slot_index: 0,
+    };
+    let merge = MergeTransaction::new(vec![input])
+        .expect("sample merge")
+        .encrypt(&keypair)
+        .expect("sample merge ciphertext");
+    (merge.tx_viewing_pk, merge.salt, merge.output_data.data)
 }
 
 fn transfer_accounts(

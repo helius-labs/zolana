@@ -55,7 +55,7 @@ fn test_indexer_replays_transact_event_outputs_and_nullifiers() {
     indexer
         .record_state_change(&event)
         .expect("record transact event");
-    indexer.record_transaction(signature, &event, false, 0);
+    indexer.record_transaction(signature, &event, EventKind::Transact, 0);
 
     assert_eq!(indexer.utxos().len(), 2);
     assert_eq!(indexer.utxos()[0].leaf_index, 0);

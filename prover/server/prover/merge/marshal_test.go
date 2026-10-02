@@ -249,6 +249,7 @@ func sampleParams() *MergeParameters {
 		ExternalDataHash:    big.NewInt(0x6666),
 		PrivateTxHash:       big.NewInt(0x7777),
 		AllowDummyInputs:    big.NewInt(1),
+		MaskedAmount:        big.NewInt(0x5555),
 		PublicInputHash:     big.NewInt(0x8888),
 		RingProgramID:       big.NewInt(0),
 	}

@@ -61,6 +61,7 @@ struct MergeVector {
     output_tree_id: u16,
     private_tx_hash: String,
     external_data_hash: String,
+    masked_amount: String,
     owner_pk_hash: String,
     nullifier_pk: String,
     tree_slots: Vec<TreeSlotVector>,
@@ -193,6 +194,7 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let external_data_hash = field(83);
     let owner_pk_hash = field(84);
     let nullifier_pk = field(85);
+    let masked_amount = field(86);
     // The element order `MergeProver::build` hashes; the 1 is the dummy-input
     // policy merge always publishes.
     let public_input_hash = create_hash_chain_4_from_slice(&[
@@ -203,6 +205,7 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         private_tx,
         external_data_hash,
         field(1),
+        masked_amount,
         owner_pk_hash,
         nullifier_pk,
     ])
@@ -214,6 +217,7 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         output_tree_id,
         private_tx_hash: hex(&private_tx),
         external_data_hash: hex(&external_data_hash),
+        masked_amount: hex(&masked_amount),
         owner_pk_hash: hex(&owner_pk_hash),
         nullifier_pk: hex(&nullifier_pk),
         tree_slots: tree_slot_vectors(),

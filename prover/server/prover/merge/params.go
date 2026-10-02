@@ -88,6 +88,7 @@ type MergeParameters struct {
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
 	AllowDummyInputs *big.Int
+	MaskedAmount     *big.Int
 
 	PublicInputHash *big.Int
 }

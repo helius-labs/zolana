@@ -415,6 +415,7 @@ pub(crate) mod tests {
             messages: Vec::new(),
             nullifiers: vec![spent],
             proofless: false,
+            merge: false,
             ring_config: None,
             ring_program_id: None,
         }

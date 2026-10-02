@@ -98,6 +98,8 @@ pub struct MergeInputs {
     /// Merges always legitimately pad with dummy slots, so the dummy-input
     /// guard is `1` here.
     pub allow_dummy_inputs: BigUint,
+    /// Output amount plus the owner's merge amount mask.
+    pub masked_amount: BigUint,
     pub public_input_hash: BigUint,
     /// Policy-ring merge only: the output ring-data hash the calling ring
     /// program carries in the instruction/event, asserted against

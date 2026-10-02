@@ -41,10 +41,9 @@ impl TxIndex {
         let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
             let mut classified = false;
-            // The index and the decoder share `may_be_merge`, so a site routed
-            // to the merge path is never decoded with a viewing key it has no
-            // ciphertext for.
-            if tx.may_be_merge() {
+            // Merge sites go through the merge rebuild, not the view-tag
+            // decoder, so the decoder never sees an untrusted merge ciphertext.
+            if tx.merge {
                 for slot_index in 0..tx.output_slots.len() {
                     merge_sites.push((t, slot_index));
                     classified = true;
@@ -591,7 +590,7 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        if tx.output_slots.get(site.1).is_none() || !tx.may_be_merge() {
+        if tx.output_slots.get(site.1).is_none() || !tx.merge {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         }
@@ -869,8 +868,8 @@ impl SyncCtx<'_> {
         Ok(outcome)
     }
 
-    /// Rebuild a merge's outputs with [`rebuild_merge`] from the UTXOs this
-    /// wallet holds, and store the one published in this slot.
+    /// Rebuild a merge's output with [`rebuild_merge`], from its ciphertext or
+    /// the UTXOs this wallet holds, and store it if it is the one in this slot.
     fn reconstruct_merge(
         &mut self,
         tx: &ShieldedTransaction,
@@ -880,20 +879,13 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        let rebuilt = match rebuild_merge(&self.keys, tx, self.utxos.as_slice())? {
-            MergeRebuild::Rebuilt(rebuilt) => rebuilt,
+        let output = match rebuild_merge(&self.keys, tx, self.utxos.as_slice(), self.assets)? {
+            MergeRebuild::Rebuilt(output) if output.slot_index == slot_site.slot_index => *output,
             MergeRebuild::Pending => return Ok(MergeResolution::Pending),
-            MergeRebuild::NotOurs => {
+            MergeRebuild::Rebuilt(_) | MergeRebuild::NotOurs => {
                 self.report.undecryptable_candidates += 1;
                 return Ok(MergeResolution::Complete);
             }
-        };
-        let Some(output) = rebuilt
-            .into_iter()
-            .find(|output| output.slot_index == slot_site.slot_index)
-        else {
-            self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
         };
         if self.store(output.utxo.clone(), slot_site, None, output.ring_data_hash)? {
             self.processed_slots.insert(site);

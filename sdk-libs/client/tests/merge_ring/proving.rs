@@ -4,10 +4,16 @@ use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
-use zolana_interface::verifying_keys::{merge_ring_36_1, merge_ring_8_1};
+use zolana_interface::{
+    instruction::instruction_data::merge_transact::MergeProof,
+    verifying_keys::{merge_ring_36_1, merge_ring_8_1},
+};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
-use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
+use zolana_transaction::{
+    instructions::merge::{merge_amount_mask, merge_output_blinding, merge_unmasked_amount},
+    Data, Mint, Utxo,
+};
 
 use crate::{harness::MergeRingHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
@@ -119,9 +125,22 @@ impl MergeRingHarness {
         verifier
             .verify()
             .expect("merge-ring groth16 proof verifies");
+        let data = result.ring_instruction_data(MergeProof::zeroed());
+        let first_nullifier = result.nullifiers.first().expect("first nullifier");
+        let mask = merge_amount_mask(&sender.nullifier_key, first_nullifier).expect("amount mask");
+        assert_eq!(
+            merge_unmasked_amount(&data.merge.masked_amount, &mask),
+            Some(expected_output.amount),
+            "the published masked amount recovers the merged ring total",
+        );
+        assert_eq!(
+            data.merge.output_data, result.output_data.data,
+            "the ring instruction carries the output ciphertext",
+        );
+        assert!(!data.merge.output_data.is_empty());
 
-        // The owner reconstructs the ciphertext-free merge-ring output from the
-        // first real input and its published nullifier.
+        // Without the ciphertext the owner still rebuilds the output from the
+        // first published nullifier and the masked amount.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
                 .expect("derive merge-ring output blinding"),

@@ -1,6 +1,9 @@
 use crate::{
     ingester::{
-        parser::{rings_event_parser::parse_rings_events, state_update::RingsTransactionUpdate},
+        parser::{
+            rings_event_parser::{is_merge_source, parse_rings_events},
+            state_update::RingsTransactionUpdate,
+        },
         typedefs::block_info::Instruction,
     },
     ring_projection::{instruction_view, Invocation},
@@ -124,6 +127,7 @@ impl ShieldedEvent<'_> {
                 .map(|input| Hash(input.nullifier))
                 .collect(),
             proofless: event.proofless,
+            merge: is_merge_source(event.source_instruction_tag),
             ring_config: event
                 .ring_config
                 .map(|key| Pubkey::new_from_array(key).into()),

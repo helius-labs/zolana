@@ -8,8 +8,8 @@
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
-    SplTransfer, TransactEvent,
+    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MergeOutputDerivation,
+    MessageData, OutputUtxo, SplTransfer, TransactEvent,
 };
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
@@ -165,26 +165,30 @@ fn settlement_transfers(
 }
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries
-/// the emitted view tag, the instruction's `output_utxo_hash`, and, for
-/// `merge_ring`, the output `ring_data_hash` as its payload.
+/// the emitted view tag, the instruction's `output_utxo_hash`, and its
+/// untrusted ciphertext. The single message carries the masked amount and, for
+/// `merge_ring`, the output `ring_data_hash`.
 pub fn merge_general_event(
     source: &ParsedInstruction,
     event: &MergeEvent,
 ) -> Result<GeneralEvent, EventDecodeError> {
     let (source_tag, ix_bytes) = source_tag_and_data(source)?;
-    let (merge, output_data) = match source_tag {
+    let (merge, output_ring_data_hash) = match source_tag {
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (merge, Vec::new())
+            (merge, None)
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            let output_data = ring.output_ring_data_hash.to_vec();
-            (ring.merge, output_data)
+            (ring.merge, Some(*ring.output_ring_data_hash))
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
+    };
+    let derivation = MergeOutputDerivation {
+        masked_amount: *merge.masked_amount,
+        output_ring_data_hash,
     };
 
     let input_tree = single_input_tree(&event.input_trees)?;
@@ -195,11 +199,14 @@ pub fn merge_general_event(
         outputs: vec![OutputUtxo {
             view_tag: event.output_view_tag,
             utxo_hash: *merge.output_utxo_hash,
-            data: output_data,
+            data: merge.output_data.to_vec(),
         }],
-        messages: Vec::new(),
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
+        messages: vec![MessageData {
+            view_tag: event.output_view_tag,
+            data: derivation.encode(),
+        }],
+        tx_viewing_pk: *merge.tx_viewing_pk,
+        salt: *merge.salt,
         first_output_leaf_index: event.output_leaf_index,
         output_tree: event.output_tree,
         spl_transfers: Vec::new(),

@@ -229,3 +229,34 @@ fn merge_verifies_the_wide_shape_on_chain() {
 fn merge_verifies_several_real_inputs_padded_to_the_wide_shape() {
     merge_at_input_count(MAX_MERGE_INPUTS, 9);
 }
+
+/// The ciphertext is a decryption hint the program never reads: a merger can
+/// swap or drop it after proving and the merge still lands, which is why a
+/// wallet falls back to the masked amount the proof binds.
+#[test]
+fn merge_lands_whatever_ciphertext_it_carries() {
+    for output_data in [Vec::new(), vec![0xa5; 97]] {
+        let mut pool = proof_env();
+        let tree = pool.tree;
+        let mut merge = RealMergeProof {
+            input_count: MERGE_DEFAULT_INPUT_COUNT,
+            real_input_count: 2,
+        }
+        .build(&mut pool);
+        assert!(
+            !merge.data.output_data.is_empty(),
+            "the builder encrypts the output"
+        );
+        merge.data.output_data = output_data;
+        let ix = merge.instruction(&pool);
+        let (utxo_next_before, _) = tree_progress(&pool.rpc, &tree);
+        pool.rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                &[ix],
+                &[],
+                ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+            )
+            .expect("merge with a replaced ciphertext");
+        assert_eq!(tree_progress(&pool.rpc, &tree).0, utxo_next_before + 1);
+    }
+}

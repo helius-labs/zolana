@@ -119,10 +119,11 @@ impl<'a> MergeProof<'a> {
     /// hash, dummy-input policy); the default merge then appends the owner's
     /// signing identity and nullifier public key (from the registry), while the
     /// policy-ring merge omits that identity (no registry to bind it against) and
-    /// appends the output `ring_data_hash` and `ring_program_id`. The 7-element
-    /// prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group without
-    /// padding. Continuing from its hash with the two-element owner-binding tail
-    /// is therefore equivalent to folding all 9 elements together.
+    /// appends the output `ring_data_hash` and `ring_program_id`. The masked
+    /// output amount sits between the two. The 7-element prefix is 1 + 3 + 3, so
+    /// it ends on a complete HashChain4 group without padding. Continuing from
+    /// its hash with the masked amount and the two-element owner-binding tail is
+    /// therefore equivalent to folding all 10 elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -141,13 +142,19 @@ impl<'a> MergeProof<'a> {
                 output_ring_data_hash,
             } => create_hash_chain_4_from_slice(&[
                 prefix_hash,
+                *self.ix.masked_amount,
                 *output_ring_data_hash,
                 *ring_program_id,
             ]),
             MergeOwnerBinding::Default {
                 signing_pk_field,
                 nullifier_pk,
-            } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),
+            } => create_hash_chain_4_from_slice(&[
+                prefix_hash,
+                *self.ix.masked_amount,
+                *signing_pk_field,
+                *nullifier_pk,
+            ]),
         }
         .map_err(Into::into)
     }

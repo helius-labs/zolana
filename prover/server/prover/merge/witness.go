@@ -34,6 +34,7 @@ func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) 
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
+	circuit.MaskedAmount = p.MaskedAmount
 	circuit.OutputTreeID = p.OutputTreeID
 	circuit.UserSigningPkHash = p.OwnerPkHash
 	circuit.PublicInputHash = p.PublicInputHash
@@ -64,6 +65,7 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
+	circuit.MaskedAmount = p.MaskedAmount
 	circuit.OutputTreeID = p.OutputTreeID
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID

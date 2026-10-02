@@ -8,14 +8,15 @@ use std::{
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
 use zolana_client::Rpc;
-use zolana_event::EncryptedRingDepositOutput;
+use zolana_event::{EncryptedRingDepositOutput, MergeOutputDerivation};
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_SUPPORTED_INPUT_COUNTS,
+        merge_amount_mask, merge_output_blinding, merge_unmasked_amount,
+        MERGE_SUPPORTED_INPUT_COUNTS,
     },
     AssetRegistry, Data, OutputContext, ShieldedTransaction, Utxo, WalletUtxo,
 };
@@ -335,9 +336,7 @@ impl<'a> MemberRecovery<'a> {
                         continue;
                     }
                     spent.extend(transaction.nullifiers.iter().copied());
-                    if transaction.proofless
-                        || transaction.tx_viewing_pk.is_some()
-                        || transaction.salt.is_some()
+                    if !transaction.merge
                         || transaction.output_slots.len() != 1
                         || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&transaction.nullifiers.len())
                     {
@@ -551,52 +550,41 @@ struct MergeOpening<'a, 'b> {
 }
 
 impl MergeOpening<'_, '_> {
+    /// Rebuilds the output from the masked amount the proof binds and any
+    /// input the member holds, so an input the member never received does not
+    /// hide it.
     fn rebuild(self) -> Result<Option<WalletUtxo>, RecoveryError> {
         let transaction = self.transaction;
-        let Some(first_nullifier) = transaction.nullifiers.first() else {
+        let (Some(first_nullifier), Some(slot), Some(derivation)) = (
+            transaction.nullifiers.first(),
+            transaction.output_slots.first(),
+            transaction
+                .messages
+                .first()
+                .and_then(|message| MergeOutputDerivation::decode(&message.data)),
+        ) else {
             return Ok(None);
         };
-        let Some(first) = self
+        let Some(ring_data_hash) = derivation.output_ring_data_hash else {
+            return Ok(None);
+        };
+        let Some(input) = self
             .candidates
             .iter()
-            .find(|note| note.nullifier == *first_nullifier)
+            .find(|note| transaction.nullifiers.contains(&note.nullifier))
         else {
             return Ok(None);
         };
-        let mut amount = 0u64;
-        for (index, nullifier) in transaction.nullifiers.iter().enumerate() {
-            if *nullifier
-                == merge_dummy_nullifier(self.source.nullifier_key, first_nullifier, index as u8)?
-            {
-                continue;
-            }
-            let Some(note) = self
-                .candidates
-                .iter()
-                .find(|note| note.nullifier == *nullifier)
-            else {
-                return Ok(None);
-            };
-            if note.utxo.asset != first.utxo.asset
-                || note.utxo.ring_program_id != first.utxo.ring_program_id
-                || note.data_hash.is_some_and(|hash| hash != [0; 32])
-            {
-                return Ok(None);
-            }
-            amount = amount
-                .checked_add(note.utxo.amount)
-                .ok_or(zolana_transaction::TransactionError::SelectedBalanceOverflow)?;
-        }
-        let slot = &transaction.output_slots[0];
-        let Ok(ring_data_hash) = <[u8; 32]>::try_from(slot.payload.as_slice()) else {
+        let mask = merge_amount_mask(self.source.nullifier_key, first_nullifier)?;
+        let Some(amount) = merge_unmasked_amount(&derivation.masked_amount, &mask) else {
             return Ok(None);
         };
         let utxo = Utxo {
             owner: self.source.address.signing_pubkey,
-            asset: first.utxo.asset,
+            asset: input.utxo.asset,
             amount,
             blinding: merge_output_blinding(self.source.nullifier_key, first_nullifier)?,
-            ring_program_id: first.utxo.ring_program_id,
+            ring_program_id: input.utxo.ring_program_id,
             data: Data::default(),
         };
         if utxo.hash(

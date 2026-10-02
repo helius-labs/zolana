@@ -551,6 +551,7 @@ fn transaction(
         messages,
         nullifiers: vec![[signature_byte; 32]],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: Some(RING),
     }

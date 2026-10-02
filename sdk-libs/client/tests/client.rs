@@ -840,6 +840,7 @@ fn indexed_transaction_json(signature: Signature) -> Value {
         "messages": [],
         "nullifiers": [],
         "proofless": false,
+        "merge": false,
     })
 }
 

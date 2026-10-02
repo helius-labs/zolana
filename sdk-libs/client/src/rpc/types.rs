@@ -57,6 +57,7 @@ impl EncryptedUtxoMatch {
             messages: Vec::new(),
             nullifiers: Vec::new(),
             proofless: true,
+            merge: false,
             ring_config: None,
             ring_program_id: None,
         })

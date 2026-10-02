@@ -151,6 +151,13 @@ pub fn parse_rings_events(
     Ok(Some(state_update))
 }
 
+/// Read from the stored source tag, so the API reports merges without a
+/// separate column.
+pub fn is_merge_source(source_instruction_tag: i16) -> bool {
+    u8::try_from(source_instruction_tag)
+        .is_ok_and(|tag| matches!(tag, tag::MERGE_TRANSACT | tag::RING_MERGE_TRANSACT))
+}
+
 fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // Keep this in sync with shielded-pool processors that call
     // `emit_event` with a GeneralEvent-view kind (Deposit, Transact, Merge).

@@ -367,6 +367,8 @@ pub(crate) struct MergeParametersJson {
     pub public_input_hash: String,
     #[serde(rename = "allowDummyInputs")]
     pub allow_dummy_inputs: String,
+    #[serde(rename = "maskedAmount")]
+    pub masked_amount: String,
     /// Output ring-data hash carried by the merge_ring instruction; `0x0` for
     /// the default merge.
     #[serde(rename = "outputRingDataHash")]
@@ -427,6 +429,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        masked_amount: big_uint_to_string(&inputs.masked_amount),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
     };
@@ -776,6 +779,7 @@ mod merge_tests {
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             allow_dummy_inputs: BigUint::from(1u8),
+            masked_amount: BigUint::from(9u8),
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
@@ -795,6 +799,7 @@ mod merge_tests {
             "externalDataHash",
             "privateTxHash",
             "allowDummyInputs",
+            "maskedAmount",
             "publicInputHash",
             "outputRingDataHash",
             "ringProgramId",

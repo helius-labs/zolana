@@ -43,6 +43,7 @@ fn decodes_compressed_p256_pubkey() {
                 "messages": [],
                 "nullifiers": [],
                 "proofless": false,
+                "merge": false,
             },
         }],
     }));
@@ -164,6 +165,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
             "messages": [],
             "nullifiers": [encode_hash_string(nullifier)],
             "proofless": true,
+            "merge": false,
         }],
         "nextCursor": STANDARD.encode([23]),
     }));
@@ -209,6 +211,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
                 }],
                 nullifiers: vec![nullifier],
                 proofless: true,
+                merge: false,
                 messages: vec![],
                 ring_config: None,
                 ring_program_id: None,
@@ -234,6 +237,7 @@ fn get_shielded_transactions_by_signature_preserves_event_index() {
                 "messages": [],
                 "nullifiers": [],
                 "proofless": false,
+                "merge": false,
             },
         }],
     }));
@@ -529,6 +533,7 @@ fn rejects_malformed_output_slot_hash() {
             "messages": [],
             "nullifiers": [],
             "proofless": true,
+            "merge": false,
         }],
         "nextCursor": null,
     }));
@@ -560,6 +565,7 @@ fn by_signature_error_path_includes_transaction_nesting() {
                 "messages": [],
                 "nullifiers": [],
                 "proofless": false,
+                "merge": false,
             },
         }],
     }));
@@ -596,6 +602,7 @@ fn spend_record_transport_returns_the_indexed_record() {
                 "messages": [],
                 "nullifiers": [],
                 "proofless": false,
+                "merge": false,
             },
             "outputIndex": 2,
         },

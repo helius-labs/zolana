@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 use zolana_client::ProofInputUtxo;
-use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
+use zolana_event::{encode_encrypted_ring_deposit_output, EventKind, GeneralEvent};
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::{P256Pubkey, PublicKey};
@@ -186,12 +186,12 @@ impl TestIndexer {
         &mut self,
         signature: solana_signature::Signature,
         event: &GeneralEvent,
-        proofless: bool,
+        kind: EventKind,
         tree_id: u16,
     ) {
         self.transactions
             .push(shielded_transaction_from_general_event(
-                signature, event, proofless, tree_id,
+                signature, event, kind, tree_id,
             ));
     }
 
@@ -320,7 +320,7 @@ impl TestIndexer {
 pub fn shielded_transaction_from_general_event(
     signature: solana_signature::Signature,
     event: &GeneralEvent,
-    proofless: bool,
+    kind: EventKind,
     tree_id: u16,
 ) -> ShieldedTransaction {
     let tx_viewing_pk = optional_tx_viewing_pk(&event.tx_viewing_pk);
@@ -354,7 +354,8 @@ pub fn shielded_transaction_from_general_event(
         salt,
         output_slots,
         nullifiers,
-        proofless,
+        proofless: kind == EventKind::Deposit,
+        merge: kind == EventKind::Merge,
         messages: event.messages.clone(),
     }
 }

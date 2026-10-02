@@ -350,6 +350,7 @@ mod tests {
             messages,
             nullifiers: vec![spent],
             proofless: false,
+            merge: false,
             ring_config: None,
             ring_program_id: None,
         }
@@ -505,6 +506,7 @@ mod tests {
                 messages: Vec::new(),
                 nullifiers: vec![Hash(address)],
                 proofless: false,
+                merge: false,
                 ring_config: None,
                 ring_program_id: None,
             },

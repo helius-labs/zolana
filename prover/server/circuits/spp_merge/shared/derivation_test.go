@@ -14,11 +14,13 @@ type derivationCircuit struct {
 	Tag              frontend.Variable
 	ExpectedBlinding frontend.Variable
 	ExpectedDummy    frontend.Variable
+	ExpectedMask     frontend.Variable
 }
 
 func (c *derivationCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.ExpectedBlinding, MergeOutputBlinding(api, c.Secret, c.Tag))
 	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.Secret, c.Tag, 3))
+	api.AssertIsEqual(c.ExpectedMask, MergeAmountMask(api, c.Secret, c.Tag))
 	return nil
 }
 
@@ -40,6 +42,7 @@ func TestRecoveryDerivationsMatchRustVectors(t *testing.T) {
 		Tag:              big.NewInt(7),
 		ExpectedBlinding: mustBig("2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897"),
 		ExpectedDummy:    mustBig("1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914"),
+		ExpectedMask:     mustBig("0ae0b9093d3414d2ea89cbd1f4eb221706d6939ec915e657c012b4757a4d85a0"),
 	}
 	assert := test.NewAssert(t)
 	assert.SolvingSucceeded(&derivationCircuit{}, &witness, test.WithCurves(ecc.BN254))
@@ -56,5 +59,8 @@ func TestRecoveryDomainsAreTheAsciiTags(t *testing.T) {
 	}
 	if MergeDummyNullifierDomain != 0x544d444e { // "TMDN"
 		t.Fatalf("MergeDummyNullifierDomain = %#x", MergeDummyNullifierDomain)
+	}
+	if MergeAmountMaskDomain != 0x544d414d { // "TMAM"
+		t.Fatalf("MergeAmountMaskDomain = %#x", MergeAmountMaskDomain)
 	}
 }

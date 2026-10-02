@@ -641,6 +641,8 @@ pub struct ShieldedTransaction {
     pub nullifiers: Vec<Hash>,
     /// True when at least one output in this transaction is proofless.
     pub proofless: bool,
+    /// True for a `merge_transact` or `merge_ring`.
+    pub merge: bool,
     /// The ring's config account (its `ring_auth` PDA), or `None` when no ring
     /// authorized this transaction. Observed directly on the transaction, so it
     /// is always present for a ring.

@@ -8,7 +8,8 @@ mod ring;
 mod transaction;
 
 pub use blinding::{
-    merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
+    merge_amount_mask, merge_dummy_nullifier, merge_masked_amount, merge_output_blinding,
+    merge_private_tx_blinding, merge_unmasked_amount, DOMAIN_MERGE_AMOUNT_MASK,
     DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
 };
 pub use transaction::MergeProofInputs;

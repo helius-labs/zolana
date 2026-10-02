@@ -44,7 +44,7 @@ impl DepositOutput {
         shielded_transaction_from_general_event(
             tx_signature,
             &self.to_general_event(),
-            true,
+            EventKind::Deposit,
             tree_id,
         )
     }
@@ -90,7 +90,7 @@ impl RingDepositOutput {
         shielded_transaction_from_general_event(
             tx_signature,
             &self.to_general_event(),
-            true,
+            EventKind::Deposit,
             tree_id,
         )
     }
@@ -333,15 +333,15 @@ pub fn index_events(
                         indexer.record_ring_deposit(&deposit)?;
                     }
                 }
-                indexer.record_transaction(signature, general_event, true, tree_id);
+                indexer.record_transaction(signature, general_event, EventKind::Deposit, tree_id);
             }
-            Some(EventKind::Transact) | Some(EventKind::Merge) => {
+            Some(kind @ (EventKind::Transact | EventKind::Merge)) => {
                 let general_event = general_event_from_indexed(event).map_err(|err| {
                     ProgramTestError::Event(format!("state-change event decode failed: {err:?}"))
                 })?;
                 let tree_id = output_tree_id(&mut get_account, general_event, "state-change")?;
                 indexer.record_state_change(general_event)?;
-                indexer.record_transaction(signature, general_event, false, tree_id);
+                indexer.record_transaction(signature, general_event, kind, tree_id);
             }
             Some(EventKind::NullifierTreeUpdate) | None => {}
         }

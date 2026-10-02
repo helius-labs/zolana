@@ -7,12 +7,15 @@ use std::{
 
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_event::{
+    EncryptedRingDepositOutput, MergeOutputDerivation, MessageData, OutputDataEncoding,
+};
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
     decrypt, decrypt_spendable,
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
+        merge_amount_mask, merge_dummy_nullifier, merge_masked_amount, merge_output_blinding,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash, rebuild_merge,
     serialization::{
@@ -61,6 +64,7 @@ fn publication(note: &WalletUtxo, output_slots: Vec<OutputSlot>) -> ShieldedTran
         messages: vec![],
         nullifiers: vec![],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     }
@@ -1024,30 +1028,33 @@ fn received(owner: &ShieldedKeypair, note: &WalletUtxo) -> ShieldedTransaction {
     tx
 }
 
-/// A merge of `inputs` as the indexer reports it: no ciphertext and no
-/// transaction key, the padded slots spending dummy nullifiers, and one output
-/// committing to the inputs' total. Returns the note the owner should rebuild.
+/// A merge of `inputs` as the indexer reports it: the output ciphertext under
+/// the merge's transaction key, the padded slots spending dummy nullifiers, the
+/// masked amount (and ring-data hash) in its message, and one output committing
+/// to the inputs' total. Returns the note the owner should rebuild.
 fn merge_publication(
     owner: &ShieldedKeypair,
     inputs: &[&WalletUtxo],
     tx_slot: u8,
     ring_data_hash: Option<[u8; 32]>,
 ) -> (ShieldedTransaction, WalletUtxo) {
-    let first_nullifier = inputs[0].nullifier;
+    let first = inputs.first().expect("a merge spends an input");
+    let first_nullifier = first.nullifier;
     let mut nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
     nullifiers.extend((inputs.len()..MERGE_DEFAULT_INPUT_COUNT).map(|index| {
         merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, index as u8).unwrap()
     }));
+    let amount = inputs.iter().map(|input| input.utxo.amount).sum();
     let utxo = Utxo {
         owner: owner.signing_pubkey(),
-        asset: inputs[0].utxo.asset,
-        amount: inputs.iter().map(|input| input.utxo.amount).sum(),
+        asset: first.utxo.asset,
+        amount,
         blinding: merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),
-        ring_program_id: inputs[0].utxo.ring_program_id,
+        ring_program_id: first.utxo.ring_program_id,
         data: Data::default(),
     };
-    let nullifier_pubkey = inputs[0].nullifier_pubkey;
-    let tree_id = inputs[0].tree_id;
+    let nullifier_pubkey = first.nullifier_pubkey;
+    let tree_id = first.tree_id;
     let utxo_hash = utxo
         .hash(
             &nullifier_pubkey,
@@ -1069,11 +1076,56 @@ fn merge_publication(
         tx_signature: Signature::from([tx_slot; 64]),
         slot_index: 0,
     };
-    // A ring merge publishes the output's ring-data hash as the payload.
-    let payload = ring_data_hash.map(Vec::from).unwrap_or_default();
-    let mut tx = publication(&output, vec![slot(&output, payload)]);
+    let tx_key = keypair(201).viewing_key;
+    let mut tx = publication(
+        &output,
+        vec![confidential_slot(
+            &output,
+            owner.viewing_pubkey(),
+            &tx_key,
+            0,
+        )],
+    );
+    tx.tx_viewing_pk = Some(tx_key.pubkey());
+    tx.salt = Some([7; 16]);
     tx.nullifiers = nullifiers;
+    tx.merge = true;
+    let mask = merge_amount_mask(&owner.nullifier_key, &first_nullifier).unwrap();
+    tx.messages = vec![MessageData {
+        view_tag: [0; 32],
+        data: MergeOutputDerivation {
+            masked_amount: merge_masked_amount(amount, &mask),
+            output_ring_data_hash: ring_data_hash,
+        }
+        .encode(),
+    }];
     (tx, output)
+}
+
+/// The merge with its ciphertext left out, which only the derivation from the
+/// masked amount can rebuild.
+fn without_ciphertext(mut merge: ShieldedTransaction) -> ShieldedTransaction {
+    for slot in &mut merge.output_slots {
+        slot.payload = Vec::new();
+    }
+    merge
+}
+
+/// The merge with a ciphertext that opens for its owner but understates the
+/// amount, as a merger could publish.
+fn with_lying_ciphertext(
+    owner: &ShieldedKeypair,
+    mut merge: ShieldedTransaction,
+    output: &WalletUtxo,
+) -> ShieldedTransaction {
+    let mut lie = output.clone();
+    lie.utxo.amount = 1;
+    let tx_key = keypair(201).viewing_key;
+    let lying = confidential_slot(&lie, owner.viewing_pubkey(), &tx_key, 0);
+    for slot in &mut merge.output_slots {
+        slot.payload = lying.payload.clone();
+    }
+    merge
 }
 
 /// A proofless ring deposit of `amount` of `mint` to `owner`, encrypted to
@@ -1150,30 +1202,70 @@ fn merge_outputs_rebuild_from_inputs_in_the_batch_in_any_order() {
     let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
     let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, None);
     let (chained, chained_output) = merge_publication(&owner, &[&merged], 11, None);
-    let txs = vec![
-        received(&owner, &first),
-        received(&owner, &second),
-        merge,
-        chained,
-    ];
+    for (case, strip) in [("ciphertext", false), ("derivation", true)] {
+        let publish = |tx: &ShieldedTransaction| {
+            if strip {
+                without_ciphertext(tx.clone())
+            } else {
+                tx.clone()
+            }
+        };
+        let txs = vec![
+            received(&owner, &first),
+            received(&owner, &second),
+            publish(&merge),
+            publish(&chained),
+        ];
 
-    let candidates = decrypt(&owner, &txs, &assets).unwrap();
+        let candidates = decrypt(&owner, &txs, &assets).unwrap();
+        assert_eq!(
+            candidates.utxos,
+            vec![
+                first.clone(),
+                second.clone(),
+                merged.clone(),
+                chained_output.clone()
+            ],
+            "{case}"
+        );
+        let expected = SpendableDecryptionResult {
+            balances: Balances {
+                assets: vec![balance(vec![chained_output.clone()], Mint::SOL, 42)],
+            },
+            utxos_with_data: vec![],
+            ..Default::default()
+        };
+        assert_eq!(
+            decrypt_spendable(&owner, &txs, &assets).unwrap(),
+            expected,
+            "{case}"
+        );
+        let reversed: Vec<_> = txs.into_iter().rev().collect();
+        assert_eq!(
+            decrypt_spendable(&owner, &reversed, &assets).unwrap(),
+            expected,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn a_merge_ciphertext_opens_without_its_inputs() {
+    let owner = keypair(53);
+    let assets = AssetRegistry::default();
+    let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, None);
+
     assert_eq!(
-        candidates.utxos,
-        vec![first, second, merged, chained_output.clone()]
+        decrypt(&owner, std::slice::from_ref(&merge), &assets)
+            .unwrap()
+            .utxos,
+        vec![merged.clone()]
     );
-    let expected = SpendableDecryptionResult {
-        balances: Balances {
-            assets: vec![balance(vec![chained_output], Mint::SOL, 42)],
-        },
-        utxos_with_data: vec![],
-        ..Default::default()
-    };
-    assert_eq!(decrypt_spendable(&owner, &txs, &assets).unwrap(), expected);
-    let reversed: Vec<_> = txs.into_iter().rev().collect();
     assert_eq!(
-        decrypt_spendable(&owner, &reversed, &assets).unwrap(),
-        expected
+        rebuild_merge(&owner, &merge, &[], &assets).unwrap(),
+        MergeRebuild::Rebuilt(Box::new(merged))
     );
 }
 
@@ -1190,8 +1282,10 @@ fn a_merge_rebuilds_from_utxos_held_since_an_earlier_sync() {
         .cloned()
         .collect();
     let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, None);
+    let merge = without_ciphertext(merge);
 
-    // The merge alone decrypts to nothing: its inputs are in the earlier batch.
+    // Without its ciphertext the merge alone decrypts to nothing: its inputs
+    // are in the earlier batch.
     assert_eq!(
         decrypt(&owner, std::slice::from_ref(&merge), &assets)
             .unwrap()
@@ -1199,18 +1293,66 @@ fn a_merge_rebuilds_from_utxos_held_since_an_earlier_sync() {
         vec![]
     );
     assert_eq!(
-        rebuild_merge(&owner, &merge, &held).unwrap(),
-        MergeRebuild::Rebuilt(vec![merged])
+        rebuild_merge(&owner, &merge, &held, &assets).unwrap(),
+        MergeRebuild::Rebuilt(Box::new(merged.clone()))
     );
+    // One held input names the owner and the asset; the masked amount gives
+    // the total.
+    for one in &held {
+        assert_eq!(
+            rebuild_merge(&owner, &merge, std::slice::from_ref(one), &assets).unwrap(),
+            MergeRebuild::Rebuilt(Box::new(merged.clone()))
+        );
+    }
     assert_eq!(
-        rebuild_merge(&owner, &merge, &held[..1]).unwrap(),
+        rebuild_merge(&owner, &merge, &[], &assets).unwrap(),
         MergeRebuild::Pending
     );
-    // A transaction that publishes ciphertext is not a merge.
+    // A transaction the indexer does not report as a merge is not one.
     assert_eq!(
-        rebuild_merge(&owner, &earlier[0], &held).unwrap(),
+        rebuild_merge(&owner, earlier.first().unwrap(), &held, &assets).unwrap(),
         MergeRebuild::NotOurs
     );
+}
+
+#[test]
+fn a_planted_input_the_owner_never_received_does_not_burn_the_merge() {
+    let owner = keypair(54);
+    let assets = AssetRegistry::default();
+    // A merger who knows the owner's nullifier secret funds `planted` to the
+    // owner without telling them and puts it first, so the output blinding and
+    // the total depend on a note the wallet never sees.
+    let planted = wallet_utxo(&owner, Mint::SOL, 1, 3, 1);
+    let held = wallet_utxo(&owner, Mint::SOL, 30, 3, 2);
+    let also_held = wallet_utxo(&owner, Mint::SOL, 12, 3, 3);
+    let (merge, merged) = merge_publication(&owner, &[&planted, &held, &also_held], 10, None);
+    assert_eq!(merged.utxo.amount, 43);
+
+    for (case, published) in [
+        ("missing ciphertext", without_ciphertext(merge.clone())),
+        (
+            "lying ciphertext",
+            with_lying_ciphertext(&owner, merge.clone(), &merged),
+        ),
+    ] {
+        let txs = [
+            received(&owner, &held),
+            received(&owner, &also_held),
+            published,
+        ];
+        let spendable = decrypt_spendable(&owner, &txs, &assets).unwrap();
+        assert_eq!(
+            spendable,
+            SpendableDecryptionResult {
+                balances: Balances {
+                    assets: vec![balance(vec![merged.clone()], Mint::SOL, 43)],
+                },
+                utxos_with_data: vec![],
+                ..Default::default()
+            },
+            "{case}"
+        );
+    }
 }
 
 #[test]
@@ -1229,9 +1371,9 @@ fn extending_a_result_decrypts_only_the_new_transactions() {
         .extend(&keys, std::slice::from_ref(&merge), &assets)
         .unwrap();
 
-    // The merge's inputs came from the earlier call, and nothing it covered
-    // was decrypted again.
-    assert_eq!(keys.decrypt_calls.borrow().len(), earlier_decrypts);
+    // Only the merge's own ciphertext was decrypted; nothing from the earlier
+    // call was decrypted again.
+    assert_eq!(keys.decrypt_calls.borrow().len(), earlier_decrypts + 1);
     assert_eq!(decrypted.utxos.last(), Some(&merged));
     let all: Vec<_> = earlier.into_iter().chain([merge]).collect();
     assert_eq!(decrypted, decrypt(&owner, &all, &assets).unwrap());
@@ -1243,14 +1385,19 @@ fn a_merge_pending_on_a_later_batch_rebuilds_when_its_input_arrives() {
     let assets = AssetRegistry::default();
     let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
     let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
-    // Ring merges, found only by their first nullifier: M0 spends `second`
-    // into X, M0' spends X into Y, and M1 spends `first` and Y. M1 is found
-    // through `first` a round before Y exists.
+    // Without ciphertexts: M0 spends `second` into X, M0' spends X into Y, and
+    // M1 spends Y and `first`. M1 is found through `first` a round before Y
+    // exists, and only Y's arrival lets it rebuild.
     let (m0, x) = merge_publication(&owner, &[&second], 10, None);
     let (m0_prime, y) = merge_publication(&owner, &[&x], 11, None);
-    let (m1, merged) = merge_publication(&owner, &[&first, &y], 12, None);
+    let (m1, merged) = merge_publication(&owner, &[&y, &first], 12, None);
+    let (m0, m0_prime, m1) = (
+        without_ciphertext(m0),
+        without_ciphertext(m0_prime),
+        without_ciphertext(m1),
+    );
     let rounds = [
-        vec![received(&owner, &first), received(&owner, &second)],
+        vec![received(&owner, &second)],
         vec![m0.clone(), m1.clone()],
         vec![m0_prime.clone()],
     ];
@@ -1269,56 +1416,80 @@ fn a_merge_pending_on_a_later_batch_rebuilds_when_its_input_arrives() {
 }
 
 #[test]
-fn merges_rebuild_nothing_without_every_input_or_a_matching_commitment() {
+fn merges_rebuild_nothing_without_a_held_input_or_a_matching_commitment() {
     let owner = keypair(43);
     let other = keypair(44);
     let assets = AssetRegistry::default();
     let held = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
     let unknown = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
     let foreign = wallet_utxo(&other, Mint::SOL, 9, 3, 3);
-    let spl = Mint::new(Address::new_from_array([6; 32]), 9);
-    let mut spl_assets = AssetRegistry::default();
-    spl_assets.insert(spl.asset_id, spl.asset).unwrap();
-    let held_spl = wallet_utxo(&owner, spl, 5, 3, 4);
 
-    // An input the batch never produced.
-    let (missing_input, _) = merge_publication(&owner, &[&held, &unknown], 10, None);
-    // Another owner's merge, and one whose first input is not this wallet's.
+    // A merge of inputs the wallet holds none of.
+    let (unheld, _) = merge_publication(&owner, &[&unknown], 10, None);
+    // Another owner's merge, with its ciphertext addressed to them.
     let (foreign_merge, _) = merge_publication(&other, &[&foreign], 11, None);
-    let (foreign_first, _) = merge_publication(&owner, &[&foreign, &held], 12, None);
-    // A merge across assets cannot come from one proof.
-    let (mixed_assets, _) = merge_publication(&owner, &[&held, &held_spl], 13, None);
     // A published output that is not the inputs' total, and a merge chained on it.
     let (mut wrong_total, overstated) = merge_publication(&owner, &[&held], 14, None);
-    wrong_total.output_slots[0].output_context.hash =
-        wallet_utxo(&owner, Mint::SOL, 31, 3, 5).utxo_hash;
+    if let Some(slot) = wrong_total.output_slots.first_mut() {
+        slot.output_context.hash = wallet_utxo(&owner, Mint::SOL, 31, 3, 5).utxo_hash;
+    }
     let (chained, _) = merge_publication(&owner, &[&overstated], 15, None);
+    // A masked amount another owner's key would produce.
+    let (mut foreign_mask, _) = merge_publication(&owner, &[&held], 16, None);
+    foreign_mask.messages = merge_publication(&other, &[&foreign], 16, None).0.messages;
 
     for (case, merge) in [
-        ("missing input", missing_input),
+        ("no held input", without_ciphertext(unheld)),
         ("foreign merge", foreign_merge),
-        ("foreign first input", foreign_first),
-        ("mixed assets", mixed_assets),
         ("wrong total", wrong_total.clone()),
+        ("foreign mask", without_ciphertext(foreign_mask)),
     ] {
         let txs = [
             received(&owner, &held),
-            received(&owner, &held_spl),
             merge,
-            chained.clone(),
+            without_ciphertext(chained.clone()),
         ];
-        let candidates = decrypt(&owner, &txs, &spl_assets).unwrap();
-        assert_eq!(
-            candidates.utxos,
-            vec![held.clone(), held_spl.clone()],
-            "{case}"
-        );
+        let candidates = decrypt(&owner, &txs, &assets).unwrap();
+        assert_eq!(candidates.utxos, vec![held.clone()], "{case}");
     }
     // The merge still spends its input when its output cannot be rebuilt.
     assert_eq!(
         decrypt_spendable(&owner, &[received(&owner, &held), wrong_total], &assets).unwrap(),
         SpendableDecryptionResult::default()
     );
+}
+
+#[test]
+fn a_ring_merge_rebuilds_from_the_ring_data_hash_in_its_message() {
+    let owner = keypair(55);
+    let assets = AssetRegistry::default();
+    let ring = Address::new_from_array([9; 32]);
+    let (first_deposit, first) =
+        ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 20, 1);
+    let (second_deposit, second) =
+        ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 22, 2);
+    let mut ring_data_hash = [0xd2; 32];
+    ring_data_hash[0] = 0;
+    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, Some(ring_data_hash));
+    for (case, published) in [
+        ("ciphertext", merge.clone()),
+        ("derivation", without_ciphertext(merge.clone())),
+    ] {
+        assert_eq!(
+            decrypt_spendable(
+                &owner,
+                &[first_deposit.clone(), second_deposit.clone(), published],
+                &assets
+            )
+            .unwrap(),
+            SpendableDecryptionResult {
+                balances: Balances::default(),
+                utxos_with_data: vec![merged.clone()],
+                ..Default::default()
+            },
+            "{case}"
+        );
+    }
 }
 
 #[test]

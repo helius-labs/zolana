@@ -51,6 +51,7 @@
     "output_blinding": "2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897",
     "dummy_slot_index": 3,
     "dummy_nullifier": "1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914",
+    "amount_mask": "0ae0b9093d3414d2ea89cbd1f4eb221706d6939ec915e657c012b4757a4d85a0",
     "private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610"
   },
   "derivation_input_guard": [

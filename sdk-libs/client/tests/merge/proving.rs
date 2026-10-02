@@ -9,7 +9,10 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
-use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
+use zolana_transaction::{
+    instructions::merge::{merge_amount_mask, merge_output_blinding, merge_unmasked_amount},
+    Data, Mint, Utxo,
+};
 
 use crate::{harness::MergeHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
@@ -112,6 +115,24 @@ impl MergeHarness {
         let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
             .expect("construct verifier");
         verifier.verify().expect("merge groth16 proof verifies");
+        let data = result.instruction_data(MergeProof::zeroed());
+        let first_nullifier = result.nullifiers.first().expect("first nullifier");
+        let mask = merge_amount_mask(&sender.nullifier_key, first_nullifier).expect("amount mask");
+        assert_eq!(
+            merge_unmasked_amount(&data.masked_amount, &mask),
+            Some(expected_output.amount),
+            "the published masked amount recovers the merged total",
+        );
+        assert_eq!(
+            (data.tx_viewing_pk, data.salt, data.output_data),
+            (
+                result.tx_viewing_pk,
+                result.salt,
+                result.output_data.data.clone()
+            ),
+            "the instruction carries the output ciphertext",
+        );
+        assert!(!result.output_data.data.is_empty());
         if self.plan.compact {
             let sent = result
                 .instruction_data(MergeProof::zeroed())
@@ -120,8 +141,8 @@ impl MergeHarness {
             assert_eq!(sent, n, "compact padding is left out of the instruction");
         }
 
-        // The owner reconstructs the ciphertext-free merge output from the
-        // first real input and its published nullifier.
+        // Without the ciphertext the owner still rebuilds the output from the
+        // first published nullifier and the masked amount.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
                 .expect("derive merge output blinding"),
