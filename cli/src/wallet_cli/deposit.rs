@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use solana_signer::Signer;
 use zolana_client::{
-    asset::fetch_token_program, user_registry::resolve_registered_address, ComputeBudgetConfig,
-    Rpc, SolanaRpc, ZolanaIndexer,
+    user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer,
 };
 use zolana_program::instruction::{Deposit, DepositAsset, DepositSplAccounts};
 use zolana_transaction::{instructions::deposit::deposit_to, Address};
@@ -14,6 +13,7 @@ use super::{
     transaction::maybe_airdrop,
     util::{
         configured_spl_token_account, ensure_positive, format_address, parse_address, parse_pubkey,
+        resolve_spl_token_program,
     },
 };
 use crate::{args::DepositOptions, cli_config::CliConfigFile};
@@ -36,13 +36,15 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
-    let deposit_asset = match fetch_token_program(&rpc, asset)? {
-        None => DepositAsset::Sol,
-        Some(token_program) => DepositAsset::Spl(DepositSplAccounts {
-            mint: asset,
+    let deposit_asset = if asset == zolana_transaction::SOL_MINT {
+        DepositAsset::Sol
+    } else {
+        let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());
+        DepositAsset::Spl(DepositSplAccounts {
+            mint,
             user_token: spl_token_account.context("SPL deposit needs a token account")?,
-            token_program,
-        }),
+            token_program: resolve_spl_token_program(&rpc, &mint)?,
+        })
     };
     let entry = deposit_to(deposit_asset, opts.amount, &recipient.address)?;
     let view_tag = entry.view_tag;

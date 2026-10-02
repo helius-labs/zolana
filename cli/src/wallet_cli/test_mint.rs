@@ -5,7 +5,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{asset::fetch_asset_id, ComputeBudgetConfig, Rpc, SolanaRpc};
+use zolana_client::{fetch_asset_id, ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     pda, state::ProtocolConfig, SPL_TOKEN_2022_PROGRAM_ID,
     SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,

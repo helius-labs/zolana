@@ -9,15 +9,20 @@
 //! costs round trips for what is new, not for everything found so far.
 //! [`SpendableUtxos::fetch_history`] makes the same reads and keeps the
 //! transactions and the spent UTXOs as well.
+//!
+//! Both read notes only in the assets of the [`AssetRegistry`] they are given
+//! and report the others as unknown; [`fetch_asset_id`] reads the id the pool
+//! registered for a mint, to add it.
 
 use std::collections::HashSet;
 
 use solana_address::Address;
 use solana_signature::Signature;
+use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
     verify_owned, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
-    SpendableDecryptionResult, WalletHistory, WalletUtxo,
+    SpendableDecryptionResult, WalletHistory, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -147,6 +152,30 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         }
         Ok(tx)
     }
+}
+
+/// The asset id the shielded pool uses for `asset`: [`SOL_ASSET_ID`] for SOL,
+/// without a request, and for an SPL mint the id in the registry account the
+/// pool wrote when it registered the mint.
+pub fn fetch_asset_id<R: Rpc>(rpc: &R, asset: Address) -> Result<u64, ClientError> {
+    if asset == SOL_MINT {
+        return Ok(SOL_ASSET_ID);
+    }
+    let not_registered = || ClientError::SplAssetNotRegistered { mint: asset };
+    let account = rpc
+        .get_account(pda::spl_asset_registry(&asset))?
+        .ok_or_else(not_registered)?;
+    // Only the pool can create an account at the registry address. Any other
+    // owner means lamports were sent there, not that the mint was registered.
+    if account.owner != PROGRAM_ID_PUBKEY {
+        return Err(not_registered());
+    }
+    let invalid = || ClientError::InvalidSplAssetRegistry { mint: asset };
+    let registry = SplAssetRegistry::from_account_bytes(&account.data).map_err(|_| invalid())?;
+    if registry.mint != asset {
+        return Err(invalid());
+    }
+    Ok(registry.asset_id)
 }
 
 /// What the rounds of one fetch read and decrypted.

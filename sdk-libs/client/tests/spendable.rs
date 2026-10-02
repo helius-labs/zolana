@@ -1,16 +1,22 @@
 //! `SpendableUtxos::fetch` against an in-memory indexer that pages one result
-//! at a time.
+//! at a time, and `fetch_asset_id` against in-memory accounts.
 
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+};
+
+use solana_account::Account;
 
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
-    GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
-    OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
+    fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
+    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
+    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
@@ -20,7 +26,7 @@ use zolana_transaction::{
     serialization::proofless::{Proofless, ProoflessEncode},
     AssetRegistry, Data, DecryptRequest, DeriveRequest, EncryptedScheme, HistoryKind, Mint,
     OwnerCx, RingDepositPlaintext, ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo,
-    UtxoSerialization,
+    UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
 };
 
 const TREE: u16 = 2;
@@ -569,4 +575,102 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
             .fetch(&indexer),
         Err(ClientError::Transaction(TransactionError::Deserialize(_)))
     ));
+}
+
+const MINT: Address = Address::new_from_array([7; 32]);
+const OTHER_PROGRAM: Address = Address::new_from_array([9; 32]);
+
+/// Accounts by address; `get_account` is the only request it answers.
+#[derive(Default)]
+struct Accounts(HashMap<Address, Account>);
+
+impl Accounts {
+    fn with(mut self, address: Address, owner: Address, data: Vec<u8>) -> Self {
+        self.0.insert(
+            address,
+            Account {
+                lamports: 1,
+                data,
+                owner,
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+        self
+    }
+
+    fn registry(self, owner: Address, mint: Address, asset_id: u64) -> Self {
+        self.with(
+            pda::spl_asset_registry(&MINT),
+            owner,
+            SplAssetRegistry::account_bytes(mint, asset_id).to_vec(),
+        )
+    }
+}
+
+impl Rpc for Accounts {
+    fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        Ok(self.0.get(&address).cloned())
+    }
+}
+
+/// An `Rpc` that fails every request, so a lookup that succeeds with it made
+/// none.
+struct Offline;
+
+impl Rpc for Offline {}
+
+#[test]
+fn sol_has_the_reserved_asset_id_without_a_request() {
+    assert_eq!(fetch_asset_id(&Offline, SOL_MINT).unwrap(), SOL_ASSET_ID);
+}
+
+#[test]
+fn asset_id_is_read_from_the_pool_registry_account_of_the_mint() {
+    let rpc = Accounts::default().registry(PROGRAM_ID_PUBKEY, MINT, 5);
+    assert_eq!(fetch_asset_id(&rpc, MINT).unwrap(), 5);
+}
+
+#[test]
+fn a_mint_without_a_pool_owned_registry_account_is_not_registered() {
+    let not_registered = |rpc: &Accounts| {
+        matches!(
+            fetch_asset_id(rpc, MINT),
+            Err(ClientError::SplAssetNotRegistered { mint }) if mint == MINT
+        )
+    };
+    assert!(not_registered(&Accounts::default()));
+    // Lamports sent to the registry address make a system-owned account.
+    assert!(not_registered(&Accounts::default().with(
+        pda::spl_asset_registry(&MINT),
+        Address::default(),
+        Vec::new(),
+    )));
+    assert!(not_registered(&Accounts::default().registry(
+        OTHER_PROGRAM,
+        MINT,
+        5
+    )));
+}
+
+#[test]
+fn a_pool_registry_account_that_does_not_parse_or_names_another_mint_is_invalid() {
+    let invalid = |rpc: &Accounts| {
+        matches!(
+            fetch_asset_id(rpc, MINT),
+            Err(ClientError::InvalidSplAssetRegistry { mint }) if mint == MINT
+        )
+    };
+    let mut truncated = SplAssetRegistry::account_bytes(MINT, 5).to_vec();
+    truncated.pop();
+    assert!(invalid(&Accounts::default().with(
+        pda::spl_asset_registry(&MINT),
+        PROGRAM_ID_PUBKEY,
+        truncated,
+    )));
+    assert!(invalid(&Accounts::default().registry(
+        PROGRAM_ID_PUBKEY,
+        OTHER_PROGRAM,
+        5
+    )));
 }
