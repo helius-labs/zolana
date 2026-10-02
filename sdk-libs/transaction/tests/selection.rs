@@ -135,3 +135,30 @@ fn needs_a_merge_beyond_the_widest_shape() {
         Err(TransactionError::SpendNeedsMerge { amount, max_inputs })
     );
 }
+
+#[test]
+fn a_merge_is_reported_even_when_excluded_notes_would_cover_the_amount() {
+    let owner = keypair(1);
+    let max_inputs = auto_shapes().map(|shape| shape.n_inputs()).max().unwrap();
+    let count = u8::try_from(max_inputs + 1).unwrap();
+    let large = wallet_utxo(&owner, Mint::SOL, 100, 0, count + 1);
+    let excluded = HashSet::from([large.nullifier]);
+    let mut notes: Vec<_> = (1..=count)
+        .map(|nonce| wallet_utxo(&owner, Mint::SOL, 10, 0, nonce))
+        .collect();
+    notes.push(large);
+    let wallet = spendable(notes);
+    let amount = 10 * u64::from(count);
+    assert_eq!(
+        wallet.select_spend(Mint::SOL.asset, amount, &excluded),
+        Err(TransactionError::SpendNeedsMerge { amount, max_inputs })
+    );
+
+    // With every note excluded, nothing is left: the excluded notes are needed.
+    let only = wallet_utxo(&owner, Mint::SOL, 100, 0, 1);
+    let excluded = HashSet::from([only.nullifier]);
+    assert_eq!(
+        spendable(vec![only]).select_spend(Mint::SOL.asset, 50, &excluded),
+        Err(TransactionError::SpendNeedsExcludedNotes { amount: 50 })
+    );
+}

@@ -44,9 +44,10 @@ impl SpendableDecryptionResult {
     /// shape has inputs.
     ///
     /// Notes whose nullifier is in `excluded` are left out, such as the notes
-    /// of a spend that is prepared but not sent yet. When only the excluded
-    /// notes would cover `amount`, this fails with
-    /// [`TransactionError::SpendNeedsExcludedNotes`].
+    /// of a spend that is prepared but not sent yet. When the other notes do
+    /// not hold `amount` and the excluded ones would cover it, this fails with
+    /// [`TransactionError::SpendNeedsExcludedNotes`]. A balance that needs a
+    /// merge first is reported as such, excluded notes or not.
     pub fn select_spend(
         &self,
         asset: Address,
@@ -63,10 +64,15 @@ impl SpendableDecryptionResult {
             .filter(|note| !excluded.contains(&note.nullifier))
             .collect();
         select(free, asset, amount).map_err(|error| {
-            if excluded.is_empty() || select(eligible, asset, amount).is_err() {
-                error
-            } else {
+            let short = matches!(
+                error,
+                TransactionError::InsufficientBalance { .. }
+                    | TransactionError::NoSpendableBalance { .. }
+            );
+            if short && !excluded.is_empty() && select(eligible, asset, amount).is_ok() {
                 TransactionError::SpendNeedsExcludedNotes { amount }
+            } else {
+                error
             }
         })
     }

@@ -956,7 +956,8 @@ fn withdrawal_target(
     }
 
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    let token_program = spl_token_program.ok_or(ClientError::MissingSplTokenProgram { mint })?;
+    let token_program =
+        spl_token_program.ok_or(TransactionError::MissingSplTokenProgram { mint })?;
     let user_spl_token =
         pda::associated_token_address_with_program(&recipient, &mint, &token_program);
     let vault = pda::spl_interface(&mint);

@@ -1,7 +1,7 @@
 //! `SpendableUtxos::fetch` against an in-memory indexer that pages one result
 //! at a time.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use solana_address::Address;
 use solana_signature::Signature;
@@ -11,15 +11,16 @@ use zolana_client::{
     OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
+use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash,
     serialization::proofless::{Proofless, ProoflessEncode},
-    AssetRegistry, Data, EncryptedScheme, HistoryKind, Mint, OwnerCx, RingDepositPlaintext,
-    TransactionError, Utxo, UtxoSerialization,
+    AssetRegistry, Data, DecryptRequest, DeriveRequest, EncryptedScheme, HistoryKind, Mint,
+    OwnerCx, RingDepositPlaintext, ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo,
+    UtxoSerialization,
 };
 
 const TREE: u16 = 2;
@@ -124,6 +125,39 @@ impl Rpc for Indexer {
             next_cursor,
             scanned_through: None,
         })
+    }
+}
+
+/// A keypair that counts the derivation batches it answers, each a round
+/// trip with a remote key holder.
+struct CountingKeys<'a> {
+    keypair: &'a ShieldedKeypair,
+    derivations: Cell<usize>,
+}
+
+impl ShieldedKeys for CountingKeys<'_> {
+    fn address(&self) -> Result<ShieldedAddress, TransactionError> {
+        self.keypair.address()
+    }
+
+    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+        self.keypair.viewing_public_keys()
+    }
+
+    fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {
+        self.keypair.decrypt(requests)
+    }
+
+    fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.derivations.set(self.derivations.get() + 1);
+        self.keypair.derive(requests)
+    }
+
+    fn transaction_keys(
+        &self,
+        requests: &[TransactionKeyRequest],
+    ) -> Result<Vec<ViewingKey>, TransactionError> {
+        self.keypair.transaction_keys(requests)
     }
 }
 
@@ -347,12 +381,26 @@ fn fetch_history_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let utxos = SpendableUtxos::new(&owner, &assets);
+    let counting = || CountingKeys {
+        keypair: &owner,
+        derivations: Cell::new(0),
+    };
+    let (spendable_keys, history_keys) = (counting(), counting());
     let (spendable_indexer, history_indexer) = (indexer(), indexer());
 
-    let spendable = utxos.fetch(&spendable_indexer).unwrap();
-    let history = utxos.fetch_history(&history_indexer).unwrap();
+    let spendable = SpendableUtxos::new(&spendable_keys, &assets)
+        .fetch(&spendable_indexer)
+        .unwrap();
+    let history = SpendableUtxos::new(&history_keys, &assets)
+        .fetch_history(&history_indexer)
+        .unwrap();
 
+    // The history reuses the last round's owned UTXOs: the key holder derives
+    // no more nullifiers than for `fetch`.
+    assert_eq!(
+        history_keys.derivations.get(),
+        spendable_keys.derivations.get()
+    );
     assert_eq!(history_indexer.queried_tags, spendable_indexer.queried_tags);
     assert_eq!(
         history_indexer.queried_nullifiers,
