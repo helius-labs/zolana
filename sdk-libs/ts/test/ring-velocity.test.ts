@@ -73,7 +73,7 @@ describe("velocity outflow and charge", () => {
     await initializePoseidon();
   });
 
-  it("picks the smallest shape one slot beyond the money on each side", () => {
+  it("sizes the record shape from the real slot counts plus one on each side", () => {
     const at = (inputs: number, outputs: number) => recordShape({ inputs, outputs });
     expect(at(1, 1)).toEqual({ inputs: 2, outputs: 2 });
     expect(at(1, 2)).toEqual({ inputs: 2, outputs: 3 });

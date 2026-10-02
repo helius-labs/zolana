@@ -465,7 +465,7 @@ pub(crate) struct RecordNamespace {
     pub address_tree_id: u16,
 }
 
-/// The last output of a windowed transfer plus the messages carrying its plaintext.
+/// The first output of a windowed transfer plus the messages carrying its plaintext.
 pub(crate) struct SpendRecordCarrier<'a> {
     pub output: &'a TransactOutput,
     pub messages: &'a [MessageData],
@@ -475,7 +475,7 @@ pub(crate) struct SpendRecordCarrier<'a> {
 
 impl SpendRecordCarrier<'_> {
     pub fn verify(&self, namespace: &RecordNamespace) -> Result<(), ProgramError> {
-        // 1. Require the namespace-owned final output and its unique public
+        // 1. Require the namespace-owned record output and its unique public
         // record message.
         if self.output.owner_tag != OwnerTag::Inline(namespace.address.to_bytes()) {
             return Err(CustomRingError::InvalidSpendRecord.into());

@@ -59,6 +59,8 @@ pub enum DynamicSwapError {
     RentRecipientMismatch = 9017,
     #[error("escrow-authority nullifier pubkey must be nonzero")]
     InvalidNullifierPubkey = 9018,
+    #[error("settle carries settlement legs or messages the proof does not bind")]
+    SettleExternalDataNotEmpty = 9019,
 }
 
 impl From<DynamicSwapError> for ProgramError {

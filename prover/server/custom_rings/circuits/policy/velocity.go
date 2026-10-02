@@ -79,8 +79,9 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	policy velocityPolicy,
 	txContext transactionContext,
 ) successorCounters {
-	// 1. Require all money inputs to share one owner.
-	api.AssertIsEqual(txContext.inputs[0].record, 0)
+	// 1. Require all money inputs to share one owner. Slot 0 is never the
+	// record (RecordInputSlot), so its owner is the sender and its nullifier,
+	// which seeds every blinding, stays the sender's secret.
 	shared.AssertWhen(api, policy.rowsEnabled, txContext.inputs[0].live)
 	sender := txContext.inputs[0].ownerPkHash
 	for _, input := range txContext.inputs[1:] {

@@ -8,6 +8,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/test"
 
 	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/custom_rings/circuits/registry"
@@ -15,6 +16,17 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
 )
+
+// Runs without the proving key, so the record layout is checked everywhere.
+func TestCompressedParametersSolveTheCircuit(t *testing.T) {
+	assignment, err := compressedProofParameters(t, nil).CreateWitness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := test.IsSolved(&policy.CompressedPolicyCircuit{}, assignment, ecc.BN254.ScalarField()); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestCompressedSuccessorProofVerifies(t *testing.T) {
 	transferSystem := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
@@ -168,7 +180,10 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 			}),
 		}
 	}
-	p.Inputs[1], p.Outputs[1] = opening(p.Record.Version, p.Record.Commitment, 101), opening(p.Record.Version+1, nextCommitment, 102)
+	money := p.Outputs[0]
+	p.Inputs[policy.RecordInputSlot] = opening(p.Record.Version, p.Record.Commitment, 101)
+	p.Outputs[policy.RecordOutputSlot] = opening(p.Record.Version+1, nextCommitment, 102)
+	p.Outputs[policy.RecordOutputSlot+1] = money
 	transfer := &CompressedPolicyParameters{Base: *p}
 	bindRulesFreeStatement(t, &transfer.Base, compressedDisclosure(t, transfer))
 	return transfer

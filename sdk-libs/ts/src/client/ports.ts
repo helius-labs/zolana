@@ -437,7 +437,7 @@ export interface AuthorizedPrivateTransactionMaterial {
   readonly withdrawal?: TransactWithdrawal;
   readonly tree: Address;
   readonly intent: TransactionIntent;
-  readonly senderOutputCount: number;
+  readonly changeOutputCount: number;
   readonly owner: ShieldedAddress;
   readonly setupInstructions: readonly Instruction[];
 }

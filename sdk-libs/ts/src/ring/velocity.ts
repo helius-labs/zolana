@@ -11,6 +11,7 @@ import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Bytes31, Bytes32, MessageData, RequestContext } from "../interface/types.js";
 import { Utxo, ProofInputUtxo, createProofOutput } from "../transaction/utxo.js";
 import type { ProofOutputUtxo } from "../transaction/utxo.js";
+import { RECORD_OUTPUT_SLOT } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { U64_MAX, decodeAddress } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
@@ -105,10 +106,13 @@ export interface PlanVelocityInput {
   readonly movement: RingMovement;
   readonly firstNullifier: Bytes32;
   readonly outputBlindingSeed: Bytes32;
-  readonly moneyShape: Shape;
 }
 
-/** The smallest supported shape with one slot beyond the money on each side. */
+/**
+ * The smallest supported shape with one slot beyond the real money slots on
+ * each side. `money` counts real inputs and outputs, not a padded shape: the
+ * record sits at fixed slots and the padding follows the money.
+ */
 export function recordShape(money: Shape): Shape {
   const shape = SPP_SUPPORTED_SHAPES.find(
     (candidate) =>
@@ -240,7 +244,10 @@ export function withRecordSlotSecret(
 export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   // 1. Charge outflow against counters from the current window only.
   const { facts, movement } = input;
-  const shape = recordShape(input.moneyShape);
+  const shape = recordShape({
+    inputs: movement.inputs.filter((spend) => !spend.isDummy()).length,
+    outputs: movement.outputs.filter((output) => !output.isDummy()).length,
+  });
   const sameWindow = facts.live.record.window === facts.windowIndex;
   const previous = sameWindow ? facts.counters : undefined;
 
@@ -265,7 +272,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     blinding: transactOutputBlinding(
       input.firstNullifier,
       input.outputBlindingSeed,
-      shape.outputs - 1,
+      RECORD_OUTPUT_SLOT,
     ),
   });
 

@@ -30,6 +30,7 @@ import {
   canonicalShape,
   createProofOutput,
   depositBlinding,
+  encodeConfidentialSlots,
   outputBlindingSeed,
   ownerUtxoHash,
   privateTxBlinding,
@@ -330,7 +331,7 @@ describe("transaction core", () => {
     expect(ProofInputUtxo.dummy(DUMMY_BLINDING, 1).hash()).not.toEqual(dummy.hash());
   });
 
-  it("binds padded dummy output tags to the real input signer", () => {
+  it("binds padded dummy output tags to the real input signer, encoded as its change", () => {
     const { keypair, nullifier } = ed25519Material();
     const owner = keypair.shieldedAddress();
     const input = ProofInputUtxo.fromNullifierKey(
@@ -348,20 +349,28 @@ describe("transaction core", () => {
     });
     const prepared = transfer.prepare();
     const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const salt = new Uint8Array(16) as Bytes16;
+    // A real slot without its ciphertext gives a dummy nothing to copy.
+    expect(() =>
+      prepared.finalize({ txViewingPublicKey: tx.publicKey(), salt, payload: [] }),
+    ).toThrow("TRANSACTION_DUMMY_OUTPUT_FRAMING");
     const proofInputs = prepared.finalize({
       txViewingPublicKey: tx.publicKey(),
-      salt: new Uint8Array(16) as Bytes16,
-      payload: [],
+      salt,
+      payload: encodeConfidentialSlots(prepared.outputs, new AssetRegistry(), tx, salt),
     });
     const senderTag = owner.confidentialViewTag();
 
     expect(proofInputs.outputs).toHaveLength(8);
+    // The owner pays the fee, so its change and every pad naming it publish
+    // account index 0.
+    expect(proofInputs.externalData.outputs[0]?.ownerTag).toEqual({ kind: "account", index: 0 });
     for (let index = prepared.outputs.length; index < proofInputs.outputs.length; index++) {
       expect(proofInputs.outputs[index]?.ownerTag).toEqual(senderTag);
       expect(proofInputs.externalData.resolvedOwnerTags[index]).toEqual(senderTag);
       expect(proofInputs.externalData.outputs[index]?.ownerTag).toEqual({
-        kind: "inline",
-        value: senderTag,
+        kind: "account",
+        index: 0,
       });
     }
   });

@@ -384,8 +384,9 @@ its lineage in the clear, so an observer who knows an identity can count that
 member's transfers, the amounts stay hidden. The window is fixed, a sender may move
 up to twice the cap across one boundary.
 
-Windowed transfers reserve one of five input slots and one of four output
-slots for the record. Address claims use the separate registration instruction.
+Windowed transfers reserve input slot one and output slot zero for the record,
+money fills the other slots and dummies pad the tail. Address claims use the
+separate registration instruction.
 Records are compressed state, so a ring pays no rent per member. Transaction
 history and indexer storage still grow.
 

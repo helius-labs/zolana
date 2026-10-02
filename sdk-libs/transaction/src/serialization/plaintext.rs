@@ -3,7 +3,7 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_interface::MAX_OUTPUTS;
 use zolana_keypair::{viewing_key::ViewTag, PublicKey};
 
-use super::{change_slots, ChangeSlots, DecodeCx, OwnerCx, UtxoSerialization};
+use super::{change_slots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
@@ -32,14 +32,12 @@ pub struct TransferPlaintextSender {
 }
 
 impl TransferPlaintextSender {
-    fn change_slots(&self) -> ChangeSlots {
-        change_slots(self.spl.is_some(), self.sol_amount.is_some())
-    }
-
+    /// The change outputs at the slots after the `recipient_count` recipients.
     fn into_indexed_utxos(
         self,
         first_nullifier: &[u8; 32],
         blinding_seed: &[u8; 32],
+        recipient_count: u32,
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
@@ -50,7 +48,13 @@ impl TransferPlaintextSender {
             return Err(TransactionError::DataWithoutOutput);
         }
         let view_tag = self.owner_pubkey.confidential_view_tag()?;
-        let slots = self.change_slots();
+        let slots = change_slots(recipient_count, self.spl.is_some());
+        let blinding = |slot: u32| {
+            if slot >= MAX_OUTPUT_SLOTS {
+                return Err(TransactionError::TooManyOutputs);
+            }
+            derive_transact_output_blinding(first_nullifier, blinding_seed, slot)
+        };
         let mut utxos = Vec::new();
         if let Some(spl) = self.spl {
             utxos.push((
@@ -59,11 +63,7 @@ impl TransferPlaintextSender {
                     owner: self.owner_pubkey,
                     asset: assets.resolve(spl.asset_id)?,
                     amount: spl.amount,
-                    blinding: derive_transact_output_blinding(
-                        first_nullifier,
-                        blinding_seed,
-                        slots.spl,
-                    )?,
+                    blinding: blinding(slots.spl)?,
                     ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                     data: self.spl_data,
                 },
@@ -76,11 +76,7 @@ impl TransferPlaintextSender {
                     owner: self.owner_pubkey,
                     asset: Mint::SOL,
                     amount: sol_amount,
-                    blinding: derive_transact_output_blinding(
-                        first_nullifier,
-                        blinding_seed,
-                        slots.sol,
-                    )?,
+                    blinding: blinding(slots.sol)?,
                     ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                     data: self.sol_data,
                 },
@@ -154,34 +150,31 @@ impl TransferPlaintextUtxos {
         Ok(parsed)
     }
 
+    /// The outputs in slot order: recipient `i` at slot `i`, then the change.
     pub fn into_indexed_utxos(
         self,
         first_nullifier: &[u8; 32],
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
+        let recipient_count = u32::try_from(self.recipient_slots.len())
+            .ok()
+            .filter(|count| *count <= MAX_OUTPUT_SLOTS)
+            .ok_or(TransactionError::TooManyOutputs)?;
         let mut utxos = Vec::new();
-        let recipient_base = self
-            .sender
-            .as_ref()
-            .map_or(0, |sender| sender.change_slots().recipients);
+        for (slot, recipient) in (0u32..).zip(self.recipient_slots) {
+            let blinding =
+                derive_transact_output_blinding(first_nullifier, &self.blinding_seed, slot)?;
+            utxos.push(recipient.into_indexed_utxo(blinding, assets, ring_program_id)?);
+        }
         if let Some(sender) = self.sender {
             utxos.extend(sender.into_indexed_utxos(
                 first_nullifier,
                 &self.blinding_seed,
+                recipient_count,
                 assets,
                 ring_program_id,
             )?);
-        }
-        for (i, recipient) in self.recipient_slots.into_iter().enumerate() {
-            let slot = u32::try_from(i)
-                .ok()
-                .and_then(|i| i.checked_add(recipient_base))
-                .filter(|slot| *slot < MAX_OUTPUT_SLOTS)
-                .ok_or(TransactionError::TooManyOutputs)?;
-            let blinding =
-                derive_transact_output_blinding(first_nullifier, &self.blinding_seed, slot)?;
-            utxos.push(recipient.into_indexed_utxo(blinding, assets, ring_program_id)?);
         }
         Ok(utxos)
     }
@@ -234,12 +227,6 @@ impl UtxoSerialization for PlaintextTransfer {
         owner: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let mut sender_owner = None;
-        let mut spl = None;
-        let mut sol_amount = None;
-        let mut spl_data = Data::default();
-        let mut sol_data = Data::default();
-        let mut recipient_slots = Vec::new();
         // The blinding is the only record of which physical slot an output sat
         // in, and the derivation is not invertible, so recover the slot by
         // re-deriving every candidate a shape can hold.
@@ -260,35 +247,41 @@ impl UtxoSerialization for PlaintextTransfer {
             if usize::try_from(position).ok() != Some(index) {
                 return Err(TransactionError::InvalidPlaintextOutputPosition { index, position });
             }
-            let change = recipient_slots.is_empty() && utxo.owner == owner.owner;
-            let is_sol = utxo.asset.asset == Mint::SOL.asset;
-            if change && index == 0 && !is_sol {
-                sender_owner = Some(utxo.owner);
-                spl = Some(TransferPlaintextSplChange {
-                    amount: utxo.amount,
-                    asset_id: utxo.asset.asset_id,
-                });
-                spl_data = utxo.data.clone();
-            } else if change && is_sol && sol_amount.is_none() {
-                sender_owner = Some(utxo.owner);
-                sol_amount = Some(utxo.amount);
-                sol_data = utxo.data.clone();
-            } else {
-                recipient_slots.push(TransferPlaintextRecipient {
-                    owner_pubkey: utxo.owner,
-                    asset_id: utxo.asset.asset_id,
-                    amount: utxo.amount,
-                    data: utxo.data.clone(),
-                });
-            }
         }
-        let sender = sender_owner.map(|owner_pubkey| TransferPlaintextSender {
-            owner_pubkey,
-            spl,
-            sol_amount,
-            spl_data,
-            sol_data,
+        // The change trails the recipients, SPL before SOL, so the sender's
+        // outputs are read off the end.
+        let is_change = |utxo: &Utxo, sol: bool| {
+            utxo.owner == owner.owner && (utxo.asset.asset == Mint::SOL.asset) == sol
+        };
+        let mut recipients = utxos;
+        let mut take_change = |sol: bool| match recipients.split_last() {
+            Some((last, rest)) if is_change(last, sol) => {
+                recipients = rest;
+                Some(last)
+            }
+            _ => None,
+        };
+        let sol = take_change(true);
+        let spl = take_change(false);
+        let sender = spl.or(sol).map(|change| TransferPlaintextSender {
+            owner_pubkey: change.owner,
+            spl: spl.map(|utxo| TransferPlaintextSplChange {
+                amount: utxo.amount,
+                asset_id: utxo.asset.asset_id,
+            }),
+            sol_amount: sol.map(|utxo| utxo.amount),
+            spl_data: spl.map(|utxo| utxo.data.clone()).unwrap_or_default(),
+            sol_data: sol.map(|utxo| utxo.data.clone()).unwrap_or_default(),
         });
+        let recipient_slots = recipients
+            .iter()
+            .map(|utxo| TransferPlaintextRecipient {
+                owner_pubkey: utxo.owner,
+                asset_id: utxo.asset.asset_id,
+                amount: utxo.amount,
+                data: utxo.data.clone(),
+            })
+            .collect();
         Ok(TransferPlaintextUtxos {
             type_prefix: TRANSFER_PLAINTEXT,
             blinding_seed: cx.blinding_seed,

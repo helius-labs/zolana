@@ -2,7 +2,7 @@ use crate::InstructionView;
 use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    PolicyConfig, RegisterSpendIxData,
+    PolicyConfig, RegisterSpendIxData, RECORD_OUTPUT_SLOT,
 };
 use solana_address::Address;
 use zolana_indexer_api::ShieldedTransaction;
@@ -64,9 +64,11 @@ impl Reconstruction<'_> {
         if source_instruction_tag != rail.source_tag() {
             bail!("record update used the wrong SPP rail");
         }
+        // Registration creates one output, so both rails place the successor
+        // at the record output slot.
         let output = event
             .output_slots
-            .last()
+            .get(RECORD_OUTPUT_SLOT)
             .context("record update has no successor output")?;
         let namespace = Address::find_program_address(
             &[zolana_ring_policy::NAMESPACE_PDA_SEED],
@@ -115,7 +117,7 @@ impl Reconstruction<'_> {
         Ok(Successor {
             member,
             nullifier,
-            output_index: u16::try_from(event.output_slots.len() - 1)?,
+            output_index: RECORD_OUTPUT_SLOT as u16,
         })
     }
 }
@@ -132,7 +134,7 @@ pub fn successor(
 ) -> Result<SpendRecord> {
     let output = event
         .output_slots
-        .last()
+        .get(RECORD_OUTPUT_SLOT)
         .context("spend-record output missing")?;
     if output.view_tag.0 != context.namespace {
         bail!("spend-record output belongs to another namespace");

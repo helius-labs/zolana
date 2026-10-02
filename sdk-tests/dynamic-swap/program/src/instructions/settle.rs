@@ -64,10 +64,15 @@ impl SettlePublicInput<'_> {
 }
 
 /// Settles one escrow -- settle or price-refund -- and closes it. Permissionless:
-/// the caller only pays fees and authorizes the call; the outcome and all
-/// destinations are fixed by the proof and on-chain state, and only whoever holds
-/// the order/reservation witnesses off-chain (the maker/operator) can build a
-/// valid proof.
+/// the caller only pays fees and authorizes the call; the outcome and the payout
+/// UTXOs are fixed by the proof and on-chain state, and only whoever holds the
+/// order/reservation witnesses off-chain (the maker/operator) can build a valid
+/// proof.
+///
+/// Both inputs are PDA-owned, so no user signature covers the forwarded
+/// instruction data, and `private_tx_hash` binds only the UTXOs. Anyone holding
+/// a published settle proof could otherwise pair it with settlement legs or
+/// messages of their own choosing, so settle forwards none.
 ///
 /// Every escrow is priced at creation (commit is folded into create_escrow), so
 /// the outcome (settle vs refund) is fixed at creation and settle is deterministic
@@ -87,6 +92,9 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
 
     let SettleIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
+    if !transact.interface_transfers.is_empty() || !transact.messages.is_empty() {
+        return Err(DynamicSwapError::SettleExternalDataNotEmpty.into());
+    }
 
     let pair = *load_pair(pair_account)?;
     let pair_address = *pair_account.address();

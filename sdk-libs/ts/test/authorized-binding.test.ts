@@ -185,7 +185,7 @@ describe("authorized transaction binding", () => {
 
   it("admits only a zero-amount SOL change in a self-paid full SPL withdrawal", async () => {
     const { material } = await authorize("withdrawal", 100n);
-    expect(material.senderOutputCount).toBe(1);
+    expect(material.changeOutputCount).toBe(1);
     const change = material.proofInputs.outputs[0];
     if (change === undefined) throw new Error("expected the SOL change output");
     expect(change.isDummy()).toBe(false);
@@ -224,8 +224,12 @@ describe("authorized transaction binding", () => {
     const intent = material.intent;
     if (intent.kind !== "transfer") throw new Error("expected transfer");
     const recipient = ShieldedKeypair.generate().shieldedAddress();
+    // The recipients lead; the change trails them, and the padding trails both.
+    const recipientCount =
+      material.proofInputs.outputs.filter((output) => !output.isDummy()).length -
+      material.changeOutputCount;
     const outputs = material.proofInputs.outputs.map((output, index) =>
-      index < material.senderOutputCount || output.isDummy()
+      index >= recipientCount || output.isDummy()
         ? output
         : createProofOutput({
             ownerAddress: recipient,

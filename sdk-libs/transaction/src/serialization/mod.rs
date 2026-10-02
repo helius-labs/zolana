@@ -44,15 +44,15 @@ impl<'a> DecodeCx<'a> {
 pub(crate) struct ChangeSlots {
     pub spl: u32,
     pub sol: u32,
-    pub recipients: u32,
 }
 
-pub(crate) fn change_slots(spl_present: bool, sol_present: bool) -> ChangeSlots {
-    let sol = u32::from(spl_present);
+/// The change outputs follow the `recipient_count` recipients, SPL before SOL.
+/// An absent change takes no slot, so the SOL change moves up when there is no
+/// SPL change (spec: Output slot mapping).
+pub(crate) fn change_slots(recipient_count: u32, spl_present: bool) -> ChangeSlots {
     ChangeSlots {
-        spl: 0,
-        sol,
-        recipients: sol + u32::from(sol_present),
+        spl: recipient_count,
+        sol: recipient_count.saturating_add(u32::from(spl_present)),
     }
 }
 

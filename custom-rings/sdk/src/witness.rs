@@ -31,7 +31,7 @@ use crate::{
         SourceOwnerEntry, VelocityProofInput, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
     },
     shared::source_map,
-    transfer::record_input_position,
+    transfer::{RECORD_INPUT_SLOT, RECORD_OUTPUT_SLOT},
     CurrentKeyRegistryRoot, PoolTree, TransferError,
 };
 
@@ -309,32 +309,48 @@ impl<'a> CustomRingWitnessInput<'a> {
             .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
-    /// A windowed ring places the record at its last real input and its last output.
+    /// A windowed ring pins the record to `RECORD_INPUT_SLOT` and
+    /// `RECORD_OUTPUT_SLOT`, with the money around it and dummies last.
     fn has_record(&self) -> bool {
         self.velocity.window_slots != 0
     }
 
+    /// The active prefix the circuit selects. A windowed transfer trails its
+    /// dummies, so the prefix ends at its last real slot.
     fn active_input_count(&self) -> usize {
         match self.has_record() {
-            true => record_input_position(self.inputs).map_or(0, |record| record + 1),
+            true => self.inputs.iter().filter(|input| !input.is_dummy()).count(),
             false => self.inputs.len(),
         }
     }
 
-    /// Rule subjects skip the record slot the circuit excludes.
-    fn rule_inputs(&self) -> &[SppProofInputUtxo] {
+    fn active_output_count(&self) -> usize {
         match self.has_record() {
             true => self
-                .inputs
-                .get(..self.active_input_count().saturating_sub(1))
-                .unwrap_or_default(),
-            false => self.inputs,
+                .outputs
+                .iter()
+                .filter(|output| !output.is_dummy())
+                .count(),
+            false => self.outputs.len(),
         }
+    }
+
+    /// Rule subjects skip the record slot the circuit excludes.
+    fn rule_inputs(&self) -> impl Iterator<Item = &SppProofInputUtxo> {
+        let has_record = self.has_record();
+        self.inputs
+            .iter()
+            .enumerate()
+            .filter(move |(slot, _)| !(has_record && *slot == RECORD_INPUT_SLOT))
+            .map(|(_, input)| input)
     }
 
     fn rule_outputs(&self) -> &[SppProofOutputUtxo] {
         match self.has_record() {
-            true => &self.outputs[..self.outputs.len().saturating_sub(1)],
+            true => self
+                .outputs
+                .get(RECORD_OUTPUT_SLOT + 1..)
+                .unwrap_or_default(),
             false => self.outputs,
         }
     }
@@ -370,7 +386,6 @@ impl<'a> CustomRingWitnessInput<'a> {
                 .collect(),
             Subject::Sender => self
                 .rule_inputs()
-                .iter()
                 .filter(|input_utxo| !input_utxo.is_dummy())
                 .map(|input_utxo| owner_member(input_utxo.utxo.owner.owner_proof_input_hash()))
                 .collect(),
@@ -660,7 +675,7 @@ impl ResolvedWitness<'_> {
             inputs,
             outputs,
             n_in: input.active_input_count() as u8,
-            n_out: input.outputs.len() as u8,
+            n_out: input.active_output_count() as u8,
             rules: table.rules,
             policy_len: table.rule_count,
             inline_assets: table.inline_assets,
@@ -1371,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    fn a_windowed_witness_ends_its_active_inputs_at_the_record() {
+    fn a_windowed_witness_counts_its_real_slots_and_skips_the_record_slots() {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
         let real = |tree_id: u16| -> SppProofInputUtxo {
             zolana_test_utils::utxo::wallet(
@@ -1392,16 +1407,24 @@ mod tests {
             .expect("input")
             .into()
         };
+        // `[money0, record, money1, dummy]` on the input side, `[record,
+        // money, dummy]` on the output side.
         let inputs = [
             real(0),
             real(9),
-            SppProofInputUtxo::dummy(9).expect("dummy"),
-            SppProofInputUtxo::dummy(9).expect("dummy"),
+            real(0),
+            SppProofInputUtxo::dummy(0).expect("dummy"),
         ];
-        let nullifiers = |inputs: &[SppProofInputUtxo]| {
+        let (_, address) = recipient();
+        let outputs = [
+            output(address, 0),
+            output(address, 1),
+            SppProofOutputUtxo::default(),
+        ];
+        let nullifiers = |inputs: &[&SppProofInputUtxo]| {
             inputs
                 .iter()
-                .map(SppProofInputUtxo::nullifier)
+                .map(|input| input.nullifier())
                 .collect::<Vec<_>>()
         };
         let config = config(&EMPTY);
@@ -1409,7 +1432,7 @@ mod tests {
             policy: &EMPTY,
             policy_config: &config,
             inputs: &inputs,
-            outputs: &[],
+            outputs: &outputs,
             output_tree_id: 0,
             velocity: VelocityProofInput {
                 window_slots: 10,
@@ -1417,17 +1440,29 @@ mod tests {
             },
             key_registry: None,
         };
-        assert_eq!(windowed.active_input_count(), 2);
+        let [money0, _, money1, dummy] = &inputs;
+        let [_, money_output, dummy_output] = &outputs;
+        assert_eq!(windowed.active_input_count(), 3);
+        assert_eq!(windowed.active_output_count(), 2);
         assert_eq!(
-            nullifiers(windowed.rule_inputs()),
-            nullifiers(inputs.get(..1).expect("money input"))
+            nullifiers(&windowed.rule_inputs().collect::<Vec<_>>()),
+            nullifiers(&[money0, money1, dummy])
+        );
+        assert_eq!(
+            windowed.rule_outputs(),
+            &[money_output.clone(), dummy_output.clone()]
         );
         let unwindowed = CustomRingWitnessInput {
             velocity: velocity_off(),
             ..windowed
         };
         assert_eq!(unwindowed.active_input_count(), inputs.len());
-        assert_eq!(nullifiers(unwindowed.rule_inputs()), nullifiers(&inputs));
+        assert_eq!(unwindowed.active_output_count(), outputs.len());
+        assert_eq!(
+            nullifiers(&unwindowed.rule_inputs().collect::<Vec<_>>()),
+            nullifiers(&inputs.iter().collect::<Vec<_>>())
+        );
+        assert_eq!(unwindowed.rule_outputs(), outputs.as_slice());
     }
 
     struct ProofRpc {

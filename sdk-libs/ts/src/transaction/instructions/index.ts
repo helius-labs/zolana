@@ -2,7 +2,7 @@ export { ConfidentialSplit, Merge, PreparedMerge, PreparedSplit } from "./builde
 export {
   BN254_MODULUS_DEC,
   ConfidentialTransfer,
-  SENDER_SLOT_COUNT,
+  frameDummyOutputs,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   WithdrawalTarget,

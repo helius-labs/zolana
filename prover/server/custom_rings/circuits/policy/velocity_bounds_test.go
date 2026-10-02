@@ -26,8 +26,8 @@ func TestVelocitySuccessorVersionFitsU64(t *testing.T) {
 			s := newStatement(t, f)
 			s.record.version = tc.version
 			s.deriveRecord(t)
-			s.inputs[len(s.inputs)-1].DataHash = s.record.dataHash
-			s.outputs[len(s.outputs)-1].DataHash = spptest.MustPoseidon(t, 7, []*big.Int{
+			s.inputs[RecordInputSlot].DataHash = s.record.dataHash
+			s.outputs[RecordOutputSlot].DataHash = spptest.MustPoseidon(t, 7, []*big.Int{
 				SpendRecordDomain, s.record.address, s.record.sender,
 				new(big.Int).Add(new(big.Int).SetUint64(tc.version), big.NewInt(1)),
 				new(big.Int).SetUint64(s.windowIndex), s.record.nextCommitment,

@@ -106,7 +106,9 @@ impl TransferHarness {
                 });
             }
         }
+        // Change trails the recipients, SPL before SOL.
         let mut seen = Vec::new();
+        let mut change_outputs = Vec::new();
         for input in &self.plan.inputs {
             if seen.contains(&input.asset) {
                 continue;
@@ -134,13 +136,15 @@ impl TransferHarness {
                 .map_or(0, |w| w.amount);
             let change = available - sent - withdrawn;
             if change > 0 {
-                expected.push((
+                change_outputs.push((
                     sender.shielded_address().unwrap(),
                     mint(input.asset),
                     change,
                 ));
             }
         }
+        change_outputs.sort_by_key(|(_, mint, _)| mint.asset == Mint::SOL.asset);
+        expected.extend(change_outputs);
         if self.plan.declared_shape {
             tx.pad_utxos(Shape::IN2_OUT3, &sender.shielded_address().unwrap())
                 .unwrap();

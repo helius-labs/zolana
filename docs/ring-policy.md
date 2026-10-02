@@ -281,12 +281,16 @@ independent of its table position.
 `register_spend` claims the member's address at version zero under the
 current window with the zero counters, the payer's Solana key is the member
 and the program derives every field except the blinding. From then on only the member's
-own transfer writes the record. The transfer carries the record as the last
-input and the last output of its SPP transact, the namespace PDA raised as
-one more owner signer inside the program's CPI, and the policy circuit pins
-the two slots at the sender's address, the input at the latest version, the
-output at version plus one, every other opening a different owner. Money
-inputs open to one identity, that identity is the record's member.
+own transfer writes the record. The transfer carries the record at input slot
+one and output slot zero of its SPP transact, the namespace PDA raised as one
+more owner signer inside the program's CPI, and the policy circuit pins the
+two slots at the sender's address, the input at the latest version, the output
+at version plus one, every other opening a different owner. Input slot zero
+stays a money input, its nullifier seeds the transfer's blindings while the
+record's nullifier derives from the public zero key. The money follows the
+record on both sides and padding dummies come last, so the slot pattern
+reveals neither the record nor the real input count. Money inputs open to one
+identity, that identity is the record's member.
 
 For each row the circuit charges `outflow = inputs of the mint - change the
 sender keeps inside the ring`, payments, exits and withdrawals alike, and
@@ -303,7 +307,7 @@ Registration publishes the opening as plaintext output data. A transfer
 uses SPP's standard confidential output format for the record, publishing
 the opening in one message tagged
 `SHA256("zolana:spend-record:v1" || namespace)`. The program reconstructs the
-last output's commitment from that message. Missing or duplicate messages
+record output's commitment from that message. Missing or duplicate messages
 are refused. The carrier is a zero-amount note the namespace PDA owns.
 
 The successor's counters follow in a message under the

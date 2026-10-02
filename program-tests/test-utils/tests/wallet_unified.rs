@@ -376,3 +376,104 @@ fn parallel_scan_records_the_same_confidential_send_history() {
 }
 
 const SENDER_SLOT_COUNT: usize = 2;
+
+/// The slot cipher carries no MAC, so a dummy framed as a real confidential
+/// slot can decrypt under the transaction key to a well-formed plaintext. The
+/// sender's history must still name only the real recipient.
+#[test]
+fn a_framed_dummy_that_decrypts_under_the_transaction_key_is_not_a_recipient() {
+    use zolana_test_utils::wallet::{PrivateTransactionDirection, PrivateTransactionKind};
+    use zolana_transaction::{
+        serialization::confidential::{
+            Confidential, ConfidentialEncode, ConfidentialOutputPlaintext,
+        },
+        UtxoSerialization,
+    };
+
+    let assets = AssetRegistry::default();
+    let alice = keypair_from_index(4);
+    let bob = keypair_from_index(5);
+    let mut counter = 0u64;
+
+    let (funding, _, _) = build_unified_transfer(
+        &assets,
+        UnifiedTransferSpec {
+            sender: &bob,
+            recipient: &alice,
+            amount: 100,
+            change_amount: 10,
+            first_nullifier: unique_nullifier(&mut counter),
+            blinding: unique31(&mut counter, 0x07),
+            change_blinding: unique31(&mut counter, 0x08),
+        },
+    );
+    let authority = KeypairWalletAuthority::new(Address::default(), &alice);
+    let mut funded = Wallet::new(alice.shielded_address().unwrap(), assets.clone()).unwrap();
+    funded
+        .sync(&authority, std::slice::from_ref(&funding), 1, WINDOW)
+        .unwrap();
+    let spent_nullifier = funded
+        .utxos
+        .first()
+        .expect("the funding transfer gave alice a UTXO")
+        .nullifier;
+
+    let (mut send, _, _) = build_unified_transfer(
+        &assets,
+        UnifiedTransferSpec {
+            sender: &alice,
+            recipient: &bob,
+            amount: 40,
+            change_amount: 60,
+            first_nullifier: spent_nullifier,
+            blinding: unique31(&mut counter, 0x09),
+            change_blinding: unique31(&mut counter, 0x0a),
+        },
+    );
+    let dummy = Confidential::encode_plaintext(
+        &ConfidentialOutputPlaintext {
+            asset_id: u64::MAX,
+            amount: 0,
+            blinding: unique31(&mut counter, 0x0b),
+            ring_program_id: None,
+            data: Data::default(),
+        },
+        alice.signing_pubkey().confidential_view_tag().unwrap(),
+        &ConfidentialEncode {
+            tx: alice
+                .viewing_key
+                .get_transaction_viewing_key(&spent_nullifier)
+                .unwrap(),
+            recipient_pubkey: zolana_keypair::ViewingKey::new().pubkey(),
+            salt: send.salt.unwrap(),
+            slot_index: u32::try_from(send.output_slots.len()).unwrap(),
+        },
+    )
+    .unwrap();
+    send.output_slots.push(OutputSlot {
+        view_tag: dummy.view_tag,
+        output_context: OutputContext {
+            hash: unique31(&mut counter, 0x0c),
+            tree_id: wallet_common::TEST_TREE_ID,
+            leaf_index: 9,
+        },
+        payload: dummy.data,
+    });
+
+    let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
+    wallet
+        .sync(&authority, &[funding, send], 1, WINDOW)
+        .unwrap();
+    let outbound = wallet
+        .private_transactions()
+        .iter()
+        .find(|row| row.direction == PrivateTransactionDirection::Outbound)
+        .expect("outbound history row");
+    assert_eq!(
+        (outbound.kind, outbound.counterparty_viewing_pubkey),
+        (
+            PrivateTransactionKind::PrivateTransfer,
+            Some(bob.viewing_pubkey())
+        )
+    );
+}

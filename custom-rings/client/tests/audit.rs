@@ -23,7 +23,7 @@ use zolana_client::{
 };
 use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
-    instruction::MessageData,
+    instruction::{MessageData, OwnerTag, TransactOutput},
 };
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
@@ -32,6 +32,7 @@ use zolana_ring_client::{
     TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
+    instructions::transact::frame_dummy_outputs,
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, SppProofOutputUtxo,
     UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
@@ -137,15 +138,31 @@ fn confidential_slot(
     }
 }
 
-/// A dummy slot as the transfer builder publishes them: length-matched random
-/// bytes. Borsh only accepts 0, 1 or 2 as the [`OutputDataEncoding`] tag, so a
-/// random first byte almost never parses; 0xff pins that case deterministically.
+/// A dummy slot as the transfer builder publishes them: framed like a real
+/// confidential slot around a fresh embedded key and a random body.
 fn dummy_slot(slot_index: u32) -> OutputSlot {
+    let mut encoded = [TransactOutput {
+        utxo_hash: [0; 32],
+        owner_tag: OwnerTag::Inline([0xaa; 32]),
+        data: None,
+    }];
+    frame_dummy_outputs(&[SppProofOutputUtxo::default()], &mut encoded).expect("framed dummy");
+    let [TransactOutput {
+        data: Some(payload),
+        ..
+    }] = encoded
+    else {
+        panic!("a framed dummy carries data")
+    };
     OutputSlot {
         view_tag: [0xaa; 32],
         output_context: output_context(&padding_output(slot_index), slot_index),
-        payload: vec![0xff; 160],
+        payload,
     }
+}
+
+fn is_padding(slot: &OutputSlot, slot_index: u32) -> bool {
+    slot.output_context.hash == output_context(&padding_output(slot_index), slot_index).hash
 }
 
 /// A slot published under another encryption scheme, which the auditor must skip
@@ -192,6 +209,9 @@ fn auditor_message_data(
         .enumerate()
         .map(|(index, slot)| {
             let slot_index = u32::try_from(index).expect("slot index");
+            if is_padding(slot, slot_index) {
+                return padding_output(slot_index);
+            }
             let plaintext = slot.output_data().and_then(|output| match output {
                 OutputDataEncoding::Encrypted(blob) => blob.get(1..).and_then(|body| {
                     Confidential::decrypt_with_tx_key(tx, body, SALT, slot_index).ok()
@@ -239,32 +259,45 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
         counters_commitment: counters.commitment().unwrap(),
         blinding: field(6),
     };
-    let mut slot = confidential_slot(&tx_key, &tx_key.pubkey(), &plaintext(SOL_ASSET_ID, 0, 6), 0);
-    slot.view_tag = namespace;
-    let slots = vec![slot];
+    let record_slot = |slot_index: u32| {
+        let mut slot = confidential_slot(
+            &tx_key,
+            &tx_key.pubkey(),
+            &plaintext(SOL_ASSET_ID, 0, 6),
+            slot_index,
+        );
+        slot.view_tag = namespace;
+        slot
+    };
+    let slots = vec![record_slot(0)];
     let record_message = MessageData {
         view_tag: spend_record_message_tag(&namespace).unwrap(),
         data: record.to_output_data().to_vec(),
     };
-    let mut tx = transaction(
-        &tx_key,
-        slots.clone(),
-        vec![
-            record_message.clone(),
-            MessageData {
-                view_tag: namespace,
-                data: CountersSeal {
-                    tx: &tx_key,
-                    recipient: &tx_key.pubkey(),
-                    salt: SALT,
-                    counters: &counters,
-                }
-                .encrypt()
-                .unwrap(),
-            },
-            auditor_message_data(&tx_key, &auditor.pubkey(), &slots),
-        ],
-    );
+    let counters_message = MessageData {
+        view_tag: namespace,
+        data: CountersSeal {
+            tx: &tx_key,
+            recipient: &tx_key.pubkey(),
+            salt: SALT,
+            counters: &counters,
+        }
+        .encrypt()
+        .unwrap(),
+    };
+    let windowed = |slots: Vec<OutputSlot>| {
+        let auditor_message = auditor_message_data(&tx_key, &auditor.pubkey(), &slots);
+        transaction(
+            &tx_key,
+            slots,
+            vec![
+                record_message.clone(),
+                counters_message.clone(),
+                auditor_message,
+            ],
+        )
+    };
+    let mut tx = windowed(slots);
     let assets = registry();
     let audit = |tx: &ShieldedTransaction| {
         TransactionAudit {
@@ -280,7 +313,7 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
     assert_eq!(opened.spend_records.len(), 1);
     assert_eq!(opened.spend_records[0].record, record);
     assert_eq!(opened.spend_records[0].counters, Some(counters));
-    tx.messages.insert(0, record_message);
+    tx.messages.insert(0, record_message.clone());
     assert!(matches!(
         audit(&tx),
         Err(AuditError::InvalidSpendRecordMessage)
@@ -297,10 +330,18 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
         audit(&tx),
         Err(AuditError::InvalidSpendRecordMessage)
     ));
-    tx.messages[0].data = record.to_output_data().to_vec();
-    tx.output_slots.push(dummy_slot(1));
+    // The record sits at output slot zero ahead of the money and dummies.
+    let padded = audit(&windowed(vec![record_slot(0), dummy_slot(1)])).unwrap();
+    assert_eq!(padded.undecryptable_slots, vec![1]);
+    assert_eq!(
+        padded
+            .spend_records
+            .first()
+            .map(|audited| audited.slot_index),
+        Some(0)
+    );
     assert!(matches!(
-        audit(&tx),
+        audit(&windowed(vec![dummy_slot(0), record_slot(1)])),
         Err(AuditError::InvalidSpendRecordMessage)
     ));
 }
@@ -471,6 +512,53 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
             ],
             vec![1, 3]
         )
+    );
+}
+
+/// The slot cipher carries no MAC, so a dummy's noise can decrypt under the
+/// transaction key to a well-formed plaintext, here one naming an asset the
+/// registry does not know. The committed dummy opening still marks it as noise.
+#[test]
+fn a_dummy_whose_noise_decrypts_is_reported_not_audited() {
+    let auditor = ViewingKey::new();
+    let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
+
+    let real = plaintext(SOL_ASSET_ID, 10, 0x41);
+    let mut noise = confidential_slot(
+        &tx_key,
+        &ViewingKey::new().pubkey(),
+        &plaintext(u64::MAX, 3, 0x43),
+        1,
+    );
+    noise.output_context = output_context(&padding_output(1), 1);
+    let slots = vec![
+        confidential_slot(&tx_key, &recipient.pubkey(), &real, 0),
+        noise,
+    ];
+    let tx = transaction(
+        &tx_key,
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
+    );
+
+    let audited = TransactionAudit {
+        auditor: &auditor,
+        transaction: &tx,
+        assets: &registry(),
+    }
+    .run()
+    .expect("audit");
+    assert_eq!(
+        (
+            audited
+                .outputs
+                .iter()
+                .map(|output| output.slot_index)
+                .collect::<Vec<_>>(),
+            audited.undecryptable_slots
+        ),
+        (vec![0], vec![1])
     );
 }
 

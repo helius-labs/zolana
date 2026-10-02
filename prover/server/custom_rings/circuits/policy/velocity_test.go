@@ -2,6 +2,7 @@ package policy
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -111,7 +112,7 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 			name: "the record alone",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				return reboundStatement(t, velocityDefault(), func(s *statement) {
-					s.inputs = s.inputs[len(s.inputs)-1:]
+					s.inputs = []UtxoWires{dummyOpening(t, 0x71), s.inputs[RecordInputSlot]}
 				})
 			},
 		},
@@ -119,8 +120,8 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 			name: "a money input owned by the namespace",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				return reboundStatement(t, velocityDefault(), func(s *statement) {
-					s.inputs[0].OwnerPkHash = s.inputs[1].OwnerPkHash
-					s.inputs[0].NullifierPk = s.inputs[1].NullifierPk
+					s.inputs[0].OwnerPkHash = s.inputs[RecordInputSlot].OwnerPkHash
+					s.inputs[0].NullifierPk = s.inputs[RecordInputSlot].NullifierPk
 				})
 			},
 		},
@@ -128,7 +129,7 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 			name: "the successor placed inside the ring",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				return reboundStatement(t, velocityDefault(), func(s *statement) {
-					s.outputs[len(s.outputs)-1].RingProgramID = s.ringID
+					s.outputs[RecordOutputSlot].RingProgramID = s.ringID
 				})
 			},
 		},
@@ -186,6 +187,50 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rejectAssignment(t, tt.build(t))
 		})
+	}
+}
+
+// The record pair is read at RecordInputSlot and RecordOutputSlot only, a
+// record elsewhere is an ordinary namespace owned note and rejected.
+func TestCircuitRejectsRecordOutsideItsSlots(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *statement)
+	}{
+		{"the record input placed last", func(t *testing.T, s *statement) {
+			s.inputs = []UtxoWires{s.inputs[0], dummyOpening(t, 0x71), s.inputs[RecordInputSlot]}
+		}},
+		{"the record input swapped with the money input", func(_ *testing.T, s *statement) {
+			s.inputs[0], s.inputs[RecordInputSlot] = s.inputs[RecordInputSlot], s.inputs[0]
+		}},
+		{"the record output placed last", func(_ *testing.T, s *statement) {
+			s.outputs = append(s.outputs[RecordOutputSlot+1:], s.outputs[RecordOutputSlot])
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rejectAssignment(t, reboundStatement(t, velocityDefault(), func(s *statement) { tt.mutate(t, s) }))
+		})
+	}
+}
+
+// A record parked in an unselected slot matches SPP's hash, which skips
+// inactive slots, without entering the transaction; the circuit requires the
+// record slot to be selected whenever a window is open.
+func TestCircuitRejectsAnInactiveRecordInput(t *testing.T) {
+	f := velocityDefault()
+	f.rulesFree = true
+	s := newStatement(t, f)
+	record := s.inputs[RecordInputSlot]
+	s.inputs = s.inputs[:RecordInputSlot]
+	c := s.assignment(t, nil)
+	c.Inputs[RecordInputSlot] = record
+	err := test.IsSolved(&CustomRingPolicyCircuit{}, c, ecc.BN254.ScalarField())
+	if err == nil {
+		t.Fatal("a windowed transfer solved with its record outside the selected inputs")
+	}
+	if !strings.Contains(err.Error(), "constrainTransactionContext") {
+		t.Fatalf("rejected outside the record activity check: %v", err)
 	}
 }
 

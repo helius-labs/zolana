@@ -275,7 +275,7 @@ impl TransactRail {
                     PolicyStatement::Windowed { .. } => {
                         let record_output = transact
                             .outputs
-                            .last()
+                            .get(custom_ring_interface::RECORD_OUTPUT_SLOT)
                             .ok_or(CustomRingError::InvalidSpendRecord)?;
                         let output_tree = spp_accounts
                             .get(1)

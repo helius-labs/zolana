@@ -161,7 +161,7 @@ async function authorizeWithInputs(
   const action = transaction._action();
   let proofInputs: SppProofInputs;
   let intent: TransactionIntent;
-  let senderOutputCount: number;
+  let changeOutputCount: number;
   let approvedIntentHash: Bytes32;
   if (action.kind === "split") {
     const input = inputs[0];
@@ -198,7 +198,7 @@ async function authorizeWithInputs(
     });
     checkIntentApproval(approval, intent, intentMismatch);
     approvedIntentHash = approval.intentHash;
-    senderOutputCount = 0;
+    changeOutputCount = 0;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -241,7 +241,7 @@ async function authorizeWithInputs(
     checkIntentApproval(approval, intent, intentMismatch);
     approvedIntentHash = approval.intentHash;
     checkPreparedTransfer(prepared, intent, intentMismatch);
-    senderOutputCount = prepared.senderOutputCount;
+    changeOutputCount = prepared.changeOutputCount;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -253,7 +253,7 @@ async function authorizeWithInputs(
     proofInputs,
     tree: transaction.tree(),
     intent,
-    senderOutputCount,
+    changeOutputCount,
     owner: address,
     setupInstructions,
     ...(withdrawal === undefined ? {} : { withdrawal }),
