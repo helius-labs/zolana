@@ -3,7 +3,8 @@
 //! when you need direct access to an individual service.
 //!
 //! Note decryption lives in `zolana-transaction`; the SDK keeps no wallet
-//! state. The user registry helpers are in [`user_registry`].
+//! state. The user registry helpers are in [`user_registry`], and the token
+//! program and pool asset id of a mint in [`asset`].
 //!
 //! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
 //! `let _t = Phase::start(..)` guards through this crate are that, timing until
@@ -15,6 +16,7 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `indexer-api` + `solana-rpc`
 
+pub mod asset;
 pub mod authority;
 #[cfg(feature = "indexer-api")]
 pub mod client;

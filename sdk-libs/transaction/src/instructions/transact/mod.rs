@@ -20,8 +20,11 @@ pub mod shape;
 pub mod transaction;
 
 use solana_address::Address;
-use zolana_interface::MAX_INPUT_TREES;
+use zolana_interface::{pda, MAX_INPUT_TREES};
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
+use zolana_program::instruction::{
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
+};
 
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
@@ -316,5 +319,40 @@ impl ConfidentialTransaction {
             amount,
             SettlementTarget::Sol { user_sol_account },
         )
+    }
+
+    /// Withdraw `amount` of `asset` to the public account `recipient` and
+    /// return the settlement accounts the `transact` instruction takes for it.
+    ///
+    /// SOL goes to `recipient` itself. An SPL mint goes to `recipient`'s
+    /// associated token account under `token_program`, the mint's token
+    /// program (`None` for SOL); that account must exist when the transaction
+    /// lands.
+    pub fn withdraw_to(
+        &mut self,
+        asset: Address,
+        amount: u64,
+        recipient: Address,
+        token_program: Option<Address>,
+    ) -> Result<TransactInterfaceTransferAccounts, TransactionError> {
+        if asset == SOL_MINT {
+            self.withdraw_sol(amount, recipient)?;
+            return Ok(TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts { recipient },
+            ));
+        }
+        let token_program =
+            token_program.ok_or(TransactionError::MissingSplTokenProgram { mint: asset })?;
+        let user_token_account =
+            pda::associated_token_address_with_program(&recipient, &asset, &token_program);
+        self.withdraw(asset, amount, user_token_account)?;
+        Ok(TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                mint: asset,
+                spl_interface: pda::spl_interface(&asset),
+                user_token_account,
+                token_program,
+            },
+        ))
     }
 }

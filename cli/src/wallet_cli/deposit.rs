@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use solana_signer::Signer;
 use zolana_client::{
-    user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer,
+    asset::fetch_token_program, user_registry::resolve_registered_address, ComputeBudgetConfig,
+    Rpc, SolanaRpc, ZolanaIndexer,
 };
-use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
-use zolana_transaction::Address;
+use zolana_program::instruction::{Deposit, DepositAsset, DepositSplAccounts};
+use zolana_transaction::{instructions::deposit::deposit_to, Address};
 
 use super::{
     material::load_sender_from_resolved_sync,
@@ -13,7 +14,6 @@ use super::{
     transaction::maybe_airdrop,
     util::{
         configured_spl_token_account, ensure_positive, format_address, parse_address, parse_pubkey,
-        resolve_spl_token_program,
     },
 };
 use crate::{args::DepositOptions, cli_config::CliConfigFile};
@@ -36,29 +36,20 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
-    let deposit_asset = if asset == zolana_transaction::SOL_MINT {
-        DepositAsset::Sol
-    } else {
-        let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());
-        DepositAsset::Spl(DepositSplAccounts {
-            mint,
+    let deposit_asset = match fetch_token_program(&rpc, asset)? {
+        None => DepositAsset::Sol,
+        Some(token_program) => DepositAsset::Spl(DepositSplAccounts {
+            mint: asset,
             user_token: spl_token_account.context("SPL deposit needs a token account")?,
-            token_program: resolve_spl_token_program(&rpc, &mint)?,
-        })
+            token_program,
+        }),
     };
-    // The recipient's viewing key tags a deposit: it is how the recipient's
-    // wallet finds the output without knowing the sender.
-    let view_tag = recipient.address.viewing_pubkey.x();
+    let entry = deposit_to(deposit_asset, opts.amount, &recipient.address)?;
+    let view_tag = entry.view_tag;
     let deposit = Deposit {
         tree,
         depositor: material.funding.pubkey(),
-        deposits: vec![AssetDeposit {
-            asset: deposit_asset,
-            view_tag,
-            owner: recipient.address.owner_hash()?,
-            amount: opts.amount,
-            memo: None,
-        }],
+        deposits: vec![entry],
     }
     .instruction()?;
     let signature = rpc.create_and_send_transaction(
