@@ -1,4 +1,5 @@
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use zolana_hasher::{primitives::BN254_SCALAR_MODULUS_BE, Poseidon};
+use zolana_merkle_tree::MerkleTree;
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
@@ -59,10 +60,17 @@ fn init_then_reload() {
 
         tree.utxo_tree().append(leaf(1), 1).unwrap();
         assert_eq!(tree.utxo_tree().next_index(), 1);
+        assert!(tree.utxo_tree().has_pending_root());
+        assert_eq!(tree.utxo_tree().root(), empty_root);
+        assert_eq!(tree.utxo_tree().current_root_index(), 0);
+        assert_eq!(tree.utxo_tree().proof_root_index(), 1);
+        assert!(!tree.utxo_tree().finalize_pending_root(1).unwrap());
+        assert!(tree.utxo_tree().finalize_pending_root(2).unwrap());
         let appended_root = tree.utxo_tree().root();
         assert_ne!(appended_root, empty_root);
-        // Append pushed the new root to index 1; the empty root is still at 0.
+        assert!(!tree.utxo_tree().has_pending_root());
         assert_eq!(tree.utxo_tree().current_root_index(), 1);
+        assert_eq!(tree.utxo_tree().proof_root_index(), 1);
         assert_eq!(tree.utxo_tree().root_by_index(1).unwrap(), appended_root);
         assert_eq!(tree.utxo_tree().root_by_index(0).unwrap(), empty_root);
         appended_root
@@ -194,8 +202,6 @@ fn append_batch_matches_sequential() {
     let params = NullifierTreeInitParams::default();
     let pubkey = [2u8; 32];
     let count = 10u8;
-    // Slot zero exercises the first-update marker: a multi-leaf first batch
-    // must advance to index 1 even though `last_update_slot` initializes to 0.
     let slot = 0;
 
     let mut seq_bytes = vec![0u8; TreeAccount::account_size()];
@@ -212,9 +218,10 @@ fn append_batch_matches_sequential() {
     for i in 0..count {
         seq.utxo_tree().append(leaf(i + 1), slot).unwrap();
     }
-    let seq_root = seq.utxo_tree().root();
+    let seq_root = seq.utxo_tree().root_from_subtrees().unwrap();
     let seq_next = seq.utxo_tree().next_index();
     let seq_cursor = seq.utxo_tree().current_root_index();
+    let seq_subtrees = seq.utxo_tree().subtrees;
 
     let mut batch_bytes = vec![0u8; TreeAccount::account_size()];
     let mut batch = TreeAccount::init(
@@ -230,24 +237,84 @@ fn append_batch_matches_sequential() {
     let leaves: Vec<[u8; 32]> = (0..count).map(|i| leaf(i + 1)).collect();
     batch.utxo_tree().append_batch(leaves.iter(), slot).unwrap();
 
-    // Root and leaf index match the sequential path exactly.
-    assert_eq!(batch.utxo_tree().root(), seq_root);
+    assert_eq!(batch.utxo_tree().subtrees, seq_subtrees);
+    assert_eq!(batch.utxo_tree().root_from_subtrees().unwrap(), seq_root);
     assert_eq!(batch.utxo_tree().next_index(), seq_next);
-    // Every append in the slot overwrites the same history entry. A batch and
-    // sequential appends therefore expose only the slot-final root.
-    assert_eq!(seq_cursor, 1);
-    let batch_cursor = batch.utxo_tree().current_root_index();
-    assert_eq!(batch_cursor, 1);
-    assert_eq!(
-        batch.utxo_tree().root_by_index(batch_cursor).unwrap(),
-        seq_root
-    );
+    assert_eq!(seq_cursor, 0);
+    assert_eq!(batch.utxo_tree().current_root_index(), 0);
+    assert!(batch.utxo_tree().has_pending_root());
+    assert_eq!(batch.utxo_tree().last_update_slot, slot);
+
+    assert!(batch.utxo_tree().finalize_pending_root(slot + 1).unwrap());
+    assert_eq!(batch.utxo_tree().root(), seq_root);
+    assert_eq!(batch.utxo_tree().current_root_index(), 1);
+    assert_eq!(batch.utxo_tree().root_by_index(1).unwrap(), seq_root);
     assert_eq!(
         batch.utxo_tree().root_by_index(2),
         Err(TreeError::InvalidRootIndex)
     );
     assert_eq!(batch.utxo_tree().root_history_len, 2);
-    assert_eq!(batch.utxo_tree().last_update_slot, slot);
+}
+
+#[test]
+fn subtrees_root_matches_the_reference_tree() {
+    let params = NullifierTreeInitParams::default();
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
+    let mut reference = MerkleTree::<Poseidon>::new(HEIGHT as usize, 0);
+    assert_eq!(
+        tree.utxo_tree().root_from_subtrees().unwrap(),
+        reference.root()
+    );
+
+    for i in 0..37u8 {
+        tree.utxo_tree().append(leaf(i + 1), u64::from(i)).unwrap();
+        reference.append(&leaf(i + 1)).unwrap();
+        assert_eq!(
+            tree.utxo_tree().root_from_subtrees().unwrap(),
+            reference.root()
+        );
+        assert!(tree.utxo_tree().root_by_index(u16::from(i)).is_ok());
+    }
+    assert_eq!(tree.utxo_tree().current_root_index(), 36);
+    assert!(tree.utxo_tree().finalize_pending_root(37).unwrap());
+    assert_eq!(
+        tree.utxo_tree().root_by_index(37).unwrap(),
+        reference.root()
+    );
+}
+
+#[test]
+fn append_batch_rejects_a_non_canonical_leaf_at_an_even_index() {
+    let params = NullifierTreeInitParams::default();
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
+
+    assert_eq!(
+        tree.utxo_tree()
+            .append_batch([leaf(1), leaf(2), BN254_SCALAR_MODULUS_BE].iter(), 1),
+        Err(TreeError::Hash)
+    );
+    assert_eq!(tree.utxo_tree().next_index(), 2);
+    assert!(tree.utxo_tree().finalize_pending_root(2).unwrap());
 }
 
 /// Untrusted nullifier params (from `create_tree` instruction data) must be
@@ -313,6 +380,7 @@ fn append_fails_when_tree_is_full() {
         layout.append(leaf(i + 1), u64::from(i) + 1).unwrap();
     }
     assert_eq!(layout.next_index(), 4);
+    assert!(layout.finalize_pending_root(5).unwrap());
 
     // Single and batch appends past capacity fail instead of corrupting the
     // tree; the root stays at the full-tree root.
@@ -324,10 +392,12 @@ fn append_fails_when_tree_is_full() {
     );
     assert_eq!(layout.next_index(), 4);
     assert_eq!(layout.root(), full_root);
+    assert_eq!(layout.root_from_subtrees().unwrap(), full_root);
+    assert!(!layout.has_pending_root());
 }
 
 #[test]
-fn same_slot_appends_overwrite_one_history_entry() {
+fn same_slot_appends_leave_one_pending_root() {
     let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let mut tree = TreeAccount::init(
@@ -344,15 +414,21 @@ fn same_slot_appends_overwrite_one_history_entry() {
     let empty_root = tree.utxo_tree().root();
     let slot = 123;
     tree.utxo_tree().append(leaf(1), slot).unwrap();
-    let first_root = tree.utxo_tree().root();
+    let first_root = tree.utxo_tree().root_from_subtrees().unwrap();
     for i in 1..200 {
         tree.utxo_tree()
             .append(leaf((i % 200 + 1) as u8), slot)
             .unwrap();
     }
 
-    let final_root = tree.utxo_tree().root();
+    let final_root = tree.utxo_tree().root_from_subtrees().unwrap();
     assert_ne!(final_root, first_root);
+    assert_eq!(tree.utxo_tree().root(), empty_root);
+    assert_eq!(tree.utxo_tree().current_root_index(), 0);
+    assert_eq!(tree.utxo_tree().proof_root_index(), 1);
+    assert_eq!(tree.utxo_tree().root_history_len, 1);
+
+    assert!(tree.utxo_tree().finalize_pending_root(slot + 1).unwrap());
     assert_eq!(tree.utxo_tree().current_root_index(), 1);
     assert_eq!(tree.utxo_tree().root_by_index(1).unwrap(), final_root);
     assert_eq!(tree.utxo_tree().root_by_index(0).unwrap(), empty_root);
@@ -379,11 +455,16 @@ fn root_history_supports_adjacent_and_skipped_slots() {
     .unwrap();
 
     tree.utxo_tree().append(leaf(1), 7).unwrap();
-    let slot_7_root = tree.utxo_tree().root();
+    let slot_7_root = tree.utxo_tree().root_from_subtrees().unwrap();
     tree.utxo_tree().append(leaf(2), 8).unwrap();
-    let slot_8_root = tree.utxo_tree().root();
+    let slot_8_root = tree.utxo_tree().root_from_subtrees().unwrap();
+    assert_eq!(tree.utxo_tree().root(), slot_7_root);
     tree.utxo_tree().append(leaf(3), 499).unwrap();
-    let slot_499_root = tree.utxo_tree().root();
+    let slot_499_root = tree.utxo_tree().root_from_subtrees().unwrap();
+    assert_eq!(tree.utxo_tree().root(), slot_8_root);
+    assert_eq!(tree.utxo_tree().current_root_index(), 2);
+    assert!(tree.utxo_tree().finalize_pending_root(500).unwrap());
+    assert_eq!(tree.utxo_tree().root(), slot_499_root);
 
     assert_eq!(tree.utxo_tree().current_root_index(), 3);
     assert_eq!(tree.utxo_tree().root_by_index(1).unwrap(), slot_7_root);
@@ -417,6 +498,7 @@ fn root_history_rejects_a_slot_regression_without_mutating_the_tree() {
 
     tree.utxo_tree().append(leaf(1), 9).unwrap();
     let root = tree.utxo_tree().root();
+    let subtrees = tree.utxo_tree().subtrees;
     let next_index = tree.utxo_tree().next_index();
     let root_index = tree.utxo_tree().current_root_index();
 
@@ -425,9 +507,12 @@ fn root_history_rejects_a_slot_regression_without_mutating_the_tree() {
         Err(TreeError::InvalidUpdateSlot)
     );
     assert_eq!(tree.utxo_tree().root(), root);
+    assert_eq!(tree.utxo_tree().subtrees, subtrees);
     assert_eq!(tree.utxo_tree().next_index(), next_index);
     assert_eq!(tree.utxo_tree().current_root_index(), root_index);
+    assert!(tree.utxo_tree().has_pending_root());
     assert_eq!(tree.utxo_tree().last_update_slot, 9);
+    assert!(!tree.utxo_tree().finalize_pending_root(8).unwrap());
 }
 
 #[test]
@@ -447,29 +532,31 @@ fn root_history_retains_a_root_for_500_slots() {
 
     let first_slot = 10_000;
     tree.utxo_tree().append(leaf(1), first_slot).unwrap();
-    let first_root = tree.utxo_tree().root();
-    let first_index = tree.utxo_tree().current_root_index();
+    let first_root = tree.utxo_tree().root_from_subtrees().unwrap();
+    let first_index = tree.utxo_tree().proof_root_index();
+    assert_eq!(first_index, 1);
 
-    for offset in 1..ROOT_HISTORY_CAPACITY as u64 {
+    for offset in 1..=ROOT_HISTORY_CAPACITY as u64 {
         tree.utxo_tree()
             .append(leaf((offset % 200 + 1) as u8), first_slot + offset)
             .unwrap();
     }
 
-    // The root remains accepted after updates in each of the following 499
-    // slots.
+    // The root remains accepted after updates in each of the following 500
+    // slots: the 500th wraps onto the initial empty root, not onto it.
     assert_eq!(
         tree.utxo_tree().root_by_index(first_index).unwrap(),
         first_root
     );
+    assert_eq!(tree.utxo_tree().current_root_index(), 0);
     assert_eq!(
         tree.utxo_tree().root_history_len,
         ROOT_HISTORY_CAPACITY as u16
     );
 
-    // The 500th subsequent updated slot wraps to the same entry and evicts it.
+    // The 501st subsequent updated slot wraps to the same entry and evicts it.
     tree.utxo_tree()
-        .append(leaf(2), first_slot + ROOT_HISTORY_CAPACITY as u64)
+        .append(leaf(2), first_slot + ROOT_HISTORY_CAPACITY as u64 + 1)
         .unwrap();
     let replacement_root = tree.utxo_tree().root();
     assert_ne!(replacement_root, first_root);
