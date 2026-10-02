@@ -505,9 +505,10 @@ Both deposit instructions require the canonical deposit audit account after
 the co-signer slots. Upgrade the ring clients with the program. The proofless
 instruction is rejected while disclosure is required. An audited instruction
 always verifies its proof, including when the setting is off.
-Ring merge is also ciphertext-free: it combines up to eight notes of one owner,
-asset and ring into one note without moving value to another owner. It is not in
-the auditor-tag scan; any later transfer of the merged value still takes the
+Ring merge carries no auditor ciphertext: it combines up to eight notes of one
+owner, asset and ring into one note without moving value to another owner, and
+its only ciphertext is an unverified copy of the output for that owner. It is
+not in the auditor-tag scan; any later transfer of the merged value still takes the
 normal audited policy path.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
 ring pauses only through its frozen `set_paused` instruction. The released

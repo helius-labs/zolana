@@ -8,10 +8,12 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously described a variable 
 count `N` and an oversized proof; `docs/spec.md` now matches the code: a fixed
 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof with no BSB22
 commitment (`program-libs/interface/src/instruction/instruction_data/merge_transact.rs:9-22`,
-`docs/spec.md:1795-1836`). Post-PR164 the merge output is ciphertext-free (no
-`encrypted_utxo` field and no `merge_view_tag`): the output is recovered from the
-first real input and its nullifier, and padding slots publish derived dummy
-nullifiers.
+`docs/spec.md:1795-1836`). Post-PR164 the merge carries no `encrypted_utxo` field
+and no `merge_view_tag`, and padding slots publish derived dummy nullifiers. Since
+2026-10-02 the proof binds a masked output amount (`masked_amount`, INV-MERGE-29)
+from which the owner rebuilds the output with the first published nullifier, and
+the instruction carries an untrusted confidential ciphertext of the output that
+nothing on chain reads (INV-MERGE-30).
 
 ## MergeTransact
 
@@ -109,7 +111,7 @@ nullifiers.
   - Not applicable post-PR164 (the merge encryption flow was restructured: the output is ciphertext-free and recovered by the owner from the first input and its nullifier, so no viewing-key public input exists; F-06 re-reviewed 2026-07-27 and closed as MOOT -- no recipient viewing key enters any circuit KDF anymore).
 
 - [ ] **INV-MERGE-10: the ciphertext hash is recomputed on-chain**
-  - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).
+  - Not applicable post-PR164 (the merge ciphertext is deliberately left out of `external_data_hash` and the proof; recovery rests on the masked amount instead, INV-MERGE-29 and INV-MERGE-30).
 
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (8 inputs) and `merge_verifies_the_wide_shape_on_chain` (36 inputs), each proving with the workspace prover and requiring the program to accept
@@ -123,7 +125,7 @@ nullifiers.
 - [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus both owner keys**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
   - Kind: state
-  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record.
+  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `masked_amount`, `signing_pk_field` and `nullifier_pk` from the registry record.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
@@ -141,7 +143,7 @@ nullifiers.
 - [ ] **INV-MERGE-14: successful merge emits exactly one Merge GeneralEvent tagged by the owner key**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (output rediscovered by owner signing-key tag; nullifier sequence numbers, verbatim `data`, and the empty `spl_transfers` list unasserted)
   - Kind: postcondition
-  - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the sent nullifiers with assigned queue sequence numbers and exactly one output whose `view_tag` is the owner's signing-key tag from the registry record and whose `data` is empty (ciphertext-free output), and an empty `spl_transfers` list (no public movements).
+  - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the sent nullifiers with assigned queue sequence numbers and exactly one output whose `view_tag` is the owner's signing-key tag from the registry record and whose `data` is the instruction's `output_data`, the instruction's `tx_viewing_pk` and `salt`, exactly one message carrying `masked_amount` (and, for `merge_ring`, the output `ring_data_hash`), and an empty `spl_transfers` list (no public movements).
   - Location: `programs/shielded-pool/src/instructions/merge/event.rs:15-42` (`fn build_merge_event`), `merge/account.rs:58-89`
   - Severity: Medium (owner rediscovery on sync)
   - Suggested test: positive; harness: litesvm
@@ -258,7 +260,7 @@ nullifiers.
 - [ ] **INV-RING-MERGE-08: ring public-input shape is the 7-element prefix plus ring data and ring id**
   - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
   - Kind: state
-  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `output_ring_data_hash` and `ring_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
+  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `masked_amount`, `output_ring_data_hash` and `ring_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`, `Ring` arm)
   - Severity: High
   - Suggested test: property (client-side comparison); harness: `cargo test -p`
@@ -288,7 +290,7 @@ nullifiers.
 - [ ] **INV-RING-MERGE-13: ring merge event publishes the output ring_data_hash**
   - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful ring merge exercises the emit; the output `data` payload is not field-asserted)
   - Kind: postcondition
-  - Statement: the emitted `GeneralEvent`'s single output carries `output_ring_data_hash` as its `data` payload (default merge: empty data), and the proof binds that same hash (INV-RING-MERGE-08), so a relayer cannot alter the published ring binding.
+  - Statement: the emitted `GeneralEvent`'s single message carries `output_ring_data_hash` after `masked_amount` (default merge: `masked_amount` alone), and the proof binds that same hash (INV-RING-MERGE-08), so a relayer cannot alter the published ring binding.
   - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:57-69` (`fn process_merge_ring_ix`), `merge/event.rs:15-42` (`fn build_merge_event`)
   - Severity: Medium (wallet reconstruction)
   - Suggested test: positive (assert the event output `data` equals `output_ring_data_hash`); harness: litesvm
@@ -404,3 +406,22 @@ than by entries of their own.
   - Statement: `close_cache` takes the writable cache, writable rent recipient and optional writer signer. Before expiry the signer must match `write_authority`; after expiry anyone may close. Both paths transfer the whole balance to `rent_sponsor` and to no other recipient. This applies to every cache.
   - Error: `CacheNotExpired`, `CacheWriteAuthorityMismatch`, `CacheRentRecipientMismatch`, `InvalidSigner`
   - Severity: High (rent custody)
+
+## Merge output recovery
+
+- [x] **INV-MERGE-29: the proof binds the output amount under the owner's mask**
+  - Covered by: `prover/server/circuits/spp_merge/masked_amount_test.go` (`TestMergeRejectsWrongMaskedAmount`, `TestMergeRejectsUnmaskedAmount`, `TestMergeRingRejectsWrongMaskedAmount`); `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_non_canonical_masked_amount` (7080); `sdk-libs/transaction/tests/decryption.rs` `a_planted_input_the_owner_never_received_does_not_burn_the_merge`
+  - Kind: postcondition
+  - Statement: a merge verifies only when `masked_amount == sum(input amounts) + Poseidon("TMAM", nullifier_secret, nullifiers[0])` in the scalar field, and SPP hashes `masked_amount` into the public input after the dummy-input policy. A merger who knows the owner's nullifier secret and spends a note the owner never received cannot hide the merged amount: the owner recovers it from the published first nullifier and its own secret, and the output blinding from the same pair.
+  - Location: `prover/server/circuits/spp_merge/shared/transaction.go` (`fn Constrain`), `programs/shielded-pool/src/instructions/merge/verify.rs` (`fn public_input_hash`), `merge/processor.rs` (`fn validate_field_elements`)
+  - Error: `ShieldedPoolError::NonCanonicalMaskedAmount = 7080`, `TransactProofVerificationFailed = 7008`
+  - Severity: Critical (owner funds made unrecoverable)
+  - Suggested test: negative; harness: gnark test engine, litesvm
+
+- [x] **INV-MERGE-30: the merge ciphertext is untrusted and never decides acceptance**
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_lands_whatever_ciphertext_it_carries`; wallet side `sdk-libs/transaction/tests/decryption.rs` (lying and missing ciphertexts) and `sdk-libs/ts/test/wallet-sync.test.ts`
+  - Kind: frame condition
+  - Statement: SPP never reads `tx_viewing_pk`, `salt` or `output_data` and keeps them out of `external_data_hash`, so a merge with a real proof lands with any ciphertext. A wallet accepts a decrypted merge output only when it hashes to the published commitment and otherwise rebuilds the output from the masked amount.
+  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`)
+  - Severity: High (a merger could otherwise make the output unrecoverable)
+  - Suggested test: positive; harness: litesvm
