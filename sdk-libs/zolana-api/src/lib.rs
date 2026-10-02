@@ -2,11 +2,15 @@
 //!
 //! Both send their requests through an [`HttpClient`] or a
 //! [`BlockingHttpClient`]: a `reqwest` client by default, or the
-//! application's own networking stack.
+//! application's own networking stack. The `zolana-client` prover clients
+//! send through the same traits.
 
-use std::{error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc};
+use std::{error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use reqwest::header::CONTENT_TYPE;
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
+    Method,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
@@ -52,20 +56,72 @@ pub struct BlockingZolanaApi {
     trace_http: bool,
 }
 
-/// Sends the requests of a [`ZolanaApi`].
+/// Sends the requests of a [`ZolanaApi`] and of the `zolana-client` async
+/// prover client.
 pub trait HttpClient: fmt::Debug + Send + Sync {
-    /// POST `body`, a JSON document, to `url`. A response with any status is
-    /// `Ok`; the API turns a failed status into [`ApiError::Response`].
-    fn post_json<'a>(&'a self, url: &'a str, body: Vec<u8>) -> HttpFuture<'a>;
+    /// Send `request` and answer with the server's response, whatever its
+    /// status: the caller acts on the status. Fail only without a response,
+    /// with [`ApiError::HttpClient`].
+    fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a>;
 }
 
-/// Sends the requests of a [`BlockingZolanaApi`].
+/// Sends the requests of a [`BlockingZolanaApi`] and of the `zolana-client`
+/// blocking prover client.
 pub trait BlockingHttpClient: fmt::Debug + Send + Sync {
-    /// As [`HttpClient::post_json`].
-    fn post_json(&self, url: &str, body: Vec<u8>) -> Result<HttpResponse, ApiError>;
+    /// As [`HttpClient::send`].
+    fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError>;
 }
 
 pub type HttpFuture<'a> = Pin<Box<dyn Future<Output = Result<HttpResponse, ApiError>> + Send + 'a>>;
+
+/// One request of an [`HttpClient`] or a [`BlockingHttpClient`].
+#[derive(Clone, Debug)]
+pub struct HttpRequest {
+    pub method: Method,
+    pub url: String,
+    pub headers: HeaderMap,
+    /// Empty for a `GET`.
+    pub body: Vec<u8>,
+    /// The caller's bound on the whole request, for a client that can keep
+    /// one; the `reqwest` clients do. Without it the client's own bound
+    /// applies.
+    pub timeout: Option<Duration>,
+}
+
+impl HttpRequest {
+    pub fn get(url: impl Into<String>) -> Self {
+        Self {
+            method: Method::GET,
+            url: url.into(),
+            headers: HeaderMap::new(),
+            body: Vec::new(),
+            timeout: None,
+        }
+    }
+
+    /// A `POST` of `body`, a JSON document, to `url`.
+    pub fn post_json(url: impl Into<String>, body: Vec<u8>) -> Self {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        Self {
+            method: Method::POST,
+            url: url.into(),
+            headers,
+            body,
+            timeout: None,
+        }
+    }
+
+    pub fn with_header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.headers.insert(name, value);
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpResponse {
@@ -74,14 +130,20 @@ pub struct HttpResponse {
 }
 
 impl HttpClient for reqwest::Client {
-    fn post_json<'a>(&'a self, url: &'a str, body: Vec<u8>) -> HttpFuture<'a> {
+    fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a> {
         Box::pin(async move {
-            let response = self
-                .post(url)
-                .header(CONTENT_TYPE, "application/json")
-                .body(body)
-                .send()
-                .await?;
+            let HttpRequest {
+                method,
+                url,
+                headers,
+                body,
+                timeout,
+            } = request;
+            let mut builder = self.request(method, url).headers(headers).body(body);
+            if let Some(timeout) = timeout {
+                builder = builder.timeout(timeout);
+            }
+            let response = builder.send().await?;
             let status = response.status();
             let body = response.text().await?;
             Ok(HttpResponse { status, body })
@@ -90,12 +152,19 @@ impl HttpClient for reqwest::Client {
 }
 
 impl BlockingHttpClient for reqwest::blocking::Client {
-    fn post_json(&self, url: &str, body: Vec<u8>) -> Result<HttpResponse, ApiError> {
-        let response = self
-            .post(url)
-            .header(CONTENT_TYPE, "application/json")
-            .body(body)
-            .send()?;
+    fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+        let HttpRequest {
+            method,
+            url,
+            headers,
+            body,
+            timeout,
+        } = request;
+        let mut builder = self.request(method, url).headers(headers).body(body);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.send()?;
         let status = response.status();
         let body = response.text()?;
         Ok(HttpResponse { status, body })
@@ -364,7 +433,7 @@ impl ZolanaApi {
         if self.trace_http {
             print_api_request(&url, &body);
         }
-        let response = self.client.post_json(&url, body).await?;
+        let response = self.client.send(HttpRequest::post_json(url, body)).await?;
         handle_response(method, response, self.trace_http)
     }
 
@@ -533,7 +602,7 @@ impl BlockingZolanaApi {
         if self.trace_http {
             print_api_request(&url, &body);
         }
-        let response = self.client.post_json(&url, body)?;
+        let response = self.client.send(HttpRequest::post_json(url, body))?;
         handle_response(method, response, self.trace_http)
     }
 
@@ -678,13 +747,12 @@ mod tests {
     const NO_TRANSACTIONS: &str = r#"{"jsonrpc":"2.0","id":"test-account","result":{"context":{"blockTime":0,"slot":7},"transactions":[]}}"#;
 
     /// Answers every request with one status and body, or fails before a
-    /// response when `status` is 0, and records the URL and JSON body it was
-    /// sent.
+    /// response when `status` is 0, and records the requests it was sent.
     #[derive(Debug)]
     struct FakeClient {
         status: u16,
         body: &'static str,
-        requests: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+        requests: Arc<Mutex<Vec<HttpRequest>>>,
     }
 
     impl FakeClient {
@@ -696,9 +764,8 @@ mod tests {
             }
         }
 
-        fn answer(&self, url: &str, body: Vec<u8>) -> Result<HttpResponse, ApiError> {
-            let body = serde_json::from_slice(&body).expect("the API sends JSON");
-            self.requests.lock().unwrap().push((url.to_string(), body));
+        fn answer(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+            self.requests.lock().unwrap().push(request);
             match reqwest::StatusCode::from_u16(self.status) {
                 Ok(status) => Ok(HttpResponse {
                     status,
@@ -710,23 +777,31 @@ mod tests {
     }
 
     impl BlockingHttpClient for FakeClient {
-        fn post_json(&self, url: &str, body: Vec<u8>) -> Result<HttpResponse, ApiError> {
-            self.answer(url, body)
+        fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+            self.answer(request)
         }
     }
 
     impl HttpClient for FakeClient {
-        fn post_json<'a>(&'a self, url: &'a str, body: Vec<u8>) -> HttpFuture<'a> {
-            Box::pin(async move { self.answer(url, body) })
+        fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a> {
+            Box::pin(async move { self.answer(request) })
         }
     }
 
-    fn assert_signature_request(requests: &Mutex<Vec<(String, serde_json::Value)>>) {
-        let (url, body) = requests.lock().unwrap().pop().expect("one request");
+    fn assert_signature_request(requests: &Mutex<Vec<HttpRequest>>) {
+        let request = requests.lock().unwrap().pop().expect("one request");
+        assert_eq!(request.method, Method::POST);
         assert_eq!(
-            url,
+            request.url,
             "https://rpc.example.test/v1/getShieldedTransactionsBySignature?api-key=secret"
         );
+        assert_eq!(
+            request.headers.get(CONTENT_TYPE).map(HeaderValue::as_bytes),
+            Some(b"application/json".as_slice())
+        );
+        assert_eq!(request.timeout, None);
+        let body: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("the API sends JSON");
         assert_eq!(body["jsonrpc"], JSON_RPC_VERSION);
         assert_eq!(body["method"], "getShieldedTransactionsBySignature");
         assert!(body["params"]["txSignature"].is_string(), "{body}");

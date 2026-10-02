@@ -343,7 +343,7 @@ fn body_read_errors_leave_the_gateway_key_out() {
         client
             .check_proving_keys()
             .expect_err("the body is cut short"),
-        "prover server error: failed to read response body",
+        "prover server error: proving keys request failed",
     );
 }
 
@@ -355,6 +355,6 @@ async fn async_body_read_errors_leave_the_gateway_key_out() {
             .check_proving_keys()
             .await
             .expect_err("the body is cut short"),
-        "prover server error: failed to read response body",
+        "prover server error: proving keys request failed",
     );
 }
