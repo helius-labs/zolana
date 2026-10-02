@@ -10,7 +10,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_program::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_transaction::SOL_MINT;
+use zolana_transaction::{TransactionError, SOL_MINT};
 
 use zolana_client::{
     error::ClientError,
@@ -191,7 +191,8 @@ fn deposit_asset(
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
     let user_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
-    let token_program = spl_token_program.ok_or(ClientError::MissingSplTokenProgram { mint })?;
+    let token_program =
+        spl_token_program.ok_or(TransactionError::MissingSplTokenProgram { mint })?;
     Ok(DepositAsset::Spl(DepositSplAccounts {
         mint,
         user_token,

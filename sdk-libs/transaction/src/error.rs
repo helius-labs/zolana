@@ -185,7 +185,7 @@ pub enum TransactionError {
     #[error("expected an SPL mint; use the SOL-specific method for SOL")]
     ExpectedSplMint,
 
-    #[error("an SPL withdrawal of mint {mint} needs the mint's token program")]
+    #[error("SPL mint {mint} needs its token program")]
     MissingSplTokenProgram { mint: Address },
 
     #[error("public transfer sum overflow for asset {asset}")]

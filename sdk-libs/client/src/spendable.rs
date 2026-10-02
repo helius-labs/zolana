@@ -16,8 +16,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
-    verify_owned, verify_spendable, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
-    SpendableDecryptionResult, WalletHistory,
+    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
+    SpendableDecryptionResult, WalletHistory, WalletUtxo,
 };
 
 use crate::{
@@ -66,15 +66,15 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
 
     /// The reads of [`fetch`](Self::fetch), keeping every transaction read and
     /// every UTXO the wallet owns among them, spent or not.
-    /// [`WalletHistory::entries`] classifies them. Verifying the owned UTXOs
-    /// costs the key holder one more nullifier request than `fetch`.
+    /// [`WalletHistory::entries`] classifies them. It asks the key holder no
+    /// more than `fetch` does.
     pub fn fetch_history<I: Rpc + ?Sized>(
         &self,
         indexer: &I,
     ) -> Result<WalletHistory, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(WalletHistory {
-            utxos: verify_owned(self.keys, &fetched.decrypted)?,
+            utxos: fetched.owned,
             transactions: fetched.transactions,
             unknown_asset_ids: fetched.decrypted.unknown_asset_ids,
             unknown_mints: fetched.decrypted.unknown_mints,
@@ -94,7 +94,8 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         loop {
             decrypted.extend(self.keys, &batch, self.assets)?;
             transactions.append(&mut batch);
-            let spendable = verify_spendable(self.keys, &decrypted)?;
+            let owned = verify_owned(self.keys, &decrypted)?;
+            let spendable = SpendableDecryptionResult::from_owned(&owned, &decrypted);
             // The spends of a UTXO queried in an earlier round are fetched.
             let nullifiers: Vec<_> = spendable
                 .utxos()
@@ -106,6 +107,7 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
                 return Ok(Fetched {
                     transactions,
                     decrypted,
+                    owned,
                     spendable,
                 });
             }
@@ -151,6 +153,8 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
 struct Fetched {
     transactions: Vec<ShieldedTransaction>,
     decrypted: DecryptionResult,
+    /// The final round's [`verify_owned`], spent UTXOs included.
+    owned: Vec<WalletUtxo>,
     spendable: SpendableDecryptionResult,
 }
 

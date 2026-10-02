@@ -8,17 +8,25 @@
 //! - It spent none of them: a [`Deposit`](HistoryKind::Deposit) when it came
 //!   through the deposit instruction, [`Received`](HistoryKind::Received)
 //!   otherwise.
-//! - It gave back at least what it spent: a
+//! - It gave back exactly what it spent: a
 //!   [`SelfTransfer`](HistoryKind::SelfTransfer).
+//! - It gave back more than it spent: a [`Deposit`](HistoryKind::Deposit) of
+//!   the difference. A transact balances its inputs against its outputs and
+//!   public transfers, so the extra is a public deposit, or the UTXOs of
+//!   another owner who signed the same transaction. A spend the wallet builds
+//!   holds only its own UTXOs, and the published transaction does not tell
+//!   the two apart, so the extra counts as a deposit.
 //! - It has an output the wallet cannot read: [`Sent`](HistoryKind::Sent) to
 //!   another wallet.
 //! - Every output is the wallet's own: a
 //!   [`Withdrawal`](HistoryKind::Withdrawal) of what did not come back as
 //!   change.
 //!
-//! So a transaction that both pays another wallet and withdraws reads as
-//! `Sent` for the whole amount, and a deposit made through a proof rather than
-//! the deposit instruction reads as `Received`.
+//! Amounts are net per asset. So a transaction that both pays another wallet
+//! and withdraws reads as `Sent` for the whole amount, one that deposits and
+//! pays another wallet reads as the net `Deposit` or `Sent`, and a deposit
+//! made through a proof with no UTXO of the wallet's spent reads as
+//! `Received`.
 
 use std::{
     cmp::Reverse,
@@ -48,7 +56,8 @@ pub enum HistoryKind {
 /// One asset that one transaction moved. `amount` is in the mint's base units
 /// (lamports for SOL). For [`HistoryKind::Sent`] and
 /// [`HistoryKind::Withdrawal`] it is what left the private balance, change
-/// excluded, and for [`HistoryKind::SelfTransfer`] what was spent.
+/// excluded, for [`HistoryKind::SelfTransfer`] what was spent, and for a
+/// [`HistoryKind::Deposit`] what came in beyond what was spent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryEntry {
     pub kind: HistoryKind,
@@ -163,8 +172,10 @@ impl Movement {
                 HistoryKind::Received
             };
             (kind, received)
-        } else if received >= spent {
+        } else if received == spent {
             (HistoryKind::SelfTransfer, spent)
+        } else if received > spent {
+            (HistoryKind::Deposit, received - spent)
         } else if self.pays_another {
             (HistoryKind::Sent, spent - received)
         } else {

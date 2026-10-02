@@ -141,6 +141,25 @@ fn each_transaction_is_classified_by_the_wallets_utxos_it_moved() {
         [(SelfTransfer, 25)]
     );
 
+    // A spend with a public deposit leg gives back more than it spent: the
+    // extra is the deposit, here net of a payment to another wallet.
+    let (input, change) = (ours(30, 22), ours(70, 23));
+    assert_eq!(
+        classify(
+            &[&input, &change],
+            transaction(10, 10, &[&input], &[&change])
+        ),
+        [(Deposit, 40)]
+    );
+    let (input, change, payment) = (ours(30, 24), ours(60, 25), theirs(10, 26));
+    assert_eq!(
+        classify(
+            &[&input, &change],
+            transaction(11, 11, &[&input], &[&payment, &change])
+        ),
+        [(Deposit, 30)]
+    );
+
     // Another wallet's transaction moves nothing of this wallet's.
     let (their_input, their_output) = (theirs(9, 20), theirs(9, 21));
     assert!(classify(&[], transaction(9, 9, &[&their_input], &[&their_output])).is_empty());
