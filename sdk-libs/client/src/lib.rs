@@ -28,7 +28,9 @@ pub mod user_registry;
 
 pub use authority::ProofAuthority;
 #[cfg(feature = "indexer-api")]
-pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
+pub use client::{
+    check_indexer_url, SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};

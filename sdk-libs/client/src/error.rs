@@ -43,6 +43,17 @@ pub enum ClientError {
     #[error("{field} must use https (or http to loopback): {url}")]
     InsecureServiceUrl { field: &'static str, url: String },
 
+    /// The client has no prover server and no prover from
+    /// `ZolanaClient::with_prover`. A client from `ZolanaClient::new_blocking`
+    /// has none until `with_prover` sets one.
+    #[error("the client has no prover; set one with with_prover")]
+    ProverUnconfigured,
+
+    /// An async method was called on a client from
+    /// `ZolanaClient::new_blocking`, which has only a blocking indexer.
+    #[error("the client has no async indexer; build it with new or from_urls for async calls")]
+    AsyncIndexerUnconfigured,
+
     #[error("input {index} reads cache slot {slot}, but a cache holds slots 0..36")]
     CacheReadSlotOutOfRange { index: usize, slot: u8 },
 

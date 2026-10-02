@@ -36,8 +36,12 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
-        wait_for_indexed_transaction_async(&self.async_indexer, signature, self.indexer_config.poll)
-            .await
+        wait_for_indexed_transaction_async(
+            self.async_indexer()?,
+            signature,
+            self.indexer_config.poll,
+        )
+        .await
     }
 }
 

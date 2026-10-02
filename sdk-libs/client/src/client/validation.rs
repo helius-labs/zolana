@@ -3,6 +3,16 @@ use solana_pubkey::Pubkey;
 
 use crate::error::ClientError;
 
+/// Reject an indexer URL that would carry the wallet's UTXO set in plaintext:
+/// it must use https, or http to a loopback host.
+///
+/// This is the check [`ZolanaClient::from_urls`](super::ZolanaClient::from_urls)
+/// runs on its indexer URL, for a caller that builds its
+/// [`ZolanaIndexer`](crate::indexer::ZolanaIndexer) itself.
+pub fn check_indexer_url(url: &str) -> Result<(), ClientError> {
+    check_service_url(url, "indexer_url")
+}
+
 /// Reject a service URL that would carry shielded material in plaintext.
 pub(super) fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> {
     let insecure = || ClientError::InsecureServiceUrl {

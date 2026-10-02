@@ -18,6 +18,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_client::{
+    check_indexer_url,
     client::{SignedPrivateTransaction, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
@@ -116,6 +117,38 @@ async fn from_urls_is_safe_inside_an_async_runtime() {
         .expect("loopback http is allowed");
 
     drop(client);
+}
+
+/// A caller that builds its own indexer gets the check `from_urls` runs on
+/// the indexer URL.
+#[test]
+fn check_indexer_url_rejects_plaintext_off_loopback() {
+    for url in [
+        "https://indexer.example.com",
+        "http://127.0.0.1:8784",
+        "http://localhost:8784",
+    ] {
+        assert!(
+            check_indexer_url(url).is_ok(),
+            "expected {url} to be allowed"
+        );
+    }
+    for url in [
+        "http://indexer.example.com",
+        "http://127.0.0.1.evil.com:8784",
+        "ws://127.0.0.1:8784",
+    ] {
+        assert!(
+            matches!(
+                check_indexer_url(url),
+                Err(ClientError::InsecureServiceUrl {
+                    field: "indexer_url",
+                    ..
+                })
+            ),
+            "expected {url} to be rejected"
+        );
+    }
 }
 
 #[test]
@@ -675,6 +708,135 @@ fn client_forwards_transact_output_view_tags_to_the_rpc() {
             .expect("async tags"),
         expected
     );
+}
+
+/// A client from an RPC and a blocking indexer alone runs the blocking flow:
+/// the proof data and the confirmation come from that indexer, and the proof
+/// from the prover `with_prover` set.
+#[test]
+fn a_blocking_client_runs_the_blocking_flow() {
+    let payer = Keypair::new();
+    let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
+    let funded = funded_utxo(&sender, 10);
+    let tree = pda::tree(funded.tree_id);
+    let signature = Signature::from([22u8; 64]);
+    let server = MockIndexerServer::respond_by_path(vec![
+        ("/getMerkleProofs", merkle_response(tree, funded.utxo_hash)),
+        (
+            "/getNonInclusionProofs",
+            nullifier_response(tree, funded.nullifier),
+        ),
+        (
+            "/getShieldedTransactionsBySignature",
+            indexed_transaction_by_signature_response(signature),
+        ),
+    ]);
+    let signed = SignedPrivateTransaction {
+        transaction: ConfidentialTransaction::new(vec![funded], payer.pubkey())
+            .expect("transaction")
+            .encrypt(&sender)
+            .expect("encrypt"),
+        settlement_transfers: Vec::new(),
+    };
+    let prover = RecordingProver::default();
+    let client = ZolanaClient::new_blocking(
+        MockSubmitRpc::new(signature),
+        ZolanaIndexer::new(server.url()),
+    )
+    .with_prover(prover.clone());
+
+    let result = client.finish_submission_unsigned_sync(&signed, payer.pubkey(), &sender);
+    assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
+    assert_recorded_one_completed_transfer(&prover);
+    client
+        .confirm_private_transaction_sync(signature)
+        .expect("indexed");
+
+    let requests = server.requests();
+    let (proofs, rest) = requests.split_at(2);
+    let mut proofs = proofs.to_vec();
+    proofs.sort();
+    assert_eq!(proofs, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+    assert_eq!(rest, ["/getShieldedTransactionsBySignature"]);
+}
+
+/// A blocking client has no prover server, so until `with_prover` sets a
+/// prover every proving method fails, before it reads the proof data.
+#[test]
+fn a_blocking_client_without_a_prover_fails_before_any_request() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).expect("owner");
+    let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+        .expect("transaction")
+        .encrypt(&owner)
+        .expect("encrypt");
+    let server = MockIndexerServer::respond_with(Vec::new());
+    let client = ZolanaClient::new_blocking(
+        MockSubmitRpc::new(Signature::default()),
+        ZolanaIndexer::new(server.url()),
+    );
+
+    assert!(matches!(
+        Rpc::prove(&client, transaction.clone(), &owner),
+        Err(ClientError::ProverUnconfigured)
+    ));
+    assert!(matches!(
+        client.prove_transact(transaction.clone(), None, &owner),
+        Err(ClientError::ProverUnconfigured)
+    ));
+    assert!(matches!(
+        client.finish_submission_unsigned_sync(
+            &SignedPrivateTransaction {
+                transaction,
+                settlement_transfers: Vec::new(),
+            },
+            payer.pubkey(),
+            &owner,
+        ),
+        Err(ClientError::ProverUnconfigured)
+    ));
+    assert!(server.requests().is_empty());
+}
+
+/// A blocking client holds no async indexer, so its async methods fail with a
+/// named error instead of reaching a service it was never given.
+#[test]
+fn a_blocking_client_fails_async_calls_with_a_named_error() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).expect("owner");
+    let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+        .expect("transaction")
+        .encrypt(&owner)
+        .expect("encrypt");
+    let signature = Signature::from([23u8; 64]);
+    let server = MockIndexerServer::respond_with(Vec::new());
+    let client = ZolanaClient::new_blocking(
+        MockSubmitRpc::new(signature),
+        ZolanaIndexer::new(server.url()),
+    );
+
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    assert!(matches!(
+        runtime.block_on(client.confirm_private_transaction(signature)),
+        Err(ClientError::AsyncIndexerUnconfigured)
+    ));
+    assert!(matches!(
+        runtime.block_on(AsyncRpc::prove(&client, transaction.clone(), &owner)),
+        Err(ClientError::AsyncIndexerUnconfigured)
+    ));
+    assert!(matches!(
+        runtime.block_on(client.finish_submission_unsigned(
+            &SignedPrivateTransaction {
+                transaction,
+                settlement_transfers: Vec::new(),
+            },
+            payer.pubkey(),
+            Hash::default(),
+            &owner,
+        )),
+        Err(ClientError::AsyncIndexerUnconfigured)
+    ));
+    assert!(server.requests().is_empty());
 }
 
 fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {

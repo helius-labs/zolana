@@ -68,13 +68,14 @@ impl<R: Rpc> ZolanaClient<R> {
                 )?
                 .data);
         }
+        let prover = self.blocking_prover()?;
         let commitments = proof_inputs.input_utxo_hashes()?;
         let witnesses = self.blocking_indexer().input_witnesses(
             &commitments,
             &proof_inputs.dummy_nullifiers(),
             config,
         )?;
-        self.blocking_prover().prove_transact(
+        prover.prove_transact(
             proof_inputs,
             &witnesses.spend_proofs,
             &witnesses.dummy_nullifier_proofs,
@@ -129,6 +130,7 @@ impl<R: Rpc> ZolanaClient<R> {
                 recent_blockhash,
             );
         }
+        let prover = self.blocking_prover()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         // The overlap this used to hand-roll lives in the reader now, which
         // runs all the round trips together rather than two.
@@ -144,7 +146,7 @@ impl<R: Rpc> ZolanaClient<R> {
         )?;
         let proof = {
             let _t = crate::prover::timing::Phase::start("prove_transfer", 0);
-            assembled.prove(self.blocking_prover(), authority)?
+            assembled.prove(prover, authority)?
         };
         // Last thing before building, so the blockhash is as young as it can be
         // when the transaction reaches the cluster.
@@ -201,7 +203,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         }
         let commitments = signed.transaction.input_utxo_hashes()?;
         let witnesses = AsyncWitnessReader::input_witnesses(
-            &self.async_indexer,
+            self.async_indexer()?,
             &commitments,
             &signed.transaction.dummy_nullifiers(),
             None,
