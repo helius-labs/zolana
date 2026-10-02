@@ -12,12 +12,16 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 /// permanent internal bug as `-32603` with the body scrubbed, so `-32603` is
 /// retried and the caller is handed the last one it saw rather than a bare
 /// timeout.
+///
+/// A custom HTTP client that fails without a response is retried as a
+/// `reqwest` timeout or connection failure is: it cannot say which it was.
 pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
         zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
             ClientError::IndexerUnavailable(message)
         }
+        zolana_api::ApiError::HttpClient(_) => ClientError::IndexerUnavailable(message),
         zolana_api::ApiError::Response { status, .. }
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() =>
         {
@@ -85,5 +89,14 @@ mod tests {
                 "code {code}"
             );
         }
+    }
+
+    #[test]
+    fn retries_a_custom_client_that_got_no_response() {
+        let error = indexer_error(zolana_api::ApiError::HttpClient("offline".into()));
+        assert!(
+            matches!(&error, ClientError::IndexerUnavailable(message) if message.contains("offline")),
+            "{error:?}"
+        );
     }
 }
