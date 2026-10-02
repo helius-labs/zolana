@@ -1,8 +1,7 @@
 //! The prover client against a mock prover: a prover without a queue sheds
 //! queued requests with a 429 and the client retries them, and a gateway URL's
-//! `api-key` rides on every request and stays out of error text. A backend
-//! that forwards a request to a prover itself uses the client's paths and
-//! decodes the response as the client does.
+//! `api-key` rides on every request and stays out of error text. A response
+//! is decoded into a proof or refused.
 
 use std::{
     io::{Read, Write},
@@ -13,7 +12,7 @@ use std::{
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{AsyncProverClient, Delivery, ExpectedProvingKey, Proof, ProveRequest, ProverClient},
+    prover::{AsyncProverClient, Delivery, ExpectedProvingKey, ProveRequest, ProverClient},
     ClientError, Prover,
 };
 
@@ -64,8 +63,11 @@ fn queued_then_proof() -> Vec<(u16, Value)> {
     ]
 }
 
-/// Joining returns the requested paths.
-fn serve(responses: Vec<(u16, Value)>) -> (String, thread::JoinHandle<Vec<String>>) {
+/// Answers each request with the next status and body; joining returns the
+/// requested paths.
+fn serve(
+    responses: Vec<(u16, impl ToString + Send + 'static)>,
+) -> (String, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock prover");
     let url = format!(
         "http://{}",
@@ -199,82 +201,38 @@ async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
     );
 }
 
-/// A backend that forwards a request body to a prover itself posts it to the
-/// key's proof path and polls the key's status path: the paths the client
-/// uses.
+/// A proof comes alone or in a `{ proof, .. }` envelope; a null proof, a
+/// proof that does not parse and a body that is not JSON are refused. The
+/// proving-key checks have their own tests.
 #[test]
-fn a_forwarding_backend_reaches_the_paths_the_client_uses() {
-    let (url, server) = serve(queued_then_proof());
-    ProverClient::new(url).prove(&QUEUED).expect("queued proof");
-    let key = QUEUED.proving_key().expect("the request's key");
-    assert_eq!(
-        server.join().expect("mock prover thread"),
-        [
-            key.prove_path(),
-            format!("{}?jobId=job-1", key.status_path())
-        ]
-    );
-    assert_eq!(
-        [key.prove_path(), key.status_path()],
-        ["/prove/test", "/prove/test/status"]
-    );
-}
-
-/// The proof, or the failure's text.
-fn outcome(result: Result<Proof, ClientError>) -> String {
-    match result {
-        Ok(proof) => format!("ok {proof:?}"),
-        Err(error) => error.to_string(),
-    }
-}
-
-/// A backend decodes a prover's response as the client does: the same proof
-/// from the same body, and the same failure.
-#[test]
-fn a_prover_response_decodes_as_the_client_decodes_it() {
-    let key = IN_RESPONSE.proving_key().expect("the request's key");
-    let reporting = |sha256: Option<Value>| {
-        let mut proof = proof();
-        let fields = proof.as_object_mut().expect("a proof object");
-        fields.remove("provingKeySha256");
-        if let Some(sha256) = sha256 {
-            fields.insert("provingKeySha256".to_string(), sha256);
-        }
-        proof
-    };
+fn a_prover_response_is_decoded_or_refused() {
     for (response, expected) in [
-        (proof(), "ok"),
-        (json!({ "proof": proof(), "proofDurationMs": 7 }), "ok"),
+        (proof().to_string(), "ok"),
         (
-            json!({ "proof": null }),
+            json!({ "proof": proof(), "proofDurationMs": 7 }).to_string(),
+            "ok",
+        ),
+        (
+            json!({ "proof": null }).to_string(),
             "prover server error: server returned a null proof",
         ),
         (
-            json!({ "proof": reporting(Some(json!("08".repeat(32)))) }),
-            "prover used proving key test.key with sha256 0808",
-        ),
-        (
-            json!({ "proof": reporting(None) }),
-            "prover did not report the proving key sha256 for test.key",
-        ),
-        (
-            json!({ "proof": reporting(Some(json!("0A".repeat(32)))) }),
-            "proof parse error: provingKeySha256 is not 64 lowercase hex digits",
-        ),
-        (
-            json!({ "proof": { "ar": ["0x1"], "provingKeySha256": "07".repeat(32) } }),
+            json!({ "proof": { "ar": ["0x1"], "provingKeySha256": "07".repeat(32) } }).to_string(),
             "proof parse error: could not parse proof",
+        ),
+        (
+            "not json".to_string(),
+            "proof parse error: invalid response JSON",
         ),
     ] {
         let (url, server) = serve(vec![(200, response.clone())]);
-        let served = outcome(ProverClient::new(url).prove(&IN_RESPONSE));
+        let outcome = match ProverClient::new(url).prove(&IN_RESPONSE) {
+            Ok(_) => "ok".to_string(),
+            Err(error) => error.to_string(),
+        };
         server.join().expect("mock prover thread");
-        let decoded = outcome(Proof::from_prover_response(&response.to_string(), &key));
-        assert!(decoded.starts_with(expected), "{response}: {decoded}");
-        assert_eq!(decoded, served, "{response}");
+        assert!(outcome.starts_with(expected), "{response}: {outcome}");
     }
-    assert!(outcome(Proof::from_prover_response("not json", &key))
-        .starts_with("proof parse error: invalid response JSON"));
 }
 
 // The key used to ride inside the path (`...?api-key=<key>/prove`), and the

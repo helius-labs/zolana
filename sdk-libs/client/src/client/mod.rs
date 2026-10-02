@@ -25,7 +25,6 @@ use crate::{
 };
 
 pub use transaction::SignedPrivateTransaction;
-pub use validation::check_indexer_url;
 use validation::check_service_url;
 
 /// Compute-unit ceiling a private transaction is submitted with unless the
@@ -96,8 +95,8 @@ impl<R> ZolanaClient<R> {
     /// methods that read the indexer fail with
     /// [`ClientError::AsyncIndexerUnconfigured`].
     ///
-    /// `indexer`'s URL is not checked; run [`check_indexer_url`] on it first
-    /// unless the transport is already private.
+    /// `indexer`'s URL is not checked: unlike [`Self::from_urls`], this
+    /// takes the indexer as the caller built it.
     pub fn new_blocking(rpc: R, indexer: ZolanaIndexer) -> Self {
         Self {
             rpc,
@@ -122,7 +121,7 @@ impl<R> ZolanaClient<R> {
     ) -> Result<Self, ClientError> {
         let indexer_url = indexer_url.as_ref().to_string();
         let prover_url = prover_url.into();
-        check_indexer_url(&indexer_url)?;
+        check_service_url(&indexer_url, "indexer_url")?;
         check_service_url(&prover_url, "prover_url")?;
         Ok(Self::from_urls_allowing_insecure_http(
             rpc,

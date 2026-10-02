@@ -203,26 +203,12 @@ impl Proof {
         proof_from_gnark_json(json)
             .ok_or_else(|| ClientError::ProofParse("invalid gnark proof JSON".to_string()))
     }
-
-    /// Decode a prover server's response to a proof request for `key`, as
-    /// [`ProverClient`](crate::ProverClient) does, for a
-    /// [`Prover`](crate::Prover) backend that forwards the request body to
-    /// [`ExpectedProvingKey::prove_path`] itself. The response is the gnark
-    /// proof JSON alone or as the `proof` of a `{ proof, .. }` envelope. A
-    /// null proof is rejected, and so is a proof whose reported
-    /// `provingKeySha256` is missing or not `key`'s.
-    pub fn from_prover_response(
-        response: &str,
-        key: &ExpectedProvingKey,
-    ) -> Result<Self, ClientError> {
-        let value: serde_json::Value = serde_json::from_str(response)
-            .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
-        proof_from_value(&value, response, key)
-    }
 }
 
-/// [`Proof::from_prover_response`] for a response already parsed into `value`,
-/// `raw` being its text.
+/// Decode a prover's response to a proof request for `key`, parsed into
+/// `value`, `raw` being its text: the gnark proof JSON alone or as the
+/// `proof` of a `{ proof, .. }` envelope. A null proof is rejected, and so is
+/// a proof whose reported `provingKeySha256` is missing or not `key`'s.
 pub(crate) fn proof_from_value(
     value: &serde_json::Value,
     raw: &str,

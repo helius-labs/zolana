@@ -127,9 +127,8 @@ impl ExpectedProvingKey {
     /// The path of this key's proofs, `/prove/<key>`, `<key>` being the file
     /// name without `.key`. A gateway routes and prices on the path alone, so
     /// it can send each key, and each key's status polls, to its own prover
-    /// pool at its own price. A backend that forwards a request body to a
-    /// prover posts it here.
-    pub fn prove_path(&self) -> String {
+    /// pool at its own price.
+    pub(crate) fn prove_path(&self) -> String {
         let name = self.name.strip_suffix(".key").unwrap_or(&self.name);
         format!("{}/{name}", super::PROVE_PATH)
     }
@@ -137,7 +136,7 @@ impl ExpectedProvingKey {
     /// The path a queued proof of this key is polled on,
     /// `/prove/<key>/status`, with the job id the prover returned as the
     /// `jobId` query parameter.
-    pub fn status_path(&self) -> String {
+    pub(crate) fn status_path(&self) -> String {
         format!("{}/status", self.prove_path())
     }
 

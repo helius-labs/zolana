@@ -18,7 +18,6 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_client::{
-    check_indexer_url,
     client::{SignedPrivateTransaction, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
@@ -48,16 +47,29 @@ fn from_urls_requires_https_off_loopback() {
     // The indexer response is the wallet's UTXO set and the prover request
     // is the witness. In plaintext to a remote host both are readable by
     // anyone on the path, which is the privacy property itself.
-    for (indexer, prover) in [
-        ("http://indexer.example.com", "https://prover.example.com"),
-        ("https://indexer.example.com", "http://prover.example.com"),
+    for (indexer, prover, field) in [
+        (
+            "http://indexer.example.com",
+            "https://prover.example.com",
+            "indexer_url",
+        ),
+        (
+            "ws://127.0.0.1:8784",
+            "https://prover.example.com",
+            "indexer_url",
+        ),
+        (
+            "https://indexer.example.com",
+            "http://prover.example.com",
+            "prover_url",
+        ),
     ] {
         assert!(
             matches!(
                 ZolanaClient::from_urls((), indexer, prover),
-                Err(ClientError::InsecureServiceUrl { .. })
+                Err(ClientError::InsecureServiceUrl { field: rejected, .. }) if rejected == field
             ),
-            "expected {indexer} / {prover} to be rejected"
+            "expected {indexer} / {prover} to be rejected for {field}"
         );
     }
 
@@ -117,38 +129,6 @@ async fn from_urls_is_safe_inside_an_async_runtime() {
         .expect("loopback http is allowed");
 
     drop(client);
-}
-
-/// A caller that builds its own indexer gets the check `from_urls` runs on
-/// the indexer URL.
-#[test]
-fn check_indexer_url_rejects_plaintext_off_loopback() {
-    for url in [
-        "https://indexer.example.com",
-        "http://127.0.0.1:8784",
-        "http://localhost:8784",
-    ] {
-        assert!(
-            check_indexer_url(url).is_ok(),
-            "expected {url} to be allowed"
-        );
-    }
-    for url in [
-        "http://indexer.example.com",
-        "http://127.0.0.1.evil.com:8784",
-        "ws://127.0.0.1:8784",
-    ] {
-        assert!(
-            matches!(
-                check_indexer_url(url),
-                Err(ClientError::InsecureServiceUrl {
-                    field: "indexer_url",
-                    ..
-                })
-            ),
-            "expected {url} to be rejected"
-        );
-    }
 }
 
 #[test]
