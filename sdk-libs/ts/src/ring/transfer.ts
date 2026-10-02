@@ -46,19 +46,13 @@ import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import {
   ConfidentialTransfer,
-  SppProofInputs,
-  createExternalData,
+  RECORD_INPUT_SLOT,
+  RECORD_OUTPUT_SLOT,
   inputTreeIds,
   privateTxAddressChain,
   sppPrivateTxHashInput,
   type PreparedTransfer,
 } from "../transaction/instructions/transact.js";
-import {
-  EncryptedScheme,
-  encodeConfidential,
-  encodeOutputData,
-} from "../transaction/serialization/codecs.js";
-import { Data } from "../transaction/data.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
 import {
   encryptCustomRingTransfer,
@@ -76,7 +70,7 @@ import {
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
 import { withTransactionKey } from "../wallet/private-transaction.js";
-import { SOL_ASSET_ID, SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
+import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
@@ -127,8 +121,6 @@ import { treeAddress } from "../interface/pda/index.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
-/** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
-const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
 
 export type RingTransferClient = import("../client/ports.js").IndexedPolicyClient &
   TreeContext &
@@ -464,7 +456,7 @@ async function buildRingSpend<R>(
       fetchRingCoSigner(params.client, params.ringProgramId, context),
       resolveRingOutputTree(params.client, params.outputTree, context),
     ]);
-    // A windowed ring spends the spend record in one input slot after the real inputs.
+    // A windowed ring spends the spend record at `RECORD_INPUT_SLOT`.
     const maxInputs =
       windowedPolicy(ringConfigs) === undefined ? RING_INPUT_SLOTS : RING_INPUT_SLOTS - 1;
     if (retry.entries !== undefined) checkRetainedEntries(params.wallet, retry.entries);
@@ -697,7 +689,7 @@ async function proveRingTransferStatement(
   let prepared = input.prepared;
   checkRingMembership(prepared, input.ringProgramId);
   const ringId = hashBytes(addressBytes(input.ringProgramId, "ringProgramId")) as Bytes32;
-  // Captured before a windowed ring appends the record as the last output.
+  // Captured before a windowed ring inserts the record at `RECORD_OUTPUT_SLOT`.
   const moneyOutputs = prepared.outputs;
 
   let velocity: CustomRingVelocityProofInput | undefined;
@@ -752,9 +744,8 @@ async function proveRingTransferStatement(
         movement,
         firstNullifier: prepared.firstNullifier,
         outputBlindingSeed: prepared.outputBlindingSeed(),
-        moneyShape: prepared.shape,
       });
-      prepared = prepared.withAppendedSlot({
+      prepared = prepared.withRecordSlots({
         shape: plan.shape,
         input: plan.recordInput,
         output: plan.recordOutput,
@@ -776,7 +767,7 @@ async function proveRingTransferStatement(
         ? {}
         : {
             counterMessage: plan.countersSeal,
-            recordOutputIndex: outputs.length - 1,
+            recordOutputIndex: RECORD_OUTPUT_SLOT,
           }),
     });
   const encrypted =
@@ -789,31 +780,35 @@ async function proveRingTransferStatement(
       ...encrypted.sealedMessages,
       encrypted.auditorMessage,
     ];
-    const proofInputs = frameDummyOutputs(
-      prepared.finalize({
-        txViewingPublicKey: encrypted.txViewingPublicKey,
-        salt: encrypted.salt,
-        payload: encrypted.payload,
-        messages,
-        instructionDiscriminator:
-          flow.kind === "delegate"
-            ? InstructionTag.ringAuthorityTransact
-            : InstructionTag.ringTransact,
-      }),
-    );
+    const proofInputs = prepared.finalize({
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      salt: encrypted.salt,
+      payload: encrypted.payload,
+      messages,
+      instructionDiscriminator:
+        flow.kind === "delegate"
+          ? InstructionTag.ringAuthorityTransact
+          : InstructionTag.ringTransact,
+    });
     const openings = ringOpenings(proofInputs);
-    const recordInput =
+    // A windowed transfer pads after the money, so its selected inputs are the
+    // real ones; the record slots are never rule subjects.
+    const nIn =
       plan === undefined
-        ? undefined
-        : proofInputs.inputUtxos.findLastIndex((input) => !input.isDummy());
-    const nIn = recordInput === undefined ? openings.nIn : recordInput + 1;
-    // The record slot is the last real input and the last output, never a rule subject.
+        ? openings.nIn
+        : proofInputs.inputUtxos.filter((input) => !input.isDummy()).length;
     const subjectInputs =
-      recordInput === undefined
+      plan === undefined
         ? proofInputs.inputUtxos
-        : proofInputs.inputUtxos.slice(0, Math.max(recordInput, 0));
+        : proofInputs.inputUtxos.filter(
+            (input, index) => index !== RECORD_INPUT_SLOT && !input.isDummy(),
+          );
     const subjectOutputs =
-      plan === undefined ? proofInputs.outputs : proofInputs.outputs.slice(0, -1);
+      plan === undefined
+        ? proofInputs.outputs
+        : proofInputs.outputs.filter(
+            (output, index) => index !== RECORD_OUTPUT_SLOT && !output.isDummy(),
+          );
     const policyRound =
       policy === undefined
         ? undefined
@@ -1098,56 +1093,6 @@ export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: A
   if (utxos.some((utxo) => utxo.ring === undefined && utxo.data !== undefined)) {
     throw new RingError("RING_DATA_OUTSIDE_RING");
   }
-}
-
-/** A dummy copies the length of a real slot with its ring binding, else of the first real slot, mirrors Rust `frame_dummy_outputs`. */
-export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
-  const external = proofInputs.externalData;
-  const templates = proofInputs.outputs.flatMap((output, index) => {
-    if (output.isDummy()) return [];
-    const length = external.outputs[index]?.data?.length;
-    if (length === undefined) {
-      throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
-    }
-    return [{ inRing: output.ringProgramId !== undefined, length }];
-  });
-  const outputs = external.outputs.map((encoded, index) => {
-    const output = proofInputs.outputs[index];
-    if (output === undefined || !output.isDummy()) return encoded;
-    const inRing = output.ringProgramId !== undefined;
-    const template = templates.find((candidate) => candidate.inRing === inRing) ?? templates[0];
-    const ciphertextLength =
-      template === undefined
-        ? encodeConfidential({
-            assetId: SOL_ASSET_ID,
-            amount: 0n,
-            blinding: new Uint8Array(32) as Bytes32,
-            data: new Data(),
-            ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
-          }).length
-        : template.length - CONFIDENTIAL_BODY_OVERHEAD;
-    if (ciphertextLength <= 0) {
-      throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
-    }
-    const key = ViewingKey.generate();
-    const body = new Uint8Array(33 + ciphertextLength);
-    try {
-      body.set(key.publicKey().toBytes(), 0);
-    } finally {
-      key.destroy();
-    }
-    globalThis.crypto.getRandomValues(body.subarray(33));
-    const scheme = inRing ? EncryptedScheme.ringConfidential : EncryptedScheme.confidential;
-    return { ...encoded, data: encodeOutputData(scheme, body, "encrypted") };
-  });
-  return new SppProofInputs({
-    payer: proofInputs.payer,
-    inputUtxos: proofInputs.inputUtxos,
-    outputs: proofInputs.outputs,
-    externalData: createExternalData({ ...external, outputs }),
-    blindingSeed: proofInputs.blindingSeed,
-    outputTreeId: proofInputs.outputTreeId,
-  });
 }
 
 function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {

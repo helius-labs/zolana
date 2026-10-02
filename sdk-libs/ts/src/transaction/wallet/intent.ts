@@ -235,9 +235,7 @@ export function checkPreparedTransfer(
         )
       )
         throw mismatch("inputs");
-      const outputs = prepared.outputs
-        .slice(prepared.senderOutputCount)
-        .filter((output) => !output.isDummy());
+      const { recipients: outputs, change } = outputRoles(prepared, mismatch);
       if (outputs.length !== intent.outputs.length) throw mismatch("outputs");
       for (const [index, wanted] of intent.outputs.entries()) {
         const actual = outputs[index];
@@ -251,12 +249,11 @@ export function checkPreparedTransfer(
         )
           throw mismatch("outputs");
       }
-      for (const output of prepared.outputs.slice(0, prepared.senderOutputCount)) {
+      for (const output of change) {
         if (
-          !output.isDummy() &&
-          (output.ownerAddress === undefined ||
-            !equalBytes(output.ownerAddress.toBytes(), intent.source.toBytes()) ||
-            output.ringProgramId !== intent.ringProgramId)
+          output.ownerAddress === undefined ||
+          !equalBytes(output.ownerAddress.toBytes(), intent.source.toBytes()) ||
+          output.ringProgramId !== intent.ringProgramId
         )
           throw mismatch("change");
       }
@@ -312,8 +309,24 @@ export function checkTransactData(
 
 type OutputsView = Readonly<{
   outputs: PreparedTransfer["outputs"];
-  senderOutputCount: number;
+  changeOutputCount: number;
 }>;
+
+/**
+ * The real outputs split by role: the change is the last `changeOutputCount`
+ * of them, the recipients precede it, and the padding trails both.
+ */
+function outputRoles(
+  view: OutputsView,
+  mismatch: (field: string) => Error,
+): Readonly<{ recipients: PreparedTransfer["outputs"]; change: PreparedTransfer["outputs"] }> {
+  const real = view.outputs.filter((output) => !output.isDummy());
+  const start = real.length - view.changeOutputCount;
+  if (!Number.isInteger(view.changeOutputCount) || view.changeOutputCount < 0 || start < 0) {
+    throw mismatch("changeOutputCount");
+  }
+  return { recipients: real.slice(0, start), change: real.slice(start) };
+}
 
 type SettlementView = OutputsView &
   Readonly<{ interfaceTransfers: PreparedTransfer["interfaceTransfers"] }>;
@@ -326,8 +339,7 @@ function checkRecipientOutputs(
 ): void {
   const recipientBytes = intent.recipient.toBytes();
   let total = 0n;
-  for (const output of prepared.outputs.slice(prepared.senderOutputCount)) {
-    if (output.isDummy()) continue;
+  for (const output of outputRoles(prepared, mismatch).recipients) {
     if (
       output.ownerAddress === undefined ||
       !equalBytes(output.ownerAddress.toBytes(), recipientBytes)
@@ -346,9 +358,7 @@ function checkSettlement(
   intent: Readonly<{ asset: Address; amount: bigint; recipient: Address }>,
   mismatch: (field: string) => Error,
 ): void {
-  if (prepared.outputs.slice(prepared.senderOutputCount).some((output) => !output.isDummy())) {
-    throw mismatch("outputs");
-  }
+  if (outputRoles(prepared, mismatch).recipients.length > 0) throw mismatch("outputs");
   const transfer = prepared.interfaceTransfers[0];
   if (prepared.interfaceTransfers.length !== 1 || transfer === undefined) {
     throw mismatch("settlements");
@@ -373,8 +383,8 @@ function checkRingEntry(
     throw mismatch("inputs");
   }
   const owner = prepared.owner.toBytes();
-  for (const output of prepared.outputs.slice(0, prepared.senderOutputCount)) {
-    if (output.isDummy()) continue;
+  const { recipients, change } = outputRoles(prepared, mismatch);
+  for (const output of change) {
     if (
       output.ownerAddress === undefined ||
       !equalBytes(output.ownerAddress.toBytes(), owner) ||
@@ -385,8 +395,7 @@ function checkRingEntry(
     }
   }
   let entered = 0n;
-  for (const output of prepared.outputs.slice(prepared.senderOutputCount)) {
-    if (output.isDummy()) continue;
+  for (const output of recipients) {
     if (
       output.ownerAddress === undefined ||
       !equalBytes(output.ownerAddress.toBytes(), owner) ||
@@ -522,7 +531,7 @@ export interface AuthorizedIntentView {
   }>;
   readonly intent: TransactionIntent;
   readonly withdrawal?: TransactWithdrawal | undefined;
-  readonly senderOutputCount: number;
+  readonly changeOutputCount: number;
   readonly owner: ShieldedAddress;
 }
 
@@ -534,21 +543,16 @@ export function checkAuthorizedBinding(
   const intent = authorized.intent;
   checkTransactionIntent(intent, mismatch);
   if (!(authorized.owner instanceof ShieldedAddress)) throw mismatch("owner");
-  if (
-    !Number.isInteger(authorized.senderOutputCount) ||
-    authorized.senderOutputCount < 0 ||
-    authorized.senderOutputCount > authorized.proofInputs.outputs.length
-  ) {
-    throw mismatch("senderOutputCount");
-  }
   for (const input of authorized.proofInputs.inputUtxos) {
     if (!input.isDummy() && input.utxo.ringProgramId !== undefined) throw mismatch("inputs");
   }
   const view: SettlementView = {
     outputs: authorized.proofInputs.outputs,
-    senderOutputCount: authorized.senderOutputCount,
+    changeOutputCount: authorized.changeOutputCount,
     interfaceTransfers: authorized.proofInputs.externalData.interfaceTransfers,
   };
+  // A forged change count fails here for every kind, split included.
+  outputRoles(view, mismatch);
   switch (intent.kind) {
     case "transfer":
       if (authorized.withdrawal !== undefined) throw mismatch("withdrawal");
@@ -596,8 +600,7 @@ function checkChangeOutputs(
   mismatch: (field: string) => Error,
 ): void {
   const ownerBytes = owner.toBytes();
-  for (const output of view.outputs.slice(0, view.senderOutputCount)) {
-    if (output.isDummy()) continue;
+  for (const output of outputRoles(view, mismatch).change) {
     if (
       output.ownerAddress === undefined ||
       !equalBytes(output.ownerAddress.toBytes(), ownerBytes) ||

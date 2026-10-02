@@ -21,6 +21,8 @@ fn error_codes_are_stable() {
         (PairMismatch as u32, 9015),
         (InvalidPrice as u32, 9016),
         (RentRecipientMismatch as u32, 9017),
+        (InvalidNullifierPubkey as u32, 9018),
+        (SettleExternalDataNotEmpty as u32, 9019),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

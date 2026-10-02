@@ -435,7 +435,6 @@ export {
   buildRingExitTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
-  frameDummyOutputs,
   proveCustomRingTransfer,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";

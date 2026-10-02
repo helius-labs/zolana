@@ -1072,7 +1072,8 @@ fn named_input_tree(
 /// The distinct pool trees holding eligible funds, in the order a spend
 /// declares them. A transact spends from at most [`MAX_INPUT_TREES`] trees, so
 /// a wider spread still needs the caller to name a tree. Each caller passes the
-/// predicate its own input selection applies.
+/// predicate its own input selection applies. Zero-amount UTXOs hold no funds,
+/// so a tree that holds only those does not count, as in `select_inputs`.
 fn resolve_spend_trees(
     wallet: &Wallet,
     asset: Address,
@@ -1080,7 +1081,7 @@ fn resolve_spend_trees(
 ) -> Result<Vec<Address>, ClientError> {
     let trees: BTreeSet<Address> = wallet
         .unspent()
-        .filter(|entry| entry.utxo.asset.asset == asset && eligible(entry))
+        .filter(|entry| entry.utxo.asset.asset == asset && entry.utxo.amount > 0 && eligible(entry))
         .map(|entry| pda::tree(entry.tree_id()))
         .collect();
 
@@ -1952,6 +1953,20 @@ mod tests {
                 tree_count: 2,
             } if asset == SOL_MINT
         ));
+    }
+
+    #[test]
+    fn resolve_spend_tree_ignores_a_tree_holding_only_zero_amount_utxos() {
+        let sender = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = wallet_with_sol(sender.clone(), 4);
+        let mut leftover = wallet_with_sol(sender, 0).utxos.remove(0);
+        leftover.tree_id = SECOND_TREE_ID;
+        wallet.utxos.push(leftover);
+
+        let tree =
+            resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable).expect("infer tree");
+
+        assert_eq!(tree, test_tree());
     }
 
     #[test]

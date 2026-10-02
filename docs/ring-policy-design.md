@@ -474,10 +474,12 @@ data hash commits the address, the member, the version, the window and the
 counters commitment flat, the window and the commitment public, so an expired
 record is consumed without opening its counters and a record from a future
 window is refused. The policy circuit
-pins the two record slots, exactly one input and one output open to the
+pins the two record slots, input slot one and output slot zero, open to the
 namespace owner at the sender's record address, the input at the latest
 version, the output at version plus one, every other opening a different
-owner, and excludes them from rule evaluation. A window boundary admits up
+owner, and excludes them from rule evaluation. Input slot zero stays the
+sender's money input so the record's public-key nullifier never seeds the
+blindings; money fills the remaining slots and dummies pad the tail. A window boundary admits up
 to twice the cap. Windows are indexed by slot and reset the counters, a
 sliding window would need spend history. A row with no window keeps no
 record, the circuit caps each transfer's `outflow_m` on its own and binds
@@ -509,8 +511,8 @@ transfer's successor is a standard SPP confidential output exposing
 the namespace owner tag SPP requires for a default-ring output. A separate
 message tagged `SHA256("zolana:spend-record:v1" || namespace)` carries the
 record opening. The ring program requires exactly one such message and checks
-that it reconstructs the last output commitment. Readers decode the record
-from that message.
+that it reconstructs the commitment of output slot zero, where the policy
+circuit pins the successor. Readers decode the record from that message.
 
 The counter envelope is encrypted to the transaction viewing key. The
 sender derives the key and the auditor recovers it. The record's member,

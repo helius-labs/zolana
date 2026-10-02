@@ -19,10 +19,14 @@ use dynamic_swap_sdk::{
     prover::DynamicSwapProverClient,
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
-use shared::{escrow_authority_identity, get_slot_with_retry, send, setup_with_pair, wait_until};
+use shared::{
+    assert_custom_error, escrow_authority_identity, get_slot_with_retry, send, setup_with_pair,
+    wait_until,
+};
 use solana_signer::Signer;
 use zolana_client::user_registry::resolve_registered_address;
 use zolana_client::{ComputeBudgetConfig, Rpc};
+use zolana_interface::instruction::instruction_data::transact::{MessageData, TransactIxData};
 use zolana_keypair::random_blinding;
 use zolana_program::instruction::Transact;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
@@ -37,6 +41,8 @@ use zolana_transaction::{
 };
 
 const PRICE: u64 = 5;
+
+const SETTLE_EXTERNAL_DATA_NOT_EMPTY: u32 = 9019;
 const ORDER_AMOUNT: u64 = 100_000_000;
 
 // Full happy path: create_pair -> create_escrow (the taker escrows the source
@@ -704,23 +710,53 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .prove_escrow_settle(&proof_inputs)
             .map_err(|e| anyhow!("prove escrow_settle: {e:?}"))?;
 
-        let settle_ix = Settle {
-            caller: authority_solana.pubkey(),
-            pair,
-            escrow,
-            rent_recipient: user_solana.pubkey(),
-            tree: env.localnet.tree,
-            proof: SettleProof {
-                proof_a: order_proof.proof_a,
-                proof_b: order_proof.proof_b,
-                proof_c: order_proof.proof_c,
-            },
-            transact,
-        }
-        .instruction()
-        .map_err(|e| anyhow!("settle instruction: {e:?}"))?;
-        send(env.localnet.client.rpc(), &authority_solana, &[], settle_ix)
-            .map_err(|e| anyhow!("send settle: {e:?}"))?;
+        let settle = |transact: TransactIxData| {
+            Settle {
+                caller: authority_solana.pubkey(),
+                pair,
+                escrow,
+                rent_recipient: user_solana.pubkey(),
+                tree: env.localnet.tree,
+                proof: SettleProof {
+                    proof_a: order_proof.proof_a,
+                    proof_b: order_proof.proof_b,
+                    proof_c: order_proof.proof_c,
+                },
+                transact,
+            }
+            .instruction()
+            .map_err(|e| anyhow!("settle instruction: {e:?}"))
+        };
+
+        // No user signature covers the forwarded transact and the proof binds
+        // only the UTXOs, so settle must refuse external data a third party
+        // could attach to a published proof.
+        let mut with_message = transact.clone();
+        with_message.messages.push(MessageData {
+            view_tag: [7u8; 32],
+            data: vec![1, 2, 3],
+        });
+        let rejected = send(
+            env.localnet.client.rpc(),
+            &authority_solana,
+            &[],
+            settle(with_message)?,
+        )
+        .err()
+        .ok_or_else(|| anyhow!("settle must reject a forwarded message"))?;
+        assert_custom_error(
+            "settle with message",
+            &rejected,
+            SETTLE_EXTERNAL_DATA_NOT_EMPTY,
+        );
+
+        send(
+            env.localnet.client.rpc(),
+            &authority_solana,
+            &[],
+            settle(transact)?,
+        )
+        .map_err(|e| anyhow!("send settle: {e:?}"))?;
 
         (recipient_out_hash, maker_counter_hash, maker_source_hash)
     };

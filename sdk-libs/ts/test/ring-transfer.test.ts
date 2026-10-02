@@ -9,7 +9,6 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import recordPaddingVectors from "../../../test-vectors/record_padding.json" with { type: "json" };
 import { treeAddress } from "../src/interface/pda/index.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
@@ -18,7 +17,6 @@ import type {
   Bytes32,
   Bytes33,
   Bytes128,
-  OwnerTag,
   Signature,
   TransactInstructionData,
 } from "../src/interface/types.js";
@@ -57,7 +55,6 @@ import { hashBytesBigInt } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
 import {
   checkRingMembership,
-  frameDummyOutputs,
   proveCustomRingTransfer,
   proveCustomRingDelegateTransfer,
   type CustomRingDelegateTransferParams,
@@ -80,10 +77,13 @@ import { entryProofReads, lineage } from "./helpers/ring-entries.js";
 import { treeAccount } from "./helpers/tree-account.js";
 import {
   ConfidentialTransfer,
+  RECORD_INPUT_SLOT,
+  RECORD_OUTPUT_SLOT,
   SppProofInputs,
   privateTxAddressChain,
   prepareRingAuthorityTransfer,
   createExternalData,
+  frameDummyOutputs,
   sppPrivateTxHashInput,
   type IndexedShieldedTransaction,
   type PreparedTransfer,
@@ -91,10 +91,8 @@ import {
 import { nonZeroHashChain, poseidon } from "../src/transaction/internal.js";
 import {
   EncryptedScheme,
-  decryptConfidentialAsSender,
   encodeConfidential,
   readOutputData,
-  splitEmbeddedKey,
 } from "../src/transaction/serialization/codecs.js";
 import { Data } from "../src/transaction/data.js";
 import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
@@ -205,15 +203,13 @@ async function sealAudited(
       outputTreeId: ring.outputTreeId,
     }),
   );
-  return frameDummyOutputs(
-    ring.finalize({
-      txViewingPublicKey: encrypted.txViewingPublicKey,
-      salt: encrypted.salt,
-      payload: encrypted.payload,
-      messages: [encrypted.auditorMessage],
-      instructionDiscriminator: InstructionTag.ringTransact,
-    }),
-  );
+  return ring.finalize({
+    txViewingPublicKey: encrypted.txViewingPublicKey,
+    salt: encrypted.salt,
+    payload: encrypted.payload,
+    messages: [encrypted.auditorMessage],
+    instructionDiscriminator: InstructionTag.ringTransact,
+  });
 }
 
 /** Builds a wide SPP fixture for framing tests; custom-ring proofs deliberately cap outputs at four. */
@@ -231,14 +227,12 @@ async function paddedProofInputs(
   );
   return {
     recipient,
-    proofInputs: frameDummyOutputs(
-      prepared.finalize({
-        txViewingPublicKey: encrypted.txViewingPublicKey,
-        salt: encrypted.salt,
-        payload: encrypted.payload,
-        instructionDiscriminator: InstructionTag.ringTransact,
-      }),
-    ),
+    proofInputs: prepared.finalize({
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      salt: encrypted.salt,
+      payload: encrypted.payload,
+      instructionDiscriminator: InstructionTag.ringTransact,
+    }),
   };
 }
 
@@ -380,7 +374,7 @@ describe("delegate policy rail", () => {
       ringProgramId: RING,
       outputTreeId: 0,
     });
-    expect(prepared.outputs.map((output) => output.amount)).toEqual([3n, (1n << 64n) - 1n]);
+    expect(prepared.outputs.map((output) => output.amount)).toEqual([(1n << 64n) - 1n, 3n]);
   });
   it("names the input outside the ring and the foreign owner separately", () => {
     const sender = actor(3),
@@ -528,12 +522,13 @@ describe("delegate policy rail", () => {
       outputTreeId: 7,
     });
     expect(prepared.shape).toEqual({ inputs: 4, outputs: 4 });
-    expect(prepared.senderOutputCount).toBe(2);
+    expect(prepared.changeOutputCount).toBe(2);
+    // The payments lead and the per-mint change follows them.
     expect(prepared.outputs.map(({ asset, amount }) => ({ asset, amount }))).toEqual([
-      { asset: mintA, amount: 6n },
-      { asset: mintB, amount: 4n },
       { asset: mintA, amount: 4n },
       { asset: mintB, amount: 6n },
+      { asset: mintA, amount: 6n },
+      { asset: mintB, amount: 4n },
     ]);
     expect(prepared.interfaceTransfers).toEqual([]);
     expect(prepared.ownerMode).toBe("opaque");
@@ -568,18 +563,54 @@ function ringInstructionData(txHash: Bytes32): TransactInstructionData {
 }
 
 describe("change layout", () => {
-  it("leads with the present change and follows it with the recipient", () => {
+  it("leads with the recipient and follows it with the present change", () => {
     const compact = preparedTransfer(4n).prepared;
     expect(compact.shape).toEqual({ inputs: 1, outputs: 2 });
-    expect(compact.outputs.map((output) => output.amount)).toEqual([6n, 4n]);
-    expect(compact.senderOutputCount).toBe(1);
+    expect(compact.outputs.map((output) => output.amount)).toEqual([4n, 6n]);
+    expect(compact.changeOutputCount).toBe(1);
+  });
+
+  it("places the SPL change before the SOL change after every recipient", () => {
+    const sender = actor(3);
+    const mint = actor(30).address.solanaAddress();
+    const inputs = [
+      ownedInput(sender, {
+        owner: sender.keypair.signingPublicKey(),
+        asset: mint,
+        amount: 10n,
+        blinding: scalar(6),
+      }),
+      ownedInput(sender, {
+        owner: sender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: scalar(7),
+      }),
+    ];
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      inputs,
+      sender.address.solanaAddress(),
+    );
+    transfer.send(actor(4).address, mint, 3n);
+    transfer.send(actor(5).address, SOL_MINT, 2n);
+
+    const prepared = transfer.prepare();
+
+    expect(prepared.changeOutputCount).toBe(2);
+    expect(prepared.outputs.map(({ asset, amount }) => [asset, amount])).toEqual([
+      [mint, 3n],
+      [SOL_MINT, 2n],
+      [mint, 7n],
+      [SOL_MINT, 3n],
+    ]);
   });
 
   it("keeps only the recipient after a full spend", () => {
     const compact = preparedTransfer(10n).prepared;
     expect(compact.shape).toEqual({ inputs: 1, outputs: 1 });
     expect(compact.outputs.map((output) => output.amount)).toEqual([10n]);
-    expect(compact.senderOutputCount).toBe(0);
+    expect(compact.changeOutputCount).toBe(0);
   });
 
   it("binds the change and the recipients to the ring the transfer runs in", () => {
@@ -604,10 +635,10 @@ describe("change layout", () => {
 
     const prepared = transfer.prepare();
 
-    expect(prepared.senderOutputCount).toBe(1);
+    expect(prepared.changeOutputCount).toBe(1);
     expect(prepared.outputs.map((output) => [output.amount, output.ringProgramId])).toEqual([
-      [6n, undefined],
       [4n, RING],
+      [6n, undefined],
     ]);
   });
 
@@ -627,11 +658,11 @@ describe("change layout", () => {
     ).withRingProgramId(RING);
     transfer.sendDefaultRing(actor(4).address, SOL_MINT, 4n);
     const prepared = transfer.prepare();
-    expect(prepared.outputs.map((output) => output.ringProgramId)).toEqual([RING, undefined]);
+    expect(prepared.outputs.map((output) => output.ringProgramId)).toEqual([undefined, RING]);
 
-    const foreign = prepared.outputs[1]?.withRingProgramId(actor(9).address.solanaAddress());
+    const foreign = prepared.outputs[0]?.withRingProgramId(actor(9).address.solanaAddress());
     expect(() =>
-      checkRingMembership({ ...prepared, outputs: [prepared.outputs[0]!, foreign!] }, RING),
+      checkRingMembership({ ...prepared, outputs: [foreign!, prepared.outputs[1]!] }, RING),
     ).toThrow("RING_FOREIGN_RING");
   });
 
@@ -711,7 +742,7 @@ describe("frameDummyOutputs", () => {
       expect(framed.externalData.messages).toEqual(unframed.externalData.messages);
     });
   }
-  it("frames dummy slots as confidential bodies of the real length like Rust `frame_dummy_outputs`", async () => {
+  it("frames ring-bound dummy slots as ring bodies of the real length like Rust `frame_dummy_outputs`", async () => {
     // Five real outputs pad to the (1, 8) shape.
     const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
     expect(proofInputs.outputs).toHaveLength(8);
@@ -725,7 +756,9 @@ describe("frameDummyOutputs", () => {
     const keys = dummies.map((index) => {
       const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
       expect(frame.encoding).toBe("encrypted");
-      expect(frame.scheme).toBe(EncryptedScheme.confidential);
+      // The padding carries the transfer's ring, as Rust `pad_utxos` binds it.
+      expect(proofInputs.outputs[index]?.ringProgramId).toBe(RING);
+      expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
       expect([2, 3]).toContain(frame.body[0]);
       return Buffer.from(frame.body.subarray(0, 33)).toString("hex");
     });
@@ -741,7 +774,7 @@ describe("frameDummyOutputs", () => {
 });
 
 describe("frameDummyOutputs with an exit", () => {
-  it("frames a dummy after the default-ring slot, 32 bytes shorter than a ring slot", async () => {
+  it("frames a ring-bound dummy like a ring slot, not like the 32 bytes shorter exit", async () => {
     const { proofInputs } = await paddedProofInputs(3n, [1n, 1n], [1n]);
     expect(proofInputs.outputs).toHaveLength(8);
     const external = proofInputs.externalData;
@@ -755,9 +788,9 @@ describe("frameDummyOutputs with an exit", () => {
     expect(lengthOf(ringSlot) - lengthOf(exitSlot)).toBe(32);
     for (const [index, output] of proofInputs.outputs.entries()) {
       if (!output.isDummy()) continue;
-      expect(lengthOf(index)).toBe(lengthOf(exitSlot));
+      expect(lengthOf(index)).toBe(lengthOf(ringSlot));
       const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
-      expect(frame.scheme).toBe(EncryptedScheme.confidential);
+      expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
     }
   });
 });
@@ -790,7 +823,7 @@ function spendProofFor(input: ProofInputUtxo): SpendProof {
 
 describe("ring witness", () => {
   it("publishes owner hashes only for `Confidential` slots like Rust `confidential_marked_output_owner_pk_hashes`", async () => {
-    const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
+    const { proofInputs } = await paddedProofInputs(3n, [1n, 1n], [1n]);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
     const spendProof = spendProofFor(input);
@@ -802,9 +835,10 @@ describe("ring witness", () => {
       const tag = tags[index];
       if (!tag) throw new Error("owner tag");
       // A published tag is a Solana signer, so it enters as its tagged identity
-      // (`0x53 || pk`), not the bare hash of the tag bytes.
+      // (`0x53 || pk`), not the bare hash of the tag bytes. Only the exit is
+      // `Confidential`: a ring-bound pad publishes zero like the ring slots.
       expect(published[index]).toBe(
-        output.isDummy() ? bytesToBigInt(solanaOwnerIdentity(tag)) : 0n,
+        output.ringProgramId === undefined ? bytesToBigInt(solanaOwnerIdentity(tag)) : 0n,
       );
     });
     expect(assembled.proverInputs.circuit).toBe("transferRing");
@@ -837,7 +871,7 @@ describe("ring openings", () => {
   });
 
   it("opens every slot like Rust `CustomRingWitnessInput`", async () => {
-    // Change 5, recipient 4, other 1 fill the (2, 3) shape with one dummy input.
+    // Recipient 4, other 1, change 5 fill the (2, 3) shape with one dummy input.
     const { proofInputs, recipient } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
     const openings = ringOpenings(proofInputs);
     expect(openings.nIn).toBe(2);
@@ -861,8 +895,8 @@ describe("ring openings", () => {
     expect(openings.inputs[1]).toEqual(zeroOpening(1));
     expect(openings.inputs.slice(2)).toEqual([zeroOpening(0), zeroOpening(0), zeroOpening(0)]);
 
-    const change = openings.outputs[0];
-    const paid = openings.outputs[1];
+    const paid = openings.outputs[0];
+    const change = openings.outputs[2];
     if (!change || !paid) throw new Error("outputs");
     expect(change.domain).toEqual(scalar(3));
     expect(change.amount).toEqual(scalar(5));
@@ -1029,11 +1063,11 @@ describe("ring audit", () => {
       proofInputs.externalData.txViewingPublicKey.toBytes(),
     );
     expect(audited.outputs.map((output) => [output.slotIndex, output.amount])).toEqual([
-      [0, 5n],
-      [1, 4n],
-      [2, 1n],
+      [0, 4n],
+      [1, 1n],
+      [2, 5n],
     ]);
-    expect(audited.outputs[1]?.recipientViewingPublicKey.toBytes()).toEqual(
+    expect(audited.outputs[0]?.recipientViewingPublicKey.toBytes()).toEqual(
       recipient.address.viewingPublicKey.toBytes(),
     );
     expect(audited.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
@@ -1544,7 +1578,7 @@ describe("ring proof folded fields", () => {
   });
 });
 
-describe("record slot trees", () => {
+describe("record slots", () => {
   function spend(
     owner: ReturnType<typeof actor>,
     amount: bigint,
@@ -1565,41 +1599,90 @@ describe("record slot trees", () => {
     );
   }
 
-  function moneyTransfer(trees: readonly number[]) {
+  /** 10 SOL ring inputs of `sender`, one per tree in `trees`, sending `amount` to a recipient. */
+  function moneyTransfer(trees: readonly number[], amount = 4n, payer?: Address) {
     const sender = actor(3);
+    const recipient = actor(4);
     const inputs = trees.map((treeId, index) => spend(sender, 10n, 6 + index, treeId));
     const transfer = new ConfidentialTransfer(
       sender.address,
       inputs,
-      sender.address.solanaAddress(),
+      payer ?? sender.address.solanaAddress(),
     ).withRingProgramId(RING);
-    transfer.send(actor(4).address, SOL_MINT, 4n);
-    return { prepared: transfer.prepare(), sender };
+    transfer.send(recipient.address, SOL_MINT, amount);
+    return { prepared: transfer.prepare(), sender, recipient };
+  }
+
+  function recordOutput(
+    prepared: PreparedTransfer,
+    owner: ReturnType<typeof actor>,
+    slot = RECORD_OUTPUT_SLOT,
+  ) {
+    return createProofOutput({
+      ownerAddress: owner.address,
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: transactOutputBlinding(
+        prepared.firstNullifier,
+        prepared.outputBlindingSeed(),
+        slot,
+      ),
+    });
   }
 
   function withRecord(
     prepared: PreparedTransfer,
     owner: ReturnType<typeof actor>,
     recordTree: number,
+    shape = recordShape({ inputs: prepared.inputs.length, outputs: prepared.outputs.length }),
   ): PreparedTransfer {
-    const shape = recordShape(prepared.shape);
-    return prepared.withAppendedSlot({
+    return prepared.withRecordSlots({
       shape,
       input: spend(owner, 0n, 40, recordTree),
-      output: createProofOutput({
-        ownerAddress: owner.address,
-        asset: SOL_MINT,
-        amount: 0n,
-        blinding: transactOutputBlinding(
-          prepared.firstNullifier,
-          prepared.outputBlindingSeed(),
-          shape.outputs - 1,
-        ),
-      }),
+      output: recordOutput(prepared, owner),
     });
   }
 
-  it("opens a record from a second tree under its own tree after the money run", async () => {
+  function slotBlinding(prepared: PreparedTransfer, slot: number): Bytes32 {
+    return transactOutputBlinding(prepared.firstNullifier, prepared.outputBlindingSeed(), slot);
+  }
+
+  it("spends the record at input slot one and leads the outputs with its successor", async () => {
+    const { prepared, sender } = moneyTransfer([0, 1]);
+    const [inA, inB] = prepared.inputs;
+    if (inA === undefined || inB === undefined) throw new Error("inputs");
+    const record = spend(sender, 0n, 40, 0);
+    const extended = prepared.withRecordSlots({
+      shape: recordShape({ inputs: 2, outputs: prepared.outputs.length }),
+      input: record,
+      output: recordOutput(prepared, sender),
+    });
+    expect(extended.shape).toEqual({ inputs: 3, outputs: 3 });
+    const proofInputs = await sealAudited(extended, sender, ViewingKey.generate());
+    expect(proofInputs.inputUtxos).toEqual([inA, record, inB]);
+    expect(proofInputs.inputUtxos[RECORD_INPUT_SLOT]).toEqual(record);
+    expect(proofInputs.firstNullifier()).toEqual(inA.nullifier());
+    expect(proofInputs.inputTreeIds()).toEqual([0, 1]);
+    const openings = ringOpenings(proofInputs);
+    expect(openings.inputs.slice(0, openings.nIn).map((opening) => opening.treeId)).toEqual([
+      scalar(0),
+      scalar(0),
+      scalar(1),
+    ]);
+    const money = (output: (typeof prepared.outputs)[number]) => [
+      output.ownerAddress?.toBytes(),
+      output.asset,
+      output.amount,
+      output.ringProgramId,
+    ];
+    expect(proofInputs.outputs.map((output) => output.amount)).toEqual([0n, 4n, 16n]);
+    expect(proofInputs.outputs.slice(1).map(money)).toEqual(prepared.outputs.map(money));
+    proofInputs.outputs.forEach((output, slot) => {
+      expect(output.blinding).toEqual(slotBlinding(prepared, slot));
+    });
+  });
+
+  it("opens a record from a second tree under its own tree at input slot one", async () => {
     const { prepared, sender } = moneyTransfer([0]);
     const proofInputs = await sealAudited(
       withRecord(prepared, sender, 1),
@@ -1614,162 +1697,120 @@ describe("record slot trees", () => {
     ]);
   });
 
-  it("keeps the money order and first nullifier when the record returns to an earlier tree", async () => {
-    const { prepared, sender } = moneyTransfer([0, 1]);
-    const [inA, inB] = prepared.inputs;
-    if (inA === undefined || inB === undefined) throw new Error("inputs");
-    const proofInputs = await sealAudited(
-      withRecord(prepared, sender, 0),
-      sender,
-      ViewingKey.generate(),
-    );
-    expect(proofInputs.inputUtxos.slice(0, 2)).toEqual([inA, inB]);
-    expect(proofInputs.firstNullifier()).toEqual(inA.nullifier());
-    expect(proofInputs.inputTreeIds()).toEqual([0, 1]);
-    const openings = ringOpenings(proofInputs);
-    expect(openings.inputs.slice(0, openings.nIn).map((opening) => opening.treeId)).toEqual([
-      scalar(0),
-      scalar(1),
-      scalar(0),
-    ]);
-  });
-
   it("refuses a record from a third tree", () => {
     const { prepared, sender } = moneyTransfer([0, 1]);
     expect(() => withRecord(prepared, sender, 2)).toThrow("TRANSACTION_TOO_MANY_INPUT_TREES");
   });
 
-  it("accepts a record that returns to an earlier tree", () => {
-    const { prepared, sender } = moneyTransfer([0, 1]);
-    expect(withRecord(prepared, sender, 0).inputTreeIds).toEqual([0, 1]);
+  it("refuses a record output blinded for another slot", () => {
+    const { prepared, sender } = moneyTransfer([0]);
+    const shape = recordShape({ inputs: 1, outputs: prepared.outputs.length });
+    expect(() =>
+      prepared.withRecordSlots({
+        shape,
+        input: spend(sender, 0n, 40, 0),
+        output: recordOutput(prepared, sender, shape.outputs - 1),
+      }),
+    ).toThrow("TRANSACTION_OUTPUT_BLINDING_MISMATCH");
   });
 
-  async function paddedRecordTransfer(sent: bigint, senderPaysFee: boolean) {
-    const sender = actor(3);
-    const recipient = actor(4);
-    const transfer = new ConfidentialTransfer(
-      sender.address,
-      [spend(sender, 10n, 6, 0), spend(sender, 10n, 7, 0)],
-      senderPaysFee ? sender.address.solanaAddress() : actor(5).address.solanaAddress(),
-    )
-      .withRingProgramId(RING)
-      .withShape({ inputs: 2, outputs: 3 });
-    transfer.send(recipient.address, SOL_MINT, sent);
-    const prepared = transfer.prepare();
+  it("refuses a shape without a free slot for the record on either side", () => {
+    const { prepared, sender } = moneyTransfer([0]);
+    expect(prepared.outputs).toHaveLength(2);
+    expect(() => withRecord(prepared, sender, 0, { inputs: 2, outputs: 2 })).toThrow(
+      "TRANSACTION_UNSUPPORTED_SHAPE",
+    );
+    expect(() => withRecord(prepared, sender, 0, { inputs: 1, outputs: 8 })).toThrow(
+      "TRANSACTION_UNSUPPORTED_SHAPE",
+    );
+  });
+
+  it("pads the inputs with the first money input's tree whatever the real input count", async () => {
+    const shape = { inputs: 4, outputs: 4 };
+    for (const trees of [[0], [0, 0], [0, 0, 0]]) {
+      const { prepared, sender } = moneyTransfer(trees);
+      const proofInputs = await sealAudited(
+        withRecord(prepared, sender, 1, shape),
+        sender,
+        ViewingKey.generate(),
+      );
+      expect(proofInputs.inputUtxos.map((input) => input.treeId)).toEqual([0, 1, 0, 0]);
+      expect(proofInputs.inputUtxos.map((input) => input.isDummy())).toEqual(
+        [0, 1, 2, 3].map((slot) => slot > trees.length),
+      );
+      expect(proofInputs.inputTreeIds()).toEqual([0, 1]);
+    }
+  });
+
+  it("pads the outputs after the money with dummies blinded for their slots", async () => {
+    const { prepared, sender } = moneyTransfer([0, 0], 20n);
+    expect(prepared.outputs).toHaveLength(1);
     const extended = withRecord(prepared, sender, 1);
-    expect(extended.shape).toEqual({ inputs: 4, outputs: 4 });
+    expect(extended.shape).toEqual({ inputs: 3, outputs: 3 });
     const proofInputs = await sealAudited(extended, sender, ViewingKey.generate());
-    expect(proofInputs.inputUtxos.map((input) => [input.isDummy(), input.treeId])).toEqual([
-      [false, 0],
-      [false, 0],
-      [false, 1],
-      [true, 1],
+    expect(proofInputs.outputs.map((output) => [output.isDummy(), output.amount])).toEqual([
+      [false, 0n],
+      [false, 20n],
+      [true, 0n],
     ]);
-    expect(proofInputs.outputs.map((output) => output.isDummy())).toEqual([
-      false,
-      false,
-      false,
-      false,
-    ]);
-    return { sender, recipient, prepared, proofInputs };
-  }
-
-  function expectPadding(
-    padded: Awaited<ReturnType<typeof paddedRecordTransfer>>,
-    slots: readonly number[],
-    owner: ReturnType<typeof actor>,
-    ownerTag: OwnerTag,
-  ): void {
-    const { sender, prepared, proofInputs } = padded;
-    const tx = sender.keypair.transactionViewingKey(prepared.firstNullifier);
-    try {
-      for (const slot of slots) {
-        const output = proofInputs.outputs[slot];
-        const encoded = proofInputs.externalData.outputs[slot];
-        if (output === undefined || encoded?.data === undefined) throw new Error("padding output");
-        expect(output.ownerAddress?.signingPublicKey.toBytes()).toEqual(
-          owner.address.signingPublicKey.toBytes(),
-        );
-        expect([output.asset, output.amount, output.ringProgramId]).toEqual([
-          SOL_MINT,
-          0n,
-          undefined,
-        ]);
-        expect(output.blinding).toEqual(
-          transactOutputBlinding(prepared.firstNullifier, prepared.outputBlindingSeed(), slot),
-        );
-        expect(encoded.ownerTag).toEqual(ownerTag);
-        expect(proofInputs.externalData.resolvedOwnerTags[slot]).toEqual(
-          owner.address.confidentialViewTag(),
-        );
-        const { scheme, body } = readOutputData(encoded.data);
-        expect(scheme).toBe(EncryptedScheme.confidential);
-        expect(splitEmbeddedKey(body).key.toBytes()).toEqual(
-          owner.address.viewingPublicKey.toBytes(),
-        );
-        const plaintext = decryptConfidentialAsSender(
-          tx,
-          body,
-          proofInputs.externalData.salt,
-          slot,
-        );
-        expect([plaintext.assetId, plaintext.amount, plaintext.blinding]).toEqual([
-          SOL_ASSET_ID,
-          0n,
-          output.blinding,
-        ]);
-      }
-    } finally {
-      tx.destroy();
-    }
-  }
-
-  type RecordPaddingVector = (typeof recordPaddingVectors.cases)[number];
-
-  async function expectPaddingVector(vector: RecordPaddingVector): Promise<void> {
-    const padded = await paddedRecordTransfer(
-      vector.keeps_change ? 4n : 20n,
-      vector.sender_pays_fee,
-    );
-    const copiesSender = vector.copies === "sender";
-    if (!copiesSender && vector.copies !== "recipient") throw new Error(vector.name);
-    const owner = copiesSender ? padded.sender : padded.recipient;
-    const ownerKey = owner.address.signingPublicKey.toBytes();
-    const owned = padded.proofInputs.outputs.flatMap((output, slot) =>
-      output.ownerAddress !== undefined &&
-      Buffer.from(output.ownerAddress.signingPublicKey.toBytes()).equals(Buffer.from(ownerKey))
-        ? [slot]
-        : [],
-    );
-    const copied = copiesSender ? owned[0] : owned.at(-1);
-    if (copied === undefined) throw new Error(vector.name);
-    let ownerTag: OwnerTag;
-    if (vector.owner_tag === "account_0") {
-      ownerTag = { kind: "account", index: 0 };
-    } else if (vector.owner_tag === "inline") {
-      ownerTag = { kind: "inline", value: owner.address.confidentialViewTag() };
-    } else {
-      throw new Error(vector.name);
-    }
-    expect(padded.proofInputs.externalData.outputs[copied]?.ownerTag).toEqual(ownerTag);
-    expectPadding(padded, vector.keeps_change ? [2] : [1, 2], owner, ownerTag);
-  }
-
-  it("keeps every dummy after the real slots and pads outputs with zero copies of the sender change", async () => {
-    const vectors = recordPaddingVectors.cases.filter((vector) => vector.copies === "sender");
-    expect(vectors.length).toBeGreaterThan(0);
-    for (const vector of vectors) {
-      expect(vector.keeps_change).toBe(true);
-      await expectPaddingVector(vector);
-    }
+    proofInputs.outputs.forEach((output, slot) => {
+      expect(output.blinding).toEqual(slotBlinding(prepared, slot));
+    });
   });
 
-  it("pads outputs with zero copies of the last money output without change", async () => {
-    const vectors = recordPaddingVectors.cases.filter((vector) => vector.copies === "recipient");
-    expect(vectors.length).toBeGreaterThan(0);
-    for (const vector of vectors) {
-      expect(vector.keeps_change).toBe(false);
-      await expectPaddingVector(vector);
-    }
+  it("keeps the compact sender tag on the change that follows the record and the recipient", async () => {
+    const paid = moneyTransfer([0, 0]);
+    const recordOwner = actor(6);
+    const recordTag = recordOwner.address.confidentialViewTag();
+    const senderTag = paid.sender.address.confidentialViewTag();
+    const recipientTag = paid.recipient.address.confidentialViewTag();
+    const sealed = await sealAudited(
+      withRecord(paid.prepared, recordOwner, 1),
+      paid.sender,
+      ViewingKey.generate(),
+    );
+    expect(sealed.externalData.outputs.map((output) => output.ownerTag)).toEqual([
+      { kind: "inline", value: recordTag },
+      { kind: "inline", value: recipientTag },
+      { kind: "account", index: 0 },
+    ]);
+    expect(sealed.externalData.resolvedOwnerTags).toEqual([recordTag, recipientTag, senderTag]);
+
+    const sponsored = moneyTransfer([0, 0], 4n, actor(5).address.solanaAddress());
+    const sponsoredSeal = await sealAudited(
+      withRecord(sponsored.prepared, recordOwner, 1),
+      sponsored.sender,
+      ViewingKey.generate(),
+    );
+    expect(sponsoredSeal.externalData.outputs.map((output) => output.ownerTag)).toEqual([
+      { kind: "inline", value: recordTag },
+      { kind: "inline", value: recipientTag },
+      { kind: "inline", value: senderTag },
+    ]);
+  });
+
+  it("pads a record transfer like its money transfer, compact under a self-paying sender", async () => {
+    // One input, one recipient and change: the money transfer pads nothing, so
+    // the record's padding names the sender in the ring of the trailing change.
+    const unpadded = moneyTransfer([0]);
+    expect(unpadded.prepared.shape).toEqual({ inputs: 1, outputs: 2 });
+    const sealed = await sealAudited(
+      withRecord(unpadded.prepared, actor(6), 0, { inputs: 4, outputs: 4 }),
+      unpadded.sender,
+      ViewingKey.generate(),
+    );
+    const senderTag = unpadded.sender.address.confidentialViewTag();
+    const pad = sealed.outputs[3];
+    expect(pad?.isDummy()).toBe(true);
+    expect(pad?.ownerTag).toEqual(senderTag);
+    expect(pad?.ringProgramId).toBe(RING);
+    expect(sealed.externalData.outputs[3]?.ownerTag).toEqual({ kind: "account", index: 0 });
+    expect(readOutputData(sealed.externalData.outputs[3]?.data ?? new Uint8Array())).toMatchObject({
+      encoding: "encrypted",
+      scheme: EncryptedScheme.ringConfidential,
+    });
+    expect(sealed.externalData.outputs[3]?.data).toHaveLength(
+      sealed.externalData.outputs[1]?.data?.length ?? 0,
+    );
   });
 });

@@ -291,3 +291,18 @@ pub fn send(
         ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
     )?)
 }
+
+// A custom program error surfaces in the RPC error two ways: the structured
+// `InstructionError::Custom(<decimal>)` and the program-log line `custom program
+// error: 0x<hex>`. Match both of those *delimited* forms only -- a bare decimal
+// would spuriously match compute-unit counts or lamport amounts elsewhere in the
+// error text.
+pub fn assert_custom_error(context: &str, err: &anyhow::Error, code: u32) {
+    let text = format!("{err:?}");
+    let structured = format!("Custom({code})");
+    let hex = format!("0x{code:x}");
+    assert!(
+        text.contains(&structured) || text.contains(&hex),
+        "{context}: expected custom error {code} ({structured} / {hex}) in: {text}"
+    );
+}

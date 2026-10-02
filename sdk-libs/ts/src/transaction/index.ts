@@ -17,7 +17,7 @@ export {
   Merge,
   PreparedMerge,
   PreparedSplit,
-  SENDER_SLOT_COUNT,
+  frameDummyOutputs,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   ConfidentialTransfer,

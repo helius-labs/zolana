@@ -83,10 +83,11 @@ impl AnonymousTransferSenderPlaintext {
     }
 
     /// A zero amount marks a change output as absent. The present change
-    /// outputs lead the transaction, the SPL change first, so the SOL change
-    /// sits at slot 1 only when an SPL change precedes it. `first_nullifier`
-    /// is the transaction's; it is what makes each derived blinding unique to
-    /// that transaction.
+    /// outputs follow the recipients, one `recipient_viewing_pks` entry per
+    /// recipient output, the SPL change first, so the SOL change sits one slot
+    /// later only when an SPL change precedes it. `first_nullifier` is the
+    /// transaction's; it is what makes each derived blinding unique to that
+    /// transaction.
     pub fn into_utxos(
         self,
         first_nullifier: &[u8; 32],
@@ -99,7 +100,9 @@ impl AnonymousTransferSenderPlaintext {
         if self.sol_amount == 0 && !self.sol_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
-        let slots = change_slots(self.spl_amount > 0, self.sol_amount > 0);
+        let recipient_count = u32::try_from(self.recipient_viewing_pks.len())
+            .map_err(|_| TransactionError::TooManyOutputs)?;
+        let slots = change_slots(recipient_count, self.spl_amount > 0);
         let mut utxos = Vec::new();
         if self.spl_amount > 0 {
             utxos.push(Utxo {

@@ -8,7 +8,6 @@ import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
-import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
   EncryptedScheme,
@@ -610,8 +609,7 @@ class SyncPass {
   }
 
   #decodeOutboundSlots(tx: IndexedShieldedTransaction, txKey: ViewingKey, salt: Bytes16): void {
-    const change: Utxo[] = [];
-    const recipients: Array<Readonly<{ key: P256PublicKey; utxo: Utxo }>> = [];
+    const decoded: Array<Readonly<{ key: P256PublicKey; utxo: Utxo; ownChange: boolean }>> = [];
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
@@ -623,29 +621,40 @@ class SyncPass {
           return;
         }
         const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
-        const recipientKey = P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
-        if (position < SENDER_SLOT_COUNT) {
-          const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
-          if (
-            this.#isSelf(recipientKey) &&
-            (position === 0 ||
-              (candidate.asset === SOL_MINT &&
-                change.length === 1 &&
-                change[0]?.asset !== SOL_MINT)) &&
-            equal(candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash)
-          ) {
-            change.push(candidate);
-            return;
-          }
-        }
-        recipients.push({
-          key: recipientKey,
-          utxo: confidentialUtxo(plaintext, this.#owner, this.#assets),
+        const key = P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
+        const utxo = confidentialUtxo(plaintext, this.#owner, this.#assets);
+        decoded.push({
+          key,
+          utxo,
+          ownChange:
+            this.#isSelf(key) &&
+            equal(utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash),
         });
       } catch {
-        // A dummy slot fails the transaction-key decrypt; skip it.
+        // A padding slot is framed like a real one: a fresh key, then random
+        // bytes the MAC-less slot cipher turns into noise. The noise must
+        // parse exactly and name a registered asset to get past this point,
+        // and even then its fresh key is never this wallet's, so a pad is
+        // never read as change.
       }
     });
+    // The change trails the recipients, the SPL change before the SOL change,
+    // so it is read off the end, as Rust `PlaintextTransfer::from_utxos` reads
+    // it. Both change outputs carry the transaction's ring, which keeps an
+    // entered SPL output ahead of a default-ring SOL change a recipient.
+    const change: Utxo[] = [];
+    for (const sol of [true, false]) {
+      const last = decoded.at(-1);
+      if (
+        last?.ownChange === true &&
+        (last.utxo.asset === SOL_MINT) === sol &&
+        (change[0] === undefined || change[0].ringProgramId === last.utxo.ringProgramId)
+      ) {
+        decoded.pop();
+        change.unshift(last.utxo);
+      }
+    }
+    const recipients = decoded.map(({ key, utxo }) => ({ key, utxo }));
 
     const spent = this.#spentAmounts(tx.nullifiers);
     // Paying yourself keeps every output, so nothing distinguishes it from
@@ -790,12 +799,18 @@ class SyncPass {
     ) {
       let utxo: Utxo;
       let ciphertext: Uint8Array;
+      let embedded: P256PublicKey;
       try {
-        ciphertext = splitEmbeddedKey(body).rest;
+        ({ key: embedded, rest: ciphertext } = splitEmbeddedKey(body));
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
       }
+      // A slot sealed to this key embeds it. A padding slot that names this
+      // wallet's tag embeds a fresh key instead, and the slot cipher has no
+      // MAC, so opening its random body could yield a plaintext naming an
+      // asset no registry resolves, which would hold the cursor for good.
+      if (!embedded.equals(viewingPublicKey)) return;
       const decrypted = this.#decryptSlot(viewingPublicKey, tx, ciphertext, site.slot, siteKey);
       if (decrypted === undefined) return;
       try {

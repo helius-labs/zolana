@@ -26,11 +26,13 @@ import { ViewingKey } from "../keypair/viewing-key.js";
 import { TransactionError } from "../transaction/error.js";
 import { commitmentPoseidon, equal, rightAlign, ZERO_32 } from "../transaction/internal.js";
 import { addressBytes } from "../interface/internal.js";
+import { DUMMY_DOMAIN } from "../interface/program.js";
 import type { Data } from "../transaction/data.js";
-import type {
-  IndexedShieldedTransaction,
-  OutputContext,
-  OutputSlot,
+import {
+  RECORD_OUTPUT_SLOT,
+  type IndexedShieldedTransaction,
+  type OutputContext,
+  type OutputSlot,
 } from "../transaction/instructions/transact.js";
 import {
   EncryptedScheme,
@@ -184,7 +186,7 @@ export function auditRingTransaction(
       const carried = carriedRecord({
         slot,
         messages: transaction.messages,
-        last: slotIndex === transaction.outputSlots.length - 1,
+        recordSlot: slotIndex === RECORD_OUTPUT_SLOT,
         output,
         txViewingPublicKey,
       });
@@ -325,7 +327,7 @@ function carriedRecord(
   input: Readonly<{
     slot: OutputSlot;
     messages: readonly MessageData[];
-    last: boolean;
+    recordSlot: boolean;
     output: AuditedRingOutput | undefined;
     txViewingPublicKey: P256PublicKey;
   }>,
@@ -339,7 +341,7 @@ function carriedRecord(
   if (record === undefined) return NO_RECORD;
   const { output } = input;
   const carrier =
-    input.last &&
+    input.recordSlot &&
     output !== undefined &&
     output.asset === SOL_MINT &&
     output.amount === 0n &&
@@ -378,6 +380,10 @@ function auditOutput(
   assets: AssetRegistry,
   opening: AuditOutputOpening,
 ): AuditedRingOutput | undefined {
+  // A dummy is framed like a real slot and the slot cipher carries no MAC, so
+  // its noise can decrypt to a well-formed plaintext. The committed opening,
+  // not the ciphertext, says whether the slot is real.
+  if (equal(opening.domain, rightAlign(Uint8Array.of(DUMMY_DOMAIN)))) return undefined;
   let plaintext;
   let recipient: P256PublicKey;
   try {

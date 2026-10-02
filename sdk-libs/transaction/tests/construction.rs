@@ -7,22 +7,26 @@ use solana_address::Address;
 use std::cell::RefCell;
 use zolana_event::OutputDataEncoding;
 use zolana_interface::{
-    instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
+    instruction::instruction_data::transact::{
+        confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
+        TransactOutput,
+    },
+    MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{
     NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     instructions::transact::{
-        canonical_shape, inputs_require_p256, pad_input_utxos, resolve_shape,
-        ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
-        SppProofOutputUtxo,
+        canonical_shape, frame_dummy_outputs, inputs_require_p256, pad_input_utxos, resolve_shape,
+        ConfidentialTransaction, PublicTransferRequest, ResolvedOwnerTag, SettlementTarget, Shape,
+        SppProofInputs, SppProofOutputUtxo,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::confidential::Confidential,
+    serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
-    UtxoSerialization, WalletUtxo,
+    UtxoSerialization, WalletUtxo, SOL_ASSET_ID,
 };
 
 fn payer(owner: &ShieldedKeypair) -> Address {
@@ -488,7 +492,7 @@ fn asset_limit_ignores_zero_private_slots_and_failure_retains_configurability() 
             .iter()
             .map(|o| (o.asset, o.amount))
             .collect::<Vec<_>>(),
-        [(mint(4), 0), (Mint::SOL, 1), (mint(2), 1), (mint(3), 1)]
+        [(mint(4), 0), (mint(2), 1), (mint(3), 1), (Mint::SOL, 1)]
     );
     let mut excessive = notes;
     excessive.push(wallet_utxo(&owner, mint(4), 1, 7, 4));
@@ -512,7 +516,7 @@ fn asset_limit_ignores_zero_private_slots_and_failure_retains_configurability() 
 }
 
 #[test]
-fn explicit_output_fields_survive_padding_and_change_uses_asset_first_use_order() {
+fn explicit_output_fields_survive_padding_and_change_follows_them_spl_before_sol() {
     let owner = keypair(1);
     let recipient = keypair(2);
     let sender = owner.shielded_address().unwrap();
@@ -529,7 +533,7 @@ fn explicit_output_fields_survive_padding_and_change_uses_asset_first_use_order(
     tx.pad_utxos(Shape::IN4_OUT4, &sender).unwrap();
     assert_eq!(tx.outputs().first(), Some(&output));
     let change = tx.outputs().iter().skip(1);
-    for (actual, (asset, amount)) in change.zip([(mint(2), 8), (Mint::SOL, 2), (mint(3), 4)]) {
+    for (actual, (asset, amount)) in change.zip([(mint(2), 8), (mint(3), 4), (Mint::SOL, 2)]) {
         assert_eq!(
             actual,
             &SppProofOutputUtxo {
@@ -740,16 +744,20 @@ fn slot_len(proof: &SppProofInputs, index: usize) -> usize {
         .unwrap()
 }
 
+/// Every dummy slot after `real` names `tag` and is framed like a real slot of
+/// `real_len` bytes: the `Encrypted` encoding, the scheme byte of its ring
+/// binding and an embedded viewing key no other dummy repeats.
 fn assert_dummies(
     proof: &SppProofInputs,
     real: usize,
-    tag: [u8; 32],
+    tag: ResolvedOwnerTag,
     ring: Option<Address>,
     real_len: usize,
 ) {
     let first = proof.first_nullifier().unwrap();
     let seed = derive_output_blinding_seed(&first, &proof.blinding_seed).unwrap();
     assert!(proof.output_utxos.len() > real);
+    let mut embedded_keys = Vec::new();
     for (index, (output, published)) in proof
         .output_utxos
         .iter()
@@ -762,7 +770,7 @@ fn assert_dummies(
             &SppProofOutputUtxo {
                 blinding: derive_transact_output_blinding(&first, &seed, index as u32).unwrap(),
                 ring_program_id: ring,
-                owner_tag: Some(tag),
+                owner_tag: Some(tag.resolved),
                 ..Default::default()
             }
         );
@@ -771,15 +779,49 @@ fn assert_dummies(
                 published.utxo_hash,
                 published.owner_tag,
                 proof.external_data.resolved_owner_tags.get(index),
-                published.data.as_ref().map(Vec::len)
             ),
             (
                 output.hash(proof.output_tree_id).unwrap(),
-                OwnerTag::Inline(tag),
-                Some(&tag),
-                Some(real_len)
+                tag.tag,
+                Some(&tag.resolved),
             )
         );
+        let data = published.data.as_deref().unwrap();
+        assert_eq!(data.len(), real_len);
+        let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(data).unwrap()
+        else {
+            panic!("dummy slot {index} is not framed as an encrypted output")
+        };
+        let (scheme, body) = blob.split_first().unwrap();
+        assert_eq!(
+            *scheme,
+            if ring.is_some() {
+                EncryptedScheme::RingConfidential
+            } else {
+                EncryptedScheme::Confidential
+            }
+            .as_byte()
+        );
+        let key = Confidential::embedded_viewing_pk(body).unwrap();
+        assert!(!embedded_keys.contains(&key));
+        embedded_keys.push(key);
+    }
+}
+
+/// How a dummy naming `owner` publishes its tag: `Account(0)` when the owner is
+/// the Ed25519 sender paying the fee, inline otherwise.
+fn dummy_tag(
+    owner: &ShieldedAddress,
+    self_paid_sender: Option<&ShieldedAddress>,
+) -> ResolvedOwnerTag {
+    let resolved = owner.confidential_view_tag().unwrap();
+    ResolvedOwnerTag {
+        tag: if self_paid_sender.is_some_and(|sender| sender == owner) {
+            OwnerTag::Account(0)
+        } else {
+            OwnerTag::Inline(resolved)
+        },
+        resolved,
     }
 }
 
@@ -839,11 +881,12 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
             (Mint::SOL, transfer, receiver, None, Data::default()),
             (mint(2), spl_transfer, receiver, None, Data::default()),
         ];
-        if sol_change > 0 {
-            expected.push((Mint::SOL, sol_change, sender, None, Data::default()));
-        }
+        // Change trails the recipients, SPL before SOL.
         if spl_change > 0 {
             expected.push((mint(2), spl_change, sender, None, Data::default()));
+        }
+        if sol_change > 0 {
+            expected.push((Mint::SOL, sol_change, sender, None, Data::default()));
         }
         let expected_shape = if case % 2 == 0 {
             Shape::IN4_OUT4
@@ -858,11 +901,14 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
         if case % 2 == 0 {
             tx.pad_utxos(expected_shape, &sender).unwrap();
         }
-        let dummy_tag = if sol_change > 0 || spl_change > 0 {
-            sender.confidential_view_tag().unwrap()
-        } else {
-            receiver.confidential_view_tag().unwrap()
-        };
+        let dummy_tag = dummy_tag(
+            if sol_change > 0 || spl_change > 0 {
+                &sender
+            } else {
+                &receiver
+            },
+            Some(&sender),
+        );
         let proof = tx.encrypt(&owner).unwrap();
         assert_eq!(proof.check_shape().unwrap(), expected_shape);
         assert_eq!(proof.output_tree_id, 12);
@@ -964,7 +1010,7 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
         assert_dummies(
             &proof,
             expected.len(),
-            sender.confidential_view_tag().unwrap(),
+            dummy_tag(&sender, (!relayed).then_some(&sender)),
             Some(ring),
             slot_len(&proof, 0),
         );
@@ -995,7 +1041,6 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
 fn dummies_name_the_input_owner_and_a_self_paid_full_withdrawal_keeps_a_zero_change() {
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
-    let tag = sender.confidential_view_tag().unwrap();
     let withdrawal = |payer: Address| {
         let input = wallet_utxo(&owner, Mint::SOL, 5, 7, 1);
         let key = owner
@@ -1020,11 +1065,17 @@ fn dummies_name_the_input_owner_and_a_self_paid_full_withdrawal_keeps_a_zero_cha
         OwnerTag::Account(0)
     );
     let real_len = slot_len(&self_paid, 0);
-    assert_dummies(&self_paid, 1, tag, None, real_len);
+    assert_dummies(
+        &self_paid,
+        1,
+        dummy_tag(&sender, Some(&sender)),
+        None,
+        real_len,
+    );
 
     let (relayed, _) = withdrawal(Address::new_from_array([99; 32]));
     assert_eq!(relayed.check_shape().unwrap(), Shape::IN1_OUT2);
-    assert_dummies(&relayed, 0, tag, None, real_len);
+    assert_dummies(&relayed, 0, dummy_tag(&sender, None), None, real_len);
 }
 
 #[test]
@@ -1380,4 +1431,132 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
             expected
         );
     }
+}
+
+/// A self-paid transaction sending one lamport per entry of `rings` to the
+/// sender, each output bound to its ring.
+fn ring_bound_outputs(rings: &[Option<Address>]) -> SppProofInputs {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let mut tx = ConfidentialTransaction::new(
+        vec![wallet_utxo(&owner, Mint::SOL, rings.len() as u64, 7, 1)],
+        payer(&owner),
+    )
+    .unwrap();
+    for ring in rings {
+        tx.transfer_with_ring(&sender, Mint::SOL, 1, *ring).unwrap();
+    }
+    tx.encrypt(&owner).unwrap()
+}
+
+/// Turns the real outputs at `slots` into dummies whose data is unset.
+fn clear_slots(proof: &mut SppProofInputs, slots: &[usize]) {
+    for slot in slots {
+        proof.output_utxos.get_mut(*slot).unwrap().owner_address = None;
+        proof.external_data.outputs.get_mut(*slot).unwrap().data = None;
+    }
+}
+
+fn real_slot_len(proof: &SppProofInputs, in_ring: bool) -> usize {
+    proof
+        .output_utxos
+        .iter()
+        .zip(&proof.external_data.outputs)
+        .find(|(output, _)| !output.is_dummy() && output.ring_program_id.is_some() == in_ring)
+        .and_then(|(_, published)| published.data.as_ref().map(Vec::len))
+        .unwrap()
+}
+
+#[test]
+fn a_dummy_takes_the_length_of_a_real_slot_with_its_own_ring_binding() {
+    let ring = Address::new_from_array([42; 32]);
+    let mut proof = ring_bound_outputs(&[None, Some(ring), None]);
+    clear_slots(&mut proof, &[2]);
+    let (ring_len, default_len) = (real_slot_len(&proof, true), real_slot_len(&proof, false));
+    assert_ne!(ring_len, default_len);
+    frame_dummy_outputs(&proof.output_utxos, &mut proof.external_data.outputs).unwrap();
+    let dummy = proof.external_data.outputs.get(2).unwrap();
+    let data = dummy.data.as_deref().unwrap();
+    assert_eq!(data.len(), default_len);
+    assert!(confidential_encrypted_output_body(data).is_some());
+    assert!(ring_confidential_encrypted_output_body(data).is_none());
+}
+
+#[test]
+fn ring_dummies_copy_the_ring_slot_length_with_distinct_embedded_keys() {
+    let ring = Address::new_from_array([42; 32]);
+    let mut proof = ring_bound_outputs(&[Some(ring); 3]);
+    clear_slots(&mut proof, &[1, 2]);
+    let real_len = real_slot_len(&proof, true);
+    let real = proof.external_data.outputs.first().cloned().unwrap();
+    frame_dummy_outputs(&proof.output_utxos, &mut proof.external_data.outputs).unwrap();
+    assert_eq!(proof.external_data.outputs.first(), Some(&real));
+    let keys = proof
+        .external_data
+        .outputs
+        .iter()
+        .map(|published| {
+            let data = published.data.as_deref().unwrap();
+            assert_eq!(data.len(), real_len);
+            let body = ring_confidential_encrypted_output_body(data).unwrap();
+            Confidential::embedded_viewing_pk(body).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let [real_key, first_dummy, second_dummy] = keys.as_slice() else {
+        panic!("three output slots")
+    };
+    assert_ne!(first_dummy, second_dummy);
+    assert_ne!(real_key, first_dummy);
+    assert_ne!(real_key, second_dummy);
+}
+
+#[test]
+fn all_dummy_outputs_take_the_canonical_empty_payload_length() {
+    let ring = Address::new_from_array([42; 32]);
+    let outputs = [Some(ring), None].map(|ring_program_id| SppProofOutputUtxo {
+        ring_program_id,
+        ..Default::default()
+    });
+    let mut encoded = outputs
+        .iter()
+        .map(|output| TransactOutput {
+            utxo_hash: output.hash(0).unwrap(),
+            owner_tag: OwnerTag::Inline([0; 32]),
+            data: None,
+        })
+        .collect::<Vec<_>>();
+    frame_dummy_outputs(&outputs, &mut encoded).unwrap();
+    for (output, published) in outputs.iter().zip(&encoded) {
+        let data = published.data.as_deref().unwrap();
+        let body = if output.ring_program_id.is_some() {
+            ring_confidential_encrypted_output_body(data)
+        } else {
+            confidential_encrypted_output_body(data)
+        }
+        .unwrap();
+        let empty = ConfidentialOutputPlaintext {
+            asset_id: SOL_ASSET_ID,
+            amount: 0,
+            blinding: [0; 32],
+            ring_program_id: output.ring_program_id,
+            data: Data::default(),
+        }
+        .serialize()
+        .unwrap();
+        assert_eq!(
+            body.len(),
+            ViewingKey::new().pubkey().as_bytes().len() + empty.len()
+        );
+    }
+}
+
+#[test]
+fn a_real_slot_without_its_ciphertext_cannot_frame_dummies() {
+    let mut proof = ring_bound_outputs(&[None, None]);
+    clear_slots(&mut proof, &[1]);
+    proof.external_data.outputs.get_mut(0).unwrap().data = None;
+    error(
+        frame_dummy_outputs(&proof.output_utxos, &mut proof.external_data.outputs),
+        E::DummyOutputFraming { slot_index: 0 },
+    );
 }

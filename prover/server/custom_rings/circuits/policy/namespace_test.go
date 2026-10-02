@@ -20,12 +20,9 @@ func TestWindowedPolicyAllowsDummyInputs(t *testing.T) {
 			f := velocityDefault()
 			f.rulesFree = true
 			s := newStatement(t, f)
-			record := s.inputs[len(s.inputs)-1]
-			s.inputs = s.inputs[:1]
-			for len(s.inputs) < count-1 {
+			for len(s.inputs) < count {
 				s.inputs = append(s.inputs, dummyOpening(t, int64(90+len(s.inputs))))
 			}
-			s.inputs = append(s.inputs, record)
 			s.addressChain = spptest.MustNonZeroHashChain(t, spptest.RepeatBigInt(big.NewInt(0), count))
 			if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t, nil), ecc.BN254.ScalarField()); err != nil {
 				t.Fatal(err)
@@ -49,16 +46,17 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	f.rulesFree = true
 	s := newStatement(t, f)
 	zero := big.NewInt(0)
-	record := s.inputs[len(s.inputs)-1]
+	record := s.inputs[RecordInputSlot]
 	claim := UtxoWires{
 		Domain: big.NewInt(protocol.AddressDomain), TreeID: big.NewInt(addressTreeID),
 		OwnerPkHash: record.OwnerPkHash, NullifierPk: record.NullifierPk,
 		Asset: zero, Amount: zero, DataHash: zero, RingDataHash: zero, RingProgramID: zero,
 		Blinding: spptest.MustPoseidon(t, 3, []*big.Int{SpendAddressDomain, big.NewInt(0xdead)}),
 	}
-	s.inputs = []UtxoWires{s.inputs[0], claim, record}
-	s.outputs = []UtxoWires{s.outputs[0], s.outputs[len(s.outputs)-1]}
-	s.inputs[0].RingProgramID, s.outputs[0].RingProgramID = s.ringID, s.ringID
+	const claimSlot, moneyOutputSlot = RecordInputSlot + 1, RecordOutputSlot + 1
+	s.inputs = []UtxoWires{s.inputs[0], record, claim}
+	s.outputs = []UtxoWires{s.outputs[RecordOutputSlot], s.outputs[moneyOutputSlot]}
+	s.inputs[0].RingProgramID, s.outputs[moneyOutputSlot].RingProgramID = s.ringID, s.ringID
 	for i := range s.inputs {
 		s.inputs[i].TreeID = big.NewInt(addressTreeID)
 	}
@@ -88,7 +86,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	for i, input := range s.inputs {
 		hash := hostUtxoHash(t, input)
 		nullifiers[i] = spptest.MustNullifier(t, hash, spptest.AsBigInt(input.Blinding), secrets[i])
-		if i != 1 {
+		if i != claimSlot {
 			leaves[uint64(i)] = hash
 		}
 	}
@@ -99,7 +97,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	}
 	for i, input := range s.inputs {
 		path := statePaths[uint64(i)]
-		if i == 1 {
+		if i == claimSlot {
 			path = statePaths[0]
 		}
 		nonInclusion := spptest.MustNonInclusion(t, tree, nullifiers[i])
@@ -120,7 +118,8 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	outputs := make([]*big.Int, len(s.outputs))
-	owners := []*big.Int{zero, spptest.AsBigInt(record.OwnerPkHash)}
+	owners := spptest.RepeatBigInt(zero, len(s.outputs))
+	owners[RecordOutputSlot] = spptest.AsBigInt(record.OwnerPkHash)
 	for i := range s.outputs {
 		blinding, err := protocol.OutputBlinding(nullifiers[0], outputSeed, i)
 		if err != nil {
@@ -138,7 +137,9 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{zero, nullifiers[1], zero})
+	claimed := spptest.RepeatBigInt(zero, len(s.inputs))
+	claimed[claimSlot] = nullifiers[claimSlot]
+	s.addressChain = spptest.MustNonZeroHashChain(t, claimed)
 	s.trees = []hostTree{{stateRoot: root, nullifierRoot: tree.Root()}}
 	s.updateHashes(t)
 	for i, slot := range s.treeSlots(t) {
@@ -178,7 +179,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	}
 
 	// Address and dummy inputs both contribute zero to the SPP input chain.
-	s.inputs[1] = dummyOpening(t, 0x8181)
+	s.inputs[claimSlot] = dummyOpening(t, 0x8181)
 	policy := s.assignment(t, nil)
 	if spptest.AsBigInt(assignment.Public.PrivateTxHash).Cmp(spptest.AsBigInt(policy.PrivateTxHash)) != 0 {
 		t.Fatal("SPP and policy transaction hashes differ")

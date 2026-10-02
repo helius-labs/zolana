@@ -23,6 +23,13 @@ pub mod policy_verifying_key;
 pub mod register_key_verifying_key;
 pub mod state;
 
+/// The policy circuit pins a windowed transfer's spend record to these SPP
+/// slots (`RecordInputSlot` / `RecordOutputSlot` in the Go policy circuit).
+/// Input slot 0 stays a money input: its nullifier seeds every output
+/// blinding, while the record's nullifier derives from the public zero key.
+pub const RECORD_INPUT_SLOT: usize = 1;
+pub const RECORD_OUTPUT_SLOT: usize = 0;
+
 /// Proving key file name, as in proving-keys.lock and the prover's
 /// `/proving-keys`, and the sha256 its committed verifying key pins.
 #[cfg(feature = "verifying-keys")]

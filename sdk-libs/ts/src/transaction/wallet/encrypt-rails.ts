@@ -17,7 +17,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
 import { rightAlign, ZERO_32 } from "../internal.js";
 
-import { encodeConfidentialSlots } from "../instructions/transact.js";
+import { RECORD_OUTPUT_SLOT, encodeConfidentialSlots } from "../instructions/transact.js";
 import {
   EncryptedScheme,
   encodeAnonymousRecipient,
@@ -48,8 +48,8 @@ export interface EncryptedEnvelope<P> {
 
 /**
  * Transfer payload: one ciphertext per output slot, keyed to that output's
- * owner. `undefined` marks a dummy slot the transfer builder pads with a
- * length-matched random ciphertext.
+ * owner. `undefined` marks a dummy slot `PreparedTransfer.finalize` frames
+ * like a real slot.
  */
 export type EncryptedTransfer = EncryptedEnvelope<readonly (MessageData | undefined)[]>;
 
@@ -104,7 +104,7 @@ export function encryptConfidentialTransfer(
 
 /**
  * The caller wipes the returned audit secrets after proving. `recordOutputIndex`
- * names the last output as the spend record carrier, encrypted to the
+ * names the spend record carrier, output `RECORD_OUTPUT_SLOT`, encrypted to the
  * transaction viewing key itself. `counterMessage` is the protocol counter seal,
  * never a caller message channel.
  */
@@ -201,13 +201,7 @@ function recordCarrierOutputs(
   const { index, recipient } = carrier;
   const output = outputs[index];
   const owner = output?.ownerAddress;
-  if (
-    !Number.isInteger(index) ||
-    index < 0 ||
-    index !== outputs.length - 1 ||
-    output === undefined ||
-    owner === undefined
-  ) {
+  if (index !== RECORD_OUTPUT_SLOT || output === undefined || owner === undefined) {
     throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
       index,
     });

@@ -253,7 +253,7 @@ describe("manifest-verified transaction serialization", () => {
       anonymousSenderUtxos(decodedSender, assets, SOL_MINT, firstNullifier).map(
         (utxo) => utxo.blinding,
       ),
-    ).toEqual([blinding(0)]);
+    ).toEqual([blinding(1)]);
 
     const split = {
       ownerPublicKey: keypair.signingPublicKey(),
@@ -326,7 +326,7 @@ describe("manifest-verified transaction serialization", () => {
     ).toEqual([blinding(0), blinding(1), blinding(2)]);
   });
 
-  it("places the present change outputs first and the recipients after them", () => {
+  it("places the recipients first and the present change outputs after them", () => {
     const inputs = section(load(), "inputs");
     const { keypair, recipient } = keys(inputs);
     const { firstNullifier, outputSeed, blinding } = slotBlindings(inputs);
@@ -347,27 +347,29 @@ describe("manifest-verified transaction serialization", () => {
           ...(splPresent ? [{ asset: mint, amount: 7n }] : []),
           ...(solPresent ? [{ asset: SOL_MINT, amount: 8n }] : []),
         ].map(
-          ({ asset, amount }, slot) =>
+          ({ asset, amount }, offset) =>
             new Utxo({
               owner: keypair.signingPublicKey(),
               asset,
               amount,
-              blinding: blinding(slot),
+              blinding: blinding(1 + offset),
               data: new Data(),
             }),
         );
         const utxos = [
-          ...change,
           new Utxo({
             owner: recipient.signingPublicKey(),
             asset: SOL_MINT,
             amount: 9n,
-            blinding: blinding(change.length),
+            blinding: blinding(0),
             data: new Data(),
           }),
+          ...change,
         ];
         const plaintext = plaintextTransferFromUtxos(utxos, owner, cx);
         expect(plaintext.recipientSlots).toHaveLength(1);
+        expect(plaintext.sender?.spl?.amount).toBe(splPresent ? 7n : undefined);
+        expect(plaintext.sender?.solAmount).toBe(solPresent ? 8n : undefined);
         expect(
           view(
             plaintextTransferUtxos(
@@ -381,7 +383,7 @@ describe("manifest-verified transaction serialization", () => {
         if (change.length === 0) continue;
         const sender = anonymousSenderFromUtxos(change, owner, {
           ...cx,
-          recipientViewingPublicKeys: [],
+          recipientViewingPublicKeys: [recipient.viewingPublicKey()],
         });
         expect(
           view(

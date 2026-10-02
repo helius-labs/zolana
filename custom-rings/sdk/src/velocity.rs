@@ -9,7 +9,7 @@ use zolana_ring_policy::{
     ListNamespace, Member, SpendCounters, SpendRecord, VelocityRow, MAX_VELOCITY_ASSETS,
 };
 use zolana_transaction::{
-    instructions::transact::SppProofOutputUtxo,
+    instructions::transact::{SppProofInputs, SppProofOutputUtxo},
     keys::{ShieldedKeys, TransactionKeyRequest},
     utxo::{derive_transact_output_blinding, SppProofInputUtxo},
     Data, Mint, Utxo,
@@ -21,6 +21,7 @@ use crate::{
         spend::LiveSpendRecord,
         transact::{RingIdentity, SpendRecordProofInput, VelocityProofInput},
     },
+    transfer::RECORD_OUTPUT_SLOT,
     TransferError,
 };
 
@@ -229,14 +230,39 @@ pub(crate) struct VelocityPlanInput<'a> {
     pub salt: [u8; 16],
     pub first_nullifier: [u8; 32],
     pub output_blinding_seed: [u8; 32],
-    /// The money slots the record follows, dummies included.
-    pub money_shape: Shape,
+    pub money: MoneySlots,
+}
+
+/// The real money slots of a transfer, dummies excluded. The record shape is
+/// sized from these, not from the padded money shape, so a transfer the
+/// caller padded wide still fits its record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MoneySlots {
+    pub inputs: usize,
+    pub outputs: usize,
+}
+
+impl MoneySlots {
+    pub(crate) fn of(proof_inputs: &SppProofInputs) -> Self {
+        Self {
+            inputs: proof_inputs
+                .input_utxos
+                .iter()
+                .filter(|input| !input.is_dummy())
+                .count(),
+            outputs: proof_inputs
+                .output_utxos
+                .iter()
+                .filter(|output| !output.is_dummy())
+                .count(),
+        }
+    }
 }
 
 impl VelocityPlanInput<'_> {
     pub(crate) fn plan(self) -> Result<VelocityPlan, TransferError> {
         let facts = self.facts;
-        let shape = record_shape(self.money_shape)?;
+        let shape = record_shape(self.money)?;
         let same_window = facts.live.record.window == facts.window_index;
         let previous = facts.counters.as_ref().filter(|_| same_window);
         let charges = ChargeRows {
@@ -266,7 +292,7 @@ impl VelocityPlanInput<'_> {
             blinding: derive_transact_output_blinding(
                 &self.first_nullifier,
                 &self.output_blinding_seed,
-                shape.n_outputs() as u32 - 1,
+                RECORD_OUTPUT_SLOT as u32,
             )?,
         };
         let address = facts
@@ -367,10 +393,10 @@ impl VelocityPlanInput<'_> {
     }
 }
 
-/// The smallest supported shape with one slot beyond the money on each side.
-pub(crate) fn record_shape(money: Shape) -> Result<Shape, TransferError> {
-    let n_in = money.n_inputs() + 1;
-    let n_out = money.n_outputs() + 1;
+/// The smallest supported shape with one slot beyond the real money on each side.
+pub(crate) fn record_shape(money: MoneySlots) -> Result<Shape, TransferError> {
+    let n_in = money.inputs + 1;
+    let n_out = money.outputs + 1;
     zolana_client::SPP_SUPPORTED_SHAPES
         .into_iter()
         .filter(|shape| {
@@ -501,13 +527,63 @@ mod tests {
         .charge()
     }
 
+    fn money(inputs: usize, outputs: usize) -> MoneySlots {
+        MoneySlots { inputs, outputs }
+    }
+
     #[test]
-    fn the_record_takes_the_slot_after_the_money() {
-        assert_eq!(record_shape(Shape::IN1_OUT1).unwrap(), Shape::IN2_OUT2);
-        assert_eq!(record_shape(Shape::IN1_OUT2).unwrap(), Shape::IN2_OUT3);
-        assert_eq!(record_shape(Shape::IN2_OUT3).unwrap(), Shape::IN4_OUT4);
-        assert_eq!(record_shape(Shape::IN4_OUT3).unwrap(), Shape::IN5_OUT4);
-        assert!(record_shape(Shape::IN4_OUT4).is_err());
+    fn the_record_shape_adds_one_slot_to_the_real_money_on_each_side() {
+        assert_eq!(record_shape(money(1, 0)).unwrap(), Shape::IN2_OUT2);
+        assert_eq!(record_shape(money(1, 1)).unwrap(), Shape::IN2_OUT2);
+        assert_eq!(record_shape(money(1, 2)).unwrap(), Shape::IN2_OUT3);
+        assert_eq!(record_shape(money(2, 3)).unwrap(), Shape::IN4_OUT4);
+        assert_eq!(record_shape(money(4, 3)).unwrap(), Shape::IN5_OUT4);
+        assert!(matches!(
+            record_shape(money(4, 4)),
+            Err(TransferError::PolicyShapeUnsupported)
+        ));
+        assert!(matches!(
+            record_shape(money(5, 1)),
+            Err(TransferError::PolicyShapeUnsupported)
+        ));
+    }
+
+    /// The caller's padding does not count: one input and two outputs padded
+    /// to four by four still take the two-by-three record shape.
+    #[test]
+    fn the_record_shape_ignores_the_callers_padding() {
+        let sender = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
+        let input = zolana_test_utils::utxo::wallet(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: Mint::SOL,
+                amount: 5,
+                blinding: zolana_keypair::random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &sender.nullifier_key,
+            0,
+            0,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut tx = zolana_transaction::instructions::transact::ConfidentialTransaction::new(
+            vec![input],
+            solana_signer::Signer::pubkey(&sender),
+        )
+        .unwrap();
+        tx.transfer_sol(&recipient.shielded_address().unwrap(), 1)
+            .unwrap();
+        tx.pad_utxos(Shape::IN4_OUT4, &sender.shielded_address().unwrap())
+            .unwrap();
+        let proof_inputs = tx.encrypt(&sender).unwrap();
+        assert_eq!(proof_inputs.check_shape().unwrap(), Shape::IN4_OUT4);
+        let slots = MoneySlots::of(&proof_inputs);
+        assert_eq!(slots, money(1, 2));
+        assert_eq!(record_shape(slots).unwrap(), Shape::IN2_OUT3);
     }
 
     #[test]

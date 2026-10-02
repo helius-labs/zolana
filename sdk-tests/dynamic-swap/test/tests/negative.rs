@@ -5,7 +5,10 @@ use dynamic_swap_sdk::{
     instructions::{create_pair::CreatePair, update_price::UpdatePrice},
     pair_pda,
 };
-use shared::{escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
+use shared::{
+    assert_custom_error, escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID,
+    SOURCE_ASSET_ID,
+};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -16,21 +19,6 @@ const PRICE: u64 = 5;
 
 const INVALID_PRICE: u32 = 9016;
 const UNAUTHORIZED: u32 = 9012;
-
-// A custom program error surfaces in the RPC error two ways: the structured
-// `InstructionError::Custom(<decimal>)` and the program-log line `custom program
-// error: 0x<hex>`. Match both of those *delimited* forms only -- a bare decimal
-// would spuriously match compute-unit counts or lamport amounts elsewhere in the
-// error text.
-fn assert_custom_error(context: &str, err: &anyhow::Error, code: u32) {
-    let text = format!("{err:?}");
-    let structured = format!("Custom({code})");
-    let hex = format!("0x{code:x}");
-    assert!(
-        text.contains(&structured) || text.contains(&hex),
-        "{context}: expected custom error {code} ({structured} / {hex}) in: {text}"
-    );
-}
 
 // Derives the pair PDA and sends `create_pair` at `price`. There is no shared
 // pool: the maker funds each escrow on demand, so this creates only the pair

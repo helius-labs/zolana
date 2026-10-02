@@ -527,24 +527,29 @@ impl SyncCtx<'_> {
             let Ok(recipient_pk) = Confidential::embedded_viewing_pk(body) else {
                 continue;
             };
+            // The slot cipher carries no MAC, so a dummy framed as a real slot
+            // can decrypt to a well-formed plaintext. A foreign recipient's
+            // commitment cannot be recomputed without its owner keys; an asset
+            // id the registry resolves is what separates a real output from
+            // such noise.
+            let Ok(candidate) = plaintext.into_utxo(self.owner, self.assets) else {
+                continue;
+            };
             // Recognize self-owned outputs by their viewing key and commitment.
-            if self.is_self(&recipient_pk) {
-                // The commitment folds this slot's tree id in, so recognizing
-                // our own change hashes under the id the slot reports.
-                if let Ok(candidate) = plaintext.into_utxo(self.owner, self.assets) {
-                    let matches_commitment = candidate
-                        .hash(
-                            &self.nullifier_pk,
-                            &[0; 32],
-                            &[0; 32],
-                            slot.output_context.tree_id,
-                        )
-                        .is_ok_and(|hash| hash == slot.output_context.hash);
-                    if matches_commitment {
-                        change.push(candidate);
-                        continue;
-                    }
-                }
+            // The commitment folds this slot's tree id in, so recognizing our
+            // own change hashes under the id the slot reports.
+            if self.is_self(&recipient_pk)
+                && candidate
+                    .hash(
+                        &self.nullifier_pk,
+                        &[0; 32],
+                        &[0; 32],
+                        slot.output_context.tree_id,
+                    )
+                    .is_ok_and(|hash| hash == slot.output_context.hash)
+            {
+                change.push(candidate);
+                continue;
             }
             recipient_pks.push(recipient_pk);
         }

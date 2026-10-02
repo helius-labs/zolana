@@ -103,14 +103,14 @@ describe("prepared and data checks", () => {
   function preparedWith(
     overrides: Partial<{
       outputs: readonly unknown[];
-      senderOutputCount: number;
+      changeOutputCount: number;
       interfaceTransfers: readonly unknown[];
       inputs: readonly unknown[];
     }>,
   ) {
     return {
       outputs: [],
-      senderOutputCount: 0,
+      changeOutputCount: 0,
       interfaceTransfers: [],
       inputs: [],
       ...overrides,

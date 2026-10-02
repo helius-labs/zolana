@@ -1432,6 +1432,61 @@ describe("wallet sync", () => {
     expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
   });
 
+  it("never opens a padding slot that names the wallet's tag", async () => {
+    const recipient = ShieldedKeypair.generate();
+    const sender = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const salt = new Uint8Array(16).fill(3) as Bytes16;
+    const tag = recipient.signingPublicKey().confidentialViewTag();
+    // The worst a pad's MAC-less noise can do: open under this wallet's key as
+    // a well-formed plaintext that names an asset no registry resolves. The
+    // pad embeds a fresh key, not the wallet's.
+    const body = encryptConfidential(
+      sender,
+      recipient.viewingPublicKey(),
+      { assetId: 999n, amount: 1n, blinding: bytes(31), data: new Data() },
+      salt,
+      0,
+    );
+    body.set(ShieldedKeypair.generate().viewingPublicKey().toBytes(), 0);
+    const pad = createProofOutput({
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: bytes(32),
+      ownerTag: tag,
+    });
+
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(recipient), {
+      wallet,
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: sender.viewingPublicKey(),
+          salt,
+          outputSlots: [
+            {
+              viewTag: tag,
+              outputContext: { hash: pad.hash(DEFAULT_TREE_ID), tree: TREE, leafIndex: 4n },
+              payload: encodeOutputData(EncryptedScheme.confidential, body, "encrypted"),
+            },
+          ],
+          messages: [],
+          nullifiers: [bytes(33)],
+          proofless: false,
+        },
+      ],
+    });
+
+    expect(report).toMatchObject({
+      storedUtxos: 0,
+      undecryptableCandidates: 0,
+      unknownAssetIds: [],
+    });
+    expect(wallet.utxos()).toEqual([]);
+    expect(wallet.privateTransactions()).toEqual([]);
+  });
+
   /** Borsh `RingDepositOutput`: owner UTXO hash, asset, amount, no data hash, ring, zero ring data hash, then the envelope. */
   function ringDepositBody(
     envelope: ViewingKey,
@@ -1669,7 +1724,7 @@ describe("wallet sync", () => {
           data: change.data,
         },
         salt,
-        0,
+        1,
       ),
       "encrypted",
     );
@@ -1686,7 +1741,7 @@ describe("wallet sync", () => {
           data: payment.data,
         },
         salt,
-        1,
+        0,
       ),
       "encrypted",
     );
@@ -1699,24 +1754,25 @@ describe("wallet sync", () => {
           txSignature: SIGNATURE,
           txViewingPublicKey: txKey.publicKey(),
           salt,
+          // The recipient leads and the change follows it.
           outputSlots: [
-            {
-              viewTag: sender.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: change.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID),
-                tree: TREE,
-                leafIndex: 1n,
-              },
-              payload: changePayload,
-            },
             {
               viewTag: recipient.signingPublicKey().confidentialViewTag(),
               outputContext: {
                 hash: payment.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
                 tree: TREE,
-                leafIndex: 2n,
+                leafIndex: 1n,
               },
               payload: paymentPayload,
+            },
+            {
+              viewTag: sender.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: change.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID),
+                tree: TREE,
+                leafIndex: 2n,
+              },
+              payload: changePayload,
             },
           ],
           messages: [],

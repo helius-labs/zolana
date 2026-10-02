@@ -28,6 +28,7 @@ import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
+import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
@@ -45,7 +46,12 @@ import {
   poseidon,
   sha256Bytes,
 } from "../internal.js";
-import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
+import {
+  EncryptedScheme,
+  encodeConfidential,
+  encodeOutputData,
+  encryptConfidential,
+} from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
   Utxo,
@@ -63,12 +69,6 @@ import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
-
-/**
- * The maximum number of sender-owned change outputs that lead a transfer: an
- * SPL change, then a SOL change. Recipients follow the change outputs present.
- */
-export const SENDER_SLOT_COUNT = 2;
 
 /** The BN254 scalar modulus, as the decimal literal Rust pins. */
 export const BN254_MODULUS_DEC =
@@ -858,14 +858,22 @@ export interface PreparedTransfer {
   readonly shape: Shape;
   readonly payer: Address;
   readonly interfaceTransfers: readonly SettlementTransfer[];
-  /** Leading outputs the sender owns, Rust `PreparedOutputLayout::sender_output_count`. */
-  readonly senderOutputCount: number;
+  /**
+   * The change outputs the sender keeps, the SPL change before the SOL change.
+   * They are the last `changeOutputCount` entries of `outputs`: the recipients
+   * precede them and the padding follows them, as Rust `pad_utxos` lays them out.
+   */
+  readonly changeOutputCount: number;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
-  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and last among the outputs. */
-  withAppendedSlot(
-    extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+  /**
+   * Mirrors Rust `RecordSlots::insert`: the velocity record takes
+   * `RECORD_INPUT_SLOT` and `RECORD_OUTPUT_SLOT`, the money outputs move one
+   * slot up and take the blindings of their new slots, padding comes last.
+   */
+  withRecordSlots(
+    record: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
   ): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
@@ -1040,7 +1048,16 @@ export class ConfidentialTransfer {
       this.#recipients.length > 0;
     const hasSolChange = solChange > 0n || !namesAParticipant;
     const ring = this.#ringProgramId === undefined ? {} : { ringProgramId: this.#ringProgramId };
-    const layouts: ProofOutputInit[] = [];
+    const layouts = this.#recipients.map((recipient): ProofOutputInit => ({
+      ownerAddress: recipient.address,
+      asset: recipient.asset,
+      amount: recipient.amount,
+      ...(recipient.ring === "transfer"
+        ? ring
+        : recipient.ring === "default"
+          ? {}
+          : { ringProgramId: recipient.ring.programId }),
+    }));
     if (splChangeAsset !== undefined) {
       layouts.push({
         ownerAddress: this.#owner,
@@ -1052,19 +1069,7 @@ export class ConfidentialTransfer {
     if (hasSolChange) {
       layouts.push({ ownerAddress: this.#owner, asset: ZERO_ADDRESS, amount: solChange, ...ring });
     }
-    const senderOutputCount = layouts.length;
-    layouts.push(
-      ...this.#recipients.map((recipient): ProofOutputInit => ({
-        ownerAddress: recipient.address,
-        asset: recipient.asset,
-        amount: recipient.amount,
-        ...(recipient.ring === "transfer"
-          ? ring
-          : recipient.ring === "default"
-            ? {}
-            : { ringProgramId: recipient.ring.programId }),
-      })),
-    );
+    const changeOutputCount = layouts.length - this.#recipients.length;
     // The circuit recomputes every output blinding from the first nullifier,
     // the derived seed, and the slot's final physical index.
     const outputSeed = outputBlindingSeed(firstNullifier, this.#blindingSeed);
@@ -1113,7 +1118,9 @@ export class ConfidentialTransfer {
       shape,
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
-      senderOutputCount,
+      changeOutputCount,
+      padTag: undefined,
+      padRingProgramId: this.#ringProgramId,
     });
   }
 
@@ -1140,13 +1147,25 @@ export class ConfidentialTransfer {
   }
 }
 
-type RecordPadding = Readonly<{ start: number; end: number; template?: number }>;
+/**
+ * Go `RecordInputSlot`: a windowed ring transfer spends its record at input
+ * slot 1. Slot 0 stays a money input, its nullifier seeds every output
+ * blinding while the record's nullifier derives from the public zero key.
+ */
+export const RECORD_INPUT_SLOT = 1;
+/** Go `RecordOutputSlot`: the successor record leads the outputs. */
+export const RECORD_OUTPUT_SLOT = 0;
 
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withRecordSlots"
 > &
-  Readonly<{ recordPadding?: RecordPadding }>;
+  Readonly<{
+    /** The tag every padding output publishes, derived from the slots when unset. */
+    padTag: Bytes32 | undefined;
+    /** The ring every padding output is bound to, the transaction's own as in Rust `pad_utxos`. */
+    padRingProgramId: Address | undefined;
+  }>;
 
 export function prepareRingAuthorityTransfer(
   input: Readonly<{
@@ -1191,7 +1210,12 @@ export function prepareRingAuthorityTransfer(
       throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority amount" });
     totals.set(output.asset, (totals.get(output.asset) ?? 0n) - output.amount);
   }
-  const layouts: ProofOutputInit[] = [];
+  const layouts = input.outputs.map((output): ProofOutputInit => ({
+    ownerAddress: output.recipient,
+    asset: output.asset,
+    amount: output.amount,
+    ringProgramId: input.ringProgramId,
+  }));
   for (const [asset, amount] of totals) {
     if (amount < 0n) throw new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", { asset });
     checkU64(amount, "authority change");
@@ -1203,15 +1227,7 @@ export function prepareRingAuthorityTransfer(
         ringProgramId: input.ringProgramId,
       });
   }
-  const senderOutputCount = layouts.length;
-  layouts.push(
-    ...input.outputs.map((output) => ({
-      ownerAddress: output.recipient,
-      asset: output.asset,
-      amount: output.amount,
-      ringProgramId: input.ringProgramId,
-    })),
-  );
+  const changeOutputCount = layouts.length - input.outputs.length;
   const width = Math.max(input.inputs.length, layouts.length);
   if (width > RING_AUTHORITY_MAX_WIDTH)
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
@@ -1242,7 +1258,9 @@ export function prepareRingAuthorityTransfer(
     shape: { inputs: width, outputs: width },
     payer: input.payer,
     interfaceTransfers: [],
-    senderOutputCount,
+    changeOutputCount,
+    padTag: undefined,
+    padRingProgramId: input.ringProgramId,
   });
 }
 
@@ -1254,73 +1272,74 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
-    withAppendedSlot: (
-      extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
-    ): PreparedTransfer => appendRecordSlot(fields, extension),
+    withRecordSlots: (
+      record: Parameters<PreparedTransfer["withRecordSlots"]>[0],
+    ): PreparedTransfer => insertRecordSlots(fields, record),
   });
 }
 
-/** Mirrors Rust `RecordSlots::append`. */
-function appendRecordSlot(
+/**
+ * Mirrors Rust `RecordSlots::insert`. The padding inputs name the first money
+ * input's tree, not the record's: the slot pattern then reveals neither the
+ * record nor the real input count, and no padding slot is alone in its tree.
+ */
+function insertRecordSlots(
   fields: PreparedTransferFields,
-  extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+  record: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
 ): PreparedTransfer {
   const supported = SPP_SUPPORTED_SHAPES.some(
     (candidate) =>
-      candidate.inputs === extension.shape.inputs && candidate.outputs === extension.shape.outputs,
+      candidate.inputs === record.shape.inputs && candidate.outputs === record.shape.outputs,
   );
-  if (!supported)
-    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...extension.shape });
+  if (
+    !supported ||
+    fields.inputs.length + 1 > record.shape.inputs ||
+    fields.outputs.length + 1 > record.shape.outputs
+  ) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: fields.inputs.length + 1,
+      outputs: fields.outputs.length + 1,
+    });
+  }
+  const first = fields.inputs[0];
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const inputs = [...fields.inputs];
+  inputs.splice(RECORD_INPUT_SLOT, 0, record.input);
+  while (inputs.length < record.shape.inputs) {
+    inputs.push(ProofInputUtxo.dummy(undefined, first.treeId));
+  }
   const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
-  const inputs = [...fields.inputs.filter((input) => !input.isDummy()), extension.input];
-  while (inputs.length < extension.shape.inputs) {
-    inputs.push(ProofInputUtxo.dummy(undefined, extension.input.treeId));
-  }
-  const sender = fields.owner.signingPublicKey.toBytes();
-  const senderOutput = fields.outputs.findIndex(
-    (output) =>
-      output.ownerAddress !== undefined &&
-      equal(output.ownerAddress.signingPublicKey.toBytes(), sender),
-  );
-  const templateIndex =
-    senderOutput >= 0
-      ? senderOutput
-      : fields.outputs.findLastIndex((output) => output.ownerAddress !== undefined);
-  const template = fields.outputs[templateIndex];
-  const outputs = [...fields.outputs];
-  while (outputs.length + 1 < extension.shape.outputs) {
-    outputs.push(
-      createProofOutput({
-        ownerAddress: template?.ownerAddress ?? fields.owner,
-        asset: template?.asset ?? ZERO_ADDRESS,
-        amount: 0n,
-        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
-      }),
-    );
-  }
-  const expected = transactOutputBlinding(
-    fields.firstNullifier,
-    outputSeed,
-    extension.shape.outputs - 1,
-  );
-  if (!equal(extension.output.blinding, expected)) {
+  if (
+    !equal(
+      record.output.blinding,
+      transactOutputBlinding(fields.firstNullifier, outputSeed, RECORD_OUTPUT_SLOT),
+    )
+  ) {
     throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
       reason: "recordBlinding",
     });
   }
-  const recordPadding: RecordPadding = {
-    start: fields.outputs.length,
-    end: outputs.length,
-    ...(template === undefined ? {} : { template: templateIndex }),
-  };
-  outputs.push(extension.output);
+  const outputs = [...fields.outputs];
+  outputs.splice(RECORD_OUTPUT_SLOT, 0, record.output);
+  // The padding repeats the money transfer's own padding. A money transfer
+  // without padding has none to repeat, so the padding names the sender with
+  // the ring of the last money slot, where the change sits when present.
+  const moneyPadded = fields.shape.outputs > fields.outputs.length;
   return preparedTransfer({
     ...fields,
     inputs,
-    outputs,
+    outputs: outputs.map((output, index) =>
+      index === RECORD_OUTPUT_SLOT
+        ? output
+        : createProofOutput({
+            ...outputInit(output),
+            blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, index),
+          }),
+    ),
     inputTreeIds: inputTreeIds(inputs),
-    shape: extension.shape,
-    recordPadding,
+    shape: record.shape,
+    padTag: moneyPadded ? finalOutputPlan(fields).padTag : fields.owner.confidentialViewTag(),
+    padRingProgramId: moneyPadded ? fields.padRingProgramId : fields.outputs.at(-1)?.ringProgramId,
   });
 }
 
@@ -1350,22 +1369,24 @@ function namedInputOwnerTag(
  * real output's owner, and nothing else, so a pad can never attribute the
  * transaction to a third party. Self-attribution is always available, which is
  * why `ConfidentialTransfer.prepare` keeps a real zero-amount change output for
- * a self-paid transfer that would otherwise name nobody. Mirrors Rust
- * `dummy_owner_tag`.
+ * a self-paid transfer that would otherwise name nobody. A signed transfer
+ * names a non-payer input owner, else the sender's own output, else the first
+ * output owner, mirroring Rust `dummy_owner_tag`. An opaque one names the first
+ * output owner and never a private input owner, as Rust `RingAuthorityMove`.
  */
-function dummyOwnerTag(
-  inputs: readonly ProofInputUtxo[],
-  outputs: readonly ProofOutputUtxo[],
-  payer: Address,
-): Bytes32 {
-  const named = namedInputOwnerTag(inputs, payer);
+function dummyOwnerTag(prepared: PreparedTransferFields): Bytes32 {
+  const signed = prepared.ownerMode === "signed";
+  const named = signed ? namedInputOwnerTag(prepared.inputs, prepared.payer) : undefined;
   if (named !== undefined) return named;
-  for (const output of outputs) {
-    if (output.ownerAddress !== undefined) {
-      return output.ownerAddress.signingPublicKey.confidentialViewTag();
-    }
-  }
-  throw new TransactionError("TRANSACTION_NO_DUMMY_OWNER_TAG_PARTICIPANT");
+  const owners = prepared.outputs.flatMap((output) =>
+    output.ownerAddress === undefined ? [] : [output.ownerAddress.signingPublicKey],
+  );
+  const sender = prepared.owner.signingPublicKey.toBytes();
+  const owner =
+    (signed ? owners.find((candidate) => equal(candidate.toBytes(), sender)) : undefined) ??
+    owners[0];
+  if (owner === undefined) throw new TransactionError("TRANSACTION_NO_DUMMY_OWNER_TAG_PARTICIPANT");
+  return owner.confidentialViewTag();
 }
 
 function finalizeTransfer(
@@ -1381,13 +1402,17 @@ function finalizeTransfer(
     });
   }
   // An owner who is also the fee payer is already account index 0, so the tag
-  // costs 2 bytes instead of the 33 an inline owner needs.
+  // costs 2 bytes instead of the 33 an inline owner needs. Every slot naming
+  // the sender, a pad included, publishes that one encoding: a differently
+  // encoded tag would single the pad out. The authority rail publishes every
+  // tag inline, as Rust `RingAuthorityMove` does.
   const senderResolved = prepared.owner.confidentialViewTag();
-  const senderTag: OwnerTag = equal(senderResolved, decodeAddress(prepared.payer))
-    ? { kind: "account", index: 0 }
-    : { kind: "inline", value: senderResolved };
+  const senderTag: OwnerTag =
+    prepared.ownerMode === "signed" && equal(senderResolved, decodeAddress(prepared.payer))
+      ? { kind: "account", index: 0 }
+      : { kind: "inline", value: senderResolved };
 
-  const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
+  const { outputs: outputUtxos } = finalOutputPlan(prepared);
   const lastTreeId = prepared.inputTreeIds.at(-1);
   if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
   const inputUtxos = [...prepared.inputs];
@@ -1395,57 +1420,23 @@ function finalizeTransfer(
     inputUtxos.push(ProofInputUtxo.dummy(undefined, lastTreeId));
   }
 
-  // Length-matched random ciphertext for every position without a real encoding:
-  // padded slots and slots the payload leaves empty.
-  const needsDummyCiphertext =
-    padCount > 0 || prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
-  const dummyLength = needsDummyCiphertext ? dummyCiphertextLength(encrypted.salt) : 0;
-
-  // 1:1 output assembly. Every published slot carries its own ciphertext.
-  // Change positions keep the compact sender tag; recipient positions take
-  // the inline tag of their ciphertext; padded positions carry a
-  // length-matched random ciphertext under the pad tag.
+  // 1:1 output assembly. A real slot publishes the ciphertext sealed to its
+  // owner; `frameDummySlots` then gives every padding slot a real slot's frame.
   const outputs: TransactOutput[] = [];
   const resolved: Bytes32[] = [];
-  const padding = prepared.recordPadding;
-  for (let index = 0; index < outputUtxos.length; index++) {
-    const output = outputUtxos[index];
-    if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
-    const slot = encrypted.payload[index];
-    const utxoHash = output.hash(prepared.outputTreeId);
-    if (output.isDummy()) {
-      outputs.push({
-        utxoHash,
-        ownerTag: { kind: "inline", value: padTag },
-        data: randomBytes(dummyLength),
-      });
-      resolved.push(padTag);
-    } else if (padding !== undefined && index >= padding.start && index < padding.end) {
-      const ownerTag =
-        padding.template === undefined ? senderTag : outputs[padding.template]?.ownerTag;
-      const tag = padding.template === undefined ? senderResolved : resolved[padding.template];
-      if (ownerTag === undefined || tag === undefined) {
-        throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
-      }
-      outputs.push({ utxoHash, ownerTag, data: slot?.data ?? randomBytes(dummyLength) });
-      resolved.push(tag);
-    } else if (index < prepared.senderOutputCount) {
-      outputs.push({
-        utxoHash,
-        ownerTag: senderTag,
-        data: slot?.data ?? randomBytes(dummyLength),
-      });
-      resolved.push(senderResolved);
-    } else {
-      const tag = slot?.viewTag ?? output.ownerTag;
-      if (!tag) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
-      outputs.push({
-        utxoHash,
-        ownerTag: { kind: "inline", value: tag },
-        data: slot?.data ?? randomBytes(dummyLength),
-      });
-      resolved.push(tag);
+  for (const [index, output] of outputUtxos.entries()) {
+    const tag = output.ownerAddress?.signingPublicKey.confidentialViewTag() ?? output.ownerTag;
+    if (tag === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
+    const slot = output.isDummy() ? undefined : encrypted.payload[index];
+    if (slot !== undefined && !equal(slot.viewTag, tag)) {
+      throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH", { index });
     }
+    outputs.push({
+      utxoHash: output.hash(prepared.outputTreeId),
+      ownerTag: equal(tag, senderResolved) ? senderTag : { kind: "inline", value: tag },
+      ...(slot === undefined ? {} : { data: slot.data }),
+    });
+    resolved.push(tag);
   }
   const externalData = createExternalData({
     instructionDiscriminator: encrypted.instructionDiscriminator ?? InstructionTag.transact,
@@ -1453,7 +1444,7 @@ function finalizeTransfer(
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,
-    outputs,
+    outputs: frameDummySlots(outputUtxos, outputs),
     resolvedOwnerTags: resolved,
     messages: encrypted.messages ?? [],
   });
@@ -1470,16 +1461,13 @@ function finalizeTransfer(
 /** Builds the commitment-bearing output prefix once for sealing and finalization. */
 function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
   outputs: ProofOutputUtxo[];
-  padCount: number;
   padTag: Bytes32;
 }> {
-  const padTag = dummyOwnerTag(
-    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
-    prepared.outputs,
-    prepared.payer,
-  );
+  const padTag = prepared.padTag ?? dummyOwnerTag(prepared);
   const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
   const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
+  const ring =
+    prepared.padRingProgramId === undefined ? {} : { ringProgramId: prepared.padRingProgramId };
   // Dummy owner hashes stay zero after public retagging.
   const outputs = [
     ...prepared.outputs.map((output) =>
@@ -1495,10 +1483,85 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
           prepared.outputs.length + offset,
         ),
         ownerTag: padTag,
+        ...ring,
       }),
     ),
   ];
-  return { outputs, padCount, padTag };
+  return { outputs, padTag };
+}
+
+/** Bytes an `Encrypted` slot spends before its body: the borsh variant tag, the u32 length, the scheme byte and the embedded viewing key. */
+const ENCRYPTED_SLOT_OVERHEAD = 1 + 4 + 1 + P256_PUBLIC_KEY_LENGTH;
+
+/**
+ * Gives every dummy slot the data of a real slot: the `Encrypted` encoding,
+ * the scheme byte of the slot's ring binding, a fresh embedded viewing key and
+ * a random body. A dummy copies the length of a real slot with its ring
+ * binding, else of the first real slot, else of the canonical empty payload,
+ * so neither framing nor length separates it from a real output. Every real
+ * slot must already carry its ciphertext. Mirrors Rust `frame_dummy_outputs`.
+ */
+function frameDummySlots(
+  outputs: readonly ProofOutputUtxo[],
+  encoded: readonly TransactOutput[],
+): TransactOutput[] {
+  if (encoded.length !== outputs.length) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
+  const templates = outputs.flatMap((output, index) => {
+    if (output.isDummy()) return [];
+    const length = encoded[index]?.data?.length;
+    if (length === undefined) {
+      throw new TransactionError("TRANSACTION_DUMMY_OUTPUT_FRAMING", { index });
+    }
+    return [{ inRing: output.ringProgramId !== undefined, length }];
+  });
+  return encoded.map((slot, index) => {
+    const output = outputs[index];
+    if (output === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
+    if (!output.isDummy()) return slot;
+    const inRing = output.ringProgramId !== undefined;
+    const template = templates.find((candidate) => candidate.inRing === inRing) ?? templates[0];
+    const bodyLength =
+      template === undefined
+        ? encodeConfidential({
+            assetId: SOL_ASSET_ID,
+            amount: 0n,
+            blinding: ZERO_32,
+            data: new Data(),
+            ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
+          }).length
+        : template.length - ENCRYPTED_SLOT_OVERHEAD;
+    if (bodyLength <= 0) throw new TransactionError("TRANSACTION_DUMMY_OUTPUT_FRAMING", { index });
+    const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + bodyLength);
+    const key = ViewingKey.generate();
+    try {
+      body.set(key.publicKey().toBytes(), 0);
+    } finally {
+      key.destroy();
+    }
+    globalThis.crypto.getRandomValues(body.subarray(P256_PUBLIC_KEY_LENGTH));
+    const scheme = inRing ? EncryptedScheme.ringConfidential : EncryptedScheme.confidential;
+    return { ...slot, data: encodeOutputData(scheme, body, "encrypted") };
+  });
+}
+
+/**
+ * The same proof inputs with every dummy slot framed as `frameDummySlots`
+ * describes. `PreparedTransfer.finalize` already frames its padding; this is
+ * for proof inputs assembled by hand, whose real slots carry their ciphertext.
+ */
+export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
+  const external = proofInputs.externalData;
+  return new SppProofInputs({
+    payer: proofInputs.payer,
+    inputUtxos: proofInputs.inputUtxos,
+    outputs: proofInputs.outputs,
+    externalData: createExternalData({
+      ...external,
+      outputs: frameDummySlots(proofInputs.outputs, external.outputs),
+    }),
+    blindingSeed: proofInputs.blindingSeed,
+    outputTreeId: proofInputs.outputTreeId,
+  });
 }
 
 /** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */
@@ -1520,17 +1583,11 @@ function outputInit(output: ProofOutputUtxo): ProofOutputInit {
   };
 }
 
-function randomBytes(length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(bytes);
-  return bytes;
-}
-
 /**
  * Encode each real output as its own confidential ciphertext, keyed to that
  * output's owner viewing key, at `slotIndex == output position`. Dummy outputs
- * yield `undefined`; the transfer builder fills those positions with a
- * length-matched random ciphertext under the sender's tag.
+ * yield `undefined`; `PreparedTransfer.finalize` frames those positions like a
+ * real slot under the pad tag.
  */
 export function encodeConfidentialSlots(
   outputs: readonly ProofOutputUtxo[],
@@ -1564,30 +1621,6 @@ export function encodeConfidentialSlots(
       ),
     };
   });
-}
-
-/**
- * The exact ciphertext byte length of a real confidential slot, derived by
- * encoding a throwaway output through the same path. This keeps dummy slots
- * byte-length-indistinguishable from real ones without pinning a brittle constant.
- */
-function dummyCiphertextLength(salt: Bytes16): number {
-  const throwaway = ViewingKey.generate();
-  try {
-    return encodeOutputData(
-      EncryptedScheme.confidential,
-      encryptConfidential(
-        throwaway,
-        throwaway.publicKey(),
-        { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
-        salt,
-        0,
-      ),
-      "encrypted",
-    ).length;
-  } finally {
-    throwaway.destroy();
-  }
 }
 
 export interface OutputContext {

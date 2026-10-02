@@ -8,7 +8,8 @@ available. Merges take up to 36 notes in one transaction, and wallet sync
 recovers the output of such a merge. Registration never replaces an owner's
 published keys, and replacing them is its own transaction. The private
 transaction hash ignores padding and no longer covers the external data, which
-P-256 owners now sign alongside it.
+P-256 owners now sign alongside it, and a transfer publishes its recipients
+first, then its change, then padding framed like a real slot.
 
 Breaking
 
@@ -72,20 +73,29 @@ Breaking
   keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
   release.
 - `ConfidentialTransfer.withCompactChange`, `ChangeLayout`,
-  `PreparedTransfer.changeLayout` and `RING_PADDED_CHANGE` are removed because
-  `ConfidentialTransfer.prepare` places only the change outputs it keeps first,
-  SPL before SOL, with the recipients right after them, and
-  `SENDER_SLOT_COUNT` is now the maximum number of change outputs rather than
-  the recipients' first slot → drop the calls and the handling of the removed
-  code, and read the change output count from
-  `PreparedTransfer.senderOutputCount`.
-- `anonymousSenderUtxos`, `plaintextTransferUtxos`, `anonymousSenderFromUtxos`
-  and `plaintextTransferFromUtxos` put the SOL change at slot 0 when there is
-  no SPL change and the recipients right after the change outputs present, and
-  `plaintextTransferFromUtxos` takes its UTXOs in slot order from slot 0 and
-  refuses any other order with `TRANSACTION_INVALID_OUTPUT_POSITION`, so a
-  bundle built by an earlier release without an SPL change no longer recovers
-  its outputs → build transfers and their bundles with this release.
+  `PreparedTransfer.changeLayout`, `RING_PADDED_CHANGE` and
+  `SENDER_SLOT_COUNT` are removed, `PreparedTransfer.senderOutputCount` becomes
+  `changeOutputCount` and `PreparedTransfer.withAppendedSlot` becomes
+  `withRecordSlots`, because a transfer places its recipients first, then only
+  the change outputs it keeps, SPL before SOL, then its padding, a layout
+  `anonymousSenderUtxos` and `anonymousSenderFromUtxos` follow with one
+  recipient slot per `recipientViewingPublicKeys` entry and
+  `plaintextTransferUtxos` and `plaintextTransferFromUtxos` follow in slot
+  order, the latter refusing any other order with
+  `TRANSACTION_INVALID_OUTPUT_POSITION`, so a bundle built by an earlier
+  release no longer recovers its outputs → drop the calls and the handling of
+  the removed code, read the change as the last `changeOutputCount` real
+  outputs, call `withRecordSlots`, and build transfers and their bundles with
+  this release.
+- `PreparedTransfer.finalize` frames every padding slot like a real slot, with
+  the scheme and length of a real slot, a fresh embedded key, the transfer's
+  ring, and the owner tag encoded as the sender's change is, and throws the new
+  `TRANSACTION_DUMMY_OUTPUT_FRAMING` for a real output without its ciphertext
+  and `TRANSACTION_OUTPUT_TAG_MISMATCH` for one sealed to another owner, while
+  `frameDummyOutputs` moves from `@heliuslabs/zolana/ring` to
+  `@heliuslabs/zolana/transaction` → pass a payload entry for every real
+  output, handle the new code, and import `frameDummyOutputs` from
+  `@heliuslabs/zolana/transaction` or drop the call after `finalize`.
 
 Added
 
@@ -122,11 +132,16 @@ Fixed
 - `ZolanaClient.proveMerge` could throw an error other than `ClientError`, and
   every `ZolanaClient` proving method now throws a `ClientError`.
 - `proveCustomRingTransfer` on a ring with a spend window put padding before
-  the spend record, which the transaction proof refuses, and now places the
-  record after the spent UTXOs and before the padding inputs, and fills a
-  spare output slot before the record output with a zero-amount copy of the
-  sender's change, else of the last output, so that slot adds no subject to
-  the ring's rules.
+  the spend record, which the transaction proof refuses, and now spends the
+  record at input slot 1, after the first spent UTXO and in the tree of its
+  leaf, leads the outputs with the successor record, and keeps every padding
+  input in the first spent UTXO's tree whatever the number of spent UTXOs,
+  while `auditRingTransaction` reads the record at output slot 0.
+- A padding slot whose random body decrypted to a well-formed plaintext made
+  `auditRingTransaction` fail and could stop wallet sync with
+  `WALLET_UNRESOLVED_ASSET`, and now the audit lists that slot in
+  `undecryptableSlots` and sync never opens a slot that does not embed the
+  wallet's viewing key.
 - `buildWithdrawalTransaction` failed with `WALLET_BUILD_WITHDRAWAL` when an
   owner who also pays the fee withdrew the whole balance of an SPL mint, and
   now builds that withdrawal with a zero-amount SOL change output.

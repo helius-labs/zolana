@@ -1,8 +1,10 @@
 use borsh::BorshDeserialize;
-use solana_address::Address;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{
+    constants::{P256_PUBKEY_LEN, SALT_LEN},
+    random_salt, PublicKey, ShieldedAddress, ViewingKey,
+};
 
 use super::{sender_owner_tag, ConfidentialTransaction, SppProofOutputUtxo};
 use crate::{
@@ -98,76 +100,30 @@ impl ConfidentialTransaction {
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
         let salt = random_salt();
-        let slots = self
-            .outputs
-            .iter()
-            .enumerate()
-            .map(|(slot_index, output)| {
-                let Some(address) = output.owner_address else {
-                    return Ok(None);
-                };
-                let mut message = Confidential::encode_plaintext(
-                    &ConfidentialOutputPlaintext {
-                        asset_id: output.asset.asset_id,
-                        amount: output.amount,
-                        blinding: output.blinding,
-                        ring_program_id: output.ring_program_id,
-                        data: output.data.clone(),
-                    },
-                    address.signing_pubkey.confidential_view_tag()?,
-                    &ConfidentialEncode {
-                        tx: tx_viewing_key.clone(),
-                        recipient_pubkey: address.viewing_pubkey,
-                        salt,
-                        slot_index: slot_index as u32,
-                    },
-                )?;
-                if output.ring_program_id.is_some() {
-                    let OutputDataEncoding::Encrypted(mut blob) =
-                        OutputDataEncoding::try_from_slice(&message.data)
-                            .map_err(|error| TransactionError::Deserialize(error.to_string()))?
-                    else {
-                        return Err(TransactionError::BadDiscriminator(
-                            EncryptedScheme::Confidential.as_byte(),
-                        ));
-                    };
-                    *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                        EncryptedScheme::RingConfidential.as_byte();
-                    message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                        .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
-                }
-                Ok(Some(message))
-            })
+        let slots = (0u32..)
+            .zip(&self.outputs)
+            .map(|(slot_index, output)| seal_output(output, slot_index, tx_viewing_key, salt))
             .collect::<Result<Vec<_>, TransactionError>>()?;
-        let dummy_len = if self.outputs.iter().any(SppProofOutputUtxo::is_dummy) {
-            dummy_ciphertext_len(self.ring_program_id, salt)?
-        } else {
-            0
-        };
-
         // 5. Check owner tags and assemble commitments and ciphertexts in order.
         let mut transact_outputs = Vec::with_capacity(slots.len());
         let mut resolved_owner_tags = Vec::with_capacity(slots.len());
         for (slot_index, ((output, owner_tag), slot)) in
             self.outputs.iter().zip(owner_tags).zip(slots).enumerate()
         {
-            let data = match slot {
-                Some(slot) if slot.view_tag != owner_tag.resolved => {
-                    return Err(TransactionError::OwnerTagMismatch { slot_index });
-                }
-                Some(slot) => slot.data,
-                None => std::iter::repeat_with(random_salt)
-                    .flatten()
-                    .take(dummy_len)
-                    .collect(),
-            };
+            if slot
+                .as_ref()
+                .is_some_and(|slot| slot.view_tag != owner_tag.resolved)
+            {
+                return Err(TransactionError::OwnerTagMismatch { slot_index });
+            }
             transact_outputs.push(TransactOutput {
                 utxo_hash: output.hash(self.output_tree_id)?,
                 owner_tag: owner_tag.tag,
-                data: Some(data),
+                data: slot.map(|slot| slot.data),
             });
             resolved_owner_tags.push(owner_tag.resolved);
         }
+        frame_dummy_outputs(&self.outputs, &mut transact_outputs)?;
 
         // 6. Build external data and return the prepared input and output slots.
         let external_data = ExternalData::new(
@@ -206,17 +162,15 @@ impl ConfidentialTransaction {
         let sender_tag = self.sender_owner_tag(sender)?;
         let mut owner_tags = Vec::with_capacity(self.outputs.len());
         for (slot_index, output) in self.outputs.iter().enumerate() {
-            let Some(address) = output.owner_address else {
-                let resolved = output
+            let resolved = match output.owner_address {
+                Some(address) => address.signing_pubkey.confidential_view_tag()?,
+                None => output
                     .owner_tag
-                    .ok_or(TransactionError::DummyOutputWithoutOwnerTag { slot_index })?;
-                owner_tags.push(ResolvedOwnerTag {
-                    tag: OwnerTag::Inline(resolved),
-                    resolved,
-                });
-                continue;
+                    .ok_or(TransactionError::DummyOutputWithoutOwnerTag { slot_index })?,
             };
-            let resolved = address.signing_pubkey.confidential_view_tag()?;
+            // A dummy names a participant and compacts exactly as that
+            // participant's real output does; a differently encoded tag would
+            // single the dummy out.
             owner_tags.push(if resolved == sender_tag.resolved {
                 sender_tag
             } else {
@@ -230,27 +184,115 @@ impl ConfidentialTransaction {
     }
 }
 
-fn dummy_ciphertext_len(
-    ring_program_id: Option<Address>,
+/// Encrypt one real output to the viewing key its owner address names, `None`
+/// for a dummy. A ring-bound output takes the `RingConfidential` scheme byte,
+/// every other output `Confidential`.
+pub fn seal_output(
+    output: &SppProofOutputUtxo,
+    slot_index: u32,
+    tx_viewing_key: &ViewingKey,
     salt: [u8; SALT_LEN],
-) -> Result<usize, TransactionError> {
-    let throwaway = ViewingKey::new();
-    Ok(Confidential::encode_plaintext(
+) -> Result<Option<MessageData>, TransactionError> {
+    let Some(address) = output.owner_address else {
+        return Ok(None);
+    };
+    let mut message = Confidential::encode_plaintext(
         &ConfidentialOutputPlaintext {
-            asset_id: SOL_ASSET_ID,
-            amount: 0,
-            blinding: [0u8; 32],
-            ring_program_id,
-            data: Data::default(),
+            asset_id: output.asset.asset_id,
+            amount: output.amount,
+            blinding: output.blinding,
+            ring_program_id: output.ring_program_id,
+            data: output.data.clone(),
         },
-        [0u8; 32],
+        address.signing_pubkey.confidential_view_tag()?,
         &ConfidentialEncode {
-            recipient_pubkey: throwaway.pubkey(),
-            tx: throwaway,
+            tx: tx_viewing_key.clone(),
+            recipient_pubkey: address.viewing_pubkey,
             salt,
-            slot_index: 0,
+            slot_index,
         },
-    )?
-    .data
-    .len())
+    )?;
+    if output.ring_program_id.is_some() {
+        let OutputDataEncoding::Encrypted(mut blob) =
+            OutputDataEncoding::try_from_slice(&message.data)
+                .map_err(|error| TransactionError::Deserialize(error.to_string()))?
+        else {
+            return Err(TransactionError::BadDiscriminator(
+                EncryptedScheme::Confidential.as_byte(),
+            ));
+        };
+        *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
+            EncryptedScheme::RingConfidential.as_byte();
+        message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+            .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+    }
+    Ok(Some(message))
+}
+
+/// Bytes an `OutputDataEncoding::Encrypted` slot spends before its embedded
+/// viewing key: the borsh variant tag, the u32 length and the scheme byte.
+const ENCRYPTED_OUTPUT_FRAMING_LEN: usize = 1 + 4 + 1;
+
+/// Give every dummy slot the `data` of a real slot: the `Encrypted` encoding,
+/// the scheme byte of the slot's ring binding, a fresh embedded viewing key and
+/// a random body. A dummy copies the length of a real slot with its ring
+/// binding, else of the first real slot, else of the canonical empty payload,
+/// so neither framing nor length separates it from a real output. Every real
+/// slot must already carry its ciphertext.
+pub fn frame_dummy_outputs(
+    outputs: &[SppProofOutputUtxo],
+    encoded: &mut [TransactOutput],
+) -> Result<(), TransactionError> {
+    let templates = outputs
+        .iter()
+        .zip(encoded.iter())
+        .enumerate()
+        .filter(|(_, (output, _))| !output.is_dummy())
+        .map(|(slot_index, (output, encoded))| {
+            encoded
+                .data
+                .as_ref()
+                .map(|data| (output.ring_program_id.is_some(), data.len()))
+                .ok_or(TransactionError::DummyOutputFraming { slot_index })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for (slot_index, (output, encoded)) in outputs.iter().zip(encoded.iter_mut()).enumerate() {
+        if !output.is_dummy() {
+            continue;
+        }
+        let in_ring = output.ring_program_id.is_some();
+        let template = templates
+            .iter()
+            .find(|(ring, _)| *ring == in_ring)
+            .or_else(|| templates.first());
+        let body_len = match template {
+            Some((_, encoded_len)) => encoded_len
+                .checked_sub(ENCRYPTED_OUTPUT_FRAMING_LEN + P256_PUBKEY_LEN)
+                .filter(|len| *len > 0)
+                .ok_or(TransactionError::DummyOutputFraming { slot_index })?,
+            None => ConfidentialOutputPlaintext {
+                asset_id: SOL_ASSET_ID,
+                amount: 0,
+                blinding: [0u8; 32],
+                ring_program_id: output.ring_program_id,
+                data: Data::default(),
+            }
+            .serialize()?
+            .len(),
+        };
+        let scheme = if in_ring {
+            EncryptedScheme::RingConfidential
+        } else {
+            EncryptedScheme::Confidential
+        };
+        let mut blob = Vec::with_capacity(1 + P256_PUBKEY_LEN + body_len);
+        blob.push(scheme.as_byte());
+        blob.extend_from_slice(ViewingKey::new().pubkey().as_bytes());
+        blob.extend(std::iter::repeat_with(random_salt).flatten().take(body_len));
+        encoded.data = Some(
+            borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+                .map_err(|error| TransactionError::Deserialize(error.to_string()))?,
+        );
+    }
+    Ok(())
 }

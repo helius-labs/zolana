@@ -60,7 +60,8 @@ pub struct AuditedTransaction {
     pub output_openings: Vec<AuditOutputOpening>,
     pub spend_records: Vec<AuditedSpendRecord>,
     /// Positions of output slots this audit could not open as a confidential
-    /// plaintext: dummy slots (random bytes by construction), slots published
+    /// plaintext: dummy slots (framed like real slots, recognized by their
+    /// committed opening), slots published
     /// under another encryption scheme, and slots encrypted to a different
     /// transaction key. They are reported rather than fatal because every real
     /// transfer pads its output list with dummies.

@@ -52,7 +52,7 @@ fn velocity_transact() -> TransactIxData {
     );
     record.data = confidential_output().data;
     record.data.as_mut().unwrap()[5] = zolana_interface::event::CONFIDENTIAL_ENCRYPTED_SCHEME_TAG;
-    content.outputs = vec![confidential_output(), record];
+    content.outputs = vec![record, confidential_output()];
     content
 }
 
@@ -81,7 +81,7 @@ fn a_money_tree_apart_from_the_address_tree_reaches_the_proof() {
     let in_other_tree = |output_tree_id| {
         let mut content = velocity_transact();
         let record = spend_record_output_in(RECORD_MEMBER_TAG, output_tree_id);
-        content.outputs[1].utxo_hash = record.utxo_hash;
+        content.outputs[0].utxo_hash = record.utxo_hash;
         let mut fixture = velocity_fixture(0, content);
         fixture.substitute("output_tree", other_tree());
         fixture.substitute("input_tree", other_tree());
@@ -102,16 +102,16 @@ fn a_record_output_tree_that_is_not_a_tree_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
-/// The published record must be the preimage of the last output's leaf.
+/// The published record must be the preimage of the first output's leaf.
 #[test]
 fn a_record_that_does_not_open_its_leaf_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut forged = velocity_transact();
-    forged.outputs[1].utxo_hash[0] ^= 1;
+    forged.outputs[0].utxo_hash[0] ^= 1;
     velocity_fixture(0, forged).expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 
     let mut foreign_owner = velocity_transact();
-    foreign_owner.outputs[1].owner_tag = OwnerTag::Inline([9u8; 32]);
+    foreign_owner.outputs[0].owner_tag = OwnerTag::Inline([9u8; 32]);
     velocity_fixture(0, foreign_owner)
         .expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 
@@ -120,9 +120,9 @@ fn a_record_that_does_not_open_its_leaf_is_rejected_exactly() {
     velocity_fixture(0, truncated)
         .expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 
-    let mut record_first = velocity_transact();
-    record_first.outputs.swap(0, 1);
-    velocity_fixture(0, record_first)
+    let mut record_last = velocity_transact();
+    record_last.outputs.swap(0, 1);
+    velocity_fixture(0, record_last)
         .expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
@@ -146,7 +146,7 @@ fn missing_duplicate_or_wrongly_tagged_record_messages_are_rejected() {
 fn a_record_carrier_cannot_hide_its_default_ring_owner() {
     let (mollusk, _) = setup_mollusk();
     let mut masked = velocity_transact();
-    masked.outputs[1].data = confidential_output().data;
+    masked.outputs[0].data = confidential_output().data;
     velocity_fixture(0, masked).expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
@@ -154,7 +154,7 @@ fn a_record_carrier_cannot_hide_its_default_ring_owner() {
 fn a_transfer_without_a_record_output_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut content = velocity_transact();
-    content.outputs.truncate(1);
+    content.outputs.remove(0);
     velocity_fixture(0, content).expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 

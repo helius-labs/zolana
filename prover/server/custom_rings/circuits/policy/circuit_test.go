@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -513,7 +514,7 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("spend.address        %s\n", hex32(v.record.address))
 	fmt.Printf("spend.commitment     %s\n", hex32(v.record.commitment))
 	fmt.Printf("spend.data_hash      %s\n", hex32(v.record.dataHash))
-	fmt.Printf("spend.utxo_hash      %s\n", hex32(hostUtxoHash(t, v.inputs[len(v.inputs)-1])))
+	fmt.Printf("spend.utxo_hash      %s\n", hex32(hostUtxoHash(t, v.inputs[RecordInputSlot])))
 	fmt.Printf("spend.next_commitment %s\n", hex32(v.record.nextCommitment))
 	fmt.Printf("spend.next_data_hash %s\n", hex32(v.record.nextDataHash))
 	fmt.Printf("spend.zero_commitment %s\n", hex32(hostCountersCommitment(t, big.NewInt(0), nil, nil)))
@@ -986,9 +987,16 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 	if v.staleSuccessor {
 		s.record.nextDataHash = hostRecordDataHash(t, s.record.address, s.record.sender, s.record.version, s.windowIndex, s.record.nextCommitment)
 	}
-	s.inputs = append(s.inputs, s.recordOpening(t, s.record.dataHash, 0x63))
-	s.outputs = append(s.outputs, s.recordOpening(t, s.record.nextDataHash, 0x64))
+	s.placeRecord(s.recordOpening(t, s.record.dataHash, 0x63), s.recordOpening(t, s.record.nextDataHash, 0x64))
 	s.updateHashes(t)
+}
+
+// placeRecord inserts the spent record and its successor at the fixed slots
+// the circuit reads: input slot 0 keeps the sender's money input, the other
+// money inputs and every money output shift behind the record.
+func (s *statement) placeRecord(spent, successor UtxoWires) {
+	s.inputs = slices.Insert(s.inputs, RecordInputSlot, spent)
+	s.outputs = slices.Insert(s.outputs, RecordOutputSlot, successor)
 }
 
 func (s *statement) shapeSpendInputs(t *testing.T, v *velocityFixture) {

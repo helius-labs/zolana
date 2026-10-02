@@ -12,7 +12,7 @@ use zolana_client::prover::indexed::{
 use zolana_client::{AsyncRpc, Proof, ProofAuthority, ProofInputUtxo, RingAuthorityProver, Rpc};
 use zolana_interface::instruction::TransactIxData;
 use zolana_keypair::{random_salt, NullifierKey, ShieldedAddress, ViewingKey};
-use zolana_transaction::instructions::transact::SppProofInputs;
+use zolana_transaction::instructions::transact::{frame_dummy_outputs, SppProofInputs};
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo, AssetRegistry,
 };
@@ -21,8 +21,8 @@ use crate::{
     escrow::KeyRegistry,
     instructions::{spend::ReadEnvironment, transact::PolicyReads},
     transfer::{
-        frame_dummy_outputs, PolicyBinding, PolicyRequest, PolicyStatement, PolicyTierInput,
-        RingMembership, RingSpendInputs, SpendSet, SpendTreePlan, SpendTrees, TierRequestInput,
+        PolicyBinding, PolicyRequest, PolicyStatement, PolicyTierInput, RingMembership,
+        RingSpendInputs, SpendSet, SpendTreePlan, SpendTrees, TierRequestInput,
     },
     AsyncTransferProofEnvironment, CustomRing, CustomRingDelegateTransact, CustomRingProof,
     CustomRingProofParams, EncryptedAudit, PendingCustomRingProof, PoolTree, TransferError,

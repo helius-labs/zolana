@@ -10,14 +10,20 @@ import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { createProofOutput, ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
 import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
-import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encryptConfidential,
+  readOutputData,
+} from "../src/transaction/serialization/codecs.js";
+import { Data } from "../src/transaction/data.js";
 import {
   createExternalData,
+  frameDummyOutputs,
   SppProofInputs,
   type IndexedShieldedTransaction,
 } from "../src/transaction/instructions/transact.js";
 import { auditRingTransaction } from "../src/ring/audit.js";
-import { frameDummyOutputs } from "../src/ring/transfer.js";
 import { sealedSpendCounters } from "../src/ring/counters.js";
 import { findCurrentSpendRecord, readCurrentSpendRecord } from "../src/ring/spend-record-reader.js";
 import {
@@ -37,12 +43,19 @@ const field = (value: number): Bytes32 => {
   return bytes as Bytes32;
 };
 const NAMESPACE = field(10);
+// A padding slot names the sender, never the record's namespace.
+const PAD_TAG = field(30);
 const ADDRESS = getAddressDecoder().decode(NAMESPACE);
 const TREE = getAddressDecoder().decode(field(11));
 beforeAll(initializePoseidon);
 
-/** `leafTreeId` is the tree the record lands in, its address hashes under tree 4. */
-function fixture(leafTreeId = 4) {
+/**
+ * `leafTreeId` is the tree the record lands in, its address hashes under tree 4.
+ * `noisyDummy` follows the record with a padding slot whose framed noise opens
+ * under the transaction key as a well-formed plaintext, which the slot cipher,
+ * having no MAC, allows.
+ */
+function fixture(leafTreeId = 4, noisyDummy = false) {
   const viewing = ViewingKey.fromBytes(field(12));
   const auditor = ViewingKey.fromBytes(field(13));
   const nullifier = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
@@ -72,15 +85,34 @@ function fixture(leafTreeId = 4) {
     blinding: record.blinding,
     ownerTag: NAMESPACE,
   });
+  const dummy = createProofOutput({
+    asset: SOL_MINT,
+    amount: 0n,
+    blinding: field(22),
+    ownerTag: PAD_TAG,
+  });
   const tx = viewing.transactionViewingKey(field(16));
   const encrypted = encryptCustomRingTransfer(tx, {
-    outputs: [output],
+    outputs: noisyDummy ? [output, dummy] : [output],
     assets: new AssetRegistry(),
     auditorPublicKey: auditor.publicKey(),
     outputTreeId: leafTreeId,
     recordOutputIndex: 0,
     counterMessage: sealedSpendCounters(counters, NAMESPACE),
   });
+  const noiseKey = ViewingKey.generate();
+  const noise = encodeOutputData(
+    EncryptedScheme.confidential,
+    encryptConfidential(
+      tx,
+      noiseKey.publicKey(),
+      { assetId: 999n, amount: 1n, blinding: field(23), data: new Data() },
+      encrypted.salt,
+      1,
+    ),
+    "encrypted",
+  );
+  noiseKey.destroy();
   tx.destroy();
   const carrier = encrypted.payload[0];
   if (carrier === undefined) throw new Error("carrier");
@@ -97,6 +129,15 @@ function fixture(leafTreeId = 4) {
         payload: carrier.data,
         outputContext: { tree: TREE, hash: hashes.utxoHash, leafIndex: 4n },
       },
+      ...(noisyDummy
+        ? [
+            {
+              viewTag: PAD_TAG,
+              payload: noise,
+              outputContext: { tree: TREE, hash: dummy.hash(leafTreeId), leafIndex: 5n },
+            },
+          ]
+        : []),
     ],
     messages: [
       {
@@ -210,6 +251,27 @@ describe("compressed spend record carrier", () => {
       expect(audited.undecryptableSlots).toHaveLength(0);
       expect(audited.spendRecords[0]?.record).toEqual(f.record);
       expect(audited.spendRecords[0]?.counters?.spent[0]).toBe(9n);
+    } finally {
+      f.auditor.destroy();
+    }
+  });
+
+  it("audits the record at slot zero and skips a dummy whose noise opens as a plaintext", () => {
+    const f = fixture(4, true);
+    try {
+      expect(f.transaction.outputSlots).toHaveLength(2);
+      const audited = auditRingTransaction({
+        transaction: f.transaction,
+        auditor: f.auditor,
+        assets: new AssetRegistry(),
+      });
+      // The record leads a two-slot transfer, it is not the last slot.
+      expect(audited.spendRecords.map((record) => record.slotIndex)).toEqual([0]);
+      expect(audited.spendRecords[0]?.record).toEqual(f.record);
+      expect(audited.invalidSpendRecordSlots).toEqual([]);
+      // The noise names an asset no registry knows; the dummy opening skips it.
+      expect(audited.outputs).toEqual([]);
+      expect(audited.undecryptableSlots).toEqual([1]);
     } finally {
       f.auditor.destroy();
     }

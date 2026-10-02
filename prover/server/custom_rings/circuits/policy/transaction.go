@@ -40,7 +40,8 @@ type utxoView struct {
 	active frontend.Variable
 	// Selected in the UTXO domain.
 	utxo frontend.Variable
-	// The final selected slot when windowed accounting requires a record.
+	// The record slot (RecordInputSlot or RecordOutputSlot) when windowed
+	// accounting requires a record.
 	record frontend.Variable
 	// Only selected UTXO slots outside the record can create policy obligations.
 	live frontend.Variable
@@ -77,17 +78,29 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 	activeOut := suffixSums(api, c.OutputCountSelected[:])
 
 	var txContext transactionContext
-	// 2. Check input domains and commitments.
+	// 2. Check input domains and commitments. The record sits at a fixed slot,
+	// so a windowed transfer pads with ordinary dummies after its money and the
+	// slot pattern reveals neither the record nor the real input count. The
+	// record slot must be selected, or a record could satisfy the record checks
+	// without entering the hash SPP verifies.
+	api.AssertIsEqual(api.Mul(recordEnabled, api.Sub(1, activeIn[RecordInputSlot])), 0)
 	inputHashes := make([]frontend.Variable, NInputs)
 	for i, wires := range c.Inputs {
-		record := api.Mul(recordEnabled, c.InputCountSelected[i])
+		record := frontend.Variable(0)
+		if i == RecordInputSlot {
+			record = recordEnabled
+		}
 		inputHashes[i], txContext.inputs[i] = wires.checkInput(api, rangeChecker, activeIn[i], record)
 	}
 
-	// 3. Check output domains and commitments.
+	// 3. Check output domains and commitments. Output slot 0 is always
+	// selected, so the record output needs no activity assertion.
 	outputHashes := make([]frontend.Variable, NOutputs)
 	for i, wires := range c.Outputs {
-		record := api.Mul(recordEnabled, c.OutputCountSelected[i])
+		record := frontend.Variable(0)
+		if i == RecordOutputSlot {
+			record = recordEnabled
+		}
 		outputHashes[i], txContext.outputs[i] = wires.checkOutput(api, rangeChecker, activeOut[i], record)
 	}
 
@@ -153,7 +166,11 @@ func (w UtxoWires) checkSlot(
 		RingProgramID: w.RingProgramID,
 	}, w.TreeID)
 
-	// 3. Mark selected UTXOs outside the record for rule evaluation.
+	// 3. Mark selected UTXOs outside the record for rule evaluation. The active
+	// factor also keeps the private tx hash honest: the chain skips zeros, so a
+	// spent input parked in an inactive slot would still match SPP's hash while
+	// escaping every rule. Zeroing inactive slots makes the hash match only when
+	// every spent input is active and rule-checked.
 	utxo := api.Mul(active, isUtxo)
 	return api.Select(utxo, hash, frontend.Variable(0)), utxoView{
 		ownerPkHash:   w.OwnerPkHash,

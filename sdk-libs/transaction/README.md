@@ -90,8 +90,11 @@ implementation differences.
         1. derive the transaction viewing key from the first nullifier
         2. take the caller's salt (`random_salt`, or a constant in a fixture)
         3. encrypt each real slot to the owner it already names, attaching
-           that owner's view tag; a dummy slot carries random bytes of a real
-           slot's length
+           that owner's view tag; `frame_dummy_outputs` gives each dummy slot
+           a real slot's framing: the `Encrypted` encoding, the scheme byte of
+           its ring binding, a fresh embedded viewing key and a random body,
+           at the length of a real slot with the same ring binding (else the
+           first real slot, else the canonical empty payload)
     4. hash the external data, `ExternalData::hash` ***(client)***
         1. serialize the filled slots with their owner tags, the transaction
            viewing pubkey, the salt, and the interface transfers

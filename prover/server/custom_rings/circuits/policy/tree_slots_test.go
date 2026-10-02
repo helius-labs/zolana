@@ -98,8 +98,8 @@ func TestDisabledListFactSlotIsFree(t *testing.T) {
 func TestSpendRecordMovesAcrossTrees(t *testing.T) {
 	f := velocityDefault()
 	s := newStatement(t, f)
-	s.inputs[len(s.inputs)-1].TreeID = big.NewInt(addressTreeID + 1)
-	s.outputs[len(s.outputs)-1].TreeID = big.NewInt(addressTreeID + 2)
+	s.inputs[RecordInputSlot].TreeID = big.NewInt(addressTreeID + 1)
+	s.outputs[RecordOutputSlot].TreeID = big.NewInt(addressTreeID + 2)
 	solve(t, testConstraintSystem(t), s.assignment(t, f.facts()))
 }
 

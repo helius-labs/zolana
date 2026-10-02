@@ -14,7 +14,7 @@ use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::{hash_bytes, right_align};
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::{event::OutputDataEncoding, DUMMY_DOMAIN};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_transaction::utxo::program_id_proof_input_hash;
 use zolana_transaction::{
@@ -101,7 +101,7 @@ impl TransactionAudit<'_> {
                 None => None,
                 Some(RecordCarrier::Inline(record)) => Some(record),
                 Some(RecordCarrier::Sidecar(record)) => {
-                    if position + 1 != self.transaction.output_slots.len() {
+                    if position != custom_ring_interface::RECORD_OUTPUT_SLOT {
                         return Err(AuditError::InvalidSpendRecordMessage);
                     }
                     Some(record)
@@ -200,6 +200,12 @@ struct OutputAudit<'a> {
 
 impl OutputAudit<'_> {
     fn run(self) -> Result<Option<AuditedOutput>, AuditError> {
+        // A dummy is framed like a real slot, and the slot cipher carries no
+        // MAC, so its noise can decrypt to a well-formed plaintext. The
+        // committed opening, not the ciphertext, says whether the slot is real.
+        if self.opening.domain == right_align(&DUMMY_DOMAIN.to_be_bytes()) {
+            return Ok(None);
+        }
         let Some(OutputDataEncoding::Encrypted(blob)) = self.slot.output_data() else {
             return Ok(None);
         };

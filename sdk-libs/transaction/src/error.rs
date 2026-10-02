@@ -69,6 +69,8 @@ pub enum TransactionError {
 
     #[error("dummy output slot {slot_index} carries no owner tag to publish")]
     DummyOutputWithoutOwnerTag { slot_index: usize },
+    #[error("dummy output at slot {slot_index} cannot be framed like a real slot")]
+    DummyOutputFraming { slot_index: usize },
 
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },

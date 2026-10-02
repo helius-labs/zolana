@@ -329,83 +329,97 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
 }
 
 #[test]
-fn present_change_outputs_lead_and_recipients_follow_them() {
+fn recipients_lead_and_present_change_outputs_follow_them() {
     let owner = keypair(41);
     let spl = Mint::new(Address::new_from_array([45; 32]), 9);
     let assets = AssetRegistry::new([(9, spl.asset)]).unwrap();
     let first_nullifier = [1; 32];
     let seed = [2; 32];
     let ring = Address::new_from_array([46; 32]);
-    for spl_present in [false, true] {
-        for sol_present in [false, true] {
-            for has_ring_data in [false, true] {
-                let data = if has_ring_data {
-                    Data::new(vec![DataRecord::RingData(vec![3])])
-                } else {
-                    Data::default()
-                };
-                let mut anonymous = sender();
-                anonymous.spl_amount = if spl_present { 23 } else { 0 };
-                anonymous.sol_amount = if sol_present { 31 } else { 0 };
-                if spl_present {
-                    anonymous.spl_data = data.clone();
-                }
-                if sol_present {
-                    anonymous.sol_data = data.clone();
-                }
-                let mut plain = plaintext();
-                let plain_sender = plain.sender.as_mut().unwrap();
-                plain_sender.spl = spl_present.then_some(TransferPlaintextSplChange {
-                    amount: 23,
-                    asset_id: 9,
-                });
-                plain_sender.sol_amount = sol_present.then_some(31);
-                plain_sender.spl_data = anonymous.spl_data.clone();
-                plain_sender.sol_data = anonymous.sol_data.clone();
-                let mut expected = vec![];
-                let sol_slot = u32::from(spl_present);
-                for (present, amount, mint, slot) in [
-                    (spl_present, 23, spl, 0),
-                    (sol_present, 31, Mint::SOL, sol_slot),
-                ] {
-                    if present {
-                        let mut utxo = wallet_utxo(&owner, mint, amount, 0, 1).utxo;
-                        utxo.blinding =
-                            derive_transact_output_blinding(&first_nullifier, &seed, slot).unwrap();
-                        utxo.ring_program_id = has_ring_data.then_some(ring);
-                        utxo.data = data.clone();
-                        expected.push(utxo);
-                    }
-                }
-                assert_eq!(
-                    anonymous
-                        .into_utxos(&first_nullifier, &assets, Some(ring))
-                        .unwrap(),
-                    expected
-                );
-                let mut receiver = wallet_utxo(&keypair(42), Mint::SOL, 17, 0, 1).utxo;
-                let receiver_slot = u32::from(spl_present) + u32::from(sol_present);
-                receiver.blinding =
-                    derive_transact_output_blinding(&first_nullifier, &seed, receiver_slot)
-                        .unwrap();
-                expected.push(receiver);
-                assert_eq!(
-                    plain
-                        .clone()
-                        .into_utxos(&first_nullifier, &assets, Some(ring))
-                        .unwrap(),
-                    expected
-                );
-                if !spl_present && !sol_present {
-                    plain.sender = None;
-                    assert_eq!(
-                        plain
-                            .into_utxos(&first_nullifier, &assets, Some(ring))
-                            .unwrap(),
-                        expected
-                    );
-                }
+    let cases = [false, true].into_iter().flat_map(|spl_present| {
+        [false, true].into_iter().flat_map(move |sol_present| {
+            [false, true].into_iter().flat_map(move |has_ring_data| {
+                [0usize, 1, 2]
+                    .map(|recipients| (spl_present, sol_present, has_ring_data, recipients))
+            })
+        })
+    });
+    for (spl_present, sol_present, has_ring_data, recipients) in cases {
+        let data = if has_ring_data {
+            Data::new(vec![DataRecord::RingData(vec![3])])
+        } else {
+            Data::default()
+        };
+        // The anonymous bundle counts its recipients through the viewing keys
+        // it carries, the plaintext layout through its recipient slots.
+        let mut anonymous = sender();
+        anonymous.recipient_viewing_pks = vec![keypair(42).viewing_pubkey(); recipients];
+        anonymous.spl_amount = if spl_present { 23 } else { 0 };
+        anonymous.sol_amount = if sol_present { 31 } else { 0 };
+        if spl_present {
+            anonymous.spl_data = data.clone();
+        }
+        if sol_present {
+            anonymous.sol_data = data.clone();
+        }
+        let mut plain = plaintext();
+        let recipient_slot = plain.recipient_slots.remove(0);
+        plain.recipient_slots = vec![recipient_slot; recipients];
+        let plain_sender = plain.sender.as_mut().unwrap();
+        plain_sender.spl = spl_present.then_some(TransferPlaintextSplChange {
+            amount: 23,
+            asset_id: 9,
+        });
+        plain_sender.sol_amount = sol_present.then_some(31);
+        plain_sender.spl_data = anonymous.spl_data.clone();
+        plain_sender.sol_data = anonymous.sol_data.clone();
+
+        let recipient_count = u32::try_from(recipients).unwrap();
+        let sol_slot = recipient_count + u32::from(spl_present);
+        let mut change = vec![];
+        for (present, amount, mint, slot) in [
+            (spl_present, 23, spl, recipient_count),
+            (sol_present, 31, Mint::SOL, sol_slot),
+        ] {
+            if present {
+                let mut utxo = wallet_utxo(&owner, mint, amount, 0, 1).utxo;
+                utxo.blinding =
+                    derive_transact_output_blinding(&first_nullifier, &seed, slot).unwrap();
+                utxo.ring_program_id = has_ring_data.then_some(ring);
+                utxo.data = data.clone();
+                change.push(utxo);
             }
+        }
+        assert_eq!(
+            anonymous
+                .into_utxos(&first_nullifier, &assets, Some(ring))
+                .unwrap(),
+            change
+        );
+        let mut expected: Vec<_> = (0..recipient_count)
+            .map(|slot| {
+                let mut receiver = wallet_utxo(&keypair(42), Mint::SOL, 17, 0, 1).utxo;
+                receiver.blinding =
+                    derive_transact_output_blinding(&first_nullifier, &seed, slot).unwrap();
+                receiver
+            })
+            .collect();
+        expected.extend(change);
+        assert_eq!(
+            plain
+                .clone()
+                .into_utxos(&first_nullifier, &assets, Some(ring))
+                .unwrap(),
+            expected
+        );
+        if !spl_present && !sol_present {
+            plain.sender = None;
+            assert_eq!(
+                plain
+                    .into_utxos(&first_nullifier, &assets, Some(ring))
+                    .unwrap(),
+                expected
+            );
         }
     }
 }

@@ -2107,7 +2107,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         .find(|(_, output)| output.amount == DEPOSITS[0] + DEPOSITS[1] - FIRST_SEND)
         .map(|(slot, output)| (slot, output.clone()))
         .ok_or_else(|| anyhow!("change output"))?;
-    change.blinding = output_blinding(&prepared, u32::try_from(change_slot)?)?;
+    change.blinding = windowed_output_blinding(&prepared, change_slot)?;
     let mut proven = prove(prepared, None)?;
     assert!(
         !proven.approval_required,
@@ -2236,7 +2236,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         .find(|(_, output)| output.amount == change.amount - SECOND_SEND)
         .map(|(slot, output)| (slot, output.clone()))
         .ok_or_else(|| anyhow!("second change output"))?;
-    second_change.blinding = output_blinding(&prepared, u32::try_from(second_change_slot)?)?;
+    second_change.blinding = windowed_output_blinding(&prepared, second_change_slot)?;
     let proven = prove(prepared, Some(cosigner.pubkey()))?;
     let signature = TransactSend {
         payer: sender,
@@ -3557,6 +3557,25 @@ fn output_blinding(prepared: &ConfidentialTransaction, slot: u32) -> Result<[u8;
         prepared.first_nullifier(),
         &seed,
         slot,
+    )?)
+}
+
+/// The blinding a prepared money output takes in a windowed transfer: the
+/// spend record is inserted at output slot 0, so every money output lands one
+/// slot after its place in the prepared transaction.
+fn windowed_output_blinding(prepared: &ConfidentialTransaction, slot: usize) -> Result<[u8; 32]> {
+    prepared
+        .outputs()
+        .get(slot)
+        .ok_or_else(|| anyhow!("output slot {slot}"))?;
+    let seed = zolana_transaction::derive_output_blinding_seed(
+        prepared.first_nullifier(),
+        prepared.blinding_seed(),
+    )?;
+    Ok(zolana_transaction::utxo::derive_transact_output_blinding(
+        prepared.first_nullifier(),
+        &seed,
+        u32::try_from(slot + 1)?,
     )?)
 }
 

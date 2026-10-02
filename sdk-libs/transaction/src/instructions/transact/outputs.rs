@@ -56,7 +56,8 @@ impl ConfidentialTransaction {
     /// 1. Reject repeated padding and validate the shape, input count and public
     ///    transfers.
     /// 2. Require at most three assets and calculate change for each one.
-    /// 3. Append nonzero change in asset first-use order, using the transaction's ring.
+    /// 3. Append nonzero change after the caller's outputs, SPL before SOL,
+    ///    using the transaction's ring.
     /// 4. Check output capacity, append dummy outputs that publish a
     ///    participant's view tag and verify balance. A transaction naming no
     ///    participant keeps a zero-amount SOL change for the sender.
@@ -92,9 +93,14 @@ impl ConfidentialTransaction {
             .map(|asset| Ok((asset, self.change(&asset)?)))
             .collect::<Result<Vec<_>, TransactionError>>()?;
 
-        // 3. Append nonzero change in asset first-use order, using the transaction's ring.
+        // 3. Append nonzero change after the caller's outputs, SPL before SOL
+        // (spec: Output slot mapping), using the transaction's ring.
         let mut outputs = self.outputs.clone();
-        for (asset, amount) in changes.into_iter().filter(|(_, amount)| *amount > 0) {
+        let (sol, spl): (Vec<_>, Vec<_>) = changes
+            .into_iter()
+            .filter(|(_, amount)| *amount > 0)
+            .partition(|(asset, _)| *asset == Mint::SOL);
+        for (asset, amount) in spl.into_iter().chain(sol) {
             outputs.push(SppProofOutputUtxo {
                 owner_address: Some(*sender),
                 asset,

@@ -681,7 +681,14 @@ hash nor the ciphertext reveals whether the sender kept change.
 The `private_tx_hash` output chain skips dummy outputs; their hashes still
 enter the public `output_utxo_hashes` chain.
 
-The confidential default ring reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
+The confidential default ring reveals recipients but dummy utxos also carry
+ciphertexts so that these are indistinguishable from real outputs: a dummy slot's
+`data` is framed like a real slot, the `Encrypted` encoding with the scheme byte
+of the slot's ring binding, a fresh embedded viewing key and a random body of a
+real slot's length (a real slot with the same ring binding, else the first real
+slot, else the canonical empty payload). Its owner tag is a participant's and is
+compacted like a real output's, so a payer-owned dummy publishes `Account(0)`
+exactly as the payer's change does.
 
 `split` pads with owner-bound zero-value outputs, not empty UTXOs.
 
@@ -708,7 +715,7 @@ Schemes:
 AES-CTR reuses a `(key, nonce)` pair if the same viewing key is derived twice (e.g. a failed transaction rebuilt with the same first nullifier). The `salt` prevents this. Key and nonce both derive from the single-use transaction viewing key, a per-transaction 16-byte CSPRNG `salt`, and the slot index.
 
 Per ciphertext slot `i` — the ciphertext ordinal: the number of `data = Some` outputs
-preceding this one (`0` = sender bundle, `1 + j` = recipient `j` in the Transfer
+preceding this one (`j` = recipient `j`, then the sender bundle, in the Transfer
 layout); `messages` continue the numbering after the last output ordinal:
 
 ```
@@ -773,11 +780,15 @@ struct TransferRecipientPlaintext {
 
 #### Sender
 
-The sender change bundle encodes the SPL and SOL change, which lead the
-outputs in that order. An empty change output takes no slot, so the SOL change
-sits at slot `1` after an SPL change and at slot `0` otherwise. The reader
-derives each change slot from the amounts present and uses the bundle's seed
-and `first_nullifier` to derive their [blindings](#output-blinding).
+The sender change bundle encodes the SPL and SOL change, which follow the
+`r` recipient outputs in that order. An empty change output takes no slot, so
+the SPL change sits at slot `r` and the SOL change at slot `r + 1` after an SPL
+change and at slot `r` otherwise. The reader takes `r` from the bundle's
+`recipient_viewing_pks`, one entry per recipient output in slot order, derives
+each change slot from the amounts present and uses the bundle's seed and
+`first_nullifier` to derive their [blindings](#output-blinding). Recipient `j`
+keeps slot `j` whether or not the sender kept change, so its slot index tells
+it nothing about the change.
 
 ```rust
 /// 58 B plaintext for confidential transfers with both `data` fields empty
@@ -795,13 +806,13 @@ struct TransferSenderPlaintext {
     /// Seed both change blindings derive from; see
     /// [Output Blinding](#output-blinding).
     blinding_seed: [u8; 32],
-    /// Records for the SPL change UTXO (slot 0): `ring_data` hashed via
+    /// Records for the SPL change UTXO (slot `r`): `ring_data` hashed via
     /// the ring program's scheme into the `ring_data_hash` slot of
     /// `utxo_hash`, `utxo_data` via the app program's scheme into the
     /// `data_hash` slot. See [UTXO Data](#utxo-data).
     spl_data: Data,
-    /// Records for the SOL change UTXO (slot 1 after an SPL change, else
-    /// slot 0), same scheme as `spl_data`.
+    /// Records for the SOL change UTXO (slot `r + 1` after an SPL change,
+    /// else slot `r`), same scheme as `spl_data`.
     sol_data: Data,
 }
 ```
@@ -848,16 +859,19 @@ struct RecipientSlot {
 #### Output slot mapping
 
 Each output is one [`TransactOutput`](#transact): `utxo_hash`, `owner_tag`, and
-optional `data` ciphertext, in tree-append order (`0..c` the `c ≤ 2` change
-outputs present, SPL before SOL; `c + i` recipient `i`; then dummies).
+optional `data` ciphertext, in tree-append order (`i` recipient `i` for the `r`
+recipients; `r..r + c` the `c ≤ 2` change outputs present, SPL before SOL; then
+dummies). Recipients lead so that a recipient's slot index does not reveal
+whether the sender kept change.
 
 **Coverage convention** (a default-ring serialization rule, not program-enforced): an
 output with `data = Some` covers itself plus the immediately following `data = None`
-positions. The Transfer scheme puts the sender change bundle at `outputs[0].data`
-(covering the change positions present) and each real recipient ciphertext at its own
-position; a dummy position carries `Inline(random tag)` and random bytes of
-recipient-ciphertext length, indistinguishable from a real recipient. The SPP allows
-`outputs[0].data = None`; which positions bear a ciphertext is a wallet concern.
+positions. The Transfer scheme puts each real recipient ciphertext at its own
+position and the sender change bundle at `outputs[r].data` (covering the change
+positions present); a dummy position carries the owner tag of a participant and a
+ciphertext framed like a real slot ([Empty UTXO](#empty-utxo)), indistinguishable
+from a real recipient. The SPP allows `outputs[0].data = None`; which positions bear
+a ciphertext is a wallet concern.
 
 The logged [`GeneralEvent`](#general-event) keeps one entry per output, 1:1 with
 `outputs`; a covered position publishes an empty `data` under the covering output's
@@ -866,7 +880,7 @@ owner tag.
 #### Sizes
 
 `R` = number of recipient slots (real recipients and dummies; a dummy slot holds
-random bytes of the same length), so an encrypted transfer's on-instruction size
+a framed ciphertext of the same length), so an encrypted transfer's on-instruction size
 grows with `R`. The table below gives the size as a function of the slot count `R`.
 
 Total: `111 + 84·R` bytes. Example with a single recipient slot: `R = 1`, total `195`.
@@ -1687,8 +1701,8 @@ struct TransactIxData {
     /// same name in [`utxo_hash`](#utxo-hash).
     data_hash: Option<[u8; 32]>,
     ring_data_hash: Option<[u8; 32]>,
-    /// All `M` outputs in tree-append order (the change outputs present, SPL
-    /// before SOL, then recipients, then dummies). Each `utxo_hash` is
+    /// All `M` outputs in tree-append order (the recipients, then the change
+    /// outputs present, SPL before SOL, then dummies). Each `utxo_hash` is
     /// appended to the UTXO tree and enters the proof's output hash chain;
     /// dummies carry a real-looking hash, so the vector does not reveal the
     /// recipient count. The `data` slots follow the
@@ -2326,7 +2340,9 @@ UTXOs can include a `ring_data` field interpreted by the ring program, hashed in
 
 # ZK Program Interface
 
-A ZK program is a third-party Solana program that runs a custom ZK circuit over user-owned UTXOs that hold `utxo_data` and CPIs SPP to settle the state transition. Circuit logic is program-defined; the protocol requires only that the proof commits to the SPP transaction via `private_tx_hash`. Authorization is the UTXO owner's signature over `private_tx_hash` and `external_data_hash`; non-ring programs use no PDA signer (ring programs keep their `ring_config` signer).
+A ZK program is a third-party Solana program that runs a custom ZK circuit over user-owned UTXOs that hold `utxo_data` and CPIs SPP to settle the state transition. Circuit logic is program-defined; the protocol requires only that the proof binds the spent and created UTXOs via [`private_tx_hash`](#private-transaction-hash). `private_tx_hash` covers no settlement leg, destination account, ciphertext, message or SPP instruction tag; those enter [`external_data_hash`](#external_data_hash), a public input of the SPP proof only.
+
+Authorization depends on the rail that spends each input. An Ed25519 owner signs the Solana transaction, so its signature covers the instruction data. A P256 owner signs `SHA-256(private_tx_hash || external_data_hash)` inside the SPP proof. A program-owned (PDA) input is authorized by the program's own checks alone. A program that authorizes a PDA spend without a user Solana signature MUST either enforce the external-data fields it relies on (legs, messages, ciphertexts, destinations) from the instruction data it forwards to SPP, or bind `external_data_hash` into its own public input; otherwise anyone holding the SPP witness can pair the program's proof with different external data. Non-ring programs use no PDA signer (ring programs keep their `ring_config` signer).
 
 # RPC
 

@@ -21,6 +21,16 @@ const (
 	NVelocityAssets = 8
 )
 
+// A windowed transfer carries its spend record at fixed slots. Input slot 0
+// stays the sender's money input: its nullifier seeds every blinding, and the
+// record's nullifier derives from the public zero key. Output slot 0 is free,
+// so the record leads the outputs and the money outputs follow, with dummies
+// last on both sides as SPP requires.
+const (
+	RecordInputSlot  = 1
+	RecordOutputSlot = 0
+)
+
 // PolicyVersion is committed in policy_hash.
 const PolicyVersion = 7
 
