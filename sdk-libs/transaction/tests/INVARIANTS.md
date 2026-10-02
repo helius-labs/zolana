@@ -191,6 +191,16 @@ Source: [scan and verification](../src/decrypt.rs),
 | INV-TX-SCAN-14 | pre / C | A ring deposit yields a candidate only when a held viewing key opens it and the plaintext blinding reproduces the published owner-UTXO hash; the note carries the published asset, amount, ring, data and ring-data hashes. | [x] `decryption.rs::ring_deposits_open_for_their_owner_and_feed_a_ring_merge`. |
 | INV-TX-SCAN-15 | pre / H | An output whose asset the registry does not know is left out and reported, its decoded asset id in `unknown_asset_ids` or, for a deposit this wallet owns, its mint in `unknown_mints`, on both results; the rest of the batch still decodes. A reported asset id is unverified until the asset is registered and the commitment checks. | [x] `decryption.rs::outputs_in_unregistered_assets_are_reported_without_failing_the_scan`, `decryption.rs::altered_encryption_context_and_ciphertext_cannot_create_spendable_notes`. |
 | INV-TX-SCAN-16 | post / M | `DecryptionResult::extend` decrypts only the transactions it is given, rebuilds their merges and the merges still pending from earlier calls from every candidate held so far, keeps the unresolved ones in `pending_merges`, and leaves the result equal to one `decrypt` over all the transactions. | [x] `decryption.rs::extending_a_result_decrypts_only_the_new_transactions`, `decryption.rs::a_merge_pending_on_a_later_batch_rebuilds_when_its_input_arrives`. |
+| INV-TX-SCAN-17 | post / C | `verify_owned` applies the checks of `verify_spendable` (owner, nullifier key, resolved data hashes, recomputed commitment, one UTXO per commitment, nullifiers derived again) but keeps spent UTXOs, in the order the `DecryptionResult` holds them; `verify_spendable` is its result without the spent ones. | [x] `decryption.rs::owned_utxos_keep_the_spent_ones_and_derive_their_nullifiers_again`. |
+
+## History
+
+Source: [history](../src/history.rs).
+
+| ID | Kind / severity | Invariant | Coverage / required assertions |
+|---|---|---|---|
+| INV-TX-HIST-01 | post / M | `WalletHistory::entries` classifies each transaction per asset from the wallet's UTXOs: with none spent, `Deposit` for a deposit instruction and `Received` otherwise, of the amount received; with at least the spent amount received back, `SelfTransfer` of the amount spent; otherwise `Sent` when an output is not the wallet's and `Withdrawal` when every output is, of the amount spent minus the amount received. | [x] `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
+| INV-TX-HIST-02 | post / M | The events of one Solana transaction count together; there is one entry per transaction and asset with a nonzero amount, none for a transaction that moved none of the wallet's UTXOs, ordered newest slot first, then by signature and mint. | [x] `history.rs::entries_list_newest_first_with_one_entry_per_asset_and_transaction`, `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
 
 ## Key holders and asset registry
 
@@ -321,9 +331,10 @@ regression tests without first deciding the intended contract.
 
 Test files: [construction](construction.rs), [settlement](settlement.rs),
 [commitments](commitments.rs), [merge](merge.rs), [decryption](decryption.rs),
-[formats](formats.rs), [assets](assets.rs), [behavior](behavior.rs), [keys](keys.rs),
-[confidential](confidential.rs), [anonymous](anonymous.rs),
-[proofless](proofless.rs), [hash vectors](hash_vectors.rs), and
+[formats](formats.rs), [history](history.rs), [assets](assets.rs),
+[behavior](behavior.rs), [keys](keys.rs), [confidential](confidential.rs),
+[anonymous](anonymous.rs), [proofless](proofless.rs),
+[hash vectors](hash_vectors.rs), and
 [constant vectors](constants_vectors.rs). The fixed hash vectors are low-level
 evidence; builder behavior is exercised separately through its public API.
 

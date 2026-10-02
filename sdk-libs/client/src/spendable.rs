@@ -1,4 +1,4 @@
-//! A wallet's spendable UTXOs, read from the indexer.
+//! A wallet's spendable UTXOs and its history, read from the indexer.
 //!
 //! Stateless: [`SpendableUtxos::fetch`] reads the transactions tagged for the
 //! wallet and decrypts them, then reads the transactions that spent the UTXOs
@@ -7,6 +7,8 @@
 //! find those. Each round decrypts only the transactions it fetched and queries
 //! only the nullifiers it has not queried, so with a remote key holder a round
 //! costs round trips for what is new, not for everything found so far.
+//! [`SpendableUtxos::fetch_history`] makes the same reads and keeps the
+//! transactions and the spent UTXOs as well.
 
 use std::collections::HashSet;
 
@@ -14,8 +16,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
-    verify_spendable, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
-    SpendableDecryptionResult,
+    verify_owned, verify_spendable, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
+    SpendableDecryptionResult, WalletHistory,
 };
 
 use crate::{
@@ -59,16 +61,39 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         &self,
         indexer: &I,
     ) -> Result<SpendableDecryptionResult, ClientError> {
+        Ok(self.fetch_rounds(indexer)?.spendable)
+    }
+
+    /// The reads of [`fetch`](Self::fetch), keeping every transaction read and
+    /// every UTXO the wallet owns among them, spent or not.
+    /// [`WalletHistory::entries`] classifies them. Verifying the owned UTXOs
+    /// costs the key holder one more nullifier request than `fetch`.
+    pub fn fetch_history<I: Rpc + ?Sized>(
+        &self,
+        indexer: &I,
+    ) -> Result<WalletHistory, ClientError> {
+        let fetched = self.fetch_rounds(indexer)?;
+        Ok(WalletHistory {
+            utxos: verify_owned(self.keys, &fetched.decrypted)?,
+            transactions: fetched.transactions,
+            unknown_asset_ids: fetched.decrypted.unknown_asset_ids,
+            unknown_mints: fetched.decrypted.unknown_mints,
+        })
+    }
+
+    fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
 
         let mut seen = HashSet::new();
         let mut batch = self.unseen(&mut seen, tagged_transactions(indexer, &tags)?)?;
+        let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
         loop {
             decrypted.extend(self.keys, &batch, self.assets)?;
+            transactions.append(&mut batch);
             let spendable = verify_spendable(self.keys, &decrypted)?;
             // The spends of a UTXO queried in an earlier round are fetched.
             let nullifiers: Vec<_> = spendable
@@ -78,7 +103,11 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
                 .collect();
             batch = self.unseen(&mut seen, spending_transactions(indexer, &nullifiers)?)?;
             if batch.is_empty() {
-                return Ok(spendable);
+                return Ok(Fetched {
+                    transactions,
+                    decrypted,
+                    spendable,
+                });
             }
         }
     }
@@ -116,6 +145,13 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         }
         Ok(tx)
     }
+}
+
+/// What the rounds of one fetch read and decrypted.
+struct Fetched {
+    transactions: Vec<ShieldedTransaction>,
+    decrypted: DecryptionResult,
+    spendable: SpendableDecryptionResult,
 }
 
 /// The transactions tagged with any of `tags`. Deposits come from the
