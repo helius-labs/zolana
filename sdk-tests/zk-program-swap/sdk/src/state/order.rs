@@ -223,6 +223,7 @@ impl OrderUtxo {
             tree_id,
             leaf_index,
             cache_slot: None,
+            compact: false,
         })
     }
 

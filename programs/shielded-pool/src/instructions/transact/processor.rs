@@ -32,7 +32,9 @@ use super::{
 use crate::instructions::{
     event::emit_event,
     settlement::Settlement,
-    shared::{check_field_element, check_field_elements, check_not_expired},
+    shared::{
+        check_field_element, check_field_elements, check_nonzero_field_elements, check_not_expired,
+    },
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -154,10 +156,12 @@ pub fn hash_external_data<'a>(
 
 /// Checks:
 /// 1. Circuit is allowed for the instruction type
-/// 2. Circuit parameters (in, out) match instruction data
+/// 2. Instruction data carries at least one input and at most the circuit's
+///    (in, out) slots; the missing suffix is compact padding.
 /// 3. Circuit variant exists with in out public params is supported.
 /// 4. Nullifiers, output utxo hashes, and the private tx hash are canonical
-///    field elements.
+///    field elements, and nullifiers and output utxo hashes are nonzero: zero
+///    marks compact padding, which the instruction never carries.
 /// 5. A cached selector reads a subset of the declared inputs, writes no slot
 ///    or one slot per output, and does at least one of the two.
 pub fn validate_circuit_type(
@@ -177,8 +181,9 @@ pub fn validate_circuit_type(
     if !circuit_matches {
         return Err(ShieldedPoolError::MismatchedCircuitType.into());
     }
-    if usize::from(ix.circuit.num_inputs()) != ix.inputs.len() // 2.
-        || usize::from(ix.circuit.num_outputs()) != ix.outputs.len() //2.
+    if ix.inputs.is_empty() // 2.
+        || usize::from(ix.circuit.num_inputs()) < ix.inputs.len() // 2.
+        || usize::from(ix.circuit.num_outputs()) < ix.outputs.len() // 2.
         || usize::from(ix.circuit.num_public_asset_slots()) > N_PUBLIC_SLOTS
         || !ix.circuit.is_supported()
     // 3.
@@ -194,6 +199,14 @@ pub fn validate_circuit_type(
         ix.outputs.iter().map(|output| output.utxo_hash),
         "output utxo hash",
         ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    )?;
+    check_nonzero_field_elements(
+        ix.inputs.iter().map(|input| &input.nullifier_hash),
+        ShieldedPoolError::ZeroInputNullifier,
+    )?;
+    check_nonzero_field_elements(
+        ix.outputs.iter().map(|output| output.utxo_hash),
+        ShieldedPoolError::ZeroOutputUtxoHash,
     )?;
     check_field_element(
         ix.private_tx_hash,

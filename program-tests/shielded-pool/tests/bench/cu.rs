@@ -12,14 +12,18 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Prover, ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
+use zolana_client::{ProverClient, ProverExt, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::state::cache::empty_cached_input_fields;
 use zolana_interface::{
-    instruction::{instruction_data::transact::InterfaceTransfer, TransactIxData},
+    instruction::{
+        instruction_data::transact::{CircuitId, InterfaceTransfer},
+        TransactIxData,
+    },
     state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
-    NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
@@ -46,7 +50,7 @@ use zolana_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
         build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
-        derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
+        compact_input, derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
         external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
         output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_sol_field,
         real_output, set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots,
@@ -198,7 +202,8 @@ fn bench_cu_deposit() {
              (including the 1x8 split shape and the 36x2 consolidation shape), the 36x2 \
              consolidation shape on both `ring_transact` rails (EdDSA, and P256 whose BSB22 \
              commitment adds a Pedersen proof-of-knowledge pairing to verification), both \
-             supported `merge_transact` shapes, and SOL/SPL withdrawals. This target is a pure \
+             supported `merge_transact` shapes, compact padding on the 2x3 and 36x2 transact \
+             shapes and both merge shapes, and SOL/SPL withdrawals. This target is a pure \
              benchmark: no \
              CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
              ceiling that never runs would be unfalsifiable. Regression ceilings live in the \
@@ -238,7 +243,18 @@ fn bench_cu_deposit() {
         (1, 8),
         (36, 2),
     ] {
-        bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, &mut bench);
+        bench_transfer_shape(
+            &mollusk,
+            &program_id,
+            n_inputs,
+            n_outputs,
+            false,
+            &mut bench,
+        );
+    }
+    // The same spend with compact padding: one input and one output sent.
+    for (n_inputs, n_outputs) in [(2, 3), (36, 2)] {
+        bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, true, &mut bench);
     }
     for rail in [RingRail::Eddsa, RingRail::P256] {
         bench_ring_transfer_shape(
@@ -250,7 +266,19 @@ fn bench_cu_deposit() {
         );
     }
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
-        bench_merge_shape(&mut mollusk, &program_id, input_count, &mut bench);
+        bench_merge_shape(&mut mollusk, &program_id, input_count, 1, false, &mut bench);
+    }
+    // Compact merges send only the real inputs, and their count picks the
+    // width: the fewest that select each circuit.
+    for (input_count, real_input_count) in [(8, 1), (36, 9)] {
+        bench_merge_shape(
+            &mut mollusk,
+            &program_id,
+            input_count,
+            real_input_count,
+            true,
+            &mut bench,
+        );
     }
     // Cached spends at two supported shapes, both also measured uncached above
     // so the cache's cost shows up as a direct difference: the widest
@@ -533,12 +561,14 @@ fn bench_deposit_spl(
 // verification, public-input hashing, and tree application. PR164 constrains
 // dummies (AssertDummyTags): every dummy tag must name a transaction
 // participant, so output 0 is a real zero-amount output owned by the payer and
-// every dummy slot carries the payer's tag.
+// every dummy slot carries the payer's tag. With `compact`, every slot after
+// the first is compact padding, which the instruction leaves out.
 fn bench_transfer_shape(
     mollusk: &Mollusk,
     program_id: &Pubkey,
     n_inputs: usize,
     n_outputs: usize,
+    compact: bool,
     bench: &mut CuBenchmark,
 ) {
     let (pt, _authority, tree, tree_id) = bench_setup();
@@ -552,9 +582,19 @@ fn bench_transfer_shape(
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
     let owner_hash = solana_owner_identity(&payer_bytes).expect("owner identity");
+    let (sent_inputs, sent_outputs) = if compact {
+        (1, 1)
+    } else {
+        (n_inputs, n_outputs)
+    };
     let mut inputs = Vec::with_capacity(n_inputs);
     let mut nullifiers = Vec::with_capacity(n_inputs);
     for index in 0..n_inputs {
+        if index >= sent_inputs {
+            inputs.push(compact_input(&nf_tree, tree_id).expect("compact input"));
+            nullifiers.push(zero);
+            continue;
+        }
         let (input, nullifier) =
             dummy_input(&[index as u8 + 31; 31], &nf_tree, tree_id).expect("dummy input");
         inputs.push(input);
@@ -570,26 +610,37 @@ fn bench_transfer_shape(
         let (output, _) = dummy_transfer_output(&[index as u8; 31], tree_id).expect("dummy output");
         outputs.push(output);
     }
-    let output_hashes = derive_test_transfer_output_blindings(
+    let mut output_hashes = derive_test_transfer_output_blindings(
         nullifiers.first().expect("transfer shape has an input"),
         &mut outputs,
     )
     .expect("derive output blindings");
+    for (output, hash) in outputs
+        .iter_mut()
+        .zip(output_hashes.iter_mut())
+        .skip(sent_outputs)
+    {
+        output.hash = BigUint::ZERO;
+        *hash = zero;
+    }
 
     // Real outputs tag by owner; dummy slots reuse the payer's tag (both rules
-    // on `set_output_owner_tags`).
+    // on `set_output_owner_tags`). `inline_outputs` stops at the sent outputs.
     let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
     let mut view_tags = vec![owner_view_tag];
-    view_tags.extend(std::iter::repeat_n(payer_bytes, n_outputs - 1));
+    view_tags.extend(std::iter::repeat_n(payer_bytes, sent_outputs - 1));
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
+            .take(sent_inputs)
             .map(|nullifier| input_utxo(*nullifier))
             .collect(),
         0,
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
     );
+    transact_ix_data.circuit =
+        CircuitId::ConfidentialEddsa(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     let mut nullifier_pks = vec![nullifier_pk];
@@ -671,7 +722,11 @@ fn bench_transfer_shape(
     mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
-    let name = format!("transfer eddsa {n_inputs}x{n_outputs}");
+    let name = if compact {
+        format!("transfer eddsa {n_inputs}x{n_outputs} compact")
+    } else {
+        format!("transfer eddsa {n_inputs}x{n_outputs}")
+    };
     assert!(!entries.is_empty(), "no profiling entries for '{name}'");
     bench.add_from_entries(&name, entries);
 }
@@ -695,6 +750,7 @@ fn bench_cached_transfer_shape(
         n_outputs,
         cache_nonce: 7,
         cached_slots,
+        compact: false,
     }
     .build(&mut pt, tree, tree_id);
 
@@ -753,17 +809,23 @@ fn bench_merge_shape(
     mollusk: &mut Mollusk,
     program_id: &Pubkey,
     input_count: usize,
+    real_input_count: usize,
+    compact: bool,
     bench: &mut CuBenchmark,
 ) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let mut pool = Pool::initialized();
     spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
-    let merge = RealMergeProof {
+    let proof = RealMergeProof {
         input_count,
-        real_input_count: 1,
-    }
-    .build(&mut pool);
+        real_input_count,
+    };
+    let merge = if compact {
+        proof.build_compact(&mut pool)
+    } else {
+        proof.build(&mut pool)
+    };
     let ix = merge.instruction(&pool);
     mollusk.warp_to_slot(pool.rpc.svm.get_sysvar::<Clock>().slot);
     let accounts = nullifier_spend_accounts(
@@ -778,7 +840,11 @@ fn bench_merge_shape(
     mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
-    let name = format!("merge {input_count}x1");
+    let name = if compact {
+        format!("merge {input_count}x1 compact {real_input_count} sent")
+    } else {
+        format!("merge {input_count}x1")
+    };
     assert!(!entries.is_empty(), "no profiling entries for '{name}'");
     bench.add_from_entries(&name, entries);
 }

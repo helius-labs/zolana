@@ -79,6 +79,17 @@ pub(crate) fn check_field_elements<'a>(
     Ok(())
 }
 
+/// Zero marks compact padding, which the instruction never carries.
+pub(crate) fn check_nonzero_field_elements<'a>(
+    values: impl IntoIterator<Item = &'a [u8; 32]>,
+    error: ShieldedPoolError,
+) -> ProgramResult {
+    if values.into_iter().any(|value| *value == [0u8; 32]) {
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 #[cold]
 fn print_non_canonical(field: &str, index: Option<usize>, location: &Location<'_>) {
     match index {

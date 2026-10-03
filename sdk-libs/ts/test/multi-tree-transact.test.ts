@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalKeys, ZolanaClient } from "../src/client/index.js";
 
 import { inputFlags } from "../src/client/internal.js";
-import { assemble } from "../src/client/prover/assembly.js";
+import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -247,6 +247,82 @@ describe("a transact spending from two trees", () => {
     expect(() => assemble(fixture.proofInputs, fixture.spendProofs, [strayRoot])).toThrow(
       expect.objectContaining({ code: "CLIENT_NULLIFIER_ROOT_MISMATCH" }),
     );
+  });
+});
+
+describe("compact padding in a two-tree spend", () => {
+  function withCompact(fixture: ReturnType<typeof twoTreeFixture>, treeId: number): SppProofInputs {
+    const [first, second] = fixture.proofInputs.inputUtxos;
+    if (first === undefined || second === undefined) expect.unreachable();
+    return new SppProofInputs({
+      payer: fixture.proofInputs.payer,
+      inputUtxos: [first, second, ProofInputUtxo.compact(treeId)],
+      outputs: fixture.proofInputs.outputs,
+      externalData: fixture.proofInputs.externalData,
+      blindingSeed: fixture.proofInputs.blindingSeed,
+      outputTreeId: fixture.proofInputs.outputTreeId,
+    });
+  }
+
+  // SPP packs tree index 0 for the slots it never receives, so a compact slot
+  // names the first tree and proves non-inclusion against that tree's root.
+  it("takes tree slot 0 and a non-inclusion proof from the first tree", () => {
+    const fixture = twoTreeFixture();
+    const proofInputs = withCompact(fixture, TREE_0.treeId);
+    const compact = proofInputs.inputUtxos[2];
+    if (compact === undefined) expect.unreachable();
+
+    const assembled = assemble(proofInputs, fixture.spendProofs, [
+      nonInclusionProof(compact.nullifier(), TREE_0),
+    ]);
+    expect(assembled.proverInputs.payload.inputs.map((input) => input.treeSlot)).toEqual([
+      0n,
+      1n,
+      0n,
+    ]);
+    expect(assembled.proverInputs.payload.inputs[2]?.nullifier).toBe(0n);
+    expect(assembled.nullifiers[2]).toEqual(new Uint8Array(32));
+    expect(assembled.proverInputs.payload.inputFlags).toBe(inputFlags(true, [0, 1, 0]));
+    expect(assembled.instructionData.inputs.map((input) => input.treeIndex)).toEqual([0, 1]);
+    expect(proofInputs.inputTreeIds()).toEqual([TREE_0.treeId, TREE_1.treeId]);
+
+    const prepared = prepareTransfer(proofInputs);
+    expect(prepared.inputs.payload.inputs.map((input) => input.treeSlot)).toEqual([0n, 1n, 0n]);
+    expect(prepared.inputs.payload.inputFlags).toBe(inputFlags(true, [0, 1, 0]));
+    expect(prepared.inputs.lookups.map((lookup) => lookup.nullifier)).toEqual([
+      null,
+      null,
+      compact.nullifier(),
+    ]);
+  });
+
+  it("refuses a compact slot proven against another tree's root", () => {
+    const fixture = twoTreeFixture();
+    const proofInputs = withCompact(fixture, TREE_0.treeId);
+    const compact = proofInputs.inputUtxos[2];
+    if (compact === undefined) expect.unreachable();
+
+    expect(() =>
+      assemble(proofInputs, fixture.spendProofs, [nonInclusionProof(compact.nullifier(), TREE_1)]),
+    ).toThrow(
+      expect.objectContaining({ code: "CLIENT_NULLIFIER_ROOT_MISMATCH", details: { index: 2 } }),
+    );
+  });
+
+  it.each([TREE_1.treeId, 5])("refuses compact padding naming tree %i, not the first", (treeId) => {
+    const fixture = twoTreeFixture();
+    const proofInputs = withCompact(fixture, treeId);
+    const compact = proofInputs.inputUtxos[2];
+    if (compact === undefined) expect.unreachable();
+    const unresolved = expect.objectContaining({
+      code: "CLIENT_INPUT_TREE_UNRESOLVED",
+      details: { index: 2 },
+    });
+
+    expect(() =>
+      assemble(proofInputs, fixture.spendProofs, [nonInclusionProof(compact.nullifier(), TREE_1)]),
+    ).toThrow(unresolved);
+    expect(() => prepareTransfer(proofInputs)).toThrow(unresolved);
   });
 });
 

@@ -28,7 +28,7 @@ type mergeInputContext struct {
 //
 // 2. Dummy
 // - all UTXO fields and nullifier secret are zero
-// - nullifier is derived deterministically
+// - nullifier is derived deterministically; compact padding publishes 0
 //
 // tree is the slot the input's private TreeSlot selected.
 func constrainInput(
@@ -37,10 +37,12 @@ func constrainInput(
 	ctx mergeInputContext,
 	tree transaction.TreeSlot,
 	slotIndex int,
+	isCompact frontend.Variable,
 ) (frontend.Variable, frontend.Variable) {
 	isDummy := api.IsZero(api.Sub(in.Domain, DummyDomain))
 	isUtxo := api.IsZero(api.Sub(in.Domain, UtxoDomain))
 	api.AssertIsEqual(api.Add(isUtxo, isDummy), 1)
+	transaction.AssertWhen(api, isCompact, isDummy)
 	notDummy := isUtxo
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
 
@@ -100,7 +102,7 @@ func constrainInput(
 		Hi:  in.NullifierNextValue,
 	})
 
-	return api.Select(isDummy, frontend.Variable(0), utxoHash), nullifier
+	return api.Select(isDummy, frontend.Variable(0), utxoHash), api.Select(isCompact, frontend.Variable(0), nullifier)
 }
 
 // assertEqualWhen constrains a == b only when cond == 1.

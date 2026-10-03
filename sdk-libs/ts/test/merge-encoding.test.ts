@@ -54,7 +54,7 @@ describe("shared merge encoding", () => {
     ).toBe(vector.cached.external_data_hash);
   });
 
-  it("matches the Rust wide-merge encoding and refuses other widths", () => {
+  it("matches the Rust wide-merge encoding and refuses empty and oversized lists", () => {
     expect(MAX_MERGE_INPUTS).toBe(vector.wide.input_count);
     const nullifiers = (count: number) => Array.from({ length: count }, (_, index) => field(index));
     const wide = encodeMergeTransactInstructionData({
@@ -62,9 +62,14 @@ describe("shared merge encoding", () => {
       nullifiers: nullifiers(vector.wide.input_count),
     });
     expect(hex(sha256(wide))).toBe(vector.wide.instruction_sha256);
+    for (const count of [0, MAX_MERGE_INPUTS + 1]) {
+      expect(() =>
+        encodeMergeTransactInstructionData({ ...data, nullifiers: nullifiers(count) }),
+      ).toThrow("INTERFACE_INVALID_LENGTH");
+    }
     expect(() =>
       encodeMergeTransactInstructionData({ ...data, nullifiers: nullifiers(9) }),
-    ).toThrow("INTERFACE_INVALID_LENGTH");
+    ).not.toThrow();
   });
 
   it("matches the Rust plain-merge encoding and external hash", () => {

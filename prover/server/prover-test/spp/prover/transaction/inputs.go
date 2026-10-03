@@ -42,6 +42,7 @@ func buildInputWitnesses(
 	state stateWitnesses,
 	nullifierTree *protocol.NullifierTree,
 	trees proofTrees,
+	compactPadding bool,
 ) (inputWitnesses, error) {
 	inputTreeID := trees.inputTreeID
 	inputs := inputWitnesses{
@@ -107,9 +108,15 @@ func buildInputWitnesses(
 	}
 
 	for i := len(requests); i < shape.NInputs; i++ {
-		blinding, err := randomBlinding()
-		if err != nil {
-			return inputWitnesses{}, fmt.Errorf("dummy input %d blinding: %w", i, err)
+		// Compact padding is a zero-blinding dummy that publishes nullifier 0.
+		// Slot 0 stays a random dummy: its nullifier seeds the output blindings.
+		compact := compactPadding && i > 0
+		blinding := big.NewInt(0)
+		if !compact {
+			var err error
+			if blinding, err = randomBlinding(); err != nil {
+				return inputWitnesses{}, fmt.Errorf("dummy input %d blinding: %w", i, err)
+			}
 		}
 		utxo := dummyUtxo(blinding)
 		utxoHash, err := protocol.UtxoHash(utxo, inputTreeID)
@@ -136,6 +143,9 @@ func buildInputWitnesses(
 		inputs.inputs[i] = witness
 		inputs.hashes[i] = big.NewInt(0)
 		inputs.nullifiers[i] = nullifier
+		if compact {
+			inputs.nullifiers[i] = big.NewInt(0)
+		}
 		inputs.inputOwnerPkHashes[i] = big.NewInt(0)
 	}
 	return inputs, nil

@@ -227,6 +227,7 @@ fn real_input(
         tree_id,
         leaf_index: 0,
         cache_slot: None,
+        compact: false,
     }
 }
 

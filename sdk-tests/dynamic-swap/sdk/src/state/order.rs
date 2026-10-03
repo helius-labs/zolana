@@ -126,6 +126,7 @@ impl EscrowUtxo {
             tree_id,
             leaf_index,
             cache_slot: None,
+            compact: false,
         })
     }
 }
@@ -198,6 +199,7 @@ impl Reservation {
             tree_id,
             leaf_index,
             cache_slot: None,
+            compact: false,
         })
     }
 }

@@ -29,6 +29,8 @@ type Input struct {
 // selected.
 type PublicInputUtxoInputs struct {
 	Nullifier frontend.Variable
+	// IsCompact is 1 when Nullifier is 0 (see CompactSlots).
+	IsCompact frontend.Variable
 	SignerPk  frontend.Variable
 	Tree      TreeSlot
 	// SkipInclusion is nil for circuits that always require state-tree
@@ -69,11 +71,14 @@ func inputUtxos(inputs []Input) []UtxoCircuitFields {
 }
 
 // AssertDistinctNullifiers asserts pairwise inequality so no input slot is
-// spent twice within one proof.
-func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
+// spent twice within one proof. Compact padding slots all publish 0, so a pair
+// of zeros is exempt; a zero never equals a nonzero nullifier. isCompact[i]
+// must be IsZero(nullifiers[i]) (CompactSlots).
+func AssertDistinctNullifiers(api frontend.API, nullifiers, isCompact []frontend.Variable) {
 	for i := range nullifiers {
 		for j := i + 1; j < len(nullifiers); j++ {
-			api.AssertIsDifferent(nullifiers[i], nullifiers[j])
+			bothZero := api.Mul(isCompact[i], isCompact[j])
+			api.AssertIsDifferent(api.Add(api.Sub(nullifiers[i], nullifiers[j]), bothZero), 0)
 		}
 	}
 }
@@ -89,6 +94,11 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// unbalanceable, since no spendable utxo can carry asset 0.
 	// Tokenless data utxos use SOL as asset.
 	assertZeroWhen(api, isUtxo, api.IsZero(in.Utxo.Asset))
+
+	// A zero public nullifier marks compact padding: the slot must be a dummy,
+	// and SPP neither receives nor inserts its nullifier.
+	isCompact := signals.IsCompact
+	AssertWhen(api, isCompact, in.isDummy(api))
 
 	// Checks for UTXO, dummy UTXO, adddress:
 	// 1. nullifier must not exist in nullifier tree.
@@ -206,8 +216,13 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	// 1. Derived nullifier equals public nullifier.
-	api.AssertIsEqual(nullifier, signals.Nullifier)
+	// 1. Derived nullifier equals public nullifier, unless compact padding
+	// publishes 0 for it.
+	abstractor.CallVoid(api, gadgetlib.AssertEqualWhen{
+		Cond: api.Sub(1, signals.IsCompact),
+		A:    nullifier,
+		B:    signals.Nullifier,
+	})
 
 	// 2. indexed leaf H(in.NullifierLowValue, in.NullifierNextValue) exists in nullifier tree.
 	lowLeafHash := gadgetlib.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
@@ -220,7 +235,7 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 	})
 	api.AssertIsEqual(nfRoot, signals.Tree.NullifierRoot)
 	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
-	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
+	assertStrictlyOrdered(api, in.NullifierLowValue, nullifier, in.NullifierNextValue)
 }
 
 type nullifierPkGadget struct {

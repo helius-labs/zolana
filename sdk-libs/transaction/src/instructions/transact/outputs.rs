@@ -2,7 +2,7 @@ use solana_address::Address;
 use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_keypair::{shielded::ShieldedAddress, Curve};
 
-use super::{pad_input_utxos, ConfidentialTransaction};
+use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
     instructions::transact::shape::{Shape, SPP_SUPPORTED_SHAPES},
@@ -125,10 +125,18 @@ impl ConfidentialTransaction {
         }
         outputs.resize(
             shape.n_outputs(),
-            SppProofOutputUtxo {
-                ring_program_id: self.ring_program_id,
-                owner_tag: Some(dummy_owner_tag),
-                ..Default::default()
+            if self.compact_padding {
+                SppProofOutputUtxo {
+                    ring_program_id: self.ring_program_id,
+                    compact: true,
+                    ..Default::default()
+                }
+            } else {
+                SppProofOutputUtxo {
+                    ring_program_id: self.ring_program_id,
+                    owner_tag: Some(dummy_owner_tag),
+                    ..Default::default()
+                }
             },
         );
         for asset in self.assets(&outputs)? {
@@ -148,7 +156,7 @@ impl ConfidentialTransaction {
 
         // 5. Convert wallet inputs, append dummy inputs and commit both vectors.
         let mut inputs = self.inputs.iter().map(SppProofInputUtxo::from).collect();
-        pad_input_utxos(&mut inputs, shape)?;
+        pad_inputs(&mut inputs, shape, self.compact_padding)?;
         self.outputs = outputs;
         self.padded_inputs = Some(inputs);
         Ok(self)

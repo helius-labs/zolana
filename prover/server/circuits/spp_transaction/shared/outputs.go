@@ -2,6 +2,9 @@ package shared
 
 import (
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
+
+	gadgetlib "zolana/prover/circuits/gadget"
 )
 
 // Returns array of all owner pubkeys of input UTXOs that signed.
@@ -22,7 +25,10 @@ func OutputOwners(outputs []UtxoCircuitFields) []frontend.Variable {
 }
 
 // ConstrainOutput validates and hash-binds one transaction output.
-func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned, treeID frontend.Variable) frontend.Variable {
+//
+// isCompact must be IsZero(hash) (CompactSlots), or 0 for an output that is
+// always real.
+func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, isCompact, ownerSigned, treeID frontend.Variable) frontend.Variable {
 	isUtxo := utxo.isUtxo(api)
 	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
@@ -36,8 +42,11 @@ func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned
 	dataIsSet := api.Sub(1, api.IsZero(utxo.DataHash))
 	AssertWhen(api, api.Mul(isUtxo, dataIsSet), ownerSigned)
 
+	// 3. A zero public hash marks compact padding: the slot must be a dummy,
+	// and SPP neither receives nor appends it.
+	AssertWhen(api, isCompact, utxo.isDummy(api))
 	utxoHash := UtxoHashCircuit(api, utxo, treeID)
-	api.AssertIsEqual(utxoHash, hash)
+	abstractor.CallVoid(api, gadgetlib.AssertEqualWhen{Cond: api.Sub(1, isCompact), A: utxoHash, B: hash})
 
 	return api.Select(isUtxo, utxoHash, frontend.Variable(0))
 }

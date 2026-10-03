@@ -12,6 +12,7 @@
 //! | [`hash_chain`] | Sequential hash chaining |
 //! | [`primitives`] | Fixed-length byte packing and Poseidon commitments |
 //! | [`zero_bytes`] | Precomputed zero-leaf hashes per hasher |
+//! | [`zero_suffix_hash_chain`] | Right fold that seeds past a zero suffix |
 
 #![allow(unexpected_cfgs)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -35,6 +36,7 @@ pub mod primitives;
 pub mod sha256;
 pub mod syscalls;
 pub mod zero_bytes;
+pub mod zero_suffix_hash_chain;
 
 pub use keccak::Keccak;
 pub use poseidon::Poseidon;

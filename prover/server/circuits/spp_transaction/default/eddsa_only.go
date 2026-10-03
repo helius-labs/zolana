@@ -94,6 +94,7 @@ func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		Shape:             c.Shape,
 		Nullifiers:        c.Public.Nullifiers,
 		OutputHashes:      c.Public.OutputHashes,
+		OutputIsCompact:   shared.CompactSlots(api, c.Public.OutputHashes),
 		TreeSlots:         c.Public.TreeSlots,
 		OutputTreeID:      c.Public.OutputTreeID,
 		Inputs:            c.Private.Inputs,
@@ -108,7 +109,7 @@ func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain4(api, c.Public.OutputOwnerPkHashes),
+			gadget.RightHashChain4(api, c.Public.OutputOwnerPkHashes),
 		},
 	}
 }
@@ -129,7 +130,7 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	// 1. Input owners are private and each must be in the public signer vector.
 	// 2. Output UTXOs pubkeys are part of public input.
 	// 3. Every dummy tag names an owner signer other than the payer or a real
-	//    output owner.
+	//    output owner, except compact padding, whose tag is 0.
 
 	// 1.
 	authorized := shared.Signers(c.Public.SignerPkHashes)
@@ -156,6 +157,7 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 		api,
 		tx.Inputs,
 		tx.Outputs,
+		tx.OutputIsCompact,
 		nil,
 		c.Public.OutputOwnerPkHashes,
 		authorized.WithoutPayer(),

@@ -18,6 +18,9 @@ pub struct SppProofInputUtxo {
     pub nullifier_pubkey: [u8; 32],
     /// Commitment under [`Self::tree_id`].
     pub utxo_hash: [u8; 32],
+    /// The nullifier the circuit derives for this slot and proves absent from
+    /// the nullifier tree. Compact padding keeps its derived value here and
+    /// publishes 0 instead; see [`Self::published_nullifier`].
     pub nullifier: [u8; 32],
     pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: Option<[u8; 32]>,
@@ -32,6 +35,10 @@ pub struct SppProofInputUtxo {
     /// Position of the commitment in its tree. Unused for dummy inputs.
     pub leaf_index: u64,
     pub cache_slot: Option<u8>,
+    /// Compact padding: a dummy the instruction leaves out. It publishes
+    /// nullifier 0, and SPP creates nothing for it, while the circuit still
+    /// proves its derived nullifier absent from the tree.
+    pub compact: bool,
 }
 
 impl SppProofInputUtxo {
@@ -62,7 +69,19 @@ impl SppProofInputUtxo {
             tree_id,
             leaf_index: 0,
             cache_slot: None,
+            compact: false,
         })
+    }
+
+    /// Create compact padding in the given tree: a dummy over blinding 0 that
+    /// publishes nullifier 0, so the instruction leaves it out and SPP creates
+    /// nothing for it. The circuit still checks non-inclusion of its derived
+    /// [`nullifier`](Self::nullifier), so it needs a non-inclusion witness like
+    /// any dummy. It cannot fill input slot 0.
+    pub fn compact(tree_id: u16) -> Result<Self, TransactionError> {
+        let mut input = Self::dummy_with_blinding([0u8; 32], tree_id)?;
+        input.compact = true;
+        Ok(input)
     }
 
     pub fn with_cache_slot(mut self, slot: u8) -> Result<Self, TransactionError> {
@@ -80,11 +99,25 @@ impl SppProofInputUtxo {
         self.utxo.owner.is_zero()
     }
 
+    pub fn is_compact(&self) -> bool {
+        self.compact
+    }
+
     pub fn hash(&self) -> [u8; 32] {
         self.utxo_hash
     }
 
     pub fn nullifier(&self) -> [u8; 32] {
         self.nullifier
+    }
+
+    /// The nullifier the instruction and the public input carry for this slot:
+    /// 0 for compact padding, the derived nullifier otherwise.
+    pub fn published_nullifier(&self) -> [u8; 32] {
+        if self.compact {
+            [0u8; 32]
+        } else {
+            self.nullifier
+        }
     }
 }

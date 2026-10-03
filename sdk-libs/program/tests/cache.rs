@@ -6,10 +6,7 @@ use zolana_interface::{
         instruction_data::merge_transact::MergeProof, tag, CreateCacheData, MergeTransactIxData,
     },
     pda,
-    state::cache::{
-        cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY, CACHE_SEED,
-        ZERO_SUFFIX_CHAINS,
-    },
+    state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY, CACHE_SEED},
     MAX_TRANSACT_INPUTS, PROGRAM_ID_PUBKEY,
 };
 use zolana_program::instruction::{
@@ -161,20 +158,6 @@ fn cache_write_binding_commits_to_destination_writes_and_external_data() {
     }
 }
 
-/// Regenerates `ZERO_SUFFIX_CHAINS` in `state/cache.rs`. Only needed if
-/// `MAX_TRANSACT_INPUTS` grows; run with `--ignored --nocapture` and paste.
-#[test]
-#[ignore = "prints the zero-suffix table for state/cache.rs"]
-fn print_zero_suffix_chains() {
-    let zero = [0u8; 32];
-    for groups in 0..=(MAX_TRANSACT_INPUTS - 1).div_ceil(3) {
-        let suffix = vec![zero; 1 + 3 * groups];
-        let value = create_right_hash_chain_4_from_slice(&suffix).unwrap();
-        let bytes: Vec<String> = value.iter().map(|byte| format!("0x{byte:02x}")).collect();
-        println!("    [{}],", bytes.join(", "));
-    }
-}
-
 #[test]
 fn the_empty_selection_matches_the_general_one_for_every_input_count() {
     let empty = [[0u8; 32]; MAX_TRANSACT_INPUTS];
@@ -198,26 +181,6 @@ fn the_empty_selection_matches_the_general_one_for_every_input_count() {
             );
         }
     }
-}
-
-/// The table is the fold over zeros, recomputed here from the primitive rather
-/// than from the table itself, so a transcription slip cannot pass.
-#[test]
-fn the_zero_suffix_table_is_the_fold_over_zeros() {
-    let zero = [0u8; 32];
-    for (groups, entry) in ZERO_SUFFIX_CHAINS.iter().enumerate() {
-        let suffix = vec![zero; 1 + 3 * groups];
-        assert_eq!(
-            *entry,
-            create_right_hash_chain_4_from_slice(&suffix).unwrap(),
-            "Z({groups})"
-        );
-    }
-    assert_eq!(
-        ZERO_SUFFIX_CHAINS.len(),
-        (MAX_TRANSACT_INPUTS - 1).div_ceil(3) + 1,
-        "the table must reach the widest shape's group count"
-    );
 }
 
 fn slot_hash(slot: usize) -> [u8; 32] {

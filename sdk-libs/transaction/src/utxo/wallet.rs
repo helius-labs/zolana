@@ -50,6 +50,7 @@ impl From<&WalletUtxo> for SppProofInputUtxo {
             tree_id: spendable.tree_id,
             leaf_index: spendable.leaf_index,
             cache_slot: None,
+            compact: false,
         }
     }
 }
@@ -68,6 +69,7 @@ impl From<WalletUtxo> for SppProofInputUtxo {
             tree_id: spendable.tree_id,
             leaf_index: spendable.leaf_index,
             cache_slot: None,
+            compact: false,
         }
     }
 }

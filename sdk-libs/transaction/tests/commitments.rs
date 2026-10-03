@@ -37,6 +37,7 @@ fn output() -> SppProofOutputUtxo {
         owner_tag: Some([8; 32]),
         data: Data::default(),
         cache_slot: None,
+        compact: false,
     }
 }
 fn as_utxo(output: &SppProofOutputUtxo) -> Utxo {

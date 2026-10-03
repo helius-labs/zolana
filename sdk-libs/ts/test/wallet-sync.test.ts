@@ -689,10 +689,19 @@ describe("wallet sync", () => {
     expect(store.save).toHaveBeenCalledTimes(1);
   });
 
-  it.each([8, 36])("reconstructs a ciphertext-free %i-input merge", async (width) => {
+  // A compact merge publishes only its sent nullifiers; the count still picks
+  // the circuit, so sync reconstructs it like a padded one.
+  it.each([
+    { kind: "8-input", real: 2, width: 8, compact: false },
+    { kind: "36-input", real: 2, width: 36, compact: false },
+    { kind: "compact 8-input", real: 2, width: 8, compact: true },
+    { kind: "compact 36-input", real: 9, width: 36, compact: true },
+  ])("reconstructs a ciphertext-free $kind merge", async ({ real, width, compact }) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const inputUtxos = [20n, 22n].map((amount, index) => {
+    const amounts = Array.from({ length: real }, (_, index) => BigInt(20 + 2 * index));
+    const total = amounts.reduce((sum, amount) => sum + amount, 0n);
+    const inputUtxos = amounts.map((amount, index) => {
       const blinding = bytes(index + 3);
       const utxo = new Utxo({
         owner: keypair.signingPublicKey(),
@@ -712,14 +721,16 @@ describe("wallet sync", () => {
     const firstNullifier = inputUtxos[0]!.nullifier;
     const nullifiers = [
       ...inputUtxos.map((entry) => entry.nullifier),
-      ...Array.from({ length: width - 2 }, (_, offset) =>
-        mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 2),
-      ),
+      ...(compact
+        ? []
+        : Array.from({ length: width - real }, (_, offset) =>
+            mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + real),
+          )),
     ];
     const merged = new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
-      amount: 42n,
+      amount: total,
       blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
     });
 
@@ -735,7 +746,7 @@ describe("wallet sync", () => {
               outputContext: {
                 hash: merged.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
                 tree: TREE,
-                leafIndex: 2n,
+                leafIndex: BigInt(real),
               },
               payload: new Uint8Array(),
             },
@@ -748,7 +759,7 @@ describe("wallet sync", () => {
     });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+    expect(wallet.balance(SOL_MINT).amount).toBe(total);
   });
 
   it("reconstructs a merge whose inputs arrive in the same batch", async () => {

@@ -448,6 +448,42 @@ fn transact_spends_cached_commitments_without_mutating_the_cache() {
         .expect_err("a cached spend cannot be replayed");
 }
 
+/// A cached spend with compact padding sends only its cached inputs and its
+/// one real output. SPP rebuilds the cached-input chain over the whole circuit
+/// width, not over the sent inputs, so the proof still verifies.
+#[test]
+fn a_compact_cached_spend_sends_only_the_cached_slots() {
+    let mut pool = proof_env();
+    let tree = pool.tree;
+    let tree_id = pool.tree_id;
+
+    let spend = CachedSpendFixture {
+        n_inputs: 5,
+        n_outputs: 4,
+        cache_nonce: 13,
+        cached_slots: 2,
+        compact: true,
+    }
+    .build(&mut pool.rpc, tree, tree_id);
+    let data = TransactIxData::deserialize(spend.instruction.data.get(1..).expect("body"))
+        .expect("decode the cached transact");
+    assert_eq!((data.inputs.len(), data.outputs.len()), (2, 1));
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
+
+    pool.rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            std::slice::from_ref(&spend.instruction),
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .expect("spend the cached commitments with compact padding");
+    assert_eq!(
+        tree_progress(&pool.rpc, &tree),
+        (utxo_next_before + 1, nullifier_next_before + 2),
+        "one output appended and one nullifier queued per cached input"
+    );
+}
+
 /// Each way a cached spend can be malformed, checked against one proven
 /// instruction. A refused spend leaves the cache unchanged.
 #[test]

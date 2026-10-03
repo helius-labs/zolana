@@ -1,4 +1,4 @@
-import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
+import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -950,7 +950,8 @@ class SyncPass {
       return false;
     }
 
-    if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(tx.nullifiers.length)) {
+    // A merge publishes its sent nullifiers; compact padding is left out.
+    if (mergePaddedInputCount(tx.nullifiers.length) === undefined) {
       this.undecryptableCandidates++;
       return true;
     }

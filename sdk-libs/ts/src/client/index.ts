@@ -17,6 +17,7 @@ export type {
   IndexedPolicyClient,
   IndexedPolicyInputs,
   IndexedPolicyLookup,
+  IndexedProofLookup,
   IndexedRegistry,
   IndexedDepositInputs,
   IndexedDepositClient,

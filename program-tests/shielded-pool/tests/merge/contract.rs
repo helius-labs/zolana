@@ -38,7 +38,9 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     }
 }
 
-const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 4] = [7, 9, 35, 37];
+// Every count from 1 to 36 selects the narrowest merge circuit that holds it;
+// the missing slots are compact padding.
+const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 2] = [0, 37];
 
 fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
     let mut data = merge_ix_data(true);
@@ -143,6 +145,27 @@ fn merge_rejects_a_wrong_input_count_shape() {
             .err()
             .unwrap_or_else(|| panic!("a {input_count}-input merge must be rejected"));
         Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+    }
+}
+
+/// Compact padding is left out of the instruction and filled back in as zeros
+/// at the end, so a sent nullifier of 0 is rejected wherever it sits, before
+/// the proof is checked.
+#[test]
+fn merge_rejects_a_sent_zero_nullifier() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+
+    for slot in [0, 3, MERGE_DEFAULT_INPUT_COUNT - 1] {
+        let mut data = merge_ix_data(true);
+        *data.nullifiers.get_mut(slot).expect("nullifier slot") = [0u8; 32];
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .err()
+            .unwrap_or_else(|| panic!("a zero nullifier in slot {slot} must be rejected"));
+        Rejection::pool(ShieldedPoolError::ZeroInputNullifier).assert_litesvm(error);
     }
 }
 

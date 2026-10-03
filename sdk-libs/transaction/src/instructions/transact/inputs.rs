@@ -8,15 +8,24 @@ use crate::{
     utxo::SppProofInputUtxo,
 };
 
+/// Pad inputs to the shape with random dummies without moving existing slots.
+pub fn pad_input_utxos(
+    input_utxos: &mut Vec<SppProofInputUtxo>,
+    shape: Shape,
+) -> Result<(), TransactionError> {
+    pad_inputs(input_utxos, shape, false)
+}
+
 /// Pad inputs to the shape without moving existing slots.
 ///
 /// Steps:
 /// 1. Reject an input count above the shape's capacity.
-/// 2. Collect the declared tree IDs and select the last tree for padding.
-/// 3. Append dummies until the input count matches the shape.
-pub fn pad_input_utxos(
+/// 2. Collect the declared tree IDs and select the padding tree.
+/// 3. Append padding until the input count matches the shape.
+pub(super) fn pad_inputs(
     input_utxos: &mut Vec<SppProofInputUtxo>,
     shape: Shape,
+    compact: bool,
 ) -> Result<(), TransactionError> {
     // 1. Reject an input count above the shape's capacity.
     if input_utxos.len() > shape.n_inputs() {
@@ -25,14 +34,23 @@ pub fn pad_input_utxos(
             max: shape.n_inputs(),
         });
     }
-    // 2. Select the last declared tree. Dummy commitments and nullifiers must
-    //    use the same tree ID that the prover uses for those slots.
-    let padding_tree_id = *input_tree_ids(input_utxos)?
-        .last()
-        .ok_or(TransactionError::NoInputs)?;
-    // 3. Append dummies without moving existing slots.
+    // 2. Select the padding tree. Random dummy commitments and nullifiers use
+    //    the last declared tree, as the prover does for those slots. Compact
+    //    padding takes the first tree: SPP reads its omitted tree index as 0.
+    let tree_ids = input_tree_ids(input_utxos)?;
+    let padding_tree_id = *if compact {
+        tree_ids.first()
+    } else {
+        tree_ids.last()
+    }
+    .ok_or(TransactionError::NoInputs)?;
+    // 3. Append padding without moving existing slots.
     while input_utxos.len() < shape.n_inputs() {
-        input_utxos.push(SppProofInputUtxo::dummy(padding_tree_id)?);
+        input_utxos.push(if compact {
+            SppProofInputUtxo::compact(padding_tree_id)?
+        } else {
+            SppProofInputUtxo::dummy(padding_tree_id)?
+        });
     }
     Ok(())
 }
@@ -117,6 +135,9 @@ impl SppProofInputs {
         Ok(hashes)
     }
 
+    /// The nullifiers to fetch non-inclusion witnesses for besides the real
+    /// spends: every dummy, compact padding included, and every cached input.
+    /// Compact padding publishes 0 but proves its derived nullifier absent.
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()

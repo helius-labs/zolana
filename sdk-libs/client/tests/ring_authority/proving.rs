@@ -202,6 +202,7 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
         owner_tag: None,
         data: Data::default(),
         cache_slot: None,
+        compact: false,
     }
 }
 

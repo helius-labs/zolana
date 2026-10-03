@@ -11,7 +11,8 @@ import (
 
 // Properties:
 // 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
-// 2. Dummy public inputs are indistinguishable from UTXO public inputs.
+// 2. Nonzero dummy nullifiers are indistinguishable from UTXO nullifiers;
+// compact padding publishes 0.
 // 3. No owner signature is enforced; cache insertion requires its write authority to sign.
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.

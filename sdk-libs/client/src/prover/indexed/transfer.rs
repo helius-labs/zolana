@@ -72,7 +72,7 @@ impl IndexedTransferPreparation {
             if let Some(index) = transaction
                 .input_utxos
                 .iter()
-                .position(|input| input.is_dummy())
+                .position(|input| input.is_dummy() && !input.is_compact())
             {
                 return Err(ClientError::NonSpendInputNotAllowed { index });
             }
@@ -131,6 +131,8 @@ impl IndexedTransferPreparation {
         for input in &transaction.input_utxos {
             // Inputs from different trees may interleave; a dummy joins the
             // tree it names, which a real input must already have opened.
+            // Compact padding names the first tree, since SPP never receives
+            // it and packs tree index 0 for it.
             let position = match trees.iter().position(|tree| tree.id == input.tree_id) {
                 Some(position) => position,
                 None => {
@@ -150,10 +152,15 @@ impl IndexedTransferPreparation {
                     trees.len() - 1
                 }
             };
+            if input.is_compact() && position != 0 {
+                return Err(ClientError::InputTreeUnresolved {
+                    tree_id: input.tree_id,
+                });
+            }
             let tree_slot = u8::try_from(position).map_err(|_| ClientError::NoInputs)?;
             let utxo = ProofInputUtxo::try_from(input)?;
             let hash = utxo.hash()?;
-            let nullifier = input.nullifier;
+            let nullifier = input.published_nullifier();
             if hash != input.utxo_hash {
                 return Err(
                     zolana_transaction::TransactionError::InputCommitmentMismatch {
@@ -187,6 +194,7 @@ impl IndexedTransferPreparation {
             lookups.push(IndexedLookup {
                 tree_slot,
                 commitment: (!input.is_dummy() && input.cache_slot.is_none()).then_some(hash),
+                nullifier: input.is_compact().then_some(input.nullifier),
             });
             indexes.push(tree_slot);
             input_hashes.push(if input.is_dummy() { [0; 32] } else { hash });

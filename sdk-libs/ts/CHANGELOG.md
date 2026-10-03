@@ -4,11 +4,12 @@
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
-available. Merges take up to 36 notes in one transaction, and wallet sync
-recovers the output of such a merge. Registration never replaces an owner's
-published keys, and replacing them is its own transaction. The private
-transaction hash ignores padding and no longer covers the external data, which
-P-256 owners now sign alongside it.
+available. Merges take up to 36 notes in one transaction, wallet sync
+recovers the output of such a merge, and transfers and merges can leave their
+unused slots out of the transaction at the cost of revealing the real counts.
+Registration never replaces an owner's published keys, and replacing them is
+its own transaction. The private transaction hash ignores padding and no longer
+covers the external data, which P-256 owners now sign alongside it.
 
 Breaking
 
@@ -67,6 +68,15 @@ Breaking
   `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` and `TRANSACTION_UNUSED_WRITE_CACHE`,
   which `SppProofInputs.messageHash()` throws for a cache write the program
   would reject → handle them in exhaustive switches.
+- `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
+  `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
+  and `TRANSACTION_RING_MERGE_COMPACT_PADDING`, which `Merge` throws for
+  compact padding on a ring merge, and `ShieldedPoolError` gains
+  `ZeroInputNullifier` and `ZeroOutputUtxoHash` → handle them in exhaustive
+  switches.
+- `ProofOutputUtxo` requires `isCompact()`, which the outputs
+  `createProofOutput` returns provide → add it to custom `ProofOutputUtxo`
+  implementations, returning `true` only for compact padding.
 - `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
   proving keys, so `ProverClient` rejects a proof from a prover on the previous
   keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
@@ -103,6 +113,26 @@ Added
 - `buildKeyUpdateTransaction(input)` replaces the viewing key published for an
   owner, returns `undefined` when the record already holds the address, and
   rejects a missing record and a changed nullifier key.
+- `ConfidentialTransfer.compact` and the `compact` options of `Merge`,
+  `Merge.fromKeypair` and `buildMergeTransaction` pad unused slots with compact
+  padding, which the transaction leaves out and which costs no nullifier
+  account, queue entry or tree leaf but reveals the real input and output
+  counts, while each compact slot still takes a non-inclusion proof for the
+  nullifier it derives, and `Merge` takes one `dummyNullifiers` entry per
+  padded slot, compact padding included.
+- `ProofInputUtxo.compact` creates one compact padding input, which names the
+  first input tree, carries its derived nullifier in `nullifier()` and 0 in the
+  new `ProofInputUtxo.publishedNullifier()`, `ProofOutputInit.compact` makes
+  `createProofOutput` return a compact padding output,
+  `ProofInputUtxo.isCompact()`, `ProofOutputUtxo.isCompact()` and
+  `ProofOutputUtxo.compact` tell compact padding from a random dummy, and
+  `PreparedTransfer.compactPadding` is `true` for a transfer that
+  `ConfidentialTransfer.compact` prepared.
+- `IndexedProofLookup` names an `IndexedProofInputs` lookup entry, whose
+  `nullifier` carries the derived nullifier of a compact slot for the prover to
+  fetch and is `null` for every other slot.
+- Wallet sync recovers the output of a compact merge, which publishes only the
+  nullifiers it sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
   proof above eight, and `buildRingMergeTransaction` and
@@ -112,6 +142,8 @@ Changed
 
 - UTXO selection for transfers, withdrawals, merges and splits skips
   zero-amount UTXOs.
+- `getMergeTransactInstructionAsync` accepts from one to `MAX_MERGE_INPUTS`
+  nullifiers, the counts a compact merge sends, where it took only 8 or 36.
 
 Fixed
 

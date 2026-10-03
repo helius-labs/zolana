@@ -748,6 +748,49 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     ).toBe(false);
   }, 1_200_000);
 
+  it("merges three UTXOs with compact padding and recovers the output", async () => {
+    const owner = await actor(harness.client, 102);
+    await fund(harness.client, owner);
+    await register(harness.client, owner);
+    await deposit({
+      client: harness.client,
+      feePayer: owner.signer,
+      recipient: owner.keypair.shieldedAddress(),
+      amount: 80_000_000n,
+    });
+    await sync(harness.client, owner);
+    await split({
+      client: harness.client,
+      wallet: owner.wallet,
+      keys: owner.keys,
+      feePayer: owner.signer,
+      parts: 8,
+    });
+    await sync(harness.client, owner, { pageLimit: 1 });
+    expect(unspent(owner)).toHaveLength(8);
+    await setMergingEnabled({ client: harness.client, owner: owner.signer, enabled: true });
+
+    // Three sent nullifiers select the 8-input circuit; the five compact
+    // slots never reach the instruction.
+    const merged = unspent(owner).slice(0, 3);
+    const mergeTransaction = await buildMergeTransaction({
+      client: harness.client,
+      wallet: owner.wallet,
+      keys: owner.keys,
+      feePayer: owner.signer.address,
+      inputs: merged.map((entry) => entry.outputContext.hash),
+      compact: true,
+    });
+    await signSendAndConfirm(harness.client, mergeTransaction, [owner.signer]);
+    await sync(harness.client, owner, { pageLimit: 1 });
+    expect(
+      unspent(owner)
+        .map((entry) => entry.utxo.amount)
+        .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+    ).toEqual([10_000_000n, 10_000_000n, 10_000_000n, 10_000_000n, 10_000_000n, 30_000_000n]);
+    assertHistory(owner, { kind: "merge", direction: "selfTransfer", amount: 30_000_000n });
+  }, 1_200_000);
+
   it("keeps wallet spend state unchanged across build and signing failures", async () => {
     const owner = await actor(harness.client, 111);
     const recipient = await actor(harness.client, 112);

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -162,6 +163,151 @@ func TestResolveFetchesParallelProofsAndBindsDummyRoot(t *testing.T) {
 	}
 	if common.FeHex(value.PublicInputHash) != resolved.Resolution.PublicInputHash {
 		t.Fatal("response hash differs from the proved input")
+	}
+}
+
+// Compact padding publishes nullifier 0 but proves non-inclusion of its derived
+// dummy nullifier, which the lookup carries: the resolver fetches that witness
+// and fills the slot with it while the published value stays 0.
+func TestResolveFetchesCompactPaddingByLookupNullifier(t *testing.T) {
+	request, state, nullifier := fixture(t)
+	var prepared transfer.TransferParametersJSON
+	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Inputs[1].Nullifier = "0x0"
+	request.Prepared = encoded(t, prepared)
+	derived, err := hashField(big.NewInt(200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Inputs[1].Nullifier = &derived
+	var fetched []Hash
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Method string      `json:"method"`
+			Params proofParams `json:"params"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		var result any = state
+		if body.Method == "getNonInclusionProofs" {
+			fetched = body.Params.Leaves
+			result = nullifier
+		}
+		data, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": body.Method, "result": result})
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	resolved, err := resolver.Resolve(ctx, encoded(t, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fetched) != 2 || fetched[1] != derived {
+		t.Fatalf("fetched %v, want the compact slot's derived nullifier %v", fetched, derived)
+	}
+	var value transfer.TransferParameters
+	if err := json.Unmarshal(resolved.Payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	compact := value.Inputs[1]
+	if compact.Nullifier.Sign() != 0 {
+		t.Fatalf("published nullifier %v, want 0", compact.Nullifier)
+	}
+	if compact.NullifierLowValue.Sign() != 0 || compact.NullifierNextValue.Cmp(big.NewInt(1000)) != 0 || len(compact.NullifierLowPathElements) != 40 {
+		t.Fatal("compact padding witness is not the fetched exclusion range")
+	}
+}
+
+// A compact slot is the only input that carries a lookup nullifier, and it
+// must carry one.
+func TestResolveRejectsCompactPaddingLookupMismatch(t *testing.T) {
+	request, _, _ := fixture(t)
+	var prepared transfer.TransferParametersJSON
+	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	derived, err := hashField(big.NewInt(200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, corrupt := range map[string]func(){
+		"compact without lookup": func() { prepared.Inputs[1].Nullifier = "0x0" },
+		"lookup without compact": func() { request.Inputs[1].Nullifier = &derived },
+	} {
+		t.Run(name, func(t *testing.T) {
+			request, prepared := request, prepared
+			corrupt()
+			request.Prepared = encoded(t, prepared)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_, err := resolver.Resolve(ctx, encoded(t, request))
+			if err == nil || !strings.Contains(err.Error(), "input lookup mismatch") {
+				t.Fatalf("got %v, want input lookup mismatch", err)
+			}
+			prepared.Inputs[1].Nullifier = "0xc8"
+			request.Inputs[1].Nullifier = nil
+		})
+	}
+}
+
+// Only a dummy that publishes nullifier 0 is compact padding. A real input
+// that claims 0 is still fetched, and no exclusion range can hold below 0, so
+// even an indexer that answers for leaf 0 cannot make the resolver accept it.
+func TestResolveRejectsRealInputWithZeroNullifier(t *testing.T) {
+	request, state, nullifier := fixture(t)
+	var prepared transfer.TransferParametersJSON
+	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Inputs[0].Nullifier = "0x0"
+	request.Prepared = encoded(t, prepared)
+	nullifier.Proofs[0].Leaf = Hash{}
+	var fetched []Hash
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Method string      `json:"method"`
+			Params proofParams `json:"params"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		var result any = state
+		if body.Method == "getNonInclusionProofs" {
+			fetched = body.Params.Leaves
+			result = nullifier
+		}
+		data, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": body.Method, "result": result})
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = resolver.Resolve(ctx, encoded(t, request))
+	if err == nil || !strings.Contains(err.Error(), "invalid nullifier exclusion range") {
+		t.Fatalf("got %v, want the exclusion range to reject nullifier 0", err)
+	}
+	if len(fetched) != 2 || fetched[0] != (Hash{}) {
+		t.Fatalf("fetched %v, want the real input's zero nullifier requested, not skipped", fetched)
 	}
 }
 

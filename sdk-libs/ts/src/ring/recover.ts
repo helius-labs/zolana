@@ -2,7 +2,7 @@ import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
-import { MERGE_SUPPORTED_INPUT_COUNTS } from "../interface/constants.js";
+import { mergePaddedInputCount } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import { readRingDepositCapsule } from "./deposit-capsule.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../keypair/merge/index.js";
@@ -396,7 +396,7 @@ async function recoverMerge(
   if (
     firstNullifier === undefined ||
     slot === undefined ||
-    !MERGE_SUPPORTED_INPUT_COUNTS.includes(transaction.nullifiers.length) ||
+    mergePaddedInputCount(transaction.nullifiers.length) === undefined ||
     slot.payload.length !== 32
   )
     return undefined;

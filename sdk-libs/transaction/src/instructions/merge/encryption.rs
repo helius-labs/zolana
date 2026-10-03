@@ -83,6 +83,7 @@ impl MergeTransaction {
             output_tree_id,
             ring_program_id,
             output_ring_data_hash,
+            compact_padding,
         } = self;
         validate_merge_owner(sender, &inputs)?;
         let mut output_utxo =
@@ -132,6 +133,7 @@ impl MergeTransaction {
             &mut input_utxos,
             validated_inputs.padded_input_count,
             dummy_nullifiers,
+            compact_padding,
         )?;
         Ok(MergeProofInputs {
             input_utxos,

@@ -18,8 +18,12 @@ use serde_json::Value;
 use shielded_pool_program::testing::{
     amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
 };
+use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{
+        create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
+        create_right_hash_chain_from_slice,
+    },
     primitives::hash_bytes,
 };
 use zolana_interface::{
@@ -136,8 +140,8 @@ struct GoAssembly<'a> {
 impl GoAssembly<'_> {
     fn hash(&self) -> [u8; 32] {
         let mut fields = vec![
-            create_hash_chain_4_from_slice(self.nullifiers).expect("nullifier chain"),
-            create_hash_chain_4_from_slice(self.output_hashes).expect("output chain"),
+            create_right_hash_chain_4_from_slice(self.nullifiers).expect("nullifier chain"),
+            create_right_hash_chain_4_from_slice(self.output_hashes).expect("output chain"),
             tree_slots_hash_chain(self.tree_slots).expect("tree slot chain"),
             self.output_tree_id,
             self.private_tx_hash,
@@ -158,7 +162,8 @@ impl GoAssembly<'_> {
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             fields.push(
-                create_hash_chain_4_from_slice(output_owner_pk_hashes).expect("output owner chain"),
+                create_right_hash_chain_4_from_slice(output_owner_pk_hashes)
+                    .expect("output owner chain"),
             );
             fields.extend_from_slice(
                 &self
@@ -175,34 +180,43 @@ impl GoAssembly<'_> {
 /// the confidential rail: `Confidential: true`, `RingAuthority: false`).
 #[test]
 pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
-    let vector = vector("public_input_hash_vector.json");
-    let nullifiers = fe_list(&vector, "nullifiers");
-    let output_hashes = fe_list(&vector, "output_utxo_hashes");
-    let slots = tree_slots(&vector);
-    let public_slot_assets = fe_list(&vector, "public_assets");
-    let public_slot_amounts = fe_list(&vector, "public_amounts");
-    let signer_pk_hashes = fe_list(&vector, "signer_pk_hashes");
-    let output_owner_pk_hashes = fe_list(&vector, "output_owner_pk_hashes");
+    // The compact vector publishes zeros for the compact padding slots.
+    for name in [
+        "public_input_hash_vector.json",
+        "public_input_hash_compact_vector.json",
+    ] {
+        check_public_input_hash_vector(&vector(name));
+    }
+}
+
+fn check_public_input_hash_vector(vector: &Value) {
+    let nullifiers = fe_list(vector, "nullifiers");
+    let output_hashes = fe_list(vector, "output_utxo_hashes");
+    let slots = tree_slots(vector);
+    let public_slot_assets = fe_list(vector, "public_assets");
+    let public_slot_amounts = fe_list(vector, "public_amounts");
+    let signer_pk_hashes = fe_list(vector, "signer_pk_hashes");
+    let output_owner_pk_hashes = fe_list(vector, "output_owner_pk_hashes");
     let assembled = GoAssembly {
         nullifiers: &nullifiers,
         output_hashes: &output_hashes,
         tree_slots: &slots,
-        output_tree_id: fe_at(&vector, "output_tree_id"),
-        private_tx_hash: fe_at(&vector, "private_tx_hash"),
-        external_data_hash: fe_at(&vector, "external_data_hash"),
+        output_tree_id: fe_at(vector, "output_tree_id"),
+        private_tx_hash: fe_at(vector, "private_tx_hash"),
+        external_data_hash: fe_at(vector, "external_data_hash"),
         public_slot_assets: &public_slot_assets,
         public_slot_amounts: &public_slot_amounts,
-        ring_program_id: fe_at(&vector, "ring_program_id"),
+        ring_program_id: fe_at(vector, "ring_program_id"),
         signer_pk_hashes: &signer_pk_hashes,
-        input_flags: fe_at(&vector, "input_flags"),
+        input_flags: fe_at(vector, "input_flags"),
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
         cached_inputs: Some([
-            fe_at(&vector, "cache_tree_id"),
-            fe_at(&vector, "cache_read_hash_chain"),
+            fe_at(vector, "cache_tree_id"),
+            fe_at(vector, "cache_read_hash_chain"),
         ]),
     }
     .hash();
-    assert_eq!(assembled, fe_at(&vector, "public_input_hash"));
+    assert_eq!(assembled, fe_at(vector, "public_input_hash"));
 }
 
 fn small_fe(tag: u8) -> [u8; 32] {
@@ -354,6 +368,84 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
     }
 }
 
+/// With compact padding the instruction sends only the leading slots. The
+/// program's assembly must equal the Go ordering over the full circuit width,
+/// with zeros for the slots it never receives, including the owners SPP
+/// leaves zero for unsent outputs.
+#[test]
+fn compact_program_assembly_matches_the_go_ordering() {
+    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let mut owned = ix_data(circuit);
+    owned.inputs.truncate(1);
+    owned.outputs.truncate(1);
+    let bytes = owned.serialize().expect("serialize transact ix");
+    let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
+    let mut derived = derived_inputs(2);
+    for owner in derived
+        .output_owner_pk_hashes
+        .iter_mut()
+        .skip(owned.outputs.len())
+    {
+        *owner = [0u8; 32];
+    }
+    let proof = TransactProof::new(&ix, &derived);
+
+    let mut nullifiers: Vec<[u8; 32]> = owned
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    nullifiers.resize(usize::from(circuit.num_inputs()), [0u8; 32]);
+    let mut output_hashes: Vec<[u8; 32]> = owned
+        .outputs
+        .iter()
+        .map(|output| output.utxo_hash)
+        .collect();
+    output_hashes.resize(usize::from(circuit.num_outputs()), [0u8; 32]);
+    let slot_amount_fields: Vec<[u8; 32]> = derived
+        .public_slot_amounts
+        .iter()
+        .map(|amount| amount_field(*amount).expect("slot amount field"))
+        .collect();
+    let mut signer_run: Vec<[u8; 32]> = derived
+        .signer_pk_hashes
+        .get(..2)
+        .expect("unique signers")
+        .to_vec();
+    signer_run.resize(3, [0u8; 32]);
+    let mut slots = [TreeSlot::ZERO; INPUT_TREES];
+    for (slot, populated) in slots.iter_mut().zip(derived.tree_slots.iter()) {
+        *slot = *populated;
+    }
+    let clone = GoAssembly {
+        nullifiers: &nullifiers,
+        output_hashes: &output_hashes,
+        tree_slots: &slots,
+        output_tree_id: derived.output_tree_id,
+        private_tx_hash: owned.private_tx_hash,
+        external_data_hash: derived.external_data_hash,
+        public_slot_assets: derived
+            .public_slot_assets
+            .get(..N_PUBLIC_SLOTS)
+            .expect("slot assets"),
+        public_slot_amounts: &slot_amount_fields,
+        ring_program_id: derived.ring_program_id,
+        signer_pk_hashes: &signer_run,
+        input_flags: derived.input_flags,
+        output_owner_pk_hashes: Some(
+            derived
+                .output_owner_pk_hashes
+                .get(..usize::from(circuit.num_outputs()))
+                .expect("output owners"),
+        ),
+        cached_inputs: Some(
+            empty_cached_input_fields(usize::from(circuit.num_inputs()))
+                .expect("empty cache selection"),
+        ),
+    };
+    assert_eq!(proof.public_input_hash().expect("assembly"), clone.hash());
+}
+
 /// The field-derivation vector pins `solana_pk_hash`, the signed public
 /// movement encoding (`amount_field` over the aggregated `i128` net), and
 /// the interface-transfer → public-slot aggregation (deposits positive,
@@ -473,6 +565,40 @@ fn field_derivation_vector_pins_the_shared_encodings() {
                 *want,
                 "{name} slot {index}"
             );
+        }
+    }
+}
+
+/// SPP seeds the right fold from a table for the trailing zero groups instead
+/// of hashing them. That must equal the plain fold over the whole width, for
+/// every width a transact or merge chain has and every sent count, including
+/// sent values that are themselves zero.
+#[test]
+fn padded_right_fold_matches_the_full_width_fold() {
+    let value = |index: usize| {
+        let mut bytes = [0u8; 32];
+        if let Some(last) = bytes.last_mut() {
+            *last = u8::try_from(index + 1).expect("small index");
+        }
+        bytes
+    };
+    for width in (1..=8).chain([36]) {
+        for sent_count in 0..=width {
+            for zero_last_sent in [false, true] {
+                let mut sent: Vec<[u8; 32]> = (0..sent_count).map(value).collect();
+                if zero_last_sent {
+                    if let Some(last) = sent.last_mut() {
+                        *last = [0u8; 32];
+                    }
+                }
+                let mut full = sent.clone();
+                full.resize(width, [0u8; 32]);
+                assert_eq!(
+                    create_padded_right_hash_chain_4(&sent, width).expect("padded fold"),
+                    create_right_hash_chain_4_from_slice(&full).expect("full fold"),
+                    "width {width}, {sent_count} sent, last sent zero: {zero_last_sent}"
+                );
+            }
         }
     }
 }

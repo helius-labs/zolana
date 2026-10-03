@@ -6,6 +6,7 @@
 //! else is unchanged, so a cached spend still proves ownership and nullifier
 //! non-inclusion.
 
+use num_bigint::BigUint;
 use solana_clock::Clock;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -31,7 +32,7 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
-        build_transfer_prover_inputs, cache_read_selection, cached_spend_input,
+        build_transfer_prover_inputs, cache_read_selection, cached_spend_input, compact_input,
         derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
         external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
         output_owner_pk_hashes, pack_transact_proof, real_output, set_output_owner_tags,
@@ -64,6 +65,9 @@ pub struct CachedSpendFixture {
     /// zero tail, which is the case the right fold seeds past instead of
     /// hashing, so it is what makes the saving measurable.
     pub cached_slots: usize,
+    /// Pad the uncached input slots and every output after the first with
+    /// compact padding, which the instruction leaves out.
+    pub compact: bool,
 }
 
 impl CachedSpendFixture {
@@ -75,6 +79,7 @@ impl CachedSpendFixture {
             n_outputs,
             cache_nonce,
             cached_slots: n_inputs,
+            compact: false,
         }
     }
 }
@@ -126,6 +131,9 @@ impl CachedSpendFixture {
                 *commitment = spend.commitment;
                 nullifiers.push(spend.nullifier);
                 inputs.push(spend.input);
+            } else if self.compact {
+                inputs.push(compact_input(&nf_tree, tree_id).expect("compact input"));
+                nullifiers.push(zero);
             } else {
                 let (input, nullifier) =
                     dummy_input(&[index as u8 + 41; 31], &nf_tree, tree_id).expect("dummy input");
@@ -151,14 +159,33 @@ impl CachedSpendFixture {
             outputs.push(output);
         }
         let first_nullifier = *nullifiers.first().expect("a cached spend has an input");
-        let output_hashes = derive_test_transfer_output_blindings(&first_nullifier, &mut outputs)
-            .expect("derive output blindings");
+        let mut output_hashes =
+            derive_test_transfer_output_blindings(&first_nullifier, &mut outputs)
+                .expect("derive output blindings");
+        let (sent_inputs, sent_outputs) = if self.compact {
+            (self.cached_slots, 1)
+        } else {
+            (self.n_inputs, self.n_outputs)
+        };
+        for (output, hash) in outputs
+            .iter_mut()
+            .zip(output_hashes.iter_mut())
+            .skip(sent_outputs)
+        {
+            output.hash = BigUint::ZERO;
+            *hash = zero;
+        }
 
+        // `inline_outputs` stops at the sent outputs.
         let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
         let mut view_tags = vec![owner_view_tag];
-        view_tags.extend(std::iter::repeat_n(payer_bytes, self.n_outputs - 1));
+        view_tags.extend(std::iter::repeat_n(payer_bytes, sent_outputs - 1));
         let mut ix_data = new_transact_ix_data(
-            nullifiers.iter().map(|n| input_utxo(*n)).collect(),
+            nullifiers
+                .iter()
+                .take(sent_inputs)
+                .map(|n| input_utxo(*n))
+                .collect(),
             NO_UTXO_ROOT,
             Vec::new(),
             inline_outputs(&output_hashes, &view_tags),

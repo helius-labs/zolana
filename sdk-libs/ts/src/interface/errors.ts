@@ -86,6 +86,8 @@ export const ShieldedPoolError = Object.freeze({
   CacheExpiryNotInFuture: 7075,
   CacheWriteAuthorityMismatch: 7076,
   CacheRentRecipientMismatch: 7077,
+  ZeroInputNullifier: 7078,
+  ZeroOutputUtxoHash: 7079,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

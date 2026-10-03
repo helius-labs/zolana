@@ -27,7 +27,8 @@ use crate::instructions::{
     event::emit_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{
-        bool_field, check_field_element, check_field_elements, check_not_expired, tree_error,
+        bool_field, check_field_element, check_field_elements, check_nonzero_field_elements,
+        check_not_expired, tree_error,
     },
 };
 
@@ -44,6 +45,7 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "input nullifier",
         ShieldedPoolError::NonCanonicalInputNullifier,
     )?;
+    check_nonzero_field_elements(ix.nullifiers.iter(), ShieldedPoolError::ZeroInputNullifier)?;
     check_field_element(
         ix.output_utxo_hash,
         "output utxo hash",
@@ -95,7 +97,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
             nullifier_pdas: merge_accounts.nullifier_pdas,
         },
         &ix,
-        MergeOwnerBinding::Registry {
+        MergeOwnerBinding::Default {
             signing_pk_field,
             nullifier_pk: pk_fields.nullifier_pk,
         },

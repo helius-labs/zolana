@@ -161,6 +161,7 @@ impl LifecycleHarness {
         // The client assembles the instruction data (incl. the encrypted_utxo blob)
         // the same way the prover bound `external_data_hash`, so they agree on-chain.
         let data = result.instruction_data(pack_merge_proof(&proof)?);
+        let sent_nullifiers = data.nullifiers.clone();
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;
         let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
@@ -207,11 +208,11 @@ impl LifecycleHarness {
             "merge forester fee must accrue to the tree net of the nullifier PDA rent it funds"
         );
         assert_eq!(
-            result.nullifiers.len(),
+            sent_nullifiers.len(),
             input_count,
             "merge queues one nullifier per input slot"
         );
-        assert_nullifier_pdas(&self.rpc, &self.tree, &result.nullifiers)?;
+        assert_nullifier_pdas(&self.rpc, &self.tree, &sent_nullifiers)?;
         assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;
 
         // Only commit the fixture's spendable set after the validator accepted the

@@ -23,7 +23,7 @@ import type {
   TreeHeadRoots,
 } from "../types.js";
 import { validCacheAccess } from "../cache.js";
-import { MERGE_SUPPORTED_INPUT_COUNTS } from "../constants.js";
+import { mergePaddedInputCount } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   CACHE_ACCOUNT_SIZE,
@@ -309,7 +309,12 @@ export function encodeTransactInstructionData(value: TransactInstructionData): U
 }
 
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
-  if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(value.nullifiers.length)) {
+  // The instruction carries the sent nullifiers; compact padding fills the
+  // narrowest merge circuit that holds them.
+  if (
+    value.nullifiers.length === 0 ||
+    mergePaddedInputCount(value.nullifiers.length) === undefined
+  ) {
     fail("INTERFACE_INVALID_LENGTH", { nullifiers: value.nullifiers.length });
   }
   writer

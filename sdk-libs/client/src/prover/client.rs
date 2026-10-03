@@ -2387,6 +2387,7 @@ mod tests {
             inputs: vec![IndexedLookup {
                 tree_slot: 0,
                 commitment: Some([0; 32]),
+                nullifier: None,
             }],
             trees: vec![tree.clone()],
             public_inputs: fields,

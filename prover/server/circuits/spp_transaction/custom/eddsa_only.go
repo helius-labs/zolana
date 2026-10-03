@@ -96,6 +96,7 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		Shape:             c.Shape,
 		Nullifiers:        c.Public.Nullifiers,
 		OutputHashes:      c.Public.OutputHashes,
+		OutputIsCompact:   shared.CompactSlots(api, c.Public.OutputHashes),
 		TreeSlots:         c.Public.TreeSlots,
 		OutputTreeID:      c.Public.OutputTreeID,
 		Inputs:            c.Private.Inputs,
@@ -110,7 +111,7 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
+			gadget.RightHashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
 		},
 	}
 }
@@ -159,6 +160,7 @@ func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
+		tx.OutputIsCompact,
 		c.Public.PublishedOutputOwnerPkHashes,
 		authorized.WithoutPayer(),
 	); err != nil {

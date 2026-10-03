@@ -104,12 +104,26 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
+    /// The instruction carries only the leading nullifiers; the circuit
+    /// [`merge_circuit_width`] selects pads the rest with compact padding.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
-        if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&self.nullifiers.len()) {
+        if merge_circuit_width(self.nullifiers.len()).is_none() {
             return Err(wincode::ReadError::Custom("unsupported merge shape"));
         }
         Ok(())
     }
+}
+
+/// The narrowest supported merge circuit that holds `input_count` nullifiers,
+/// or `None` for zero or more than [`MAX_MERGE_INPUTS`]. Slots past the sent
+/// nullifiers are compact padding with nullifier 0.
+pub fn merge_circuit_width(input_count: usize) -> Option<usize> {
+    if input_count == 0 {
+        return None;
+    }
+    MERGE_SUPPORTED_INPUT_COUNTS
+        .into_iter()
+        .find(|width| input_count <= *width)
 }
 
 /// `external_data_hash` public input for the merge instructions. Domain-separated
@@ -192,11 +206,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_shape() {
-        let mut owned = data();
-        owned.nullifiers.pop();
-        let bytes = owned.serialize().unwrap();
-        assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
+    fn rejects_empty_and_oversized_nullifier_lists() {
+        for count in [0, MAX_MERGE_INPUTS + 1] {
+            let mut owned = data();
+            owned.nullifiers = vec![[1u8; 32]; count];
+            let bytes = owned.serialize().unwrap();
+            assert!(
+                MergeTransactIxDataRef::from_bytes(&bytes).is_err(),
+                "{count} nullifiers"
+            );
+        }
     }
 
     fn hash_of(discriminator: u8, expiry: u64, output: &[u8; 32]) -> [u8; 32] {

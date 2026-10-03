@@ -67,7 +67,11 @@ export class PreparedMerge {
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
       nullifierPublicKey: Bytes32;
-      /** One per padded slot, in slot order: `mergeDummyNullifier(firstNullifier, slot)`. */
+      /**
+       * One per padded slot, compact padding included, in slot order:
+       * `mergeDummyNullifier(firstNullifier, slot)`. Compact padding publishes
+       * 0 in its place but proves non-inclusion of it.
+       */
       dummyNullifiers: readonly Bytes32[];
       /** `mergePrivateTxBlinding(firstNullifier)`. */
       privateTxBlinding: Bytes32;
@@ -81,8 +85,24 @@ export class PreparedMerge {
       });
     }
     let sawDummy = false;
+    let sawCompact = false;
     let dummies = 0;
+    let sent = 0;
     input.inputs.forEach((spend, index) => {
+      if (spend.isCompact()) {
+        sawCompact = true;
+        dummies++;
+        return;
+      }
+      // SPP appends the zeros after the sent nullifiers, so compact padding
+      // anywhere else proves a different chain than SPP rebuilds.
+      if (sawCompact) {
+        throw new TransactionError("TRANSACTION_SLOT_AFTER_COMPACT_PADDING", {
+          side: "input",
+          index,
+        });
+      }
+      sent++;
       if (spend.isDummy()) {
         sawDummy = true;
         dummies++;
@@ -90,6 +110,14 @@ export class PreparedMerge {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
     });
+    // SPP picks the merge circuit from the sent count, so compact padding must
+    // fill exactly the narrowest circuit that holds the sent inputs.
+    if (sawCompact && mergePaddedInputCount(sent) !== input.inputs.length) {
+      throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+        inputs: input.inputs.length,
+        sent,
+      });
+    }
     if (input.dummyNullifiers.length !== dummies) {
       throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
         field: "dummyNullifiers",
@@ -218,10 +246,22 @@ export class Merge {
       dummyNullifiers: readonly Bytes32[];
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
+      /**
+       * Pads the circuit with compact padding, which publishes 0 in place of
+       * its deterministic dummy nullifier and still takes one `dummyNullifiers`
+       * entry per padded slot. Compact padding is left out of the instruction,
+       * but the merge then reveals its real input count. Mirrors Rust
+       * `MergeTransaction::new_compact`; a ring merge refuses it.
+       */
+      compact?: boolean;
     }>,
   ) {
     const inputs = input.inputs;
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
+    // Ring merges keep the deterministic dummies, as in Rust.
+    if (input.compact === true && input.ring !== undefined) {
+      throw new TransactionError("TRANSACTION_RING_MERGE_COMPACT_PADDING");
+    }
     const width = paddedInputCount(inputs.length);
     const address = input.address;
     const owner = address.signingPublicKey;
@@ -255,7 +295,13 @@ export class Merge {
     });
     const inputTreeId = singleInputTreeId(inputs);
     const padded = [...inputs];
-    while (padded.length < width) padded.push(ProofInputUtxo.dummy(undefined, inputTreeId));
+    while (padded.length < width) {
+      padded.push(
+        input.compact === true
+          ? ProofInputUtxo.compact(inputTreeId)
+          : ProofInputUtxo.dummy(undefined, inputTreeId),
+      );
+    }
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({
@@ -286,6 +332,7 @@ export class Merge {
     keypair: ShieldedKeypair,
     inputs: readonly ProofInputUtxo[],
     outputTreeId: TreeId = DEFAULT_TREE_ID,
+    options: Readonly<{ compact?: boolean }> = {},
   ): Merge {
     const first = inputs[0];
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -301,6 +348,7 @@ export class Merge {
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
         outputTreeId,
+        ...(options.compact === true ? { compact: true } : {}),
       });
     } finally {
       nullifierKey.destroy();

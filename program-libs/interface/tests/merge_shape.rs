@@ -1,5 +1,5 @@
 use zolana_interface::instruction::instruction_data::merge_transact::{
-    MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
+    merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
 
@@ -43,11 +43,32 @@ fn max_merge_inputs_is_the_widest_supported_shape() {
 
 #[test]
 fn rejects_unsupported_input_counts() {
-    for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
-        let mut owned = data_with(input_count);
-        owned.nullifiers.pop();
-        let bytes = owned.serialize().expect("serialize merge instruction");
-        assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
+    for input_count in [0, MAX_MERGE_INPUTS + 1] {
+        let bytes = data_with(input_count)
+            .serialize()
+            .expect("serialize merge instruction");
+        assert!(
+            MergeTransactIxDataRef::from_bytes(&bytes).is_err(),
+            "{input_count} nullifiers"
+        );
+    }
+}
+
+/// A shorter list selects the narrowest circuit that holds it; the remaining
+/// slots are compact padding.
+#[test]
+fn every_count_up_to_the_widest_shape_selects_the_narrowest_circuit() {
+    for input_count in 1..=MAX_MERGE_INPUTS {
+        let expected = if input_count <= MERGE_DEFAULT_INPUT_COUNT {
+            MERGE_DEFAULT_INPUT_COUNT
+        } else {
+            MAX_MERGE_INPUTS
+        };
+        assert_eq!(merge_circuit_width(input_count), Some(expected));
+        let bytes = data_with(input_count)
+            .serialize()
+            .expect("serialize merge instruction");
+        MergeTransactIxDataRef::from_bytes(&bytes).expect("a compact-padded merge must parse");
     }
 }
 

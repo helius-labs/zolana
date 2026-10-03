@@ -79,7 +79,10 @@ implementation differences.
            caller's outputs and the change. Each dummy publishes the view tag
            of an input owner other than the fee payer, else of a real output
            owner; a transaction naming neither keeps a zero-amount SOL change
-           for the sender.
+           for the sender. A transaction built with `new_compact` pads with
+           compact padding instead: each padding slot publishes 0, the
+           instruction leaves it out, and the transaction reveals its real
+           input and output counts.
         4. take the first nullifier from the final input order; it seeds the
            output blindings and the transaction viewing key
     2. derive the slot values ***(client)***
@@ -91,7 +94,7 @@ implementation differences.
         2. take the caller's salt (`random_salt`, or a constant in a fixture)
         3. encrypt each real slot to the owner it already names, attaching
            that owner's view tag; a dummy slot carries random bytes of a real
-           slot's length
+           slot's length, and compact padding carries nothing
     4. hash the external data, `ExternalData::hash` ***(client)***
         1. serialize the filled slots with their owner tags, the transaction
            viewing pubkey, the salt, and the interface transfers

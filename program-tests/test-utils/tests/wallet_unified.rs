@@ -206,6 +206,90 @@ fn fresh_sync_resolves_merge_dependencies() {
     assert_eq!(fresh.utxos, incremental.utxos);
 }
 
+/// A compact merge publishes only its sent nullifiers: the padding slots are
+/// left out of the instruction, so the wallet sees just the first nullifier.
+/// Sync never depended on the merge width, so this guards that it keeps
+/// recovering the output and spending the input from one nullifier.
+#[test]
+fn sync_recovers_a_compact_merge() {
+    let assets = AssetRegistry::default();
+    let alice = keypair_from_index(4);
+    let bob = keypair_from_index(5);
+    let mut counter = 0u64;
+
+    let (mut funding, _, input) = build_unified_transfer(
+        &assets,
+        UnifiedTransferSpec {
+            sender: &bob,
+            recipient: &alice,
+            amount: 42,
+            change_amount: 1,
+            first_nullifier: unique_nullifier(&mut counter),
+            blinding: unique31(&mut counter, 0x05),
+            change_blinding: unique31(&mut counter, 0x06),
+        },
+    );
+    funding.slot = 1;
+    let input_context = &funding.output_slots[SENDER_SLOT_COUNT].output_context;
+    let nullifier_key = &alice.nullifier_key;
+    let nullifier_pk = nullifier_key.pubkey().unwrap();
+    let first_nullifier = input.nullifier(&input_context.hash, nullifier_key).unwrap();
+    let output = Utxo {
+        owner: alice.signing_pubkey(),
+        asset: zolana_transaction::Mint::SOL,
+        amount: input.amount,
+        blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let merge = ShieldedTransaction {
+        slot: 2,
+        tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: vec![OutputSlot {
+            view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
+            output_context: OutputContext {
+                hash: output
+                    .hash(
+                        &nullifier_pk,
+                        &[0; 32],
+                        &[0; 32],
+                        wallet_common::TEST_TREE_ID,
+                    )
+                    .unwrap(),
+                tree_id: 0,
+                leaf_index: 2,
+            },
+            payload: Vec::new(),
+        }],
+        messages: Vec::new(),
+        nullifiers: vec![first_nullifier],
+        proofless: false,
+        ring_config: None,
+        ring_program_id: None,
+    };
+    let authority = KeypairWalletAuthority::new(Address::default(), &alice);
+    let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
+    let report = wallet
+        .sync(&authority, &[funding, merge], 1, WINDOW)
+        .unwrap();
+    // The spent input no longer counts, so the balance is the merged output.
+    assert_eq!(
+        (
+            report.stored_utxos,
+            report.undecryptable_candidates,
+            wallet.balance(SOL_MINT, None).unwrap().amount
+        ),
+        (2, 0, 42)
+    );
+    assert!(wallet
+        .utxos
+        .iter()
+        .any(|wallet_utxo| wallet_utxo.utxo == output));
+}
+
 #[test]
 fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
     let assets = AssetRegistry::default();

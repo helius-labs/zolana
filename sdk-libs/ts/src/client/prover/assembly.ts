@@ -67,6 +67,7 @@ import {
   inputFlags,
   poseidon,
   rightHashChain,
+  rightHashChain4,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
@@ -347,17 +348,23 @@ function prepareTransferUnchecked(
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
     proof: ZERO_PROOF,
+    // The trailing compact padding is left out; SPP fills it back in.
     inputs: Object.freeze(
-      proofInputs.inputUtxos.map((_input, index) => {
-        const nullifier = nullifiers[index];
-        const treeIndex = treeIndexes[index];
-        if (!nullifier || treeIndex === undefined) {
-          throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
-            details: { got: nullifiers.length, expected: proofInputs.inputUtxos.length },
-          });
-        }
-        return Object.freeze({ nullifierHash: nullifier, treeIndex });
-      }),
+      proofInputs.inputUtxos
+        .map((_input, index) => {
+          const nullifier = nullifiers[index];
+          const treeIndex = treeIndexes[index];
+          if (!nullifier || treeIndex === undefined) {
+            throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
+              details: {
+                got: nullifiers.length,
+                expected: proofInputs.inputUtxos.length,
+              },
+            });
+          }
+          return Object.freeze({ nullifierHash: nullifier, treeIndex });
+        })
+        .filter((_input, index) => !proofInputs.inputUtxos[index]?.isCompact()),
     ),
     interfaceTransfers: Object.freeze(
       proofInputs.externalData.interfaceTransfers.map((transfer) =>
@@ -375,10 +382,14 @@ function prepareTransferUnchecked(
     ),
     ...(proofInputs.externalData.dataHash === undefined
       ? {}
-      : { dataHash: new Uint8Array(proofInputs.externalData.dataHash) as Bytes32 }),
+      : {
+          dataHash: new Uint8Array(proofInputs.externalData.dataHash) as Bytes32,
+        }),
     ...(proofInputs.externalData.ringDataHash === undefined
       ? {}
-      : { ringDataHash: new Uint8Array(proofInputs.externalData.ringDataHash) as Bytes32 }),
+      : {
+          ringDataHash: new Uint8Array(proofInputs.externalData.ringDataHash) as Bytes32,
+        }),
     outputs: Object.freeze(
       proofInputs.externalData.outputs.map((output) =>
         Object.freeze({
@@ -406,6 +417,7 @@ function prepareTransferUnchecked(
         Object.freeze({
           treeSlot: treeIndexes[index] ?? 0,
           commitment: input.isDummy() || input.cacheSlot !== undefined ? null : input.hash(),
+          nullifier: input.isCompact() ? input.nullifier() : null,
         }),
       ),
       publicInputs: Object.freeze(publicInputs.map(asField)),
@@ -468,7 +480,9 @@ function validateOutputBlindings(proofInputs: SppProofInputs): void {
   const outputSeed = proofInputs.outputBlindingSeed();
   proofInputs.outputs.forEach((output, index) => {
     if (!equal(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index))) {
-      throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", { details: { index } });
+      throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", {
+        details: { index },
+      });
     }
   });
 }
@@ -507,10 +521,14 @@ export function checkedTransferCache(
     const slot = input.cacheSlot;
     if (slot === undefined) return;
     if (read === undefined) {
-      throw new ClientError("CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE", { details: { index } });
+      throw new ClientError("CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE", {
+        details: { index },
+      });
     }
     if (((readBitmap >> BigInt(slot)) & 1n) === 1n) {
-      throw new ClientError("CLIENT_DUPLICATE_CACHE_READ_SLOT", { details: { index, slot } });
+      throw new ClientError("CLIENT_DUPLICATE_CACHE_READ_SLOT", {
+        details: { index, slot },
+      });
     }
     cacheTreeId ??= input.treeId;
     if (input.treeId !== cacheTreeId) {
@@ -542,7 +560,9 @@ function clientCacheWriteRefusal(refusal: CacheWriteRefusal): ClientError {
         details: { index: refusal.index },
       });
     case "paddingOutput":
-      return new ClientError("CLIENT_CACHED_DUMMY_OUTPUT", { details: { index: refusal.index } });
+      return new ClientError("CLIENT_CACHED_DUMMY_OUTPUT", {
+        details: { index: refusal.index },
+      });
     case "fractionalSlot":
       return new ClientError("CLIENT_INVALID_CACHE_ACCESS", {
         details: { field: "cacheSlot", index: refusal.index },
@@ -567,7 +587,12 @@ function transferCircuit(
   outputs: number,
 ): CircuitId {
   if (cache === undefined) {
-    return Object.freeze({ kind: plan.data, inputs, outputs, publicAssetSlots: 3 });
+    return Object.freeze({
+      kind: plan.data,
+      inputs,
+      outputs,
+      publicAssetSlots: 3,
+    });
   }
   switch (plan.data) {
     case "confidentialEddsa":
@@ -644,6 +669,7 @@ export interface AssembledSlots extends PreparedSlots {
   readonly inputTrees: readonly InputTree[];
 }
 
+/** The slot's published nullifier enters the statement; compact padding publishes 0. */
 export function prepareInput(
   input: ProofInputUtxo,
   options: Readonly<{ owner: bigint; treeSlot: number; nullifier?: Bytes32 }>,
@@ -653,7 +679,7 @@ export function prepareInput(
     circuit: inputCircuitUtxo(input, dummy),
     isDummy: asField(dummy ? 1n : 0n),
     treeSlot: asField(BigInt(options.treeSlot)),
-    nullifier: asField(bytesField(options.nullifier ?? input.nullifier(), "nullifier")),
+    nullifier: asField(bytesField(options.nullifier ?? input.publishedNullifier(), "nullifier")),
     ownerPublicKeyHash: asField(dummy ? 0n : options.owner),
     ...(dummy ? { nullifierSecret: asField(0n) } : {}),
   });
@@ -669,8 +695,12 @@ export function prepareSlots(
     let treeSlot = treeIds.indexOf(input.treeId);
     if (input.isDummy()) {
       if (treeIds.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-      if (treeSlot === -1)
-        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", { details: { index } });
+      // SPP packs tree index 0 for the slots it never receives, so compact
+      // padding must name the first tree.
+      if (treeSlot === -1 || (input.isCompact() && treeSlot !== INPUT_TREE_SLOT))
+        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
+          details: { index },
+        });
     } else if (treeSlot === -1) {
       if (treeIds.length === MAX_INPUT_TREES)
         throw new ClientError("CLIENT_TOO_MANY_INPUT_TREES", {
@@ -710,6 +740,8 @@ export function prepareSlots(
  * per tree. A tree the cache supplies entirely publishes a zero state root at
  * root position `NO_UTXO_ROOT`. A dummy or cached input has no state proof, so
  * it joins the tree it names and takes the next dummy non-inclusion proof.
+ * Compact padding is a dummy that publishes 0 in place of the nullifier its
+ * proof is taken for, and it must name the first tree.
  *
  * `ownerField` is the caller's rail: it is the one thing Rust's `OwnerMode`
  * varies, and every rail shares the rest of this loop.
@@ -740,8 +772,10 @@ export function assembleSlots(
     const openRun = runs[openIndex];
     if (input.isDummy()) {
       if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-      if (openRun === undefined) {
-        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", { details: { index } });
+      if (openRun === undefined || (input.isCompact() && openIndex !== INPUT_TREE_SLOT)) {
+        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
+          details: { index },
+        });
       }
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
@@ -751,7 +785,12 @@ export function assembleSlots(
       }
       validateNullifierProof(input, proof, index);
       checkNullifierRoot(openRun, proof, expectedTree, index);
-      const converted = createDummyTransferInput(input, proof, input.nullifier(), openIndex);
+      const converted = createDummyTransferInput(
+        input,
+        proof,
+        input.publishedNullifier(),
+        openIndex,
+      );
       transferInputs.push(converted);
       nullifiers.push(bigintToBytes(converted.nullifier, "nullifier") as Bytes32);
       inputOwnerFields.push(converted.ownerPublicKeyHash);
@@ -764,7 +803,9 @@ export function assembleSlots(
     if (input.cacheSlot !== undefined) {
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
-        throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", { details: { index } });
+        throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
+          details: { index },
+        });
       }
       validateNullifierProof(input, proof, index);
       if (openRun !== undefined) {
@@ -773,7 +814,9 @@ export function assembleSlots(
       } else {
         checkNewTree(runs);
         if (proof.merkleContext.tree !== expectedTree) {
-          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
+          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
+            details: { index },
+          });
         }
         runs.push({
           treeId,
@@ -797,7 +840,9 @@ export function assembleSlots(
         treeIndex = openIndex;
         if (openRun.state === undefined) {
           if (proof.state.merkleContext.tree !== expectedTree) {
-            throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
+            throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
+              details: { index },
+            });
           }
           openRun.state = Object.freeze({
             root: new Uint8Array(proof.state.root) as Bytes32,
@@ -808,7 +853,9 @@ export function assembleSlots(
           !equal(proof.state.root, openRun.state.root) ||
           proof.state.rootIndex !== openRun.state.index
         ) {
-          throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", { details: { index } });
+          throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", {
+            details: { index },
+          });
         }
         checkNullifierRoot(openRun, proof.nullifier, expectedTree, index);
       } else {
@@ -819,7 +866,9 @@ export function assembleSlots(
           proof.state.merkleContext.tree !== expectedTree ||
           proof.nullifier.merkleContext.tree !== expectedTree
         ) {
-          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
+          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
+            details: { index },
+          });
         }
         runs.push({
           treeId,
@@ -867,7 +916,10 @@ function checkNewTree(runs: readonly InputTreeRun[]): void {
 }
 
 function inputTreeOf(run: InputTreeRun): InputTree {
-  const state = run.state ?? { root: new Uint8Array(32) as Bytes32, index: NO_UTXO_ROOT };
+  const state = run.state ?? {
+    root: new Uint8Array(32) as Bytes32,
+    index: NO_UTXO_ROOT,
+  };
   return Object.freeze({
     treeId: run.treeId,
     slot: Object.freeze({
@@ -959,7 +1011,10 @@ export function cacheProverFields(cachedInputs: CachedInputs): Readonly<{
 
 function attachPaths(
   local: PreparedTransferInput,
-  proofs: Readonly<{ state?: SpendProof["state"]; nullifier: NonInclusionProof }>,
+  proofs: Readonly<{
+    state?: SpendProof["state"];
+    nullifier: NonInclusionProof;
+  }>,
 ): TransferInput {
   return Object.freeze({
     ...local,
@@ -991,10 +1046,15 @@ interface TransferPublicInputFields extends CachedInputs {
   publishedOutputOwnerPublicKeyHashes: readonly bigint[] | undefined;
 }
 
+/**
+ * The nullifier, output and output owner chains fold to the right over the
+ * circuit width; compact padding contributes zeros, and a published owner
+ * vector shorter than the outputs is padded with them.
+ */
 export function transferPublicInputs(input: TransferPublicInputFields): readonly bigint[] {
   return [
-    hashChain4(input.nullifiers),
-    hashChain4(input.outputHashes),
+    rightHashChain4(input.nullifiers),
+    rightHashChain4(input.outputHashes),
     bytesToBigInt(treeIdField(input.outputTreeId)),
     input.privateTxHash,
     input.externalDataHash,
@@ -1005,7 +1065,15 @@ export function transferPublicInputs(input: TransferPublicInputFields): readonly
     ...(input.publishedOutputOwnerPublicKeyHashes === undefined
       ? []
       : [
-          hashChain4(input.publishedOutputOwnerPublicKeyHashes),
+          rightHashChain4([
+            ...input.publishedOutputOwnerPublicKeyHashes,
+            ...Array<bigint>(
+              Math.max(
+                input.outputHashes.length - input.publishedOutputOwnerPublicKeyHashes.length,
+                0,
+              ),
+            ).fill(0n),
+          ]),
           input.cacheTreeId,
           input.cacheReadHashChain,
         ]),
@@ -1058,7 +1126,9 @@ export function resolvedPublicInputHash(
 }
 
 export function transferPublicInputHash(
-  input: TransferPublicInputFields & { readonly treeSlots: readonly TreeSlot[] },
+  input: TransferPublicInputFields & {
+    readonly treeSlots: readonly TreeSlot[];
+  },
 ): bigint {
   return resolvedPublicInputHash(transferPublicInputs(input), input.treeSlots);
 }
@@ -1074,7 +1144,9 @@ function checkNullifierRoot(
     !equal(proof.root, run.nullifierRoot) ||
     proof.rootIndex !== run.nullifierRootIndex
   ) {
-    throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", { details: { index } });
+    throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", {
+      details: { index },
+    });
   }
 }
 
@@ -1087,7 +1159,10 @@ export function treeSlotFields(slot: TreeSlot): TreeSlotFields {
   });
 }
 
-/** Slot 0, the only slot a single-tree proof opens against. */
+/**
+ * Slot 0, the only slot a single-tree proof opens against and the tree index
+ * SPP packs into `input_flags` for a compact slot it never receives.
+ */
 const INPUT_TREE_SLOT = 0;
 
 export function createRealInput(
@@ -1147,13 +1222,21 @@ function spendInput(
   });
 }
 
+/**
+ * A padding slot with the non-inclusion proof of `input.nullifier()`, the
+ * nullifier the circuit derives for it, publishing `nullifier`: that same
+ * value for a random dummy, 0 for compact padding, the deterministic dummy
+ * nullifier of a merge slot.
+ */
 export function createDummyTransferInput(
   input: ProofInputUtxo,
   proof: NonInclusionProof,
-  nullifier = input.nullifier(),
+  nullifier = input.publishedNullifier(),
   treeSlot: number = INPUT_TREE_SLOT,
 ): TransferInput {
-  return attachPaths(prepareInput(input, { owner: 0n, treeSlot, nullifier }), { nullifier: proof });
+  return attachPaths(prepareInput(input, { owner: 0n, treeSlot, nullifier }), {
+    nullifier: proof,
+  });
 }
 
 /**
@@ -1162,12 +1245,15 @@ export function createDummyTransferInput(
  * participant the pad names.
  */
 export function createOutput(output: ProofOutputUtxo, outputTreeId: TreeId): TransferOutput {
+  // Compact padding publishes owner tag 0; no identity folds to 0.
   const ownerPublicKeyHash = output.ownerAddress
     ? bytesField(
         output.ownerAddress.signingPublicKey.ownerProofInputHash(),
         "output owner public key",
       )
-    : bytesToBigInt(solanaOwnerIdentity(output.ownerTag ?? new Uint8Array(32)));
+    : output.isCompact()
+      ? 0n
+      : bytesToBigInt(solanaOwnerIdentity(output.ownerTag ?? new Uint8Array(32)));
   return Object.freeze({
     circuit: outputCircuitUtxo(output),
     isDummy: asField(output.isDummy() ? 1n : 0n),
@@ -1350,7 +1436,9 @@ export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
 
 export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {
   if (!equal(input.hash(), proof.state.leaf)) {
-    throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", { details: { index } });
+    throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", {
+      details: { index },
+    });
   }
   if (!equal(input.nullifier(), proof.nullifier.leaf)) {
     throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
@@ -1362,7 +1450,12 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   }
   if (proof.state.path.length !== STATE_TREE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
-      details: { index, kind: "state", expected: STATE_TREE_HEIGHT, got: proof.state.path.length },
+      details: {
+        index,
+        kind: "state",
+        expected: STATE_TREE_HEIGHT,
+        got: proof.state.path.length,
+      },
     });
   }
   if (proof.nullifier.path.length !== NULLIFIER_TREE_HEIGHT) {
@@ -1383,7 +1476,9 @@ function validateNullifierProof(
   index: number,
 ): void {
   if (!equal(input.nullifier(), proof.leaf)) {
-    throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", { details: { index } });
+    throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
+      details: { index },
+    });
   }
   if (proof.path.length !== NULLIFIER_TREE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
@@ -1414,7 +1509,10 @@ function publicMovements(proofInputs: SppProofInputs): Readonly<{
   const amounts = [...aggregated.values()].map((amount) => signedField(amount, "public amount"));
   while (assets.length < 3) assets.push(0n);
   while (amounts.length < 3) amounts.push(0n);
-  return Object.freeze({ assets: Object.freeze(assets), amounts: Object.freeze(amounts) });
+  return Object.freeze({
+    assets: Object.freeze(assets),
+    amounts: Object.freeze(amounts),
+  });
 }
 
 export function signedField(value: bigint, name: string): bigint {

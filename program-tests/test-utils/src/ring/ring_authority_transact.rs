@@ -223,6 +223,7 @@ impl RingHarness {
             owner_tag: None,
             data: Data::default(),
             cache_slot: None,
+            compact: false,
         };
         let output_hash = output.hash(tree_id)?;
 

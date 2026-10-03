@@ -12,7 +12,8 @@ use zolana_interface::{
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_test_utils::nullifier_pda::{
-    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
+    assert_nullifier_pdas, assert_nullifier_pdas_absent, nullifier_pda_addresses,
+    nullifier_pda_rent, tree_fees,
 };
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -26,6 +27,44 @@ fn merge_cu_ceiling(input_count: usize) -> u64 {
         8 => MERGE_8_CU_CEILING,
         36 => MERGE_36_CU_CEILING,
         other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
+    }
+}
+
+/// Compact padding fills the merge circuit past the real inputs and is left out
+/// of the instruction: SPP queues and creates nullifier PDAs only for the real
+/// inputs, and the width follows from their count.
+#[test]
+fn merge_with_compact_padding_spends_only_the_real_inputs() {
+    for (input_count, real_input_count) in [(MERGE_DEFAULT_INPUT_COUNT, 3), (MAX_MERGE_INPUTS, 9)] {
+        let mut pool = proof_env();
+        let tree = pool.tree;
+        let merge = RealMergeProof {
+            input_count,
+            real_input_count,
+        }
+        .build_compact(&mut pool);
+        assert_eq!(merge.data.nullifiers.len(), real_input_count);
+        let ix = merge.instruction(&pool);
+        let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
+        pool.rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                &[ix],
+                &[],
+                ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+            )
+            .expect("compact merge with a valid proof");
+        assert_eq!(
+            tree_progress(&pool.rpc, &tree),
+            (
+                utxo_next_before + 1,
+                nullifier_next_before + real_input_count as u64
+            ),
+            "one output appended and one nullifier queued per real input"
+        );
+        assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.nullifiers)
+            .expect("nullifier PDAs for the real inputs");
+        assert_nullifier_pdas_absent(&pool.rpc, &tree, &[[0u8; 32]])
+            .expect("no nullifier PDA for compact padding");
     }
 }
 

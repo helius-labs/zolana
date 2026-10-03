@@ -100,6 +100,8 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
           lookup["commitment"] === null
             ? null
             : checkedBytes(lookup["commitment"], 32, "commitment"),
+        nullifier:
+          lookup["nullifier"] === null ? null : checkedBytes(lookup["nullifier"], 32, "nullifier"),
       };
     }),
     publicInputs: requestDecoder.list(request["publicInputs"], "publicInputs").map(requestField),
@@ -154,9 +156,10 @@ export function indexedRequestEnvelope(
     circuitType: prepared["circuitType"],
     prepared,
     trees: inputs.trees.map(({ tree, id }) => ({ tree, id })),
-    inputs: inputs.lookups.map(({ treeSlot, commitment }) => ({
+    inputs: inputs.lookups.map(({ treeSlot, commitment, nullifier }) => ({
       treeSlot,
       commitment: commitment === null ? null : getBase58Decoder().decode(commitment),
+      nullifier: nullifier === null ? null : getBase58Decoder().decode(nullifier),
     })),
     publicInputs: inputs.publicInputs.map((value) => `0x${value.toString(16)}`),
     ...contextSlotJson(inputs.minContextSlot),
@@ -340,7 +343,8 @@ function checkStatement(inputs: IndexedProofInputs): void {
       throw invalid();
   });
   // Inputs from different trees may interleave, so a dummy only needs an
-  // earlier input to have opened the tree it names.
+  // earlier input to have opened the tree it names. Compact padding, a dummy
+  // publishing nullifier 0, carries the nullifier its witness is taken for.
   const used = new Set<number>();
   inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];
@@ -355,11 +359,14 @@ function checkStatement(inputs: IndexedProofInputs): void {
       lookup.treeSlot >= inputs.trees.length ||
       BigInt(lookup.treeSlot) !== input.treeSlot ||
       (input.isDummy !== 0n && input.isDummy !== 1n) ||
-      (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n)
+      (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n) ||
+      (lookup.nullifier === null) !== (input.isDummy === 0n || input.nullifier !== 0n)
     )
       throw invalid();
     if (input.isDummy === 1n && !used.has(lookup.treeSlot)) throw invalid();
     if (lookup.commitment !== null) bytesField(lookup.commitment, "commitment");
+    if (lookup.nullifier !== null && bytesField(lookup.nullifier, "nullifier") === 0n)
+      throw invalid();
     used.add(lookup.treeSlot);
   });
   if (used.size !== inputs.trees.length) throw invalid();

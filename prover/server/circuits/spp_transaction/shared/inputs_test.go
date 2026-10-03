@@ -250,10 +250,10 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	)
 
 	// Turn input[0] into an inert dummy slot: DummyDomain with every utxo field
-	// zeroed except the blinding. Non-inclusion is unconditional, so the dummy
-	// keeps the builder's nullifier-tree witness and derives its real nullifier
-	// over the dummified utxo hash; only the spend, ownership, and balance
-	// checks are gated off.
+	// zeroed except the blinding. A dummy that publishes a nonzero nullifier
+	// proves non-inclusion, so it keeps the builder's nullifier-tree witness and
+	// derives its real nullifier over the dummified utxo hash; only the spend,
+	// ownership, and balance checks are gated off.
 	in := &assignment.Inputs[0]
 	in.Utxo.Domain = spptest.Fe(DummyDomain)
 	in.Utxo.Owner = spptest.Fe(0)
@@ -328,10 +328,9 @@ func TestDummyInputRejectedWhenPolicyDisabled(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// Non-inclusion is unconditional: a dummy slot's nullifier and roots are
-// derived and proven like a real spend's, so mimicked public columns (an
-// arbitrary nullifier and roots) must not solve even with a consistent public
-// input hash.
+// A dummy slot that publishes a nonzero nullifier derives and proves it like a
+// real spend, so mimicked public columns (an arbitrary nullifier and roots)
+// must not solve even with a consistent public input hash.
 func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

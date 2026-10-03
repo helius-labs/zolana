@@ -1027,6 +1027,95 @@ fn dummies_name_the_input_owner_and_a_self_paid_full_withdrawal_keeps_a_zero_cha
     assert_dummies(&relayed, 0, tag, None, real_len);
 }
 
+/// `new_compact` pads with compact slots: input slot 1 publishes nullifier 0 in
+/// the first tree while still deriving the nullifier its non-inclusion witness
+/// is fetched by, and the unused output publishes hash 0 and reaches neither
+/// the instruction's outputs nor its owner tags.
+#[test]
+fn compact_padding_is_left_out_of_the_instruction() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let recipient = keypair(2).shielded_address().unwrap();
+    let mut tx = ConfidentialTransaction::new_compact(
+        vec![wallet_utxo(&owner, Mint::SOL, 10, 7, 1)],
+        payer(&owner),
+    )
+    .unwrap();
+    tx.transfer_sol(&recipient, 4).unwrap();
+    tx.pad_utxos(Shape::IN2_OUT3, &sender).unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+
+    let compact_inputs: Vec<bool> = proof
+        .input_utxos
+        .iter()
+        .map(SppProofInputUtxo::is_compact)
+        .collect();
+    assert_eq!(compact_inputs, vec![false, true]);
+    let compact_input = proof.input_utxos.get(1).unwrap();
+    assert_eq!(
+        (
+            compact_input.published_nullifier(),
+            compact_input.nullifier,
+            compact_input.tree_id
+        ),
+        (
+            [0u8; 32],
+            SppProofInputUtxo::compact(7).unwrap().nullifier,
+            7
+        )
+    );
+    let compact_outputs: Vec<bool> = proof
+        .output_utxos
+        .iter()
+        .map(SppProofOutputUtxo::is_compact)
+        .collect();
+    assert_eq!(compact_outputs, vec![false, false, true]);
+    let compact_output = proof.output_utxos.get(2).unwrap();
+    assert_eq!(
+        compact_output.hash(proof.output_tree_id).unwrap(),
+        [0u8; 32]
+    );
+    assert_eq!(
+        (
+            proof.external_data.outputs.len(),
+            proof.external_data.resolved_owner_tags.len()
+        ),
+        (2, 2)
+    );
+    assert_eq!(proof.dummy_nullifiers(), vec![compact_input.nullifier]);
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN2_OUT3);
+
+    let mut compact_first = proof.clone();
+    compact_first.input_utxos = vec![
+        SppProofInputUtxo::compact(7).unwrap(),
+        SppProofInputUtxo::compact(7).unwrap(),
+    ];
+    error(compact_first.check_shape(), E::DummyInFirstInputSlot);
+
+    let mut input_after_compact = proof.clone();
+    input_after_compact
+        .input_utxos
+        .push(SppProofInputUtxo::dummy(7).unwrap());
+    error(
+        input_after_compact.check_shape(),
+        E::InputAfterCompactPadding { index: 2 },
+    );
+
+    let mut dummy_after_compact = proof;
+    *dummy_after_compact.output_utxos.get_mut(1).unwrap() = SppProofOutputUtxo {
+        compact: true,
+        ..Default::default()
+    };
+    *dummy_after_compact.output_utxos.get_mut(2).unwrap() = SppProofOutputUtxo {
+        owner_tag: Some([1; 32]),
+        ..Default::default()
+    };
+    error(
+        dummy_after_compact.check_shape(),
+        E::OutputAfterCompactPadding { index: 2 },
+    );
+}
+
 #[test]
 fn p256_requires_custom_sender_ring_and_cannot_use_transfer_convenience_apis() {
     let owner = keypair(1);

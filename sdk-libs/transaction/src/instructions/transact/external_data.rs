@@ -107,8 +107,9 @@ pub struct ExternalData {
     pub ring_data_hash: Option<[u8; 32]>,
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
-    /// All `M` outputs in tree-append order (SPL change, SOL change, recipients
-    /// / dummies). A `None` `data` marks a slot covered by a preceding bundle.
+    /// The outputs in tree-append order (SPL change, SOL change, recipients
+    /// / dummies); compact padding is left out. A `None` `data` marks a slot
+    /// covered by a preceding bundle.
     pub outputs: Vec<TransactOutput>,
     pub resolved_owner_tags: Vec<[u8; 32]>,
     /// Ciphertexts bound to no output commitment; empty for all current flows.

@@ -31,6 +31,7 @@ func constrainOutput(
 		RingDataHash:  out.RingDataHash,
 		RingProgramID: ringProgramID,
 	}
-	// DataHash is fixed to zero, so no owner signature is needed.
-	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0), treeID)
+	// DataHash is fixed to zero, so no owner signature is needed. The merged
+	// output is always real, so it is never compact padding.
+	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0), frontend.Variable(0), treeID)
 }

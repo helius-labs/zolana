@@ -386,6 +386,30 @@ describe("private transaction construction", () => {
       details: { got: 37, max: 36 },
     });
   });
+
+  it("pads a merge with compact padding only when asked", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet(keypair, [20n, 30n, 40n]);
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+
+    const compact = await createMerge({ wallet, keys, asset: SOL_MINT, compact: true });
+    expect(compact.prepared.inputs.map((input) => input.isCompact())).toEqual([
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    wallet._releaseReservation(compact.reservationId);
+
+    const padded = await createMerge({ wallet, keys, asset: SOL_MINT });
+    expect(padded.prepared.inputs.some((input) => input.isCompact())).toBe(false);
+    expect(padded.prepared.dummyNullifiers()).toHaveLength(5);
+    expect(compact.prepared.dummyNullifiers()).toEqual(padded.prepared.dummyNullifiers());
+  });
 });
 
 describe("prover indexer lag", () => {

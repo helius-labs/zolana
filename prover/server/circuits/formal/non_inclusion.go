@@ -8,8 +8,8 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// NonInclusionProof mirrors the live nullifier-tree non-inclusion block
-// (spp_transaction / spp_merge constrainInput): the low leaf
+// NonInclusionProof models the nullifier-tree non-inclusion block
+// (spp_transaction / spp_merge constrainInput). The low leaf
 // IndexedLeafHash(LeafLowerRangeValues[i], LeafHigherRangeValues[i]) is in the
 // tree at Roots[i], and the value is bracketed with the full-field strict
 // ordering gadget.
