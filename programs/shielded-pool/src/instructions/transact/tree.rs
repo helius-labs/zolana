@@ -45,6 +45,7 @@ pub(crate) fn apply_input_trees(
     ix: &TransactIxDataRef<'_>,
     tree_input_counts: [usize; MAX_INPUT_TREES],
     proof_inputs: &mut TransactProofInputs,
+    slot: u64,
 ) -> Result<ArrayVec<InputTreeSequence, INPUT_TREES>, ProgramError> {
     let TransactAccounts {
         payer,
@@ -86,6 +87,10 @@ pub(crate) fn apply_input_trees(
                 TREE_ACCOUNT_DISCRIMINATOR,
             )
             .map_err(tree_error)?;
+            input_tree
+                .utxo_tree()
+                .finalize_pending_root(slot)
+                .map_err(tree_error)?;
             allow_dummy_inputs &=
                 input_tree.dummy_input_headroom().map_err(tree_error)? >= tree_input_count as u64;
             tree_slots
