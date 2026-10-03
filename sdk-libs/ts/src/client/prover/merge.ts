@@ -1,10 +1,12 @@
 import type {
   Address,
+  Bytes31,
   Bytes32,
   MergeTransactInstructionData,
   RequestContext,
 } from "../../interface/types.js";
-import { mergeExternalDataHash } from "../../interface/codecs/index.js";
+import { mergeExternalDataHash, mergeMaskNonces } from "../../interface/codecs/index.js";
+import { mergeMintChunks } from "../../keypair/merge/index.js";
 import {
   MAX_MERGE_INPUTS,
   MERGE_SUPPORTED_INPUT_COUNTS,
@@ -269,6 +271,12 @@ interface MergePublicInputFields {
   readonly outputTreeId: TreeId;
   readonly privateTxHash: bigint;
   readonly externalDataHash: bigint;
+  /** The output amount plus the owner's merge amount mask. */
+  readonly maskedAmount: bigint;
+  /** Each output mint chunk plus its mask. */
+  readonly maskedMint: readonly [bigint, bigint];
+  /** The amount and mint mask nonces SPP derives from the mask seed. */
+  readonly nonces: readonly [bigint, bigint];
   /**
    * The owner binding: the signing and nullifier public keys on the plain
    * rail, the output ring data hash and ring program id on a ring merge.
@@ -290,6 +298,9 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.privateTxHash,
     input.externalDataHash,
     1n,
+    input.maskedAmount,
+    ...input.maskedMint,
+    ...input.nonces,
     ...input.owner,
   ];
 }
@@ -380,12 +391,17 @@ export function prepareMerge(
     "merge owner public key",
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
+  const nonces = mergeMaskNonces(prepared.maskSeed);
+  const mintChunks = mergeMintChunks(addressBytes(prepared.output.asset));
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
     outputTreeId: prepared.outputTreeId,
     privateTxHash: bytesToBigInt(privateTxHash),
     externalDataHash: bytesToBigInt(externalDataHash),
+    maskedAmount: bytesToBigInt(prepared.maskedAmount),
+    maskedMint: [bytesToBigInt(prepared.maskedMint[0]), bytesToBigInt(prepared.maskedMint[1])],
+    nonces: [bytesToBigInt(nonces.amount), bytesToBigInt(nonces.mint)],
     owner:
       prepared.output.ringProgramId === undefined
         ? [
@@ -405,6 +421,14 @@ export function prepareMerge(
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
+    maskedAmount: asField(bytesToBigInt(prepared.maskedAmount)),
+    mintChunks: [asField(bytesToBigInt(mintChunks[0])), asField(bytesToBigInt(mintChunks[1]))],
+    maskedMint: [
+      asField(bytesToBigInt(prepared.maskedMint[0])),
+      asField(bytesToBigInt(prepared.maskedMint[1])),
+    ],
+    amountMaskNonce: asField(bytesToBigInt(nonces.amount)),
+    mintMaskNonce: asField(bytesToBigInt(nonces.mint)),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
   });
@@ -445,6 +469,12 @@ export function prepareMerge(
           utxoTreeRootIndex,
           nullifierTreeRootIndex,
           ...(cache === undefined ? {} : { cacheSlot: cache.slot }),
+          maskedAmount: new Uint8Array(prepared.maskedAmount) as Bytes32,
+          maskedMint: Object.freeze([
+            new Uint8Array(prepared.maskedMint[0]) as Bytes32,
+            new Uint8Array(prepared.maskedMint[1]) as Bytes32,
+          ] as const),
+          maskSeed: new Uint8Array(prepared.maskSeed) as Bytes31,
         });
       return Object.freeze({
         expiryUnixTs,

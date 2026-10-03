@@ -3,18 +3,37 @@ mod wallet_common;
 use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
+use zolana_event::MessageData;
+use zolana_keypair::NullifierKey;
 #[cfg(feature = "parallel")]
 use zolana_test_utils::wallet::PrivateTransactionDirection;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
+        merge_dummy_nullifier, merge_output_blinding, MergeMaskedOutput, MERGE_DEFAULT_INPUT_COUNT,
     },
     Address, AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
 };
 
 const WINDOW: u64 = 8;
+
+/// The message a SOL merge publishes: its amount and mint under the owner's
+/// masks, and a ring merge's output ring-data hash.
+fn merge_message(
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+    amount: u64,
+    output_ring_data_hash: Option<[u8; 32]>,
+) -> Vec<MessageData> {
+    let masked =
+        MergeMaskedOutput::new(nullifier_key, first_nullifier, &[9; 31], amount, &SOL_MINT)
+            .unwrap();
+    vec![MessageData {
+        view_tag: [0; 32],
+        data: masked.derivation(output_ring_data_hash).encode(),
+    }]
+}
 
 #[test]
 fn sync_stores_unified_change_and_recipient_utxos() {
@@ -125,9 +144,10 @@ fn fresh_sync_resolves_merge_dependencies() {
             },
             payload: Vec::new(),
         }],
-        messages: Vec::new(),
+        messages: merge_message(nullifier_key, &first_nullifier, input.amount, None),
         nullifiers,
         proofless: false,
+        merge: true,
         ring_config: None,
         ring_program_id: None,
     };
@@ -171,9 +191,10 @@ fn fresh_sync_resolves_merge_dependencies() {
             },
             payload: Vec::new(),
         }],
-        messages: Vec::new(),
+        messages: merge_message(nullifier_key, &chained_nullifier, output.amount, None),
         nullifiers: chained_nullifiers,
         proofless: false,
+        merge: true,
         ring_config: None,
         ring_program_id: None,
     };
@@ -203,7 +224,13 @@ fn fresh_sync_resolves_merge_dependencies() {
         .sync(&authority, std::slice::from_ref(&chained_merge), 1, WINDOW)
         .unwrap();
     assert_eq!(incremental.balance(SOL_MINT, None).unwrap().amount, 42);
-    assert_eq!(fresh.utxos, incremental.utxos);
+    // A merge rebuilds from its own publication, so a fresh sync stores the
+    // chained merge in the order it arrived; the set is what must agree.
+    let by_slot = |mut utxos: Vec<WalletUtxo>| {
+        utxos.sort_by_key(|utxo| (utxo.slot, utxo.slot_index));
+        utxos
+    };
+    assert_eq!(by_slot(fresh.utxos), by_slot(incremental.utxos));
 }
 
 /// A compact merge publishes only its sent nullifiers: the padding slots are
@@ -264,9 +291,10 @@ fn sync_recovers_a_compact_merge() {
             },
             payload: Vec::new(),
         }],
-        messages: Vec::new(),
+        messages: merge_message(nullifier_key, &first_nullifier, input.amount, None),
         nullifiers: vec![first_nullifier],
         proofless: false,
+        merge: true,
         ring_config: None,
         ring_program_id: None,
     };
@@ -337,11 +365,12 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
                 tree_id: 0,
                 leaf_index: 2,
             },
-            payload: [0u8; 32].to_vec(),
+            payload: Vec::new(),
         }],
-        messages: Vec::new(),
+        messages: merge_message(nullifier_key, &first_nullifier, input.amount, Some([0; 32])),
         nullifiers,
         proofless: false,
+        merge: true,
         ring_config: None,
         ring_program_id: Some(ring),
     };

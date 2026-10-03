@@ -6,12 +6,14 @@ import {
   getBase64Decoder,
   SolanaError,
   SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
+  type Address,
   type Signature,
 } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import { encodeMergeOutputDerivation } from "../src/interface/codecs/index.js";
 import {
   DEFAULT_TREE_ID,
   SHIELDED_POOL_PROGRAM_ID,
@@ -20,6 +22,7 @@ import {
   type Bytes64,
 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
+import { Merge } from "../src/transaction/instructions/builders.js";
 import {
   AssetRegistry,
   ConfidentialTransfer,
@@ -60,6 +63,7 @@ import { KeyMemo } from "../src/transaction/wallet/key-memo.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 import { syncPersistedWallet } from "../src/wallet/persisted.js";
 import { kitReads, solanaRpcReads, syncReads, plainCipher } from "./helpers/clients.js";
+import { mergeMessageData } from "./helpers/merge-message.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -72,6 +76,26 @@ function bytes(value: number): Bytes32 {
 
 interface RequestWithCursor {
   readonly cursor?: Uint8Array;
+}
+
+/** The message a merge publishes for its owner: the masked output amount and mint. */
+function mergeMessage(
+  keypair: ShieldedKeypair,
+  firstNullifier: Bytes32,
+  amount: bigint,
+  mint: Address = SOL_MINT,
+  outputRingDataHash?: Bytes32,
+): Readonly<{ viewTag: Bytes32; data: Uint8Array }> {
+  return {
+    viewTag: bytes(0),
+    data: mergeMessageData(
+      keypair.nullifierKey(),
+      firstNullifier,
+      amount,
+      mint,
+      outputRingDataHash,
+    ),
+  };
 }
 
 function mergeAfterSplit() {
@@ -124,6 +148,7 @@ function mergeAfterSplit() {
     messages: [],
     nullifiers: [splitNullifier],
     proofless: false,
+    merge: false,
   };
 
   const spent = outputs.map((utxo, index) =>
@@ -150,7 +175,7 @@ function mergeAfterSplit() {
         payload: new Uint8Array(),
       },
     ],
-    messages: [],
+    messages: [mergeMessage(keypair, firstNullifier, 42n)],
     nullifiers: [
       ...spent,
       ...Array.from({ length: 6 }, (_, offset) =>
@@ -158,6 +183,7 @@ function mergeAfterSplit() {
       ),
     ],
     proofless: false,
+    merge: true,
   };
   const mergeContext = merge.outputSlots[0]!.outputContext;
   const chainedNullifier = merged.nullifier(mergeContext.hash, keypair.nullifierKey());
@@ -181,7 +207,7 @@ function mergeAfterSplit() {
         payload: new Uint8Array(),
       },
     ],
-    messages: [],
+    messages: [mergeMessage(keypair, chainedNullifier, 42n)],
     nullifiers: [
       chainedNullifier,
       ...Array.from({ length: 7 }, (_, offset) =>
@@ -189,6 +215,7 @@ function mergeAfterSplit() {
       ),
     ],
     proofless: false,
+    merge: true,
   };
 
   return {
@@ -696,7 +723,7 @@ describe("wallet sync", () => {
     { kind: "36-input", real: 2, width: 36, compact: false },
     { kind: "compact 8-input", real: 2, width: 8, compact: true },
     { kind: "compact 36-input", real: 9, width: 36, compact: true },
-  ])("reconstructs a ciphertext-free $kind merge", async ({ real, width, compact }) => {
+  ])("reconstructs a $kind merge without a ciphertext", async ({ real, width, compact }) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const amounts = Array.from({ length: real }, (_, index) => BigInt(20 + 2 * index));
@@ -751,15 +778,197 @@ describe("wallet sync", () => {
               payload: new Uint8Array(),
             },
           ],
-          messages: [],
+          messages: [mergeMessage(keypair, firstNullifier, total)],
           nullifiers,
           proofless: false,
+          merge: true,
         },
       ],
     });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(total);
+  });
+
+  // A merger who knows the owner's nullifier secret can fund a note the owner
+  // never learns about and spend it first, so the output blinding and total
+  // depend on it. The masked amount still rebuilds the output.
+  it("rebuilds a merge whose first input the wallet never received", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const note = (amount: bigint, index: number) => {
+      const blinding = bytes(index + 3);
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+        nullifier: keypair.nullifier(hash, blinding),
+        spent: false,
+      };
+    };
+    const planted = note(1n, 0);
+    const held = [note(30n, 1), note(12n, 2)];
+    wallet._replace({ ...wallet._state(), utxos: held });
+    const firstNullifier = planted.nullifier;
+    const blinding = mergeOutputBlinding(keypair.nullifierKey(), firstNullifier);
+    const merged = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 43n,
+      blinding,
+    });
+
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+      wallet,
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: SIGNATURE,
+          outputSlots: [
+            {
+              viewTag: keypair.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: merged.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+                tree: TREE,
+                leafIndex: 3n,
+              },
+              payload: new Uint8Array(),
+            },
+          ],
+          messages: [mergeMessage(keypair, firstNullifier, 43n)],
+          nullifiers: [
+            planted.nullifier,
+            ...held.map((entry) => entry.nullifier),
+            ...Array.from({ length: 5 }, (_, offset) =>
+              mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 3),
+            ),
+          ],
+          proofless: false,
+          merge: true,
+        },
+      ],
+    });
+
+    expect(report).toMatchObject({
+      storedUtxos: 1,
+      undecryptableCandidates: 0,
+    });
+    expect(wallet.balance(SOL_MINT).amount).toBe(43n);
+  });
+
+  // The proof binds the amount and the mint under the owner's masks, so a
+  // merge rebuilds from public data alone. Like a proofless deposit, its mint
+  // is stored as published whether or not the registry knows it.
+  it.each([
+    { case: "SOL", mint: SOL_MINT, registered: true },
+    { case: "a registered SPL mint", mint: SPL_MINT, registered: true },
+    { case: "an unregistered SPL mint", mint: SPL_MINT, registered: false },
+  ])("rebuilds a built merge of $case without holding any input", async ({ mint, registered }) => {
+    const keypair = ShieldedKeypair.generate();
+    const inputs = [30n, 12n].map((amount, index) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: mint,
+          amount,
+          blinding: bytes(index + 3),
+        }),
+        keypair,
+      ),
+    );
+    const prepared = Merge.fromKeypair(keypair, inputs).prepare();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    if (registered && mint !== SOL_MINT) wallet.ensureAsset(7n, mint);
+
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+      wallet,
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: SIGNATURE,
+          outputSlots: [
+            {
+              viewTag: keypair.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: prepared.outputHash(),
+                tree: TREE,
+                leafIndex: 2n,
+              },
+              payload: new Uint8Array(),
+            },
+          ],
+          messages: [
+            {
+              viewTag: bytes(0),
+              data: encodeMergeOutputDerivation({
+                maskedAmount: prepared.maskedAmount,
+                maskedMint: prepared.maskedMint,
+                maskSeed: prepared.maskSeed,
+              }),
+            },
+          ],
+          nullifiers: [...inputs.map((input) => input.nullifier()), ...prepared.dummyNullifiers()],
+          proofless: false,
+          merge: true,
+        },
+      ],
+    });
+
+    expect(report).toMatchObject({
+      storedUtxos: 1,
+      undecryptableCandidates: 0,
+    });
+    expect(
+      wallet
+        .utxos()
+        .filter((entry) => !entry.spent)
+        .map((entry) => [entry.utxo.asset, entry.utxo.amount]),
+    ).toEqual([[mint, 42n]]);
+  });
+
+  it("ignores a merge whose masked values another owner's key produced", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const other = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const firstNullifier = bytes(20);
+    const merged = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 7n,
+      blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
+    });
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+      wallet,
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: SIGNATURE,
+          outputSlots: [
+            {
+              viewTag: keypair.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: merged.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+                tree: TREE,
+                leafIndex: 3n,
+              },
+              payload: new Uint8Array(),
+            },
+          ],
+          messages: [mergeMessage(other, firstNullifier, 7n)],
+          nullifiers: Array.from({ length: 8 }, (_, index) => bytes(index + 20)),
+          proofless: false,
+          merge: true,
+        },
+      ],
+    });
+    expect(report.storedUtxos).toBe(0);
+    expect(wallet.balance(SOL_MINT).amount).toBe(0n);
   });
 
   it("reconstructs a merge whose inputs arrive in the same batch", async () => {
@@ -913,7 +1122,7 @@ describe("wallet sync", () => {
           .repeat(64)
           .slice(0, 64) as Signature,
         outputSlots: [{ viewTag: identityTag, outputContext: context, payload: new Uint8Array() }],
-        messages: [],
+        messages: [mergeMessage(keypair, spent, 42n)],
         nullifiers: [
           spent,
           ...Array.from({ length: 7 }, (_, offset) =>
@@ -921,6 +1130,7 @@ describe("wallet sync", () => {
           ),
         ],
         proofless: false,
+        merge: true,
       });
       previous = { utxo, context };
     }
@@ -1082,6 +1292,7 @@ describe("wallet sync", () => {
         messages: [],
         nullifiers: signed.inputContexts().map((input) => input.nullifier),
         proofless: false,
+        merge: false,
       },
     ];
 
@@ -1241,6 +1452,7 @@ describe("wallet sync", () => {
           messages: [],
           nullifiers: signed.inputContexts().map((input) => input.nullifier),
           proofless: false,
+          merge: false,
         },
       ],
     });
@@ -1368,6 +1580,7 @@ describe("wallet sync", () => {
           messages: [],
           nullifiers: [nullifier],
           proofless: false,
+          merge: false,
         },
       ],
     });
@@ -1435,6 +1648,7 @@ describe("wallet sync", () => {
           messages: [],
           nullifiers: [bytes(32)],
           proofless: false,
+          merge: false,
         },
       ],
     });
@@ -1522,6 +1736,7 @@ describe("wallet sync", () => {
           messages: [],
           nullifiers: [],
           proofless: true,
+          merge: false,
         },
       ],
     });
@@ -1594,6 +1809,7 @@ describe("wallet sync", () => {
           messages: [],
           nullifiers: [],
           proofless: true,
+          merge: false,
         },
       ],
     });
@@ -1733,6 +1949,7 @@ describe("wallet sync", () => {
           messages: [],
           nullifiers: [nullifier],
           proofless: false,
+          merge: false,
         },
       ],
     });
@@ -1777,6 +1994,7 @@ describe("wallet sync", () => {
         {
           slot: 2n,
           txSignature: SIGNATURE,
+          ringProgramId: OWNER,
           outputSlots: [
             {
               viewTag: firstNullifier,
@@ -1785,10 +2003,21 @@ describe("wallet sync", () => {
                 tree: TREE,
                 leafIndex: 2n,
               },
-              payload: new Uint8Array(32),
+              payload: new Uint8Array(),
             },
           ],
-          messages: [],
+          messages: [
+            {
+              viewTag: firstNullifier,
+              data: mergeMessage(
+                keypair,
+                firstNullifier,
+                42n,
+                SOL_MINT,
+                new Uint8Array(32) as Bytes32,
+              ).data,
+            },
+          ],
           nullifiers: [
             ...utxos.map((entry) => entry.nullifier),
             ...Array.from({ length: 6 }, (_, offset) =>
@@ -1796,6 +2025,7 @@ describe("wallet sync", () => {
             ),
           ],
           proofless: false,
+          merge: true,
         },
       ],
     });
@@ -1808,7 +2038,7 @@ describe("wallet sync", () => {
     ).toEqual([output]);
   });
 
-  it("ignores a merge whose first nullifier is not owned", async () => {
+  it("ignores a merge that spends none of the wallet's notes", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const blinding = new Uint8Array(32).fill(5) as Bytes32;
@@ -1844,9 +2074,10 @@ describe("wallet sync", () => {
           payload: new Uint8Array(),
         },
       ],
-      messages: [],
-      nullifiers: Array.from({ length: 8 }, (_, index) => bytes(index + 80)),
+      messages: [mergeMessage(keypair, bytes(20), 7n)],
+      nullifiers: Array.from({ length: 8 }, (_, index) => bytes(index + 20)),
       proofless: false,
+      merge: true,
     } as const;
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
@@ -1904,6 +2135,7 @@ describe("wallet sync", () => {
       messages: [],
       nullifiers: [entries[0]!.nullifier],
       proofless: false,
+      merge: false,
     } as const;
     const getShieldedTransactionsByTags = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
@@ -2147,6 +2379,7 @@ describe("wallet sync", () => {
       messages: [],
       nullifiers: [nullifier],
       proofless: false,
+      merge: false,
     } as const;
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
@@ -2228,6 +2461,7 @@ describe("wallet sync", () => {
       messages: [],
       nullifiers: [],
       proofless: false,
+      merge: false,
     });
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({

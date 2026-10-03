@@ -39,20 +39,20 @@
       "source": "release"
     },
     "merge_36_1.key": {
-      "sha256": "1016cdc79936663de73fa25d4bd8ebb056b51f0d471a3f353af740bb7e795192",
-      "size": 242238136
+      "sha256": "7da68795206ae1db9dc71e047acc8498e6d0cb9ed4159dee5f806618d00779bc",
+      "size": 242783330
     },
     "merge_8_1.key": {
-      "sha256": "f59571876452541eaf20cfc583a082b9b6cc788bf85719bd337398b2d962ad23",
-      "size": 55767611
+      "sha256": "c8cbe07e6a88e932041b7fcb0c1fb96910bc1c2f1d7388b606015b2d943aa11f",
+      "size": 56314558
     },
     "merge_ring_36_1.key": {
-      "sha256": "a0887f5431f12dfa16f6f2e661f4688c0d45538c96c7a1e7f50f41e232ca13c8",
-      "size": 241989150
+      "sha256": "e149175a5003d49ce3eadf2d24361448e14ccb79ccf01c15033ff1e8cba74882",
+      "size": 242534332
     },
     "merge_ring_8_1.key": {
-      "sha256": "9a191ebe9f60c8006b03f9c45850b252246d1767e100f4510b0d271767d41ad4",
-      "size": 55712184
+      "sha256": "433783560af8c9d7aad2bf59e99e7cac057252de0301358aec5e657904c49970",
+      "size": 56258794
     },
     "transfer_confidential_1_1.key": {
       "sha256": "329c4f7d4a7e68b06c49876bd6c3f22ab89c7679c978c866c4a6cdfb92d9a998",
@@ -203,5 +203,5 @@
       "size": 30658339
     }
   },
-  "prefix": "proving-keys/6f90b6cbda966596"
+  "prefix": "proving-keys/da77e12c400fc0fb"
 }

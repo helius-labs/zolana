@@ -65,6 +65,7 @@ fn self_consistent_deposit(
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     }
@@ -128,6 +129,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
         messages: Vec::new(),
         nullifiers: vec![nullifier],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     };

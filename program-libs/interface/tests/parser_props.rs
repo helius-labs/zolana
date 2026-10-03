@@ -175,6 +175,9 @@ mod strategies {
                 )| {
                     MergeTransactIxData {
                         cache_slot: None,
+                        masked_amount: [0u8; 32],
+                        masked_mint: [[0u8; 32]; 2],
+                        mask_seed: [0u8; 31],
                         expiry_unix_ts,
                         proof: MergeProof { a, b, c },
                         output_utxo_hash,

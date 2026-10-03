@@ -9,6 +9,7 @@ use super::common::{
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
 use crate::common::indexer_context::{extract as extract_context, newest_unpaused_tree_id};
+use crate::ingester::parser::rings_event_parser::is_merge_source;
 use bincode::{Decode, Encode};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, FromQueryResult,
@@ -33,6 +34,7 @@ pub(super) struct MatchedRingsTxRow {
     tx_viewing_pk: Option<Vec<u8>>,
     salt: Option<Vec<u8>>,
     proofless: bool,
+    source_instruction_tag: i16,
     ring_config: Option<Vec<u8>>,
     ring_program_id: Option<Vec<u8>>,
 }
@@ -315,6 +317,7 @@ pub(super) async fn hydrate_shielded_transactions(
                         .remove(&row.rings_tx_id)
                         .unwrap_or_default(),
                     proofless: row.proofless,
+                    merge: is_merge_source(row.source_instruction_tag),
                     ring_config: row
                         .ring_config
                         .map(SerializablePubkey::try_from)
@@ -397,6 +400,7 @@ async fn fetch_matching_rings_transactions(
             pt.tx_viewing_pk AS tx_viewing_pk,
             pt.salt AS salt,
             pt.proofless AS proofless,
+            pt.source_instruction_tag AS source_instruction_tag,
             pt.ring_config AS ring_config,
             rc.program_id AS ring_program_id
          FROM rings_transactions pt
@@ -883,6 +887,7 @@ mod tests {
         assert_eq!(first.transactions.len(), 2);
         assert!(!first.transactions[0].proofless);
         assert!(first.transactions[1].proofless);
+        assert!(first.transactions.iter().all(|tx| !tx.merge));
         assert!(first.scanned_through.is_none());
         assert!(first
             .transactions
@@ -901,6 +906,7 @@ mod tests {
         .unwrap();
         assert_eq!(second.transactions.len(), 1);
         assert_eq!(second.transactions[0].output_slots[0].payload.0, vec![4]);
+        assert!(second.transactions[0].merge);
         let terminal = second.scanned_through.expect("terminal scan frontier");
         let resumed = get_shielded_transactions_by_tags(
             &db,

@@ -699,6 +699,7 @@ mod tests {
                 messages: vec![message],
                 nullifiers: self.nullifiers,
                 proofless: false,
+                merge: false,
                 ring_config: None,
                 ring_program_id: Some(ring().program_id()),
             }

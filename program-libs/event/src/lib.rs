@@ -1,9 +1,11 @@
+pub mod merge_output;
 pub mod output_data;
 pub mod output_utxo;
 pub mod proofless;
 pub mod tag;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use merge_output::MergeOutputDerivation;
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{

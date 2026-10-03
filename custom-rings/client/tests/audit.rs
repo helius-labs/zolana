@@ -175,6 +175,7 @@ fn transaction(
         messages,
         nullifiers: vec![[1u8; 32]],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: Some(Address::new_from_array([9u8; 32])),
     }

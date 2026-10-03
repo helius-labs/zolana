@@ -163,6 +163,10 @@ function deriveKey(request: DeriveRequest): string {
       return `mergeDummy|${hex(request.firstNullifier)}|${String(request.slotIndex)}`;
     case "mergeOutputBlinding":
       return `mergeBlinding|${hex(request.firstNullifier)}`;
+    case "mergeAmountMask":
+      return `mergeAmountMask|${hex(request.firstNullifier)}|${hex(request.nonce)}`;
+    case "mergeMintMask":
+      return `mergeMintMask|${hex(request.firstNullifier)}|${hex(request.nonce)}|${String(request.chunkIndex)}`;
     case "mergePrivateTxBlinding":
       return `mergePrivateTxBlinding|${hex(request.firstNullifier)}`;
   }

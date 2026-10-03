@@ -15,6 +15,7 @@ import { nullifierPdaAddress, nullifierPda } from "../src/interface/pda/index.js
 import type {
   Address,
   Bytes16,
+  Bytes31,
   Bytes32,
   Bytes33,
   Bytes128,
@@ -232,6 +233,9 @@ describe("nullifier PDA accounts", () => {
       nullifiers,
       utxoTreeRootIndex: 0,
       nullifierTreeRootIndex: 0,
+      maskedAmount: filled(48, 32) as Bytes32,
+      maskedMint: [filled(49, 32) as Bytes32, filled(50, 32) as Bytes32],
+      maskSeed: filled(51, 31) as Bytes31,
     };
     const instruction = await mergeTransactInstruction({
       inputTree: TREE,

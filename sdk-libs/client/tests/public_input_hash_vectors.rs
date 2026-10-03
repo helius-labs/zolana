@@ -13,6 +13,7 @@ use zolana_client::{PublicInputs, PublicTransfers};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
+    instruction::instruction_data::{MergeMaskNonces, MERGE_MASK_SEED_LEN},
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS,
 };
@@ -61,6 +62,11 @@ struct MergeVector {
     output_tree_id: u16,
     private_tx_hash: String,
     external_data_hash: String,
+    masked_amount: String,
+    masked_mint: Vec<String>,
+    mask_seed: String,
+    amount_mask_nonce: String,
+    mint_mask_nonce: String,
     owner_pk_hash: String,
     nullifier_pk: String,
     tree_slots: Vec<TreeSlotVector>,
@@ -193,8 +199,14 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let external_data_hash = field(83);
     let owner_pk_hash = field(84);
     let nullifier_pk = field(85);
+    let masked_amount = field(86);
+    let masked_mint = [field(87), field(88)];
+    let mask_seed = [0x59u8; MERGE_MASK_SEED_LEN];
+    let nonces = MergeMaskNonces::derive(&mask_seed).unwrap();
+    let [masked_mint_prefix, masked_mint_last] = masked_mint;
     // The element order `MergeProver::build` hashes; the 1 is the dummy-input
-    // policy merge always publishes.
+    // policy merge always publishes, and the two nonces are the ones SPP
+    // derives from the mask seed.
     let public_input_hash = create_hash_chain_4_from_slice(&[
         create_padded_right_hash_chain_4(&nullifiers, nullifiers.len()).unwrap(),
         output_hash,
@@ -203,6 +215,11 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         private_tx,
         external_data_hash,
         field(1),
+        masked_amount,
+        masked_mint_prefix,
+        masked_mint_last,
+        nonces.amount,
+        nonces.mint,
         owner_pk_hash,
         nullifier_pk,
     ])
@@ -214,6 +231,11 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         output_tree_id,
         private_tx_hash: hex(&private_tx),
         external_data_hash: hex(&external_data_hash),
+        masked_amount: hex(&masked_amount),
+        masked_mint: hexes(&masked_mint),
+        mask_seed: mask_seed.iter().map(|byte| format!("{byte:02x}")).collect(),
+        amount_mask_nonce: hex(&nonces.amount),
+        mint_mask_nonce: hex(&nonces.mint),
         owner_pk_hash: hex(&owner_pk_hash),
         nullifier_pk: hex(&nullifier_pk),
         tree_slots: tree_slot_vectors(),
@@ -275,7 +297,8 @@ fn compute_vectors() -> PublicInputHashVectors {
     ];
     PublicInputHashVectors {
         description: "Known-answer vectors for the transfer and merge public input hashes. \
-                      Every value is a 32-byte big-endian hex string; nullifier, output hash and \
+                      Every value is a 32-byte big-endian hex string except a merge's 31-byte mask_seed, \
+                      from which SPP derives amount_mask_nonce and mint_mask_nonce; nullifier, output hash and \
                       owner lists span the circuit width, with 0 for compact padding, and a \
                       published owner list shorter than the outputs is padded with 0. Transfers \
                       are zolana_client::PublicInputs::hash; merges hash the MergeProver::build \

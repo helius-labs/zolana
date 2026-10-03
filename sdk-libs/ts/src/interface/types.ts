@@ -295,6 +295,12 @@ export interface MergeTransactInstructionData {
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
   readonly cacheSlot?: number;
+  /** The output amount plus the owner's merge amount mask, bound by the proof. */
+  readonly maskedAmount: Bytes32;
+  /** The output mint's two `hash_bytes` chunks, each plus its mask, bound by the proof. */
+  readonly maskedMint: readonly [Bytes32, Bytes32];
+  /** Fresh per attempt; `mergeMaskNonces` derives one nonce per masked value from it. */
+  readonly maskSeed: Bytes31;
 }
 
 export interface CreateCacheData {

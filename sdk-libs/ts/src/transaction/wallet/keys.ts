@@ -9,6 +9,8 @@ import {
   roleExpansion,
 } from "../../keypair/derivation.js";
 import {
+  mergeAmountMask,
+  mergeMintMask,
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
@@ -48,12 +50,20 @@ export interface TransactionKeyRequest {
 /**
  * Every value the protocol derives from the nullifier secret. `nullifier`
  * spends a UTXO; the merge derivations produce its padded-slot nullifiers,
- * output blinding, and private-transaction blinding.
+ * output blinding, the masks over its output amount and mint, and its
+ * private-transaction blinding.
  */
 export type DeriveRequest =
   | Readonly<{ kind: "nullifier"; utxoHash: Bytes32; blinding: Bytes32 }>
   | Readonly<{ kind: "mergeDummyNullifier"; firstNullifier: Bytes32; slotIndex: number }>
   | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>
+  | Readonly<{ kind: "mergeAmountMask"; firstNullifier: Bytes32; nonce: Bytes32 }>
+  | Readonly<{
+      kind: "mergeMintMask";
+      firstNullifier: Bytes32;
+      nonce: Bytes32;
+      chunkIndex: number;
+    }>
   | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>;
 
 /**
@@ -247,6 +257,15 @@ export class LocalShieldedKeys implements ShieldedKeys {
         return mergeDummyNullifier(this.#nullifier, request.firstNullifier, request.slotIndex);
       case "mergeOutputBlinding":
         return mergeOutputBlinding(this.#nullifier, request.firstNullifier);
+      case "mergeAmountMask":
+        return mergeAmountMask(this.#nullifier, request.firstNullifier, request.nonce);
+      case "mergeMintMask":
+        return mergeMintMask(
+          this.#nullifier,
+          request.firstNullifier,
+          request.nonce,
+          request.chunkIndex,
+        );
       case "mergePrivateTxBlinding":
         return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
     }

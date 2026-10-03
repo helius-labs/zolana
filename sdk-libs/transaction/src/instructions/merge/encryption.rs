@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
+use zolana_keypair::{random_blinding, random_salt, ShieldedAddress, ViewingKey};
 
 use super::{
     inputs::{pad_with_dummies, validate_merge_owner},
@@ -128,6 +128,7 @@ impl MergeTransaction {
             output_data.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
                 .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
         }
+        let [_, mask_seed @ ..] = random_blinding();
         let mut input_utxos = inputs.into_iter().map(SppProofInputUtxo::from).collect();
         pad_with_dummies(
             &mut input_utxos,
@@ -145,6 +146,7 @@ impl MergeTransaction {
             tx_viewing_pk: *tx_viewing_key.pubkey().as_bytes(),
             salt,
             output_data,
+            mask_seed,
         })
     }
 }

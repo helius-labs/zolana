@@ -98,6 +98,16 @@ pub struct MergeInputs {
     /// Merges always legitimately pad with dummy slots, so the dummy-input
     /// guard is `1` here.
     pub allow_dummy_inputs: BigUint,
+    /// Output amount plus the owner's merge amount mask.
+    pub masked_amount: BigUint,
+    /// The packed chunks of the shared mint; the circuit derives the asset
+    /// from them.
+    pub mint_chunks: [BigUint; 2],
+    /// Each mint chunk plus its mask.
+    pub masked_mint: [BigUint; 2],
+    /// The nonces SPP derives from the instruction's mask seed.
+    pub amount_mask_nonce: BigUint,
+    pub mint_mask_nonce: BigUint,
     pub public_input_hash: BigUint,
     /// Policy-ring merge only: the output ring-data hash the calling ring
     /// program carries in the instruction/event, asserted against

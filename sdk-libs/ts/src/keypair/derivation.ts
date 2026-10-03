@@ -77,6 +77,8 @@ export const DOM_SEP_NONCE = 0x544d_534e;
 
 export const DOMAIN_MERGE_OUTPUT_BLINDING_V1 = 0x544d_4f42;
 export const DOMAIN_MERGE_DUMMY_NULLIFIER = 0x544d_444e;
+export const DOMAIN_MERGE_AMOUNT_MASK = 0x544d_414d;
+export const DOMAIN_MERGE_MINT_MASK = 0x544d_4d41;
 
 /** `"TXOS"`: the seed every transact output blinding derives from. */
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1 = 0x5458_4f53;

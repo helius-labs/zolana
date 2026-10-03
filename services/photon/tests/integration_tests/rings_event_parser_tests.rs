@@ -23,8 +23,8 @@ use photon_indexer::{
             ring_config_parser::parse_ring_configs,
             rings_event_parser::parse_rings_events,
             state_update::{
-                IndexedTreeLeafUpdate, RawIndexedElement, RingsNullifierUpdate, RingsOutputUpdate,
-                StateUpdate, Transaction,
+                IndexedTreeLeafUpdate, RawIndexedElement, RingsMessageUpdate, RingsNullifierUpdate,
+                RingsOutputUpdate, StateUpdate, Transaction,
             },
             tree_info::TreeInfo,
         },
@@ -271,6 +271,14 @@ fn parses_merge_event_with_photon_parser() {
     assert!(rings_tx.tx_viewing_pk.is_none());
     assert!(rings_tx.salt.is_none());
     assert!(!rings_tx.proofless);
+    assert_eq!(
+        rings_tx.messages,
+        vec![RingsMessageUpdate {
+            message_index: 0,
+            view_tag: [0x77; 32],
+            payload: [[0x04; 32].as_slice(), &[0x05; 32], &[0x06; 32], &[0x07; 31]].concat(),
+        }]
+    );
     assert_eq!(
         rings_tx.nullifiers,
         (0..MERGE_DEFAULT_INPUT_COUNT)
@@ -2244,6 +2252,9 @@ fn ring_transact_transaction_info(
 fn merge_transaction_info() -> TransactionInfo {
     let merge = MergeTransactIxData {
         cache_slot: None,
+        masked_amount: [0x04; 32],
+        masked_mint: [[0x05; 32], [0x06; 32]],
+        mask_seed: [0x07; 31],
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],

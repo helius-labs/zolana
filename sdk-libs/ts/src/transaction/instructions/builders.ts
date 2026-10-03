@@ -1,7 +1,12 @@
-import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
+import { mergeMaskNonces } from "../../interface/codecs/index.js";
+import type { Address, Bytes16, Bytes31, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
+  mergeAmountMask,
   mergeDummyNullifier,
+  mergeMaskedAmount,
+  mergeMaskedMint,
+  mergeMintMask,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
@@ -57,6 +62,12 @@ export class PreparedMerge {
   readonly inputTreeId: TreeId;
   /** The tree the merged output is appended to. */
   readonly outputTreeId: TreeId;
+  /** The output amount plus the owner's merge amount mask, which the proof binds. */
+  readonly maskedAmount: Bytes32;
+  /** The output mint's chunks plus their masks, which the proof binds. */
+  readonly maskedMint: readonly [Bytes32, Bytes32];
+  /** Fresh per prepared merge; every mask's nonce derives from it. */
+  readonly maskSeed: Bytes31;
   readonly #dummyNullifiers: readonly Bytes32[];
   readonly #privateTxBlinding: Bytes32;
 
@@ -76,6 +87,12 @@ export class PreparedMerge {
       /** `mergePrivateTxBlinding(firstNullifier)`. */
       privateTxBlinding: Bytes32;
       outputTreeId: TreeId;
+      /** `mergeMaskedAmount(output.amount, mergeAmountMask(firstNullifier, amountNonce))`. */
+      maskedAmount: Bytes32;
+      /** `mergeMaskedMint(output mint, [mergeMintMask(firstNullifier, mintNonce, 0), .. 1])`. */
+      maskedMint: readonly [Bytes32, Bytes32];
+      /** The seed `mergeMaskNonces` derives both nonces from. */
+      maskSeed: Bytes31;
     }>,
   ) {
     if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(input.inputs.length)) {
@@ -146,6 +163,12 @@ export class PreparedMerge {
       "merge private tx blinding",
     );
     this.outputTreeId = checkedTreeId(input.outputTreeId);
+    this.maskedAmount = checked<Bytes32>(input.maskedAmount, 32, "merge masked amount");
+    this.maskedMint = Object.freeze([
+      checked<Bytes32>(input.maskedMint[0], 32, "merge masked mint 0"),
+      checked<Bytes32>(input.maskedMint[1], 32, "merge masked mint 1"),
+    ] as const);
+    this.maskSeed = checked<Bytes31>(input.maskSeed, 31, "merge mask seed");
   }
 
   /** The merged output's commitment in `outputTreeId`. */
@@ -175,6 +198,11 @@ export class PreparedMerge {
       (_, offset) => realInputs + offset,
     );
   }
+}
+
+/** 31 fresh random bytes, the seed of one merge attempt's mask nonces. */
+export function randomMergeMaskSeed(): Bytes31 {
+  return randomBlinding().slice(1) as Bytes31;
 }
 
 function paddedInputCount(realInputs: number): number {
@@ -244,6 +272,12 @@ export class Merge {
       privateTxBlinding: Bytes32;
       /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
       dummyNullifiers: readonly Bytes32[];
+      /** Fresh per merge: `randomMergeMaskSeed()`. */
+      maskSeed: Bytes31;
+      /** `mergeAmountMask(firstNullifier, mergeMaskNonces(maskSeed).amount)`. */
+      amountMask: Bytes32;
+      /** `mergeMintMask(firstNullifier, mergeMaskNonces(maskSeed).mint, chunk)` for chunks 0 and 1. */
+      mintMasks: readonly [Bytes32, Bytes32];
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
       /**
@@ -302,28 +336,38 @@ export class Merge {
           : ProofInputUtxo.dummy(undefined, inputTreeId),
       );
     }
+    const output = createProofOutput({
+      ownerAddress: address,
+      asset,
+      amount,
+      blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
+      ...(input.ring === undefined
+        ? {}
+        : {
+            ringProgramId: input.ring.programId,
+            ...(input.ring.outputDataHash === undefined
+              ? {}
+              : { ringDataHash: input.ring.outputDataHash }),
+          }),
+    });
     this.#prepared = new PreparedMerge({
       inputs: padded,
-      output: createProofOutput({
-        ownerAddress: address,
-        asset,
-        amount,
-        blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
-        ...(input.ring === undefined
-          ? {}
-          : {
-              ringProgramId: input.ring.programId,
-              ...(input.ring.outputDataHash === undefined
-                ? {}
-                : { ringDataHash: input.ring.outputDataHash }),
-            }),
-      }),
+      output,
       expiryUnixTs: U64_MAX,
       signingPublicKey: owner,
       nullifierPublicKey: address.nullifierPublicKey,
       dummyNullifiers: input.dummyNullifiers,
       privateTxBlinding: input.privateTxBlinding,
       outputTreeId: checkedTreeId(input.outputTreeId ?? DEFAULT_TREE_ID),
+      maskedAmount: mergeMaskedAmount(
+        amount,
+        checked<Bytes32>(input.amountMask, 32, "merge amount mask"),
+      ),
+      maskedMint: mergeMaskedMint(decodeAddress(asset), [
+        checked<Bytes32>(input.mintMasks[0], 32, "merge mint mask 0"),
+        checked<Bytes32>(input.mintMasks[1], 32, "merge mint mask 1"),
+      ]),
+      maskSeed: input.maskSeed,
     });
   }
 
@@ -338,6 +382,8 @@ export class Merge {
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const firstNullifier = first.nullifier();
     const nullifierKey = keypair.nullifierKey();
+    const maskSeed = randomMergeMaskSeed();
+    const nonces = mergeMaskNonces(maskSeed);
     try {
       return new Merge({
         address: keypair.shieldedAddress(),
@@ -347,6 +393,12 @@ export class Merge {
         dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
+        maskSeed,
+        amountMask: mergeAmountMask(nullifierKey, firstNullifier, nonces.amount),
+        mintMasks: [
+          mergeMintMask(nullifierKey, firstNullifier, nonces.mint, 0),
+          mergeMintMask(nullifierKey, firstNullifier, nonces.mint, 1),
+        ],
         outputTreeId,
         ...(options.compact === true ? { compact: true } : {}),
       });
@@ -369,6 +421,9 @@ export class Merge {
       dummyNullifiers: this.#prepared.dummyNullifiers(),
       privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: this.#prepared.outputTreeId,
+      maskedAmount: this.#prepared.maskedAmount,
+      maskedMint: this.#prepared.maskedMint,
+      maskSeed: this.#prepared.maskSeed,
     });
     return this;
   }
@@ -384,6 +439,9 @@ export class Merge {
       dummyNullifiers: this.#prepared.dummyNullifiers(),
       privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: checkedTreeId(outputTreeId),
+      maskedAmount: this.#prepared.maskedAmount,
+      maskedMint: this.#prepared.maskedMint,
+      maskSeed: this.#prepared.maskSeed,
     });
     return this;
   }

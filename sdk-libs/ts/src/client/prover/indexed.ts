@@ -78,6 +78,11 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
   const field = (name: string): Field => requestField(payload[name]);
   const fields = (name: string): readonly Field[] =>
     requestDecoder.list(payload[name], name).map(requestField);
+  const pair = (name: string): readonly [Field, Field] => {
+    const [first, second, ...rest] = fields(name);
+    if (first === undefined || second === undefined || rest.length !== 0) throw invalid();
+    return [first, second];
+  };
   const inputs = requestDecoder.list(payload["inputs"], "inputs").map(decodePreparedInput);
   const common = {
     inputs,
@@ -121,6 +126,11 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               ? {}
               : { userNullifierSecret: field("userNullifierSecret") }),
             allowDummyInputs: field("allowDummyInputs"),
+            maskedAmount: field("maskedAmount"),
+            mintChunks: pair("mintChunks"),
+            maskedMint: pair("maskedMint"),
+            amountMaskNonce: field("amountMaskNonce"),
+            mintMaskNonce: field("mintMaskNonce"),
             outputRingDataHash: field("outputRingDataHash"),
           },
         }
@@ -317,7 +327,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
     inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+      (inputs.circuit === "merge" ? 13 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {

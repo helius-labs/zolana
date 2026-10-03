@@ -62,8 +62,9 @@ type MergeParameters struct {
 	// slot's tree.
 	OutputTreeID *big.Int
 
-	// Asset is the single asset shared by every real input and the merged output.
-	Asset *big.Int
+	// MintChunks are the packed chunks of the single mint shared by every real
+	// input and the merged output; the circuit derives the asset from them.
+	MintChunks [2]*big.Int
 
 	// RingProgramID is the policy-ring merge circuit's top-level public
 	// RingProgramID input (the ring program's pk_field). Every real input and the
@@ -88,6 +89,10 @@ type MergeParameters struct {
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
 	AllowDummyInputs *big.Int
+	MaskedAmount     *big.Int
+	MaskedMint       [2]*big.Int
+	AmountMaskNonce  *big.Int
+	MintMaskNonce    *big.Int
 
 	PublicInputHash *big.Int
 }

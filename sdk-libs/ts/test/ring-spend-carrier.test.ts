@@ -88,6 +88,7 @@ function fixture(leafTreeId = 4) {
     txSignature: "1".repeat(88) as Signature,
     slot: 77n,
     proofless: false,
+    merge: false,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,
     nullifiers: [field(16)],

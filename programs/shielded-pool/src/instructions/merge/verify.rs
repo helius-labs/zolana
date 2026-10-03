@@ -5,7 +5,9 @@ use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::{merge_circuit_width, MergeTransactIxDataRef},
+        instruction_data::merge_transact::{
+            merge_circuit_width, MergeMaskNonces, MergeTransactIxDataRef,
+        },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
@@ -119,10 +121,13 @@ impl<'a> MergeProof<'a> {
     /// hash, dummy-input policy); the default merge then appends the owner's
     /// signing identity and nullifier public key (from the registry), while the
     /// policy-ring merge omits that identity (no registry to bind it against) and
-    /// appends the output `ring_data_hash` and `ring_program_id`. The 7-element
-    /// prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group without
-    /// padding. Continuing from its hash with the two-element owner-binding tail
-    /// is therefore equivalent to folding all 9 elements together.
+    /// appends the output `ring_data_hash` and `ring_program_id`. The masked
+    /// output amount, the two masked mint chunks and the two mask nonces derived
+    /// from `mask_seed` sit between the two. The 7-element prefix is 1 + 3 + 3,
+    /// so it ends on a complete HashChain4 group without padding. Continuing
+    /// from its hash with the five masking elements and the two-element
+    /// owner-binding tail is therefore equivalent to folding all 14 elements
+    /// together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -135,20 +140,29 @@ impl<'a> MergeProof<'a> {
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,
         ])?;
-        match &self.derived.owner_binding {
+        let [masked_mint_prefix, masked_mint_last] = self.ix.masked_mint;
+        let tail = match &self.derived.owner_binding {
             MergeOwnerBinding::Ring {
                 ring_program_id,
                 output_ring_data_hash,
-            } => create_hash_chain_4_from_slice(&[
-                prefix_hash,
-                *output_ring_data_hash,
-                *ring_program_id,
-            ]),
+            } => [*output_ring_data_hash, *ring_program_id],
             MergeOwnerBinding::Default {
                 signing_pk_field,
                 nullifier_pk,
-            } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),
-        }
+            } => [*signing_pk_field, *nullifier_pk],
+        };
+        let [first, second] = tail;
+        let nonces = MergeMaskNonces::derive(self.ix.mask_seed)?;
+        create_hash_chain_4_from_slice(&[
+            prefix_hash,
+            *self.ix.masked_amount,
+            masked_mint_prefix,
+            masked_mint_last,
+            nonces.amount,
+            nonces.mint,
+            first,
+            second,
+        ])
         .map_err(Into::into)
     }
 }

@@ -22,11 +22,14 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 /// Wire-valid default-rail merge data with a zeroed proof: eight distinct
 /// nullifiers against root-history slot 0, so every parse and tree step
-/// succeeds and only the checks under test can fail. The merge output is
-/// ciphertext-free (recovered from the first input and its nullifier).
+/// succeeds and only the checks under test can fail. The ciphertext is empty,
+/// which the program accepts because it never reads it.
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        masked_amount: [0u8; 32],
+        masked_mint: [[0u8; 32]; 2],
+        mask_seed: [0u8; 31],
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
@@ -166,6 +169,40 @@ fn merge_rejects_a_sent_zero_nullifier() {
             .err()
             .unwrap_or_else(|| panic!("a zero nullifier in slot {slot} must be rejected"));
         Rejection::pool(ShieldedPoolError::ZeroInputNullifier).assert_litesvm(error);
+    }
+}
+
+#[test]
+fn merge_rejects_a_non_canonical_masked_amount() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+
+    let mut data = merge_ix_data(true);
+    data.masked_amount = [0xff; 32];
+    let ix = merge_instruction(&rpc, &tree, record, data);
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a masked amount outside the scalar field must be rejected");
+    Rejection::pool(ShieldedPoolError::NonCanonicalMaskedAmount).assert_litesvm(error);
+}
+
+#[test]
+fn merge_rejects_a_non_canonical_masked_mint() {
+    for chunk in 0..2 {
+        let (mut rpc, tree) = merge_env();
+        let payer = rpc.payer.pubkey();
+        let record = write_user_record(&mut rpc, payer, None, true);
+
+        let mut data = merge_ix_data(true);
+        if let Some(masked) = data.masked_mint.get_mut(chunk) {
+            *masked = [0xff; 32];
+        }
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .expect_err("a masked mint chunk outside the scalar field must be rejected");
+        Rejection::pool(ShieldedPoolError::NonCanonicalMaskedMint).assert_litesvm(error);
     }
 }
 

@@ -57,6 +57,17 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "private tx hash",
         None,
         ShieldedPoolError::NonCanonicalPrivateTxHash,
+    )?;
+    check_field_element(
+        ix.masked_amount,
+        "masked amount",
+        None,
+        ShieldedPoolError::NonCanonicalMaskedAmount,
+    )?;
+    check_field_elements(
+        ix.masked_mint.iter(),
+        "masked mint",
+        ShieldedPoolError::NonCanonicalMaskedMint,
     )
 }
 

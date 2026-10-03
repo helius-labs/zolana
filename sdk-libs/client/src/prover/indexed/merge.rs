@@ -16,7 +16,8 @@ use zolana_interface::{
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::instructions::{
     merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
+        merge_dummy_nullifier, merge_mint_chunks, merge_output_blinding, merge_private_tx_blinding,
+        MergeMaskedOutput, MergeProofInputs,
     },
     transact::PrivateTxHash,
 };
@@ -190,6 +191,20 @@ impl IndexedMergePreparation {
             &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
         )
         .hash()?;
+        let mint = merge.output_utxo.asset.asset;
+        let MergeMaskedOutput {
+            masked_amount,
+            masked_mint,
+            nonces,
+            ..
+        } = MergeMaskedOutput::new(
+            &nullifier_key,
+            &first_nullifier,
+            &merge.mask_seed,
+            total,
+            &mint,
+        )?;
+        let [masked_mint_prefix, masked_mint_last] = masked_mint;
         let public_inputs = vec![
             create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
             output_hash,
@@ -197,6 +212,11 @@ impl IndexedMergePreparation {
             private,
             external,
             scalar_one(),
+            masked_amount,
+            masked_mint_prefix,
+            masked_mint_last,
+            nonces.amount,
+            nonces.mint,
             if merge.ring_program_id.is_some() {
                 ring_data_hash
             } else {
@@ -220,7 +240,7 @@ impl IndexedMergePreparation {
                 hash: hex_field(&output_hash),
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
-            asset: hex_field(&output.utxo.asset),
+            mint_chunks: merge_mint_chunks(&mint).map(|chunk| hex_field(&chunk)),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -229,6 +249,10 @@ impl IndexedMergePreparation {
             external_data_hash: hex_field(&external),
             private_tx_hash: hex_field(&private),
             allow_dummy_inputs: "0x1",
+            masked_amount: hex_field(&masked_amount),
+            masked_mint: masked_mint.map(|chunk| hex_field(&chunk)),
+            amount_mask_nonce: hex_field(&nonces.amount),
+            mint_mask_nonce: hex_field(&nonces.mint),
             output_ring_data_hash: hex_field(&ring_data_hash),
             ring_program_id: hex_field(&ring_hash),
         };
@@ -255,6 +279,9 @@ impl IndexedMergePreparation {
             private_tx_hash: private,
             cache_slot: cache.map(|target| target.slot),
             eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
+            masked_amount,
+            masked_mint,
+            mask_seed: merge.mask_seed,
         };
         Ok(PreparedIndexedMerge {
             request,
@@ -336,13 +363,17 @@ struct PreparedMergeJson {
     inputs: Vec<PreparedMergeInputJson>,
     output: MergeOutputParamsJson,
     output_tree_id: String,
-    asset: String,
+    mint_chunks: [String; 2],
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
     external_data_hash: String,
     private_tx_hash: String,
     allow_dummy_inputs: &'static str,
+    masked_amount: String,
+    masked_mint: [String; 2],
+    amount_mask_nonce: String,
+    mint_mask_nonce: String,
     output_ring_data_hash: String,
     ring_program_id: String,
 }
@@ -410,8 +441,14 @@ mod tests {
                 .get("statePathElements")
                 .is_none());
             assert_eq!(body["inputs"][1]["commitment"], serde_json::Value::Null);
-            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 8);
-            assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
+            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 13);
+            assert_eq!(body["publicInputs"][6], body["prepared"]["maskedAmount"]);
+            assert_eq!(body["publicInputs"][7], body["prepared"]["maskedMint"][0]);
+            assert_eq!(body["publicInputs"][9], body["prepared"]["amountMaskNonce"]);
+            assert_eq!(
+                body["publicInputs"][12],
+                body["prepared"]["userNullifierPk"]
+            );
         }
     }
 

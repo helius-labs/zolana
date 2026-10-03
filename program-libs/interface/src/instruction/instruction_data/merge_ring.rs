@@ -65,6 +65,9 @@ mod tests {
                 nullifier_tree_root_index: 10,
                 private_tx_hash: [3u8; 32],
                 eddsa_owner: false,
+                masked_amount: [5u8; 32],
+                masked_mint: [[0u8; 32]; 2],
+                mask_seed: [0u8; 31],
             },
         }
     }

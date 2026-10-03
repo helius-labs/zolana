@@ -62,9 +62,16 @@ pub fn transact_ix(
     }
 }
 
+pub const MERGE_MASKED_AMOUNT: [u8; 32] = [0x5A; 32];
+pub const MERGE_MASKED_MINT: [[u8; 32]; 2] = [[0x5B; 32], [0x5C; 32]];
+pub const MERGE_MASK_SEED: [u8; 31] = [0x5D; 31];
+
 pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        masked_amount: MERGE_MASKED_AMOUNT,
+        masked_mint: MERGE_MASKED_MINT,
+        mask_seed: MERGE_MASK_SEED,
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash,

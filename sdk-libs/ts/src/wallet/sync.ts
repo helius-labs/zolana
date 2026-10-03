@@ -397,6 +397,7 @@ async function collectProoflessDeposits(
           messages: Object.freeze([]),
           nullifiers: Object.freeze([]),
           proofless: true,
+          merge: false,
         }),
       );
     }

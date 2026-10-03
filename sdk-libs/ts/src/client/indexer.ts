@@ -510,6 +510,7 @@ function convertShieldedTransaction(
     ),
     nullifiers: Object.freeze(item.nullifiers.map(copyHash)),
     proofless: item.proofless,
+    merge: item.merge,
     ...(item.ringConfig === undefined ? {} : { ringConfig: item.ringConfig }),
     ...(item.ringProgramId === undefined ? {} : { ringProgramId: item.ringProgramId }),
   });

@@ -962,6 +962,9 @@ fn tx_size(args: Vec<String>) {
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
             cache_slot: None,
+            masked_amount: [0u8; 32],
+            masked_mint: [[0u8; 32]; 2],
+            mask_seed: [0u8; 31],
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],

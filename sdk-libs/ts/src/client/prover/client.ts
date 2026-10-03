@@ -713,13 +713,17 @@ function mergeProverRequest(
         }
       : {}),
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
-    asset: hex(inputs.output.circuit.asset, "asset"),
+    mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),
     externalDataHash: hex(inputs.externalDataHash, "externalDataHash"),
     privateTxHash: hex(inputs.privateTxHash, "privateTxHash"),
     allowDummyInputs: hex(inputs.allowDummyInputs, "allowDummyInputs"),
+    maskedAmount: hex(inputs.maskedAmount, "maskedAmount"),
+    maskedMint: inputs.maskedMint.map((chunk) => hex(chunk, "maskedMint")),
+    amountMaskNonce: hex(inputs.amountMaskNonce, "amountMaskNonce"),
+    mintMaskNonce: hex(inputs.mintMaskNonce, "mintMaskNonce"),
     outputRingDataHash: hex(inputs.outputRingDataHash, "outputRingDataHash"),
     ringProgramId: hex(inputs.ringProgramId, "ringProgramId"),
   });

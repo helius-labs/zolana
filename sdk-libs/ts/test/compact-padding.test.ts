@@ -18,6 +18,7 @@ import {
   SppProofInputs,
   Utxo,
   createProofOutput,
+  randomMergeMaskSeed,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
 
@@ -298,6 +299,9 @@ describe("compact padding", () => {
         nullifierPublicKey: prepared.nullifierPublicKey,
         dummyNullifiers,
         privateTxBlinding: prepared.privateTxBlinding(),
+        maskedAmount: prepared.maskedAmount,
+        maskedMint: prepared.maskedMint,
+        maskSeed: prepared.maskSeed,
         outputTreeId: prepared.outputTreeId,
       });
     const compact = () => ProofInputUtxo.compact(prepared.inputTreeId);
@@ -344,6 +348,9 @@ describe("compact padding", () => {
           inputs: [first],
           outputBlinding: randomBlinding(),
           privateTxBlinding: randomBlinding(),
+          maskSeed: randomMergeMaskSeed(),
+          amountMask: randomBlinding(),
+          mintMasks: [randomBlinding(), randomBlinding()],
           dummyNullifiers: [],
           ring: { programId: PAYER },
           compact: true,

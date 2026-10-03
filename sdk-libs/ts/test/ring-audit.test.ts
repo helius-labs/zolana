@@ -271,6 +271,7 @@ describe("ring audit spend records", () => {
       ],
       nullifiers: [],
       proofless: false,
+      merge: false,
     };
   }
 

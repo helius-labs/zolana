@@ -32,6 +32,7 @@ function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
             messages: [],
             nullifiers: [],
             proofless: false,
+            merge: false,
           },
         })),
       });

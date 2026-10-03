@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
 	merge "zolana/prover/circuits/spp_merge"
@@ -42,7 +43,7 @@ type mergeFixtureOptions struct {
 	externalDataHash  *big.Int
 	rail              mergeFixtureRail
 	eddsa             bool
-	asset             *big.Int
+	mint              *[32]byte
 	ringProgramID     *big.Int
 	inputRingData     []*big.Int
 	outputRingData    *big.Int
@@ -108,7 +109,7 @@ type mergeWitnessFixture struct {
 	inputs []merge.Input
 	output merge.Output
 
-	asset               *big.Int
+	mintChunks          [mergeshared.MintChunkCount]*big.Int
 	ownerPkHash         *big.Int
 	userNullifierPk     *big.Int
 	userNullifierSecret *big.Int
@@ -172,10 +173,15 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		t.Fatal(err)
 	}
 
-	asset := big.NewInt(1)
-	if options.asset != nil {
-		asset = new(big.Int).Set(options.asset)
+	mint := fixtureMint
+	if options.mint != nil {
+		mint = *options.mint
 	}
+	asset, err := protocol.AssetField(mint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mintChunks := fixtureMintChunks(mint)
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
 	blindings := []*big.Int{big.NewInt(0x1111), big.NewInt(0x2222)}
@@ -303,6 +309,15 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	amountNonce := big.NewInt(fixtureAmountMaskNonce)
+	mintNonce := big.NewInt(fixtureMintMaskNonce)
+	maskedAmount := maskWith(t, outAmount,
+		big.NewInt(mergeshared.MergeAmountMaskDomain), nullifierSecret, nullifiers[0], amountNonce)
+	var maskedMint [mergeshared.MintChunkCount]*big.Int
+	for i, chunk := range mintChunks {
+		maskedMint[i] = maskWith(t, chunk,
+			big.NewInt(mergeshared.MergeMintMaskDomain), nullifierSecret, nullifiers[0], mintNonce, big.NewInt(int64(i)))
+	}
 	outputOwnerHash := userOwnerHash
 	if options.outputNullifierPk != nil {
 		outputOwnerHash, err = protocol.OwnerHash(ownerKeyHash, options.outputNullifierPk)
@@ -407,6 +422,11 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		privateTxHash,
 		externalDataHash,
 		allowDummyInputs,
+		maskedAmount,
+		maskedMint[0],
+		maskedMint[1],
+		amountNonce,
+		mintNonce,
 	}
 	switch options.rail {
 	case defaultFixtureRail:
@@ -433,6 +453,10 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID
+	public.MaskedAmount = maskedAmount
+	public.MaskedMint = [mergeshared.MintChunkCount]frontend.Variable{maskedMint[0], maskedMint[1]}
+	public.AmountMaskNonce = amountNonce
+	public.MintMaskNonce = mintNonce
 	for k, slot := range treeSlots {
 		public.TreeSlots[k] = transaction.TreeSlot{
 			ID:            slot.ID,
@@ -479,7 +503,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	return &mergeWitnessFixture{
 		inputs:              inputs,
 		output:              merge.Output{RingDataHash: outputRingData},
-		asset:               asset,
+		mintChunks:          mintChunks,
 		ownerPkHash:         ownerKeyHash,
 		userNullifierPk:     userNullifierPk,
 		userNullifierSecret: nullifierSecret,
@@ -495,7 +519,7 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment := merge.NewMergeCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
-	assignment.Asset = f.asset
+	assignment.MintChunks = [mergeshared.MintChunkCount]frontend.Variable{f.mintChunks[0], f.mintChunks[1]}
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
@@ -509,7 +533,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment := merge.NewMergeRingCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
-	assignment.Asset = f.asset
+	assignment.MintChunks = [mergeshared.MintChunkCount]frontend.Variable{f.mintChunks[0], f.mintChunks[1]}
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
@@ -527,6 +551,38 @@ func hashChain4(t testing.TB, in []*big.Int) *big.Int {
 		t.Fatal(err)
 	}
 	return h
+}
+
+// fixtureMint has a nonzero last byte so both mint chunks carry data.
+var fixtureMint = [32]byte{
+	0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+	0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30,
+}
+
+const (
+	fixtureAmountMaskNonce = 0x5eed
+	fixtureMintMaskNonce   = 0x5eef
+)
+
+// fixtureMintChunks packs mint as hash_bytes does: its first 31 bytes, then its
+// last byte, each big-endian.
+func fixtureMintChunks(mint [32]byte) [mergeshared.MintChunkCount]*big.Int {
+	return [mergeshared.MintChunkCount]*big.Int{
+		new(big.Int).SetBytes(mint[:31]),
+		new(big.Int).SetBytes(mint[31:]),
+	}
+}
+
+// maskWith adds Poseidon(maskInputs) to value in the scalar field, the way the
+// circuit publishes a masked merge value.
+func maskWith(t testing.TB, value *big.Int, maskInputs ...*big.Int) *big.Int {
+	t.Helper()
+	mask, err := poseidon.Hash(maskInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	masked := new(big.Int).Add(value, mask)
+	return masked.Mod(masked, ecc.BN254.ScalarField())
 }
 
 func fillPath(dst []frontend.Variable, src []*big.Int) {

@@ -1199,6 +1199,7 @@ components:
       - messages
       - nullifiers
       - proofless
+      - merge
       properties:
         eventIndex:
           type:
@@ -1206,6 +1207,9 @@ components:
           - 'null'
           format: u-int16
           minimum: 0
+        merge:
+          type: boolean
+          description: True for a `merge_transact` or `merge_ring`.
         messages:
           type: array
           items:

@@ -165,6 +165,7 @@ mod tests {
             }],
             nullifiers: vec![hash(7)],
             proofless: true,
+            merge: false,
             ring_config: Some(pubkey(11)),
             ring_program_id: Some(pubkey(12)),
         })

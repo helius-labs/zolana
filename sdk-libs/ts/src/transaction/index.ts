@@ -28,6 +28,7 @@ export {
   createExternalData,
   createInputUtxo,
   encodeConfidentialSlots,
+  randomMergeMaskSeed,
   privateTxHash,
   resolveShape,
   signedToField,

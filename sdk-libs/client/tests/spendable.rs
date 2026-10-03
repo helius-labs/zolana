@@ -10,11 +10,11 @@ use zolana_client::{
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
 };
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
+        merge_dummy_nullifier, merge_output_blinding, MergeMaskedOutput, MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash,
     serialization::proofless::{Proofless, ProoflessEncode},
@@ -216,7 +216,8 @@ fn deposit(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> (EncryptedUtxoMat
     (matched, deposited)
 }
 
-/// A merge of `inputs`, its output tagged with `view_tag`.
+/// A merge of `inputs`, its output tagged with `view_tag`, rebuilt from the
+/// masked amount and mint in its message.
 fn merge(
     owner: &ShieldedKeypair,
     inputs: &[&Note],
@@ -232,6 +233,14 @@ fn merge(
     let mut utxo = inputs[0].utxo.clone();
     utxo.amount = inputs.iter().map(|input| input.utxo.amount).sum();
     utxo.blinding = merge_output_blinding(&owner.nullifier_key, &first).unwrap();
+    let masked = MergeMaskedOutput::new(
+        &owner.nullifier_key,
+        &first,
+        &[nonce; 31],
+        utxo.amount,
+        &utxo.asset.asset,
+    )
+    .unwrap();
     let merged = note(owner, utxo, [0; 32]);
     let tx = ShieldedTransaction {
         slot: u64::from(nonce),
@@ -245,9 +254,13 @@ fn merge(
             u64::from(nonce),
             Vec::new(),
         )],
-        messages: Vec::new(),
+        messages: vec![MessageData {
+            view_tag,
+            data: masked.derivation(None).encode(),
+        }],
         nullifiers,
         proofless: false,
+        merge: true,
         ring_config: None,
         ring_program_id: None,
     };
@@ -266,6 +279,7 @@ fn spend(owner: &ShieldedKeypair, input: &Note, nonce: u8) -> ShieldedTransactio
         messages: Vec::new(),
         nullifiers: vec![input.nullifier],
         proofless: false,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     }

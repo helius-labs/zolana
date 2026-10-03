@@ -1670,6 +1670,8 @@ export interface IndexedShieldedTransaction {
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
   readonly nullifiers: readonly Bytes32[];
   readonly proofless: boolean;
+  /** Emitted by `merge_transact` or `merge_ring`, as the indexer reports it. */
+  readonly merge: boolean;
   readonly ringConfig?: Address;
   readonly ringProgramId?: Address;
 }

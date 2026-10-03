@@ -22,6 +22,7 @@ import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 import { encodeOutputData, EncryptedScheme } from "../src/transaction/serialization/codecs.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import { mergeMessageData } from "./helpers/merge-message.js";
 import { buildRingDepositTransaction } from "../src/ring/deposit.js";
 import { decodeRingDepositAudit } from "../src/ring/codecs.js";
 import { fetchRingDepositAudit, setRingDepositAuditInstruction } from "../src/ring/config.js";
@@ -613,6 +614,7 @@ describe("deposit recovery", () => {
       eventIndex: 0,
       ringProgramId: RING,
       proofless: true,
+      merge: false,
       nullifiers: [],
       messages: [],
       outputSlots: [
@@ -691,18 +693,24 @@ describe("deposit recovery", () => {
         eventIndex: 0,
         ringProgramId: RING,
         proofless: false,
+        merge: true,
         nullifiers: [
           nullifier,
           ...Array.from({ length: 7 }, (_, index) =>
             mergeDummyNullifier(key, nullifier, index + 1),
           ),
         ],
-        messages: [],
+        messages: [
+          {
+            viewTag: nullifier,
+            data: mergeMessageData(key, nullifier, 7n, SOL_MINT, ringDataHash),
+          },
+        ],
         outputSlots: [
           {
             viewTag: nullifier,
             outputContext: { hash: mergedHash, tree: treeAddress(1), leafIndex: 2n },
-            payload: ringDataHash,
+            payload: new Uint8Array(),
           },
         ],
       };

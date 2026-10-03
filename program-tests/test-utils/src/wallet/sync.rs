@@ -983,6 +983,7 @@ fn proofless_deposit_from_indexed_match(
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
+        merge: false,
         ring_config: None,
         ring_program_id: None,
     }))
@@ -1014,6 +1015,7 @@ fn convert_sync_transaction(
         messages: tx.messages,
         nullifiers: tx.nullifiers,
         proofless: false,
+        merge: tx.merge,
         ring_config: tx.ring_config,
         ring_program_id: tx.ring_program_id,
     })
@@ -1031,6 +1033,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
+    use zolana_event::MessageData;
     use zolana_interface::{
         event::{encode_output_data, ProoflessOutput},
         pda,
@@ -1038,7 +1041,7 @@ mod tests {
     use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{
-            merge::MergeTransaction as MergePlan,
+            merge::{MergeMaskedOutput, MergeTransaction as MergePlan},
             transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
         },
         serialization::Proofless,
@@ -1131,6 +1134,7 @@ mod tests {
                     messages: Vec::new(),
                     nullifiers: Vec::new(),
                     proofless: false,
+                    merge: false,
                     ring_config: None,
                     ring_program_id: None,
                 })
@@ -1182,6 +1186,7 @@ mod tests {
                     messages: Vec::new(),
                     nullifiers: vec![*nullifier],
                     proofless: false,
+                    merge: false,
                     ring_config: None,
                     ring_program_id: None,
                 })
@@ -2509,6 +2514,7 @@ mod tests {
                 messages: Vec::new(),
                 nullifiers: Vec::new(),
                 proofless: false,
+                merge: false,
                 ring_config: None,
                 ring_program_id: None,
             }],
@@ -2837,6 +2843,7 @@ mod tests {
             messages,
             nullifiers,
             proofless: false,
+            merge: false,
             ring_config: None,
             ring_program_id: None,
         }
@@ -2870,6 +2877,19 @@ mod tests {
             .signing_pubkey()
             .confidential_view_tag()
             .expect("owner tag");
+        let nullifiers: Vec<_> = commitments
+            .into_iter()
+            .map(|commitment| commitment.nullifier)
+            .collect();
+        let first_nullifier = nullifiers.first().expect("first nullifier");
+        let masked = MergeMaskedOutput::new(
+            &owner.nullifier_key,
+            first_nullifier,
+            &prepared.mask_seed,
+            prepared.output_utxo.amount,
+            &prepared.output_utxo.asset.asset,
+        )
+        .expect("masked merge output");
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
@@ -2885,12 +2905,13 @@ mod tests {
                 },
                 payload: Vec::new(),
             }],
-            messages: Vec::new(),
-            nullifiers: commitments
-                .into_iter()
-                .map(|commitment| commitment.nullifier)
-                .collect(),
+            messages: vec![MessageData {
+                view_tag: output_view_tag,
+                data: masked.derivation(None).encode(),
+            }],
+            nullifiers,
             proofless: false,
+            merge: true,
             ring_config: None,
             ring_program_id: None,
         }

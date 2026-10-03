@@ -244,18 +244,9 @@ func TestMergeCircuitRejectsTamperedPublicInput(t *testing.T) {
 
 func TestMergeCircuitRejectsWrongAsset(t *testing.T) {
 	a := buildValidWitness(t)
-	a.Asset = big.NewInt(0xBADBAD)
+	a.MintChunks[0] = big.NewInt(0xBADBAD)
 	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected asset-uniformity failure, got solved")
-	}
-}
-
-// Asset zero is reserved for content-less slots. Build an otherwise internally
-// consistent asset-zero merge so only the real-output asset invariant rejects it.
-func TestMergeCircuitRejectsZeroAsset(t *testing.T) {
-	a := buildDefaultWitness(t, mergeFixtureOptions{asset: big.NewInt(0)})
-	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected zero-asset failure, got solved")
 	}
 }
 

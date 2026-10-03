@@ -1,5 +1,5 @@
 {
-  "description": "Known-answer vectors for the transfer and merge public input hashes. Every value is a 32-byte big-endian hex string; nullifier, output hash and owner lists span the circuit width, with 0 for compact padding, and a published owner list shorter than the outputs is padded with 0. Transfers are zolana_client::PublicInputs::hash; merges hash the MergeProver::build element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs print_public_input_hash_vectors: cargo test -p zolana-client --test public_input_hash_vectors print_public_input_hash_vectors -- --ignored --nocapture",
+  "description": "Known-answer vectors for the transfer and merge public input hashes. Every value is a 32-byte big-endian hex string except a merge's 31-byte mask_seed, from which SPP derives amount_mask_nonce and mint_mask_nonce; nullifier, output hash and owner lists span the circuit width, with 0 for compact padding, and a published owner list shorter than the outputs is padded with 0. Transfers are zolana_client::PublicInputs::hash; merges hash the MergeProver::build element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs print_public_input_hash_vectors: cargo test -p zolana-client --test public_input_hash_vectors print_public_input_hash_vectors -- --ignored --nocapture",
   "transfers": [
     {
       "name": "full_2x3",
@@ -430,6 +430,14 @@
       "output_tree_id": 1,
       "private_tx_hash": "0000000000000000000000000000000000000000000000000000000000000052",
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
+      "masked_amount": "0000000000000000000000000000000000000000000000000000000000000056",
+      "masked_mint": [
+        "0000000000000000000000000000000000000000000000000000000000000057",
+        "0000000000000000000000000000000000000000000000000000000000000058"
+      ],
+      "mask_seed": "59595959595959595959595959595959595959595959595959595959595959",
+      "amount_mask_nonce": "00c72bbb1c6ddcf6338624122b7a940d8b315b5200c9e992deabf92d0cdd0432",
+      "mint_mask_nonce": "00016293b279f1c4713eb27017fb1c5e8a7bdc4a2f5bbfa41370720c1f37c39d",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
       "tree_slots": [
@@ -459,7 +467,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "28b9d63a492ec203c0f52aa535699dd6592920b80ad376dc8ab22208f0874243"
+      "public_input_hash": "1570e44928b270fa66635803b4f711175cc493316e1fb6d98081b0c18e940443"
     },
     {
       "name": "compact_8",
@@ -477,6 +485,14 @@
       "output_tree_id": 1,
       "private_tx_hash": "0000000000000000000000000000000000000000000000000000000000000052",
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
+      "masked_amount": "0000000000000000000000000000000000000000000000000000000000000056",
+      "masked_mint": [
+        "0000000000000000000000000000000000000000000000000000000000000057",
+        "0000000000000000000000000000000000000000000000000000000000000058"
+      ],
+      "mask_seed": "59595959595959595959595959595959595959595959595959595959595959",
+      "amount_mask_nonce": "00c72bbb1c6ddcf6338624122b7a940d8b315b5200c9e992deabf92d0cdd0432",
+      "mint_mask_nonce": "00016293b279f1c4713eb27017fb1c5e8a7bdc4a2f5bbfa41370720c1f37c39d",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
       "tree_slots": [
@@ -506,7 +522,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "09044efb4e726d74cf10699f406f5504c42d86b71e312932d1154c6b8ba6a613"
+      "public_input_hash": "1179364d8533a682da2b2d19b40873465b8bb702847e110686675ccd33d2f0ec"
     },
     {
       "name": "full_36",
@@ -552,6 +568,14 @@
       "output_tree_id": 1,
       "private_tx_hash": "0000000000000000000000000000000000000000000000000000000000000052",
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
+      "masked_amount": "0000000000000000000000000000000000000000000000000000000000000056",
+      "masked_mint": [
+        "0000000000000000000000000000000000000000000000000000000000000057",
+        "0000000000000000000000000000000000000000000000000000000000000058"
+      ],
+      "mask_seed": "59595959595959595959595959595959595959595959595959595959595959",
+      "amount_mask_nonce": "00c72bbb1c6ddcf6338624122b7a940d8b315b5200c9e992deabf92d0cdd0432",
+      "mint_mask_nonce": "00016293b279f1c4713eb27017fb1c5e8a7bdc4a2f5bbfa41370720c1f37c39d",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
       "tree_slots": [
@@ -581,7 +605,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "074d5b4fdf44cb6241a656fd89eff19bbc06abc309ded5b3b9e4ba063c2d654a"
+      "public_input_hash": "1b587468706985f7a489ae21dfadef0bfe4a117b13ddc11ccc29baa706795920"
     },
     {
       "name": "compact_36",
@@ -627,6 +651,14 @@
       "output_tree_id": 1,
       "private_tx_hash": "0000000000000000000000000000000000000000000000000000000000000052",
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
+      "masked_amount": "0000000000000000000000000000000000000000000000000000000000000056",
+      "masked_mint": [
+        "0000000000000000000000000000000000000000000000000000000000000057",
+        "0000000000000000000000000000000000000000000000000000000000000058"
+      ],
+      "mask_seed": "59595959595959595959595959595959595959595959595959595959595959",
+      "amount_mask_nonce": "00c72bbb1c6ddcf6338624122b7a940d8b315b5200c9e992deabf92d0cdd0432",
+      "mint_mask_nonce": "00016293b279f1c4713eb27017fb1c5e8a7bdc4a2f5bbfa41370720c1f37c39d",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
       "tree_slots": [
@@ -656,7 +688,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "0babf819775f4945e4300e26f5e57ec3a4b589cd9b10fbeab7d6a8b074ffdb90"
+      "public_input_hash": "0b9f8a08b922cc491ff9e12f35c06237253b9b4da30cf1280ade0368508c4361"
     }
   ]
 }

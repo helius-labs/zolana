@@ -38,15 +38,19 @@ type MergeParametersJSON struct {
 	TreeSlots []common.TreeSlotParamsJSON `json:"treeSlots"`
 	// OutputTreeID is the raw u16 id of the tree the merged output is inserted
 	// into.
-	OutputTreeID        string `json:"outputTreeId"`
-	Asset               string `json:"asset"`
-	OwnerPkHash         string `json:"ownerPkHash"`
-	UserNullifierPk     string `json:"userNullifierPk"`
-	UserNullifierSecret string `json:"userNullifierSecret"`
-	ExternalDataHash    string `json:"externalDataHash"`
-	PrivateTxHash       string `json:"privateTxHash"`
-	PublicInputHash     string `json:"publicInputHash"`
-	AllowDummyInputs    string `json:"allowDummyInputs"`
+	OutputTreeID        string    `json:"outputTreeId"`
+	MintChunks          [2]string `json:"mintChunks"`
+	OwnerPkHash         string    `json:"ownerPkHash"`
+	UserNullifierPk     string    `json:"userNullifierPk"`
+	UserNullifierSecret string    `json:"userNullifierSecret"`
+	ExternalDataHash    string    `json:"externalDataHash"`
+	PrivateTxHash       string    `json:"privateTxHash"`
+	PublicInputHash     string    `json:"publicInputHash"`
+	AllowDummyInputs    string    `json:"allowDummyInputs"`
+	MaskedAmount        string    `json:"maskedAmount"`
+	MaskedMint          [2]string `json:"maskedMint"`
+	AmountMaskNonce     string    `json:"amountMaskNonce"`
+	MintMaskNonce       string    `json:"mintMaskNonce"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
 	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
 	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
@@ -78,7 +82,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		CircuitType:         circuitType,
 		TreeSlots:           common.TreeSlotsToJSON(p.TreeSlots),
 		OutputTreeID:        common.FeHex(p.OutputTreeID),
-		Asset:               common.FeHex(p.Asset),
+		MintChunks:          [2]string{common.FeHex(p.MintChunks[0]), common.FeHex(p.MintChunks[1])},
 		RingProgramID:       common.FeHex(p.RingProgramID),
 		OutputRingDataHash:  common.FeHex(p.OutputRingDataHash),
 		OwnerPkHash:         common.FeHex(p.OwnerPkHash),
@@ -88,6 +92,10 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
+		MaskedAmount:        common.FeHex(p.MaskedAmount),
+		MaskedMint:          [2]string{common.FeHex(p.MaskedMint[0]), common.FeHex(p.MaskedMint[1])},
+		AmountMaskNonce:     common.FeHex(p.AmountMaskNonce),
+		MintMaskNonce:       common.FeHex(p.MintMaskNonce),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -165,8 +173,22 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.AllowDummyInputs, err = common.FeFromHex(params.AllowDummyInputs); err != nil {
 		return err
 	}
-	if p.Asset, err = common.FeFromHex(params.Asset); err != nil {
+	if p.MaskedAmount, err = common.FeFromHex(params.MaskedAmount); err != nil {
 		return err
+	}
+	if p.AmountMaskNonce, err = common.FeFromHex(params.AmountMaskNonce); err != nil {
+		return err
+	}
+	if p.MintMaskNonce, err = common.FeFromHex(params.MintMaskNonce); err != nil {
+		return err
+	}
+	for i := range p.MintChunks {
+		if p.MintChunks[i], err = common.FeFromHex(params.MintChunks[i]); err != nil {
+			return err
+		}
+		if p.MaskedMint[i], err = common.FeFromHex(params.MaskedMint[i]); err != nil {
+			return err
+		}
 	}
 
 	p.Inputs = make([]InputParams, len(params.Inputs))

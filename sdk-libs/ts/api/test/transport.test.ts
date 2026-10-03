@@ -94,6 +94,7 @@ describe("transport configuration", () => {
                 messages: [],
                 nullifiers: [],
                 proofless: false,
+                merge: false,
               },
             },
           ],

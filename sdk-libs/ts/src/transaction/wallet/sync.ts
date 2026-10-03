@@ -1,4 +1,5 @@
-import { mergePaddedInputCount } from "../../interface/constants.js";
+import { decodeMergeOutputDerivation, mergeMaskNonces } from "../../interface/codecs/index.js";
+import { mergeUnmaskedAmount, mergeUnmaskedMint } from "../../keypair/merge/index.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -7,7 +8,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, equal } from "../internal.js";
+import { copy, decodeAddress, encodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
@@ -132,7 +133,7 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
+    if (tx.merge) {
       for (const slotIndex of tx.outputSlots.keys()) {
         mergeSites.push({ transaction, slot: slotIndex });
         classified = true;
@@ -938,87 +939,88 @@ class SyncPass {
     }
   }
 
-  /** Missing inputs may be outputs of another merge in the same batch. */
+  /**
+   * The merged output from public data and the nullifier secret alone: the
+   * proof binds the blinding, the masked amount and the masked mint to the
+   * first published nullifier, so no input needs to be held, not even one a
+   * merger planted without telling the owner. The mint is stored as published,
+   * like a proofless deposit's, whether or not the registry knows it.
+   */
   #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
     const slot = tx.outputSlots[site.slot];
+    const message = tx.messages[0];
+    const derivation =
+      message === undefined ? undefined : decodeMergeOutputDerivation(message.data);
     const firstNullifier = tx.nullifiers[0];
+    const ringDataHash = derivation?.outputRingDataHash;
+    const ringProgramId = ringDataHash === undefined ? undefined : tx.ringProgramId;
     if (
       slot === undefined ||
+      derivation === undefined ||
       firstNullifier === undefined ||
-      !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
+      (ringDataHash !== undefined && ringProgramId === undefined)
     ) {
-      return false;
-    }
-
-    // A merge publishes its sent nullifiers; compact padding is left out.
-    if (mergePaddedInputCount(tx.nullifiers.length) === undefined) {
       this.undecryptableCandidates++;
       return true;
     }
-    // Requested together so one round answers both, and read before any
-    // matching: a pending derivation means "not yet", never "not a merge".
-    const dummyNullifiers = tx.nullifiers.map((_, index) =>
-      this.#keys.derive({ kind: "mergeDummyNullifier", firstNullifier, slotIndex: index }),
-    );
+    const nonces = mergeMaskNonces(derivation.maskSeed);
+    // Requested together so one round answers all four.
     const outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
-    if (outputBlinding === undefined || dummyNullifiers.some((value) => value === undefined)) {
+    const amountMask = this.#keys.derive({
+      kind: "mergeAmountMask",
+      firstNullifier,
+      nonce: nonces.amount,
+    });
+    const mintMasks = [0, 1].map((chunkIndex) =>
+      this.#keys.derive({ kind: "mergeMintMask", firstNullifier, nonce: nonces.mint, chunkIndex }),
+    );
+    const [mintPrefixMask, mintLastMask] = mintMasks;
+    if (
+      outputBlinding === undefined ||
+      amountMask === undefined ||
+      mintPrefixMask === undefined ||
+      mintLastMask === undefined
+    ) {
       return false;
     }
-
-    try {
-      const matched: WalletUtxo[] = [];
-      for (const [index, nullifier] of tx.nullifiers.entries()) {
-        const dummy = dummyNullifiers[index];
-        if (dummy !== undefined && equal(nullifier, dummy)) {
-          continue;
-        }
-        const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
-        if (entry === undefined) {
-          return false;
-        }
-        matched.push(entry);
-      }
-      const first = matched[0];
-      if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      let amount = 0n;
-      for (const entry of matched) {
-        amount += entry.utxo.amount;
-        if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
-      }
-      const ringProgramId = first.utxo.ringProgramId;
-      if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const ringDataHash =
-        ringProgramId === undefined
-          ? undefined
-          : slot.payload.length === 32
-            ? (copy(slot.payload) as Bytes32)
-            : null;
-      if (ringDataHash === null) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const utxo = new Utxo({
-        owner: this.#owner,
-        asset: first.utxo.asset,
-        amount,
-        blinding: outputBlinding,
-        ...(ringProgramId === undefined ? {} : { ringProgramId }),
-      });
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
-        this.#processedSlots.add(siteKey);
-        this.#recordMerge(tx, slot.outputContext, utxo);
-      }
-      return true;
-    } catch (error) {
-      this.#recordUndecryptable(error, siteKey);
+    const amount = mergeUnmaskedAmount(derivation.maskedAmount, amountMask);
+    const mint = mergeUnmaskedMint(derivation.maskedMint, [mintPrefixMask, mintLastMask]);
+    if (amount === undefined || mint === undefined) {
+      this.undecryptableCandidates++;
       return true;
     }
+    const utxo = new Utxo({
+      owner: this.#owner,
+      asset: encodeAddress(mint),
+      amount,
+      blinding: outputBlinding,
+      ...(ringProgramId === undefined ? {} : { ringProgramId }),
+    });
+    if (!this.#storeMerge(tx, slot, siteKey, utxo, ringDataHash)) this.undecryptableCandidates++;
+    return true;
+  }
+
+  /** Stores `utxo` as the merge's output if it hashes to the commitment. */
+  #storeMerge(
+    tx: IndexedShieldedTransaction,
+    slot: IndexedShieldedTransaction["outputSlots"][number],
+    siteKey: string,
+    utxo: Utxo,
+    ringDataHash: Bytes32 | undefined,
+  ): boolean {
+    if (
+      !equal(
+        utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, ringDataHash),
+        slot.outputContext.hash,
+      )
+    ) {
+      return false;
+    }
+    if (this.#store(utxo, slot.outputContext, undefined, ringDataHash) !== "pending") {
+      this.#processedSlots.add(siteKey);
+      this.#recordMerge(tx, slot.outputContext, utxo);
+    }
+    return true;
   }
 
   /** The published transaction key and salt every encrypted scheme opens under. */

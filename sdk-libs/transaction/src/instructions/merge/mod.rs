@@ -8,8 +8,10 @@ mod ring;
 mod transaction;
 
 pub use blinding::{
-    merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
-    DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+    merge_amount_mask, merge_dummy_nullifier, merge_masked_amount, merge_masked_mint,
+    merge_mint_chunks, merge_mint_mask, merge_output_blinding, merge_private_tx_blinding,
+    merge_unmasked_amount, merge_unmasked_mint, MergeMaskedOutput, DOMAIN_MERGE_AMOUNT_MASK,
+    DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_MINT_MASK, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
 };
 pub use transaction::MergeProofInputs;
 pub use zolana_interface::instruction::instruction_data::merge_transact::{

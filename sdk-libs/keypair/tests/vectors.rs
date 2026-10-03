@@ -98,6 +98,12 @@ struct MergeRecovery {
     output_blinding: String,
     dummy_slot_index: u8,
     dummy_nullifier: String,
+    mask_seed: String,
+    amount_mask_nonce: String,
+    mint_mask_nonce: String,
+    amount_mask: String,
+    mint_mask_chunk: u8,
+    mint_mask: String,
     private_tx_blinding: String,
 }
 

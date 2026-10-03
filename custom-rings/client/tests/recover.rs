@@ -7,7 +7,7 @@ use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
 };
-use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
+use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, MessageData};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{
     AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery, NoteDataHashes,
@@ -15,7 +15,7 @@ use zolana_ring_client::{
     RingRecovery, SourceMember, TransactionOrigin,
 };
 use zolana_transaction::{
-    instructions::merge::MergeTransaction,
+    instructions::merge::{MergeMaskedOutput, MergeTransaction},
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     serialization::ring_deposit::RingDepositPlaintext,
     AssetRegistry, Mint, OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo,
@@ -154,6 +154,7 @@ impl Fixture {
             messages: vec![message],
             nullifiers: Vec::new(),
             proofless: false,
+            merge: false,
             ring_config: None,
             ring_program_id: Some(RING),
         };
@@ -166,7 +167,20 @@ impl Fixture {
             .with_output_tree_id(tree_id)
             .encrypt(&self.member)
             .expect("encrypt merge");
-        let first = prepared.input_utxos[0].nullifier();
+        let first = prepared
+            .input_utxos
+            .first()
+            .expect("a merge input")
+            .nullifier();
+        let masked = MergeMaskedOutput::new(
+            &self.member.nullifier_key,
+            &first,
+            &prepared.mask_seed,
+            prepared.output_utxo.amount,
+            &prepared.output_utxo.asset.asset,
+        )
+        .expect("masked merge output");
+        let ring_data_hash = prepared.output_utxo.ring_data_hash.expect("ring hash");
         let nullifiers = prepared
             .input_utxos
             .iter()
@@ -184,15 +198,15 @@ impl Fixture {
             output_slots: vec![OutputSlot {
                 view_tag: first,
                 output_context: output_context(&held),
-                payload: prepared
-                    .output_utxo
-                    .ring_data_hash
-                    .expect("ring hash")
-                    .to_vec(),
+                payload: Vec::new(),
             }],
-            messages: Vec::new(),
+            messages: vec![MessageData {
+                view_tag: first,
+                data: masked.derivation(Some(ring_data_hash)).encode(),
+            }],
             nullifiers,
             proofless: false,
+            merge: true,
             ring_config: None,
             ring_program_id: Some(RING),
         };
@@ -404,7 +418,7 @@ fn checks_whether_a_rebuilt_successor_was_spent_without_an_auditor_message() {
 }
 
 #[test]
-fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs() {
+fn a_merge_recovers_from_any_one_known_input_through_its_masked_amount() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -415,8 +429,8 @@ fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs
             ..Default::default()
         };
         let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
-        assert!(recovered.utxos.is_empty());
-        assert_eq!(recovered.unopened, vec![merged.utxo_hash]);
+        assert_eq!(recovered.utxos, vec![merged.clone()]);
+        assert!(recovered.unopened.is_empty());
     }
 }
 
