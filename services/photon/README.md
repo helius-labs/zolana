@@ -34,6 +34,10 @@ cargo run -p photon-indexer --bin photon-migration -- up
 cargo run -p photon-indexer --bin photon -- --db-url="$DATABASE_URL"
 ```
 
+`PHOTON_DATABASE_URL` and `PHOTON_RPC_URL` set `--db-url` and `--rpc-url`
+from the environment and keep credentials off the command line.
+`photon-migration` reads `DATABASE_URL`.
+
 Use Yellowstone gRPC for block streaming:
 
 ```bash
