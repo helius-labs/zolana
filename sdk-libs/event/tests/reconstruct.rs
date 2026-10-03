@@ -5,8 +5,8 @@ mod support;
 use solana_pubkey::Pubkey;
 use support::{
     emit_event_data, emit_instruction, input_trees, input_trees_in_order, merge_event, merge_ix,
-    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, MERGE_CIPHERTEXT,
-    MERGE_MASKED_AMOUNT, MERGE_SALT, MERGE_TX_VIEWING_PK, OUTPUT_TREE, SALT, TX_VIEWING_PK,
+    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, MERGE_MASKED_AMOUNT,
+    MERGE_MASKED_MINT, MERGE_MASK_SEED, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeOutputDerivation, MessageData,
@@ -512,18 +512,20 @@ fn expected_merge(
         outputs: vec![OutputUtxo {
             view_tag: output_view_tag,
             utxo_hash: [0xC0; 32],
-            data: MERGE_CIPHERTEXT.to_vec(),
+            data: Vec::new(),
         }],
         messages: vec![MessageData {
             view_tag: output_view_tag,
             data: MergeOutputDerivation {
                 masked_amount: MERGE_MASKED_AMOUNT,
+                masked_mint: MERGE_MASKED_MINT,
+                mask_seed: MERGE_MASK_SEED,
                 output_ring_data_hash,
             }
             .encode(),
         }],
-        tx_viewing_pk: MERGE_TX_VIEWING_PK,
-        salt: MERGE_SALT,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         first_output_leaf_index: 9,
         output_tree: OUTPUT_TREE,
         spl_transfers: Vec::new(),

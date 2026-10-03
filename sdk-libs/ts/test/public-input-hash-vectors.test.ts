@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import vectors from "../../../test-vectors/public_input_hash.json" with { type: "json" };
 import { resolvedPublicInputHash, transferPublicInputHash } from "../src/client/prover/assembly.js";
 import { mergePublicInputs } from "../src/client/prover/merge.js";
-import type { Bytes32 } from "../src/keypair/index.js";
+import { bytesToBigInt } from "../src/client/internal.js";
+import { mergeMaskNonces } from "../src/interface/codecs/index.js";
+import type { Bytes31, Bytes32 } from "../src/keypair/index.js";
 import type { TreeSlot } from "../src/interface/tree-slot.js";
 
 function field(value: string): bigint {
@@ -81,6 +83,13 @@ describe("public input hash known-answer vectors", () => {
       privateTxHash: field(vector.private_tx_hash),
       externalDataHash: field(vector.external_data_hash),
       maskedAmount: field(vector.masked_amount),
+      maskedMint: [field(vector.masked_mint[0] ?? ""), field(vector.masked_mint[1] ?? "")],
+      nonces: (() => {
+        const nonces = mergeMaskNonces(
+          Uint8Array.from(Buffer.from(vector.mask_seed, "hex")) as Bytes31,
+        );
+        return [bytesToBigInt(nonces.amount), bytesToBigInt(nonces.mint)] as const;
+      })(),
       owner: [field(vector.owner_pk_hash), field(vector.nullifier_pk)],
     });
     expect(hex(resolvedPublicInputHash(publicInputs, treeSlots(vector.tree_slots)))).toBe(

@@ -28,9 +28,8 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
         masked_amount: [0u8; 32],
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        output_data: Vec::new(),
+        masked_mint: [[0u8; 32]; 2],
+        mask_seed: [0u8; 31],
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
@@ -186,6 +185,25 @@ fn merge_rejects_a_non_canonical_masked_amount() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a masked amount outside the scalar field must be rejected");
     Rejection::pool(ShieldedPoolError::NonCanonicalMaskedAmount).assert_litesvm(error);
+}
+
+#[test]
+fn merge_rejects_a_non_canonical_masked_mint() {
+    for chunk in 0..2 {
+        let (mut rpc, tree) = merge_env();
+        let payer = rpc.payer.pubkey();
+        let record = write_user_record(&mut rpc, payer, None, true);
+
+        let mut data = merge_ix_data(true);
+        if let Some(masked) = data.masked_mint.get_mut(chunk) {
+            *masked = [0xff; 32];
+        }
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .expect_err("a masked mint chunk outside the scalar field must be rejected");
+        Rejection::pool(ShieldedPoolError::NonCanonicalMaskedMint).assert_litesvm(error);
+    }
 }
 
 #[test]

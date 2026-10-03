@@ -63,6 +63,11 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "masked amount",
         None,
         ShieldedPoolError::NonCanonicalMaskedAmount,
+    )?;
+    check_field_elements(
+        ix.masked_mint.iter(),
+        "masked mint",
+        ShieldedPoolError::NonCanonicalMaskedMint,
     )
 }
 

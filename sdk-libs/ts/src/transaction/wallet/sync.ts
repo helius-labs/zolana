@@ -1,5 +1,5 @@
-import { decodeMergeOutputDerivation } from "../../interface/codecs/index.js";
-import { mergeUnmaskedAmount } from "../../keypair/merge/index.js";
+import { decodeMergeOutputDerivation, mergeMaskNonces } from "../../interface/codecs/index.js";
+import { mergeUnmaskedAmount, mergeUnmaskedMint } from "../../keypair/merge/index.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -8,7 +8,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, equal } from "../internal.js";
+import { copy, decodeAddress, encodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
@@ -940,11 +940,11 @@ class SyncPass {
   }
 
   /**
-   * The merged output from its ciphertext when that reproduces the
-   * commitment, otherwise from the masked amount and the first published
-   * nullifier, which the proof binds. Any held input names the owner and the
-   * asset, so an input the owner never received does not hide the output.
-   * Missing inputs may be outputs of another merge in the same batch.
+   * The merged output from public data and the nullifier secret alone: the
+   * proof binds the blinding, the masked amount and the masked mint to the
+   * first published nullifier, so no input needs to be held, not even one a
+   * merger planted without telling the owner. The mint is stored as published,
+   * like a proofless deposit's, whether or not the registry knows it.
    */
   #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
     const slot = tx.outputSlots[site.slot];
@@ -952,93 +952,52 @@ class SyncPass {
     const derivation =
       message === undefined ? undefined : decodeMergeOutputDerivation(message.data);
     const firstNullifier = tx.nullifiers[0];
-    if (slot === undefined || derivation === undefined || firstNullifier === undefined) {
+    const ringDataHash = derivation?.outputRingDataHash;
+    const ringProgramId = ringDataHash === undefined ? undefined : tx.ringProgramId;
+    if (
+      slot === undefined ||
+      derivation === undefined ||
+      firstNullifier === undefined ||
+      (ringDataHash !== undefined && ringProgramId === undefined)
+    ) {
       this.undecryptableCandidates++;
       return true;
     }
-    const ringDataHash = derivation.outputRingDataHash;
-    const held = tx.nullifiers
-      .map((nullifier) => this.#utxos.find((entry) => equal(entry.nullifier, nullifier)))
-      .find((entry) => entry !== undefined);
-    // Requested together so one round answers the ciphertext and the fallback.
-    const opened = this.#openMergeCiphertext(tx, slot, site.slot);
-    const outputBlinding =
-      held === undefined
-        ? undefined
-        : this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
-    const mask =
-      held === undefined
-        ? undefined
-        : this.#keys.derive({ kind: "mergeAmountMask", firstNullifier });
-    if (opened === "pending") return false;
-    if (opened !== undefined && this.#storeMerge(tx, slot, siteKey, opened, ringDataHash)) {
-      return true;
+    const nonces = mergeMaskNonces(derivation.maskSeed);
+    // Requested together so one round answers all four.
+    const outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
+    const amountMask = this.#keys.derive({
+      kind: "mergeAmountMask",
+      firstNullifier,
+      nonce: nonces.amount,
+    });
+    const mintMasks = [0, 1].map((chunkIndex) =>
+      this.#keys.derive({ kind: "mergeMintMask", firstNullifier, nonce: nonces.mint, chunkIndex }),
+    );
+    const [mintPrefixMask, mintLastMask] = mintMasks;
+    if (
+      outputBlinding === undefined ||
+      amountMask === undefined ||
+      mintPrefixMask === undefined ||
+      mintLastMask === undefined
+    ) {
+      return false;
     }
-    if (held === undefined || outputBlinding === undefined || mask === undefined) return false;
-
-    const amount = mergeUnmaskedAmount(derivation.maskedAmount, mask);
-    if (amount === undefined) {
+    const amount = mergeUnmaskedAmount(derivation.maskedAmount, amountMask);
+    const mint = mergeUnmaskedMint(derivation.maskedMint, [mintPrefixMask, mintLastMask]);
+    if (amount === undefined || mint === undefined) {
       this.undecryptableCandidates++;
       return true;
     }
-    const ringProgramId = held.utxo.ringProgramId;
     const utxo = new Utxo({
       owner: this.#owner,
-      asset: held.utxo.asset,
+      asset: encodeAddress(mint),
       amount,
       blinding: outputBlinding,
       ...(ringProgramId === undefined ? {} : { ringProgramId }),
     });
     if (!this.#storeMerge(tx, slot, siteKey, utxo, ringDataHash)) this.undecryptableCandidates++;
     return true;
-  }
-
-  /**
-   * The merge ciphertext opened with this wallet's viewing key, `"pending"`
-   * while the key memo has no answer, or `undefined` when it is missing,
-   * addressed elsewhere, or does not decode. The merger chose it, so the
-   * caller checks it against the commitment.
-   */
-  #openMergeCiphertext(
-    tx: IndexedShieldedTransaction,
-    slot: IndexedShieldedTransaction["outputSlots"][number],
-    slotIndex: number,
-  ): Utxo | "pending" | undefined {
-    if (tx.txViewingPublicKey === undefined || tx.salt === undefined) return undefined;
-    let ciphertext: Uint8Array;
-    let viewingPublicKey: P256PublicKey | undefined;
-    try {
-      const frame = readOutputData(slot.payload);
-      if (
-        frame.encoding !== "encrypted" ||
-        (frame.scheme !== EncryptedScheme.confidential &&
-          frame.scheme !== EncryptedScheme.ringConfidential)
-      ) {
-        return undefined;
-      }
-      const embedded = splitEmbeddedKey(frame.body);
-      viewingPublicKey = this.#viewingPublicKeys.find((key) =>
-        equal(key.toBytes(), embedded.key.toBytes()),
-      );
-      ciphertext = embedded.rest;
-    } catch {
-      return undefined;
-    }
-    if (viewingPublicKey === undefined) return undefined;
-    const decrypted = this.#keys.decrypt({
-      ciphertext,
-      viewingPublicKey,
-      txViewingPublicKey: tx.txViewingPublicKey,
-      salt: tx.salt,
-      slotIndex,
-      label: "transfer",
-    });
-    if (decrypted === undefined) return "pending";
-    try {
-      return confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
-    } catch {
-      return undefined;
-    }
   }
 
   /** Stores `utxo` as the merge's output if it hashes to the commitment. */

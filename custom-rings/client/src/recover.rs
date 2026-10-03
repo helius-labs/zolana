@@ -14,10 +14,7 @@ use zolana_indexer_api::PAGE_LIMIT;
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
-    instructions::merge::{
-        merge_amount_mask, merge_output_blinding, merge_unmasked_amount,
-        MERGE_SUPPORTED_INPUT_COUNTS,
-    },
+    instructions::merge::{merge_circuit_width, merge_output_blinding, MergeMaskedOutput},
     AssetRegistry, Data, OutputContext, ShieldedTransaction, Utxo, WalletUtxo,
 };
 
@@ -338,7 +335,7 @@ impl<'a> MemberRecovery<'a> {
                     spent.extend(transaction.nullifiers.iter().copied());
                     if !transaction.merge
                         || transaction.output_slots.len() != 1
-                        || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&transaction.nullifiers.len())
+                        || merge_circuit_width(transaction.nullifiers.len()).is_none()
                     {
                         continue;
                     }
@@ -373,7 +370,8 @@ impl<'a> MemberRecovery<'a> {
                 if let Some(candidate) = (MergeOpening {
                     source: &self.source,
                     transaction,
-                    candidates: &candidates,
+                    assets,
+                    ring_program_id: self.recovery.ring_program_id,
                     tree_id,
                 })
                 .rebuild()?
@@ -545,14 +543,14 @@ impl<I: Rpc> SpendHistory<'_, I> {
 struct MergeOpening<'a, 'b> {
     source: &'a SourceMember<'b>,
     transaction: &'a ShieldedTransaction,
-    candidates: &'a [WalletUtxo],
+    assets: &'a AssetRegistry,
+    ring_program_id: Address,
     tree_id: u16,
 }
 
 impl MergeOpening<'_, '_> {
-    /// Rebuilds the output from the masked amount the proof binds and any
-    /// input the member holds, so an input the member never received does not
-    /// hide it.
+    /// Rebuilds the output from the masked amount and mint the proof binds, so
+    /// an input the member never received does not hide it.
     fn rebuild(self) -> Result<Option<WalletUtxo>, RecoveryError> {
         let transaction = self.transaction;
         let (Some(first_nullifier), Some(slot), Some(derivation)) = (
@@ -568,23 +566,17 @@ impl MergeOpening<'_, '_> {
         let Some(ring_data_hash) = derivation.output_ring_data_hash else {
             return Ok(None);
         };
-        let Some(input) = self
-            .candidates
-            .iter()
-            .find(|note| transaction.nullifiers.contains(&note.nullifier))
+        let Some((amount, mint)) =
+            MergeMaskedOutput::open(self.source.nullifier_key, first_nullifier, &derivation)?
         else {
-            return Ok(None);
-        };
-        let mask = merge_amount_mask(self.source.nullifier_key, first_nullifier)?;
-        let Some(amount) = merge_unmasked_amount(&derivation.masked_amount, &mask) else {
             return Ok(None);
         };
         let utxo = Utxo {
             owner: self.source.address.signing_pubkey,
-            asset: input.utxo.asset,
+            asset: self.assets.mint(&mint)?,
             amount,
             blinding: merge_output_blinding(self.source.nullifier_key, first_nullifier)?,
-            ring_program_id: input.utxo.ring_program_id,
+            ring_program_id: Some(self.ring_program_id),
             data: Data::default(),
         };
         if utxo.hash(

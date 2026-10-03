@@ -1033,7 +1033,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
-    use zolana_event::{MergeOutputDerivation, MessageData};
+    use zolana_event::MessageData;
     use zolana_interface::{
         event::{encode_output_data, ProoflessOutput},
         pda,
@@ -1041,7 +1041,7 @@ mod tests {
     use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{
-            merge::{merge_amount_mask, merge_masked_amount, MergeTransaction as MergePlan},
+            merge::{MergeMaskedOutput, MergeTransaction as MergePlan},
             transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
         },
         serialization::Proofless,
@@ -2882,16 +2882,20 @@ mod tests {
             .map(|commitment| commitment.nullifier)
             .collect();
         let first_nullifier = nullifiers.first().expect("first nullifier");
-        let mask = merge_amount_mask(&owner.nullifier_key, first_nullifier).expect("amount mask");
+        let masked = MergeMaskedOutput::new(
+            &owner.nullifier_key,
+            first_nullifier,
+            &prepared.mask_seed,
+            prepared.output_utxo.amount,
+            &prepared.output_utxo.asset.asset,
+        )
+        .expect("masked merge output");
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
             event_index: Some(0),
-            tx_viewing_pk: Some(
-                zolana_keypair::P256Pubkey::from_bytes(prepared.tx_viewing_pk)
-                    .expect("tx viewing key"),
-            ),
-            salt: Some(prepared.salt),
+            tx_viewing_pk: None,
+            salt: None,
             output_slots: vec![OutputSlot {
                 view_tag: output_view_tag,
                 output_context: OutputContext {
@@ -2899,15 +2903,11 @@ mod tests {
                     tree_id: TEST_TREE_ID,
                     leaf_index: 0,
                 },
-                payload: prepared.output_data.data.clone(),
+                payload: Vec::new(),
             }],
             messages: vec![MessageData {
                 view_tag: output_view_tag,
-                data: MergeOutputDerivation {
-                    masked_amount: merge_masked_amount(prepared.output_utxo.amount, &mask),
-                    output_ring_data_hash: None,
-                }
-                .encode(),
+                data: masked.derivation(None).encode(),
             }],
             nullifiers,
             proofless: false,

@@ -7,10 +7,7 @@ use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
 };
-use zolana_event::{
-    encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, MergeOutputDerivation,
-    MessageData,
-};
+use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, MessageData};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{
     AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery, NoteDataHashes,
@@ -18,7 +15,7 @@ use zolana_ring_client::{
     RingRecovery, SourceMember, TransactionOrigin,
 };
 use zolana_transaction::{
-    instructions::merge::{merge_amount_mask, merge_masked_amount, MergeTransaction},
+    instructions::merge::{MergeMaskedOutput, MergeTransaction},
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     serialization::ring_deposit::RingDepositPlaintext,
     AssetRegistry, Mint, OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo,
@@ -175,7 +172,14 @@ impl Fixture {
             .first()
             .expect("a merge input")
             .nullifier();
-        let mask = merge_amount_mask(&self.member.nullifier_key, &first).expect("amount mask");
+        let masked = MergeMaskedOutput::new(
+            &self.member.nullifier_key,
+            &first,
+            &prepared.mask_seed,
+            prepared.output_utxo.amount,
+            &prepared.output_utxo.asset.asset,
+        )
+        .expect("masked merge output");
         let ring_data_hash = prepared.output_utxo.ring_data_hash.expect("ring hash");
         let nullifiers = prepared
             .input_utxos
@@ -189,22 +193,16 @@ impl Fixture {
             slot: u64::from(self.sequence.get()),
             tx_signature: signature,
             event_index: Some(0),
-            tx_viewing_pk: Some(
-                zolana_keypair::P256Pubkey::from_bytes(prepared.tx_viewing_pk).expect("tx key"),
-            ),
-            salt: Some(prepared.salt),
+            tx_viewing_pk: None,
+            salt: None,
             output_slots: vec![OutputSlot {
                 view_tag: first,
                 output_context: output_context(&held),
-                payload: prepared.output_data.data.clone(),
+                payload: Vec::new(),
             }],
             messages: vec![MessageData {
                 view_tag: first,
-                data: MergeOutputDerivation {
-                    masked_amount: merge_masked_amount(prepared.output_utxo.amount, &mask),
-                    output_ring_data_hash: Some(ring_data_hash),
-                }
-                .encode(),
+                data: masked.derivation(Some(ring_data_hash)).encode(),
             }],
             nullifiers,
             proofless: false,

@@ -38,7 +38,7 @@ type Circuit struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [mergeshared.MintChunkCount]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -65,7 +65,7 @@ func (c *Circuit) transaction() mergeshared.Transaction {
 	return mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
-		Asset:               c.Asset,
+		MintChunks:          c.MintChunks,
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,

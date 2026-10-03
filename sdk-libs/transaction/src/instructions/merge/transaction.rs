@@ -1,5 +1,6 @@
 use solana_address::Address;
 use zolana_event::MessageData;
+use zolana_interface::instruction::instruction_data::MERGE_MASK_SEED_LEN;
 use zolana_keypair::{constants::SALT_LEN, PublicKey};
 
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, SppProofOutputUtxo};
@@ -15,6 +16,8 @@ pub struct MergeProofInputs {
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; SALT_LEN],
     pub output_data: MessageData,
+    /// Fresh per merge attempt; seeds the masks over the output amount and mint.
+    pub mask_seed: [u8; MERGE_MASK_SEED_LEN],
 }
 
 impl MergeProofInputs {

@@ -26,9 +26,11 @@ import {
   type Bytes31,
   type Bytes32,
 } from "../src/keypair/index.js";
+import { mergeMaskNonces } from "../src/interface/codecs/index.js";
 import {
   mergeAmountMask,
   mergeDummyNullifier,
+  mergeMintMask,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
 } from "../src/keypair/merge/index.js";
@@ -81,7 +83,12 @@ type KeyDerivationVectors = Readonly<{
     output_blinding: string;
     dummy_slot_index: number;
     dummy_nullifier: string;
+    mask_seed: string;
+    amount_mask_nonce: string;
+    mint_mask_nonce: string;
     amount_mask: string;
+    mint_mask_chunk: number;
+    mint_mask: string;
     private_tx_blinding: string;
   }>;
   derivation_input_guard: readonly Readonly<{
@@ -205,7 +212,15 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     expect(hex(mergeDummyNullifier(nullifierKey, firstNullifier, section.dummy_slot_index))).toBe(
       section.dummy_nullifier,
     );
-    expect(hex(mergeAmountMask(nullifierKey, firstNullifier))).toBe(section.amount_mask);
+    const nonces = mergeMaskNonces(bytes(section.mask_seed) as Bytes31);
+    expect(hex(nonces.amount)).toBe(section.amount_mask_nonce);
+    expect(hex(nonces.mint)).toBe(section.mint_mask_nonce);
+    expect(hex(mergeAmountMask(nullifierKey, firstNullifier, nonces.amount))).toBe(
+      section.amount_mask,
+    );
+    expect(
+      hex(mergeMintMask(nullifierKey, firstNullifier, nonces.mint, section.mint_mask_chunk)),
+    ).toBe(section.mint_mask);
     expect(hex(mergePrivateTxBlinding(nullifierKey, firstNullifier))).toBe(
       section.private_tx_blinding,
     );

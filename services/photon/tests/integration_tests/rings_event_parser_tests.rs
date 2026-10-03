@@ -268,15 +268,15 @@ fn parses_merge_event_with_photon_parser() {
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
     assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::MERGE_TRANSACT as i16);
-    assert_eq!(rings_tx.tx_viewing_pk, Some(vec![0x02; 33]));
-    assert_eq!(rings_tx.salt, Some(vec![0x03; 16]));
+    assert!(rings_tx.tx_viewing_pk.is_none());
+    assert!(rings_tx.salt.is_none());
     assert!(!rings_tx.proofless);
     assert_eq!(
         rings_tx.messages,
         vec![RingsMessageUpdate {
             message_index: 0,
             view_tag: [0x77; 32],
-            payload: vec![0x04; 32],
+            payload: [[0x04; 32].as_slice(), &[0x05; 32], &[0x06; 32], &[0x07; 31]].concat(),
         }]
     );
     assert_eq!(
@@ -292,7 +292,7 @@ fn parses_merge_event_with_photon_parser() {
     assert_eq!(rings_tx.output_tree, TEST_TREE);
     assert_eq!(
         rings_tx.outputs,
-        vec![expected_output(0, 12, 0x77, 0x66, vec![0x05; 48])]
+        vec![expected_output(0, 12, 0x77, 0x66, Vec::new())]
     );
 }
 
@@ -2253,9 +2253,8 @@ fn merge_transaction_info() -> TransactionInfo {
     let merge = MergeTransactIxData {
         cache_slot: None,
         masked_amount: [0x04; 32],
-        tx_viewing_pk: [0x02; 33],
-        salt: [0x03; 16],
-        output_data: vec![0x05; 48],
+        masked_mint: [[0x05; 32], [0x06; 32]],
+        mask_seed: [0x07; 31],
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],

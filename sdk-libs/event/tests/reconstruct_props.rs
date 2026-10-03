@@ -333,21 +333,15 @@ proptest! {
         output_leaf_index in any::<u64>(),
         ring_data_hash in prop::option::of(any::<[u8; 32]>()),
         masked_amount in any::<[u8; 32]>(),
-        tx_viewing_pk_x in any::<[u8; 32]>(),
-        salt in any::<[u8; 16]>(),
-        output_data in prop::collection::vec(any::<u8>(), 0..256),
+        masked_mint in any::<[[u8; 32]; 2]>(),
+        mask_seed in any::<[u8; 31]>(),
     ) {
         let spp = Pubkey::new_unique();
-        let mut tx_viewing_pk = [0x02u8; 33];
-        if let Some(x) = tx_viewing_pk.get_mut(1..) {
-            x.copy_from_slice(&tx_viewing_pk_x);
-        }
         let mut merge = merge_ix(output_utxo_hash);
         merge.nullifiers = nullifiers.clone();
         merge.masked_amount = masked_amount;
-        merge.tx_viewing_pk = tx_viewing_pk;
-        merge.salt = salt;
-        merge.output_data = output_data.clone();
+        merge.masked_mint = masked_mint;
+        merge.mask_seed = mask_seed;
         let (source_tag, ix_bytes) = match ring_data_hash {
             None => (
                 tag::MERGE_TRANSACT,
@@ -378,18 +372,20 @@ proptest! {
             outputs: vec![OutputUtxo {
                 view_tag: output_view_tag,
                 utxo_hash: output_utxo_hash,
-                data: output_data,
+                data: Vec::new(),
             }],
             messages: vec![MessageData {
                 view_tag: output_view_tag,
                 data: MergeOutputDerivation {
                     masked_amount,
+                    masked_mint,
+                    mask_seed,
                     output_ring_data_hash: ring_data_hash,
                 }
                 .encode(),
             }],
-            tx_viewing_pk,
-            salt,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
             first_output_leaf_index: output_leaf_index,
             output_tree: OUTPUT_TREE,
             spl_transfers: Vec::new(),

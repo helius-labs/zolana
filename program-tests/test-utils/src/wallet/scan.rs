@@ -868,8 +868,9 @@ impl SyncCtx<'_> {
         Ok(outcome)
     }
 
-    /// Rebuild a merge's output with [`rebuild_merge`], from its ciphertext or
-    /// the UTXOs this wallet holds, and store it if it is the one in this slot.
+    /// Rebuild a merge's output with [`rebuild_merge`] from its public data,
+    /// and store it if it is the one in this slot. A mint the registry lacks
+    /// is reported and leaves the site unresolved.
     fn reconstruct_merge(
         &mut self,
         tx: &ShieldedTransaction,
@@ -879,9 +880,12 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        let output = match rebuild_merge(&self.keys, tx, self.utxos.as_slice(), self.assets)? {
+        let output = match rebuild_merge(&self.keys, tx, self.assets)? {
             MergeRebuild::Rebuilt(output) if output.slot_index == slot_site.slot_index => *output,
-            MergeRebuild::Pending => return Ok(MergeResolution::Pending),
+            MergeRebuild::UnknownMint(mint) => {
+                self.report.unknown_mints.insert(mint);
+                return Ok(MergeResolution::Pending);
+            }
             MergeRebuild::Rebuilt(_) | MergeRebuild::NotOurs => {
                 self.report.undecryptable_candidates += 1;
                 return Ok(MergeResolution::Complete);

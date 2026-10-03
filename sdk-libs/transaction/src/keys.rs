@@ -25,7 +25,8 @@ use zolana_keypair::{
 use crate::{
     error::TransactionError,
     instructions::merge::{
-        merge_amount_mask, merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
+        merge_amount_mask, merge_dummy_nullifier, merge_mint_mask, merge_output_blinding,
+        merge_private_tx_blinding,
     },
 };
 
@@ -52,7 +53,7 @@ pub struct DecryptRequest<'a> {
 
 /// Every value the protocol derives from the nullifier secret. `Nullifier`
 /// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers,
-/// its output blinding, the mask over its output amount, and its
+/// its output blinding, the masks over its output amount and mint, and its
 /// private-transaction blinding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeriveRequest {
@@ -69,6 +70,12 @@ pub enum DeriveRequest {
     },
     MergeAmountMask {
         first_nullifier: [u8; 32],
+        nonce: [u8; 32],
+    },
+    MergeMintMask {
+        first_nullifier: [u8; 32],
+        nonce: [u8; 32],
+        chunk_index: u8,
     },
     MergePrivateTxBlinding {
         first_nullifier: [u8; 32],
@@ -193,9 +200,15 @@ impl ShieldedKeys for LocalShieldedKeys {
                 DeriveRequest::MergeOutputBlinding { first_nullifier } => {
                     merge_output_blinding(&self.nullifier, first_nullifier)
                 }
-                DeriveRequest::MergeAmountMask { first_nullifier } => {
-                    merge_amount_mask(&self.nullifier, first_nullifier)
-                }
+                DeriveRequest::MergeAmountMask {
+                    first_nullifier,
+                    nonce,
+                } => merge_amount_mask(&self.nullifier, first_nullifier, nonce),
+                DeriveRequest::MergeMintMask {
+                    first_nullifier,
+                    nonce,
+                    chunk_index,
+                } => merge_mint_mask(&self.nullifier, first_nullifier, nonce, *chunk_index),
                 DeriveRequest::MergePrivateTxBlinding { first_nullifier } => {
                     merge_private_tx_blinding(&self.nullifier, first_nullifier)
                 }

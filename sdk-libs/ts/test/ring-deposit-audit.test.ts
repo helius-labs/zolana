@@ -21,12 +21,8 @@ import { ownerUtxoHash, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 import { encodeOutputData, EncryptedScheme } from "../src/transaction/serialization/codecs.js";
-import {
-  mergeAmountMask,
-  mergeDummyNullifier,
-  mergeMaskedAmount,
-  mergeOutputBlinding,
-} from "../src/keypair/merge/index.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import { mergeMessageData } from "./helpers/merge-message.js";
 import { buildRingDepositTransaction } from "../src/ring/deposit.js";
 import { decodeRingDepositAudit } from "../src/ring/codecs.js";
 import { fetchRingDepositAudit, setRingDepositAuditInstruction } from "../src/ring/config.js";
@@ -707,10 +703,7 @@ describe("deposit recovery", () => {
         messages: [
           {
             viewTag: nullifier,
-            data: new Uint8Array([
-              ...mergeMaskedAmount(7n, mergeAmountMask(key, nullifier)),
-              ...ringDataHash,
-            ]),
+            data: mergeMessageData(key, nullifier, 7n, SOL_MINT, ringDataHash),
           },
         ],
         outputSlots: [

@@ -1,5 +1,5 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use zolana_hasher::{keccak::Keccak, sha256::Sha256BE, Hasher, HasherError};
 
 pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [8, 36];
 
@@ -63,13 +63,48 @@ pub struct MergeTransactIxData {
     /// Output amount plus the owner's merge amount mask, bound by the proof so
     /// the owner can rebuild the output without knowing every input.
     pub masked_amount: [u8; 32],
-    /// Transaction viewing key and salt of `output_data`. The program does not
-    /// read them or the ciphertext, so a wallet treats all three as untrusted.
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    /// Confidential ciphertext of the merged output, or empty.
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub output_data: Vec<u8>,
+    /// The output mint's two `hash_bytes` chunks, each plus its mask, bound by
+    /// the proof like `masked_amount`.
+    pub masked_mint: [[u8; 32]; MERGE_MINT_CHUNKS],
+    /// Fresh per attempt; [`MergeMaskNonces`] derives one nonce per masked
+    /// value from it, so two attempts sharing a first nullifier never reuse a
+    /// mask.
+    pub mask_seed: [u8; MERGE_MASK_SEED_LEN],
+}
+
+/// Field elements `hash_bytes` packs a mint into.
+pub const MERGE_MINT_CHUNKS: usize = 2;
+/// Bytes of [`MergeTransactIxData::mask_seed`].
+pub const MERGE_MASK_SEED_LEN: usize = zolana_event::merge_output::MERGE_MASK_SEED_LEN;
+
+/// Keccak domain tag of the amount mask nonce (`"TMAN"`).
+pub const MERGE_AMOUNT_NONCE_DOMAIN: [u8; 4] = *b"TMAN";
+/// Keccak domain tag of the mint mask nonce (`"TMMN"`).
+pub const MERGE_MINT_NONCE_DOMAIN: [u8; 4] = *b"TMMN";
+
+/// The two mask nonces a merge's proof takes as public inputs, each
+/// `keccak(domain || mask_seed)` with its first byte zeroed so it is a
+/// canonical field element. Computed identically by the program and clients.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MergeMaskNonces {
+    pub amount: [u8; 32],
+    pub mint: [u8; 32],
+}
+
+impl MergeMaskNonces {
+    pub fn derive(mask_seed: &[u8; MERGE_MASK_SEED_LEN]) -> Result<Self, HasherError> {
+        let nonce = |domain: &[u8; 4]| -> Result<[u8; 32], HasherError> {
+            let mut nonce = Keccak::hashv(&[domain, mask_seed])?;
+            if let Some(first) = nonce.first_mut() {
+                *first = 0;
+            }
+            Ok(nonce)
+        };
+        Ok(Self {
+            amount: nonce(&MERGE_AMOUNT_NONCE_DOMAIN)?,
+            mint: nonce(&MERGE_MINT_NONCE_DOMAIN)?,
+        })
+    }
 }
 
 impl MergeTransactIxData {
@@ -106,9 +141,8 @@ pub struct MergeTransactIxDataRef<'a> {
     pub nullifier_tree_root_index: u16,
     pub cache_slot: Option<u8>,
     pub masked_amount: &'a [u8; 32],
-    pub tx_viewing_pk: &'a [u8; 33],
-    pub salt: &'a [u8; 16],
-    pub output_data: &'a [u8],
+    pub masked_mint: [[u8; 32]; MERGE_MINT_CHUNKS],
+    pub mask_seed: &'a [u8; MERGE_MASK_SEED_LEN],
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
@@ -118,7 +152,7 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
-    /// The instruction carries only the leading nullifiers; the circuit
+    /// The instruction carries only the leading nullifiers; the circuit that
     /// [`merge_circuit_width`] selects pads the rest with compact padding.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
         if merge_circuit_width(self.nullifiers.len()).is_none() {
@@ -190,9 +224,8 @@ mod tests {
             private_tx_hash: [3u8; 32],
             eddsa_owner: false,
             masked_amount: [5u8; 32],
-            tx_viewing_pk: [6u8; 33],
-            salt: [7u8; 16],
-            output_data: Vec::new(),
+            masked_mint: [[0u8; 32]; 2],
+            mask_seed: [0u8; 31],
         }
     }
 
@@ -215,16 +248,13 @@ mod tests {
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.eddsa_owner, owned.eddsa_owner);
         assert_eq!(view.masked_amount, &owned.masked_amount);
-        assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
-        assert_eq!(view.salt, &owned.salt);
-        assert_eq!(view.output_data, owned.output_data.as_slice());
     }
 
     #[test]
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        assert_eq!(bytes.len(), 354 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 398 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

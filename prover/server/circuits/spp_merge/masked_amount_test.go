@@ -8,6 +8,7 @@ import (
 	"github.com/consensys/gnark/test"
 
 	merge "zolana/prover/circuits/spp_merge"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 )
 
 // A merger that knows the owner's nullifier secret could otherwise publish an
@@ -38,6 +39,47 @@ func TestMergeRejectsUnmaskedAmount(t *testing.T) {
 	refreshDefaultPublicInputHash(t, f)
 	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("accepted the plain output amount in place of the masked amount")
+	}
+}
+
+// The mint is masked chunk by chunk, so each chunk is pinned on its own.
+func TestMergeRejectsWrongMaskedMint(t *testing.T) {
+	for chunk := range mergeshared.MintChunkCount {
+		f := buildMergeFixture(t, mergeFixtureOptions{})
+		f.public.MaskedMint[chunk] = new(big.Int).Add(f.public.MaskedMint[chunk].(*big.Int), big.NewInt(1))
+		refreshDefaultPublicInputHash(t, f)
+		if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+			t.Fatalf("accepted masked mint chunk %d that does not encode the mint", chunk)
+		}
+	}
+}
+
+func TestMergeRejectsUnmaskedMint(t *testing.T) {
+	f := buildMergeFixture(t, mergeFixtureOptions{})
+	for chunk, value := range f.mintChunks {
+		f.public.MaskedMint[chunk] = value
+	}
+	refreshDefaultPublicInputHash(t, f)
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("accepted the plain mint chunks in place of the masked mint")
+	}
+}
+
+// Each mask is seeded by its own published nonce, so republishing the same
+// masked values under another nonce does not solve.
+func TestMergeRejectsAnotherMaskNonce(t *testing.T) {
+	for _, nonce := range []string{"amount", "mint"} {
+		f := buildMergeFixture(t, mergeFixtureOptions{})
+		switch nonce {
+		case "amount":
+			f.public.AmountMaskNonce = new(big.Int).Add(f.public.AmountMaskNonce.(*big.Int), big.NewInt(1))
+		case "mint":
+			f.public.MintMaskNonce = new(big.Int).Add(f.public.MintMaskNonce.(*big.Int), big.NewInt(1))
+		}
+		refreshDefaultPublicInputHash(t, f)
+		if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+			t.Fatalf("accepted masked values under a %s nonce that did not produce them", nonce)
+		}
 	}
 }
 

@@ -2,14 +2,17 @@ import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
-import { decodeMergeOutputDerivation } from "../interface/codecs/index.js";
+import { decodeMergeOutputDerivation, mergeMaskNonces } from "../interface/codecs/index.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import { readRingDepositCapsule } from "./deposit-capsule.js";
 import {
   mergeAmountMask,
+  mergeMintMask,
   mergeOutputBlinding,
   mergeUnmaskedAmount,
+  mergeUnmaskedMint,
 } from "../keypair/merge/index.js";
+import { encodeAddress } from "../transaction/internal.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
@@ -204,7 +207,7 @@ export async function recoverRingMemberNotes(
     while (progressed) {
       progressed = false;
       for (const [hash, transaction] of pending) {
-        const candidate = await recoverMerge(input, transaction, byNullifier, treeIds);
+        const candidate = await recoverMerge(input, transaction, treeIds);
         if (candidate === undefined) continue;
         seen.add(hash);
         candidates.push(candidate);
@@ -384,12 +387,11 @@ async function spendingTransactions(
 async function recoverMerge(
   input: RingRecoveryParams,
   transaction: IndexedShieldedTransaction,
-  known: ReadonlyMap<string, Candidate>,
   treeIds: Map<Address, TreeId>,
 ): Promise<Candidate | undefined> {
-  // The proof binds the masked amount to the first published nullifier, so
-  // any input the member holds rebuilds the output, even when the merger spent
-  // a note the member never received.
+  // The proof binds the masked amount and mint to the first published
+  // nullifier, so the member rebuilds the output from public data alone, even
+  // when the merger spent a note the member never received.
   const firstNullifier = transaction.nullifiers[0];
   const slot = transaction.outputSlots[0];
   const message = transaction.messages[0];
@@ -403,18 +405,19 @@ async function recoverMerge(
   ) {
     return undefined;
   }
-  const held = transaction.nullifiers
-    .map((nullifier) => known.get(bytesKey(nullifier)))
-    .find((candidate) => candidate !== undefined);
-  if (held === undefined || held.utxo.ringProgramId !== input.ringProgramId) return undefined;
+  const nonces = mergeMaskNonces(derivation.maskSeed);
   const amount = mergeUnmaskedAmount(
     derivation.maskedAmount,
-    mergeAmountMask(input.nullifierKey, firstNullifier),
+    mergeAmountMask(input.nullifierKey, firstNullifier, nonces.amount),
   );
-  if (amount === undefined) return undefined;
+  const mint = mergeUnmaskedMint(derivation.maskedMint, [
+    mergeMintMask(input.nullifierKey, firstNullifier, nonces.mint, 0),
+    mergeMintMask(input.nullifierKey, firstNullifier, nonces.mint, 1),
+  ]);
+  if (amount === undefined || mint === undefined) return undefined;
   const utxo = new Utxo({
     owner: input.source.signingPublicKey,
-    asset: held.utxo.asset,
+    asset: encodeAddress(mint),
     amount,
     blinding: mergeOutputBlinding(input.nullifierKey, firstNullifier),
     ringProgramId: input.ringProgramId,

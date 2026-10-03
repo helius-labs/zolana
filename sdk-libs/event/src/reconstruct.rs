@@ -165,9 +165,10 @@ fn settlement_transfers(
 }
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries
-/// the emitted view tag, the instruction's `output_utxo_hash`, and its
-/// untrusted ciphertext. The single message carries the masked amount and, for
-/// `merge_ring`, the output `ring_data_hash`.
+/// the emitted view tag and the instruction's `output_utxo_hash` with no
+/// ciphertext. The single message carries the masked amount and mint, their
+/// mask seed and, for `merge_ring`, the output `ring_data_hash`, from which the
+/// owner rebuilds the output.
 pub fn merge_general_event(
     source: &ParsedInstruction,
     event: &MergeEvent,
@@ -188,6 +189,8 @@ pub fn merge_general_event(
     };
     let derivation = MergeOutputDerivation {
         masked_amount: *merge.masked_amount,
+        masked_mint: merge.masked_mint,
+        mask_seed: *merge.mask_seed,
         output_ring_data_hash,
     };
 
@@ -199,14 +202,14 @@ pub fn merge_general_event(
         outputs: vec![OutputUtxo {
             view_tag: event.output_view_tag,
             utxo_hash: *merge.output_utxo_hash,
-            data: merge.output_data.to_vec(),
+            data: Vec::new(),
         }],
         messages: vec![MessageData {
             view_tag: event.output_view_tag,
             data: derivation.encode(),
         }],
-        tx_viewing_pk: *merge.tx_viewing_pk,
-        salt: *merge.salt,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         first_output_leaf_index: event.output_leaf_index,
         output_tree: event.output_tree,
         spl_transfers: Vec::new(),

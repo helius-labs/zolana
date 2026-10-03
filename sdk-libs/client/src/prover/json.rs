@@ -350,9 +350,10 @@ pub(crate) struct MergeParametersJson {
     pub tree_slots: Vec<TreeSlotJson>,
     #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
-    /// The single asset shared by every real input and the merged output.
-    #[serde(rename = "asset")]
-    pub asset: String,
+    /// The packed chunks of the single mint shared by every real input and
+    /// the merged output.
+    #[serde(rename = "mintChunks")]
+    pub mint_chunks: [String; 2],
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
@@ -369,6 +370,12 @@ pub(crate) struct MergeParametersJson {
     pub allow_dummy_inputs: String,
     #[serde(rename = "maskedAmount")]
     pub masked_amount: String,
+    #[serde(rename = "maskedMint")]
+    pub masked_mint: [String; 2],
+    #[serde(rename = "amountMaskNonce")]
+    pub amount_mask_nonce: String,
+    #[serde(rename = "mintMaskNonce")]
+    pub mint_mask_nonce: String,
     /// Output ring-data hash carried by the merge_ring instruction; `0x0` for
     /// the default merge.
     #[serde(rename = "outputRingDataHash")]
@@ -421,7 +428,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         output: merge_output_to_json(&inputs.output),
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
-        asset: fe_to_string(&inputs.output.utxo.asset),
+        mint_chunks: inputs.mint_chunks.each_ref().map(big_uint_to_string),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
@@ -430,6 +437,9 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         masked_amount: big_uint_to_string(&inputs.masked_amount),
+        masked_mint: inputs.masked_mint.each_ref().map(big_uint_to_string),
+        amount_mask_nonce: big_uint_to_string(&inputs.amount_mask_nonce),
+        mint_mask_nonce: big_uint_to_string(&inputs.mint_mask_nonce),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
     };
@@ -780,6 +790,10 @@ mod merge_tests {
             private_tx_hash: BigUint::from(7u8),
             allow_dummy_inputs: BigUint::from(1u8),
             masked_amount: BigUint::from(9u8),
+            mint_chunks: [BigUint::from(10u8), BigUint::from(11u8)],
+            masked_mint: [BigUint::from(12u8), BigUint::from(13u8)],
+            amount_mask_nonce: BigUint::from(14u8),
+            mint_mask_nonce: BigUint::from(15u8),
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
@@ -792,7 +806,7 @@ mod merge_tests {
             "output",
             "treeSlots",
             "outputTreeId",
-            "asset",
+            "mintChunks",
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
@@ -800,6 +814,9 @@ mod merge_tests {
             "privateTxHash",
             "allowDummyInputs",
             "maskedAmount",
+            "maskedMint",
+            "amountMaskNonce",
+            "mintMaskNonce",
             "publicInputHash",
             "outputRingDataHash",
             "ringProgramId",

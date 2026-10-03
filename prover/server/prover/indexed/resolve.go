@@ -73,9 +73,9 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	case common.TransferP256RingCircuitType:
 		expected = 19
 	case common.MergeCircuitType:
-		expected = 9
+		expected = 13
 	case common.MergeRingCircuitType:
-		expected = 9
+		expected = 13
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
 		expected = 19
 	case common.CustomRingCompressedPolicyCircuitType:

@@ -32,12 +32,8 @@ import type {
   TransactInstructionData,
 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
-import {
-  mergeAmountMask,
-  mergeDummyNullifier,
-  mergeMaskedAmount,
-  mergeOutputBlinding,
-} from "../src/keypair/merge/index.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import { mergeMessageData } from "./helpers/merge-message.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
@@ -814,10 +810,7 @@ function mergeTransaction(
         messages: [
           {
             viewTag: first.nullifier,
-            data: new Uint8Array([
-              ...mergeMaskedAmount(utxo.amount, mergeAmountMask(key, first.nullifier)),
-              ...ringDataHash,
-            ]),
+            data: mergeMessageData(key, first.nullifier, utxo.amount, SOL_MINT, ringDataHash),
           },
         ],
       },

@@ -1,5 +1,8 @@
+import { keccak_256 } from "@noble/hashes/sha3.js";
+
 import type {
   Address,
+  Bytes31,
   Bytes32,
   CacheAccount,
   CircuitId,
@@ -334,12 +337,45 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
       output.u8(unsigned(slot, CACHE_CAPACITY - 1, "cacheSlot"), "cacheSlot");
     })
     .bytes(value.maskedAmount, 32, "maskedAmount")
-    .bytes(value.txViewingPk, 33, "txViewingPk")
-    .bytes(value.salt, 16, "salt");
-  byteVector(writer, value.outputData, "outputData");
+    .bytes(value.maskedMint[0], 32, "maskedMint[0]")
+    .bytes(value.maskedMint[1], 32, "maskedMint[1]")
+    .bytes(value.maskSeed, MERGE_MASK_SEED_LENGTH, "maskSeed");
 }
 
-const MERGE_FIXED_DATA_LENGTH = 354;
+const MERGE_FIXED_DATA_LENGTH = 398;
+
+/** Bytes of a merge's mask seed. */
+export const MERGE_MASK_SEED_LENGTH = 31;
+
+const MERGE_AMOUNT_NONCE_DOMAIN = new TextEncoder().encode("TMAN");
+const MERGE_MINT_NONCE_DOMAIN = new TextEncoder().encode("TMMN");
+
+/**
+ * The two mask nonces a merge proof takes as public inputs, each
+ * `keccak(domain || maskSeed)` with its first byte zeroed so it is a canonical
+ * field element. Mirrors Rust `MergeMaskNonces::derive`.
+ */
+export function mergeMaskNonces(maskSeed: Bytes31): Readonly<{ amount: Bytes32; mint: Bytes32 }> {
+  if (maskSeed.length !== MERGE_MASK_SEED_LENGTH) {
+    fail("INTERFACE_INVALID_LENGTH", {
+      field: "maskSeed",
+      expected: MERGE_MASK_SEED_LENGTH,
+      actual: maskSeed.length,
+    });
+  }
+  const nonce = (domain: Uint8Array): Bytes32 => {
+    const preimage = new Uint8Array(domain.length + maskSeed.length);
+    preimage.set(domain);
+    preimage.set(maskSeed, domain.length);
+    const digest = keccak_256(preimage);
+    digest[0] = 0;
+    return digest as Bytes32;
+  };
+  return Object.freeze({
+    amount: nonce(MERGE_AMOUNT_NONCE_DOMAIN),
+    mint: nonce(MERGE_MINT_NONCE_DOMAIN),
+  });
+}
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
@@ -349,26 +385,56 @@ export function encodeMergeTransactInstructionData(
     writeMergeData,
     MERGE_FIXED_DATA_LENGTH +
       32 * value.nullifiers.length +
-      (value.cacheSlot === undefined ? 0 : 1) +
-      value.outputData.length,
+      (value.cacheSlot === undefined ? 0 : 1),
   );
 }
 
+export type MergeOutputDerivation = Readonly<{
+  maskedAmount: Bytes32;
+  maskedMint: readonly [Bytes32, Bytes32];
+  maskSeed: Bytes31;
+  outputRingDataHash?: Bytes32;
+}>;
+
+const MERGE_DERIVATION_LENGTH = 32 + 64 + MERGE_MASK_SEED_LENGTH;
+
 /**
- * The message of a rebuilt merge event: the masked output amount, then a ring
- * merge's output ring-data hash. `undefined` unless exactly 32 or 64 bytes.
- * Mirrors Rust `MergeOutputDerivation::decode`.
+ * The message of a rebuilt merge event: the masked output amount, the two
+ * masked mint chunks, the mask seed, then a ring merge's output ring-data
+ * hash. Mirrors Rust `MergeOutputDerivation::encode`.
  */
-export function decodeMergeOutputDerivation(
-  data: Uint8Array,
-): Readonly<{ maskedAmount: Bytes32; outputRingDataHash?: Bytes32 }> | undefined {
-  if (data.length !== 32 && data.length !== 64) return undefined;
+export function encodeMergeOutputDerivation(value: MergeOutputDerivation): Uint8Array {
+  const ring = value.outputRingDataHash;
+  const out = new Uint8Array(MERGE_DERIVATION_LENGTH + (ring === undefined ? 0 : 32));
+  out.set(value.maskedAmount, 0);
+  out.set(value.maskedMint[0], 32);
+  out.set(value.maskedMint[1], 64);
+  out.set(value.maskSeed, 96);
+  if (ring !== undefined) out.set(ring, MERGE_DERIVATION_LENGTH);
+  return out;
+}
+
+/**
+ * Inverts `encodeMergeOutputDerivation`; `undefined` unless `data` has the
+ * default or the ring length. Mirrors Rust `MergeOutputDerivation::decode`.
+ */
+export function decodeMergeOutputDerivation(data: Uint8Array): MergeOutputDerivation | undefined {
+  if (data.length !== MERGE_DERIVATION_LENGTH && data.length !== MERGE_DERIVATION_LENGTH + 32) {
+    return undefined;
+  }
   const maskedAmount = data.slice(0, 32) as Bytes32;
-  return data.length === 32
-    ? Object.freeze({ maskedAmount })
+  const maskedMint = Object.freeze([
+    data.slice(32, 64) as Bytes32,
+    data.slice(64, 96) as Bytes32,
+  ] as const);
+  const maskSeed = data.slice(96, MERGE_DERIVATION_LENGTH) as Bytes31;
+  return data.length === MERGE_DERIVATION_LENGTH
+    ? Object.freeze({ maskedAmount, maskedMint, maskSeed })
     : Object.freeze({
         maskedAmount,
-        outputRingDataHash: data.slice(32, 64) as Bytes32,
+        maskedMint,
+        maskSeed,
+        outputRingDataHash: data.slice(MERGE_DERIVATION_LENGTH) as Bytes32,
       });
 }
 

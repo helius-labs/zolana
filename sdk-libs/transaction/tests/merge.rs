@@ -632,10 +632,13 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
 
 #[test]
 fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
+    use zolana_interface::instruction::instruction_data::{
+        MergeMaskNonces, MERGE_AMOUNT_NONCE_DOMAIN, MERGE_MASK_SEED_LEN, MERGE_MINT_NONCE_DOMAIN,
+    };
     use zolana_keypair::NullifierKey;
     use zolana_transaction::instructions::merge::{
-        merge_amount_mask, merge_private_tx_blinding, DOMAIN_MERGE_AMOUNT_MASK,
-        DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+        merge_amount_mask, merge_mint_mask, merge_private_tx_blinding, DOMAIN_MERGE_AMOUNT_MASK,
+        DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_MINT_MASK, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
     };
     #[derive(serde::Deserialize)]
     struct Vectors {
@@ -648,7 +651,12 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         output_blinding: String,
         dummy_slot_index: u8,
         dummy_nullifier: String,
+        mask_seed: String,
+        amount_mask_nonce: String,
+        mint_mask_nonce: String,
         amount_mask: String,
+        mint_mask_chunk: u8,
+        mint_mask: String,
         private_tx_blinding: String,
     }
     let vector: Vectors =
@@ -696,13 +704,45 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         )
         .unwrap()
     );
-    let mask = merge_amount_mask(&key, &first).unwrap();
+    let mask_seed: [u8; MERGE_MASK_SEED_LEN] =
+        hex::decode(vector.mask_seed).unwrap().try_into().unwrap();
+    let nonces = MergeMaskNonces::derive(&mask_seed).unwrap();
+    assert_eq!(hex::encode(nonces.amount), vector.amount_mask_nonce);
+    assert_eq!(hex::encode(nonces.mint), vector.mint_mask_nonce);
+    assert_eq!(MERGE_AMOUNT_NONCE_DOMAIN, *b"TMAN");
+    assert_eq!(MERGE_MINT_NONCE_DOMAIN, *b"TMMN");
+    assert_ne!(nonces.amount, nonces.mint);
+    let mut other_seed = mask_seed;
+    other_seed[30] = other_seed[30].checked_add(1).unwrap();
+    assert_ne!(nonces, MergeMaskNonces::derive(&other_seed).unwrap());
+
+    let mask = merge_amount_mask(&key, &first, &nonces.amount).unwrap();
     assert_eq!(hex::encode(mask), vector.amount_mask);
     assert_eq!(DOMAIN_MERGE_AMOUNT_MASK, u32::from_be_bytes(*b"TMAM"));
     assert_ne!(mask, output);
     assert_ne!(mask, dummy);
-    assert_ne!(mask, merge_amount_mask(&other_key, &first).unwrap());
-    assert_ne!(mask, merge_amount_mask(&key, &other_first).unwrap());
+    assert_ne!(
+        mask,
+        merge_amount_mask(&other_key, &first, &nonces.amount).unwrap()
+    );
+    assert_ne!(
+        mask,
+        merge_amount_mask(&key, &other_first, &nonces.amount).unwrap()
+    );
+    assert_ne!(mask, merge_amount_mask(&key, &first, &nonces.mint).unwrap());
+
+    let mint_mask = merge_mint_mask(&key, &first, &nonces.mint, vector.mint_mask_chunk).unwrap();
+    assert_eq!(hex::encode(mint_mask), vector.mint_mask);
+    assert_eq!(DOMAIN_MERGE_MINT_MASK, u32::from_be_bytes(*b"TMMA"));
+    assert_ne!(mint_mask, mask);
+    assert_ne!(
+        mint_mask,
+        merge_mint_mask(&key, &first, &nonces.mint, vector.mint_mask_chunk - 1).unwrap()
+    );
+    assert_ne!(
+        mint_mask,
+        merge_mint_mask(&key, &first, &nonces.amount, vector.mint_mask_chunk).unwrap()
+    );
     let private = merge_private_tx_blinding(&key, &first).unwrap();
     assert_eq!(hex::encode(private), vector.private_tx_blinding);
     assert_ne!(private, output);

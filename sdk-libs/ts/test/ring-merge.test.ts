@@ -9,13 +9,19 @@ import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
 import type { Address, Bytes32, Bytes128 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
+import { mergeMaskNonces } from "../src/interface/codecs/index.js";
 import {
   mergeAmountMask,
   mergeDummyNullifier,
+  mergeMintMask,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
 } from "../src/keypair/merge/index.js";
-import { Merge, PreparedMerge } from "../src/transaction/instructions/builders.js";
+import {
+  Merge,
+  PreparedMerge,
+  randomMergeMaskSeed,
+} from "../src/transaction/instructions/builders.js";
 import { privateTxHash } from "../src/transaction/instructions/transact.js";
 import { Data } from "../src/transaction/data.js";
 import { Utxo, ProofInputUtxo } from "../src/transaction/utxo.js";
@@ -55,6 +61,8 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
   const first = inputs[0];
   if (first === undefined) throw new Error("empty fixture");
   const key = owner.nullifierKey();
+  const maskSeed = randomMergeMaskSeed();
+  const nonces = mergeMaskNonces(maskSeed);
   try {
     return new Merge({
       address: owner.shieldedAddress(),
@@ -63,7 +71,12 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
       ring: { programId: RING },
       outputBlinding: mergeOutputBlinding(key, first.nullifier()),
       privateTxBlinding: mergePrivateTxBlinding(key, first.nullifier()),
-      amountMask: mergeAmountMask(key, first.nullifier()),
+      maskSeed,
+      amountMask: mergeAmountMask(key, first.nullifier(), nonces.amount),
+      mintMasks: [
+        mergeMintMask(key, first.nullifier(), nonces.mint, 0),
+        mergeMintMask(key, first.nullifier(), nonces.mint, 1),
+      ],
       dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
         mergeDummyNullifier(key, first.nullifier(), slot),
       ),

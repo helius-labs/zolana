@@ -66,9 +66,8 @@ mod tests {
                 private_tx_hash: [3u8; 32],
                 eddsa_owner: false,
                 masked_amount: [5u8; 32],
-                tx_viewing_pk: [6u8; 33],
-                salt: [7u8; 16],
-                output_data: vec![9u8; 4],
+                masked_mint: [[0u8; 32]; 2],
+                mask_seed: [0u8; 31],
             },
         }
     }

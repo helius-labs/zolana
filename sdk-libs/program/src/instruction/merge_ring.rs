@@ -99,9 +99,8 @@ mod tests {
         MergeTransactIxData {
             cache_slot: None,
             masked_amount: [0u8; 32],
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            output_data: Vec::new(),
+            masked_mint: [[0u8; 32]; 2],
+            mask_seed: [0u8; 31],
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],

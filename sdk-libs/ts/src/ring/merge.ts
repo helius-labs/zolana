@@ -123,7 +123,6 @@ async function buildRingMerge(
         outputTreeId: outputTree.treeId,
         ring: { programId: params.ringProgramId },
         invalidAnswers: () => ringIntentMismatch("keyAnswers"),
-        assets: params.wallet.registry,
       },
       context,
     );

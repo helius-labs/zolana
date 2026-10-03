@@ -185,6 +185,8 @@ pub enum ShieldedPoolError {
     ZeroOutputUtxoHash = 7079,
     #[error("masked amount is not a canonical field element")]
     NonCanonicalMaskedAmount = 7080,
+    #[error("masked mint is not a canonical field element")]
+    NonCanonicalMaskedMint = 7081,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -310,6 +312,7 @@ mod tests {
                 ZeroInputNullifier => 7078,
                 ZeroOutputUtxoHash => 7079,
                 NonCanonicalMaskedAmount => 7080,
+                NonCanonicalMaskedMint => 7081,
             }
         }
 
@@ -395,6 +398,7 @@ mod tests {
             ZeroInputNullifier,
             ZeroOutputUtxoHash,
             NonCanonicalMaskedAmount,
+            NonCanonicalMaskedMint,
         ];
         let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {
@@ -406,7 +410,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 79, "variant count drifted");
+        assert_eq!(variants.len(), 80, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

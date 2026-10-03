@@ -81,7 +81,18 @@ type CommonPublicInputs struct {
 	// Output amount plus MergeAmountMask, so the owner recovers the amount
 	// without knowing every input.
 	MaskedAmount frontend.Variable
+	// Each mint chunk plus its MergeMintMask, so the owner recovers the mint
+	// the same way.
+	MaskedMint [MintChunkCount]frontend.Variable
+	// The amount and mint mask nonces. SPP derives both from the merge's
+	// fresh mask seed, so no two attempts share a mask.
+	AmountMaskNonce frontend.Variable
+	MintMaskNonce   frontend.Variable
 }
+
+// MintChunkCount is the number of field elements hash_bytes packs a 32-byte
+// mint into: its first 31 bytes, then its last byte, each big-endian.
+const MintChunkCount = 2
 
 // Transaction is the common merge statement over a wrapper-owned witness.
 // RingProgramID is 0 on the default rail and the ring's public signal on the
@@ -90,7 +101,10 @@ type Transaction struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	// MintChunks are the packed chunks of the mint every real input and the
+	// output share. The asset field is derived from them, so the published
+	// masked mint names exactly the asset the commitments use.
+	MintChunks [MintChunkCount]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -136,6 +150,10 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 		p.ExternalDataHash,
 		p.AllowDummyInputs,
 		p.MaskedAmount,
+		p.MaskedMint[0],
+		p.MaskedMint[1],
+		p.AmountMaskNonce,
+		p.MintMaskNonce,
 	}
 }
 
@@ -216,12 +234,14 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	// single-use nullifier can seed the output blinding and dummy nullifiers.
 	api.AssertIsEqual(t.Inputs[0].Domain, UtxoDomain)
 
+	asset := gadget.HashChain(api, t.MintChunks[:])
+
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
 	ctx := mergeInputContext{
 		OwnerHash:       userOwnerHash,
 		NullifierSecret: t.UserNullifierSecret,
-		Asset:           t.Asset,
+		Asset:           asset,
 		RingProgramID:   t.RingProgramID,
 		FirstNullifier:  frontend.Variable(0),
 	}
@@ -239,8 +259,16 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 	api.AssertIsEqual(
 		t.Public.MaskedAmount,
-		api.Add(sumInputs, MergeAmountMask(api, t.UserNullifierSecret, nullifiers[0])),
+		api.Add(sumInputs, MergeAmountMask(api, t.UserNullifierSecret, nullifiers[0], t.Public.AmountMaskNonce)),
 	)
+	// No range check on the chunks: any other pair hashing to the same asset
+	// is a Poseidon collision, and the owner rejects a non-canonical chunk.
+	for i, chunk := range t.MintChunks {
+		api.AssertIsEqual(
+			t.Public.MaskedMint[i],
+			api.Add(chunk, MergeMintMask(api, t.UserNullifierSecret, nullifiers[0], t.Public.MintMaskNonce, i)),
+		)
+	}
 
 	outputBlinding := MergeOutputBlinding(api, t.UserNullifierSecret, nullifiers[0])
 	outputHash := constrainOutput(
@@ -249,7 +277,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Public.OutputHash,
 		outputBlinding,
 		userOwnerHash,
-		t.Asset,
+		asset,
 		sumInputs,
 		t.RingProgramID,
 		t.Public.OutputTreeID,

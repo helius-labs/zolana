@@ -1,5 +1,10 @@
-export { ConfidentialSplit, Merge, PreparedMerge, PreparedSplit } from "./builders.js";
-export type { MergeEncryptedOutput } from "./builders.js";
+export {
+  ConfidentialSplit,
+  Merge,
+  PreparedMerge,
+  PreparedSplit,
+  randomMergeMaskSeed,
+} from "./builders.js";
 export {
   BN254_MODULUS_DEC,
   ConfidentialTransfer,

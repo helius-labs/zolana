@@ -82,18 +82,18 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 297
+- Total invariants: 298
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
-  - merge.md: 44 (MergeTransact 19, RingMergeTransact 14, MergeCache 9, output recovery 2)
+  - merge.md: 45 (MergeTransact 19, RingMergeTransact 14, MergeCache 9, output recovery 3)
   - tree.md: 55 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9, ClaimTreeLamports 7)
   - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 26 (Create 9, UpdateOwner 5, Update 6, SetRingActivation 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 107
-- High: 109
+- Critical (funds/double-spend/authority takeover): 108
+- High: 110
 - Medium: 76
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
@@ -101,7 +101,7 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   after an audit found the first resolution had not actually landed):
   1. Deposit/RingDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
-  3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge publishes a proof-bound masked amount and an unverified output ciphertext (INV-MERGE-29, INV-MERGE-30).
+  3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge publishes a proof-bound masked amount and mint under nonces derived from a fresh mask seed, and no ciphertext (INV-MERGE-29..31).
   4. UTXO tree height 32.
   5. Duplicate `ring_deposit` row removed from the instruction table.
   6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.
@@ -154,11 +154,11 @@ circuit includes a cache selection in its public input hash whether or not a
 cache is supplied, so a cached spend verifies against its rail's ordinary key
 through one cached `CircuitId` twin per rail (`ConfidentialEddsaCached`,
 `RingEddsaCached`, `RingP256Cached`); `RingAuthority` binds no selection.
-INV-MERGE-20..28 added (9, all covered). INV-MERGE-29..30 (masked merge amount, untrusted merge ciphertext) added 2026-10-02 (2, both covered). The counts below include them.
+INV-MERGE-20..28 added (9, all covered). INV-MERGE-29..31 (masked merge amount, masked merge mint, mask seed nonces) added 2026-10-02 (3, all covered). The counts below include them.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 270 / 297
+- Covered: 271 / 298
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
@@ -166,11 +166,11 @@ Post-PR172 sync (2026-07-31):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(270 + 2 + 19 + 1 + 5 = 297. The per-file partial+untested column sums to 20
+(271 + 2 + 19 + 1 + 5 = 298. The per-file partial+untested column sums to 20
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 34/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 35/6/0/4, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 

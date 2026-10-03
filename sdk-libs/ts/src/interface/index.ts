@@ -17,6 +17,13 @@ export {
 } from "./cache.js";
 export type { CachedInputFields } from "./cache.js";
 export {
+  decodeMergeOutputDerivation,
+  encodeMergeOutputDerivation,
+  MERGE_MASK_SEED_LENGTH,
+  mergeMaskNonces,
+} from "./codecs/index.js";
+export type { MergeOutputDerivation } from "./codecs/index.js";
+export {
   decodeTreeFeeSchedule,
   decodeTreeFees,
   decodeTreeHeadRoots,

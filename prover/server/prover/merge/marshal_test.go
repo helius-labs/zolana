@@ -241,7 +241,7 @@ func sampleParams() *MergeParameters {
 		Output:              OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
 		TreeSlots:           treeSlots,
 		OutputTreeID:        big.NewInt(11),
-		Asset:               big.NewInt(1),
+		MintChunks:          [2]*big.Int{big.NewInt(0x0101), big.NewInt(0x02)},
 		OwnerPkHash:         big.NewInt(0x1212),
 		UserNullifierPk:     big.NewInt(0x3333),
 		UserNullifierSecret: big.NewInt(0x4444),
@@ -250,6 +250,9 @@ func sampleParams() *MergeParameters {
 		PrivateTxHash:       big.NewInt(0x7777),
 		AllowDummyInputs:    big.NewInt(1),
 		MaskedAmount:        big.NewInt(0x5555),
+		MaskedMint:          [2]*big.Int{big.NewInt(0x5656), big.NewInt(0x5757)},
+		AmountMaskNonce:     big.NewInt(0x5858),
+		MintMaskNonce:       big.NewInt(0x5959),
 		PublicInputHash:     big.NewInt(0x8888),
 		RingProgramID:       big.NewInt(0),
 	}

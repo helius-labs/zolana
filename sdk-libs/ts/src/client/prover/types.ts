@@ -110,6 +110,13 @@ export interface MergeInputs {
   readonly allowDummyInputs: Field;
   /** The output amount plus the owner's merge amount mask. */
   readonly maskedAmount: Field;
+  /** The packed chunks of the shared mint; the circuit derives the asset from them. */
+  readonly mintChunks: readonly [Field, Field];
+  /** Each mint chunk plus its mask. */
+  readonly maskedMint: readonly [Field, Field];
+  /** The nonces SPP derives from the instruction's mask seed. */
+  readonly amountMaskNonce: Field;
+  readonly mintMaskNonce: Field;
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
   readonly ringProgramId: Field;

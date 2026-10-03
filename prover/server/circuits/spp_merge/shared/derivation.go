@@ -18,15 +18,34 @@ const (
 	MergeDummyNullifierDomain = 0x544d444e
 	// MergeAmountMaskDomain = "TMAM"
 	MergeAmountMaskDomain = 0x544d414d
+	// MergeMintMaskDomain = "TMMA"
+	MergeMintMaskDomain = 0x544d4d41
 )
 
 // MergeAmountMask derives the pad the circuit adds to the merged output's
 // amount before publishing it. The owner recomputes it from the nullifier
-// secret and the published first nullifier, so the output amount is
-// recoverable even when an input UTXO is unknown to the owner.
-func MergeAmountMask(api frontend.API, nullifierSecret, firstNullifier frontend.Variable) frontend.Variable {
+// secret, the published first nullifier and the amount nonce SPP derives from
+// the published mask seed, so the output amount is recoverable even when an
+// input UTXO is unknown to the owner. The seed is fresh per attempt: two
+// attempts that share a first nullifier would otherwise reuse the pad and
+// publish the difference of their amounts.
+func MergeAmountMask(api frontend.API, nullifierSecret, firstNullifier, amountNonce frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
-		MergeAmountMaskDomain, nullifierSecret, firstNullifier,
+		MergeAmountMaskDomain, nullifierSecret, firstNullifier, amountNonce,
+	})
+}
+
+// MergeMintMask derives the pad over one packed chunk of the merged output's
+// mint (see MintChunks), under the mint nonce SPP derives from the same seed.
+func MergeMintMask(
+	api frontend.API,
+	nullifierSecret,
+	firstNullifier,
+	mintNonce frontend.Variable,
+	chunkIndex int,
+) frontend.Variable {
+	return gadget.PoseidonHash(api, []frontend.Variable{
+		MergeMintMaskDomain, nullifierSecret, firstNullifier, mintNonce, chunkIndex,
 	})
 }
 

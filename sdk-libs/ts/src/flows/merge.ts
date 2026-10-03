@@ -1,6 +1,6 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
-import type { AssetRegistry } from "../transaction/asset.js";
-import { Merge, PreparedMerge } from "../transaction/instructions/builders.js";
+import { mergeMaskNonces } from "../interface/codecs/index.js";
+import { Merge, PreparedMerge, randomMergeMaskSeed } from "../transaction/instructions/builders.js";
 import { deriveAnswers } from "../transaction/wallet/key-batch.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { ProofInputUtxo } from "../transaction/utxo.js";
@@ -14,19 +14,21 @@ export async function prepareMerge(
     ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
     /** Pads with compact padding, which publishes 0 in place of each derived dummy nullifier. */
     compact?: boolean;
-    /** Encrypts the merged output to its owner; see `Merge`. */
-    assets?: AssetRegistry;
   }>,
   context?: RequestContext,
 ): Promise<PreparedMerge> {
   const firstNullifier = input.inputs[0]?.nullifier();
   if (firstNullifier === undefined) throw input.invalidAnswers();
   const slots = PreparedMerge.dummySlots(input.inputs.length);
+  const maskSeed = randomMergeMaskSeed();
+  const nonces = mergeMaskNonces(maskSeed);
   const answers = await input.keys.derive(
     [
       { kind: "mergeOutputBlinding", firstNullifier },
       { kind: "mergePrivateTxBlinding", firstNullifier },
-      { kind: "mergeAmountMask", firstNullifier },
+      { kind: "mergeAmountMask", firstNullifier, nonce: nonces.amount },
+      { kind: "mergeMintMask", firstNullifier, nonce: nonces.mint, chunkIndex: 0 },
+      { kind: "mergeMintMask", firstNullifier, nonce: nonces.mint, chunkIndex: 1 },
       ...slots.map((slotIndex) => ({
         kind: "mergeDummyNullifier" as const,
         firstNullifier,
@@ -35,12 +37,21 @@ export async function prepareMerge(
     ],
     context,
   );
-  const [outputBlinding, privateTxBlinding, amountMask, ...dummyNullifiers] = deriveAnswers(
-    answers,
-    3 + slots.length,
-    input.invalidAnswers,
-  );
-  if (outputBlinding === undefined || privateTxBlinding === undefined || amountMask === undefined) {
+  const [
+    outputBlinding,
+    privateTxBlinding,
+    amountMask,
+    mintPrefixMask,
+    mintLastMask,
+    ...dummyNullifiers
+  ] = deriveAnswers(answers, 5 + slots.length, input.invalidAnswers);
+  if (
+    outputBlinding === undefined ||
+    privateTxBlinding === undefined ||
+    amountMask === undefined ||
+    mintPrefixMask === undefined ||
+    mintLastMask === undefined
+  ) {
     throw input.invalidAnswers();
   }
   return new Merge({
@@ -48,9 +59,10 @@ export async function prepareMerge(
     inputs: input.inputs,
     outputBlinding,
     privateTxBlinding,
+    maskSeed,
     amountMask,
+    mintMasks: [mintPrefixMask, mintLastMask],
     dummyNullifiers,
-    ...(input.assets === undefined ? {} : { assets: input.assets }),
     ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
     ...(input.ring === undefined ? {} : { ring: input.ring }),
     ...(input.compact === true ? { compact: true } : {}),

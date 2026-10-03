@@ -297,11 +297,10 @@ export interface MergeTransactInstructionData {
   readonly cacheSlot?: number;
   /** The output amount plus the owner's merge amount mask, bound by the proof. */
   readonly maskedAmount: Bytes32;
-  /** Key and salt of `outputData`; the program reads neither. */
-  readonly txViewingPk: Bytes33;
-  readonly salt: Bytes16;
-  /** Untrusted confidential ciphertext of the merged output, or empty. */
-  readonly outputData: Uint8Array;
+  /** The output mint's two `hash_bytes` chunks, each plus its mask, bound by the proof. */
+  readonly maskedMint: readonly [Bytes32, Bytes32];
+  /** Fresh per attempt; `mergeMaskNonces` derives one nonce per masked value from it. */
+  readonly maskSeed: Bytes31;
 }
 
 export interface CreateCacheData {

@@ -3,15 +3,14 @@ mod wallet_common;
 use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
-use zolana_event::{MergeOutputDerivation, MessageData};
+use zolana_event::MessageData;
 use zolana_keypair::NullifierKey;
 #[cfg(feature = "parallel")]
 use zolana_test_utils::wallet::PrivateTransactionDirection;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
 use zolana_transaction::{
     instructions::merge::{
-        merge_amount_mask, merge_dummy_nullifier, merge_masked_amount, merge_output_blinding,
-        MERGE_DEFAULT_INPUT_COUNT,
+        merge_dummy_nullifier, merge_output_blinding, MergeMaskedOutput, MERGE_DEFAULT_INPUT_COUNT,
     },
     Address, AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
@@ -19,22 +18,20 @@ use zolana_transaction::{
 
 const WINDOW: u64 = 8;
 
-/// The message a merge without a ciphertext publishes: its amount under the
-/// owner's mask, and a ring merge's output ring-data hash.
+/// The message a SOL merge publishes: its amount and mint under the owner's
+/// masks, and a ring merge's output ring-data hash.
 fn merge_message(
     nullifier_key: &NullifierKey,
     first_nullifier: &[u8; 32],
     amount: u64,
     output_ring_data_hash: Option<[u8; 32]>,
 ) -> Vec<MessageData> {
-    let mask = merge_amount_mask(nullifier_key, first_nullifier).unwrap();
+    let masked =
+        MergeMaskedOutput::new(nullifier_key, first_nullifier, &[9; 31], amount, &SOL_MINT)
+            .unwrap();
     vec![MessageData {
         view_tag: [0; 32],
-        data: MergeOutputDerivation {
-            masked_amount: merge_masked_amount(amount, &mask),
-            output_ring_data_hash,
-        }
-        .encode(),
+        data: masked.derivation(output_ring_data_hash).encode(),
     }]
 }
 
@@ -227,7 +224,13 @@ fn fresh_sync_resolves_merge_dependencies() {
         .sync(&authority, std::slice::from_ref(&chained_merge), 1, WINDOW)
         .unwrap();
     assert_eq!(incremental.balance(SOL_MINT, None).unwrap().amount, 42);
-    assert_eq!(fresh.utxos, incremental.utxos);
+    // A merge rebuilds from its own publication, so a fresh sync stores the
+    // chained merge in the order it arrived; the set is what must agree.
+    let by_slot = |mut utxos: Vec<WalletUtxo>| {
+        utxos.sort_by_key(|utxo| (utxo.slot, utxo.slot_index));
+        utxos
+    };
+    assert_eq!(by_slot(fresh.utxos), by_slot(incremental.utxos));
 }
 
 /// A compact merge publishes only its sent nullifiers: the padding slots are

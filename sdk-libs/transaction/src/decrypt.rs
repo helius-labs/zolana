@@ -3,14 +3,15 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, MergeOutputDerivation, OutputDataEncoding};
+use zolana_interface::instruction::instruction_data::MergeMaskNonces;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey};
 
 use crate::{
-    asset::{AssetBalance, AssetRegistry, Balances},
+    asset::{AssetBalance, AssetRegistry, Balances, Mint},
     data::Data,
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
-    instructions::merge::merge_unmasked_amount,
+    instructions::merge::{merge_unmasked_amount, merge_unmasked_mint},
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys},
     serialization::{
         anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
@@ -29,14 +30,13 @@ pub struct DecryptionResult {
     /// chain checks it, so it is unverified: register the assets that exist
     /// and decrypt again, and the commitment decides.
     pub unknown_asset_ids: BTreeSet<u64>,
-    /// Mints named by deposits this wallet owns that the asset registry has no
-    /// id for. Those deposits are left out; register the mints and decrypt
-    /// again.
+    /// Mints named by deposits or merges this wallet owns that the asset
+    /// registry has no id for. Those outputs are left out; register the mints
+    /// and decrypt again.
     pub unknown_mints: BTreeSet<Address>,
-    /// Merges that spend a UTXO no batch has produced yet, including merges
-    /// that are not this wallet's. [`extend`](Self::extend) retries them with
-    /// every batch: the missing input can be another merge's output that a
-    /// later batch brings.
+    /// This wallet's merges whose mint is in `unknown_mints`.
+    /// [`extend`](Self::extend) retries them with every call, so registering
+    /// the mint recovers them.
     pub pending_merges: Vec<ShieldedTransaction>,
 }
 
@@ -146,7 +146,14 @@ impl DecryptionResult {
             .iter()
             .chain(transactions.iter().filter(|tx| tx.merge))
             .collect();
-        let pending_merges = rebuild_merges(shielded_keys, &address, merges, &mut utxos, assets)?;
+        let pending_merges = rebuild_merges(
+            shielded_keys,
+            &address,
+            merges,
+            assets,
+            &mut utxos,
+            &mut unknown_mints,
+        )?;
         utxos.sort_by_key(|utxo| {
             (
                 utxo.slot,
@@ -462,71 +469,56 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
 pub enum MergeRebuild {
     /// The merge's output, matching its published commitment.
     Rebuilt(Box<WalletUtxo>),
-    /// Its ciphertext does not open to the output and it spends no UTXO the
-    /// wallet holds yet. A later batch may bring one, possibly another merge's
-    /// output.
-    Pending,
+    /// The merge's output, matching its published commitment, in a mint the
+    /// asset registry has no id for. Register the mint and rebuild again.
+    UnknownMint(Address),
     /// Not a merge of this wallet's UTXOs.
     NotOurs,
 }
 
-/// Rebuilds the outputs of this wallet's merges and returns the ones still
-/// pending. A merge publishes an untrusted ciphertext of its output, and the
-/// proof binds the output blinding and the masked amount to the first
-/// nullifier, so the owner rebuilds the output from either. A merge can spend
-/// another merge's output, so passes repeat until one resolves nothing new.
+/// Rebuilds the outputs of this wallet's merges, records the mints the
+/// registry lacks, and returns the merges blocked on them.
 fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
-    mut pending: Vec<&ShieldedTransaction>,
-    utxos: &mut Vec<WalletUtxo>,
+    merges: Vec<&ShieldedTransaction>,
     assets: &AssetRegistry,
+    utxos: &mut Vec<WalletUtxo>,
+    unknown_mints: &mut BTreeSet<Address>,
 ) -> Result<Vec<ShieldedTransaction>, TransactionError> {
-    while !pending.is_empty() {
-        let mut unresolved = Vec::new();
-        for tx in &pending {
-            match rebuild(shielded_keys, address, tx, utxos, assets)? {
-                MergeRebuild::Rebuilt(rebuilt) => utxos.push(*rebuilt),
-                MergeRebuild::Pending => unresolved.push(*tx),
-                MergeRebuild::NotOurs => {}
+    let mut pending = Vec::new();
+    for tx in merges {
+        match rebuild(shielded_keys, address, tx, assets)? {
+            MergeRebuild::Rebuilt(rebuilt) => utxos.push(*rebuilt),
+            MergeRebuild::UnknownMint(mint) => {
+                unknown_mints.insert(mint);
+                pending.push(tx.clone());
             }
+            MergeRebuild::NotOurs => {}
         }
-        if unresolved.len() == pending.len() {
-            break;
-        }
-        pending = unresolved;
     }
-    Ok(pending.into_iter().cloned().collect())
+    Ok(pending)
 }
 
-/// Rebuilds the output of `merge`, from its ciphertext when that reproduces
-/// the commitment and otherwise from the UTXOs the wallet holds, found by
-/// nullifier. [`decrypt`] rebuilds the merges of one batch from that batch's
-/// candidates; a client that keeps UTXOs between syncs passes them here, since
-/// a merge's inputs were usually published in an earlier batch.
+/// Rebuilds the output of `merge` from public data and the nullifier secret
+/// alone: the proof binds the output blinding, the masked amount and the
+/// masked mint to the first published nullifier, so no input needs to be
+/// held, not even one a merger planted without telling the owner.
 pub fn rebuild_merge<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     merge: &ShieldedTransaction,
-    held: &[WalletUtxo],
     assets: &AssetRegistry,
 ) -> Result<MergeRebuild, TransactionError> {
     if !merge.merge {
         return Ok(MergeRebuild::NotOurs);
     }
-    rebuild(
-        shielded_keys,
-        &shielded_keys.address()?,
-        merge,
-        held,
-        assets,
-    )
+    rebuild(shielded_keys, &shielded_keys.address()?, merge, assets)
 }
 
 fn rebuild<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
     tx: &ShieldedTransaction,
-    utxos: &[WalletUtxo],
     assets: &AssetRegistry,
 ) -> Result<MergeRebuild, TransactionError> {
     let (Some(slot), Some(&first_nullifier), Some(derivation)) = (
@@ -539,69 +531,68 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
         return Ok(MergeRebuild::NotOurs);
     };
     let ring_data_hash = derivation.output_ring_data_hash;
-    // The merger chose the ciphertext and nothing on chain checks it, so it is
-    // used only when it reproduces the commitment.
-    if let Some(utxo) = decrypted_merge_output(shielded_keys, address, tx, slot, assets)? {
-        if let Some(rebuilt) = merge_output(shielded_keys, address, tx, slot, utxo, ring_data_hash)?
-        {
-            return Ok(MergeRebuild::Rebuilt(Box::new(rebuilt)));
-        }
-    }
-
-    // The proof binds the blinding and the masked amount to the first
-    // published nullifier, which the owner need not hold: a merger can plant an
-    // input the owner never learns about. Any held input names the owner and
-    // the asset and ring the proof forces on every input.
-    let Some(input) = utxos
-        .iter()
-        .find(|utxo| tx.nullifiers.contains(&utxo.nullifier))
-    else {
-        return Ok(MergeRebuild::Pending);
+    // A ring merge's output keeps the ring program of its inputs, which the
+    // indexer reports for the transaction.
+    let ring_program_id = match (ring_data_hash, tx.ring_program_id) {
+        (None, _) => None,
+        (Some(_), Some(ring_program_id)) => Some(ring_program_id),
+        (Some(_), None) => return Ok(MergeRebuild::NotOurs),
     };
+    let nonces = MergeMaskNonces::derive(&derivation.mask_seed)?;
     let requests = [
         DeriveRequest::MergeOutputBlinding { first_nullifier },
-        DeriveRequest::MergeAmountMask { first_nullifier },
+        DeriveRequest::MergeAmountMask {
+            first_nullifier,
+            nonce: nonces.amount,
+        },
+        DeriveRequest::MergeMintMask {
+            first_nullifier,
+            nonce: nonces.mint,
+            chunk_index: 0,
+        },
+        DeriveRequest::MergeMintMask {
+            first_nullifier,
+            nonce: nonces.mint,
+            chunk_index: 1,
+        },
     ];
     let derived = shielded_keys.derive(&requests)?;
-    let [blinding, mask] = derived.as_slice() else {
+    let [blinding, amount_mask, mint_prefix_mask, mint_last_mask] = derived.as_slice() else {
         return Err(TransactionError::IncompleteDerivation {
             got: derived.len(),
             want: requests.len(),
         });
     };
-    let Some(amount) = merge_unmasked_amount(&derivation.masked_amount, mask) else {
+    let (Some(amount), Some(mint)) = (
+        merge_unmasked_amount(&derivation.masked_amount, amount_mask),
+        merge_unmasked_mint(
+            &derivation.masked_mint,
+            &[*mint_prefix_mask, *mint_last_mask],
+        ),
+    ) else {
         return Ok(MergeRebuild::NotOurs);
     };
+    // The commitment hashes the mint, not its registry id, so it is checked
+    // before the registry is consulted: an unknown mint is reported only for a
+    // merge that is the owner's.
     let utxo = Utxo {
         owner: address.signing_pubkey,
-        asset: input.utxo.asset,
+        asset: Mint::new(mint, 0),
         amount,
         blinding: *blinding,
-        ring_program_id: input.utxo.ring_program_id,
+        ring_program_id,
         data: Data::default(),
     };
-    Ok(
-        merge_output(shielded_keys, address, tx, slot, utxo, ring_data_hash)?
-            .map_or(MergeRebuild::NotOurs, |rebuilt| {
-                MergeRebuild::Rebuilt(Box::new(rebuilt))
-            }),
-    )
-}
-
-/// The merge ciphertext opened with this wallet's keys, or `None` when it is
-/// missing, addressed elsewhere, or does not decode.
-fn decrypted_merge_output<K: ShieldedKeys + ?Sized>(
-    shielded_keys: &K,
-    address: &ShieldedAddress,
-    tx: &ShieldedTransaction,
-    slot: &OutputSlot,
-    assets: &AssetRegistry,
-) -> Result<Option<Utxo>, TransactionError> {
-    match decode_slot(shielded_keys, address, tx, slot, 0, assets) {
-        Ok(decoded) => Ok(decoded.and_then(|decoded| decoded.utxos.into_iter().next())),
-        Err(TransactionError::UnknownAsset(_) | TransactionError::UnknownMint(_)) => Ok(None),
-        Err(error) => Err(error),
-    }
+    let Some(mut rebuilt) = merge_output(shielded_keys, address, tx, slot, utxo, ring_data_hash)?
+    else {
+        return Ok(MergeRebuild::NotOurs);
+    };
+    rebuilt.utxo.asset = match assets.mint(&mint) {
+        Ok(asset) => asset,
+        Err(TransactionError::UnknownMint(mint)) => return Ok(MergeRebuild::UnknownMint(mint)),
+        Err(error) => return Err(error),
+    };
+    Ok(MergeRebuild::Rebuilt(Box::new(rebuilt)))
 }
 
 /// `utxo` as the merge's output with its nullifier, if it hashes to the

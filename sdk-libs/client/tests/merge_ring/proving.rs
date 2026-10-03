@@ -4,6 +4,7 @@ use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
+use zolana_event::MergeOutputDerivation;
 use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
     verifying_keys::{merge_ring_36_1, merge_ring_8_1},
@@ -11,7 +12,7 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
 use zolana_transaction::{
-    instructions::merge::{merge_amount_mask, merge_output_blinding, merge_unmasked_amount},
+    instructions::merge::{merge_output_blinding, MergeMaskedOutput},
     Data, Mint, Utxo,
 };
 
@@ -127,20 +128,21 @@ impl MergeRingHarness {
             .expect("merge-ring groth16 proof verifies");
         let data = result.ring_instruction_data(MergeProof::zeroed());
         let first_nullifier = result.nullifiers.first().expect("first nullifier");
-        let mask = merge_amount_mask(&sender.nullifier_key, first_nullifier).expect("amount mask");
+        let published = MergeOutputDerivation {
+            masked_amount: data.merge.masked_amount,
+            masked_mint: data.merge.masked_mint,
+            mask_seed: data.merge.mask_seed,
+            output_ring_data_hash: Some(data.output_ring_data_hash),
+        };
         assert_eq!(
-            merge_unmasked_amount(&data.merge.masked_amount, &mask),
-            Some(expected_output.amount),
-            "the published masked amount recovers the merged ring total",
+            MergeMaskedOutput::open(&sender.nullifier_key, first_nullifier, &published)
+                .expect("open masked output"),
+            Some((expected_output.amount, expected_output.asset.asset)),
+            "the published masked amount and mint recover the merged ring output",
         );
-        assert_eq!(
-            data.merge.output_data, result.output_data.data,
-            "the ring instruction carries the output ciphertext",
-        );
-        assert!(!data.merge.output_data.is_empty());
 
-        // Without the ciphertext the owner still rebuilds the output from the
-        // first published nullifier and the masked amount.
+        // The owner rebuilds the output from the first published nullifier and
+        // the masked amount.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
                 .expect("derive merge-ring output blinding"),

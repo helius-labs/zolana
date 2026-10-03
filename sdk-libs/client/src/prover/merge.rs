@@ -8,7 +8,10 @@ use zolana_interface::{
     instruction::{
         instruction_data::{
             merge_ring::MergeRingIxData,
-            merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+            merge_transact::{
+                MergeExternalDataHash, MergeProof, MergeTransactIxData, MERGE_MASK_SEED_LEN,
+                MERGE_MINT_CHUNKS,
+            },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
@@ -18,8 +21,8 @@ use zolana_interface::{
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_amount_mask, merge_dummy_nullifier, merge_masked_amount, merge_output_blinding,
-        merge_private_tx_blinding, MergeProofInputs, MERGE_SUPPORTED_INPUT_COUNTS,
+        merge_dummy_nullifier, merge_mint_chunks, merge_output_blinding, merge_private_tx_blinding,
+        MergeMaskedOutput, MergeProofInputs, MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
 };
@@ -71,6 +74,10 @@ pub struct MergeProofResult {
     /// The output amount under the owner's merge amount mask, as the proof
     /// binds it.
     pub masked_amount: [u8; 32],
+    /// The output mint's chunks under their masks, as the proof binds them.
+    pub masked_mint: [[u8; 32]; MERGE_MINT_CHUNKS],
+    /// The seed both mask nonces derive from.
+    pub mask_seed: [u8; MERGE_MASK_SEED_LEN],
     /// Recomputed on-chain from the instruction; surfaced so the caller need not
     /// re-derive it.
     pub external_data_hash: [u8; 32],
@@ -103,9 +110,8 @@ impl MergeProofResult {
             eddsa_owner: self.eddsa_owner,
             cache_slot: self.cache_slot,
             masked_amount: self.masked_amount,
-            tx_viewing_pk: self.tx_viewing_pk,
-            salt: self.salt,
-            output_data: self.output_data.data.clone(),
+            masked_mint: self.masked_mint,
+            mask_seed: self.mask_seed,
         }
     }
 
@@ -204,6 +210,7 @@ impl MergeProver {
             tx_viewing_pk,
             salt,
             output_data,
+            mask_seed,
         } = self.transaction;
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
         let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge)?;
@@ -238,10 +245,20 @@ impl MergeProver {
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
-        let masked_amount = merge_masked_amount(
+        let mint = output_utxo.asset.asset;
+        let MergeMaskedOutput {
+            masked_amount,
+            masked_mint,
+            nonces,
+            ..
+        } = MergeMaskedOutput::new(
+            &self.nullifier_key,
+            &first_nullifier,
+            &mask_seed,
             total,
-            &merge_amount_mask(&self.nullifier_key, &first_nullifier)?,
-        );
+            &mint,
+        )?;
+        let [masked_mint_prefix, masked_mint_last] = masked_mint;
         let mut elements = vec![
             create_padded_right_hash_chain_4(
                 &assembled_inputs.nullifiers,
@@ -254,6 +271,10 @@ impl MergeProver {
             external_data_hash,
             right_align(&[1u8]),
             masked_amount,
+            masked_mint_prefix,
+            masked_mint_last,
+            nonces.amount,
+            nonces.mint,
         ];
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
@@ -287,6 +308,10 @@ impl MergeProver {
             private_tx_hash: be(&private_tx),
             allow_dummy_inputs: BigUint::from(1u8),
             masked_amount: be(&masked_amount),
+            mint_chunks: merge_mint_chunks(&mint).map(|chunk| be(&chunk)),
+            masked_mint: masked_mint.map(|chunk| be(&chunk)),
+            amount_mask_nonce: be(&nonces.amount),
+            mint_mask_nonce: be(&nonces.mint),
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
@@ -300,6 +325,8 @@ impl MergeProver {
             output_hash,
             private_tx_hash: private_tx,
             masked_amount,
+            masked_mint,
+            mask_seed,
             external_data_hash,
             expiry_unix_ts,
             eddsa_owner,

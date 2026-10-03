@@ -51,7 +51,12 @@
     "output_blinding": "2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897",
     "dummy_slot_index": 3,
     "dummy_nullifier": "1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914",
-    "amount_mask": "0ae0b9093d3414d2ea89cbd1f4eb221706d6939ec915e657c012b4757a4d85a0",
+    "mask_seed": "11111111111111111111111111111111111111111111111111111111111111",
+    "amount_mask_nonce": "00e843d6fa3d658423d5e2f61fac0e6eba7f38852034c93694d6f2cd4d3fc800",
+    "mint_mask_nonce": "005035f49a053ad3ac886b2147a0d785abdb3283fb48f0ad1998f8b90e134a3f",
+    "amount_mask": "2032b66dd037d718b31de5503679f2eb818876cc3010e647e23174ed061e3abd",
+    "mint_mask_chunk": 1,
+    "mint_mask": "2fe5bbb0e2417e0d3e14d759a37b62cd1dedd08337148a69d517127525597ae2",
     "private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610"
   },
   "derivation_input_guard": [

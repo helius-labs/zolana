@@ -30,6 +30,7 @@ import { ringTransactInstruction } from "../src/ring/instructions.js";
 import type {
   Address,
   Bytes16,
+  Bytes31,
   Bytes32,
   Bytes33,
   Bytes128,
@@ -131,14 +132,13 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
     nullifierTreeRootIndex: 10,
     ...(cacheSlot === undefined ? {} : { cacheSlot }),
     maskedAmount: new Uint8Array(32) as Bytes32,
-    txViewingPk: new Uint8Array(33) as Bytes33,
-    salt: new Uint8Array(16) as Bytes16,
-    outputData: new Uint8Array(),
+    maskedMint: [new Uint8Array(32) as Bytes32, new Uint8Array(32) as Bytes32],
+    maskSeed: new Uint8Array(31) as Bytes31,
   };
 }
 
-/** The masked amount, key, salt and empty ciphertext after the cache option. */
-const MERGE_TAIL = 32 + 33 + 16 + 2;
+/** The masked amount, the masked mint and the mask seed after the cache option. */
+const MERGE_TAIL = 32 + 64 + 31;
 
 function lastAccounts(accounts: readonly { address: Address; role: AccountRole }[], count: number) {
   return accounts.slice(-count).map((account) => [account.address, account.role]);

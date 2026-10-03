@@ -103,7 +103,6 @@ export async function createMerge(
         keys: params.keys,
         inputs,
         invalidAnswers: () => new WalletError("WALLET_KEYS_BATCH_MISMATCH"),
-        assets: params.wallet.registry,
         ...(params.compact === true ? { compact: true } : {}),
       },
       context,
