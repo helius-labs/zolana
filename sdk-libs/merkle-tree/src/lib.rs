@@ -152,13 +152,15 @@ where
     }
 
     pub fn append(&mut self, leaf: &[u8; 32]) -> Result<(), HasherError> {
+        // The capacity check must precede the push: pushing first and then
+        // rejecting left a phantom leaf in the layer, which later
+        // operations could read as a sibling.
+        if self.rightmost_index == self.capacity {
+            return Err(HasherError::IntegerOverflow);
+        }
         self.layers[0].push(*leaf);
 
         let i = self.rightmost_index;
-        if self.rightmost_index == self.capacity {
-            println!("Merkle tree full");
-            return Err(HasherError::IntegerOverflow);
-        }
         self.rightmost_index += 1;
 
         self.update_upper_layers(i)?;
