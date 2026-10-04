@@ -4,7 +4,7 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_program::{instruction::Transact, CompressedProof};
 
 use crate::{circuits::escrow_authority, instructions::withdraw::WithdrawArgs, tag, ID};
-
+// TODO: move to tests as utils file
 pub struct EscrowInstruction {
     pub creator: Address,
     pub tree: Address,

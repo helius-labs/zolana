@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use zolana_instruction::ADDRESS_TREE_ID;
 use zolana_interface::ADDRESS_DOMAIN;
 
-use super::{data::Leaves, Balance, DataUtxo, HasBalance, Utxo, UtxoData, UtxoTrait};
+use super::{data::OutputState, Balance, DataUtxo, HasBalance, Utxo, UtxoData, UtxoTrait};
 use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, poseidon, zero, Asset,
@@ -52,17 +52,17 @@ impl<S: Default> UniqueDataUtxo<S> {
 impl<S: DataHash + Clone> UniqueDataUtxo<S> {
     #[track_caller]
     pub fn new_mut(input: &Utxo, address: &CircuitVar, state: &S) -> Result<Self, CircuitError> {
-        Self::spend(input, address, state, Leaves::State)
+        Self::spend(input, address, state, OutputState::Default)
     }
 
     #[track_caller]
     pub fn new_close(input: &Utxo, address: &CircuitVar, state: &S) -> Result<Self, CircuitError> {
-        Self::spend(input, address, state, Leaves::Address(address.clone()))
+        Self::spend(input, address, state, OutputState::Closed(address.clone()))
     }
 
     #[track_caller]
     pub fn new_burn(input: &Utxo, address: &CircuitVar, state: &S) -> Result<Self, CircuitError> {
-        Self::spend(input, address, state, Leaves::Nothing)
+        Self::spend(input, address, state, OutputState::None)
     }
 
     #[track_caller]
@@ -70,10 +70,10 @@ impl<S: DataHash + Clone> UniqueDataUtxo<S> {
         input: &Utxo,
         address: &CircuitVar,
         state: &S,
-        leaves: Leaves,
+        output_state: OutputState,
     ) -> Result<Self, CircuitError> {
         Ok(Self {
-            utxo: DataUtxo::spend(input, state.clone(), Some(address.clone()), leaves)?,
+            utxo: DataUtxo::spend(input, state.clone(), Some(address.clone()), output_state)?,
             address: address.clone(),
             creates_address: false,
         })

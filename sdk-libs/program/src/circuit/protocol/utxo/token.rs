@@ -44,6 +44,7 @@ impl TokenUtxos {
         }
     }
 
+    /// Must be of the same asset and the same owner and same nullifier key -> same owner hash.
     #[track_caller]
     pub fn new_mut<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, CircuitError> {
         Self::spend(inputs, false)

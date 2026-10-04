@@ -84,10 +84,10 @@ impl<T: DataHash, const N: usize> DataHash for [T; N] {
 }
 
 #[derive(Clone, Debug)]
-pub(super) enum Leaves {
-    State,
-    Address(CircuitVar),
-    Nothing,
+pub(super) enum OutputState {
+    Default,
+    Closed(CircuitVar),
+    None,
 }
 
 #[must_use]
@@ -97,7 +97,7 @@ pub struct DataUtxo<S> {
     state: S,
     address: Option<CircuitVar>,
     spent: Option<SpentInput>,
-    leaves: Leaves,
+    output_state: OutputState,
 }
 
 impl<S> HasBalance for DataUtxo<S> {
@@ -110,7 +110,7 @@ impl<S> HasBalance for DataUtxo<S> {
     }
 
     fn is_closed(&self) -> bool {
-        !matches!(self.leaves, Leaves::State)
+        !matches!(self.output_state, OutputState::Default)
     }
 }
 
@@ -125,12 +125,12 @@ impl<S: Default> DataUtxo<S> {
 impl<S: DataHash + Clone> DataUtxo<S> {
     #[track_caller]
     pub fn new_mut(input: &Utxo, state: &S) -> Result<Self, CircuitError> {
-        Self::spend(input, state.clone(), None, Leaves::State)
+        Self::spend(input, state.clone(), None, OutputState::Default)
     }
 
     #[track_caller]
     pub fn new_close(input: &Utxo, state: &S) -> Result<Self, CircuitError> {
-        Self::spend(input, state.clone(), None, Leaves::Nothing)
+        Self::spend(input, state.clone(), None, OutputState::None)
     }
 }
 
@@ -140,7 +140,7 @@ impl<S: DataHash> DataUtxo<S> {
         input: &Utxo,
         state: S,
         address: Option<CircuitVar>,
-        leaves: Leaves,
+        output_state: OutputState,
     ) -> Result<Self, CircuitError> {
         let _scope = Scope::open(&input.domain.cs(), "a data utxo's input");
         input
@@ -161,7 +161,7 @@ impl<S: DataHash> DataUtxo<S> {
             address,
             // The domain check above already excludes dummies.
             spent: Some(input.spent(input.hash_with(&input.owner.hash()?, &input.asset.hash()?)?)),
-            leaves,
+            output_state,
         })
     }
 }
@@ -173,7 +173,7 @@ impl<S> DataUtxo<S> {
             state,
             address,
             spent: None,
-            leaves: Leaves::State,
+            output_state: OutputState::Default,
         }
     }
 
@@ -203,16 +203,16 @@ impl<S: DataHash> DataUtxo<S> {
     #[track_caller]
     pub(crate) fn output(&self) -> Result<Option<Output>, CircuitError> {
         let balance = self.balance.amount_var();
-        let data_hash = match &self.leaves {
-            Leaves::State => data_hash(self.address.as_ref(), &self.state)?,
-            Leaves::Address(address) => {
+        let data_hash = match &self.output_state {
+            OutputState::Default => data_hash(self.address.as_ref(), &self.state)?,
+            OutputState::Closed(address) => {
                 balance.assert_equal(&zero(), CLOSED_LEAVES_BALANCE)?;
                 poseidon(&[
                     constant(u64::from(CLOSED_DATA_HASH_DOMAIN)),
                     address.clone(),
                 ])?
             }
-            Leaves::Nothing => {
+            OutputState::None => {
                 balance.assert_equal(&zero(), CLOSED_LEAVES_BALANCE)?;
                 return Ok(None);
             }

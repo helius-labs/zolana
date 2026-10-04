@@ -26,7 +26,7 @@ pub struct EscrowTerms {
     pub creator: Owner,
     pub unlock: u64,
 }
-
+// TODO: check how we enforce that impl Circuit for <Escrow as ProofInput>::Circuit { has public and private inputs
 #[derive(Clone, ProofInput)]
 pub struct Escrow {
     pub(crate) private: EscrowPrivateInputs,
@@ -44,43 +44,6 @@ pub(crate) struct EscrowPrivateInputs {
 #[derive(Clone, PublicInputs)]
 pub(crate) struct EscrowPublicInputs {
     pub(crate) escrow_owner: ShieldedAddress,
-}
-
-pub(crate) fn escrow_utxo(
-    creator: &ShieldedKeypair,
-    mint: Mint,
-    amount: u64,
-    unlock: u64,
-) -> (WalletUtxo, EscrowTerms) {
-    let address = creator.shielded_address().expect("creator address");
-    let first = token_input(creator, mint, amount, 0);
-    let spp_proof_inputs = Escrow {
-        private: EscrowPrivateInputs {
-            tx_context: TxContext::new(),
-            token_utxos_asset_a: [first, token_input(creator, mint, 100, 1)],
-            unlock,
-            amount,
-        },
-        public: EscrowPublicInputs {
-            escrow_owner: escrow_authority().address(&address),
-        },
-    }
-    .create_proof_inputs_and_encrypt_with_keys(
-        creator,
-        address.solana_address().expect("payer"),
-        u64::MAX,
-    )
-    .expect("escrow proof inputs");
-    let output = spp_proof_inputs
-        .output_utxos
-        .get(ESCROW_SLOT)
-        .expect("escrow output");
-    let terms = EscrowTerms::try_from_slice(output.data.utxo_data().expect("escrow data"))
-        .expect("escrow terms");
-    (
-        escrow_authority().input(output, spp_proof_inputs.output_tree_id, 2),
-        terms,
-    )
 }
 
 #[deny(clippy::disallowed_types)]
@@ -156,4 +119,41 @@ fn escrow_prove_and_verify() {
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
+}
+// TODO: extract to shared
+pub(crate) fn escrow_utxo(
+    creator: &ShieldedKeypair,
+    mint: Mint,
+    amount: u64,
+    unlock: u64,
+) -> (WalletUtxo, EscrowTerms) {
+    let address = creator.shielded_address().expect("creator address");
+    let first = token_input(creator, mint, amount, 0);
+    let spp_proof_inputs = Escrow {
+        private: EscrowPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [first, token_input(creator, mint, 100, 1)],
+            unlock,
+            amount,
+        },
+        public: EscrowPublicInputs {
+            escrow_owner: escrow_authority().address(&address),
+        },
+    }
+    .create_proof_inputs_and_encrypt_with_keys(
+        creator,
+        address.solana_address().expect("payer"),
+        u64::MAX,
+    )
+    .expect("escrow proof inputs");
+    let output = spp_proof_inputs
+        .output_utxos
+        .get(ESCROW_SLOT)
+        .expect("escrow output");
+    let terms = EscrowTerms::try_from_slice(output.data.utxo_data().expect("escrow data"))
+        .expect("escrow terms");
+    (
+        escrow_authority().input(output, spp_proof_inputs.output_tree_id, 2),
+        terms,
+    )
 }
