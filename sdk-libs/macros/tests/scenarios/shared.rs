@@ -98,7 +98,7 @@ fn wallet_utxo(
         ring_data_hash: None,
         tree_id,
         leaf_index,
-        latest_tree_id: None,
+        latest_tree_id: Some(TREE_ID),
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,
@@ -218,12 +218,14 @@ fn decrypted(
         ring_program_id: None,
     };
     let slot_index = u32::try_from(slot).expect("slot index");
-    decrypt(keys, &[transaction], &assets)
+    let mut utxo = decrypt(keys, &[transaction], &assets)
         .expect("decryption")
         .utxos
         .into_iter()
         .find(|utxo| utxo.slot_index == slot_index)
-        .expect("the keys decrypt the output")
+        .expect("the keys decrypt the output");
+    utxo.latest_tree_id = Some(TREE_ID);
+    utxo
 }
 
 fn placed(keys: &ShieldedKeypair, mut utxo: WalletUtxo, data_hash: [u8; 32]) -> WalletUtxo {
@@ -279,9 +281,12 @@ impl ProgramOwner {
     }
 
     pub fn input(&self, output: &SppProofOutputUtxo, tree_id: u16, leaf_index: u64) -> WalletUtxo {
-        self.0
+        let mut utxo = self
+            .0
             .input(output, tree_id, leaf_index)
-            .expect("the output is owned by the program")
+            .expect("the output is owned by the program");
+        utxo.latest_tree_id = Some(TREE_ID);
+        utxo
     }
 }
 

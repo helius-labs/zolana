@@ -49,7 +49,7 @@ impl TxContext {
     pub fn new() -> Self {
         Self {
             blinding_seed: random_blinding(),
-            output_tree_id: Some(0),
+            output_tree_id: None,
         }
     }
 

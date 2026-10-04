@@ -15,7 +15,7 @@ use zolana_program::{
 
 #[allow(dead_code)]
 mod shared;
-use shared::{keypair, token_input};
+use shared::{keypair, token_input, TREE_ID};
 
 fn compressed(proof: &SolanaProof) -> CompressedProof {
     CompressedProof::try_from(proof).expect("compressed proof")
@@ -76,9 +76,10 @@ fn escrow_then_withdraw_prove_and_verify() {
         .output_utxos
         .get(slot::ESCROW)
         .expect("escrow output");
-    let escrow_utxo = authority
+    let mut escrow_utxo = authority
         .input(escrow_output, escrow_spp_proof_inputs.output_tree_id, 2)
         .expect("escrow input");
+    escrow_utxo.latest_tree_id = Some(TREE_ID);
     let terms = EscrowTerms::try_from_slice(escrow_output.data.utxo_data().expect("escrow data"))
         .expect("escrow terms");
     let unlock = terms.unlock;

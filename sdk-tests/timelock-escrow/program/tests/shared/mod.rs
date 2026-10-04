@@ -33,7 +33,7 @@ pub fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64) -> Wal
         ring_data_hash: None,
         tree_id: TREE_ID,
         leaf_index,
-        latest_tree_id: None,
+        latest_tree_id: Some(TREE_ID),
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,

@@ -86,7 +86,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 
 | Name | What it is good for |
 | --- | --- |
-| `TxContext` | The transaction settings: the blinding seed, from the OS RNG in `new`, and the output tree, `Some(0)` by default and the first spent input's `latest_tree_id` when `None`. The first nullifier comes from the first spent input and the sender from the keys. |
+| `TxContext` | The transaction settings: the blinding seed, from the OS RNG in `new`, and the output tree, `None` by default, which follows the first spent input's `latest_tree_id` and is an error when that input has none, or `Some(tree)`. The first nullifier comes from the first spent input and the sender from the keys. |
 | `Owner` | An owner preimage: the tag (`S` for Ed25519 and PDA keys, `P` for P256), the key bytes and the nullifier key. From a `ShieldedAddress`, or a signing key and nullifier key. |
 | `Bytes<N>` | A byte string the circuit sees byte by byte. |
 | `ProgramOwner` | A program PDA as a UTXO owner: its public key, owner hash and `ShieldedAddress` under the fixed zero nullifier key. `input` turns an output the program's transaction created into a spendable `WalletUtxo`. `decrypt_data_utxos::<T>` decrypts the PDA's outputs in indexer transactions with a viewing key and keeps the data UTXOs whose hash commits a `T`, minus those the same transactions spend. |

@@ -17,7 +17,7 @@ impl Placeholder for TxContext {
     fn placeholder() -> Result<Self, CircuitError> {
         Ok(Self {
             blinding_seed: [0u8; 32],
-            output_tree_id: Some(0),
+            output_tree_id: None,
         })
     }
 }

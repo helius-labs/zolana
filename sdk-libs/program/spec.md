@@ -100,8 +100,9 @@ order:
 
 1. `tx_context: TxContext`: the transaction settings no input determines, namely the
    blinding seed and the output tree. `TxContext::new()` draws the seed from the OS RNG and
-   sets the output tree to `Some(0)`; `None` appends the outputs to the first spent input's
-   `latest_tree_id`. The circuit takes the first nullifier from the UTXO the logic spends
+   leaves the output tree `None`, which appends the outputs to the first spent input's
+   `latest_tree_id`; a first input without one is a `RuleBroken` error, and `Some(tree)`
+   names the tree instead. The circuit takes the first nullifier from the UTXO the logic spends
    first, and the client takes the sender from the keys that encrypt.
 2. Token UTXOs, one bounded `Vec` per asset: `#[max_len(A)] token_utxos_asset_a:
    Vec<WalletUtxo>`, `#[max_len(B)] token_utxos_asset_b: Vec<WalletUtxo>`. Each bound is a

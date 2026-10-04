@@ -114,7 +114,7 @@ fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64, blinding: 
         ring_data_hash: None,
         tree_id: TREE_ID,
         leaf_index,
-        latest_tree_id: None,
+        latest_tree_id: Some(TREE_ID),
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,
@@ -153,7 +153,7 @@ fn withdraw() -> Fixture<Withdraw> {
         .program
         .create_finalized_transaction(&address, address.solana_address().expect("payer"))
         .expect("escrow transaction");
-    let escrow_utxo = escrow_authority()
+    let mut escrow_utxo = escrow_authority()
         .input(
             finalized
                 .output_utxos()
@@ -163,6 +163,7 @@ fn withdraw() -> Fixture<Withdraw> {
             2,
         )
         .expect("escrow input");
+    escrow_utxo.latest_tree_id = Some(TREE_ID);
     Fixture {
         name: "withdraw",
         program: Withdraw {

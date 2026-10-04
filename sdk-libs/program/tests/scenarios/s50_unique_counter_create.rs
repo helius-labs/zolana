@@ -162,7 +162,7 @@ fn unique_counter_create_prove_and_verify() {
     let owner = program
         .address(viewer.viewing_pubkey)
         .expect("program address");
-    let tx_context = TxContext::new();
+    let tx_context = TxContext::new().with_output_tree_id(Some(0));
 
     let create = UniqueCounterCreate {
         private: UniqueCounterCreatePrivateInputs { tx_context },
