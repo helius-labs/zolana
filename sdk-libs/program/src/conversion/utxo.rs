@@ -110,7 +110,7 @@ fn field(
 
 impl Placeholder for WalletUtxo {
     fn placeholder() -> Result<Self, CircuitError> {
-        Ok(WalletUtxo::dummy(0).map_err(CircuitErrorKind::InvalidUtxo)?)
+        <Self as Dummy>::dummy(None)
     }
 }
 
