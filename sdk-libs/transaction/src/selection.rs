@@ -41,7 +41,8 @@ impl SpendableDecryptionResult {
 
     /// The notes a default-ring spend of `amount` of `asset` takes: the
     /// largest first, all on one tree, at most as many as the widest automatic
-    /// shape has inputs.
+    /// shape has inputs. Zero-amount notes are left out: they add an input and
+    /// nothing to the amount.
     ///
     /// Notes whose nullifier is in `excluded` are left out, such as the notes
     /// of a spend that is prepared but not sent yet. When the other notes do
@@ -56,7 +57,11 @@ impl SpendableDecryptionResult {
     ) -> Result<Vec<WalletUtxo>, TransactionError> {
         let eligible: Vec<&WalletUtxo> = self
             .utxos()
-            .filter(|note| note.utxo.asset.asset == asset && is_default_ring_spendable(note))
+            .filter(|note| {
+                note.utxo.asset.asset == asset
+                    && note.utxo.amount > 0
+                    && is_default_ring_spendable(note)
+            })
             .collect();
         let free = eligible
             .iter()

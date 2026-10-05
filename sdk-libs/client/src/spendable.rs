@@ -69,10 +69,10 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         Ok(self.fetch_rounds(indexer)?.spendable)
     }
 
-    /// The reads of [`fetch`](Self::fetch), keeping every transaction read and
-    /// every UTXO the wallet owns among them, spent or not.
-    /// [`WalletHistory::entries`] classifies them. It asks the key holder no
-    /// more than `fetch` does.
+    /// The reads of [`fetch`](Self::fetch), keeping every transaction read,
+    /// every UTXO the wallet owns among them, spent or not, and the tags they
+    /// were read by. [`WalletHistory::entries`] classifies them. It asks the
+    /// key holder no more than `fetch` does.
     pub fn fetch_history<I: Rpc + ?Sized>(
         &self,
         indexer: &I,
@@ -83,6 +83,7 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
             transactions: fetched.transactions,
             unknown_asset_ids: fetched.decrypted.unknown_asset_ids,
             unknown_mints: fetched.decrypted.unknown_mints,
+            view_tags: fetched.tags.into_iter().collect(),
         })
     }
 
@@ -110,6 +111,7 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
             batch = self.unseen(&mut seen, spending_transactions(indexer, &nullifiers)?)?;
             if batch.is_empty() {
                 return Ok(Fetched {
+                    tags,
                     transactions,
                     decrypted,
                     owned,
@@ -180,6 +182,7 @@ pub fn fetch_asset_id<R: Rpc>(rpc: &R, asset: Address) -> Result<u64, ClientErro
 
 /// What the rounds of one fetch read and decrypted.
 struct Fetched {
+    tags: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
     decrypted: DecryptionResult,
     /// The final round's [`verify_owned`], spent UTXOs included.

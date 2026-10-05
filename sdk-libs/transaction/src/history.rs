@@ -16,11 +16,12 @@
 //!   another owner who signed the same transaction. A spend the wallet builds
 //!   holds only its own UTXOs, and the published transaction does not tell
 //!   the two apart, so the extra counts as a deposit.
-//! - It has an output the wallet cannot read: [`Sent`](HistoryKind::Sent) to
-//!   another wallet.
-//! - Every output is the wallet's own: a
-//!   [`Withdrawal`](HistoryKind::Withdrawal) of what did not come back as
-//!   change.
+//! - It has an output that is not the wallet's and is published under a tag
+//!   that is not the wallet's: [`Sent`](HistoryKind::Sent) to another wallet.
+//! - Otherwise: a [`Withdrawal`](HistoryKind::Withdrawal) of what did not come
+//!   back as change. A spend publishes its dummy outputs under the spender's
+//!   tag, so an output under one of [`WalletHistory::view_tags`] that the
+//!   wallet does not own is padding of its own spend, not a payment.
 //!
 //! Amounts are net per asset. So a transaction that both pays another wallet
 //! and withdraws reads as `Sent` for the whole amount, one that deposits and
@@ -79,12 +80,15 @@ pub struct WalletHistory {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`](crate::DecryptionResult).
     pub unknown_mints: BTreeSet<Address>,
+    /// The wallet's own tags, which its transactions are read by: the owner
+    /// tag and each viewing key's tag.
+    pub view_tags: BTreeSet<[u8; 32]>,
 }
 
 impl WalletHistory {
     /// One entry per asset each transaction moved, newest first. The events of
     /// one Solana transaction count together. A transaction that moved none of
-    /// an asset, such as a zero-amount padding output, has no entry for it.
+    /// an asset, such as a zero-amount change output, has no entry for it.
     pub fn entries(&self) -> Vec<HistoryEntry> {
         let mut entries: Vec<_> = self
             .movements()
@@ -114,6 +118,7 @@ impl WalletHistory {
             for slot in &tx.output_slots {
                 match by_hash.get(&slot.output_context.hash) {
                     Some(utxo) => add(&mut movement.received, utxo),
+                    None if self.view_tags.contains(&slot.view_tag) => {}
                     None => movement.pays_another = true,
                 }
             }
@@ -135,7 +140,7 @@ impl WalletHistory {
 struct Movement {
     slot: u64,
     deposit: bool,
-    /// An output the wallet cannot read: another wallet's UTXO.
+    /// An output that is not the wallet's, under another wallet's tag.
     pays_another: bool,
     received: BTreeMap<Address, u64>,
     spent: BTreeMap<Address, u64>,

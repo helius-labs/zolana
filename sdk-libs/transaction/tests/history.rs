@@ -3,6 +3,8 @@
 
 mod common;
 
+use std::collections::BTreeSet;
+
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use solana_signature::Signature;
@@ -11,6 +13,8 @@ use zolana_transaction::{
 };
 
 const TREE: u16 = 1;
+/// The tag the wallet reads its transactions by.
+const WALLET_TAG: [u8; 32] = [0xa5; 32];
 
 fn output(utxo: &WalletUtxo) -> OutputSlot {
     OutputSlot {
@@ -46,6 +50,23 @@ fn transaction(
     }
 }
 
+/// `tx` with `count` dummy outputs, which a spend publishes under the
+/// spender's tag and which no wallet owns.
+fn with_dummies(mut tx: ShieldedTransaction, count: u8) -> ShieldedTransaction {
+    for index in 0..count {
+        tx.output_slots.push(OutputSlot {
+            view_tag: WALLET_TAG,
+            output_context: OutputContext {
+                hash: [0xd0 + index; 32],
+                tree_id: TREE,
+                leaf_index: u64::from(index),
+            },
+            payload: vec![index; 64],
+        });
+    }
+    tx
+}
+
 /// A deposit instruction's output, published as its own event.
 fn deposit(signature: u8, slot: u64, utxo: &WalletUtxo) -> ShieldedTransaction {
     ShieldedTransaction {
@@ -60,6 +81,7 @@ fn classify(owned: &[&WalletUtxo], tx: ShieldedTransaction) -> Vec<(HistoryKind,
     WalletHistory {
         transactions: vec![tx],
         utxos: owned.iter().map(|&utxo| utxo.clone()).collect(),
+        view_tags: BTreeSet::from([WALLET_TAG]),
         ..WalletHistory::default()
     }
     .entries()
@@ -90,11 +112,12 @@ fn each_transaction_is_classified_by_the_wallets_utxos_it_moved() {
     );
 
     // A payment to another wallet keeps the change, or spends a whole UTXO.
+    // The spend's dummy outputs do not hide the payment.
     let (input, change, payment) = (ours(30, 4), ours(20, 5), theirs(10, 6));
     assert_eq!(
         classify(
             &[&input, &change],
-            transaction(3, 3, &[&input], &[&payment, &change])
+            with_dummies(transaction(3, 3, &[&input], &[&payment, &change]), 1)
         ),
         [(Sent, 10)]
     );
@@ -104,24 +127,39 @@ fn each_transaction_is_classified_by_the_wallets_utxos_it_moved() {
         [(Sent, 100)]
     );
 
-    // Every output is the wallet's own: what did not come back was withdrawn.
-    // The zero-amount padding output is the wallet's too.
-    let (input, change, padding) = (ours(50, 9), ours(40, 10), ours(0, 11));
+    // No output goes to another wallet: what did not come back was withdrawn.
+    // The spend's dummy outputs are under the wallet's own tag.
+    let (input, change) = (ours(50, 9), ours(40, 10));
     assert_eq!(
         classify(
-            &[&input, &change, &padding],
-            transaction(5, 5, &[&input], &[&change, &padding])
+            &[&input, &change],
+            with_dummies(transaction(5, 5, &[&input], &[&change]), 1)
         ),
         [(Withdrawal, 10)]
     );
-    let (input, padding) = (ours(50, 12), ours(0, 13));
+    let input = ours(50, 12);
     assert_eq!(
         classify(
-            &[&input, &padding],
-            transaction(6, 6, &[&input], &[&padding])
+            &[&input],
+            with_dummies(transaction(6, 6, &[&input], &[]), 2)
         ),
         [(Withdrawal, 50)]
     );
+    // A full withdrawal that names no other participant keeps a zero-amount
+    // change.
+    let (input, zero_change) = (ours(50, 13), ours(0, 11));
+    assert_eq!(
+        classify(
+            &[&input, &zero_change],
+            with_dummies(transaction(12, 12, &[&input], &[&zero_change]), 1)
+        ),
+        [(Withdrawal, 50)]
+    );
+    // The same unowned output under another wallet's tag is a payment to it.
+    let input = ours(50, 27);
+    let mut foreign = with_dummies(transaction(13, 13, &[&input], &[]), 1);
+    foreign.output_slots[0].view_tag = [0x5a; 32];
+    assert_eq!(classify(&[&input], foreign), [(Sent, 50)]);
 
     // A merge, and a transfer to the wallet itself.
     let (first, second, merged) = (ours(30, 14), ours(30, 15), ours(60, 16));
@@ -181,8 +219,9 @@ fn entries_list_newest_first_with_one_entry_per_asset_and_transaction() {
         wallet_utxo(&owner, token, 9, TREE, 3),
         wallet_utxo(&owner, Mint::SOL, 5, TREE, 4),
     );
-    // A token payment to another wallet whose padding is zero SOL.
-    let (token_change, padding, payment) = (
+    // A token payment to another wallet with a zero-amount SOL change and a
+    // dummy output.
+    let (token_change, zero_sol, payment) = (
         wallet_utxo(&owner, token, 5, TREE, 5),
         wallet_utxo(&owner, Mint::SOL, 0, TREE, 6),
         wallet_utxo(&other, token, 4, TREE, 7),
@@ -190,7 +229,10 @@ fn entries_list_newest_first_with_one_entry_per_asset_and_transaction() {
     let history = WalletHistory {
         transactions: vec![
             deposit(1, 10, &first_deposit),
-            transaction(3, 30, &[&paid_token], &[&payment, &token_change, &padding]),
+            with_dummies(
+                transaction(3, 30, &[&paid_token], &[&payment, &token_change, &zero_sol]),
+                1,
+            ),
             deposit(1, 10, &second_deposit),
             transaction(2, 20, &[], &[&paid_token, &paid_sol]),
         ],
@@ -200,8 +242,9 @@ fn entries_list_newest_first_with_one_entry_per_asset_and_transaction() {
             paid_token.clone(),
             paid_sol,
             token_change,
-            padding,
+            zero_sol,
         ],
+        view_tags: BTreeSet::from([WALLET_TAG]),
         ..WalletHistory::default()
     };
 

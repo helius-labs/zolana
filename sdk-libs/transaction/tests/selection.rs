@@ -1,5 +1,5 @@
 //! Which notes a spend takes: largest first, one tree, bounded by the widest
-//! automatic shape, leaving out excluded notes.
+//! automatic shape, leaving out excluded and zero-amount notes.
 mod common;
 
 use std::collections::HashSet;
@@ -86,6 +86,37 @@ fn leaves_out_excluded_notes() {
         Err(TransactionError::InsufficientBalance {
             requested: 101,
             available: 50,
+        })
+    );
+}
+
+#[test]
+fn leaves_out_zero_amount_notes() {
+    let owner = keypair(1);
+    // A zero-amount note on another tree does not split the balance.
+    let wallet = spendable(vec![
+        wallet_utxo(&owner, Mint::SOL, 0, 1, 1),
+        wallet_utxo(&owner, Mint::SOL, 0, 0, 2),
+        wallet_utxo(&owner, Mint::SOL, 10, 0, 3),
+    ]);
+    let none = HashSet::new();
+    let select = |amount| wallet.select_spend(Mint::SOL.asset, amount, &none);
+    assert_eq!(amounts(&select(10).unwrap()), [10]);
+    assert_eq!(
+        select(11),
+        Err(TransactionError::InsufficientBalance {
+            requested: 11,
+            available: 10,
+        })
+    );
+    assert_eq!(
+        spendable(vec![wallet_utxo(&owner, Mint::SOL, 0, 0, 4)]).select_spend(
+            Mint::SOL.asset,
+            1,
+            &none
+        ),
+        Err(TransactionError::NoSpendableBalance {
+            asset: Mint::SOL.asset
         })
     );
 }

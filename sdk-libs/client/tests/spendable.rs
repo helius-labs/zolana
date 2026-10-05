@@ -3,7 +3,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
 };
 
 use solana_account::Account;
@@ -364,18 +364,18 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
 #[test]
 fn fetch_history_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
     let owner = keypair(10);
-    let owner_tag = owner
-        .shielded_address()
-        .unwrap()
-        .signing_pubkey
-        .confidential_view_tag()
-        .unwrap();
+    let address = owner.shielded_address().unwrap();
+    let owner_tag = address.signing_pubkey.confidential_view_tag().unwrap();
     let (first_deposit, first) = deposit(&owner, 30, 1);
     let (second_deposit, second) = deposit(&owner, 12, 2);
     let (tagged_merge, merged) = merge(&owner, &[&first], owner_tag, 3);
     let (untagged_merge, untagged_output) = merge(&owner, &[&second], second.nullifier, 4);
-    // Spends the untagged merge's output and pays out nothing private.
-    let withdrawal = spend(&owner, &untagged_output, 5);
+    // Withdraws all of the untagged merge's output. Its one output is a dummy,
+    // which a spend publishes under the owner's tag.
+    let mut withdrawal = spend(&owner, &untagged_output, 5);
+    withdrawal
+        .output_slots
+        .push(output_slot(owner_tag, [5; 32], 5, vec![5; 64]));
     let indexer = || Indexer {
         tagged: vec![tagged_merge.clone()],
         deposits: vec![first_deposit.clone(), second_deposit.clone()],
@@ -411,6 +411,10 @@ fn fetch_history_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
     assert_eq!(
         history_indexer.queried_nullifiers,
         spendable_indexer.queried_nullifiers
+    );
+    assert_eq!(
+        history.view_tags,
+        BTreeSet::from([owner_tag, address.viewing_pubkey.x()])
     );
     let unspent: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(unspent, [merged.hash]);
