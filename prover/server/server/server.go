@@ -14,6 +14,7 @@ import (
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/indexed"
 	"zolana/prover/prover/timing"
+	"zolana/prover/tee"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -276,6 +277,8 @@ type EnhancedConfig struct {
 	Queue             *QueueConfig
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
+	// TEE, when set, serves attestation and opens sealed requests.
+	TEE *tee.Server
 }
 
 type proveHandler struct {
@@ -628,6 +631,7 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 			Enabled: redisQueue != nil,
 		},
 		Served: config.Served,
+		TEE:    config.TEE,
 	}, redisQueue, keyManager)
 }
 
@@ -715,6 +719,12 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
 	}
 
+	var proverHandler http.Handler = proverMux
+	if config.TEE != nil {
+		handleBoth(proverMux, tee.AttestationPath, config.TEE.AttestationHandler())
+		proverHandler = config.TEE.Wrap(proverMux)
+	}
+
 	corsHandler := handlers.CORS(
 		handlers.MaxAge(600),
 		handlers.AllowedHeaders([]string{
@@ -736,7 +746,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	)
 
 	authHandler := conditionalAuthMiddleware(apiKey)
-	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverMux))}
+	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverHandler))}
 	proverJob := spawnServerJob(proverServer, "prover server")
 
 	if redisQueue != nil {
@@ -870,6 +880,7 @@ type Config struct {
 	MetricsAddress    string
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
+	TEE    *tee.Server
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {

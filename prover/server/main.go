@@ -24,6 +24,7 @@ import (
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
+	"zolana/prover/tee"
 
 	"github.com/consensys/gnark/constraint"
 	gnarkLogger "github.com/consensys/gnark/logger"
@@ -512,6 +513,9 @@ func runCli() {
 						Usage: "Maximum number of retries for downloading keys",
 						Value: common.DefaultMaxRetries,
 					},
+					&cli.StringFlag{Name: "tee", Usage: "Serve TEE attestation and sealed requests: dstack", EnvVars: []string{"PROVER_TEE"}},
+					&cli.StringFlag{Name: "tee-socket", Usage: "dstack guest agent socket", Value: tee.DefaultSocket},
+					&cli.StringFlag{Name: "tee-pccs-url", Usage: "PCCS the attestation collateral is fetched from", Value: tee.DefaultPCCSURL, EnvVars: []string{"PROVER_TEE_PCCS_URL"}},
 				},
 				Action: func(context *cli.Context) error {
 					if err := buildcheck.Current(); err != nil {
@@ -674,6 +678,10 @@ func runCli() {
 					}
 
 					if enableServer {
+						teeServer, err := startTEE(context)
+						if err != nil {
+							return err
+						}
 						config := server.Config{
 							Readiness:         readiness,
 							Indexer:           indexer,
@@ -681,6 +689,7 @@ func runCli() {
 							ProverAddress:     context.String("prover-address"),
 							MetricsAddress:    context.String("metrics-address"),
 							Served:            served,
+							TEE:               teeServer,
 						}
 
 						if redisQueue != nil {
@@ -852,6 +861,26 @@ func runCli() {
 const shutdownTimeout = 25 * time.Second
 
 func initializeProofBackend(_ *cli.Context) error { return backend.Initialize() }
+
+func startTEE(context *cli.Context) (*tee.Server, error) {
+	switch mode := context.String("tee"); mode {
+	case "":
+		return nil, nil
+	case "dstack":
+		teeServer, err := tee.New(context.Context, tee.Config{
+			Socket:  context.String("tee-socket"),
+			PCCSURL: context.String("tee-pccs-url"),
+			UsesGPU: backend.UsesGPU(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("TEE: %w", err)
+		}
+		logging.Logger().Info().Hex("hpke_public_key", teeServer.PublicKey()).Bool("gpu", backend.UsesGPU()).Msg("TEE attestation enabled")
+		return teeServer, nil
+	default:
+		return nil, fmt.Errorf("unknown --tee mode %q", mode)
+	}
+}
 
 func closeProofBackend(_ *cli.Context) error { return backend.Close() }
 

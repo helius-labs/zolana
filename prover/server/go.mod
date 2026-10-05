@@ -3,6 +3,7 @@ module zolana/prover
 go 1.27.1
 
 require (
+	github.com/NVIDIA/go-nvml v0.13.4-0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/consensys/gnark v0.16.3
 	github.com/consensys/gnark-crypto v0.21.0
