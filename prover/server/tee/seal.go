@@ -28,6 +28,11 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			rejectSealed(w, "tee_version_unsupported")
 			return
 		}
+		// net/http drops a HEAD answer body, so its sealed answer never arrives.
+		if r.Method == http.MethodHead {
+			rejectSealed(w, "tee_seal_invalid")
+			return
+		}
 		plaintext, responseKey, err := s.open(w, r)
 		if err != nil {
 			rejectSealed(w, "tee_seal_invalid")
@@ -118,7 +123,7 @@ func responseAEAD(key []byte) (cipher.AEAD, error) {
 }
 
 func bodiless(method string) bool {
-	return method == http.MethodGet || method == http.MethodHead
+	return method == http.MethodGet
 }
 
 func rejectSealed(w http.ResponseWriter, code string) {

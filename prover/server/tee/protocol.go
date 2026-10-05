@@ -15,7 +15,7 @@ const (
 	Version       = "v1"
 	HeaderVersion = "Zolana-Tee"
 	HeaderEnc     = "Zolana-Tee-Enc"
-	// HeaderSeal carries the sealed bytes of a GET or HEAD, fetch refuses those a body.
+	// HeaderSeal carries the sealed bytes of a GET, fetch refuses a GET body.
 	HeaderSeal = "Zolana-Tee-Seal"
 	NonceSize  = 32
 

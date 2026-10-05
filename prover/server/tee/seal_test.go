@@ -119,6 +119,26 @@ func TestWrapSealsBodilessPoll(t *testing.T) {
 	}
 }
 
+func TestWrapRefusesASealedHead(t *testing.T) {
+	s := testServer(t)
+	for name, inHeader := range map[string]bool{"body": false, "header": true} {
+		t.Run(name, func(t *testing.T) {
+			request, _ := sealedRequest(t, s, http.MethodHead, "/health", nil)
+			if inHeader {
+				sealed, _ := io.ReadAll(request.Body)
+				request.Header.Set(HeaderSeal, hex.EncodeToString(sealed))
+				request.Body = http.NoBody
+			}
+			recorder := httptest.NewRecorder()
+			reached := false
+			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+			if reached || recorder.Code != http.StatusBadRequest {
+				t.Fatalf("reached %v status %d", reached, recorder.Code)
+			}
+		})
+	}
+}
+
 func TestWrapRejectsRebinding(t *testing.T) {
 	s := testServer(t)
 	cases := map[string]func(*http.Request){

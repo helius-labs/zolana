@@ -39,24 +39,9 @@ Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 
 `light-prover start --tee dstack` asks the dstack guest agent for a KMS-derived secret, and RFC 9180 `DeriveKeyPair` turns it into an X25519 HPKE key.
 Every instance of the app derives the same key.
-`GET /tee/v1/attestation?nonce=<32 bytes hex>` answers with a TDX quote, the dstack event log, Intel collateral and the HPKE public key. A GPU prover adds the NRAS response.
-The quote's report_data is:
-
-```
-SHA-512("zolana/prover-tee/v1/report" || nonce || hpke_public_key || gpu_digest)
-```
-
-`gpu_digest` is the SHA-256 of the NRAS response, or 32 zero bytes without a GPU.
-The client first checks the Intel signature and collateral at the current time. Then it checks the TCB status, MRTD and RTMR0 to RTMR2, and the RTMR3 replay.
-The replay recomputes each event digest from the event content, so swapped content fails even when the digests still replay.
-The `app-id`, `compose-hash`, `os-image-hash` and `key-provider` events, the HPKE key, report_data and the GPU requirement follow.
-A pass caches the key for `max_age_secs`, and the next call after that attests again.
-
-A sealed request sets `Zolana-Tee` to `v1` and carries `Zolana-Tee-Enc`. Its body is HPKE base mode with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
-The AAD is the method, the path and the query without its `api-key` parameters. A body sealed for one route or job does not open on another, and a proxy may still move or strip the credential.
-The answer is the status and body under AES-256-GCM, keyed by the request context's exporter, so only that request opens it.
-The client refuses an unsealed success.
-An unsealed failure passes through, so retries and queue fallback still work, but its body is unauthenticated.
+[The wire contract](WIRE_CONTRACT.md) gives the attestation endpoint, report_data, the client checks and sealing.
+A passed attestation caches the key for `max_age_secs`, and the next call after that attests again.
+A sealed body opens only on its own route and job, and an unsealed failure still lets retries and queue fallback work.
 
 The GPU build, tag `aeglos` with `PROVER_BACKEND=aeglos`, collects GPU evidence through NVML for every attestation.
 It refuses a GPU with confidential computing off or devtools on, then checks the NRAS signatures, nonce and overall result inside the TDX guest.
