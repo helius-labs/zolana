@@ -192,7 +192,13 @@ fi
 printf '%s\n' "$compose" > "$work/docker-compose.yml"
 : "${PHALA_KEY:?}" "${PROVER_API_KEY:?}"
 
-tee_env "${TEE_REGISTRY_HOST:-ghcr.io}"
+# One pre-launch login covers every image, so they share the registry the env names.
+for image in "$prover_image" ${photon_image:+"$photon_image"}; do
+    [[ ${image%%/*} == "${TEE_REGISTRY_HOST:-${prover_image%%/*}}" ]] \
+        || { echo "$image is not in ${TEE_REGISTRY_HOST:-${prover_image%%/*}}" >&2; exit 1; }
+done
+TEE_REGISTRY_HOST=${TEE_REGISTRY_HOST:-${prover_image%%/*}}
+tee_env
 deploy=(npx -y phala@1.1.22 deploy --api-key "$PHALA_KEY" --json --wait
     -c "$work/docker-compose.yml" "${TEE_ENV[@]}"
     --no-public-logs --public-sysinfo --public-tcbinfo --no-listed --no-dev-os)
@@ -204,6 +210,12 @@ fi
 "${deploy[@]}" > "$work/deploy.json"
 
 npx -y phala@1.1.22 cvms get "$name" --api-key "$PHALA_KEY" --json > "$work/cvm.json"
+# `deploy` keeps an existing CVM's Trust Center listing, the API turns it off.
+if jq -e '.listed' "$work/cvm.json" > /dev/null; then
+    curl -fsS -o /dev/null -X PATCH -H "X-API-Key: $PHALA_KEY" -H "Content-Type: application/json" \
+        -d '{"listed": false}' "https://cloud-api.phala.network/api/v1/cvms/$(jq -r '.id' "$work/cvm.json")/listed"
+    npx -y phala@1.1.22 cvms get "$name" --api-key "$PHALA_KEY" --json > "$work/cvm.json"
+fi
 app_id=$(jq -er '.app_id' "$work/cvm.json")
 base_domain=$(jq -er '.gateway.base_domain' "$work/cvm.json")
 jq -e '.public_logs == false and .listed == false' "$work/cvm.json" > /dev/null \

@@ -41,7 +41,8 @@ else
 fi
 export PHOTON_DUMP_URL PHOTON_DUMP_ID
 
-tee_env "${TEE_REGISTRY_HOST:-ghcr.io}"
+: "${TEE_REGISTRY_HOST:?TEE_REGISTRY_HOST names the registry the CVM pulls from}"
+tee_env
 npx -y phala@1.1.22 envs update "$name" --api-key "$PHALA_KEY" "${TEE_ENV[@]}"
 npx -y phala@1.1.22 cvms restart "$name" --api-key "$PHALA_KEY"
 echo "dump $PHOTON_DUMP_ID shipped, the CVM restores it on boot and Photon resumes from its last slot"

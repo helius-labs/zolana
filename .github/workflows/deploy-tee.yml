@@ -64,13 +64,14 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
       # A first push from the public repository creates a public package holding compiled Aeglos.
-      - name: Require the private package
+      - name: Require non-public packages
         env:
           GH_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
         run: |
           for package in zolana-prover-tee zolana-photon-tee; do
-            test "$(gh api "orgs/$OWNER/packages/container/$package" --jq .visibility)" = private
+            visibility=$(gh api "orgs/$OWNER/packages/container/$package" --jq .visibility)
+            [[ "$visibility" == private || "$visibility" == internal ]]
           done
       - name: Log in to GHCR
         env:

@@ -11401,6 +11401,7 @@ dependencies = [
  "solana-signer",
  "swap-program",
  "tar",
+ "zeroize",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",

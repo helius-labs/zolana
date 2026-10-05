@@ -31,6 +31,7 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 tar = { workspace = true }
+zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true, features = ["protocol"] }

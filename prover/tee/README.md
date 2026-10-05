@@ -74,7 +74,8 @@ A shipped database affects only which proofs succeed, because the chain rejects 
 - A Phala Cloud API key in `PHALA_KEY` and the prover API key in `PROVER_API_KEY`.
 - A prover image pinned by digest. A GPU image for the H200 is built from `Dockerfile.aeglos` with `CUDA_ARCH=sm_90`.
 - A Photon image pinned by digest, built from `services/photon/Dockerfile` at the repository root.
-- A private registry for a GPU image, because it holds compiled Aeglos. `TEE_REGISTRY_USERNAME` and a read-only `TEE_REGISTRY_TOKEN` let the CVM pull it.
+- A private registry for a GPU image, because it holds compiled Aeglos. `TEE_REGISTRY_HOST` names it, and both images live there.
+- Pull credentials for that registry. On ECR they are the `TEE_AWS_ACCESS_KEY_ID` and `TEE_AWS_SECRET_ACCESS_KEY` of an IAM user that only pulls the two repositories. On another registry they are `TEE_REGISTRY_USERNAME` and a read-only `TEE_REGISTRY_TOKEN`. An organization that refuses classic tokens on GHCR needs ECR.
 - A Solana RPC URL in `PHOTON_RPC_URL` for the co-hosted Photon. Without it Photon reads the public devnet endpoint.
 - The AWS CLI, `python3` and a profile in the account that runs the source Photon, for a database ship from an ECS service.
 - `npx`, `jq`, `curl` and `cargo` on the release machine.
@@ -83,11 +84,12 @@ A shipped database affects only which proofs succeed, because the chain rejects 
 
 1. Run `prover/server/scripts/release_tee.sh <prover-image@sha256:digest> <cvm-name> --photon <photon-image@sha256:digest>`, with `--gpu` for an H200 prover. The compose it deploys pins both images and every command in the measured compose hash, and `--plan` prints it without deploying.
 2. Let the script finish its `tee-policy` xtask run. The live prover's app id, HPKE key, KMS root, OS image, measurements and compose hash land in both pin files. A second attestation under the new pin must pass.
-3. Commit `policy.json` and `pinned.ts` with the SDK release that ships them. Clients of that release then talk only to this deployment.
-4. Run `prover/server/scripts/ship_photon_db.sh <cvm-name>`. It dumps devnet-c into an export-only `tools/gpu` stack and seals a short-lived download link into the CVM env. The CVM restarts and its compose hash stays. `--source-cluster` and `--source-service` name another running Photon, and `--dump-url` ships any `pg_dump` custom-format file.
-5. For a new image, rerun the release with `--update` on the same CVM name. The new compose hash joins the pin, the app id and key stay, and `--replace` starts a new pin for a new app.
+3. Run `cargo run -p xtask -- tee-check <prover-url> --prove <request.json> <key name>` with `PROVER_API_KEY` set. It attests under the new pin, runs a sealed proving key check and returns one sealed proof through the gateway.
+4. Commit `policy.json` and `pinned.ts` with the SDK release that ships them. Clients of that release then talk only to this deployment.
+5. Run `prover/server/scripts/ship_photon_db.sh <cvm-name>`. It dumps devnet-c into an export-only `tools/gpu` stack and seals a short-lived download link into the CVM env. The CVM restarts and its compose hash stays. `--source-cluster` and `--source-service` name another running Photon, and `--dump-url` ships any `pg_dump` custom-format file.
+6. For a new image, rerun the release with `--update` on the same CVM name. The new compose hash joins the pin, the app id and key stay, and `--replace` starts a new pin for a new app.
 
-The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prover and Photon, publishes them to `ghcr.io/<owner>/zolana-prover-tee` and `zolana-photon-tee` with build provenance, deploys and uploads the pin files as an artifact. Its `tee-deploy` environment holds `AEGLOS_DEPLOY_KEY`, `PHALA_KEY`, `PROVER_API_KEY`, `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL`, `TEE_REGISTRY_USERNAME`, `TEE_REGISTRY_TOKEN` and `PRIVATE_LIBS_TOKEN`. The workflow refuses to push until both packages exist and are private.
+The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prover and Photon, publishes them to `ghcr.io/<owner>/zolana-prover-tee` and `zolana-photon-tee` with build provenance, deploys and uploads the pin files as an artifact. Its `tee-deploy` environment holds `AEGLOS_DEPLOY_KEY`, `PHALA_KEY`, `PROVER_API_KEY`, `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL`, `TEE_REGISTRY_USERNAME`, `TEE_REGISTRY_TOKEN` and `PRIVATE_LIBS_TOKEN`. The workflow refuses to push until both packages exist and are private or internal.
 
 ## Limits
 
@@ -100,7 +102,8 @@ The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prov
 ## Pitfalls
 
 - A setting in the CVM environment is not measured. An indexer URL in the environment lets the API key holder redirect the leaves a proof spends. The indexer URL lives in the compose, and the env holds only keys, the RPC URL and the dump link.
-- `ship_photon_db.sh` replaces the whole sealed env, so a variable left out of the ship is gone after the restart. Pass the release's `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL` and registry variables, and `TEE_REGISTRY_HOST` when the prover image is not on `ghcr.io`.
+- `ship_photon_db.sh` replaces the whole sealed env, so a variable left out of the ship is gone after the restart. Pass the release's `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL`, `TEE_REGISTRY_HOST` and pull credentials.
 - Phala's `deploy` defaults to public logs. A log line holding a request body is then readable by anyone, so the script passes `--no-public-logs`.
+- With public logs off, Phala serves no container logs to the owner either. Reading a fault takes a redeploy with `--public-logs`, and a release with logs off afterwards.
 - A prover URL without `api-key` fails attestation, because the attestation route sits behind the prover API key like the proof routes.
 - A client built without a policy sends plaintext to the same prover and sees no error. Set the policy where the client is built, not per call.

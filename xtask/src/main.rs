@@ -13,6 +13,7 @@ mod find_smart_accounts;
 mod init_protocol;
 mod loadtest;
 mod set_tree_fees;
+mod tee_check;
 mod tee_policy;
 mod tree_fees;
 mod update_protocol_config;
@@ -58,6 +59,12 @@ fn main() {
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
             println!("wrote {out_dir}/{filename}");
+        }
+        Some("tee-check") => {
+            if let Err(error) = tee_check::TeeCheckOptions::parse(args).and_then(|o| o.run()) {
+                eprintln!("tee-check: {error:#}");
+                std::process::exit(1);
+            }
         }
         Some("tee-policy") => {
             let root = Path::new(env!("CARGO_MANIFEST_DIR"))
