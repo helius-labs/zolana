@@ -726,9 +726,12 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			"X-Sync",
 			"X-Prover-Timing",
 			"X-Request-ID",
+			"Zolana-Tee",
+			"Zolana-Tee-Enc",
+			"Zolana-Tee-Seal",
 		}),
 		handlers.AllowedOrigins([]string{"*"}),
-		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID"}),
+		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID", "Zolana-Tee"}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 	)
 
