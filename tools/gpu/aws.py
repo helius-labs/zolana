@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 from aws_host import CUDA_ARCH, GPUS, POSTGRES
-from aws_stack import template
+from aws_stack import export_template, template
 
 HERE = Path(__file__).resolve().parent
 REGISTRY_ACCOUNT = "558215002830"
@@ -585,7 +585,7 @@ def show(stack):
     for name in ("Url", "InstanceId", "ApiKeySecret", "LogGroup"):
         if name in out:
             result[name] = out[name]
-    if "Config" in out and json.loads(out["Config"])["with_indexer"]:
+    if "Config" in out and json.loads(out["Config"]).get("with_indexer"):
         result["IndexerUrl"] = out["Url"] + "/indexer"
     print(json.dumps(result, indent=2))
 
@@ -599,6 +599,8 @@ def deploy(args, aws, stack):
             item["ParameterKey"]: item["ParameterValue"] for item in stack["Parameters"]
         }
         config = json.loads(params["Config"])
+        if config.get("export_only"):
+            raise ValueError("This name holds an export stack. Use another name")
         saved = dict(
             config,
             source_cluster=config.get("source", {}).get("cluster"),
@@ -664,6 +666,53 @@ def deploy(args, aws, stack):
     show(stack)
 
 
+def export(args, aws, stack):
+    saved = {}
+    if stack:
+        params = {
+            item["ParameterKey"]: item["ParameterValue"] for item in stack["Parameters"]
+        }
+        saved = json.loads(params["Config"])
+    region = args.source_region or saved.get("source_region") or "eu-north-1"
+    source = Aws(region, args.profile)
+    previous = saved.get("source", {})
+    config = dict(
+        saved,
+        source_region=region,
+        source=discover_source(
+            source,
+            args.source_cluster or previous.get("cluster") or "zolnet-devnet-c",
+            args.source_service
+            or previous.get("service")
+            or "zolnet-devnet-c-photon-api",
+        ),
+    )
+    # The stack's execution role reads only the database secret it was created for.
+    if (
+        previous
+        and previous.get("database_secret") != config["source"]["database_secret"]
+    ):
+        raise ValueError("Stack exports another source. Use another name")
+    if stack is None:
+        config.update(region=args.region, export_only=True)
+        aws.call(
+            "cloudformation",
+            "create-stack",
+            StackName=args.name,
+            TemplateBody=json.dumps(export_template(config)),
+            Capabilities=["CAPABILITY_IAM"],
+            Tags=[OWNER],
+            OnFailure="DELETE",
+        )
+        log("Creating export stack " + args.name)
+        stack = wait_stack(aws, args.name)
+    out = outputs(stack)
+    if "ExportExecutionRole" not in out:
+        raise ValueError("Stack has no export roles. Use another name")
+    export_cache(source, config, out, args.name)
+    print(f"s3://{out['Bucket']}/cache/photon.dump")
+
+
 def object_exists(aws, bucket, key):
     try:
         aws.call("s3api", "head-object", Bucket=bucket, Key=key)
@@ -696,7 +745,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Deploy an isolated Aeglos prover on AWS. Requires Python 3 and AWS CLI v2."
     )
-    parser.add_argument("action", choices=("deploy", "status", "destroy"))
+    parser.add_argument("action", choices=("deploy", "status", "export", "destroy"))
     parser.add_argument("name", type=stack_name)
     parser.add_argument("--profile", default=os.environ.get("AWS_PROFILE"))
     parser.add_argument("--region", default="eu-central-1")
@@ -756,6 +805,8 @@ def main():
     stack = get_stack(aws, args.name)
     if args.action == "deploy":
         deploy(args, aws, stack)
+    elif args.action == "export":
+        export(args, aws, stack)
     elif stack is None:
         raise ValueError("Deployment does not exist")
     elif args.action == "status":

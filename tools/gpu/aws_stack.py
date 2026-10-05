@@ -13,6 +13,9 @@ def sub(value):
     return {"Fn::Sub": value}
 
 
+BUCKET_OBJECTS = sub("${Assets.Arn}/*")
+
+
 def resource(kind, **properties):
     return {"Type": "AWS::" + kind, "Properties": properties}
 
@@ -42,6 +45,100 @@ def role(service, statements, managed=()):
     )
 
 
+def storage_resources():
+    return {
+        "Assets": resource(
+            "S3::Bucket",
+            PublicAccessBlockConfiguration={
+                key: True
+                for key in (
+                    "BlockPublicAcls",
+                    "BlockPublicPolicy",
+                    "IgnorePublicAcls",
+                    "RestrictPublicBuckets",
+                )
+            },
+            BucketEncryption={
+                "ServerSideEncryptionConfiguration": [
+                    {"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}
+                ]
+            },
+            OwnershipControls={"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+            LifecycleConfiguration={
+                "Rules": [
+                    {
+                        "Id": "expire-exports",
+                        "Status": "Enabled",
+                        "Prefix": "cache/",
+                        "ExpirationInDays": 7,
+                        "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1},
+                    }
+                ]
+            },
+        ),
+        "BucketPolicy": resource(
+            "S3::BucketPolicy",
+            Bucket=ref("Assets"),
+            PolicyDocument=document(
+                [
+                    {
+                        "Effect": "Deny",
+                        "Principal": "*",
+                        "Action": "s3:*",
+                        "Resource": [attr("Assets", "Arn"), BUCKET_OBJECTS],
+                        "Condition": {"Bool": {"aws:SecureTransport": "false"}},
+                    }
+                ]
+            ),
+        ),
+        "Logs": resource("Logs::LogGroup", RetentionInDays=7),
+    }
+
+
+def export_resources(database_secret):
+    return {
+        "ExportExecutionRole": role(
+            "ecs-tasks.amazonaws.com",
+            [
+                policy(["secretsmanager:GetSecretValue"], [database_secret]),
+                policy(
+                    ["logs:CreateLogStream", "logs:PutLogEvents"], [attr("Logs", "Arn")]
+                ),
+            ],
+        ),
+        "ExportTaskRole": role(
+            "ecs-tasks.amazonaws.com",
+            [
+                policy(
+                    ["s3:PutObject", "s3:AbortMultipartUpload"],
+                    [sub("${Assets.Arn}/cache/*")],
+                )
+            ],
+        ),
+    }
+
+
+def export_template(config):
+    resources = storage_resources()
+    resources.update(export_resources(config["source"]["database_secret"]))
+    outputs = {
+        "Bucket": ref("Assets"),
+        "LogGroup": ref("Logs"),
+        "Config": ref("Config"),
+        "ExportExecutionRole": attr("ExportExecutionRole", "Arn"),
+        "ExportTaskRole": attr("ExportTaskRole", "Arn"),
+    }
+    return {
+        "AWSTemplateFormatVersion": "2010-09-09",
+        "Description": "Zolana Photon database export",
+        "Parameters": {
+            "Config": {"Type": "String", "Default": json.dumps(config, sort_keys=True)}
+        },
+        "Resources": resources,
+        "Outputs": {key: {"Value": value} for key, value in outputs.items()},
+    }
+
+
 def template(config):
     secret_arns = [ref("ApiKey")]
     for name in ("rpc_secret", "indexer_key_secret"):
@@ -49,7 +146,6 @@ def template(config):
             secret_arns.append(config[name])
     if config["with_indexer"]:
         secret_arns.append(ref("DatabasePassword"))
-    bucket_objects = sub("${Assets.Arn}/*")
     resources = {
         "Vpc": resource(
             "EC2::VPC",
@@ -95,59 +191,14 @@ def template(config):
                 }
             ],
         ),
-        "Assets": resource(
-            "S3::Bucket",
-            PublicAccessBlockConfiguration={
-                key: True
-                for key in (
-                    "BlockPublicAcls",
-                    "BlockPublicPolicy",
-                    "IgnorePublicAcls",
-                    "RestrictPublicBuckets",
-                )
-            },
-            BucketEncryption={
-                "ServerSideEncryptionConfiguration": [
-                    {"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}
-                ]
-            },
-            OwnershipControls={"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
-            LifecycleConfiguration={
-                "Rules": [
-                    {
-                        "Id": "expire-exports",
-                        "Status": "Enabled",
-                        "Prefix": "cache/",
-                        "ExpirationInDays": 7,
-                        "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1},
-                    }
-                ]
-            },
-        ),
-        "BucketPolicy": resource(
-            "S3::BucketPolicy",
-            Bucket=ref("Assets"),
-            PolicyDocument=document(
-                [
-                    {
-                        "Effect": "Deny",
-                        "Principal": "*",
-                        "Action": "s3:*",
-                        "Resource": [attr("Assets", "Arn"), bucket_objects],
-                        "Condition": {"Bool": {"aws:SecureTransport": "false"}},
-                    }
-                ]
-            ),
-        ),
         "ApiKey": resource(
             "SecretsManager::Secret",
             GenerateSecretString={"PasswordLength": 48, "ExcludePunctuation": True},
         ),
-        "Logs": resource("Logs::LogGroup", RetentionInDays=7),
         "HostRole": role(
             "ec2.amazonaws.com",
             [
-                policy(["s3:GetObject"], [bucket_objects]),
+                policy(["s3:GetObject"], [BUCKET_OBJECTS]),
                 policy(["ecr:GetAuthorizationToken"], ["*"]),
                 policy(
                     [
@@ -245,6 +296,7 @@ def template(config):
             },
         ),
     }
+    resources.update(storage_resources())
     resources["Route"]["DependsOn"] = "GatewayAttachment"
     resources["Instance"]["DependsOn"] = ["Route", "RouteAssociation"]
     resources["Origin"]["DependsOn"] = "GatewayAttachment"
@@ -253,27 +305,7 @@ def template(config):
             "SecretsManager::Secret",
             GenerateSecretString={"PasswordLength": 48, "ExcludePunctuation": True},
         )
-        resources["ExportExecutionRole"] = role(
-            "ecs-tasks.amazonaws.com",
-            [
-                policy(
-                    ["secretsmanager:GetSecretValue"],
-                    [config["source"]["database_secret"]],
-                ),
-                policy(
-                    ["logs:CreateLogStream", "logs:PutLogEvents"], [attr("Logs", "Arn")]
-                ),
-            ],
-        )
-        resources["ExportTaskRole"] = role(
-            "ecs-tasks.amazonaws.com",
-            [
-                policy(
-                    ["s3:PutObject", "s3:AbortMultipartUpload"],
-                    [sub("${Assets.Arn}/cache/*")],
-                )
-            ],
-        )
+        resources.update(export_resources(config["source"]["database_secret"]))
     outputs = {
         "InstanceId": ref("Instance"),
         "Bucket": ref("Assets"),
