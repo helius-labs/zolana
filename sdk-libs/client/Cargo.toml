@@ -34,6 +34,12 @@ num-traits = { workspace = true }
 solana-address = { workspace = true }
 p256 = { workspace = true }
 thiserror = { workspace = true }
+aes-gcm = { workspace = true }
+dcap-qvl = { workspace = true }
+hex = { workspace = true, features = ["serde"] }
+hpke = { workspace = true }
+rand_core = { workspace = true }
+sha2 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

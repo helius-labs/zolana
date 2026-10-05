@@ -1,5 +1,33 @@
+//! Seals every prover call to the HPKE key a verified dstack TDX quote binds, matching `prover/server/tee` byte for byte.
+
+mod evidence;
+mod policy;
+mod seal;
+mod session;
+#[cfg(test)]
+mod tests;
+mod verify;
+
+pub use evidence::{Collateral, EventLogEntry, Evidence};
+pub use policy::{GpuRequirement, Measurement, TeePolicy};
+pub(crate) use seal::SealedRequest;
+pub(crate) use session::TeeSession;
+pub use verify::{inspect, verify, AttestedIdentity, AttestedProver, KeyProvider};
+
 use thiserror::Error;
 
+pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
+pub const HEADER_VERSION: &str = "Zolana-Tee";
+pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
+pub const VERSION: &str = "v1";
+pub const NONCE_SIZE: usize = 32;
+
+// Domain separation for every hash and HPKE context the protocol binds.
+const REPORT_DOMAIN: &[u8] = b"zolana/prover-tee/v1/report";
+const HPKE_INFO: &[u8] = b"zolana/prover-tee/v1";
+const RESPONSE_EXPORT: &[u8] = b"zolana/prover-tee/v1/response";
+
+/// Why the prover was not trusted with a request.
 #[derive(Debug, Error)]
 pub enum TeeError {
     #[error("the SDK release pins no TEE prover deployment")]

@@ -16,7 +16,7 @@ use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoa
 use solana_loader_v4_interface::state::LoaderV4State;
 use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4};
 use zolana_client::{
-    prover::{known_proving_keys, redact_api_key},
+    prover::{known_proving_keys, redact_api_key, tee::TeePolicy},
     ProverClient, Rpc, SolanaRpc,
 };
 use zolana_interface::PROGRAM_ID_PUBKEY;
@@ -106,7 +106,24 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
         // The markers matched the same verifying keys, so a matching prover
         // proves with exactly the keys the program verifies against.
         let shown = redact_api_key(&prover_url);
-        let report = ProverClient::new(prover_url)
+        let mut prover = ProverClient::new(prover_url);
+        if opts.prover_tee {
+            prover = prover.with_tee(TeePolicy::pinned()?);
+            let attested = prover
+                .attest()
+                .with_context(|| format!("prover {shown} failed TEE attestation"))?;
+            println!(
+                "ok: prover {shown} attests, TCB {}, compose {}, GPU {}",
+                attested.tcb_status,
+                hex::encode(attested.compose_hash),
+                if attested.gpu_verified {
+                    "verified"
+                } else {
+                    "absent"
+                }
+            );
+        }
+        let report = prover
             .check_proving_keys()
             .with_context(|| format!("prover {shown} failed the proving key check"))?;
         println!(
@@ -371,6 +388,7 @@ mod tests {
             shielded_pool,
             expect: expect.map(std::path::PathBuf::from),
             prover_url: prover_url.map(str::to_string),
+            prover_tee: false,
         }
     }
 

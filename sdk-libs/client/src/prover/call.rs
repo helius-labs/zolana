@@ -1,0 +1,123 @@
+//! One prover HTTP exchange, shared by the blocking and async clients and
+//! sealed to the attested key when the client requires a TEE.
+
+use std::time::Duration;
+
+use reqwest::{Method, StatusCode, Url};
+
+use crate::{
+    error::ClientError,
+    prover::{
+        client::Delivery,
+        endpoint::scrub,
+        tee::{SealedRequest, TeeSession, HEADER_ENC, HEADER_VERSION, VERSION},
+    },
+};
+
+pub(crate) struct Call<'a> {
+    pub method: Method,
+    pub url: &'a Url,
+    pub body: Option<&'a str>,
+    pub delivery: Option<Delivery>,
+    pub timeout: Option<Duration>,
+}
+
+/// Where an exchange stopped, so each caller keeps its own retry rules.
+pub(crate) enum CallError {
+    Connect(reqwest::Error),
+    Read(reqwest::Error),
+    Refused(ClientError),
+}
+
+/// A call as sent, keeping the key a sealed answer opens with.
+pub(crate) struct Prepared {
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Option<Vec<u8>>,
+    pub sealed: Option<SealedRequest>,
+}
+
+impl<'a> Call<'a> {
+    pub fn get(url: &'a Url, timeout: Duration) -> Self {
+        Self {
+            method: Method::GET,
+            url,
+            body: None,
+            delivery: None,
+            timeout: Some(timeout),
+        }
+    }
+
+    pub fn post(url: &'a Url, body: &'a str, delivery: Delivery) -> Self {
+        Self {
+            method: Method::POST,
+            url,
+            body: Some(body),
+            delivery: Some(delivery),
+            timeout: None,
+        }
+    }
+
+    /// `attested_key` is set exactly when the client requires a TEE.
+    pub fn prepare(&self, attested_key: Option<&[u8; 32]>) -> Result<Prepared, CallError> {
+        let mut headers = Vec::new();
+        match self.delivery {
+            Some(Delivery::InResponse) => headers.push(("X-Sync", "true".to_string())),
+            Some(Delivery::Queued) => headers.push(("X-Async", "true".to_string())),
+            None => {}
+        }
+        let Some(key) = attested_key else {
+            if self.body.is_some() {
+                headers.push(("Content-Type", "application/json".to_string()));
+            }
+            return Ok(Prepared {
+                headers,
+                body: self.body.map(|body| body.as_bytes().to_vec()),
+                sealed: None,
+            });
+        };
+        let sealed = TeeSession::seal(
+            key,
+            self.method.as_str(),
+            self.url,
+            self.body.unwrap_or_default().as_bytes(),
+        )
+        .map_err(CallError::Refused)?;
+        headers.push((HEADER_VERSION, VERSION.to_string()));
+        headers.push((HEADER_ENC, sealed.enc.clone()));
+        headers.push(("Content-Type", "application/octet-stream".to_string()));
+        Ok(Prepared {
+            headers,
+            body: Some(sealed.body.clone()),
+            sealed: Some(sealed),
+        })
+    }
+}
+
+impl Prepared {
+    pub fn finish(
+        &self,
+        status: StatusCode,
+        is_sealed: bool,
+        body: &[u8],
+    ) -> Result<(StatusCode, String), CallError> {
+        match &self.sealed {
+            Some(sealed) => {
+                TeeSession::open(sealed, status, is_sealed, body).map_err(CallError::Refused)
+            }
+            None => Ok((status, String::from_utf8_lossy(body).into_owned())),
+        }
+    }
+}
+
+impl CallError {
+    /// `label` names the call in a transport failure.
+    pub fn into_client_error(self, label: &str) -> ClientError {
+        match self {
+            Self::Connect(e) => ClientError::ProverServer(format!("{label} failed: {}", scrub(e))),
+            Self::Read(e) => {
+                ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+            }
+            Self::Refused(error) => error,
+        }
+    }
+}

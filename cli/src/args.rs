@@ -162,6 +162,14 @@ pub(crate) struct VksCheckOptions {
         help = "Also check this prover's proving keys against the same verifying keys (shielded-pool only)"
     )]
     pub(crate) prover_url: Option<String>,
+
+    #[arg(
+        long = "prover-tee",
+        requires = "prover_url",
+        env = "ZOLANA_PROVER_TEE",
+        help = "Also require that prover to attest to the TEE deployment this release pins"
+    )]
+    pub(crate) prover_tee: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -615,6 +623,13 @@ pub(crate) struct NetworkWalletOptions {
         help = "Prover server URL (default: configured value or http://127.0.0.1:3001)"
     )]
     pub(crate) prover_url: Option<String>,
+
+    #[arg(
+        long = "prover-tee",
+        env = "ZOLANA_PROVER_TEE",
+        help = "Prove only on a prover that attests to the TEE deployment this release pins"
+    )]
+    pub(crate) prover_tee: bool,
 
     #[arg(
         long = "airdrop-lamports",
@@ -1497,6 +1512,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
+                prover_tee: false,
                 airdrop_lamports: None,
             },
             mint: "SOL".to_string(),
@@ -1601,6 +1617,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
+                prover_tee: false,
                 airdrop_lamports: None,
             },
             mint: "SOL".to_string(),
@@ -1663,6 +1680,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
+                prover_tee: false,
                 airdrop_lamports: Some(2_000_000_000),
             },
             to: Some("Recipient1111111111111111111111111111111111".to_string()),
@@ -1695,6 +1713,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
+                prover_tee: false,
                 airdrop_lamports: None,
             },
             to: None,
@@ -1733,6 +1752,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: Some("http://127.0.0.1:3002".to_string()),
+                prover_tee: false,
                 airdrop_lamports: None,
             },
             to: "Recipient1111111111111111111111111111111111".to_string(),
@@ -1769,6 +1789,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
+                prover_tee: false,
                 airdrop_lamports: None,
             },
             to: "Dest1111111111111111111111111111111111111111".to_string(),

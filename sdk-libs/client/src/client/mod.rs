@@ -19,6 +19,7 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource, ProvenIndexedTransfer},
+        tee::TeePolicy,
         AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
     },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
@@ -55,6 +56,8 @@ pub struct ZolanaClient<R> {
     custom_prover: Option<Arc<dyn Prover>>,
     blocking_indexer_url: Option<String>,
     blocking_prover_url: Option<String>,
+    /// Applied to the blocking prover when it is built lazily.
+    prover_tee: Option<TeePolicy>,
     async_indexer: AsyncZolanaIndexer,
     async_prover: AsyncProverClient,
     cu_limit: u32,
@@ -77,6 +80,7 @@ impl<R> ZolanaClient<R> {
             custom_prover: None,
             blocking_indexer_url: None,
             blocking_prover_url: None,
+            prover_tee: None,
             async_indexer,
             async_prover,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
@@ -122,6 +126,7 @@ impl<R> ZolanaClient<R> {
             custom_prover: None,
             blocking_indexer_url: Some(indexer_url.clone()),
             blocking_prover_url: Some(prover_url.clone()),
+            prover_tee: None,
             async_indexer: AsyncZolanaIndexer::new(indexer_url),
             async_prover: AsyncProverClient::new(prover_url),
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
@@ -170,6 +175,17 @@ impl<R> ZolanaClient<R> {
         if let Some(prover) = self.prover.take() {
             self.prover = OnceLock::from(prover.with_proof_data_source(source));
         }
+        self
+    }
+
+    /// Applies [`ProverClient::with_tee`] to both prover clients.
+    #[must_use]
+    pub fn with_prover_tee(mut self, policy: TeePolicy) -> Self {
+        self.async_prover = self.async_prover.with_tee(policy.clone());
+        if let Some(prover) = self.prover.take() {
+            self.prover = OnceLock::from(prover.with_tee(policy.clone()));
+        }
+        self.prover_tee = Some(policy);
         self
     }
 
@@ -238,12 +254,16 @@ impl<R> ZolanaClient<R> {
 
     fn prover_client(&self) -> &ProverClient {
         self.prover.get_or_init(|| {
-            ProverClient::new(
+            let prover = ProverClient::new(
                 self.blocking_prover_url
                     .clone()
                     .expect("blocking prover URL is set when the client is deferred"),
             )
-            .with_proof_data_source(self.async_prover.proof_data_source())
+            .with_proof_data_source(self.async_prover.proof_data_source());
+            match &self.prover_tee {
+                Some(policy) => prover.with_tee(policy.clone()),
+                None => prover,
+            }
         })
     }
 

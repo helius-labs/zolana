@@ -5,7 +5,7 @@ use zolana_client::{
     user_registry::{
         fetch_user_record_checked, resolved_address_from_record, try_resolve_registered_address,
     },
-    ClientError, ProofCompressed, ProverClient, ProverExt, Rpc, SolanaRpc, ZolanaClient,
+    ClientError, ProofCompressed, ProverExt, Rpc, SolanaRpc, ZolanaClient,
 };
 use zolana_interface::{pda, shape::Shape};
 use zolana_program::instruction::MergeTransact;
@@ -42,11 +42,15 @@ pub(super) fn client(
     rpc: SolanaRpc,
     network: &ResolvedNetworkOptions,
 ) -> Result<ZolanaClient<SolanaRpc>> {
-    Ok(ZolanaClient::from_urls(
+    let client = ZolanaClient::from_urls(
         rpc,
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
-    )?)
+    )?;
+    Ok(match &network.prover_tee {
+        Some(policy) => client.with_prover_tee(policy.clone()),
+        None => client,
+    })
 }
 
 /// Send privately to `--to`'s registered shielded address. An account without
@@ -276,7 +280,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         cache: None,
     }
     .build()?;
-    let proof = ProverClient::new(network.prover_url.clone()).prove_merge(&result.inputs)?;
+    let proof = network.prover().prove_merge(&result.inputs)?;
     let merge = MergeTransact {
         input_tree: tree,
         output_tree: tree,
