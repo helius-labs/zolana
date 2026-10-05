@@ -137,8 +137,12 @@ func (n *nras) verify(ctx context.Context, response []byte, nonce [32]byte) erro
 			return fmt.Errorf("%s has no submod digest", name)
 		}
 		pair, ok := digest[1].([]any)
-		if !ok || len(pair) != 2 || pair[0] != "SHA256" {
-			return fmt.Errorf("%s submod digest is not SHA256", name)
+		if !ok || len(pair) != 2 {
+			return fmt.Errorf("%s submod digest is malformed", name)
+		}
+		// NRAS writes SHA-256 and NVIDIA's local verifier SHA256.
+		if algorithm, _ := pair[0].(string); algorithm != "SHA-256" && algorithm != "SHA256" {
+			return fmt.Errorf("%s submod digest is not SHA-256", name)
 		}
 		sum := sha256.Sum256([]byte(token))
 		if committed, _ := pair[1].(string); !strings.EqualFold(committed, hex.EncodeToString(sum[:])) {

@@ -79,7 +79,7 @@ func (f *nrasFixture) response(t *testing.T, edit func(platform map[string]any, 
 	}
 	sum := sha256.Sum256([]byte(device))
 	if _, ok := platform["submods"]; !ok {
-		platform["submods"] = map[string]any{"GPU-0": []any{"DIGEST", []any{"SHA256", hex.EncodeToString(sum[:])}}}
+		platform["submods"] = map[string]any{"GPU-0": []any{"DIGEST", []any{"SHA-256", hex.EncodeToString(sum[:])}}}
 	}
 	out, _ := json.Marshal([]any{[]string{"JWT", f.sign(t, "nv-test", platform)}, map[string]string{"GPU-0": device}})
 	return out
@@ -97,8 +97,11 @@ func TestNRASVerify(t *testing.T) {
 		"expired":        func(p map[string]any, _ *string) { p["exp"] = f.now.Unix() },
 		"device swapped after commit": func(p map[string]any, d *string) {
 			sum := sha256.Sum256([]byte(*d))
-			p["submods"] = map[string]any{"GPU-0": []any{"DIGEST", []any{"SHA256", hex.EncodeToString(sum[:])}}}
+			p["submods"] = map[string]any{"GPU-0": []any{"DIGEST", []any{"SHA-256", hex.EncodeToString(sum[:])}}}
 			*d = f.sign(t, "nv-test", map[string]any{"measres": "fail", "exp": f.now.Add(time.Hour).Unix()})
+		},
+		"malformed digest": func(p map[string]any, _ *string) {
+			p["submods"] = map[string]any{"GPU-0": []any{"DIGEST", "SHA-256"}}
 		},
 		"unknown key": func(_ map[string]any, d *string) {
 			*d = f.sign(t, "nv-rotated-away", map[string]any{"exp": f.now.Add(time.Hour).Unix()})
