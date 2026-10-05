@@ -145,6 +145,19 @@ func TestWrapRejectsRebinding(t *testing.T) {
 	}
 }
 
+func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
+	s := testServer(t)
+	for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
+		request, responseKey := sealedRequest(t, s, http.MethodGet, "/prove/merge/status?api-key=k&jobId=a", nil)
+		request.RequestURI = target
+		recorder := httptest.NewRecorder()
+		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+		if _, _, err := openResponse(responseKey, recorder.Body.Bytes()); err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+	}
+}
+
 func TestWrapRejectsTamperedBody(t *testing.T) {
 	s := testServer(t)
 	enc, ciphertext, _ := sealRequest(t, s.publicKey, http.MethodPost, "/prove/merge", []byte(`{}`))

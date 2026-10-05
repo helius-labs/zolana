@@ -28,6 +28,7 @@ pub const NONCE_SIZE: usize = 32;
 const REPORT_DOMAIN: &[u8] = b"zolana/prover-tee/v1/report";
 const HPKE_INFO: &[u8] = b"zolana/prover-tee/v1";
 const RESPONSE_EXPORT: &[u8] = b"zolana/prover-tee/v1/response";
+const API_KEY_PARAM: &str = "api-key";
 
 /// Why the prover was not trusted with a request.
 #[derive(Debug, Error)]

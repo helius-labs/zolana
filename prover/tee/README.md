@@ -53,7 +53,7 @@ The `app-id`, `compose-hash`, `os-image-hash` and `key-provider` events, the HPK
 A pass caches the key for `max_age_secs`, and the next call after that attests again.
 
 A sealed request sets `Zolana-Tee` to `v1` and carries `Zolana-Tee-Enc`. Its body is HPKE base mode with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
-The AAD is the method and the raw request target, so a body sealed for one route or job does not open on another.
+The AAD is the method, the path and the query without its `api-key` parameters. A body sealed for one route or job does not open on another, and a proxy may still move or strip the credential.
 The answer is the status and body under AES-256-GCM, keyed by the request context's exporter, so only that request opens it.
 The client refuses an unsealed success.
 An unsealed failure passes through, so retries and queue fallback still work, but its body is unauthenticated.

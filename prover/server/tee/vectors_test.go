@@ -13,22 +13,48 @@ import (
 // Sealed vectors carry a random HPKE ephemeral, so only
 // ZOLANA_TEE_WRITE_VECTORS=1 regenerates them.
 type vectors struct {
-	IKM             string `json:"ikm"`
-	HPKEPublicKey   string `json:"hpke_public_key"`
-	Nonce           string `json:"nonce"`
-	GPUToken        string `json:"gpu_token"`
-	ReportData      string `json:"report_data"`
-	ReportDataNoGPU string `json:"report_data_no_gpu"`
-	GPUNonce        string `json:"gpu_nonce"`
-	Method          string `json:"method"`
-	RequestURI      string `json:"request_uri"`
-	Enc             string `json:"enc"`
-	Ciphertext      string `json:"ciphertext"`
-	Plaintext       string `json:"plaintext"`
-	ResponseKey     string `json:"response_key"`
-	ResponseStatus  int    `json:"response_status"`
-	ResponseBody    string `json:"response_body"`
-	SealedResponse  string `json:"sealed_response"`
+	IKM             string    `json:"ikm"`
+	HPKEPublicKey   string    `json:"hpke_public_key"`
+	Nonce           string    `json:"nonce"`
+	GPUToken        string    `json:"gpu_token"`
+	ReportData      string    `json:"report_data"`
+	ReportDataNoGPU string    `json:"report_data_no_gpu"`
+	GPUNonce        string    `json:"gpu_nonce"`
+	Method          string    `json:"method"`
+	RequestURI      string    `json:"request_uri"`
+	Enc             string    `json:"enc"`
+	Ciphertext      string    `json:"ciphertext"`
+	Plaintext       string    `json:"plaintext"`
+	ResponseKey     string    `json:"response_key"`
+	ResponseStatus  int       `json:"response_status"`
+	ResponseBody    string    `json:"response_body"`
+	SealedResponse  string    `json:"sealed_response"`
+	AADCases        []aadCase `json:"aad_cases"`
+}
+
+type aadCase struct {
+	Method        string `json:"method"`
+	RequestTarget string `json:"request_target"`
+	AAD           string `json:"aad"`
+}
+
+// aadTargets cover where a proxy may put, repeat or drop the credential.
+var aadTargets = [][2]string{
+	{"GET", "/health"},
+	{"POST", "/v1/zolana/prove/transfer_2_2?api-key=k"},
+	{"GET", "/prove/merge_8_1/status?api-key=k&jobId=a1"},
+	{"GET", "/prove/merge_8_1/status?jobId=a1&api-key=k"},
+	{"GET", "/tee/v1/attestation?nonce=ab&api-key=k1&api-key=k2"},
+	{"GET", "/prove/x?api-keys=v&api-key"},
+	{"GET", "/prove/x?&&jobId=a&"},
+}
+
+func aadCases() []aadCase {
+	cases := make([]aadCase, len(aadTargets))
+	for i, target := range aadTargets {
+		cases[i] = aadCase{Method: target[0], RequestTarget: target[1], AAD: string(requestAAD(target[0], target[1]))}
+	}
+	return cases
 }
 
 func TestVectors(t *testing.T) {
@@ -71,6 +97,7 @@ func TestVectors(t *testing.T) {
 			ResponseStatus:  200,
 			ResponseBody:    string(responseBody),
 			SealedResponse:  hex.EncodeToString(sealed),
+			AADCases:        aadCases(),
 		}, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -98,6 +125,11 @@ func TestVectors(t *testing.T) {
 	expect("report_data", hex.EncodeToString(reportData[:]), v.ReportData)
 	expect("report_data_no_gpu", hex.EncodeToString(reportDataNoGPU[:]), v.ReportDataNoGPU)
 	expect("gpu_nonce", hex.EncodeToString(gpuNonce[:]), v.GPUNonce)
+	for i, c := range aadCases() {
+		if i >= len(v.AADCases) || v.AADCases[i] != c {
+			t.Errorf("aad case %d: got %+v", i, c)
+		}
+	}
 
 	_, kdf, aead := suite()
 	recipient, err := hpke.NewRecipient(mustHex(t, v.Enc), key, kdf, aead, []byte(hpkeInfo))

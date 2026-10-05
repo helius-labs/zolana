@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
 import { ProverClient } from "../src/client/prover/client.js";
-import { openResponse, sealRequest } from "../src/client/prover/tee/seal.js";
+import { openResponse, requestAad, sealRequest } from "../src/client/prover/tee/seal.js";
 import { sealedInit, type ProverCall } from "../src/client/prover/tee/session.js";
 import { composeSignal } from "../src/client/internal.js";
 import { PINNED_TEE_POLICY_FILE } from "../src/client/prover/tee/pinned.js";
@@ -150,7 +150,7 @@ describe("sealing", () => {
 
   it("interoperates with the Go prover", async () => {
     const context = await recipient(hexToBytes(vector("enc")));
-    const aad = utf8ToBytes(`${vector("method")} ${vector("request_uri")}`);
+    const aad = utf8ToBytes(requestAad(vector("method"), vector("request_uri")));
     const plaintext = new Uint8Array(await context.open(hexToBytes(vector("ciphertext")), aad));
     expect(new TextDecoder().decode(plaintext)).toBe(vector("plaintext"));
     const responseKey = new Uint8Array(
@@ -160,6 +160,20 @@ describe("sealing", () => {
     const opened = openResponse(responseKey, hexToBytes(vector("sealed_response")));
     expect(opened.status).toBe(Number(decode.integer(vectors["response_status"], "status")));
     expect(new TextDecoder().decode(opened.body)).toBe(vector("response_body"));
+  });
+
+  it("drops every credential from the AAD as the Go prover does", () => {
+    const cases = decode.list(vectors["aad_cases"], "aad_cases");
+    expect(cases.length).toBeGreaterThan(0);
+    for (const entry of cases) {
+      const c = decode.record(entry, "case");
+      expect(
+        requestAad(
+          decode.string(c["method"], "method"),
+          decode.string(c["request_target"], "target"),
+        ),
+      ).toBe(decode.string(c["aad"], "aad"));
+    }
   });
 
   it("opens only on the route it was sealed for", async () => {

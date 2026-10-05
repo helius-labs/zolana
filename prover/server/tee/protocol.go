@@ -8,6 +8,7 @@ import (
 	"crypto/hpke"
 	"crypto/sha256"
 	"crypto/sha512"
+	"strings"
 )
 
 const (
@@ -26,6 +27,7 @@ const (
 	keyPath        = "zolana/prover/hpke/v1"
 
 	responseKeySize = 32
+	apiKeyParam     = "api-key"
 	gcmTagSize      = 16
 )
 
@@ -60,8 +62,19 @@ func GPUNonce(nonce, hpkePublicKey []byte) [32]byte {
 	return out
 }
 
-// requestAAD binds the method and raw request target, so a sealed body opens
-// only on the route and job it was sent to.
+// requestAAD binds the method, path and query minus every api-key parameter,
+// so a proxy can move the credential while the route and job stay bound.
 func requestAAD(method, requestURI string) []byte {
-	return []byte(method + " " + requestURI)
+	path, query, _ := strings.Cut(requestURI, "?")
+	var kept []string
+	for _, pair := range strings.Split(query, "&") {
+		if key, _, _ := strings.Cut(pair, "="); pair == "" || key == apiKeyParam {
+			continue
+		}
+		kept = append(kept, pair)
+	}
+	if len(kept) == 0 {
+		return []byte(method + " " + path)
+	}
+	return []byte(method + " " + path + "?" + strings.Join(kept, "&"))
 }

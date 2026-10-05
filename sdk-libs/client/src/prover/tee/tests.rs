@@ -5,8 +5,10 @@ use hpke::{
 use serde::Deserialize;
 
 use super::{
-    seal::open_response, verify, verify::report_data, Evidence, SealedRequest, TeeError, TeePolicy,
-    HPKE_INFO, RESPONSE_EXPORT,
+    seal::{open_response, request_aad},
+    verify,
+    verify::report_data,
+    Evidence, SealedRequest, TeeError, TeePolicy, HPKE_INFO, RESPONSE_EXPORT,
 };
 
 const PROBE_ATTESTATION: &str =
@@ -153,6 +155,28 @@ struct Vectors {
     response_status: u16,
     response_body: String,
     sealed_response: String,
+    aad_cases: Vec<AadCase>,
+}
+
+#[derive(Deserialize)]
+struct AadCase {
+    method: String,
+    request_target: String,
+    aad: String,
+}
+
+#[test]
+fn the_aad_drops_every_credential_as_the_go_prover_does() {
+    let v: Vectors = serde_json::from_str(VECTORS).unwrap();
+    assert!(!v.aad_cases.is_empty());
+    for case in v.aad_cases {
+        assert_eq!(
+            request_aad(&case.method, &case.request_target),
+            case.aad,
+            "{}",
+            case.request_target
+        );
+    }
 }
 
 fn bytes<const N: usize>(value: &str) -> [u8; N] {
@@ -191,7 +215,7 @@ fn sealing_interoperates_with_the_go_prover() {
         HPKE_INFO,
     )
     .unwrap();
-    let aad = format!("{} {}", v.method, v.request_uri);
+    let aad = request_aad(&v.method, &v.request_uri);
     let plaintext = receiver
         .open(&hex::decode(&v.ciphertext).unwrap(), aad.as_bytes())
         .unwrap();

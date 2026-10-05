@@ -6,7 +6,7 @@ use hpke::{
 use rand_core::{OsRng, UnwrapErr};
 use zeroize::Zeroizing;
 
-use super::{TeeError, HPKE_INFO, RESPONSE_EXPORT};
+use super::{TeeError, API_KEY_PARAM, HPKE_INFO, RESPONSE_EXPORT};
 
 /// One request sealed to the attested key, holding the key its answer opens with.
 pub struct SealedRequest {
@@ -67,6 +67,17 @@ pub fn open_response(key: &[u8; 32], sealed: &[u8]) -> Result<(u16, Vec<u8>), Te
     Ok((u16::from_be_bytes(*status), body.to_vec()))
 }
 
-fn request_aad(method: &str, request_uri: &str) -> String {
-    format!("{method} {request_uri}")
+/// The method, path and query minus every `api-key` parameter, so a proxy can
+/// move the credential while the route and job stay bound.
+pub(crate) fn request_aad(method: &str, request_uri: &str) -> String {
+    let (path, query) = request_uri.split_once('?').unwrap_or((request_uri, ""));
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| !pair.is_empty() && pair.split('=').next() != Some(API_KEY_PARAM))
+        .collect();
+    if kept.is_empty() {
+        format!("{method} {path}")
+    } else {
+        format!("{method} {path}?{}", kept.join("&"))
+    }
 }

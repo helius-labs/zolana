@@ -41,13 +41,27 @@ export async function sealRequest(
 ): Promise<SealedRequest> {
   const recipientPublicKey = await suite.kem.deserializePublicKey(hpkePublicKey);
   const sender = await suite.createSenderContext({ recipientPublicKey, info: HPKE_INFO });
-  const body = new Uint8Array(await sender.seal(plaintext, utf8ToBytes(`${method} ${requestUri}`)));
+  const body = new Uint8Array(
+    await sender.seal(plaintext, utf8ToBytes(requestAad(method, requestUri))),
+  );
   const responseKey = new Uint8Array(await sender.export(RESPONSE_EXPORT, 32));
   return Object.freeze({
     enc: bytesToHex(new Uint8Array(sender.enc)),
     body,
     open: (sealed: Uint8Array) => openResponse(responseKey, sealed),
   });
+}
+
+/**
+ * The method, path and query minus every `api-key` parameter, so a proxy can
+ * move the credential while the route and job stay bound.
+ */
+export function requestAad(method: string, requestUri: string): string {
+  const separator = requestUri.indexOf("?");
+  const path = separator === -1 ? requestUri : requestUri.slice(0, separator);
+  const query = separator === -1 ? "" : requestUri.slice(separator + 1);
+  const kept = query.split("&").filter((pair) => pair !== "" && pair.split("=")[0] !== "api-key");
+  return kept.length === 0 ? `${method} ${path}` : `${method} ${path}?${kept.join("&")}`;
 }
 
 /** The response key is single use, so the zero nonce never repeats under it. */
