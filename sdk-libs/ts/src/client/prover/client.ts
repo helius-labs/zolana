@@ -48,6 +48,9 @@ import {
 } from "../internal.js";
 import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
+import type { TeePolicy } from "./tee/policy.js";
+import { TeeSession, prepareCall, type ProverCall } from "./tee/session.js";
+import type { AttestedProver } from "./tee/verify.js";
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_INPUT_SLOTS,
@@ -112,6 +115,7 @@ const INDEXED_PATH = "/indexed";
 const STATUS_PATH = "/status";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
+const ATTESTATION_PATH = "/tee/v1/attestation";
 const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
@@ -160,6 +164,7 @@ export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
   readonly #asyncPoll: AsyncPollConfig;
+  readonly #tee: TeeSession | undefined;
 
   constructor(
     input: Readonly<{
@@ -168,6 +173,11 @@ export class ProverClient {
       asyncPoll?: AsyncPollConfig;
       /** See `ZolanaClientConfig.allowInsecureHttp`. */
       allowInsecureHttp?: boolean;
+      /**
+       * Seals every call, health and key checks included, to a prover that
+       * attests to the policy.
+       */
+      tee?: TeePolicy;
     }>,
   ) {
     const candidate: unknown = input;
@@ -184,6 +194,44 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
+    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+  }
+
+  /** Attests the prover now against the `tee` policy. */
+  async attest(context?: RequestContext): Promise<AttestedProver> {
+    if (this.#tee === undefined) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "tee" } });
+    }
+    const request = composeSignal(context, "attest");
+    try {
+      return await this.#tee.attest(this.#fetch, this.#siblingUrl(ATTESTATION_PATH), request);
+    } finally {
+      request.cleanup();
+    }
+  }
+
+  /** A path beside `/prove`, keeping any gateway prefix and query. */
+  #siblingUrl(path: string): URL {
+    const url = new URL(this.#url);
+    url.pathname = url.pathname.replace(/\/prove$/u, path);
+    return url;
+  }
+
+  #call(
+    url: URL,
+    signal: ComposedSignal,
+    post?: Readonly<{ headers: Readonly<Record<string, string>>; body: string }>,
+  ): ProverCall {
+    return {
+      fetch: this.#fetch,
+      attestationUrl: this.#siblingUrl(ATTESTATION_PATH),
+      url,
+      method: post === undefined ? "GET" : "POST",
+      headers: post?.headers ?? {},
+      ...(post === undefined ? {} : { body: post.body }),
+      signal,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+    };
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
@@ -317,19 +365,20 @@ export class ProverClient {
 
   /** The circuits the server serves. */
   async health(context?: RequestContext): Promise<ProverHealth> {
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
+    const url = this.#siblingUrl(HEALTH_PATH);
     const request = composeSignal(context, "health");
     try {
+      const prepared = await prepareCall(this.#tee, this.#call(url, request));
       let response: Response;
       try {
-        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
+        response = await this.#fetch(url, prepared.init);
       } catch {
         if (request.timedOut()) throw requestError("health", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
           details: { method: "health", attempts: 1 },
         });
       }
+      response = await prepared.open(response);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: { method: "health", status: response.status, ...(await proverReason(response)) },
@@ -359,13 +408,13 @@ export class ProverClient {
    * such key; a key the prover lacks or cannot load is only reported.
    */
   async checkProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, PROVING_KEYS_PATH);
+    const url = this.#siblingUrl(PROVING_KEYS_PATH);
     const request = composeSignal(context, "provingKeys");
     try {
+      const prepared = await prepareCall(this.#tee, this.#call(url, request));
       let response: Response;
       try {
-        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
+        response = await this.#fetch(url, prepared.init);
       } catch {
         if (request.timedOut() || request.signal.aborted)
           throw requestError("provingKeys", request);
@@ -373,6 +422,7 @@ export class ProverClient {
           details: { method: "provingKeys", attempts: 1 },
         });
       }
+      response = await prepared.open(response);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: {
@@ -407,18 +457,16 @@ export class ProverClient {
             "prove",
           );
           try {
+            const prepared = await prepareCall(
+              this.#tee,
+              this.#call(url, request, {
+                headers: delivery === "inResponse" ? { "X-Sync": "true" } : { "X-Async": "true" },
+                body,
+              }),
+            );
             let response: Response;
             try {
-              response = await this.#fetch(url, {
-                method: "POST",
-                headers: {
-                  "content-type": "application/json",
-                  ...(delivery === "inResponse" ? { "X-Sync": "true" } : { "X-Async": "true" }),
-                },
-                body,
-                redirect: "error",
-                signal: request.signal,
-              });
+              response = await this.#fetch(url, prepared.init);
             } catch {
               if (signal.signal.aborted) throw requestError("prove", signal);
               if (attempt < MAX_ATTEMPTS) continue;
@@ -427,6 +475,7 @@ export class ProverClient {
                 details: { method: "prove", attempts: attempt },
               });
             }
+            response = await prepared.open(response);
             if (response.status === 429 && delivery === "inResponse") {
               await response.body?.cancel();
               delivery = "queued";
@@ -528,13 +577,15 @@ export class ProverClient {
       );
       let response: Response;
       try {
+        const prepared = await prepareCall(this.#tee, this.#call(url, request));
         try {
-          response = await this.#fetch(url, { redirect: "error", signal: request.signal });
+          response = await this.#fetch(url, prepared.init);
         } catch {
           if (signal.signal.aborted) throw requestError("prove", signal);
           await waitOrTimeout();
           continue;
         }
+        response = await prepared.open(response);
         if (response.status >= 400 && response.status < 500) {
           throw new ClientError("CLIENT_PROVER_HTTP", {
             details: {

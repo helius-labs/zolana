@@ -140,6 +140,11 @@ Added
   `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
   proof above eight, and `buildRingMergeTransaction` and
   `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
+- `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
+  call, sealed, only to a prover whose Intel TDX attestation matches it.
+- `pinnedTeePolicy()` returns the policy this release pins, `teePolicyFromJson`
+  parses another, and `ZolanaClient.attestProver` returns the verified
+  `AttestedProver`.
 
 Changed
 
@@ -165,6 +170,11 @@ Fixed
 - `buildWithdrawalTransaction` failed with `WALLET_BUILD_WITHDRAWAL` when an
   owner who also pays the fee withdrew the whole balance of an SPL mint, and
   now builds that withdrawal with a zero-amount SOL change output.
+
+Dependencies
+
+- `@hpke/core` ^1.9.0 (new).
+- `@phala/dcap-qvl` ^0.6.5 (new).
 
 ## 0.3.1-alpha — 2026-09-29
 

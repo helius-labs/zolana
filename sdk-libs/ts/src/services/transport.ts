@@ -166,7 +166,10 @@ function requestFailure(composed: ComposedSignal): TransportFailure {
   return new TransportFailure("request", "request failed", { retryable: true });
 }
 
-async function readBoundedBody(response: Response, maxBodyBytes: number): Promise<Uint8Array> {
+export async function readBoundedBody(
+  response: Response,
+  maxBodyBytes: number,
+): Promise<Uint8Array> {
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null && /^\d+$/u.test(contentLength)) {
     const bodyBytes = Number(contentLength);

@@ -67,6 +67,14 @@ export {
   type ProvingKeyCheck,
   type ProvingKeyReport,
 } from "./prover/client.js";
+export {
+  pinnedTeePolicy,
+  teePolicyFromJson,
+  type GpuRequirement,
+  type TeeMeasurement,
+  type TeePolicy,
+} from "./prover/tee/policy.js";
+export type { AttestedProver } from "./prover/tee/verify.js";
 export { ringOpenings } from "./prover/assembly.js";
 export type { RingOpenings } from "./prover/assembly.js";
 export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
