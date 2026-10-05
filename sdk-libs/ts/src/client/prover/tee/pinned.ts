@@ -17,7 +17,7 @@ export const PINNED_TEE_POLICY_FILE: Readonly<{ deployment: unknown }> = Object.
           "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a",
       },
     ],
-    compose_hashes: ["320d75c71bcf05936dc566b20d1aed684db637032c0b09f4808e946b2bf2ecb0"],
+    compose_hashes: ["5ddee1dc042773b5e23179c2a70beb7c3e8c68af330ffa956d721dd0bf0de1ed"],
     tcb_statuses: ["UpToDate"],
     gpu: "required",
     max_age_secs: 600,
