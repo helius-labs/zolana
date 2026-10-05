@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import { ClientError } from "../src/client/error.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { openResponse, sealRequest } from "../src/client/prover/tee/seal.js";
+import { sealedInit, type ProverCall } from "../src/client/prover/tee/session.js";
+import { composeSignal } from "../src/client/internal.js";
 import { PINNED_TEE_POLICY_FILE } from "../src/client/prover/tee/pinned.js";
 import {
   pinnedTeePolicy,
@@ -53,8 +55,17 @@ describe("TEE policy", () => {
     expect(PINNED_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
   });
 
-  it("refuses to pin a deployment this release does not carry", () => {
-    expect(() => pinnedTeePolicy()).toThrow(ClientError);
+  it("accepts the live attestation of the deployment this release pins", () => {
+    const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
+    const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+    const at = Number(decode.integer(live["captured_at"], "captured_at"));
+    const prover = verifyAttestation(live["attestation"], pinnedTeePolicy(), nonce, at);
+    expect(prover.gpuVerified).toBe(true);
+    expect(
+      check(() =>
+        verifyAttestation(live["attestation"], pinnedTeePolicy(), new Uint8Array(32), at),
+      ),
+    ).toBe("report_data");
   });
 
   it("rejects a malformed policy", () => {
@@ -167,6 +178,39 @@ describe("sealing", () => {
     };
     expect(await opensOn("/prove/merge/status?jobId=a")).toBe(true);
     expect(await opensOn("/prove/merge/status?jobId=b")).toBe(false);
+  });
+});
+
+describe("sealed request shape", () => {
+  const call = (method: "GET" | "POST"): ProverCall => ({
+    fetch: globalThis.fetch,
+    attestationUrl: new URL("https://prover.example/tee/v1/attestation"),
+    url: new URL("https://prover.example/prove/merge/status?jobId=a"),
+    method,
+    headers: { "X-Sync": "true" },
+    signal: composeSignal(undefined, "test"),
+    maxResponseBytes: 1024,
+  });
+  const sealed = {
+    enc: "ab",
+    body: new Uint8Array([1, 2]),
+    open: () => ({ status: 200, body: new Uint8Array() }),
+  };
+
+  it("puts a GET's sealed bytes in a header, fetch refuses a GET body", () => {
+    const init = sealedInit(call("GET"), sealed);
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toMatchObject({
+      "Zolana-Tee": "v1",
+      "Zolana-Tee-Enc": "ab",
+      "Zolana-Tee-Seal": "0102",
+    });
+  });
+
+  it("keeps a POST's sealed bytes in the body", () => {
+    const init = sealedInit(call("POST"), sealed);
+    expect(init.body).toEqual(new Uint8Array([1, 2]));
+    expect(init.headers).not.toHaveProperty("Zolana-Tee-Seal");
   });
 });
 

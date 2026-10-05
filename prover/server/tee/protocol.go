@@ -14,7 +14,9 @@ const (
 	Version       = "v1"
 	HeaderVersion = "Zolana-Tee"
 	HeaderEnc     = "Zolana-Tee-Enc"
-	NonceSize     = 32
+	// HeaderSeal carries the sealed bytes of a GET or HEAD, fetch refuses those a body.
+	HeaderSeal = "Zolana-Tee-Seal"
+	NonceSize  = 32
 
 	// Domain separation for every hash and HPKE context the protocol binds.
 	reportDomain   = "zolana/prover-tee/v1/report"

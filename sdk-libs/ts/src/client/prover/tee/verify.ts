@@ -111,7 +111,8 @@ function runtimeEvents(log: readonly EventLogEntry[], rtmr3: Uint8Array): readon
     const digest = sha384(
       concatBytes(eventType, separator, utf8ToBytes(entry.event), separator, entry.eventPayload),
     );
-    if (bytesToHex(digest) !== entry.digest) throw refused("event_log");
+    // The guest agent's GetQuote leaves RTMR3 digests empty, a stated one must still match.
+    if (entry.digest !== "" && bytesToHex(digest) !== entry.digest) throw refused("event_log");
     replayed = sha384(concatBytes(replayed, digest));
   }
   if (bytesToHex(replayed) !== bytesToHex(rtmr3)) throw refused("event_log");
@@ -147,7 +148,7 @@ function eventOf(value: unknown): EventLogEntry {
   return Object.freeze({
     imr: Number(imr),
     eventType: Number(eventType),
-    digest: bytesToHex(bytesOf(entry["digest"], "digest")),
+    digest: entry["digest"] === undefined ? "" : bytesToHex(bytesOf(entry["digest"], "digest")),
     event: decode.string(entry["event"], "event"),
     eventPayload: bytesOf(entry["event_payload"], "event_payload"),
   });

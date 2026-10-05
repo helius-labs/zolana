@@ -6,6 +6,8 @@ import { ClientError } from "../../error.js";
 
 export const HEADER_VERSION = "Zolana-Tee";
 export const HEADER_ENC = "Zolana-Tee-Enc";
+/** Carries the sealed bytes of a GET, fetch refuses a GET body. */
+export const HEADER_SEAL = "Zolana-Tee-Seal";
 export const VERSION = "v1";
 
 // Domain separation for the HPKE context and its response exporter.

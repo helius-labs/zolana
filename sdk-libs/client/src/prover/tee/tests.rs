@@ -13,6 +13,8 @@ const PROBE_ATTESTATION: &str =
     include_str!("../../../../../prover/tee/testdata/probe_attestation.json");
 const PROBE_POLICY: &str = include_str!("../../../../../prover/tee/testdata/probe_policy.json");
 const VECTORS: &str = include_str!("../../../../../prover/tee/testdata/vectors.json");
+const LIVE_ATTESTATION: &str =
+    include_str!("../../../../../prover/tee/testdata/live_attestation.json");
 
 #[derive(Deserialize)]
 struct ProbeFixture {
@@ -112,11 +114,25 @@ fn each_policy_check_refuses_with_its_own_error() {
     }
 }
 
+#[derive(Deserialize)]
+struct LiveFixture {
+    captured_at: u64,
+    nonce: String,
+    attestation: serde_json::Value,
+}
+
+/// A live H200 prover's answer to a recorded nonce, quote and GPU verdict included.
 #[test]
-fn this_release_pins_no_deployment_yet() {
+fn the_pinned_deployment_accepts_its_live_attestation() {
+    let fixture: LiveFixture = serde_json::from_str(LIVE_ATTESTATION).unwrap();
+    let nonce = bytes::<32>(&fixture.nonce);
+    let evidence = || serde_json::from_value::<Evidence>(fixture.attestation.clone()).unwrap();
+    let policy = TeePolicy::pinned().unwrap();
+    let prover = verify(evidence(), &policy, &nonce, fixture.captured_at).unwrap();
+    assert!(prover.gpu_verified);
     assert!(matches!(
-        TeePolicy::pinned(),
-        Err(TeeError::NoPinnedDeployment)
+        verify(evidence(), &policy, &[0; 32], fixture.captured_at),
+        Err(TeeError::ReportDataMismatch)
     ));
 }
 

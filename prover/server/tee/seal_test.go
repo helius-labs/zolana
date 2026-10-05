@@ -74,6 +74,10 @@ func sealedRequest(t *testing.T, s *Server, method, uri string, body []byte) (*h
 	t.Helper()
 	enc, ciphertext, responseKey := sealRequest(t, s.publicKey, method, uri, body)
 	request := httptest.NewRequest(method, uri, bytes.NewReader(ciphertext))
+	if bodiless(method) {
+		request = httptest.NewRequest(method, uri, nil)
+		request.Header.Set(HeaderSeal, hex.EncodeToString(ciphertext))
+	}
 	request.Header.Set(HeaderVersion, Version)
 	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
 	request.Header.Set("Content-Type", "application/octet-stream")
@@ -122,6 +126,10 @@ func TestWrapRejectsRebinding(t *testing.T) {
 		"other method": func(r *http.Request) { r.Method = http.MethodPut },
 		"bad enc":      func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) },
 		"version":      func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") },
+		"seal in body": func(r *http.Request) {
+			r.Body = io.NopCloser(strings.NewReader(r.Header.Get(HeaderSeal)))
+			r.Header.Del(HeaderSeal)
+		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

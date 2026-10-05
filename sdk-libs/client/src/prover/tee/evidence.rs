@@ -20,7 +20,7 @@ pub struct Evidence {
 pub struct EventLogEntry {
     pub imr: u32,
     pub event_type: u32,
-    #[serde(with = "hex")]
+    #[serde(default, with = "hex")]
     pub digest: Vec<u8>,
     pub event: String,
     #[serde(with = "hex")]

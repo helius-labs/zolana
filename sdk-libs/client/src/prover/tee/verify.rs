@@ -156,7 +156,8 @@ fn runtime_events<'a>(
             .chain_update(b":")
             .chain_update(&entry.event_payload)
             .finalize();
-        if digest.as_slice() != entry.digest {
+        // The guest agent's GetQuote leaves RTMR3 digests empty, a stated one must still match.
+        if !entry.digest.is_empty() && digest.as_slice() != entry.digest {
             return Err(TeeError::EventLogMismatch);
         }
         replayed = Sha384::new()

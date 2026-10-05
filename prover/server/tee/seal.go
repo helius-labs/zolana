@@ -38,6 +38,7 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 		inner.ContentLength = int64(len(plaintext))
 		inner.Header.Del(HeaderVersion)
 		inner.Header.Del(HeaderEnc)
+		inner.Header.Del(HeaderSeal)
 		inner.Header.Set("Content-Type", "application/json")
 
 		recorder := newRecorder()
@@ -75,7 +76,12 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) ([]byte, []byte, e
 	if err != nil {
 		return nil, nil, err
 	}
-	ciphertext, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSealedBody))
+	var ciphertext []byte
+	if bodiless(r.Method) {
+		ciphertext, err = hex.DecodeString(r.Header.Get(HeaderSeal))
+	} else {
+		ciphertext, err = io.ReadAll(http.MaxBytesReader(w, r.Body, maxSealedBody))
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -109,6 +115,10 @@ func responseAEAD(key []byte) (cipher.AEAD, error) {
 		return nil, err
 	}
 	return cipher.NewGCM(block)
+}
+
+func bodiless(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
 
 func rejectSealed(w http.ResponseWriter, code string) {

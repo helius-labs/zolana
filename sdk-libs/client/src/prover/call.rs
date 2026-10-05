@@ -10,7 +10,7 @@ use crate::{
     prover::{
         client::Delivery,
         endpoint::scrub,
-        tee::{SealedRequest, TeeSession, HEADER_ENC, HEADER_VERSION, VERSION},
+        tee::{SealedRequest, TeeSession, HEADER_ENC, HEADER_SEAL, HEADER_VERSION, VERSION},
     },
 };
 
@@ -84,10 +84,16 @@ impl<'a> Call<'a> {
         .map_err(CallError::Refused)?;
         headers.push((HEADER_VERSION, VERSION.to_string()));
         headers.push((HEADER_ENC, sealed.enc.clone()));
-        headers.push(("Content-Type", "application/octet-stream".to_string()));
+        let body = if self.method == Method::GET {
+            headers.push((HEADER_SEAL, hex::encode(&sealed.body)));
+            None
+        } else {
+            headers.push(("Content-Type", "application/octet-stream".to_string()));
+            Some(sealed.body.clone())
+        };
         Ok(Prepared {
             headers,
-            body: Some(sealed.body.clone()),
+            body,
             sealed: Some(sealed),
         })
     }
@@ -119,5 +125,36 @@ impl CallError {
             }
             Self::Refused(error) => error,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sealed(call: &Call<'_>) -> Prepared {
+        call.prepare(Some(&[9; 32])).ok().unwrap()
+    }
+
+    #[test]
+    fn a_sealed_get_carries_its_bytes_in_a_header() {
+        let url = Url::parse("https://prover.example/prove/merge/status?jobId=a").unwrap();
+        let prepared = sealed(&Call::get(&url, Duration::from_secs(1)));
+        assert!(prepared.body.is_none());
+        assert!(prepared
+            .headers
+            .iter()
+            .any(|(name, _)| *name == HEADER_SEAL));
+    }
+
+    #[test]
+    fn a_sealed_post_keeps_its_bytes_in_the_body() {
+        let url = Url::parse("https://prover.example/prove/merge").unwrap();
+        let prepared = sealed(&Call::post(&url, "{}", Delivery::Queued));
+        assert!(prepared.body.is_some());
+        assert!(!prepared
+            .headers
+            .iter()
+            .any(|(name, _)| *name == HEADER_SEAL));
     }
 }

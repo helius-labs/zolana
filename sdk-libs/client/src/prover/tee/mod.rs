@@ -19,6 +19,8 @@ use thiserror::Error;
 pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
 pub const HEADER_VERSION: &str = "Zolana-Tee";
 pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
+/// Carries the sealed bytes of a GET, fetch refuses a GET body.
+pub const HEADER_SEAL: &str = "Zolana-Tee-Seal";
 pub const VERSION: &str = "v1";
 pub const NONCE_SIZE: usize = 32;
 

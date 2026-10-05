@@ -3,7 +3,14 @@ import { bytesToHex, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import { TransportFailure, readBoundedBody, readBoundedJson } from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
 import { requestError, type ComposedSignal } from "../../internal.js";
-import { HEADER_ENC, HEADER_VERSION, VERSION, sealRequest } from "./seal.js";
+import {
+  HEADER_ENC,
+  HEADER_SEAL,
+  HEADER_VERSION,
+  VERSION,
+  sealRequest,
+  type SealedRequest,
+} from "./seal.js";
 import { checkedTeePolicy, type TeePolicy } from "./policy.js";
 import { verifyAttestation, type AttestedProver } from "./verify.js";
 
@@ -124,21 +131,30 @@ export class TeeSession {
       });
     };
     return Object.freeze({
-      init: {
-        method: call.method,
-        headers: {
-          ...call.headers,
-          [HEADER_VERSION]: VERSION,
-          [HEADER_ENC]: sealed.enc,
-          "content-type": "application/octet-stream",
-        },
-        body: sealed.body.slice(),
-        redirect: "error",
-        signal: call.signal.signal,
-      },
+      init: sealedInit(call, sealed),
       open,
     });
   }
+}
+
+/** A GET carries its sealed bytes in a header, fetch refuses a GET body. */
+export function sealedInit(call: ProverCall, sealed: SealedRequest): RequestInit {
+  const headers = { ...call.headers, [HEADER_VERSION]: VERSION, [HEADER_ENC]: sealed.enc };
+  if (call.method === "GET") {
+    return {
+      method: call.method,
+      headers: { ...headers, [HEADER_SEAL]: bytesToHex(sealed.body) },
+      redirect: "error",
+      signal: call.signal.signal,
+    };
+  }
+  return {
+    method: call.method,
+    headers: { ...headers, "content-type": "application/octet-stream" },
+    body: sealed.body.slice(),
+    redirect: "error",
+    signal: call.signal.signal,
+  };
 }
 
 /** The plain call, or the sealed one when `session` requires a TEE. */
