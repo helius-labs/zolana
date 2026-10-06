@@ -3,7 +3,7 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub const MERGE_DEFAULT_INPUT_COUNT: usize = 24;
 
-pub const MAX_MERGE_INPUTS: usize = 51;
+pub const MAX_MERGE_INPUTS: usize = 54;
 
 pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [MERGE_DEFAULT_INPUT_COUNT, MAX_MERGE_INPUTS];
 

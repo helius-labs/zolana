@@ -14,14 +14,20 @@ use zolana_test_utils::{
     ring::{RingHarness, RingRail},
     test_validator_asserts::assert_transaction_compute_units,
 };
-use zolana_transaction::SOL_MINT;
+use zolana_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
 
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 /// A real input's nullifier (32) and tree index (1) in the instruction data,
 /// plus its nullifier PDA address (32) and account index (1).
 const BYTES_PER_INPUT: usize = 66;
+/// A real merge input's nullifier (32) in the instruction data, plus its
+/// nullifier PDA address (32) and account index (1).
+const MERGE_BYTES_PER_INPUT: usize = 65;
 const SENT_AMOUNT: u64 = 1_000_000;
-const MERGE_INPUTS: usize = 51;
+const MERGE_INPUTS: usize = MAX_MERGE_INPUTS;
+/// Real inputs of the widest ring merge that fit under 4,096 bytes; compact
+/// padding fills the remaining slots.
+const MERGE_REAL_INPUTS: usize = MERGE_INPUTS - 1;
 const CU_LIMIT: u64 = 1_400_000;
 
 /// The widest shape of one output count and the real inputs and outputs it
@@ -79,16 +85,17 @@ fn widest_ring_p256_transact_shapes_confirm() -> Result<()> {
 fn widest_ring_merge_confirms() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    for _ in 0..MERGE_INPUTS {
+    for _ in 0..MERGE_REAL_INPUTS {
         harness.ring_shield_sol("merge-owner", DEPOSIT_AMOUNT)?;
     }
 
-    let signature = harness.merge_ring("merge-owner", SOL_MINT, MERGE_INPUTS)?;
-    assert_landed(
-        &harness,
-        &signature,
-        &format!("ring merge {MERGE_INPUTS}x1"),
-    )?;
+    let signature = harness.merge_ring("merge-owner", SOL_MINT, MERGE_REAL_INPUTS)?;
+    let label = format!("ring merge {MERGE_INPUTS}x1, {MERGE_REAL_INPUTS} real inputs");
+    let bytes = assert_landed(&harness, &signature, &label)?;
+    assert!(
+        bytes + MERGE_BYTES_PER_INPUT > MAX_TRANSACTION_SIZE,
+        "{label}: {bytes} bytes leave room for another real input"
+    );
     harness.assert_merged_ring("merge-owner")?;
     Ok(())
 }

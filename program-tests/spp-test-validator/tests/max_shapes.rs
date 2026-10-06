@@ -11,11 +11,11 @@ use zolana_test_utils::{
     lifecycle::LifecycleHarness, nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::assert_transaction_compute_units,
 };
-use zolana_transaction::SOL_MINT;
+use zolana_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
 
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const SENT_AMOUNT: u64 = 1_000_000;
-const MERGE_INPUTS: usize = 51;
+const MERGE_INPUTS: usize = MAX_MERGE_INPUTS;
 const MERGE_CU_LIMIT: u64 = 1_400_000;
 
 /// Every slot of each widest shape is a real input.

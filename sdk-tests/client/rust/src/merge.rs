@@ -11,10 +11,7 @@ use zolana_interface::instruction::instruction_data::MergeTransactIxData;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     decrypt_spendable,
-    instructions::{
-        merge::MergeProofInputs,
-        transact::{canonical_shape, SPP_SUPPORTED_SHAPES},
-    },
+    instructions::{merge::MergeProofInputs, transact::canonical_shape},
     AssetRegistry, WalletUtxo, SOL_MINT,
 };
 
@@ -50,10 +47,9 @@ pub fn assert_balance_needs_merging(utxos: &[WalletUtxo], expected: usize) {
         expected,
         "the wallet should hold {expected} utxos"
     );
-    assert_eq!(
-        canonical_shape(utxos.len(), 2).ok(),
-        SPP_SUPPORTED_SHAPES.last().copied(),
-        "{} utxos should only fit the widest transfer shape",
+    assert!(
+        canonical_shape(utxos.len(), 2).is_err(),
+        "{} utxos should not fit any transfer shape",
         utxos.len()
     );
 }

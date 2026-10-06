@@ -330,7 +330,7 @@ var transferSupportedShapes = [][2]uint32{
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
-var mergeSupportedInputCounts = []uint32{24, 51}
+var mergeSupportedInputCounts = []uint32{24, 54}
 
 type ProofShape struct {
 	Circuit CircuitType

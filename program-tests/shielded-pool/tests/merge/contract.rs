@@ -38,7 +38,7 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     }
 }
 
-// Every count from 1 to 51 selects the narrowest merge circuit that holds it;
+// Every count from 1 to 54 selects the narrowest merge circuit that holds it;
 // the missing slots are compact padding.
 const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 2] = [0, MAX_MERGE_INPUTS + 1];
 

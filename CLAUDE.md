@@ -439,7 +439,7 @@ TS `sdk-libs/ts/src/interface/shape.ts`, Go
 `prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
 `prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
 key-generation list in `prover/server/scripts/generate_keys_transfer.sh`. The
-merge widths (24 and 51) live in `MERGE_SUPPORTED_INPUT_COUNTS`
+merge widths (24 and 54) live in `MERGE_SUPPORTED_INPUT_COUNTS`
 (`merge_transact.rs`), Go `spp_merge/shared` `SupportedInputCounts` and
 `lazy_key_manager.go` `mergeSupportedInputCounts`.
 

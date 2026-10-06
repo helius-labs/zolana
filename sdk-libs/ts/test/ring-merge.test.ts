@@ -287,7 +287,7 @@ describe("ring merge", () => {
     }
   });
 
-  it("merges up to maxInputs ring notes and refuses a width outside 2 through 51", async () => {
+  it("merges up to maxInputs ring notes and refuses a width outside 2 through 54", async () => {
     const wallet = ringWallet(Array.from({ length: 10 }, (_, index) => BigInt(index + 1)));
     const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared }) => {
       const data = provenMerge(prepared);
@@ -326,12 +326,16 @@ describe("ring merge", () => {
   it.each([
     [2, 24],
     [24, 24],
-    [25, 51],
-    [51, 51],
+    [25, 54],
+    [54, 54],
   ])("preserves owner, asset, value and ring for %s fragmented inputs", (count, width) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
     expect(prepared.inputs).toHaveLength(width);
+    expect(prepared.inputs.map((spend) => spend.isCompact())).toEqual(
+      Array.from({ length: width }, (_, index) => index >= count),
+    );
+    expect(provenMerge(prepared).nullifiers).toHaveLength(count);
     expect(prepared.output.amount).toBe(BigInt((count * (count + 1)) / 2));
     expect(prepared.output.asset).toBe(SOL_MINT);
     expect(prepared.output.ringProgramId).toBe(RING);
@@ -339,7 +343,7 @@ describe("ring merge", () => {
     expect(prepared.outputTreeId).toBe(7);
   });
 
-  it.each([2, 25, 51])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
+  it.each([2, 25, 54])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
     const assembly = assembleMergeWithProofs(
@@ -377,7 +381,7 @@ describe("ring merge", () => {
     expect(assembly.outputHash).not.toEqual(prepared.output.hash(7));
   });
 
-  it("refuses foreign rings, owner data, and more than 51 inputs", () => {
+  it("refuses foreign rings, owner data, and more than 54 inputs", () => {
     expect(() => merge([input(3n), input(5n, treeAddress(1))])).toThrow(
       "TRANSACTION_MERGE_INPUT_RING_MISMATCH",
     );
@@ -429,7 +433,7 @@ describe("ring merge", () => {
       address: await ringAuthAddress(RING),
       role: AccountRole.READONLY,
     });
-    expect(instruction.accounts).toHaveLength(9 + MERGE_INPUT_COUNT);
+    expect(instruction.accounts).toHaveLength(9 + inputs.length);
   });
 
   it("binds ring identity and destination into approval", () => {

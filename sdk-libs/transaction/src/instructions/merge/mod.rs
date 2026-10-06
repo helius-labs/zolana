@@ -18,6 +18,9 @@ pub use zolana_interface::instruction::instruction_data::merge_transact::{
 
 use inputs::{validate_merge_inputs, MergeInputs};
 
+/// Pads the circuit's unused slots with compact padding: the instruction
+/// leaves them out, so they cost no bytes, nullifier account or queue entry,
+/// and the merge reveals its real input count.
 #[derive(Clone)]
 pub struct MergeTransaction {
     inputs: Vec<WalletUtxo>,
@@ -26,7 +29,6 @@ pub struct MergeTransaction {
     output_tree_id: u16,
     ring_program_id: Option<Address>,
     output_ring_data_hash: Option<[u8; 32]>,
-    compact_padding: bool,
 }
 
 impl MergeTransaction {
@@ -51,18 +53,7 @@ impl MergeTransaction {
             output_tree_id: 0,
             ring_program_id: None,
             output_ring_data_hash: None,
-            compact_padding: false,
         })
-    }
-
-    /// Like [`new`](Self::new), but pads the circuit's unused slots with
-    /// compact padding instead of deterministic dummies. Compact padding is
-    /// left out of the instruction and costs no nullifier account or queue
-    /// entry, but the merge then reveals its real input count.
-    pub fn new_compact(inputs: Vec<WalletUtxo>) -> Result<Self, TransactionError> {
-        let mut merge = Self::new(inputs)?;
-        merge.compact_padding = true;
-        Ok(merge)
     }
 
     pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {

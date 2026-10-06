@@ -693,9 +693,9 @@ describe("wallet sync", () => {
   // the circuit, so sync reconstructs it like a padded one.
   it.each([
     { kind: "24-input", real: 2, width: 24, compact: false },
-    { kind: "51-input", real: 2, width: 51, compact: false },
+    { kind: "54-input", real: 2, width: 54, compact: false },
     { kind: "compact 24-input", real: 2, width: 24, compact: true },
-    { kind: "compact 51-input", real: 25, width: 51, compact: true },
+    { kind: "compact 54-input", real: 25, width: 54, compact: true },
   ])("reconstructs a ciphertext-free $kind merge", async ({ real, width, compact }) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });

@@ -139,7 +139,6 @@ impl LifecycleHarness {
             .encrypt(&keypair)?;
         let total = transaction.output_utxo.amount;
         let output_blinding = transaction.output_utxo.blinding;
-        let input_count = transaction.input_utxos.len();
         let commitments = transaction.input_utxo_hashes()?;
         let utxo_hashes: Vec<_> = commitments.iter().map(|input| input.utxo_hash).collect();
         let real_nullifiers: Vec<_> = commitments.iter().map(|input| input.nullifier).collect();
@@ -212,7 +211,8 @@ impl LifecycleHarness {
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The
         // tree then funds one nullifier PDA per inserted nullifier. A merge key
         // paying directly also pays the transaction fee.
-        let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, input_count as u64)?;
+        let sent_count = sent_nullifiers.len() as u64;
+        let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, sent_count)?;
         let transaction_fee = if merge_key_pays {
             self.rpc
                 .fetch_confirmed_transaction(&sig)?
@@ -233,13 +233,12 @@ impl LifecycleHarness {
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
             tree_before.lamports - tree_after.lamports,
-            input_count as u64 * nullifier_pda_rent - forester_fee,
+            sent_count * nullifier_pda_rent - forester_fee,
             "merge forester fee must accrue to the tree net of the nullifier PDA rent it funds"
         );
         assert_eq!(
-            sent_nullifiers.len(),
-            input_count,
-            "merge queues one nullifier per input slot"
+            sent_nullifiers, real_nullifiers,
+            "merge queues one nullifier per real input; compact padding sends none"
         );
         assert_nullifier_pdas(&self.rpc, &self.tree, &sent_nullifiers)?;
         assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;

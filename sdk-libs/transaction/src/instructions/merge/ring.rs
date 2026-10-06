@@ -26,7 +26,6 @@ impl MergeTransaction {
             ring_program_id: Some(ring_program_id),
             output_ring_data_hash,
             output_tree_id: 0,
-            compact_padding: false,
         })
     }
 }

@@ -68,7 +68,7 @@ pub(crate) enum CliCommand {
 
     #[command(
         name = "merge",
-        about = "Consolidate several private utxos into one (auto-sweep up to 24 in, named inputs up to 51 in, 1 out)"
+        about = "Consolidate several private utxos into one (auto-sweep up to 24 in, named inputs up to 54 in, 1 out)"
     )]
     Merge(MergeOptions),
 

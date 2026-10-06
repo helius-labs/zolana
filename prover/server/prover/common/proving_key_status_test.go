@@ -13,12 +13,12 @@ func strPtr(s string) *string { return &s }
 
 func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
 	pinnedOnDisk := sha256.Sum256([]byte("transfer_ring_2_2"))
-	pinnedMissing := sha256.Sum256([]byte("merge_51_1"))
+	pinnedMissing := sha256.Sum256([]byte("merge_54_1"))
 	useTestManifest(t, &lockManifest{
 		Prefix: "proving-keys/test",
 		Keys: map[string]lockEntry{
 			"transfer_ring_2_2.key": {Sha256: hex.EncodeToString(pinnedOnDisk[:]), Size: 1},
-			"merge_51_1.key":        {Sha256: hex.EncodeToString(pinnedMissing[:]), Size: 1},
+			"merge_54_1.key":        {Sha256: hex.EncodeToString(pinnedMissing[:]), Size: 1},
 		},
 	})
 	keysDir := t.TempDir()
@@ -39,7 +39,7 @@ func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
 		Prefix: "proving-keys/test",
 		Keys: []ProvingKeyStatus{
 			{Name: "local_only.key", Available: true},
-			{Name: "merge_51_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinnedMissing[:])), Available: false},
+			{Name: "merge_54_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinnedMissing[:])), Available: false},
 			{
 				Name:           "transfer_ring_2_2.key",
 				ExpectedSha256: strPtr(hex.EncodeToString(pinnedOnDisk[:])),

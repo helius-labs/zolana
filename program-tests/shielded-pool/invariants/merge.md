@@ -6,7 +6,7 @@ live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously described a variable input
 count `N` and an oversized proof; `docs/spec.md` now matches the code: 24-in/1-out
-and 51-in/1-out shapes and a vanilla Groth16 `a||b||c` proof with no BSB22
+and 54-in/1-out shapes and a vanilla Groth16 `a||b||c` proof with no BSB22
 commitment (`program-libs/interface/src/instruction/instruction_data/merge_transact.rs:9-22`,
 `docs/spec.md:1795-1836`). Post-PR164 the merge output is ciphertext-free (no
 `encrypted_utxo` field and no `merge_view_tag`): the output is recovered from the
@@ -83,9 +83,9 @@ nullifiers.
 ### Instruction Data Validation
 
 - [x] **INV-MERGE-06: a supported merge shape is enforced at parse time**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (0 and 52 inputs), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (51 inputs parse and reach verification), `merge_rejects_a_sent_zero_nullifier`; `program-tests/shielded-pool/tests/merge/functional.rs` `merge_with_compact_padding_spends_only_the_real_inputs`
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (0 and 55 inputs), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (54 inputs parse and reach verification), `merge_rejects_a_sent_zero_nullifier`; `program-tests/shielded-pool/tests/merge/functional.rs` `merge_with_compact_padding_spends_only_the_real_inputs`
   - Kind: precondition
-  - Statement: `merge_transact` returns Err unless `nullifiers.len()` is between 1 and `MAX_MERGE_INPUTS` (51) and no sent nullifier is 0 (`ZeroInputNullifier = 7078`). `merge_circuit_width` picks the narrowest merge circuit (24 or 51) that holds the sent nullifiers, and the slots past them are compact padding. The instruction carries one `utxo_tree_root_index` / `nullifier_tree_root_index` pair for every input.
+  - Statement: `merge_transact` returns Err unless `nullifiers.len()` is between 1 and `MAX_MERGE_INPUTS` (54) and no sent nullifier is 0 (`ZeroInputNullifier = 7078`). `merge_circuit_width` picks the narrowest merge circuit (24 or 54) that holds the sent nullifiers, and the slots past them are compact padding. The instruction carries one `utxo_tree_root_index` / `nullifier_tree_root_index` pair for every input.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs:106-115` (`fn validate_shape`), `programs/shielded-pool/src/instructions/merge/processor.rs:31-32`
   - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High
@@ -112,9 +112,9 @@ nullifiers.
   - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).
 
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (24 inputs) and `merge_verifies_the_wide_shape_on_chain` (51 inputs), each proving with the workspace prover and requiring the program to accept
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (24 inputs) and `merge_verifies_the_wide_shape_on_chain` (54 inputs), each proving with the workspace prover and requiring the program to accept
   - Kind: precondition
-  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_24_1` / `merge_51_1` (default rail), `merge_ring_24_1` / `merge_ring_51_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
+  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_24_1` / `merge_54_1` (default rail), `merge_ring_24_1` / `merge_ring_54_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:51-73` (`fn verify`)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
   - Severity: Critical
@@ -249,7 +249,7 @@ nullifiers.
 - [ ] **INV-RING-MERGE-07: ring merge verifies only against the merge_ring keys**
   - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic` (zeroed proof -> 7008; a real `merge_24_1` proof cross-submitted to ring merge is not tested)
   - Kind: precondition
-  - Statement: `ring_merge_transact` verifies only against `merge_ring_24_1::VERIFYINGKEY` or `merge_ring_51_1::VERIFYINGKEY`, by input count; a proof for the default `merge_24_1` or `merge_51_1` circuit does not verify (the two key selections are mutually exclusive by owner-binding variant).
+  - Statement: `ring_merge_transact` verifies only against `merge_ring_24_1::VERIFYINGKEY` or `merge_ring_54_1::VERIFYINGKEY`, by input count; a proof for the default `merge_24_1` or `merge_54_1` circuit does not verify (the two key selections are mutually exclusive by owner-binding variant).
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:62-73` (`fn verify`, key selection and `verify_groth16` call)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical

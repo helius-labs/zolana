@@ -97,10 +97,10 @@ pub(crate) struct MergeProofStatement {
 
 impl MergeProofStatement {
     pub fn verify_ring(self, proof: &Proof) -> Result<(), ClientError> {
-        use zolana_interface::verifying_keys::{merge_ring_24_1, merge_ring_51_1};
+        use zolana_interface::verifying_keys::{merge_ring_24_1, merge_ring_54_1};
         let verifying_key = match self.n_inputs {
             24 => &merge_ring_24_1::VERIFYINGKEY,
-            51 => &merge_ring_51_1::VERIFYINGKEY,
+            54 => &merge_ring_54_1::VERIFYINGKEY,
             _ => {
                 return Err(ClientError::UnsupportedShape {
                     n_in: self.n_inputs,
@@ -116,10 +116,10 @@ impl MergeProofStatement {
     }
 
     pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
-        use zolana_interface::verifying_keys::{merge_24_1, merge_51_1};
+        use zolana_interface::verifying_keys::{merge_24_1, merge_54_1};
         let verifying_key = match self.n_inputs {
             24 => &merge_24_1::VERIFYINGKEY,
-            51 => &merge_51_1::VERIFYINGKEY,
+            54 => &merge_54_1::VERIFYINGKEY,
             _ => {
                 return Err(ClientError::UnsupportedShape {
                     n_in: self.n_inputs,

@@ -20,12 +20,12 @@ const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 const MERGE_24_CU_CEILING: u64 = 300_000;
 
-const MERGE_51_CU_CEILING: u64 = 450_000;
+const MERGE_54_CU_CEILING: u64 = 450_000;
 
 fn merge_cu_ceiling(input_count: usize) -> u64 {
     match input_count {
         24 => MERGE_24_CU_CEILING,
-        51 => MERGE_51_CU_CEILING,
+        54 => MERGE_54_CU_CEILING,
         other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
     }
 }

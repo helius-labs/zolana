@@ -1204,16 +1204,16 @@ describe("prover proving keys check", () => {
 
   it("reports a key the prover lacks or cannot load without failing", async () => {
     const report = matchingReport();
-    report.keys = report.keys.filter((key) => key["name"] !== "merge_51_1.key");
+    report.keys = report.keys.filter((key) => key["name"] !== "merge_54_1.key");
     entry(report, "transfer_ring_49_2.key")["available"] = false;
 
     const result = (await check(report)) as {
       keys: { name: string; served: boolean; available: boolean }[];
     };
     expect(
-      result.keys.filter((key) => ["merge_51_1.key", "transfer_ring_49_2.key"].includes(key.name)),
+      result.keys.filter((key) => ["merge_54_1.key", "transfer_ring_49_2.key"].includes(key.name)),
     ).toEqual([
-      { name: "merge_51_1.key", served: false, available: false, loaded: false },
+      { name: "merge_54_1.key", served: false, available: false, loaded: false },
       { name: "transfer_ring_49_2.key", served: true, available: false, loaded: false },
     ]);
   });

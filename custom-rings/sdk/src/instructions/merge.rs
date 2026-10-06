@@ -68,7 +68,8 @@ impl CustomRingMerge {
     }
 }
 
-/// An 8-slot custom-ring merge ready for tree proofs.
+/// A custom-ring merge, compact-padded to its circuit width, ready for tree
+/// proofs.
 #[must_use]
 #[derive(Clone)]
 pub struct PreparedCustomRingMerge {

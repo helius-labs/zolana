@@ -16,7 +16,7 @@ use zolana_interface::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRingIxData,
         MergeTransactIxData,
     },
-    verifying_keys::{merge_24_1, merge_51_1},
+    verifying_keys::{merge_24_1, merge_54_1},
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
@@ -40,7 +40,7 @@ use super::transact::{current_tree_roots, tree_progress};
 pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'static> {
     match input_count {
         24 => &merge_24_1::VERIFYINGKEY,
-        51 => &merge_51_1::VERIFYINGKEY,
+        54 => &merge_54_1::VERIFYINGKEY,
         other => panic!("no committed verifying key for a {other}-input merge"),
     }
 }
@@ -273,9 +273,6 @@ impl PaddedMerge {
                 Address::new_from_array(ring.to_bytes()),
                 None,
             ),
-            None if compact => {
-                zolana_transaction::instructions::merge::MergeTransaction::new_compact(notes)
-            }
             None => zolana_transaction::instructions::merge::MergeTransaction::new(notes),
         }
         .expect("merge");
@@ -288,11 +285,13 @@ impl PaddedMerge {
             .first()
             .expect("real input")
             .nullifier;
-        // Explicit larger shapes exercise every supported verifier with real
-        // padding. A compact merge's width follows from its real count instead.
+        // Clients pad with compact slots only, at the width the real count
+        // selects. SPP still accepts deterministic dummies, so the non-compact
+        // path swaps them in at the explicit width to cover every verifier.
         let padded_count = if compact {
             transaction.input_utxos.len()
         } else {
+            transaction.input_utxos.retain(|input| !input.is_compact());
             input_count
         };
         for slot in transaction.input_utxos.len()..padded_count {

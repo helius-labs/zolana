@@ -166,10 +166,15 @@ impl Fixture {
             .with_output_tree_id(tree_id)
             .encrypt(&self.member)
             .expect("encrypt merge");
-        let first = prepared.input_utxos[0].nullifier();
+        let first = prepared
+            .input_utxos
+            .first()
+            .expect("merge input")
+            .nullifier();
         let nullifiers = prepared
             .input_utxos
             .iter()
+            .filter(|input| !input.is_compact())
             .map(|input| input.nullifier())
             .collect();
         let signature = self.signature();

@@ -453,7 +453,7 @@ fn tx_size(args: Vec<String>) {
     use solana_signer::Signer;
     use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
     use zolana_interface::instruction::instruction_data::{
-        merge_circuit_width, MERGE_SUPPORTED_INPUT_COUNTS,
+        merge_circuit_width, MAX_MERGE_INPUTS, MERGE_SUPPORTED_INPUT_COUNTS,
     };
     use zolana_interface::{
         instruction::{
@@ -1021,8 +1021,12 @@ fn tx_size(args: Vec<String>) {
         let n = most_inputs_that_fit(build);
         transact_row(format!("{label} {n} in 2 out, 49x2 compact"), build(n));
     }
-    // A count below its circuit width is a merge with compact padding.
-    for input_count in MERGE_SUPPORTED_INPUT_COUNTS.into_iter().chain([3, 25]) {
+    // A count below its circuit width is a merge with compact padding. A ring
+    // merge of every widest slot misses the limit; one input fewer fits.
+    for input_count in MERGE_SUPPORTED_INPUT_COUNTS
+        .into_iter()
+        .chain([3, 25, MAX_MERGE_INPUTS - 1])
+    {
         use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
         use zolana_program::instruction::{MergeRing, MergeTransact};
         let nullifiers = (0..input_count)
@@ -1051,15 +1055,19 @@ fn tx_size(args: Vec<String>) {
             cache: None,
         }
         .instruction();
-        let merge_ix = MergeTransact {
-            input_tree: tree,
-            output_tree: tree,
-            payer: vault,
-            user_record: Pubkey::new_unique(),
-            data,
-            cache: None,
-        }
-        .instruction();
+        let user_record = Pubkey::new_unique();
+        let merge_ix_paid_by = |payer: Pubkey| {
+            MergeTransact {
+                input_tree: tree,
+                output_tree: tree,
+                payer,
+                user_record,
+                data: data.clone(),
+                cache: None,
+            }
+            .instruction()
+        };
+        let merge_ix = merge_ix_paid_by(payer_pk);
         let label = match merge_circuit_width(input_count) {
             Some(width) if width != input_count => {
                 format!("merge {input_count} in 1 out, {width} compact")
@@ -1072,7 +1080,7 @@ fn tx_size(args: Vec<String>) {
             &settings,
             0,
             &[payer_pk],
-            std::slice::from_ref(&merge_ix),
+            &[merge_ix_paid_by(vault)],
         );
         println!(
             "| {:<46} | {:>8} | {:>11} | {:>18} |",

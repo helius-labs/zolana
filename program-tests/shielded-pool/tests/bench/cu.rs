@@ -271,7 +271,7 @@ fn bench_cu_deposit() {
     }
     // Compact merges send only the real inputs, and their count picks the
     // width: the fewest that select each circuit.
-    for (input_count, real_input_count) in [(24, 1), (51, 25)] {
+    for (input_count, real_input_count) in [(24, 1), (54, 25)] {
         bench_merge_shape(
             &mut mollusk,
             &program_id,

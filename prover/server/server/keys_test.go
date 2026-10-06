@@ -32,10 +32,10 @@ func TestServedKeysDefaultToEveryKey(t *testing.T) {
 }
 
 func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
-	served := servedKeys(t, "*_49_*", "*_51_*", "batch_address-append_40_250")
+	served := servedKeys(t, "*_49_*", "*_54_*", "batch_address-append_40_250")
 	for file, want := range map[string]bool{
 		"transfer_p256_ring_49_2.key":     true,
-		"merge_51_1.key":                  true,
+		"merge_54_1.key":                  true,
 		"batch_address-append_40_250.key": true,
 		"transfer_confidential_1_2.key":   false,
 		"merge_24_1.key":                  false,
@@ -63,9 +63,9 @@ func TestKeyAdmission(t *testing.T) {
 		code      string
 	}{
 		"path key":                           {keyAdmission{expected: "merge_24_1.key"}, "merge_24_1.key", ""},
-		"another key than the path":          {keyAdmission{expected: "merge_24_1.key"}, "merge_51_1.key", "proving_key_mismatch"},
+		"another key than the path":          {keyAdmission{expected: "merge_24_1.key"}, "merge_54_1.key", "proving_key_mismatch"},
 		"unsupported shape on a key path":    {keyAdmission{expected: "merge_24_1.key"}, "", "proving_key_mismatch"},
-		"job without a path key, served":     {keyAdmission{served: onlyMerges}, "merge_51_1.key", ""},
+		"job without a path key, served":     {keyAdmission{served: onlyMerges}, "merge_54_1.key", ""},
 		"job without a path key, not served": {keyAdmission{served: onlyMerges}, "transfer_ring_2_4.key", "proving_key_not_served"},
 		// Left to the key manager, which reports the unsupported shape.
 		"job without a path key, unsupported shape": {keyAdmission{served: onlyMerges}, "", ""},

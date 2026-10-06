@@ -79,6 +79,7 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 		"merge 24x2":            TransferKeyFile(MergeCircuitType, 24, 2),
 		"removed merge 8x1":     TransferKeyFile(MergeCircuitType, 8, 1),
 		"removed merge 36x1":    TransferKeyFile(MergeRingCircuitType, 36, 1),
+		"removed merge 51x1":    TransferKeyFile(MergeCircuitType, 51, 1),
 		"address append 40x100": BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
 		"transfer as a batch":   BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
 		"unknown custom ring":   RingKeyFile("custom-ring-unknown"),

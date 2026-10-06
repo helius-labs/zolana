@@ -52,8 +52,8 @@ The command starts the validator, Photon, and prover, then runs the example.
 
 ## Merge and transfer
 
-[`merge_transfer.rs`](merge_transfer.rs) spends a balance spread over as many
-UTXOs as the widest transfer shape takes, the direct way: merge, then transfer
+[`merge_transfer.rs`](merge_transfer.rs) spends a balance spread over more
+UTXOs than the widest transfer shape takes, the direct way: merge, then transfer
 the merged output. The transfer proves its input against a Merkle path, so it
 cannot be built until the merge has landed, the merged output has been appended
 to the tree, and the indexer has served a proof for it.
@@ -64,7 +64,7 @@ registry record opted into merging, so any caller may merge for it.
 
 ### Flow
 
-1. Detect that 51 UTXOs only fit the widest transfer shape.
+1. Detect that 54 UTXOs exceed the widest transfer shape.
 2. Build the merge proof inputs.
 3. Prove and send the merge.
 4. Build the transfer over the merged output; `prove_transact` polls the
@@ -102,7 +102,7 @@ proof still proves the sender owns every input it draws from the cache.
 
 ### Flow
 
-1. Detect that 51 UTXOs only fit the widest transfer shape.
+1. Detect that 54 UTXOs exceed the widest transfer shape.
 2. Build the merge proof inputs for one slot of one cache account, and the
    transfer proof inputs from the merge's predicted output.
 3. Prove the merge and the transfer concurrently.
@@ -143,7 +143,7 @@ From the repository root:
 just test-client-example-optimized-merge-transfer
 ```
 
-The `merge_51_1` proving key is 362 MB and the prover loads it on the first
+The `merge_54_1` proving key is 380 MB and the prover loads it on the first
 request, so a cold run pays that load once.
 
 ### What the two timelines do and do not show

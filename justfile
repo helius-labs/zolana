@@ -1158,7 +1158,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
       tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --no-capture
 
 # Confirm the widest transact shape of every output count (49x2, 24x4, 16x8,
-# 8x16) on the confidential, ring EdDSA and ring P256 rails, and the 51-input
+# 8x16) on the confidential, ring EdDSA and ring P256 rails, and the 54-input
 # plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
 # Prints each transaction's bytes and compute units.
 test-max-shapes-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
@@ -1319,11 +1319,11 @@ test-client-example-merge-transfer: build-programs build-prover-server build-cli
       cargo run -p client-example --example merge_transfer
 
 # Optimized merge + transfer SDK example
-# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 51 UTXOs in
+# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 54 UTXOs in
 # one merge that writes its output commitment into a cache PDA, and spends that
 # commitment from the cache, so the transfer proof is generated concurrently
 # with the merge proof instead of waiting for the merged output to be indexed.
-# Same stack as test-client-example; needs the merge_51_1 proving key, which the
+# Same stack as test-client-example; needs the merge_54_1 proving key, which the
 # prover lazy-loads on the first request.
 test-client-example-optimized-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash

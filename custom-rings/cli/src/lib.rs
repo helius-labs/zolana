@@ -440,7 +440,7 @@ pub struct MergeArgs {
     /// Mint to merge; SOL when omitted.
     #[arg(long)]
     pub mint: Option<Address>,
-    /// Maximum number of notes to merge, from 2 through 51; 24 by default.
+    /// Maximum number of notes to merge, from 2 through 54; 24 by default.
     #[arg(long, default_value_t = MERGE_DEFAULT_INPUT_COUNT, value_parser = parse_merge_count)]
     pub count: usize,
     /// The co-signer keypair when the ring's co-signer scope covers transfers.
@@ -834,8 +834,8 @@ mod tests {
         };
         assert_eq!(args.mint, Some(mint));
         assert_eq!(args.count, 4);
-        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "51"]).is_ok());
-        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "52"]).is_err());
+        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "54"]).is_ok());
+        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "55"]).is_err());
     }
 
     #[test]

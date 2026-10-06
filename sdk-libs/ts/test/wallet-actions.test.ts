@@ -360,19 +360,19 @@ describe("private transaction construction", () => {
     expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
   });
 
-  it("pads named merge inputs to the narrowest proof and refuses more than 51", async () => {
+  it("pads named merge inputs to the narrowest proof and refuses more than 54", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(
       keypair,
-      Array.from({ length: 52 }, (_, index) => BigInt(index + 1)),
+      Array.from({ length: 55 }, (_, index) => BigInt(index + 1)),
     );
     const hashes = wallet.utxos().map((entry) => entry.outputContext.hash);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
     for (const [count, width] of [
       [8, 24],
       [24, 24],
-      [25, 51],
-      [51, 51],
+      [25, 54],
+      [54, 54],
     ] as const) {
       const merge = await createMerge({
         wallet,
@@ -388,28 +388,23 @@ describe("private transaction construction", () => {
       createMerge({ wallet, keys, asset: SOL_MINT, inputs: hashes }),
     ).rejects.toMatchObject({
       code: "WALLET_TOO_MANY_INPUTS",
-      details: { got: 52, max: 51 },
+      details: { got: 55, max: 54 },
     });
   });
 
-  it("pads a merge with compact padding only when asked", async () => {
+  it("pads a merge with compact slots that each take a dummy nullifier", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(keypair, [20n, 30n, 40n]);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
 
-    const compact = await createMerge({ wallet, keys, asset: SOL_MINT, compact: true });
-    expect(compact.prepared.inputs.map((input) => input.isCompact())).toEqual([
+    const merge = await createMerge({ wallet, keys, asset: SOL_MINT });
+    expect(merge.prepared.inputs.map((input) => input.isCompact())).toEqual([
       false,
       false,
       false,
       ...Array.from({ length: 21 }, () => true),
     ]);
-    wallet._releaseReservation(compact.reservationId);
-
-    const padded = await createMerge({ wallet, keys, asset: SOL_MINT });
-    expect(padded.prepared.inputs.some((input) => input.isCompact())).toBe(false);
-    expect(padded.prepared.dummyNullifiers()).toHaveLength(21);
-    expect(compact.prepared.dummyNullifiers()).toEqual(padded.prepared.dummyNullifiers());
+    expect(merge.prepared.dummyNullifiers()).toHaveLength(21);
   });
 });
 

@@ -42,15 +42,15 @@ const CACHE_EXPIRES_AT: i64 = 2_000_000_000;
 /// The slot this merge writes its output commitment into. With several merges
 /// each takes its own slot of the same cache.
 const CACHE_SLOT: u8 = 0;
-/// A 51-input merge costs about 300,000 compute units, most of it the 51
+/// A 54-input merge costs about 300,000 compute units, most of it the 54
 /// nullifier PDAs.
 const MERGE_CU_LIMIT: u32 = 400_000;
 
-/// Spends a balance spread over as many UTXOs as the widest transfer shape
+/// Spends a balance spread over more UTXOs than the widest transfer shape
 /// takes, without the round trip that normally separates the merge from the transfer.
 ///
 /// A wallet that has received many small payments holds so many UTXOs that
-/// only the widest transfer shape can spend them, so it merges them first.
+/// no transfer shape can spend them, so it merges them first.
 /// Running the two in sequence is slow for a reason unrelated to proving: the
 /// transfer needs a Merkle inclusion proof for the merged output, so it cannot
 /// start until the merge has landed, been appended to the tree, and been
@@ -86,7 +86,7 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 /// The critical path is `max(merge proof + merge lands, transfer proof)`
 /// instead of `merge proof + merge lands + indexing + transfer proof`.
 fn main() -> Result<()> {
-    // A registered sender whose private balance sits in 51 separate UTXOs, plus
+    // A registered sender whose private balance sits in 54 separate UTXOs, plus
     // a rent sponsor for the cache account.
     let MergeScenario {
         rpc_url,
@@ -108,8 +108,8 @@ fn main() -> Result<()> {
     let sender_address = sender.shielded_address()?;
     let recipient_address = recipient.shielded_address()?;
 
-    // 1. Spending the balance directly needs the widest transfer shape, so it is
-    // merged first.
+    // 1. The balance spans more UTXOs than the widest transfer shape takes, so
+    // it is merged first.
     assert_balance_needs_merging(&utxos, UTXO_COUNT);
     let total: u64 = utxos.iter().map(|utxo| utxo.utxo.amount).sum();
 

@@ -27,11 +27,11 @@ use zolana_user_registry_interface::user_record_pda;
 const UTXO_COUNT: usize = MAX_MERGE_INPUTS;
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const TRANSFER_AMOUNT: u64 = 500_000_000;
-/// A 51-input merge costs about 300,000 compute units, most of it the 51
+/// A 54-input merge costs about 300,000 compute units, most of it the 54
 /// nullifier PDAs.
 const MERGE_CU_LIMIT: u32 = 400_000;
 
-/// Spends a balance spread over as many UTXOs as the widest transfer shape
+/// Spends a balance spread over more UTXOs than the widest transfer shape
 /// takes, the direct way: merge, then transfer the merged output.
 ///
 /// This is the baseline [`optimized_merge_transfer`] improves on. The transfer
@@ -62,7 +62,7 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 ///
 /// [`optimized_merge_transfer`]: ../optimized_merge_transfer.rs
 fn main() -> Result<()> {
-    // A registered sender whose private balance sits in 51 separate UTXOs. The
+    // A registered sender whose private balance sits in 54 separate UTXOs. The
     // rent sponsor funds no cache here; it only pays for the merge.
     let MergeScenario {
         rpc_url,
@@ -84,8 +84,8 @@ fn main() -> Result<()> {
     let sender_address = sender.shielded_address()?;
     let recipient_address = recipient.shielded_address()?;
 
-    // 1. Spending the balance directly needs the widest transfer shape, so it is
-    // merged first.
+    // 1. The balance spans more UTXOs than the widest transfer shape takes, so
+    // it is merged first.
     assert_balance_needs_merging(&utxos, UTXO_COUNT);
     let total: u64 = utxos.iter().map(|utxo| utxo.utxo.amount).sum();
 

@@ -91,6 +91,10 @@ name = "transaction_size"
 [[test]]
 name = "spend_input_ceiling"
 
+# Hermetic: merge transactions built with compact padding against the v1 ceilings.
+[[test]]
+name = "merge_transaction_size"
+
 [[test]]
 name = "indexer"
 required-features = ["indexer-api"]

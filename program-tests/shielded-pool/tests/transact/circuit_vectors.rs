@@ -582,7 +582,7 @@ fn padded_right_fold_matches_the_full_width_fold() {
         }
         bytes
     };
-    for width in (1..=16).chain([24, 49, 51]) {
+    for width in (1..=16).chain([24, 49, 54]) {
         for sent_count in 0..=width {
             for zero_last_sent in [false, true] {
                 let mut sent: Vec<[u8; 32]> = (0..sent_count).map(value).collect();

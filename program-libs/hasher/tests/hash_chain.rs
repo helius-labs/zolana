@@ -57,7 +57,7 @@ fn hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vector {
 }
 
 fn compute_hash_chain_4_vectors() -> HashChain4Vectors {
-    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 7, 8, 16, 36, 51]
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 7, 8, 16, 36, 54]
         .iter()
         .map(|&len| {
             let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
@@ -101,7 +101,7 @@ fn right_hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vecto
 /// the all-zero vector a spend that draws on no cache publishes.
 fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
     let zero = [0u8; 32];
-    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36, 51]
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36, 54]
         .iter()
         .map(|&len| {
             let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
@@ -123,12 +123,12 @@ fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
     }
     vectors.push(right_hash_chain_4_vector("trailing_zeros_36", &wide));
     vectors.push(right_hash_chain_4_vector("all_zero_36", &[zero; 36]));
-    let mut widest = vec![zero; 51];
+    let mut widest = vec![zero; 54];
     for (index, slot) in widest.iter_mut().take(5).enumerate() {
         *slot = field(index as u32 + 1);
     }
-    vectors.push(right_hash_chain_4_vector("trailing_zeros_51", &widest));
-    vectors.push(right_hash_chain_4_vector("all_zero_51", &[zero; 51]));
+    vectors.push(right_hash_chain_4_vector("trailing_zeros_54", &widest));
+    vectors.push(right_hash_chain_4_vector("all_zero_54", &[zero; 54]));
     vectors.push(right_hash_chain_4_vector("all_zero_49", &[zero; 49]));
     HashChain4Vectors {
         description: "Known-answer vectors for right_hash_chain_4, the right-folding 4-input \

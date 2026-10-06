@@ -64,15 +64,13 @@ pub(crate) struct MergeInputs {
     pub padded_input_count: usize,
 }
 
-/// Pad with one dummy per entry of `dummy_nullifiers`, the slot's derived
-/// merge dummy nullifier. With `compact` set the padding is compact: it
-/// publishes 0 instead, while the circuit still proves the derived nullifier
-/// absent.
-pub(crate) fn pad_with_dummies(
+/// Pad with one compact slot per entry of `dummy_nullifiers`, the slot's
+/// derived merge dummy nullifier. A compact slot publishes 0, while the
+/// circuit still proves the derived nullifier absent.
+pub(crate) fn pad_with_compact(
     inputs: &mut Vec<SppProofInputUtxo>,
     padded_input_count: usize,
     dummy_nullifiers: &[[u8; 32]],
-    compact: bool,
 ) -> Result<(), TransactionError> {
     let want =
         padded_input_count
@@ -89,11 +87,7 @@ pub(crate) fn pad_with_dummies(
         });
     }
     for nullifier in dummy_nullifiers {
-        let mut input = if compact {
-            SppProofInputUtxo::compact(tree_id)?
-        } else {
-            SppProofInputUtxo::dummy(tree_id)?
-        };
+        let mut input = SppProofInputUtxo::compact(tree_id)?;
         input.nullifier = *nullifier;
         inputs.push(input);
     }

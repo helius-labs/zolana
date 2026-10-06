@@ -19,7 +19,7 @@ function scalar(value: string): bigint {
 
 describe("hashChain4 known-answer vectors", () => {
   const expectedNames = [
-    ...[0, 1, 2, 3, 4, 5, 7, 8, 16, 36, 51].map((length) => `len_${String(length)}`),
+    ...[0, 1, 2, 3, 4, 5, 7, 8, 16, 36, 54].map((length) => `len_${String(length)}`),
     "zero_element_in_the_middle",
   ];
 

@@ -1434,11 +1434,11 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Circuit | Use | Shape |
 | --- | --- | --- |
 | 24 in 1 out (merge) | Reconsolidate fragmented balance; the default width | 24 input slots of the same owner/asset, 1 combined output. `merge_transact` verifies against `merge_24_1`, `merge_ring` against `merge_ring_24_1`. |
-| 51 in 1 out (merge) | Reconsolidate up to 51 UTXOs in one transaction | 51 input slots, 1 combined output. `merge_transact` verifies against `merge_51_1`, `merge_ring` against `merge_ring_51_1`. |
+| 54 in 1 out (merge) | Reconsolidate up to 54 UTXOs in one transaction | 54 input slots, 1 combined output. `merge_transact` verifies against `merge_54_1`, `merge_ring` against `merge_ring_54_1`. |
 
 ```
-MERGE_SUPPORTED_INPUT_COUNTS = [24, 51]
-MAX_MERGE_INPUTS             = 51
+MERGE_SUPPORTED_INPUT_COUNTS = [24, 54]
+MAX_MERGE_INPUTS             = 54
 MERGE_DEFAULT_INPUT_COUNT    = 24   // width a client merges at unless asked for more
 ```
 
@@ -1446,7 +1446,9 @@ A merge with `k` real inputs uses the narrowest width `>= k`. Slots past the
 real inputs are either dummy slots (ownership, inclusion, and nullifier
 derivation skipped; the deterministic dummy nullifier and the zeroed
 input-hash contribution keep padding indistinguishable) or
-[compact padding](#compact-padding), which the instruction data omits.
+[compact padding](#compact-padding), which the instruction data omits. SPP
+accepts both; the SDK clients (Rust, TypeScript, custom-ring) fill every unused
+merge slot with compact padding, so a merge reveals its real input count.
 
 # SPP - Solana Privacy Program
 
@@ -1591,10 +1593,10 @@ operations, and tags 18–21 are maintenance and administration.
 | emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
-| merge_transact | Tag 13; consolidates the input slots of a 24- or 51-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
+| merge_transact | Tag 13; consolidates the input slots of a 24- or 54-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge, and clients use compact padding) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
-| merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of a 24- or 51-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
+| merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of a 24- or 54-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. |
@@ -1803,8 +1805,9 @@ maximum. Every transaction has to fit the 4,096-byte transaction v1 limit.
 Complete builder layouts, with one writable nullifier PDA per input, one input
 tree also used for outputs, no extra owner signers, and no public legs. A
 compact row sends fewer slots than its circuit has and fills the rest with
-[compact padding](#compact-padding). The ring `49x2 compact` rows carry the
-most real inputs that fit. Ring rows are the bare SPP instruction with every output
+[compact padding](#compact-padding). The ring `49x2 compact` rows and the ring
+`54 compact` merge row carry the most real inputs that fit. A direct merge row
+has the merge payer sign and pay the fee itself. Ring rows are the bare SPP instruction with every output
 in the ring (a 121-byte ciphertext, the plaintext names the ring program); a
 ring program's own wrapper around the CPI adds to them. OVER marks a layout
 that misses the 4,096-byte limit:
@@ -1830,22 +1833,29 @@ that misses the 4,096-byte limit:
 | Ring transact P256 49 in 2 out | 2359 | 4292 OVER | 55 |
 | Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
 | Ring transact P256 46 in 2 out, 49x2 compact | 2260 | 4094 | 52 |
-| Merge 24 in 1 out, direct | 1040 | 2212 | 30 |
+| Merge 24 in 1 out, direct | 1040 | 2116 | 29 |
 | Merge 24 in 1 out, execute_sync | 1090 | 2264 | 32 |
 | Ring merge 24 in 1 out | 1072 | 2180 | 30 |
-| Merge 51 in 1 out, direct | 1904 | 3967 | 57 |
-| Merge 51 in 1 out, execute_sync | 1981 | 4046 | 59 |
-| Ring merge 51 in 1 out | 1936 | 3935 | 57 |
-| Merge 3 in 1 out, 24 compact, direct | 368 | 847 | 9 |
+| Merge 54 in 1 out, direct | 2000 | 4066 | 59 |
+| Merge 54 in 1 out, execute_sync | 2080 | 4244 OVER | 62 |
+| Ring merge 54 in 1 out | 2032 | 4130 OVER | 60 |
+| Ring merge 53 in 1 out, 54 compact | 2000 | 4065 | 59 |
+| Merge 3 in 1 out, 24 compact, direct | 368 | 751 | 8 |
 | Merge 3 in 1 out, 24 compact, execute_sync | 397 | 878 | 11 |
-| Merge 25 in 1 out, 51 compact, direct | 1072 | 2277 | 31 |
-| Merge 25 in 1 out, 51 compact, execute_sync | 1123 | 2330 | 33 |
+| Merge 25 in 1 out, 54 compact, direct | 1072 | 2181 | 30 |
+| Merge 25 in 1 out, 54 compact, execute_sync | 1123 | 2330 | 33 |
 
-A 51-input merge fits a Squads `execute_transaction_sync` transaction by size
-(the `execute_sync` row above) but fails at execution: the smart account
+A 54-input merge misses the 4,096-byte limit inside a Squads
+`execute_transaction_sync` transaction (the `execute_sync` row above), and a
+merge that wide fails there at execution even when it fits: the smart account
 program runs out of heap re-serializing one nullifier PDA per slot for its CPI.
 A merge wider than the 24-input default is therefore sent with the merge
 service paying and signing `merge_transact` directly.
+
+A ring merge padded with deterministic dummies sends every slot's nullifier, so
+at the 54-input width it misses the limit whatever its real input count. With
+[compact padding](#compact-padding), which clients use for every merge, it
+carries up to 53 real inputs.
 
 The widest layouts confirm on a validator (surfpool,
 `program-tests/spp-test-validator/tests/max_shapes.rs` and
@@ -1857,12 +1867,12 @@ inputs and outputs that fit 4,096 bytes:
 | Confidential EdDSA 49x2 | 49 | 305,340 |
 | Ring EdDSA 49x2 | 48 | 314,442 |
 | Ring P256 49x2 | 45 | 356,230 |
-| Merge 51x1, direct | 51 | 289,051 |
-| Ring merge 51x1 | 51 | 300,275 |
+| Merge 54x1, direct | 54 | 299,148 |
+| Ring merge 54x1 | 53 | 304,755 |
 
 24x4, 16x8 and 8x16 confirm with every slot real on every rail, except ring
-P256 8x16, which fits 15 real outputs. The 51-input merges take 3,871 bytes
-(direct) and 3,935 bytes (ring).
+P256 8x16, which fits 15 real outputs. The 54-input merges take 4,066 bytes
+(direct) and 4,065 bytes (ring, compact padding in the last slot).
 
 The ring tests send through the ring test program, so their transactions carry
 the ring program's instruction around the SPP CPI; the ring EdDSA test keeps
@@ -2285,7 +2295,7 @@ the instruction and must use a fresh blinding per output.
 
 **Discriminator:** 13
 
-**Description.** Consolidates up to 51 input slots (a [24- or 51-input circuit](#merge-proof---merge-zk-proof)) of one owner and asset into one output of the same owner, asset, and total amount; dummy slots or compact padding fill the slots past the real inputs. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
+**Description.** Consolidates up to 54 input slots (a [24- or 54-input circuit](#merge-proof---merge-zk-proof)) of one owner and asset into one output of the same owner, asset, and total amount; dummy slots or compact padding fill the slots past the real inputs (clients send compact padding). Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
 
 **Accounts**
 
@@ -2322,8 +2332,8 @@ struct MergeTransactIxData {
     /// [Merge Proof](#merge-proof---merge-zk-proof).
     private_tx_hash: [u8; 32],
     /// Input nullifiers. Inserted into the nullifier queue and part of the
-    /// public input hash. `u8` length prefix; at least one and at most 51.
-    /// The narrowest merge circuit (24 or 51 inputs) that holds them selects
+    /// public input hash. `u8` length prefix; at least one and at most 54.
+    /// The narrowest merge circuit (24 or 54 inputs) that holds them selects
     /// the verifying key and the input width; the slots past them are
     /// [compact padding](#compact-padding), omitted from instruction data.
     nullifiers: Vec<[u8; 32]>,
@@ -2359,8 +2369,8 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
 Serialized body: `271 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
-With discriminator, `N = 24`: `1,040 B` (a `2,212 B` transaction); `N = 51`:
-`1,904 B` (`3,967 B`). See [Transaction size](#transaction-size).
+With discriminator, `N = 24`: `1,040 B` (a `2,116 B` transaction); `N = 54`:
+`2,000 B` (`4,066 B`), the merge payer also paying the fee. See [Transaction size](#transaction-size).
 
 ### `merge_ring`
 
@@ -2944,7 +2954,7 @@ sequenceDiagram
     Wallet->>SPP: set_merging_enabled(true)<br/>owner enables merging on their registry record
 
     Note over Wallet,Merge: Per-batch handover
-    Wallet->>Wallet: select up to 24 fragmented UTXOs (same owner, same asset;<br/>51 for a wide merge)
+    Wallet->>Wallet: select up to 24 fragmented UTXOs (same owner, same asset;<br/>54 for a wide merge)
     Wallet->>Merge: plaintext inputs + merge proof inputs<br/>(including nullifier_secret)
 
     Note over Merge: Build witness + proof
@@ -3052,7 +3062,7 @@ The ring program and transaction accounts are public.
 **UTXO Cache accounts:**
 
 1. Scenario, a user has hundreds of UTXOs and wants to spend her complete balance in a single transfer.
-2. Problem, we can spend at most 51 UTXOs in a single transaction (49 real inputs fit the 4,096-byte limit on the confidential rail), therefore need to send multiple merge transactions and a transfer with the merged UTXOs. If we do that in sequence it will be slow.
+2. Problem, we can spend at most 49 UTXOs in a single transfer and at most 54 in a single merge, therefore need to send multiple merge transactions and a transfer with the merged UTXOs. If we do that in sequence it will be slow.
 3. We can perform up to 36 merges in parallel, one per cache slot; with GPU proving we should be able to perform up to 36 merges in 1-2 seconds.
 4. A naive implementation needs to wait for the indexer and prover once all merge transactions are confirmed because the UTXOs need to be inserted into the tree and concurrent traffic makes the root unpredictable.
 5. Idea, we know the merged UTXOs before their proofs are computed, thus if we can compute a proof without a dependency on the utxo merkle tree we can compute the transfer proof in parallel with the merge proofs. If we cache merge output utxos in a SPP pda and prove inclusion by existence in the cache we do not need to wait for the indexer and can send the transfer instruction as soon as the cache pda is filled.

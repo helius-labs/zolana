@@ -229,7 +229,10 @@ function realInputContexts(
  * Consolidates up to `MAX_MERGE_INPUTS` plain UTXOs of one owner and asset into one.
  * The output blinding, private-transaction blinding, and padded slots'
  * nullifiers derive from the nullifier secret; the builder receives them
- * derived by `ShieldedKeys.derive`.
+ * derived by `ShieldedKeys.derive`. The circuit's unused slots are compact
+ * padding: each publishes 0 in place of its derived dummy nullifier, which it
+ * still proves absent, and the instruction leaves it out, so the merge reveals
+ * its real input count. Mirrors Rust `MergeTransaction::new`.
  */
 export class Merge {
   #prepared: PreparedMerge;
@@ -246,22 +249,10 @@ export class Merge {
       dummyNullifiers: readonly Bytes32[];
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
-      /**
-       * Pads the circuit with compact padding, which publishes 0 in place of
-       * its deterministic dummy nullifier and still takes one `dummyNullifiers`
-       * entry per padded slot. Compact padding is left out of the instruction,
-       * but the merge then reveals its real input count. Mirrors Rust
-       * `MergeTransaction::new_compact`; a ring merge refuses it.
-       */
-      compact?: boolean;
     }>,
   ) {
     const inputs = input.inputs;
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    // Ring merges keep the deterministic dummies, as in Rust.
-    if (input.compact === true && input.ring !== undefined) {
-      throw new TransactionError("TRANSACTION_RING_MERGE_COMPACT_PADDING");
-    }
     const width = paddedInputCount(inputs.length);
     const address = input.address;
     const owner = address.signingPublicKey;
@@ -295,13 +286,7 @@ export class Merge {
     });
     const inputTreeId = singleInputTreeId(inputs);
     const padded = [...inputs];
-    while (padded.length < width) {
-      padded.push(
-        input.compact === true
-          ? ProofInputUtxo.compact(inputTreeId)
-          : ProofInputUtxo.dummy(undefined, inputTreeId),
-      );
-    }
+    while (padded.length < width) padded.push(ProofInputUtxo.compact(inputTreeId));
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({
@@ -332,7 +317,6 @@ export class Merge {
     keypair: ShieldedKeypair,
     inputs: readonly ProofInputUtxo[],
     outputTreeId: TreeId = DEFAULT_TREE_ID,
-    options: Readonly<{ compact?: boolean }> = {},
   ): Merge {
     const first = inputs[0];
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -348,7 +332,6 @@ export class Merge {
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
         outputTreeId,
-        ...(options.compact === true ? { compact: true } : {}),
       });
     } finally {
       nullifierKey.destroy();

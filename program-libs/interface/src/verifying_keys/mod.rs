@@ -11,11 +11,11 @@ pub use circuit::{
 #[cfg(feature = "verifying-keys")]
 pub mod merge_24_1;
 #[cfg(feature = "verifying-keys")]
-pub mod merge_51_1;
+pub mod merge_54_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_ring_24_1;
 #[cfg(feature = "verifying-keys")]
-pub mod merge_ring_51_1;
+pub mod merge_ring_54_1;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_12_2;
 #[cfg(feature = "verifying-keys")]
@@ -258,16 +258,16 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         merge_24_1::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
-        "merge_51_1.key",
-        merge_51_1::VERIFYINGKEY_PROVING_KEY_SHA256,
+        "merge_54_1.key",
+        merge_54_1::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "merge_ring_24_1.key",
         merge_ring_24_1::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
-        "merge_ring_51_1.key",
-        merge_ring_51_1::VERIFYINGKEY_PROVING_KEY_SHA256,
+        "merge_ring_54_1.key",
+        merge_ring_54_1::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_confidential_12_2.key",

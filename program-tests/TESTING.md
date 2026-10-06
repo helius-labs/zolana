@@ -128,7 +128,7 @@ focused `proof_cu` binaries therefore pin P256 transact, ring EdDSA/P256
 transact, P256 and ring withdrawals, ring-authority transact, an 8-input merge
 and an 8-input merge-ring (both on the `24x1` circuit) using confirmed
 transaction metadata. The `max_shapes` binaries confirm the widest transact
-shape of each output count and the 51-input merges on surfpool. This is an orthogonal matrix:
+shape of each output count and the 54-input merges on surfpool. This is an orthogonal matrix:
 the EdDSA profiler covers shape-dependent input/output work, while validator
 tests cover each extra proof rail and CPI boundary. The Photon forester lifecycle
 also pins every submitted batch nullifier-tree update when the in-test

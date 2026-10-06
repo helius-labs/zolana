@@ -5,9 +5,10 @@
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Transfers prove on a grid of up to 49 inputs and 16 outputs, merges
-take up to 51 notes in one transaction, wallet sync recovers the output of
-such a merge, and transfers and merges can leave their unused slots out of the
-transaction at the cost of revealing the real counts.
+take up to 54 notes in one transaction, wallet sync recovers the output of
+such a merge, and transfers can leave their unused slots out of the
+transaction at the cost of revealing the real counts, which every merge now
+does.
 Registration never replaces an owner's published keys, and replacing them is
 its own transaction. The private transaction hash ignores padding and no longer
 covers the external data, which P-256 owners now sign alongside it.
@@ -84,8 +85,7 @@ Breaking
   would reject → handle them in exhaustive switches.
 - `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
   `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
-  and `TRANSACTION_RING_MERGE_COMPACT_PADDING`, which `Merge` throws for
-  compact padding on a ring merge, and `ShieldedPoolError` gains
+  and `ShieldedPoolError` gains
   `ZeroInputNullifier` and `ZeroOutputUtxoHash` → handle them in exhaustive
   switches.
 - `ProofOutputUtxo` requires `isCompact()`, which the outputs
@@ -127,13 +127,10 @@ Added
 - `buildKeyUpdateTransaction(input)` replaces the viewing key published for an
   owner, returns `undefined` when the record already holds the address, and
   rejects a missing record and a changed nullifier key.
-- `ConfidentialTransfer.compact` and the `compact` options of `Merge`,
-  `Merge.fromKeypair` and `buildMergeTransaction` pad unused slots with compact
-  padding, which the transaction leaves out and which costs no nullifier
-  account, queue entry or tree leaf but reveals the real input and output
-  counts, while each compact slot still takes a non-inclusion proof for the
-  nullifier it derives, and `Merge` takes one `dummyNullifiers` entry per
-  padded slot, compact padding included.
+- `ConfidentialTransfer.compact` pads unused slots with compact padding, which
+  the transaction leaves out and which costs no nullifier account, queue entry
+  or tree leaf but reveals the real input and output counts, while each compact
+  slot still takes a non-inclusion proof for the nullifier it derives.
 - `ProofInputUtxo.compact` creates one compact padding input, which names the
   first input tree, carries its derived nullifier in `nullifier()` and 0 in the
   new `ProofInputUtxo.publishedNullifier()`, `ProofOutputInit.compact` makes
@@ -148,12 +145,18 @@ Added
 - Wallet sync recovers the output of a compact merge, which publishes only the
   nullifiers it sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
-  `MAX_MERGE_INPUTS` (51) notes in one transaction, padded to the 24-input
-  proof or above 24 to the 51-input proof, and `buildRingMergeTransaction` and
-  `createRingMergeSubmission` take `maxInputs`, 24 by default and at most 51.
+  `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 24-input
+  proof or above 24 to the 54-input proof, and `buildRingMergeTransaction` and
+  `createRingMergeSubmission` take `maxInputs`, 24 by default and at most 54.
 
 Changed
 
+- `Merge`, `Merge.fromKeypair`, `buildMergeTransaction`,
+  `buildRingMergeTransaction` and `createRingMergeSubmission` fill a merge's
+  unused slots with compact padding where they used random dummies, so a
+  merge reveals its real input count, sends no nullifier for an unused slot,
+  and a ring merge of up to 53 notes fits one transaction, while `Merge` still
+  takes one `dummyNullifiers` entry per padded slot.
 - UTXO selection for transfers, withdrawals, merges and splits skips
   zero-amount UTXOs.
 - `buildTransferTransaction` and `buildWithdrawalTransaction` select up to 40

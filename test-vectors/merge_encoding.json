@@ -8,7 +8,7 @@
   "external_data_hash": "003df3284567587f136e0d6cbfb8cf2efa948a92ef1a89e598a27edc9105c48b",
   "instruction_sha256": "4e915515f97869b05ae933299d0f7be9469130f646a8bc24ea34cd83af4b4617",
   "wide": {
-    "input_count": 51,
-    "instruction_sha256": "99a11d008271d6158efcde538a135ccddbbe3b26141d60b20827bba7d46bd289"
+    "input_count": 54,
+    "instruction_sha256": "4f14e1779759d7643b091ab25e445c616430e13cc24243ff7936f1327dcf465b"
   }
 }
