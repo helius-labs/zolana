@@ -70,7 +70,7 @@ export class TeeSession {
     for (;;) {
       const flight = this.#flight ?? this.#launch(fetch, attestationUrl, signal);
       try {
-        return await untilAborted(flight.prover, signal);
+        return copyAttestedProver(await untilAborted(flight.prover, signal));
       } catch (error) {
         // A flight its own caller cancelled restarts under this caller's signal.
         const cancelledByOther =
@@ -237,6 +237,14 @@ export class TeeSession {
       finish,
     });
   }
+}
+
+function copyAttestedProver(prover: AttestedProver): AttestedProver {
+  return Object.freeze({
+    ...prover,
+    hpkePublicKey: prover.hpkePublicKey.slice(),
+    imageId: prover.imageId.slice(),
+  });
 }
 
 /** A GET carries its encrypted bytes in a header, fetch refuses a GET body. */

@@ -397,6 +397,63 @@ it("keeps the cached key independent of the attestation report", async () => {
   }
 });
 
+it("keeps a concurrent attestation report out of an encrypted request", async () => {
+  const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
+  const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+  const at = Number(decode.integer(live["captured_at"], "captured_at"));
+  const random = vi.spyOn(globalThis.crypto, "getRandomValues");
+  random.mockImplementationOnce((bytes) => {
+    if (!(bytes instanceof Uint8Array)) throw new Error("unexpected nonce buffer");
+    bytes.set(nonce);
+    return bytes;
+  });
+  const now = vi.spyOn(Date, "now").mockReturnValue(at * 1000);
+  const sent: RequestInit[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+    if (init?.method === undefined) return Response.json(live["attestation"]);
+    sent.push(init);
+    return new Response(null, { status: 503 });
+  });
+  const signal = composeSignal(undefined, "attest");
+  try {
+    const session = new TeeSession(livePolicy);
+    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const substituted = await suite.kem.deriveKeyPair(new Uint8Array(32).fill(42));
+    const key = new Uint8Array(await suite.kem.serializePublicKey(substituted.publicKey));
+    const report = session.attest(fetch, attestationUrl, signal).then((prover) => {
+      prover.hpkePublicKey.set(key);
+    });
+    const request = session.send({
+      fetch,
+      attestationUrl,
+      url: new URL("https://prover.invalid/prove/merge"),
+      method: "POST",
+      headers: {},
+      body: "private-witness-marker",
+      signal,
+      maxResponseBytes: 1024,
+    });
+    await Promise.all([report, request]);
+    const [init] = sent;
+    if (init === undefined) throw new Error("no encrypted call");
+    const headers = new Headers(init.headers);
+    const enc = hexToBytes(decode.string(headers.get("Zolana-Tee-Enc"), "enc"));
+    const receiver = await suite.createRecipientContext({
+      recipientKey: substituted,
+      enc,
+      info: utf8ToBytes("zolana/prover-tee/v1"),
+    });
+    const body = init.body;
+    if (!(body instanceof Uint8Array)) throw new Error("unexpected encrypted body");
+    await expect(receiver.open(body, utf8ToBytes("POST /prove/merge"))).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    signal.cleanup();
+    random.mockRestore();
+    now.mockRestore();
+  }
+});
+
 describe("attestation retries", () => {
   it("waits only on busy and unavailable answers", () => {
     expect(attestationRetryDelayMs(429, "3")).toBe(3_000n);
@@ -512,6 +569,12 @@ describe("attestation retries", () => {
       );
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(new Set(provers.map((prover) => bytesToHex(prover.hpkePublicKey))).size).toBe(1);
+      const otherKey = provers[1]!.hpkePublicKey.slice();
+      const otherImage = provers[1]!.imageId.slice();
+      provers[0]!.hpkePublicKey.fill(0);
+      provers[0]!.imageId.fill(0);
+      expect(provers[1]!.hpkePublicKey).toEqual(otherKey);
+      expect(provers[1]!.imageId).toEqual(otherImage);
     } finally {
       signal.cleanup();
       random.mockRestore();
