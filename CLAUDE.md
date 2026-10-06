@@ -76,8 +76,7 @@ sdk-libs/
                           SPP hash and blinding derivations programs recompute;
                           feature `cpi` (transact CPI)
   keypair/             -- shielded key material and hashes
-  macros/              -- zolana-macros: the ZK program derives and
-                          include_zk_programs!
+  macros/              -- zolana-macros: the ZK program derives
   program/             -- SDK for programs: re-exports zolana-instruction; feature
                           `compression` (compressed accounts, SBF-buildable) and
                           the host-only ZK program features `circuit`, `client`,

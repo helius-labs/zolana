@@ -1,5 +1,7 @@
 use std::{
+    collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
+    io::ErrorKind,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -16,7 +18,8 @@ use crate::args::{
 
 const R1CS_MARKER: &str = "zolana-zk-r1cs: ";
 const R1CS_HOOK: &str = "__zk_r1cs_";
-const STAMP: &str = "zk-programs.stamp";
+const VERIFIER_GLUE: &str = "verifier.rs";
+const VERIFIER_MOD: &str = "mod.rs";
 const STAGING: &str = ".staging";
 const WASM_STAMP: &str = ".zolana-wasm.stamp";
 const OPTIMIZED_PACKAGES: [&str; 9] = [
@@ -48,6 +51,9 @@ const TYPED_THREAD_POOL: &str = "export function initThreadPool(threads: number)
 pub(crate) fn run_build_zk_program(opts: ZkBuildOptions) -> Result<()> {
     let circuits = CircuitCrate::resolve(&opts.compile.package)?;
     compile_circuits(&opts.compile, &circuits)?;
+    if opts.compile.check {
+        return Ok(());
+    }
     std::thread::scope(|scope| {
         let wasm = (!opts.compile.skip_wasm)
             .then(|| scope.spawn(|| compile_wasm(&opts.compile, &circuits)));
@@ -102,6 +108,7 @@ struct CircuitCrate {
     lib_name: String,
     target_dir: PathBuf,
     build_dir: PathBuf,
+    verifier_dir: PathBuf,
 }
 
 impl CircuitCrate {
@@ -196,6 +203,7 @@ impl CircuitCrate {
             .to_path_buf();
         Ok(Self {
             build_dir: target_dir.join("zk").join(name),
+            verifier_dir: dir.join("src").join("verifier"),
             manifest,
             dir,
             lib_name,
@@ -210,11 +218,11 @@ fn compile(opts: ZkCompileOptions) -> Result<()> {
 }
 
 fn compile_with(opts: &ZkCompileOptions, circuits: &CircuitCrate) -> Result<()> {
-    if opts.skip_r1cs && opts.skip_keys && opts.skip_wasm {
+    if opts.skip_r1cs && opts.skip_keys && opts.skip_wasm && !opts.check {
         bail!("--skip-r1cs, --skip-keys and --skip-wasm leave nothing to compile");
     }
     compile_circuits(opts, circuits)?;
-    if !opts.skip_wasm {
+    if !opts.skip_wasm && !opts.check {
         compile_wasm(opts, circuits)?;
     }
     Ok(())
@@ -226,20 +234,44 @@ fn compile_circuits(opts: &ZkCompileOptions, circuits: &CircuitCrate) -> Result<
             .clone()
             .unwrap_or_else(|| circuits.build_dir.clone()),
     )?;
-    let r1cs = if opts.skip_r1cs {
+    let exported = if opts.skip_r1cs {
         Vec::new()
     } else {
         compile_r1cs(opts, circuits, &r1cs_dir)?
     };
+    let exported_glue = exported
+        .iter()
+        .map(|path| Ok(r1cs_dir.join(renamed(path, VERIFIER_GLUE)?)))
+        .collect::<Result<Vec<_>>>()?;
     if !opts.skip_keys {
-        let r1cs = if r1cs.is_empty() {
+        let r1cs = if exported.is_empty() {
             inputs_or_all(Vec::new(), &r1cs_dir, "r1cs", "zolana zk compile")?
         } else {
-            r1cs
+            exported
         };
         write_test_keys(&r1cs, circuits)?;
     }
-    Ok(())
+    if opts.skip_r1cs && opts.skip_keys && !opts.check {
+        return Ok(());
+    }
+    let glue = inputs_or_all(exported_glue, &r1cs_dir, VERIFIER_GLUE, "zolana zk compile")?;
+    let keys = glue
+        .iter()
+        .map(|path| {
+            let name = program_name(path)?;
+            Ok(KeyModule {
+                source: circuits.build_dir.join(format!("{name}.vk.rs")),
+                name,
+                replace_production: false,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let modules = verifier_modules(&glue, &keys, circuits)?;
+    if opts.check {
+        check_verifier_modules(&modules)
+    } else {
+        write_verifier_modules(&modules)
+    }
 }
 
 fn compile_r1cs(
@@ -259,7 +291,7 @@ fn compile_r1cs(
         .arg(&circuits.manifest)
         .args([
             "--features",
-            &format!("{},zolana-program/r1cs-export", opts.r1cs_features),
+            &format!("{},r1cs-export", opts.r1cs_features),
             "--",
             R1CS_HOOK,
             "--nocapture",
@@ -304,9 +336,7 @@ fn compile_r1cs(
 fn write_test_keys(r1cs: &[PathBuf], circuits: &CircuitCrate) -> Result<()> {
     let out = output_dir(circuits.build_dir.clone())?;
     for path in r1cs {
-        let module = out.join(renamed(path, "vk.rs")?);
-        if is_production_key(&module) {
-            println!("{}: production key kept", module.display());
+        if is_production_key(&circuits.verifier_dir.join(renamed(path, "vk.rs")?)) {
             continue;
         }
         let keys = Groth16Keys::new_with_test_setup(&load_r1cs(path)?)
@@ -316,7 +346,7 @@ fn write_test_keys(r1cs: &[PathBuf], circuits: &CircuitCrate) -> Result<()> {
             .with_context(|| format!("writing {}", pk.display()))?;
         export_module(&keys, &pk, &out, SetupKind::InsecureTest)?;
     }
-    write_stamp(circuits)
+    Ok(())
 }
 
 fn is_production_key(module: &Path) -> bool {
@@ -334,21 +364,35 @@ fn export_module(keys: &Groth16Keys, pk: &Path, out: &Path, setup: SetupKind) ->
         setup,
     })
     .with_context(|| format!("exporting the verifying key of {}", pk.display()))?;
-    let staged = staging.join(&module);
-    let formatted = Command::new("rustfmt")
-        .args(["--edition", "2021"])
-        .arg(&staged)
-        .status();
-    if !matches!(formatted, Ok(status) if status.success()) {
-        eprintln!("warning: rustfmt did not format {}", staged.display());
-    }
     let target = out.join(&module);
-    let generated =
-        std::fs::read(&staged).with_context(|| format!("reading {}", staged.display()))?;
-    std::fs::remove_file(&staged).with_context(|| format!("removing {}", staged.display()))?;
-    write_if_changed(&target, &generated)?;
+    write_if_changed(&target, &rustfmt_staged(&staging.join(&module))?)?;
     println!("{}", target.display());
     Ok(())
+}
+
+fn rustfmt_staged(staged: &Path) -> Result<Vec<u8>> {
+    let formatted = Command::new("rustfmt")
+        .args(["--edition", "2021"])
+        .arg(staged)
+        .output()
+        .with_context(|| {
+            format!(
+                "running rustfmt on {}; install it with `rustup component add rustfmt`",
+                staged.display()
+            )
+        })?;
+    if !formatted.status.success() {
+        bail!(
+            "rustfmt failed on {} ({})\n{}",
+            staged.display(),
+            formatted.status,
+            String::from_utf8_lossy(&formatted.stderr)
+        );
+    }
+    let generated =
+        std::fs::read(staged).with_context(|| format!("reading {}", staged.display()))?;
+    std::fs::remove_file(staged).with_context(|| format!("removing {}", staged.display()))?;
+    Ok(generated)
 }
 
 fn write_if_changed(path: &Path, contents: &[u8]) -> Result<()> {
@@ -358,15 +402,165 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> Result<()> {
     std::fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
 }
 
-fn write_stamp(circuits: &CircuitCrate) -> Result<()> {
-    let stamp = circuits.build_dir.join(STAMP);
-    let modules = inputs_or_all(Vec::new(), &circuits.build_dir, "rs", "zolana zk compile")
-        .unwrap_or_default()
+struct KeyModule {
+    name: String,
+    source: PathBuf,
+    replace_production: bool,
+}
+
+struct VerifierModules {
+    dir: PathBuf,
+    names: Vec<String>,
+    files: Vec<(PathBuf, Vec<u8>)>,
+}
+
+fn verifier_modules(
+    glue: &[PathBuf],
+    keys: &[KeyModule],
+    circuits: &CircuitCrate,
+) -> Result<VerifierModules> {
+    let programs = glue
         .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    write_if_changed(&stamp, modules.as_bytes())
+        .map(|path| Ok((program_name(path)?, path)))
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let dir = circuits.verifier_dir.clone();
+    let staging = output_dir(circuits.build_dir.join(STAGING))?;
+    let mut files = Vec::new();
+    for (name, path) in &programs {
+        let staged = staging.join(format!("{name}.rs"));
+        std::fs::copy(path, &staged).with_context(|| {
+            format!(
+                "copying {} to {}; run `zolana zk compile` to write the verifier module",
+                path.display(),
+                staged.display()
+            )
+        })?;
+        files.push((dir.join(format!("{name}.rs")), rustfmt_staged(&staged)?));
+    }
+    for key in keys {
+        if !programs.contains_key(&key.name) {
+            bail!(
+                "{name} has a verifying key but no {name}.{VERIFIER_GLUE}; run `zolana zk compile` first",
+                name = key.name
+            );
+        }
+        let module = dir.join(format!("{}.vk.rs", key.name));
+        if !key.replace_production && is_production_key(&module) {
+            println!("{}: production key kept", module.display());
+            continue;
+        }
+        let contents = std::fs::read(&key.source).with_context(|| {
+            format!(
+                "reading {}; run `zolana zk compile` without --skip-keys or `zolana zk export-verifier`",
+                key.source.display()
+            )
+        })?;
+        files.push((module, contents));
+    }
+    let listing: String = programs
+        .keys()
+        .map(|name| format!("pub mod {name};\n"))
+        .collect();
+    files.push((dir.join(VERIFIER_MOD), listing.into_bytes()));
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(VerifierModules {
+        dir,
+        names: programs.into_keys().collect(),
+        files,
+    })
+}
+
+fn write_verifier_modules(modules: &VerifierModules) -> Result<()> {
+    output_dir(modules.dir.clone())?;
+    for (path, contents) in &modules.files {
+        write_if_changed(path, contents)?;
+        println!("{}", path.display());
+    }
+    for path in ungenerated_modules(modules)? {
+        eprintln!(
+            "warning: {} is not a generated verifier module",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn check_verifier_modules(modules: &VerifierModules) -> Result<()> {
+    let mut stale = Vec::new();
+    for (path, contents) in &modules.files {
+        match std::fs::read(path) {
+            Ok(current) if current == *contents => {}
+            Ok(_) => stale.push(format!(
+                "{}: differs from the generated module",
+                path.display()
+            )),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                stale.push(format!("{}: missing", path.display()))
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("reading {}", path.display()));
+            }
+        }
+    }
+    for path in ungenerated_modules(modules)? {
+        stale.push(format!("{}: not generated", path.display()));
+    }
+    if stale.is_empty() {
+        println!("{}: up to date", modules.dir.display());
+        return Ok(());
+    }
+    for line in &stale {
+        eprintln!("{line}");
+    }
+    bail!(
+        "{} verifier module file(s) in {} are out of date; rerun without --check to regenerate them",
+        stale.len(),
+        modules.dir.display()
+    )
+}
+
+fn ungenerated_modules(modules: &VerifierModules) -> Result<Vec<PathBuf>> {
+    if !modules.dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let expected: BTreeSet<String> = modules
+        .names
+        .iter()
+        .flat_map(|name| [format!("{name}.rs"), format!("{name}.vk.rs")])
+        .chain([VERIFIER_MOD.to_string()])
+        .collect();
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&modules.dir)
+        .with_context(|| format!("reading {}", modules.dir.display()))?
+    {
+        let path = entry
+            .with_context(|| format!("reading {}", modules.dir.display()))?
+            .path();
+        let generated = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|name| expected.contains(name));
+        if path.extension() == Some(OsStr::new("rs")) && !generated {
+            found.push(path);
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+fn program_name(glue: &Path) -> Result<String> {
+    glue.file_name()
+        .and_then(OsStr::to_str)
+        .and_then(|name| name.strip_suffix(VERIFIER_GLUE))
+        .and_then(|name| name.strip_suffix('.'))
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .with_context(|| {
+            format!(
+                "{} is not a <program>.{VERIFIER_GLUE} module",
+                glue.display()
+            )
+        })
 }
 
 fn compile_wasm(opts: &ZkCompileOptions, circuits: &CircuitCrate) -> Result<()> {
@@ -436,7 +630,6 @@ fn compile_wasm(opts: &ZkCompileOptions, circuits: &CircuitCrate) -> Result<()> 
                 rustflags.join(" "),
             )
             .env("CARGO_TARGET_DIR", &target_dir)
-            .env("ZOLANA_ZK_DIR", &circuits.build_dir)
             .env_remove("RUSTFLAGS")
             .env_remove("CARGO_ENCODED_RUSTFLAGS");
         if threads {
@@ -589,12 +782,24 @@ fn export_verifier(opts: ZkExportVerifierOptions) -> Result<()> {
         ZkSetupKind::Production => SetupKind::Production,
         ZkSetupKind::Test => SetupKind::InsecureTest,
     };
+    let mut keys = Vec::new();
     for pk in inputs {
-        let keys =
+        let loaded =
             Groth16Keys::load_image(&pk).with_context(|| format!("reading {}", pk.display()))?;
-        export_module(&keys, &pk, &out, setup)?;
+        export_module(&loaded, &pk, &out, setup)?;
+        keys.push(KeyModule {
+            name: file_stem(&pk)?.to_string(),
+            source: out.join(renamed(&pk, "vk.rs")?),
+            replace_production: true,
+        });
     }
-    write_stamp(&circuits)
+    let glue = inputs_or_all(
+        Vec::new(),
+        &circuits.build_dir,
+        VERIFIER_GLUE,
+        "zolana zk compile",
+    )?;
+    write_verifier_modules(&verifier_modules(&glue, &keys, &circuits)?)
 }
 
 fn nearest_manifest() -> Result<PathBuf> {
@@ -618,12 +823,14 @@ fn load_r1cs(path: &Path) -> Result<R1cs> {
     R1cs::load(path).with_context(|| format!("reading {}", path.display()))
 }
 
-fn renamed(path: &Path, extension: &str) -> Result<String> {
-    let stem = path
-        .file_stem()
+fn file_stem(path: &Path) -> Result<&str> {
+    path.file_stem()
         .and_then(OsStr::to_str)
-        .with_context(|| format!("{} has no UTF-8 file name", path.display()))?;
-    Ok(format!("{stem}.{extension}"))
+        .with_context(|| format!("{} has no UTF-8 file name", path.display()))
+}
+
+fn renamed(path: &Path, extension: &str) -> Result<String> {
+    Ok(format!("{}.{extension}", file_stem(path)?))
 }
 
 fn inputs_or_all(
@@ -635,13 +842,18 @@ fn inputs_or_all(
     if !inputs.is_empty() {
         return Ok(inputs);
     }
+    let suffix = format!(".{extension}");
     let mut found = Vec::new();
     if dir.is_dir() {
         for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
             let path = entry
                 .with_context(|| format!("reading {}", dir.display()))?
                 .path();
-            if path.extension() == Some(OsStr::new(extension)) {
+            if path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| name.ends_with(&suffix))
+            {
                 found.push(path);
             }
         }

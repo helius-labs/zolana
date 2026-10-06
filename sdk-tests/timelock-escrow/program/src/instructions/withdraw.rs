@@ -11,7 +11,7 @@ use zolana_program::CompressedProof;
 use crate::{
     error::TimelockEscrowError,
     instructions::shared::{check_after_window, EscrowAuthority, IxData},
-    zk::{withdraw, Groth16Proof},
+    verifier::withdraw,
 };
 
 pub mod slot {
@@ -47,11 +47,7 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     check_after_window(clock.unix_timestamp, unlock_timestamp)?;
 
     withdraw::verify(
-        &Groth16Proof {
-            a: &proof.a,
-            b: &proof.b,
-            c: &proof.c,
-        },
+        &proof,
         &withdraw::PublicInputs {
             unlock: unlock_timestamp,
             creator_identity,

@@ -53,6 +53,18 @@ pub(crate) fn public_inputs() -> TokenStream {
     quote!(::zolana_program::circuit::PublicInputs)
 }
 
+pub(crate) fn public_input_layout() -> TokenStream {
+    quote!(::zolana_program::PublicInputLayout)
+}
+
+pub(crate) fn public_field() -> TokenStream {
+    quote!(::zolana_program::PublicField)
+}
+
+pub(crate) fn public_field_kind() -> TokenStream {
+    quote!(::zolana_program::PublicFieldKind)
+}
+
 pub(crate) fn checked_utxo_data() -> TokenStream {
     quote!(::zolana_program::circuit::checked_utxo_data)
 }

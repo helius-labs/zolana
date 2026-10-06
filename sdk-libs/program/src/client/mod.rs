@@ -2,6 +2,7 @@ mod bytes;
 mod data_utxo;
 mod owner;
 mod program_owner;
+mod public_layout;
 #[cfg(feature = "client")]
 mod transaction;
 #[cfg(feature = "client")]
@@ -17,6 +18,7 @@ pub use bytes::Bytes;
 pub use data_utxo::DataUtxo;
 pub use owner::Owner;
 pub use program_owner::ProgramOwner;
+pub use public_layout::{PublicField, PublicFieldKind, PublicInputLayout};
 
 #[cfg(feature = "client")]
 pub use transaction::{ProgramTransaction, ZkProgram};

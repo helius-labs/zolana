@@ -254,14 +254,15 @@ is the one the SPP transfer proof commits to. Its one public input is Poseidon o
 followed by `private_tx_hash`. SPP proves the inputs are in the tree and conserves value; the
 circuits rely on that rather than proving membership themselves.
 
-Both are plain Groth16 proofs. The program verifies them through `zk::escrow::verify` and
-`zk::withdraw::verify`, which `include_zk_programs!()` generates from the circuits' public inputs
-and the verifying keys in `target/zk/timelock-escrow-program`: insecure test keys from the SDK's
-deterministic test setup that `just build-escrow-program` writes (UNSAFE for production). The
-program's tests check that the included keys are that setup's and that both circuits' proofs
-verify through the generated verifier and public-input hashes. The SPP transfer proof comes from
-the SPP prover. `just build-escrow-wasm` builds both circuits for the browser into
-`target/zk/timelock-escrow-program/wasm`.
+Both are plain Groth16 proofs. The program verifies them through `verifier::escrow::verify` and
+`verifier::withdraw::verify`, committed in [`program/src/verifier/`](program/src/verifier).
+`just build-escrow-program` generates them from the circuits' public inputs and the verifying keys
+of the SDK's deterministic insecure test setup (UNSAFE for production), whose proving keys it
+writes to `target/zk/timelock-escrow-program`. `just test-zolana-program-release` regenerates them
+and fails when they differ from the committed files. The program's tests check that the included
+keys are that setup's and that both circuits' proofs verify through the generated verifier and
+public-input hashes. The SPP transfer proof comes from the SPP prover. `just build-escrow-wasm`
+builds both circuits for the browser into `target/zk/timelock-escrow-program/wasm`.
 
 ### Escrow circuit
 

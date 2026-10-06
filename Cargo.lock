@@ -10731,7 +10731,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "borsh",
- "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
@@ -10747,7 +10746,6 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
- "zolana-macros",
  "zolana-program",
  "zolana-program-test",
  "zolana-transaction",
@@ -12734,7 +12732,6 @@ dependencies = [
  "borsh",
  "proc-macro2",
  "quote",
- "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-signature",

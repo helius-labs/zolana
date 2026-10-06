@@ -7,6 +7,8 @@ pub use wasm_bindgen;
 #[cfg(feature = "serde")]
 pub use zolana_keypair::serde_helpers::{address, bytes};
 
+pub use crate::verifier_glue::render_verifier;
+
 #[cfg(feature = "serde")]
 pub mod array {
     use core::{fmt, marker::PhantomData};
@@ -59,7 +61,10 @@ pub mod array {
 }
 
 #[cfg(feature = "r1cs-export")]
-pub fn write_r1cs<P: crate::ZkProgram>(name: &str) {
+pub fn write_r1cs<P: crate::ZkProgram>(
+    name: &str,
+    layout: &[(&'static str, crate::PublicFieldKind)],
+) {
     let dir = std::path::PathBuf::from(
         std::env::var_os("ZOLANA_ZK_R1CS_OUT")
             .unwrap_or_else(|| panic!("ZOLANA_ZK_R1CS_OUT names no directory for {name}.r1cs")),
@@ -68,6 +73,9 @@ pub fn write_r1cs<P: crate::ZkProgram>(name: &str) {
     let path = dir.join(format!("{name}.r1cs"));
     std::fs::write(&path, r1cs).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     println!("zolana-zk-r1cs: {}", path.display());
+    let verifier = dir.join(format!("{name}.verifier.rs"));
+    std::fs::write(&verifier, render_verifier(name, layout))
+        .unwrap_or_else(|error| panic!("{}: {error}", verifier.display()));
 }
 
 #[cfg(feature = "r1cs-export")]

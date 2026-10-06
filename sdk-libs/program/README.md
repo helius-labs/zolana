@@ -36,14 +36,15 @@ No feature is on by default.
 | `client` | The native run, the SPP transaction, loading proving keys, proving and verifying. |
 | `encrypt` | `ZkProgram::create_proof_inputs_and_encrypt` and `create_proof_inputs_and_encrypt_with_keys`. |
 | `setup` | The test setup, writing proving keys and exporting the verifying key. |
-| `r1cs-export` | `client` and `setup`, for exporting a circuit's `.r1cs`. |
+| `r1cs-export` | `client` and `setup`, for exporting a circuit's `.r1cs` and its verifier module. |
+| `verifier` | `no_std`: `VerifyError`, `public_hash` and `verify_groth16`, which the generated verifier modules call with a `CompressedProof`. `client` includes it. |
 | `parallel` | Proving on a rayon thread pool. |
 | `serde`, `tsify` | Serde and TypeScript types for the client types. |
 | `wasm`, `wasm-prover`, `wasm-threads`, `wasm-verify` | The wasm bindings, the wasm prover, its thread pool and a wasm verifier. |
 | `external-tools` | Test only: the unit suite's cross-checks that spawn circom and snarkjs. |
 
-A Solana program depends on the crate with `compression` or `cpi`. Its client enables
-`client`, and a key setup needs `setup` as well.
+A Solana program depends on the crate with `compression` or `cpi`, and with `verifier` when it
+verifies ZK program proofs. Its client enables `client`, and a key setup needs `setup` as well.
 
 ## Building a ZK program
 
@@ -51,12 +52,19 @@ A Solana program depends on the crate with `compression` or `cpi`. Its client en
    program state with `#[derive(CircuitType)]`, and the public inputs with
    `#[derive(PublicInputs)]`.
 2. Implement `Circuit` on the derived circuit type.
-3. `zolana build-zk-program -p <crate>` writes each circuit's `.r1cs`, test keys and verifying
-   key to `<target>/zk/<crate>`, builds the wasm module and runs `cargo build-sbf`.
-   `zolana zk compile | setup | import | export-verifier` run the steps one at a time.
-4. In the program, `pub mod zk { zolana_macros::include_zk_programs!(); }` generates one
-   module per program, `zk::<program>`, with its public inputs and a `verify` over the
-   verifying key in the target dir.
+3. `zolana build-zk-program -p <crate>` writes each circuit's `.r1cs` and test keys to
+   `<target>/zk/<crate>`, the verifier modules to `src/verifier/`, builds the wasm module and
+   runs `cargo build-sbf`. `zolana zk compile | setup | import | export-verifier` run the steps
+   one at a time.
+4. `src/verifier/` is committed. It holds `mod.rs` and, per program, `<program>.rs` with its
+   `PublicInputs`, their `hash` and `verify`, and `<program>.vk.rs` with the verifying key. The
+   export build enables the crate's `r1cs-export` feature, declared as
+   `r1cs-export = ["zolana-program/r1cs-export"]`, and the crate gates `pub mod verifier;` and
+   the code that uses it with `#[cfg(not(feature = "r1cs-export"))]`, so the export compiles
+   without the generated files. A program in the same crate calls
+   `crate::verifier::<program>::verify`, another crate `<circuits crate>::verifier::<program>::verify`.
+   `--check` regenerates the modules without writing them and fails when the committed files
+   differ, for CI.
 5. On the client, `create_program_transaction` builds the SPP transaction and the proof
    inputs, and `Groth16Prover::prove` proves them.
 
@@ -443,6 +451,6 @@ snarkjs zkey verify keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<ci
 
 `zolana zk import keys/<circuit>_final.zkey --r1cs keys/<circuit>.r1cs -p <crate>` then checks
 the zkey against the r1cs and writes `target/zk/<crate>/<circuit>.pk`, and
-`zolana zk export-verifier --setup production -p <crate>` writes the `<circuit>.vk.rs` the
-program includes. `build-zk-program` keeps a production key instead of replacing it with a
+`zolana zk export-verifier --setup production -p <crate>` writes the `src/verifier/<circuit>.vk.rs`
+the program includes. `build-zk-program` keeps a production key instead of replacing it with a
 test key. The circuit is frozen from the `groth16 setup` on.

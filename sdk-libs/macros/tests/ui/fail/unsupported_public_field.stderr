@@ -1,0 +1,18 @@
+error[E0277]: `Address` is not a public input field type
+ --> tests/ui/fail/unsupported_public_field.rs:7:18
+  |
+7 |     destination: Address,
+  |                  ^^^^^^^ a public input field implements `PublicField`
+  |
+  = help: the trait `PublicField` is not implemented for `Address`
+  = note: `PublicField` gives the on-chain type of a public input: u16, u32, u64 and u128 are integers, bool is a bool, [u8; 32], ShieldedAddress, Owner and Mint are 32-byte hashes, and [T; N] is an array of a `PublicField` type
+  = help: the following other types implement trait `PublicField`:
+            [T; N]
+            [u8; 32]
+            bool
+            u128
+            u16
+            u32
+            u64
+            zolana_keypair::shielded::ShieldedAddress
+          and $N others

@@ -4,6 +4,7 @@ use zolana_program::{
     circuit::{constant, poseidon, CircuitVar, PublicInputs},
     conversion::{to_bytes, Allocator, ProofInput},
     hasher::{Hasher, Poseidon},
+    PublicFieldKind, PublicInputLayout,
 };
 
 #[derive(Clone, PublicInputs)]
@@ -96,4 +97,34 @@ fn the_public_hash_is_pinned() {
         hex,
         "114298bdeb861442475c056bec0cd2ec34c34ab2ea5da3de11746bdb4a0a7656"
     );
+}
+
+#[test]
+fn the_layout_names_each_field_with_its_on_chain_kind() {
+    assert_eq!(
+        PaymentPublicInputs::layout(),
+        vec![
+            ("recipient", PublicFieldKind::Hash),
+            ("amount", PublicFieldKind::Integer { bits: 64 }),
+        ]
+    );
+}
+
+#[test]
+fn an_array_field_lays_out_as_an_array_of_its_item_kind() {
+    assert_eq!(
+        FanOutPublicInputs::layout(),
+        vec![(
+            "recipients",
+            PublicFieldKind::Array {
+                len: 2,
+                item: Box::new(PublicFieldKind::Hash),
+            },
+        )]
+    );
+}
+
+#[test]
+fn a_unit_struct_has_no_layout() {
+    assert_eq!(NoPublicInputs::layout(), Vec::new());
 }

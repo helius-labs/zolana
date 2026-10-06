@@ -129,7 +129,11 @@ impl<'a> Shape<'a> {
     }
 
     pub(crate) fn is_program(&self) -> bool {
-        is_program_fields(self.fields().iter().map(|field| field.ident))
+        let fields = self.fields();
+        fields.len() == 2
+            && ["private", "public"]
+                .iter()
+                .all(|name| fields.iter().any(|field| field.ident == name))
     }
 
     pub(crate) fn fields(&self) -> &[Field<'a>] {
@@ -161,12 +165,6 @@ impl<'a> Shape<'a> {
         }
         Ok(())
     }
-}
-
-pub(crate) fn is_program_fields<'a>(names: impl IntoIterator<Item = &'a Ident>) -> bool {
-    let mut names: Vec<String> = names.into_iter().map(Ident::to_string).collect();
-    names.sort();
-    names == ["private", "public"]
 }
 
 pub(crate) fn snake_case(name: &str) -> String {

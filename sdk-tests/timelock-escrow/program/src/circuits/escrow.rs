@@ -13,8 +13,6 @@ use super::EscrowTermsCircuit;
 
 pub const ESCROW_TOKEN_INPUTS: usize = 5;
 
-pub const ESCROW_OUTPUT_SLOT: usize = crate::instructions::escrow::slot::ESCROW;
-
 #[derive(Clone, ProofInput)]
 pub struct Escrow {
     pub private: EscrowPrivateInputs,

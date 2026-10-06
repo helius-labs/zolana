@@ -90,7 +90,7 @@ pub(crate) enum CliCommand {
 
     #[command(
         name = "build-zk-program",
-        about = "Build a ZK program: its .r1cs files, test keys, verifying keys, wasm module and SBF program"
+        about = "Build a ZK program: its .r1cs files, test keys, committed verifier modules, wasm module and SBF program"
     )]
     BuildZkProgram(ZkBuildOptions),
 
@@ -108,7 +108,7 @@ pub(crate) enum CliCommand {
 pub(crate) enum ZkCommand {
     #[command(
         name = "compile",
-        about = "Build the circuits: .r1cs files, test keys, verifying keys and the wasm module"
+        about = "Build the circuits: .r1cs files, test keys, committed verifier modules and the wasm module"
     )]
     Compile(ZkCompileOptions),
 
@@ -126,7 +126,7 @@ pub(crate) enum ZkCommand {
 
     #[command(
         name = "export-verifier",
-        about = "Write the program's verifying key module for each .pk proving key"
+        about = "Export the verifying key module of each .pk proving key into the committed verifier modules"
     )]
     ExportVerifier(ZkExportVerifierOptions),
 }
@@ -142,7 +142,7 @@ pub(crate) struct ZkPackageOptions {
 
     #[arg(
         long = "manifest-path",
-        help = "Path to Cargo.toml (default: the one in the current directory or its parents); outputs go to zk/<package> in the cargo target directory"
+        help = "Path to Cargo.toml (default: the one in the current directory or its parents); build outputs go to zk/<package> in the cargo target directory"
     )]
     pub(crate) manifest_path: Option<PathBuf>,
 }
@@ -165,9 +165,15 @@ pub(crate) struct ZkCompileOptions {
     pub(crate) skip_wasm: bool,
 
     #[arg(
+        long = "check",
+        help = "Regenerate the verifier modules in the build directory and compare them byte for byte with the committed ones: list every file that differs, is missing or is not generated, and fail without writing to the verifier directory. Skips the wasm and SBF builds"
+    )]
+    pub(crate) check: bool,
+
+    #[arg(
         long = "r1cs-features",
         default_value = "circuits",
-        help = "Cargo features that build the circuits"
+        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables zolana-program/r1cs-export"
     )]
     pub(crate) r1cs_features: String,
 
@@ -319,7 +325,7 @@ pub(crate) struct ZkExportVerifierOptions {
 
     #[arg(
         long = "out",
-        help = "Output directory (default: <target>/zk/<package>, where the program includes it)"
+        help = "Directory the verifying key modules are exported to before they are copied into the verifier directory (default: <target>/zk/<package>)"
     )]
     pub(crate) out: Option<PathBuf>,
 }

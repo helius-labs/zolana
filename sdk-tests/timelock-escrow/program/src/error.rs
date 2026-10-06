@@ -1,6 +1,7 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
 use zolana_hasher::HasherError;
+use zolana_program::verifier::VerifyError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
@@ -25,13 +26,11 @@ impl From<TimelockEscrowError> for ProgramError {
     }
 }
 
-impl From<crate::zk::VerifyError> for TimelockEscrowError {
-    fn from(error: crate::zk::VerifyError) -> Self {
+impl From<VerifyError> for TimelockEscrowError {
+    fn from(error: VerifyError) -> Self {
         match error {
-            crate::zk::VerifyError::PublicInputs => Self::HashingFailed,
-            crate::zk::VerifyError::MissingVerifyingKey | crate::zk::VerifyError::Proof => {
-                Self::ProofVerificationFailed
-            }
+            VerifyError::PublicInputs => Self::HashingFailed,
+            VerifyError::Proof => Self::ProofVerificationFailed,
         }
     }
 }

@@ -73,11 +73,11 @@ circuit = [
 ]
 client = [
     "circuit",
+    "verifier",
     "dep:ark-ec",
     "dep:ark-groth16",
     "dep:ark-poly",
     "dep:ark-serialize",
-    "dep:groth16-solana",
     "dep:sha2",
     "dep:solana-bn254",
 ]
@@ -108,6 +108,7 @@ wasm = [
 ]
 wasm-prover = ["wasm"]
 r1cs-export = ["client", "setup"]
+verifier = ["dep:groth16-solana"]
 wasm-threads = ["wasm-prover", "parallel", "dep:wasm-bindgen-rayon"]
 wasm-verify = ["wasm", "groth16-solana/gnark-vk"]
 # Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.

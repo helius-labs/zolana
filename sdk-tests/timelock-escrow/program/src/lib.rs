@@ -1,15 +1,18 @@
 #[cfg(any(feature = "circuits", feature = "wasm"))]
 pub mod circuits;
-#[cfg(feature = "circuits")]
+#[cfg(all(feature = "circuits", not(feature = "r1cs-export")))]
 pub mod client;
 pub mod error;
+#[cfg(not(feature = "r1cs-export"))]
 pub mod instructions;
-pub mod zk {
-    zolana_macros::include_zk_programs!();
-}
+#[cfg(not(feature = "r1cs-export"))]
+pub mod verifier;
 
-use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::Address;
+#[cfg(not(feature = "r1cs-export"))]
+use pinocchio::{address::address_eq, error::ProgramError, AccountView, ProgramResult};
 
+#[cfg(not(feature = "r1cs-export"))]
 use crate::instructions::{process_escrow_ix, process_withdraw_ix};
 
 pub mod tag {
@@ -23,13 +26,18 @@ pub fn escrow_authority_seeds(creator: &Address) -> [&[u8]; 2] {
     [ESCROW_AUTHORITY_PDA_SEED, creator.as_array()]
 }
 
-#[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
+#[cfg(all(
+    feature = "bpf-entrypoint",
+    not(feature = "no-entrypoint"),
+    not(feature = "r1cs-export")
+))]
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
 
 pinocchio::address::declare_id!("2ehy1rrRKT3KEVNN6pLmHeiUedwazPZezXXhwaLjCt5G");
 
+#[cfg(not(feature = "r1cs-export"))]
 pub fn process_instruction(
     program_id: &Address,
     accounts: &mut [AccountView],

@@ -3,7 +3,6 @@ use syn::{parse_macro_input, DeriveInput};
 
 mod circuit_type;
 mod discriminator;
-mod include;
 mod paths;
 mod proof_input;
 mod public_inputs;
@@ -28,11 +27,6 @@ pub fn derive_public_inputs(input: TokenStream) -> TokenStream {
 pub fn derive_circuit_type(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     into_token_stream(circuit_type::expand(&input))
-}
-
-#[proc_macro]
-pub fn include_zk_programs(input: TokenStream) -> TokenStream {
-    into_token_stream(include::expand(input.into()))
 }
 
 fn into_token_stream(result: syn::Result<proc_macro2::TokenStream>) -> TokenStream {

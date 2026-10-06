@@ -9,3 +9,4 @@ mod harness;
 mod ops;
 mod protocol;
 mod uint;
+mod verifier;

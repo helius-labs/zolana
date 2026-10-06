@@ -59,8 +59,9 @@ verifying keys, key checksums, and circuit fingerprints together. The core
 rotation workflow is `prover/server/scripts/rotate_proving_keys.sh`. The
 example programs use insecure deterministic test keys, UNSAFE for production:
 `regen-swap-keys` and `regen-dynamic-swap-keys` rewrite their verifying keys and
-checksums, and `build-escrow-program` generates the escrow's keys under
-`target/zk`. None of these keys is published.
+checksums, and `build-escrow-program` generates the escrow's proving keys under
+`target/zk` and its committed verifying keys in
+`sdk-tests/timelock-escrow/program/src/verifier`. None of these keys is published.
 `just prover-server-test` checks the committed fingerprints; do not refresh
 them without rotating the matching keys.
 A rotated key set requires deploying the matching on-chain programs and prover

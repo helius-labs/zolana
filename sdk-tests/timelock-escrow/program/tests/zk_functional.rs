@@ -6,7 +6,7 @@ use timelock_escrow_program::circuits::{
 };
 use timelock_escrow_program::{
     instructions::escrow::slot,
-    zk::{escrow, withdraw, Groth16Proof},
+    verifier::{escrow, withdraw},
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_program::{
@@ -19,14 +19,6 @@ use shared::{keypair, token_input, TREE_ID};
 
 fn compressed(proof: &SolanaProof) -> CompressedProof {
     CompressedProof::try_from(proof).expect("compressed proof")
-}
-
-fn groth16(proof: &CompressedProof) -> Groth16Proof<'_> {
-    Groth16Proof {
-        a: &proof.a,
-        b: &proof.b,
-        c: &proof.c,
-    }
 }
 
 #[test]
@@ -59,7 +51,7 @@ fn escrow_then_withdraw_prove_and_verify() {
     let escrow_prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
     let escrow_result = escrow_prover.prove(&escrow).expect("escrow proof");
     escrow::verify(
-        &groth16(&compressed(&escrow_result.proof)),
+        &compressed(&escrow_result.proof),
         &escrow::PublicInputs {
             escrow_owner: *PdaOwner::new(authority.pda())
                 .expect("escrow owner")
@@ -101,7 +93,7 @@ fn escrow_then_withdraw_prove_and_verify() {
     let withdraw_prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
     let withdraw_result = withdraw_prover.prove(&withdraw).expect("withdraw proof");
     withdraw::verify(
-        &groth16(&compressed(&withdraw_result.proof)),
+        &compressed(&withdraw_result.proof),
         &withdraw::PublicInputs {
             unlock,
             creator_identity,

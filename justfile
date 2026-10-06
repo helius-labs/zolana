@@ -740,13 +740,16 @@ ensure-swap-keys: (_ensure-example-keys "sdk-tests/zk-program-swap" "swap-prover
 
 regen-swap-keys: (_regen-example-keys "sdk-tests/zk-program-swap" "swap-prover" "swap-keys.CHECKSUM" "make take cancel take_verifiable_encryption")
 
-# Builds the timelock escrow in one step: its r1cs, the deterministic insecure
-# test keys (UNSAFE for production) and verifying keys under
-# target/zk/timelock-escrow-program, the wasm module and the SBF program.
+# Builds the timelock escrow in one step: its r1cs and deterministic insecure
+# test keys (UNSAFE for production) under target/zk/timelock-escrow-program,
+# the committed verifier modules with their verifying keys in
+# sdk-tests/timelock-escrow/program/src/verifier, the wasm module and the SBF
+# program.
 build-escrow-program:
     cargo run --release -p zolana-cli -- build-zk-program -p timelock-escrow-program --sbf-features bpf-entrypoint
 
-# Writes only the escrow's r1cs and keys, which its zk_functional test includes.
+# Writes only the escrow's r1cs and proving keys to target/zk, which its
+# zk_functional test loads, and regenerates its verifier modules in src/verifier.
 _escrow-zk-keys:
     cargo run --release -p zolana-cli -- build-zk-program -p timelock-escrow-program --skip-wasm --skip-sbf
 
@@ -808,15 +811,19 @@ test-zolana-macros:
 # Full SDK validation: crate checks, hermetic units, two external runs, release tests.
 # External tool requirements are listed on test-zolana-program-external below.
 test-zolana-program:
-    cargo check --tests --all-features -p zolana-program -p zolana-macros -p timelock-escrow-program
+    cargo check --tests --all-features -p zolana-program -p zolana-macros
+    cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,cpi,test-sbf,profile-program
+    cargo check --lib -p timelock-escrow-program --features circuits,r1cs-export
     just test-zolana-program-unit
     just test-zolana-program-external
     just test-zolana-program-external
     just test-zolana-program-release
 
 # The ZK program SDK scenarios, the macro tests and the escrow circuit tests,
-# in release, after writing the escrow's keys.
+# in release, after writing the escrow's keys. Fails when the regenerated
+# escrow verifier modules differ from the committed ones.
 test-zolana-program-release: _escrow-zk-keys
+    git diff --exit-code -- sdk-tests/timelock-escrow/program/src/verifier
     cargo test --release -p zolana-program -p zolana-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,zolana-program/compression -- --test-threads=4
 
 # The ZK program SDK unit suite without the circom, snarkjs and Picus checks.

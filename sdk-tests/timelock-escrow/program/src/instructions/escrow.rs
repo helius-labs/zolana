@@ -7,7 +7,7 @@ use zolana_program::CompressedProof;
 use crate::{
     error::TimelockEscrowError,
     instructions::shared::{EscrowAuthority, IxData},
-    zk::{escrow, Groth16Proof},
+    verifier::escrow,
 };
 
 pub mod slot {
@@ -32,11 +32,7 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     } = IxData::<CompressedProof>::parse(data)?;
 
     escrow::verify(
-        &Groth16Proof {
-            a: &proof.a,
-            b: &proof.b,
-            c: &proof.c,
-        },
+        &proof,
         &escrow::PublicInputs {
             escrow_owner: escrow_authority.owner_hash()?,
             creator_identity,

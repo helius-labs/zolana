@@ -24,11 +24,18 @@ pub mod hasher;
 mod prover;
 #[cfg(feature = "client")]
 pub mod testing;
+#[cfg(feature = "verifier")]
+pub mod verifier;
+#[cfg(feature = "circuit")]
+mod verifier_glue;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
 #[cfg(feature = "circuit")]
-pub use client::{Bytes, DataUtxo, Owner, ProgramOwner, TxContext};
+pub use client::{
+    Bytes, DataUtxo, Owner, ProgramOwner, PublicField, PublicFieldKind, PublicInputLayout,
+    TxContext,
+};
 #[cfg(feature = "client")]
 pub use client::{ProgramTransaction, ZkCircuit, ZkProgram};
 pub use compressed_proof::CompressedProof;
