@@ -75,7 +75,7 @@ export class TeeSession {
       throw refused("evidence");
     }
     const prover = verifyAttestation(evidence, this.#policy, nonce, Math.floor(Date.now() / 1000));
-    this.#attested = Object.freeze({ key: prover.hpkePublicKey, at: Date.now() });
+    this.#attested = Object.freeze({ key: prover.hpkePublicKey.slice(), at: Date.now() });
     return prover;
   }
 

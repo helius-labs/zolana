@@ -10,6 +10,10 @@ on:
         description: HTTPS Photon URL to use instead of the co-hosted Photon
         required: false
         default: ""
+      photon_dump_sha256:
+        description: SHA256 of a trusted Photon snapshot
+        required: false
+        default: ""
       update:
         description: Update the existing CVM instead of creating it
         type: boolean
@@ -127,6 +131,8 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
           PHOTON_DIGEST: ${{ steps.photon.outputs.digest }}
           PHOTON_RPC_URL: ${{ secrets.PHOTON_RPC_URL }}
+          PHOTON_DUMP_URL: ${{ secrets.PHOTON_DUMP_URL }}
+          DUMP_SHA256: ${{ inputs.photon_dump_sha256 }}
           CVM_NAME: ${{ inputs.cvm_name }}
           EXTERNAL_INDEXER: ${{ inputs.external_indexer }}
           UPDATE: ${{ inputs.update }}
@@ -138,6 +144,7 @@ jobs:
           else
             flags+=(--photon "$PHOTON@$PHOTON_DIGEST")
           fi
+          [[ -n "$DUMP_SHA256" ]] && flags+=(--photon-dump-sha256 "$DUMP_SHA256")
           [[ "$UPDATE" == true ]] && flags+=(--update)
           [[ "$REPLACE" == true ]] && flags+=(--replace)
           prover/server/scripts/release_tee.sh "$IMAGE@$DIGEST" "$CVM_NAME" "${flags[@]}"

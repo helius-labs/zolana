@@ -620,7 +620,7 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) (RunningJob, error) {
 	return RunEnhanced(&EnhancedConfig{
 		Readiness:         config.Readiness,
 		Indexer:           config.Indexer,
@@ -673,7 +673,10 @@ func registerProofPaths(mux *http.ServeMux, prove proveHandler) {
 	}
 }
 
-func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) (RunningJob, error) {
+	if config.TEE != nil && (redisQueue != nil || config.Queue != nil && config.Queue.Enabled) {
+		return RunningJob{}, tee.ErrQueueUnsupported
+	}
 	transferExecution := config.TransferExecution
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
@@ -761,10 +764,10 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			Msg("prover server started (no queue support)")
 	}
 
-	return CombineJobs(metricsJob, proverJob)
+	return CombineJobs(metricsJob, proverJob), nil
 }
 
-func Run(config *Config, keyManager *common.LazyKeyManager) RunningJob {
+func Run(config *Config, keyManager *common.LazyKeyManager) (RunningJob, error) {
 	return RunWithQueue(config, nil, keyManager)
 }
 

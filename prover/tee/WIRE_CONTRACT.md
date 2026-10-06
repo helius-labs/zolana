@@ -74,6 +74,8 @@ An unsealed failure reaches the caller as unauthenticated, so load shedding and 
 
 ## Authorization
 
+TEE servers require synchronous execution and reject queue configuration. A visible job ID is not a client credential.
+
 The prover API key travels in `X-API-Key`, as a Bearer token, or as the `api-key` query parameter.
 The AAD never covers it, so a proxy can move or strip it.
 

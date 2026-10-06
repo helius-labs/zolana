@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 <prover-image@sha256:digest> <cvm-name> (--photon <image@sha256:digest> | --external-indexer <https-url>) [--gpu] [--update] [--replace] [--plan]" >&2
+    echo "usage: $0 <prover-image@sha256:digest> <cvm-name> (--photon <image@sha256:digest> | --external-indexer <https-url>) [--photon-dump-sha256 <digest>] [--gpu] [--update] [--replace] [--plan]" >&2
     exit 1
 }
 [[ $# -ge 2 ]] || usage
@@ -11,6 +11,7 @@ prover_image=$1
 name=$2
 shift 2
 photon_image=""
+dump_sha256=""
 external=""
 gpu=false
 update=false
@@ -19,6 +20,7 @@ replace=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --photon) [[ $# -ge 2 ]] || usage; photon_image=$2; shift ;;
+        --photon-dump-sha256) [[ $# -ge 2 ]] || usage; dump_sha256=$2; shift ;;
         --external-indexer) [[ $# -ge 2 ]] || usage; external=$2; shift ;;
         --gpu) gpu=true ;;
         --update) update=true ;;
@@ -32,9 +34,10 @@ done
 pinned() { [[ $1 =~ @sha256:[0-9a-f]{64}$ ]] || { echo "$1 must be pinned by digest" >&2; exit 1; }; }
 pinned "$prover_image"
 if [[ -n $external ]]; then
-    [[ -z $photon_image && $external =~ ^https:// ]] || usage
+    [[ -z $photon_image && -z $dump_sha256 && $external =~ ^https:// ]] || usage
 else
     pinned "$photon_image"
+    [[ -z $dump_sha256 || $dump_sha256 =~ ^[0-9a-f]{64}$ ]] || usage
 fi
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -105,7 +108,7 @@ EOF
       - POSTGRES_USER=photon
       - POSTGRES_PASSWORD=photon
     volumes:
-      - photon-db:/var/lib/postgresql/data
+      - photon-db-@DUMP_VOLUME@:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "photon", "-d", "photon"]
       interval: 5s
@@ -116,16 +119,19 @@ EOF
     user: "0:0"
     environment:
       - PHOTON_DUMP_URL
-      - PHOTON_DUMP_ID
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         rm -f /dump/photon.dump
-        [ -n "$${PHOTON_DUMP_URL:-}" ] || exit 0
-        [ "$$(cat /dump/restored 2>/dev/null)" != "$$PHOTON_DUMP_ID" ] || exit 0
-        curl -fsS --retry 3 -o /dump/photon.dump "$$PHOTON_DUMP_URL" || { rm -f /dump/photon.dump; echo "dump fetch failed, Photon keeps its database"; }
+        if [ -z "@DUMP_SHA256@" ]; then
+          [ -z "$${PHOTON_DUMP_URL:-}" ] || { echo "no snapshot digest pinned"; exit 1; }
+          exit 0
+        fi
+        [ "$$(cat /dump/restored 2>/dev/null)" != "@DUMP_SHA256@" ] || exit 0
+        [ -n "$${PHOTON_DUMP_URL:-}" ] || { echo "snapshot URL required"; exit 1; }
+        curl --proto '=https' --proto-redir '=https' -fsS --retry 3 -o /dump/photon.dump "$$PHOTON_DUMP_URL"
     volumes:
-      - photon-dump:/dump
+      - photon-dump-@DUMP_VOLUME@:/dump
   photon-restore:
     image: @POSTGRES@
     depends_on:
@@ -134,20 +140,18 @@ EOF
       photon-fetch:
         condition: service_completed_successfully
     environment:
-      - PHOTON_DUMP_ID
       - PGPASSWORD=photon
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         [ -f /dump/photon.dump ] || exit 0
-        if pg_restore -h postgres -U photon -d photon --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges /dump/photon.dump; then
-          echo "$$PHOTON_DUMP_ID" > /dump/restored
-        else
-          echo "restore failed and rolled back, Photon keeps its database"
-        fi
+        [ -n "@DUMP_SHA256@" ] || { echo "no snapshot digest pinned"; exit 1; }
+        echo "@DUMP_SHA256@  /dump/photon.dump" | sha256sum -c -
+        pg_restore -h postgres -U photon -d photon --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges /dump/photon.dump
+        echo "@DUMP_SHA256@" > /dump/restored
         rm /dump/photon.dump
     volumes:
-      - photon-dump:/dump
+      - photon-dump-@DUMP_VOLUME@:/dump
   photon-migration:
     image: @PHOTON_IMAGE@
     depends_on:
@@ -172,8 +176,8 @@ EOF
     echo "volumes:"
     echo "  proving-keys:"
     if [[ -z $external ]]; then
-        echo "  photon-db:"
-        echo "  photon-dump:"
+        echo "  photon-db-@DUMP_VOLUME@:"
+        echo "  photon-dump-@DUMP_VOLUME@:"
     fi
 } > "$work/docker-compose.yml"
 
@@ -184,6 +188,8 @@ compose=${compose//@PROVER_IMAGE@/$prover_image}
 compose=${compose//@PHOTON_IMAGE@/$photon_image}
 compose=${compose//@POSTGRES@/$postgres}
 compose=${compose//@CURL@/$curl}
+compose=${compose//@DUMP_SHA256@/$dump_sha256}
+compose=${compose//@DUMP_VOLUME@/${dump_sha256:-chain}}
 compose=${compose//@INDEXER_URL@/${external:-http://photon:8784}}
 if $plan; then
     printf '%s\n' "$compose"

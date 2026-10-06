@@ -8,7 +8,6 @@ tee_env() {
         -e "PROVER_INDEXER_API_KEY=${PROVER_INDEXER_API_KEY:-}"
         -e "PHOTON_RPC_URL=${PHOTON_RPC_URL:-}"
         -e "PHOTON_DUMP_URL=${PHOTON_DUMP_URL:-}"
-        -e "PHOTON_DUMP_ID=${PHOTON_DUMP_ID:-}"
     )
     # Phala's pre-launch script tries Docker credentials before ECR, so only one set is sealed.
     if [[ -n ${TEE_AWS_ACCESS_KEY_ID:-} ]]; then

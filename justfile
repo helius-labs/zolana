@@ -1617,6 +1617,7 @@ prover-server-test:
     # drop out of CI. Its tests bring their own in-process miniredis and need no
     # Redis server or proving keys.
     go test ./server/ ./tee/
+    python3 scripts/test_release_tee.py
 
 [private]
 xtask-create-verifying-keys:

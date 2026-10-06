@@ -609,6 +609,10 @@ func runCli() {
 						}
 					}
 
+					if context.String("tee") != "" && (enableQueue || !enableServer) {
+						return tee.ErrQueueUnsupported
+					}
+
 					logging.Logger().Info().
 						Bool("enable_queue", enableQueue).
 						Bool("enable_server", enableServer).
@@ -693,13 +697,19 @@ func runCli() {
 						}
 
 						if redisQueue != nil {
-							instance = server.RunWithQueue(&config, redisQueue, keyManager)
+							instance, err = server.RunWithQueue(&config, redisQueue, keyManager)
+							if err != nil {
+								return err
+							}
 							logging.Logger().Info().
 								Str("prover_address", config.ProverAddress).
 								Str("metrics_address", config.MetricsAddress).
 								Msg("Started enhanced server with Redis queue support")
 						} else {
-							instance = server.Run(&config, keyManager)
+							instance, err = server.Run(&config, keyManager)
+							if err != nil {
+								return err
+							}
 							logging.Logger().Info().
 								Str("prover_address", config.ProverAddress).
 								Str("metrics_address", config.MetricsAddress).

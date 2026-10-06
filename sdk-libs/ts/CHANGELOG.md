@@ -142,9 +142,11 @@ Added
   `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
 - `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
   call, sealed, only to a prover whose Intel TDX attestation matches it.
-- `pinnedTeePolicy()` returns the policy this release pins, `teePolicyFromJson`
-  parses another, and `ZolanaClient.attestProver` returns the verified
-  `AttestedProver`.
+- `teePolicyFromJson` parses an explicit TEE policy, and
+  `ZolanaClient.attestProver` returns the verified `AttestedProver`.
+  `pinnedTeePolicy()` rejects with `CLIENT_PROVER_TEE_ATTESTATION` and
+  `details.check` `no_pinned_deployment` when the release has no deployment pin.
+  This release requires an explicit policy.
 
 Changed
 

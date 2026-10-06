@@ -125,11 +125,15 @@ struct LiveFixture {
 
 /// A live H200 prover's answer to a recorded nonce, quote and GPU verdict included.
 #[test]
-fn the_pinned_deployment_accepts_its_live_attestation() {
+fn the_archived_deployment_accepts_its_attestation() {
     let fixture: LiveFixture = serde_json::from_str(LIVE_ATTESTATION).unwrap();
     let nonce = bytes::<32>(&fixture.nonce);
     let evidence = || serde_json::from_value::<Evidence>(fixture.attestation.clone()).unwrap();
-    let policy = TeePolicy::pinned().unwrap();
+    let file: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../prover/tee/testdata/live_policy.json"
+    ))
+    .unwrap();
+    let policy: TeePolicy = serde_json::from_value(file["deployment"].clone()).unwrap();
     let prover = verify(evidence(), &policy, &nonce, fixture.captured_at).unwrap();
     assert!(prover.gpu_verified);
     assert!(matches!(
@@ -280,4 +284,18 @@ fn sealed_responses_reject_tampering_and_truncation() {
     let mut wrong_key = key;
     wrong_key[0] ^= 1;
     assert!(open_response(&wrong_key, &sealed).is_err());
+}
+
+#[test]
+fn the_release_policy_matches_its_pin_file() {
+    let file: serde_json::Value = serde_json::from_str(include_str!("policy.json")).unwrap();
+    if file["deployment"].is_null() {
+        assert!(matches!(
+            TeePolicy::pinned(),
+            Err(TeeError::NoPinnedDeployment)
+        ));
+    } else {
+        let expected: TeePolicy = serde_json::from_value(file["deployment"].clone()).unwrap();
+        assert_eq!(TeePolicy::pinned().unwrap(), expected);
+    }
 }

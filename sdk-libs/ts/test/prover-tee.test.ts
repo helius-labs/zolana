@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 
 import { Aes256Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke/core";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { openResponse, requestAad, sealRequest } from "../src/client/prover/tee/seal.js";
-import { sealedInit, type ProverCall } from "../src/client/prover/tee/session.js";
+import { TeeSession, sealedInit, type ProverCall } from "../src/client/prover/tee/session.js";
 import { composeSignal } from "../src/client/internal.js";
 import { PINNED_TEE_POLICY_FILE } from "../src/client/prover/tee/pinned.js";
 import {
@@ -28,6 +28,9 @@ const capturedAt = Number(decode.integer(probe["captured_at"], "captured_at"));
 const probePolicyJson = decode.record(
   json("../../../prover/tee/testdata/probe_policy.json"),
   "policy",
+);
+const livePolicy = teePolicyFromJson(
+  decode.record(json("../../../prover/tee/testdata/live_policy.json"), "live_policy")["deployment"],
 );
 const vectors = decode.record(json("../../../prover/tee/testdata/vectors.json"), "vectors");
 const vector = (field: string): string => decode.string(vectors[field], field);
@@ -55,17 +58,23 @@ describe("TEE policy", () => {
     expect(PINNED_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
   });
 
-  it("accepts the live attestation of the deployment this release pins", () => {
+  it("accepts the archived deployment attestation", () => {
     const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
     const at = Number(decode.integer(live["captured_at"], "captured_at"));
-    const prover = verifyAttestation(live["attestation"], pinnedTeePolicy(), nonce, at);
+    const prover = verifyAttestation(live["attestation"], livePolicy, nonce, at);
     expect(prover.gpuVerified).toBe(true);
     expect(
-      check(() =>
-        verifyAttestation(live["attestation"], pinnedTeePolicy(), new Uint8Array(32), at),
-      ),
+      check(() => verifyAttestation(live["attestation"], livePolicy, new Uint8Array(32), at)),
     ).toBe("report_data");
+  });
+
+  it("loads the release pin or refuses its absence", () => {
+    if (PINNED_TEE_POLICY_FILE.deployment === null) {
+      expect(check(pinnedTeePolicy)).toBe("no_pinned_deployment");
+    } else {
+      expect(pinnedTeePolicy()).toEqual(teePolicyFromJson(PINNED_TEE_POLICY_FILE.deployment));
+    }
   });
 
   it("rejects a malformed policy", () => {
@@ -266,4 +275,54 @@ describe("a TEE prover client", () => {
     await expect(prover.checkProvingKeys()).rejects.toThrow(ClientError);
     expect(requested).toEqual(["/tee/v1/attestation"]);
   });
+});
+
+it("keeps the cached key independent of the attestation report", async () => {
+  const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
+  const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+  const at = Number(decode.integer(live["captured_at"], "captured_at"));
+  const random = vi.spyOn(globalThis.crypto, "getRandomValues");
+  random.mockImplementationOnce((bytes) => {
+    if (!(bytes instanceof Uint8Array)) throw new Error("unexpected nonce buffer");
+    bytes.set(nonce);
+    return bytes;
+  });
+  const now = vi.spyOn(Date, "now").mockReturnValue(at * 1000);
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(live["attestation"]));
+  const signal = composeSignal(undefined, "attest");
+  try {
+    const session = new TeeSession(livePolicy);
+    const url = new URL("https://prover.invalid/prove/merge");
+    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const report = await session.attest(fetch, attestationUrl, signal);
+    const substituted = await suite.kem.deriveKeyPair(new Uint8Array(32).fill(42));
+    report.hpkePublicKey.set(
+      new Uint8Array(await suite.kem.serializePublicKey(substituted.publicKey)),
+    );
+    const prepared = await session.seal({
+      fetch,
+      attestationUrl,
+      url,
+      method: "POST",
+      headers: {},
+      body: "private-witness-marker",
+      signal,
+      maxResponseBytes: 1024,
+    });
+    const headers = new Headers(prepared.init.headers);
+    const enc = hexToBytes(decode.string(headers.get("Zolana-Tee-Enc"), "enc"));
+    const receiver = await suite.createRecipientContext({
+      recipientKey: substituted,
+      enc,
+      info: utf8ToBytes("zolana/prover-tee/v1"),
+    });
+    const body = prepared.init.body;
+    if (!(body instanceof Uint8Array)) throw new Error("unexpected sealed body");
+    await expect(receiver.open(body, utf8ToBytes("POST /prove/merge"))).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    signal.cleanup();
+    random.mockRestore();
+    now.mockRestore();
+  }
 });

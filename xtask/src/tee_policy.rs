@@ -45,7 +45,6 @@ impl TeePolicyOptions {
         Ok(options)
     }
 
-    /// Attests the prover again under the pins it writes.
     pub fn run(self, root: &Path) -> Result<()> {
         // The key comes from the environment, a command line argument shows in the process list.
         let mut prover_url = Url::parse(&self.prover_url)?;
@@ -98,11 +97,14 @@ impl TeePolicyOptions {
             );
         }
 
-        write_pins(root, &policy)?;
-        let attested = ProverClient::new(prover_url.into())
-            .with_tee(policy)
+        let prover = ProverClient::new(prover_url.into()).with_tee(policy.clone());
+        let attested = prover
             .attest()
-            .context("prover fails the policy just written")?;
+            .context("prover fails the candidate policy")?;
+        prover
+            .check_proving_keys()
+            .context("sealed proving key check failed")?;
+        write_pins(root, &policy)?;
         println!(
             "pinned compose {} TCB {} GPU {}",
             hex::encode(attested.compose_hash),
