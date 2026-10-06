@@ -19,7 +19,7 @@ macro_rules! pubkey_array {
     }};
 }
 
-#[cfg(feature = "solana")]
+#[cfg(feature = "pda")]
 pub fn user_record_pda(owner: &solana_pubkey::Pubkey) -> (solana_pubkey::Pubkey, u8) {
     solana_pubkey::Pubkey::find_program_address(
         &[USER_RECORD_SEED, owner.as_ref()],
@@ -27,7 +27,7 @@ pub fn user_record_pda(owner: &solana_pubkey::Pubkey) -> (solana_pubkey::Pubkey,
     )
 }
 
-#[cfg(feature = "solana")]
+#[cfg(feature = "pda")]
 pub fn user_registry_program_id() -> solana_pubkey::Pubkey {
     solana_pubkey::Pubkey::new_from_array(USER_REGISTRY_PROGRAM_ID)
 }
