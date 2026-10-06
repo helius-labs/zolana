@@ -13,7 +13,7 @@ control you can configure and who can change it.
 5. Frozen list
 6. Asset allowlist
 7. Sender limits
-8. Spend window
+8. Token volume limits
 9. Permanent delegate and key escrow
 10. Auditor
 11. Deposit audit
@@ -31,8 +31,8 @@ amounts, recipients or which list entries it used.
 - **Policy:** allowlist, blocklist, frozen list, asset allowlist and sender
   limits. The proof checks these, and only the
   upgrade authority can change them.
-- **Ring settings:** co-signer, spend window, deposit audit, readers and
-  pause. The ring program checks these, and the ring authority changes them.
+- **Ring settings:** co-signer, token volume limits, deposit audit, readers
+  and pause. The ring program checks these, and the ring authority changes them.
 
 ### Rules and entries
 
@@ -187,3 +187,22 @@ without revealing the amount.
 ### Configuration
 
 - Limits are set per token.
+
+## 8. Token volume limits
+
+A token volume limit caps how much of a token the whole ring deposits or
+withdraws publicly within a window of slots. Transfers inside the ring don't
+count.
+
+### What can be checked
+
+- **Deposits:** the ring's total public deposits of a token in the current
+  window.
+- **Withdrawals:** the ring's total public withdrawals of a token in the
+  current window.
+
+### Configuration
+
+- The ring authority sets, per token, the window length and a deposit cap
+  and/or a withdrawal cap.
+- A token without a limit is uncapped.
