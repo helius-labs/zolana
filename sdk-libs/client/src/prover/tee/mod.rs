@@ -1,6 +1,7 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
+#[non_exhaustive]
 pub enum TeeError {
     #[error("the SDK release has no default TEE prover deployment")]
     NoDefaultDeployment,
@@ -12,10 +13,16 @@ pub enum TeeError {
     MalformedAttestation(String),
     #[error("TDX quote verification failed, {0}")]
     Quote(String),
+    #[error("Nitro attestation document verification failed, {0}")]
+    NitroDocument(String),
+    #[error("prover attests as {got}, the policy requires {expected}")]
+    PlatformMismatch { expected: String, got: String },
     #[error("TCB status {status} is not allowed")]
     TcbStatus { status: String },
     #[error("MRTD and RTMR0 to RTMR2 match no allowed OS measurement")]
     MeasurementNotAllowed,
+    #[error("PCR0 to PCR2 match no allowed enclave image")]
+    EnclaveMeasurementNotAllowed,
     #[error("RTMR3 event log does not replay to the quoted RTMR3")]
     EventLogMismatch,
     #[error("runtime event {0} is missing or repeated")]
