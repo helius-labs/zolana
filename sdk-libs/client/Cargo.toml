@@ -35,14 +35,19 @@ solana-address = { workspace = true }
 p256 = { workspace = true }
 thiserror = { workspace = true }
 aes-gcm = { workspace = true }
+ciborium = { workspace = true }
+ciborium-ll = { workspace = true }
+coset = { workspace = true }
 dcap-qvl = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 hpke = { workspace = true }
+p384 = { workspace = true }
 rand_core = { workspace = true }
 sha2 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+x509-cert = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
 # The address-append verifying keys pin the proving keys batch proofs are
@@ -79,6 +84,8 @@ zolana-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
 wincode = { workspace = true }
+p384 = { workspace = true, features = ["alloc"] }
+x509-cert = { workspace = true, features = ["builder"] }
 
 [[test]]
 name = "spendable"

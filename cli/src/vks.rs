@@ -112,16 +112,7 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
             let attested = prover
                 .attest()
                 .with_context(|| format!("prover {shown} failed TEE attestation"))?;
-            println!(
-                "ok: prover {shown} attests, TCB {}, compose {}, GPU {}",
-                attested.tcb_status,
-                hex::encode(attested.compose_hash),
-                if attested.gpu_verified {
-                    "verified"
-                } else {
-                    "absent"
-                }
-            );
+            println!("ok: prover {shown} attests, {attested}");
         }
         let report = prover
             .check_proving_keys()

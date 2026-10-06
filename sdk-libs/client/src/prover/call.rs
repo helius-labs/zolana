@@ -31,11 +31,31 @@ pub(crate) enum CallError {
     Refused(ClientError),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct Recipient<'s> {
+    pub session: &'s TeeSession,
+    pub key: [u8; 32],
+}
+
 /// A call as sent, keeping the key that decrypts its answer.
-pub(crate) struct Prepared {
+pub(crate) struct Prepared<'s> {
     pub headers: Vec<(&'static str, String)>,
     pub body: Option<Vec<u8>>,
-    pub encrypted: Option<EncryptedRequest>,
+    sealed: Option<Sealed<'s>>,
+}
+
+struct Sealed<'s> {
+    recipient: Recipient<'s>,
+    request: EncryptedRequest,
+}
+
+pub(crate) enum Answer<'s> {
+    Done(StatusCode, String),
+    KeyLost {
+        recipient: Recipient<'s>,
+        status: StatusCode,
+        body: String,
+    },
 }
 
 impl<'a> Call<'a> {
@@ -59,26 +79,26 @@ impl<'a> Call<'a> {
         }
     }
 
-    /// `attested_key` is set exactly when the client requires a TEE.
-    pub fn prepare(&self, attested_key: Option<&[u8; 32]>) -> Result<Prepared, CallError> {
+    /// `recipient` is set exactly when the client requires a TEE.
+    pub fn prepare<'s>(&self, recipient: Option<Recipient<'s>>) -> Result<Prepared<'s>, CallError> {
         let mut headers = Vec::new();
         match self.delivery {
             Some(Delivery::InResponse) => headers.push(("X-Sync", "true".to_string())),
             Some(Delivery::Queued) => headers.push(("X-Async", "true".to_string())),
             None => {}
         }
-        let Some(key) = attested_key else {
+        let Some(recipient) = recipient else {
             if self.body.is_some() {
                 headers.push(("Content-Type", "application/json".to_string()));
             }
             return Ok(Prepared {
                 headers,
                 body: self.body.map(|body| body.as_bytes().to_vec()),
-                encrypted: None,
+                sealed: None,
             });
         };
         let encrypted = TeeSession::encrypt(
-            key,
+            &recipient.key,
             self.method.as_str(),
             self.url,
             self.body.unwrap_or_default().as_bytes(),
@@ -96,23 +116,49 @@ impl<'a> Call<'a> {
         Ok(Prepared {
             headers,
             body,
-            encrypted: Some(encrypted),
+            sealed: Some(Sealed {
+                recipient,
+                request: encrypted,
+            }),
         })
     }
 }
 
-impl Prepared {
+impl<'s> Prepared<'s> {
     pub fn finish(
         &self,
         status: StatusCode,
         is_encrypted: bool,
         body: &[u8],
-    ) -> Result<(StatusCode, String), CallError> {
-        match &self.encrypted {
-            Some(encrypted) => TeeSession::decrypt(encrypted, status, is_encrypted, body)
-                .map_err(CallError::Refused),
-            None => Ok((status, String::from_utf8_lossy(body).into_owned())),
+    ) -> Result<Answer<'s>, CallError> {
+        let plain = || String::from_utf8_lossy(body).into_owned();
+        let Some(Sealed { recipient, request }) = &self.sealed else {
+            return Ok(Answer::Done(status, plain()));
+        };
+        if !is_encrypted && recipient.session.lost_key(status, body) {
+            return Ok(Answer::KeyLost {
+                recipient: *recipient,
+                status,
+                body: plain(),
+            });
         }
+        TeeSession::decrypt(request, status, is_encrypted, body)
+            .map(|(status, body)| Answer::Done(status, body))
+            .map_err(CallError::Refused)
+    }
+}
+
+impl Answer<'_> {
+    pub fn into_parts(self) -> (StatusCode, String) {
+        match self {
+            Self::Done(status, body) | Self::KeyLost { status, body, .. } => (status, body),
+        }
+    }
+}
+
+impl Recipient<'_> {
+    pub fn forget(&self) {
+        self.session.forget(&self.key);
     }
 }
 
@@ -132,15 +178,60 @@ impl CallError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prover::tee::{NitroFixture, TeePolicy};
 
-    fn encrypted(call: &Call<'_>) -> Prepared {
-        call.prepare(Some(&[9; 32])).ok().unwrap()
+    fn session() -> TeeSession {
+        TeeSession::new(
+            TeePolicy::from_json(include_str!(
+                "../../../../prover/tee/testdata/probe_policy.json"
+            ))
+            .unwrap(),
+        )
+    }
+
+    fn encrypted<'s>(session: &'s TeeSession, call: &Call<'_>) -> Prepared<'s> {
+        call.prepare(Some(Recipient {
+            session,
+            key: [9; 32],
+        }))
+        .ok()
+        .unwrap()
+    }
+
+    fn rejected(code: &str) -> Vec<u8> {
+        format!(r#"{{"code":"{code}","message":"encrypted request rejected"}}"#).into_bytes()
+    }
+
+    fn re_attests(session: &TeeSession, code: &str) -> bool {
+        let url = Url::parse("https://prover.example/proving-keys").unwrap();
+        let prepared = encrypted(session, &Call::get(&url, Duration::from_secs(1)));
+        let answer = prepared
+            .finish(StatusCode::BAD_REQUEST, false, &rejected(code))
+            .ok()
+            .unwrap();
+        matches!(answer, Answer::KeyLost { .. })
+    }
+
+    #[test]
+    fn only_a_rotating_platform_re_attests_on_decryption_failure() {
+        let nitro = NitroFixture::default().session();
+        assert!(re_attests(&nitro, "tee_decryption_failed"));
+        assert!(!re_attests(&session(), "tee_decryption_failed"));
+    }
+
+    #[test]
+    fn a_malformed_request_never_re_attests() {
+        let nitro = NitroFixture::default().session();
+        for code in ["tee_request_malformed", "tee_version_unsupported"] {
+            assert!(!re_attests(&nitro, code), "{code}");
+        }
     }
 
     #[test]
     fn an_encrypted_get_carries_its_bytes_in_a_header() {
         let url = Url::parse("https://prover.example/prove/merge/status?jobId=a").unwrap();
-        let prepared = encrypted(&Call::get(&url, Duration::from_secs(1)));
+        let session = session();
+        let prepared = encrypted(&session, &Call::get(&url, Duration::from_secs(1)));
         assert!(prepared.body.is_none());
         assert!(prepared
             .headers
@@ -151,7 +242,8 @@ mod tests {
     #[test]
     fn an_encrypted_post_keeps_its_bytes_in_the_body() {
         let url = Url::parse("https://prover.example/prove/merge").unwrap();
-        let prepared = encrypted(&Call::post(&url, "{}", Delivery::Queued));
+        let session = session();
+        let prepared = encrypted(&session, &Call::post(&url, "{}", Delivery::Queued));
         assert!(prepared.body.is_some());
         assert!(!prepared
             .headers

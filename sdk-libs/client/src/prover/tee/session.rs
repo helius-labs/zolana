@@ -8,16 +8,21 @@ use rand_core::{OsRng, TryRngCore};
 use reqwest::{StatusCode, Url};
 
 use super::{
-    verify, Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy, HEADER_VERSION,
-    NONCE_SIZE, VERSION,
+    platform::Anchors,
+    verify::{Session, Trust},
+    Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy, HEADER_VERSION,
+    MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 use crate::error::ClientError;
 
 type AttestResult = Result<AttestedProver, ClientError>;
 
+const DECRYPTION_FAILED: &str = "tee_decryption_failed";
+
 /// Attestation state one prover client shares across its requests.
 pub(crate) struct TeeSession {
     policy: TeePolicy,
+    anchors: Anchors,
     attested: Mutex<Option<(AttestedProver, Instant)>>,
     // One attestation at a time, the server answers only a few quotes at once.
     attesting: Mutex<()>,
@@ -54,10 +59,19 @@ impl TeeSession {
     pub fn new(policy: TeePolicy) -> Self {
         Self {
             policy,
+            anchors: Anchors::PRODUCTION,
             attested: Mutex::new(None),
             attesting: Mutex::new(()),
             attesting_async: tokio::sync::Mutex::new(()),
             outcome: Mutex::new((0, None)),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn trusting(policy: TeePolicy, anchors: Anchors) -> Self {
+        Self {
+            anchors,
+            ..Self::new(policy)
         }
     }
 
@@ -149,27 +163,70 @@ impl TeeSession {
         Ok(nonce)
     }
 
+    pub fn check_attestation_len(len: usize) -> Result<(), ClientError> {
+        if len > MAX_ATTESTATION_BYTES {
+            return Err(TeeError::MalformedAttestation(format!(
+                "attestation exceeds {MAX_ATTESTATION_BYTES} bytes"
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
     /// Verifies the attestation answer for `nonce` and caches the prover.
     pub fn accept(
         &self,
         nonce: &[u8; NONCE_SIZE],
         status: StatusCode,
-        body: &str,
+        body: &[u8],
     ) -> Result<AttestedProver, ClientError> {
         if !status.is_success() {
             return Err(ClientError::ProverServer(format!(
-                "attestation failed with status {status}: {body}"
+                "attestation failed with status {status}: {}",
+                String::from_utf8_lossy(body)
             )));
         }
-        let attestation: Attestation = serde_json::from_str(body)
+        let attestation: Attestation = serde_json::from_slice(body)
             .map_err(|e| TeeError::MalformedAttestation(e.to_string()))?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| ClientError::Prover("system clock is before 1970".into()))?
             .as_secs();
-        let prover = verify(attestation, &self.policy, nonce, now)?;
+        let trust = Trust {
+            now_secs: now,
+            anchors: &self.anchors,
+        };
+        let prover = trust.verify(
+            attestation,
+            Session {
+                policy: &self.policy,
+                nonce,
+            },
+        )?;
         *lock(&self.attested) = Some((prover.clone(), Instant::now()));
         Ok(prover)
+    }
+
+    pub fn lost_key(&self, status: StatusCode, body: &[u8]) -> bool {
+        #[derive(serde::Deserialize)]
+        struct Failure {
+            code: String,
+        }
+        self.policy.platform().rotates_key_per_boot()
+            && status == StatusCode::BAD_REQUEST
+            && serde_json::from_slice::<Failure>(body)
+                .is_ok_and(|failure| failure.code == DECRYPTION_FAILED)
+    }
+
+    /// Uncaches `key` unless another attestation already replaced it.
+    pub fn forget(&self, key: &[u8; 32]) {
+        let mut attested = lock(&self.attested);
+        if attested
+            .as_ref()
+            .is_some_and(|(prover, _)| prover.hpke_public_key == *key)
+        {
+            *attested = None;
+        }
     }
 
     pub fn encrypt(
@@ -235,6 +292,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::prover::tee::Platform;
 
     fn session() -> TeeSession {
         TeeSession::new(
@@ -253,9 +311,10 @@ mod tests {
         attestations.fetch_add(1, Ordering::SeqCst);
         thread::sleep(Duration::from_millis(50));
         let prover = AttestedProver {
+            platform: Platform::DstackTdx,
             hpke_public_key: [7; 32],
-            tcb_status: "UpToDate".into(),
-            compose_hash: [0; 32],
+            image_id: vec![0; 32],
+            tcb_status: Some("UpToDate".into()),
             gpu_verified: false,
         };
         *session.attested.lock().unwrap() = Some((prover.clone(), Instant::now()));
@@ -292,6 +351,16 @@ mod tests {
         let keys = futures::future::join_all((0..4).map(|_| call())).await;
         assert_eq!(attestations.load(Ordering::SeqCst), 1);
         assert!(keys.into_iter().all(|key| key.unwrap() == [7; 32]));
+    }
+
+    #[test]
+    fn a_lost_key_is_forgotten_only_while_still_cached() {
+        let session = session();
+        attest(&session, &AtomicUsize::new(0)).unwrap();
+        session.forget(&[8; 32]);
+        assert_eq!(session.attested_key(), Some([7; 32]));
+        session.forget(&[7; 32]);
+        assert_eq!(session.attested_key(), None);
     }
 
     #[test]

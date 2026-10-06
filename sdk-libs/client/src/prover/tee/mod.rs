@@ -1,18 +1,26 @@
-//! Encrypts every prover call to the HPKE key a verified dstack TDX quote binds, matching `prover/server/tee` byte for byte.
+//! Encrypts every prover call to the HPKE key verified TEE evidence binds.
 
 mod attestation;
+mod dstack;
 mod encryption;
+mod nitro;
+mod platform;
 mod policy;
 mod session;
 #[cfg(test)]
 mod tests;
 mod verify;
 
-pub use attestation::{Attestation, Collateral, EventLogEntry};
+pub use attestation::Attestation;
+pub use dstack::{DstackIdentity, DstackPolicy, KeyProvider, TdxMeasurement};
 pub(crate) use encryption::EncryptedRequest;
-pub use policy::{GpuRequirement, Measurement, TeePolicy};
+#[cfg(test)]
+pub(crate) use nitro::tests::Fixture as NitroFixture;
+pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
+pub use platform::{Platform, PlatformIdentity, PlatformPolicy};
+pub use policy::{GpuRequirement, TeePolicy, TeePolicyFile};
 pub(crate) use session::TeeSession;
-pub use verify::{inspect, verify, AttestedIdentity, AttestedProver, KeyProvider};
+pub use verify::{inspect, verify, AttestedIdentity, AttestedProver};
 
 use thiserror::Error;
 
@@ -23,6 +31,7 @@ pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
 pub const HEADER_CIPHERTEXT: &str = "Zolana-Tee-Ciphertext";
 pub const VERSION: &str = "v1";
 pub const NONCE_SIZE: usize = 32;
+pub const MAX_ATTESTATION_BYTES: usize = 1 << 20;
 
 // Domain separation for every hash and HPKE context the protocol binds.
 const REPORT_DOMAIN: &[u8] = b"zolana/prover-tee/v1/report";

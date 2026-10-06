@@ -5,10 +5,13 @@ use hpke::{
 use serde::Deserialize;
 
 use super::{
+    dstack::{DstackEvidence, DstackPolicy},
     encryption::{decrypt_response, request_aad},
+    platform::Evidence,
     verify,
     verify::report_data,
-    Attestation, EncryptedRequest, TeeError, TeePolicy, HPKE_INFO, RESPONSE_EXPORT,
+    Attestation, EncryptedRequest, Platform, PlatformPolicy, TeeError, TeePolicy, TeePolicyFile,
+    HPKE_INFO, RESPONSE_EXPORT,
 };
 
 const PROBE_ATTESTATION: &str =
@@ -36,6 +39,29 @@ fn probe() -> (Attestation, TeePolicy, u64) {
     )
 }
 
+fn nitro_policy() -> serde_json::Value {
+    serde_json::json!({
+        "platform": "aws-nitro",
+        "measurements": [{"pcr0": "01".repeat(48), "pcr1": "02".repeat(48), "pcr2": "03".repeat(48)}],
+        "gpu": "optional",
+        "max_age_secs": 60,
+    })
+}
+
+fn dstack_pins(policy: &mut TeePolicy) -> &mut DstackPolicy {
+    match &mut policy.pins {
+        PlatformPolicy::DstackTdx(pins) => pins,
+        pins => panic!("{} policy", pins.platform()),
+    }
+}
+
+fn dstack_evidence(attestation: &mut Attestation) -> &mut DstackEvidence {
+    match &mut attestation.evidence {
+        Evidence::DstackTdx(evidence) => evidence,
+        Evidence::AwsNitro(_) => panic!("Nitro evidence"),
+    }
+}
+
 #[test]
 fn a_real_quote_passes_every_check_before_report_data() {
     let (attestation, policy, now) = probe();
@@ -49,10 +75,10 @@ fn a_real_quote_passes_every_check_before_report_data() {
 fn each_policy_check_refuses_with_its_own_error() {
     type Edit = fn(&mut Attestation, &mut TeePolicy, &mut u64);
     type Expected = fn(&TeeError) -> bool;
-    let cases: [(&str, Edit, Expected); 10] = [
+    let cases: [(&str, Edit, Expected); 11] = [
         (
             "quote signature",
-            |e, _, _| e.quote[700] ^= 1,
+            |e, _, _| dstack_evidence(e).quote[700] ^= 1,
             |e| matches!(e, TeeError::Quote(_)),
         ),
         (
@@ -62,18 +88,18 @@ fn each_policy_check_refuses_with_its_own_error() {
         ),
         (
             "tcb status",
-            |_, p, _| p.tcb_statuses.clear(),
+            |_, p, _| dstack_pins(p).tcb_statuses.clear(),
             |e| matches!(e, TeeError::TcbStatus { .. }),
         ),
         (
             "os measurement",
-            |_, p, _| p.measurements[0].rtmr1[0] ^= 1,
+            |_, p, _| dstack_pins(p).measurements[0].rtmr1[0] ^= 1,
             |e| matches!(e, TeeError::MeasurementNotAllowed),
         ),
         (
             "swapped event payload",
             |e, _, _| {
-                let event = e
+                let event = dstack_evidence(e)
                     .event_log
                     .iter_mut()
                     .find(|ev| ev.event == "compose-hash")
@@ -84,28 +110,33 @@ fn each_policy_check_refuses_with_its_own_error() {
         ),
         (
             "app id",
-            |_, p, _| p.app_id[0] ^= 1,
+            |_, p, _| dstack_pins(p).app_id[0] ^= 1,
             |e| matches!(e, TeeError::AppIdMismatch(_)),
         ),
         (
             "compose hash",
-            |_, p, _| p.compose_hashes.clear(),
+            |_, p, _| dstack_pins(p).compose_hashes.clear(),
             |e| matches!(e, TeeError::ComposeHashNotAllowed(_)),
         ),
         (
             "os image",
-            |_, p, _| p.os_image_hashes.clear(),
+            |_, p, _| dstack_pins(p).os_image_hashes.clear(),
             |e| matches!(e, TeeError::OsImageNotAllowed(_)),
         ),
         (
             "key provider",
-            |_, p, _| p.key_provider_id.clear(),
+            |_, p, _| dstack_pins(p).key_provider_id.clear(),
             |e| matches!(e, TeeError::KeyProviderMismatch),
         ),
         (
             "hpke key",
-            |_, p, _| p.hpke_public_key[0] ^= 1,
+            |_, p, _| dstack_pins(p).hpke_public_key[0] ^= 1,
             |e| matches!(e, TeeError::HpkeKeyMismatch),
+        ),
+        (
+            "platform",
+            |_, p, _| *p = TeePolicy::from_json(&nitro_policy().to_string()).unwrap(),
+            |e| matches!(e, TeeError::PlatformMismatch { .. }),
         ),
     ];
     for (name, edit, expected) in cases {
@@ -123,6 +154,27 @@ struct LiveFixture {
     attestation: serde_json::Value,
 }
 
+/// A live Nitro enclave's answer, signed by the real AWS chain.
+#[test]
+fn the_live_nitro_enclave_passes_the_aws_chain_and_its_pinned_image() {
+    let fixture: LiveFixture = serde_json::from_str(include_str!(
+        "../../../../../prover/tee/testdata/nitro_live_attestation.json"
+    ))
+    .unwrap();
+    let nonce = bytes::<32>(&fixture.nonce);
+    let attestation =
+        || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
+    let file: TeePolicyFile = serde_json::from_str(include_str!(
+        "../../../../../prover/tee/testdata/nitro_live_policy.json"
+    ))
+    .unwrap();
+    let policy = file.deployment.unwrap();
+    let prover = verify(attestation(), &policy, &nonce, fixture.captured_at).unwrap();
+    assert_eq!(prover.platform, Platform::AwsNitro);
+    assert!(!prover.gpu_verified);
+    assert!(verify(attestation(), &policy, &[0; 32], fixture.captured_at).is_err());
+}
+
 /// A live H200 prover's answer to a recorded nonce, quote and GPU verdict included.
 #[test]
 fn the_archived_deployment_accepts_its_attestation() {
@@ -130,17 +182,70 @@ fn the_archived_deployment_accepts_its_attestation() {
     let nonce = bytes::<32>(&fixture.nonce);
     let attestation =
         || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
-    let file: serde_json::Value = serde_json::from_str(include_str!(
+    let file: TeePolicyFile = serde_json::from_str(include_str!(
         "../../../../../prover/tee/testdata/live_policy.json"
     ))
     .unwrap();
-    let policy: TeePolicy = serde_json::from_value(file["deployment"].clone()).unwrap();
+    let policy = file.deployment.unwrap();
     let prover = verify(attestation(), &policy, &nonce, fixture.captured_at).unwrap();
     assert!(prover.gpu_verified);
+    assert_eq!(prover.platform, Platform::DstackTdx);
+    assert_eq!(prover.tcb_status.as_deref(), Some("UpToDate"));
+    let PlatformPolicy::DstackTdx(pins) = policy.pins() else {
+        panic!("not a dstack policy");
+    };
+    assert!(pins
+        .compose_hashes
+        .iter()
+        .any(|hash| hash[..] == prover.image_id));
     assert!(matches!(
         verify(attestation(), &policy, &[0; 32], fixture.captured_at),
         Err(TeeError::ReportDataMismatch)
     ));
+}
+
+#[test]
+fn a_policy_names_its_platform_and_only_that_platforms_pins() {
+    let probe: serde_json::Value = serde_json::from_str(PROBE_POLICY).unwrap();
+    let nitro = nitro_policy();
+    for policy in [&probe, &nitro] {
+        let parsed = TeePolicy::from_json(&policy.to_string()).unwrap();
+        assert_eq!(policy["platform"], parsed.platform().as_str());
+    }
+    let refused = |base: &serde_json::Value, key: &str, value: serde_json::Value| {
+        let mut edited = base.clone();
+        match value {
+            serde_json::Value::Null => edited.as_object_mut().unwrap().remove(key),
+            value => edited.as_object_mut().unwrap().insert(key.into(), value),
+        };
+        assert!(
+            matches!(
+                TeePolicy::from_json(&edited.to_string()),
+                Err(TeeError::Policy(_))
+            ),
+            "{key}"
+        );
+    };
+    refused(&probe, "pcr0", nitro["measurements"][0]["pcr0"].clone());
+    refused(&nitro, "app_id", probe["app_id"].clone());
+    refused(&nitro, "measurements", probe["measurements"].clone());
+    refused(&probe, "platform", "aws-nitro".into());
+    refused(&probe, "platform", "amd-sev-snp".into());
+    refused(&probe, "platform", serde_json::Value::Null);
+    refused(&nitro, "unknown", true.into());
+}
+
+#[test]
+fn every_parse_path_refuses_a_gpu_the_platform_cannot_attest() {
+    let mut policy = nitro_policy();
+    policy["gpu"] = "required".into();
+    assert!(matches!(
+        TeePolicy::from_json(&policy.to_string()),
+        Err(TeeError::Policy(_))
+    ));
+    assert!(serde_json::from_value::<TeePolicy>(policy.clone()).is_err());
+    let file = serde_json::json!({ "deployment": policy });
+    assert!(serde_json::from_value::<TeePolicyFile>(file).is_err());
 }
 
 #[derive(Deserialize)]
@@ -290,14 +395,12 @@ fn encrypted_responses_reject_tampering_and_truncation() {
 
 #[test]
 fn the_release_policy_matches_its_pin_file() {
-    let file: serde_json::Value = serde_json::from_str(include_str!("policy.json")).unwrap();
-    if file["deployment"].is_null() {
-        assert!(matches!(
+    let file: TeePolicyFile = serde_json::from_str(include_str!("policy.json")).unwrap();
+    match file.deployment {
+        None => assert!(matches!(
             TeePolicy::default_deployment(),
             Err(TeeError::NoDefaultDeployment)
-        ));
-    } else {
-        let expected: TeePolicy = serde_json::from_value(file["deployment"].clone()).unwrap();
-        assert_eq!(TeePolicy::default_deployment().unwrap(), expected);
+        )),
+        Some(expected) => assert_eq!(TeePolicy::default_deployment().unwrap(), expected),
     }
 }

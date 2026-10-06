@@ -1,25 +1,38 @@
-use serde::Deserialize;
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use std::fmt;
+
+use sha2::{Digest, Sha256, Sha512};
 
 use super::{
-    Attestation, EventLogEntry, GpuRequirement, Measurement, TeeError, TeePolicy, REPORT_DOMAIN,
+    platform::{mismatch, Anchors},
+    Attestation, GpuRequirement, Platform, PlatformIdentity, TeeError, TeePolicy, NONCE_SIZE,
+    REPORT_DOMAIN,
 };
-
-/// TCG event type of every dstack runtime event in RTMR3.
-const RUNTIME_EVENT_TYPE: u32 = 0x0800_0001;
 
 /// A prover that passed [`verify`] for one session nonce.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AttestedProver {
+    pub platform: Platform,
     pub hpke_public_key: [u8; 32],
-    pub tcb_status: String,
-    pub compose_hash: [u8; 32],
+    /// The dstack compose hash or the Nitro PCR0.
+    pub image_id: Vec<u8>,
+    pub tcb_status: Option<String>,
     pub gpu_verified: bool,
 }
 
-/// Binds the session nonce, the encryption key and the NRAS digest into the quote, zeros without a GPU.
+/// What verified evidence proves about the prover, before any policy applies.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttestedIdentity {
+    pub hpke_public_key: [u8; 32],
+    pub report_data: [u8; 64],
+    /// The raw NRAS response the prover verified inside the TEE.
+    pub gpu: Option<String>,
+    pub platform: PlatformIdentity,
+}
+
+/// Binds the session nonce, the encryption key and the NRAS digest into the evidence, zeros without a GPU.
 pub fn report_data(
-    nonce: &[u8; 32],
+    nonce: &[u8; NONCE_SIZE],
     hpke_public_key: &[u8; 32],
     gpu_token: Option<&[u8]>,
 ) -> [u8; 64] {
@@ -33,160 +46,134 @@ pub fn report_data(
         .into()
 }
 
-/// What a verified quote proves about the prover, before any policy applies.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AttestedIdentity {
-    pub tcb_status: String,
-    pub measurement: Measurement,
-    pub app_id: [u8; 20],
-    pub compose_hash: [u8; 32],
-    pub os_image_hash: [u8; 32],
-    pub key_provider: KeyProvider,
-    pub hpke_public_key: [u8; 32],
-    pub report_data: [u8; 64],
-    /// The raw NRAS response the prover verified inside the TEE.
-    pub gpu: Option<String>,
-}
-
-/// The key-provider runtime event, the source of the app's derived keys.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct KeyProvider {
-    pub name: String,
-    #[serde(with = "hex")]
-    pub id: Vec<u8>,
-}
-
-/// Checks only what Intel and the event log prove, the quote signature at
-/// `now_secs`, the RTMR3 replay and the identity events it carries.
+/// Checks only what the platform vendor proves at `now_secs`, before any pin applies.
 pub fn inspect(attestation: Attestation, now_secs: u64) -> Result<AttestedIdentity, TeeError> {
-    let verified =
-        dcap_qvl::verify::verify(&attestation.quote, &attestation.collateral.into(), now_secs)
-            .map_err(|e| TeeError::Quote(format!("{e:#}")))?;
-    let report = verified
-        .report
-        .as_td10()
-        .ok_or_else(|| TeeError::Quote("not a TDX quote".into()))?;
-    let events = runtime_events(&attestation.event_log, &report.rt_mr3)?;
-    let key_provider = serde_json::from_slice(single(&events, "key-provider")?)
-        .map_err(|_| TeeError::RuntimeEvent("key-provider"))?;
-    Ok(AttestedIdentity {
-        tcb_status: verified.status.clone(),
-        measurement: Measurement {
-            mrtd: report.mr_td,
-            rtmr0: report.rt_mr0,
-            rtmr1: report.rt_mr1,
-            rtmr2: report.rt_mr2,
-        },
-        app_id: fixed(&events, "app-id")?,
-        compose_hash: fixed(&events, "compose-hash")?,
-        os_image_hash: fixed(&events, "os-image-hash")?,
-        key_provider,
-        hpke_public_key: attestation.hpke_public_key,
-        report_data: report.report_data,
-        gpu: attestation.gpu,
-    })
+    Trust::at(now_secs).inspect(attestation)
 }
 
-/// Accepts the attestation only if Intel signed a TDX quote whose measurements,
-/// app identity and report_data all match `policy` and `nonce` at `now_secs`.
+/// Accepts the attestation only if its platform evidence, pins and report_data
+/// all match `policy` and `nonce` at `now_secs`.
 pub fn verify(
     attestation: Attestation,
     policy: &TeePolicy,
-    nonce: &[u8; 32],
+    nonce: &[u8; NONCE_SIZE],
     now_secs: u64,
 ) -> Result<AttestedProver, TeeError> {
-    let identity = inspect(attestation, now_secs)?;
-    if !policy.tcb_statuses.contains(&identity.tcb_status) {
-        return Err(TeeError::TcbStatus {
-            status: identity.tcb_status,
-        });
-    }
-    if !policy.measurements.contains(&identity.measurement) {
-        return Err(TeeError::MeasurementNotAllowed);
-    }
-    if identity.app_id != policy.app_id {
-        return Err(TeeError::AppIdMismatch(hex::encode(identity.app_id)));
-    }
-    if !policy.compose_hashes.contains(&identity.compose_hash) {
-        return Err(TeeError::ComposeHashNotAllowed(hex::encode(
-            identity.compose_hash,
-        )));
-    }
-    if !policy.os_image_hashes.contains(&identity.os_image_hash) {
-        return Err(TeeError::OsImageNotAllowed(hex::encode(
-            identity.os_image_hash,
-        )));
-    }
-    if identity.key_provider.name != "kms" || identity.key_provider.id != policy.key_provider_id {
-        return Err(TeeError::KeyProviderMismatch);
-    }
-    if identity.hpke_public_key != policy.hpke_public_key {
-        return Err(TeeError::HpkeKeyMismatch);
-    }
-    let gpu_token = identity.gpu.as_deref().map(str::as_bytes);
-    if identity.report_data != report_data(nonce, &identity.hpke_public_key, gpu_token) {
-        return Err(TeeError::ReportDataMismatch);
-    }
-    if policy.gpu == GpuRequirement::Required && gpu_token.is_none() {
-        return Err(TeeError::GpuEvidenceMissing);
-    }
-    Ok(AttestedProver {
-        hpke_public_key: identity.hpke_public_key,
-        tcb_status: identity.tcb_status,
-        compose_hash: identity.compose_hash,
-        gpu_verified: gpu_token.is_some(),
-    })
+    Trust::at(now_secs).verify(attestation, Session { policy, nonce })
 }
 
-/// Recomputes every RTMR3 digest from its `event_payload` before replaying to
-/// `rtmr3`, so swapped event content fails even when the digests replay.
-fn runtime_events<'a>(
-    log: &'a [EventLogEntry],
-    rtmr3: &[u8; 48],
-) -> Result<Vec<&'a EventLogEntry>, TeeError> {
-    let mut replayed = [0u8; 48];
-    let mut events = Vec::new();
-    for entry in log.iter().filter(|entry| entry.imr == 3) {
-        if entry.event_type != RUNTIME_EVENT_TYPE {
-            return Err(TeeError::EventLogMismatch);
+impl fmt::Display for AttestedProver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}, image {}",
+            self.platform,
+            hex::encode(&self.image_id)
+        )?;
+        if let Some(status) = &self.tcb_status {
+            write!(f, ", TCB {status}")?;
         }
-        let digest = Sha384::new()
-            .chain_update(RUNTIME_EVENT_TYPE.to_le_bytes())
-            .chain_update(b":")
-            .chain_update(entry.event.as_bytes())
-            .chain_update(b":")
-            .chain_update(&entry.event_payload)
-            .finalize();
-        // The guest agent's GetQuote leaves RTMR3 digests empty, a stated one must still match.
-        if !entry.digest.is_empty() && digest.as_slice() != entry.digest {
-            return Err(TeeError::EventLogMismatch);
+        let gpu = if self.gpu_verified {
+            "verified"
+        } else {
+            "absent"
+        };
+        write!(f, ", GPU {gpu}")
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Trust<'a> {
+    pub now_secs: u64,
+    pub anchors: &'a Anchors,
+}
+
+pub(super) struct Session<'a> {
+    pub policy: &'a TeePolicy,
+    pub nonce: &'a [u8; NONCE_SIZE],
+}
+
+pub struct Claims<'a> {
+    pub hpke_public_key: &'a [u8; 32],
+    pub gpu: Option<&'a str>,
+    pub nonce: &'a [u8; NONCE_SIZE],
+}
+
+pub struct Measured<I> {
+    pub identity: I,
+    pub report_data: [u8; 64],
+}
+
+impl Trust<'static> {
+    fn at(now_secs: u64) -> Self {
+        Self {
+            now_secs,
+            anchors: &Anchors::PRODUCTION,
         }
-        replayed = Sha384::new()
-            .chain_update(replayed)
-            .chain_update(digest)
-            .finalize()
-            .into();
-        events.push(entry);
     }
-    if &replayed != rtmr3 {
-        return Err(TeeError::EventLogMismatch);
-    }
-    Ok(events)
 }
 
-fn fixed<const N: usize>(
-    events: &[&EventLogEntry],
-    name: &'static str,
-) -> Result<[u8; N], TeeError> {
-    single(events, name)?
-        .try_into()
-        .map_err(|_| TeeError::RuntimeEvent(name))
+impl Trust<'_> {
+    pub(super) fn inspect(self, attestation: Attestation) -> Result<AttestedIdentity, TeeError> {
+        let Attestation {
+            hpke_public_key,
+            gpu,
+            evidence,
+        } = attestation;
+        let platform = evidence.platform();
+        if gpu.is_some() && !platform.hosts_gpu() {
+            return Err(TeeError::MalformedAttestation(format!(
+                "{platform} hosts no GPU, gpu must be null"
+            )));
+        }
+        let measured = evidence.inspect(self)?;
+        Ok(AttestedIdentity {
+            hpke_public_key,
+            report_data: measured.report_data,
+            gpu,
+            platform: measured.identity,
+        })
+    }
+
+    pub(super) fn verify(
+        self,
+        attestation: Attestation,
+        session: Session<'_>,
+    ) -> Result<AttestedProver, TeeError> {
+        let Session { policy, nonce } = session;
+        if attestation.platform() != policy.platform() {
+            return Err(mismatch(policy.platform(), attestation.platform()));
+        }
+        let identity = self.inspect(attestation)?;
+        let platform = identity.platform.platform();
+        let claims = Claims {
+            hpke_public_key: &identity.hpke_public_key,
+            gpu: identity.gpu.as_deref(),
+            nonce,
+        };
+        identity.platform.check(policy.pins(), &claims)?;
+        let gpu_token = claims.gpu.map(str::as_bytes);
+        if identity.report_data != report_data(nonce, &identity.hpke_public_key, gpu_token) {
+            return Err(TeeError::ReportDataMismatch);
+        }
+        if policy.gpu() == GpuRequirement::Required && gpu_token.is_none() {
+            return Err(TeeError::GpuEvidenceMissing);
+        }
+        Ok(AttestedProver {
+            platform,
+            hpke_public_key: identity.hpke_public_key,
+            image_id: identity.platform.image_id(),
+            tcb_status: identity.platform.tcb_status(),
+            gpu_verified: gpu_token.is_some(),
+        })
+    }
 }
 
-fn single<'a>(events: &[&'a EventLogEntry], name: &'static str) -> Result<&'a [u8], TeeError> {
-    let mut matching = events.iter().filter(|event| event.event == name);
-    match (matching.next(), matching.next()) {
-        (Some(event), None) => Ok(&event.event_payload),
-        _ => Err(TeeError::RuntimeEvent(name)),
+impl<I> Measured<I> {
+    pub(super) fn map<J>(self, wrap: impl FnOnce(I) -> J) -> Measured<J> {
+        Measured {
+            identity: wrap(self.identity),
+            report_data: self.report_data,
+        }
     }
 }
