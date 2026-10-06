@@ -28,8 +28,9 @@ route() {
     port=${port:-443}
     printf '%s\n' "$host" | grep -Eqx '([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]' \
         || fail "$1 needs a lowercase DNS host without credentials"
-    printf '%s\n' "$port" | grep -Eqx '[1-9][0-9]{0,4}' && [ "$port" -le 65535 ] \
-        || fail "$1 has an invalid port"
+    if ! printf '%s\n' "$port" | grep -Eqx '[1-9][0-9]{0,4}' || [ "$port" -gt 65535 ]; then
+        fail "$1 has an invalid port"
+    fi
     case $seen in
         *" $host "*) fail "$host is routed twice" ;;
     esac
