@@ -108,8 +108,11 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    The command creates the stack, installs the host through SSM, builds the EIF and starts the enclave.
    It waits for readiness and checks that CloudFront refuses a request without the key.
    It fails with `MEASUREMENT MISMATCH` when the PCRs the parent built differ from `pcrs.json`, and the deployment stays unfinished.
-   It then fetches an attestation and checks that the document carries the PCRs of `pcrs.json`.
-   It prints the URL, the API key secret ARN, the instance, the log group and the PCRs.
+   It then runs `cargo run -q -p xtask -- tee-check` from the repository root with a policy that pins the PCRs of `pcrs.json`, and passes the API key in `PROVER_API_KEY`.
+   `tee-check` verifies the attestation certificate chain to the AWS root, the PCRs, the nonce and the HPKE key binding.
+   It then checks the proving keys over the encrypted channel.
+   The deployment stays unfinished until `tee-check` passes, so run deploy from a checkout of this repository with its Rust toolchain.
+   Deploy prints the URL, the API key secret ARN, the instance, the log group and the PCRs.
    The parent PCRs also stay in the stack bucket under `install/measurements.json`.
 
    ```sh

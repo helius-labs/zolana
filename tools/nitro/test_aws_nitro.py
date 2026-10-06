@@ -70,6 +70,42 @@ def routes(indexer=""):
     return outcome.returncode, outcome.stdout, outcome.stderr
 
 
+def resume(parent):
+    aws = Mock()
+    aws.call.return_value = {"SecretString": "secret"}
+    out = {"Bucket": "b", "ApiKeySecret": "s", "Url": "https://x"}
+    stack = {
+        "Parameters": [
+            {"ParameterKey": "Config", "ParameterValue": json.dumps(config())}
+        ]
+    }
+    args = argparse.Namespace(
+        plan=False,
+        name="zolana-nitro-test",
+        image=None,
+        indexer_url=None,
+        instance_type=None,
+        zone=None,
+        expect_pcrs=PCR,
+    )
+    try:
+        with (
+            patch.object(aws_nitro.gpu, "wait_stack", return_value={}),
+            patch.object(aws_nitro.gpu, "outputs", return_value=out),
+            patch.object(aws_nitro.gpu, "object_exists", return_value=True),
+            patch.object(aws_nitro.gpu, "check_gateway"),
+            patch.object(aws_nitro.gpu, "log"),
+            patch.object(aws_nitro, "read_measurements", return_value=parent),
+            patch.object(aws_nitro, "show"),
+        ):
+            aws_nitro.deploy(args, aws, stack)
+    except Exception:
+        aws.command.assert_not_called()
+        raise
+    marker = aws.command.call_args.args
+    assert marker[:2] == ("s3", "cp") and marker[-2].endswith("/install/complete")
+
+
 class StackTests(unittest.TestCase):
     def test_instance_runs_enclaves_behind_cloudfront_only(self):
         resources = aws_nitro.template(config())["Resources"]
@@ -190,36 +226,13 @@ class StackTests(unittest.TestCase):
         )
 
     def test_deploy_refuses_parent_measurements_that_differ_from_measure(self):
-        aws = Mock()
-        out = {"Bucket": "b", "ApiKeySecret": "s", "Url": "https://x"}
-        stack = {
-            "Parameters": [
-                {"ParameterKey": "Config", "ParameterValue": json.dumps(config())}
-            ]
-        }
-        args = argparse.Namespace(
-            plan=False,
-            name="zolana-nitro-test",
-            image=None,
-            indexer_url=None,
-            instance_type=None,
-            zone=None,
-            expect_pcrs=PCR,
-        )
         parent = dict(PCR, PCR0="f" * 96, nitro_cli="Nitro CLI 9.9.9")
         with (
-            patch.object(aws_nitro.gpu, "wait_stack", return_value={}),
-            patch.object(aws_nitro.gpu, "outputs", return_value=out),
-            patch.object(aws_nitro.gpu, "object_exists", return_value=True),
-            patch.object(aws_nitro.gpu, "check_gateway"),
-            patch.object(aws_nitro.gpu, "log"),
-            patch.object(aws_nitro, "read_measurements", return_value=parent),
             patch.object(aws_nitro, "check_attestation") as attestation,
             self.assertRaisesRegex(RuntimeError, "MEASUREMENT MISMATCH(.|\n)*PCR0"),
         ):
-            aws_nitro.deploy(args, aws, stack)
+            resume(parent)
         attestation.assert_not_called()
-        aws.command.assert_not_called()
 
     def test_expected_pcrs_need_every_measure_pcr(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -295,31 +308,52 @@ class StackTests(unittest.TestCase):
 
 
 class AttestationTests(unittest.TestCase):
-    def check(self, attestation):
-        aws = Mock()
-        aws.call.return_value = {"SecretString": "secret"}
-        response = Mock()
-        response.__enter__ = Mock(return_value=response)
-        response.__exit__ = Mock(return_value=False)
-        response.read.return_value = json.dumps(attestation).encode()
-        out = {"ApiKeySecret": "arn", "Url": "https://example.cloudfront.net"}
-        with patch.object(
-            aws_nitro.urllib.request, "urlopen", return_value=response
-        ) as urlopen:
-            aws_nitro.check_attestation(aws, out, PCR)
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.get_header("X-api-key"), "secret")
-        self.assertRegex(request.full_url, r"/tee/v1/attestation\?nonce=[0-9a-f]{64}$")
+    def verify(self, returncode):
+        seen = {}
 
-    def test_document_must_carry_every_built_pcr(self):
-        document = b"cbor" + b"".join(bytes.fromhex(value) for value in PCR.values())
-        evidence = {"document": document.hex()}
-        self.check({"platform": "aws-nitro", "gpu": None, "evidence": evidence})
-        missing = {"document": document[:-1].hex()}
-        with self.assertRaisesRegex(RuntimeError, "PCR2"):
-            self.check({"platform": "aws-nitro", "gpu": None, "evidence": missing})
-        with self.assertRaisesRegex(RuntimeError, "Nitro"):
-            self.check({"platform": "dstack-tdx", "gpu": None, "evidence": evidence})
+        def tee_check(command, **kwargs):
+            seen.update(kwargs, command=command)
+            seen["policy"] = json.loads(Path(command[-1]).read_text())
+            return subprocess.CompletedProcess(command, returncode)
+
+        with patch.object(aws_nitro.subprocess, "run", side_effect=tee_check):
+            resume(PCR)
+        return seen
+
+    def test_deploy_marks_complete_only_after_tee_check_passes(self):
+        with self.assertRaisesRegex(RuntimeError, "tee-check(.|\n)*repository root"):
+            self.verify(1)
+        self.verify(0)
+
+    def test_policy_pins_exactly_the_expected_pcrs(self):
+        self.assertEqual(
+            self.verify(0)["policy"],
+            {
+                "platform": "aws-nitro",
+                "measurements": [
+                    {"pcr0": PCR["PCR0"], "pcr1": PCR["PCR1"], "pcr2": PCR["PCR2"]}
+                ],
+                "gpu": "optional",
+                "max_age_secs": 600,
+            },
+        )
+
+    def test_key_reaches_tee_check_only_through_the_environment(self):
+        seen = self.verify(0)
+        self.assertEqual(
+            seen["command"][:-1],
+            [*aws_nitro.TEE_CHECK, "https://x", "--policy"],
+        )
+        self.assertFalse(any("secret" in part for part in seen["command"]))
+        self.assertEqual(seen["env"]["PROVER_API_KEY"], "secret")
+        self.assertEqual(seen["cwd"], REPOSITORY)
+
+    def test_missing_cargo_names_the_requirement(self):
+        with (
+            patch.object(aws_nitro.subprocess, "run", side_effect=FileNotFoundError),
+            self.assertRaisesRegex(RuntimeError, "cargo(.|\n)*repository root"),
+        ):
+            resume(PCR)
 
 
 class HostTests(unittest.TestCase):

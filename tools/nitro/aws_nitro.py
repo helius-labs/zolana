@@ -4,16 +4,14 @@ import functools
 import json
 import os
 import re
-import secrets
 import subprocess
 import sys
 import tempfile
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 GPU = HERE.parent / "gpu"
+REPOSITORY = HERE.parents[1]
 sys.path.append(str(GPU))
 
 import aws as gpu  # noqa: E402
@@ -34,6 +32,8 @@ DISK_GB = 30
 PARENT_VCPUS = 4
 PARENT_MIB = 16384
 MIN_ENCLAVE_MIB = 24576
+TEE_CHECK = ("cargo", "run", "-q", "-p", "xtask", "--", "tee-check")
+VERIFY_TIMEOUT = 1800
 
 
 def template(config):
@@ -184,21 +184,37 @@ def check_measurements(expected, measured):
         )
 
 
+def attestation_policy(measurements):
+    return {
+        "platform": "aws-nitro",
+        "measurements": [{name.lower(): measurements[name] for name in PCRS}],
+        "gpu": "optional",
+        "max_age_secs": 600,
+    }
+
+
 def check_attestation(aws, out, measurements):
-    key = gpu.api_key(aws, out)
-    request = urllib.request.Request(
-        f"{out['Url']}/tee/v1/attestation?nonce={secrets.token_hex(32)}",
-        headers={"X-API-Key": key},
+    refused = (
+        f"Enclave at {out['Url']} failed tee-check. Do not pin this deployment.\n"
+        "Deploy verifies the enclave with cargo run -p xtask from the repository root"
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        attestation = json.load(response)
-    if attestation.get("platform") != "aws-nitro" or attestation.get("gpu") is not None:
-        raise RuntimeError("Prover does not attest as a Nitro Enclave")
-    document = bytes.fromhex(attestation["evidence"]["document"])
-    # A byte match only, xtask tee-policy verifies the document.
-    for name in PCRS:
-        if bytes.fromhex(measurements[name]) not in document:
-            raise RuntimeError(f"Running enclave {name} differs from the built EIF")
+    with tempfile.TemporaryDirectory() as directory:
+        policy = Path(directory) / "policy.json"
+        policy.write_text(json.dumps(attestation_policy(measurements)))
+        try:
+            result = subprocess.run(
+                [*TEE_CHECK, out["Url"], "--policy", str(policy)],
+                cwd=REPOSITORY,
+                env=os.environ | {"PROVER_API_KEY": gpu.api_key(aws, out)},
+                # Deploy stdout carries only the JSON summary.
+                stdout=sys.stderr,
+                timeout=VERIFY_TIMEOUT,
+                check=False,
+            )
+        except FileNotFoundError as error:
+            raise RuntimeError(refused) from error
+    if result.returncode:
+        raise RuntimeError(refused)
 
 
 def show(stack, measurements=None):
