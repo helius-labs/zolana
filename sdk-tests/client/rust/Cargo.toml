@@ -12,6 +12,7 @@ path = "src/lib.rs"
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 solana-address = { workspace = true }
+solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }

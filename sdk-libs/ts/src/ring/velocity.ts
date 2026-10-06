@@ -105,6 +105,7 @@ export interface PlanVelocityInput {
   readonly movement: RingMovement;
   readonly firstNullifier: Bytes32;
   readonly outputBlindingSeed: Bytes32;
+  /** The real money inputs and outputs, padding excluded; the record follows the last real output. */
   readonly moneyShape: Shape;
 }
 

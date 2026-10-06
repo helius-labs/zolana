@@ -232,7 +232,7 @@ pub(crate) struct VelocityPlanInput<'a> {
     pub salt: [u8; 16],
     pub first_nullifier: [u8; 32],
     pub output_blinding_seed: [u8; 32],
-    /// The money slots the record follows, dummies included.
+    /// The real money slots, padding excluded; the record follows the last real output.
     pub money_shape: Shape,
 }
 
@@ -514,6 +514,7 @@ mod tests {
         assert_eq!(record_shape(Shape::new(1, 1)).unwrap(), Shape::IN2_OUT2);
         assert_eq!(record_shape(Shape::IN1_OUT2).unwrap(), Shape::IN2_OUT4);
         assert_eq!(record_shape(Shape::IN2_OUT2).unwrap(), Shape::IN3_OUT4);
+        assert_eq!(record_shape(Shape::new(1, 3)).unwrap(), Shape::IN2_OUT4);
         assert_eq!(record_shape(Shape::new(2, 3)).unwrap(), Shape::IN3_OUT4);
         assert_eq!(record_shape(Shape::new(3, 3)).unwrap(), Shape::IN4_OUT4);
         assert_eq!(record_shape(Shape::IN4_OUT2).unwrap(), Shape::IN5_OUT4);

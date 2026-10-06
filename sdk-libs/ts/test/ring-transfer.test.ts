@@ -1633,6 +1633,7 @@ describe("record slot trees", () => {
     const shape = recordShape(prepared.shape);
     return prepared.withAppendedSlot({
       shape,
+      recordSlot: prepared.shape.outputs,
       input: spend(owner, 0n, 40, recordTree),
       output: createProofOutput({
         ownerAddress: owner.address,
@@ -1680,6 +1681,47 @@ describe("record slot trees", () => {
       scalar(1),
       scalar(0),
     ]);
+  });
+
+  it("plans the record from the real outputs, not the padded shape", () => {
+    const sender = actor(3);
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [spend(sender, 10n, 6, 0)],
+      sender.address.solanaAddress(),
+    ).withRingProgramId(RING);
+    transfer.send(actor(4).address, SOL_MINT, 2n);
+    transfer.send(actor(5).address, SOL_MINT, 3n);
+    const prepared = transfer.prepare();
+    expect(prepared.outputs).toHaveLength(3);
+    expect(prepared.shape).toEqual({ inputs: 1, outputs: 4 });
+    expect(() => recordShape(prepared.shape)).toThrow("RING_BUILD_TRANSFER");
+    const shape = recordShape({ inputs: 1, outputs: prepared.outputs.length });
+    expect(shape).toEqual({ inputs: 2, outputs: 4 });
+    const recordOutput = createProofOutput({
+      ownerAddress: sender.address,
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: transactOutputBlinding(
+        prepared.firstNullifier,
+        prepared.outputBlindingSeed(),
+        prepared.outputs.length,
+      ),
+    });
+    const record = (recordSlot: number) =>
+      prepared.withAppendedSlot({
+        shape,
+        recordSlot,
+        input: spend(sender, 0n, 40, 0),
+        output: recordOutput,
+      });
+    expect(() => record(2)).toThrow("TRANSACTION_UNSUPPORTED_SHAPE");
+    expect(() => record(4)).toThrow("TRANSACTION_UNSUPPORTED_SHAPE");
+    const extended = record(prepared.outputs.length);
+    expect(extended.shape).toEqual(shape);
+    expect(extended.outputs.slice(0, 3)).toEqual(prepared.outputs);
+    expect(extended.outputs.indexOf(recordOutput)).toBe(3);
+    expect(extended.outputs).toHaveLength(4);
   });
 
   it("refuses a record from a third tree", () => {

@@ -102,7 +102,9 @@ proof still proves the sender owns every input it draws from the cache.
 
 ### Flow
 
-1. Detect that 54 UTXOs exceed the widest transfer shape.
+1. Detect that 53 UTXOs exceed the widest transfer shape. 53 is the most one
+   merge can spend while the cache creation shares its 4,096-byte transaction;
+   the merge proves on the 54-input circuit with one compact padding slot.
 2. Build the merge proof inputs for one slot of one cache account, and the
    transfer proof inputs from the merge's predicted output.
 3. Prove the merge and the transfer concurrently.

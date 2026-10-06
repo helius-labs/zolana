@@ -78,6 +78,7 @@ describe("velocity outflow and charge", () => {
     expect(at(1, 1)).toEqual({ inputs: 2, outputs: 2 });
     expect(at(1, 2)).toEqual({ inputs: 2, outputs: 4 });
     expect(at(2, 2)).toEqual({ inputs: 3, outputs: 4 });
+    expect(at(1, 3)).toEqual({ inputs: 2, outputs: 4 });
     expect(at(2, 3)).toEqual({ inputs: 3, outputs: 4 });
     expect(at(3, 3)).toEqual({ inputs: 4, outputs: 4 });
     expect(at(4, 3)).toEqual({ inputs: 5, outputs: 4 });

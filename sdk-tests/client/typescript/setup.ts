@@ -7,6 +7,7 @@ import {
   assertIsTransactionWithBlockhashLifetime,
   getAddressEncoder,
   getProgramDerivedAddress,
+  getTransactionSize,
   getSignatureFromTransaction,
   createSolanaRpc,
   createSolanaRpcSubscriptions,
@@ -39,6 +40,7 @@ import {
   type Bytes32,
   type ZolanaClientConfig,
 } from "@heliuslabs/zolana";
+import { TRANSACTION_SIZE_LIMIT } from "@heliuslabs/zolana/interface";
 
 // The SDK's localnet default; the airdrop is a localnet-only operation and
 // targets the same validator the client connects to.
@@ -187,6 +189,12 @@ export function sendAndConfirmFactory(
       ),
     );
     assertIsTransactionWithBlockhashLifetime(signed);
+    const size = getTransactionSize(signed);
+    if (size > TRANSACTION_SIZE_LIMIT) {
+      throw new Error(
+        `transaction is ${String(size)} bytes, over ${String(TRANSACTION_SIZE_LIMIT)}`,
+      );
+    }
     await sendTransaction(signed, { commitment: "confirmed" });
     const signature = getSignatureFromTransaction(signed);
     const slot = await client.confirmTransaction(signature);

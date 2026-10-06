@@ -38,7 +38,10 @@ import {
   userRecordAddress,
 } from "./setup.js";
 
-const UTXO_COUNT = MAX_MERGE_INPUTS;
+// The most inputs one merge can spend while the cache creation shares its
+// 4,096-byte transaction; the merge proves on the MAX_MERGE_INPUTS circuit with
+// the rest compact-padded.
+const UTXO_COUNT = 53;
 const DEPOSITS_PER_TRANSACTION = 12;
 const DEPOSIT_AMOUNT = 100_000_000n;
 const TRANSFER_AMOUNT = 500_000_000n;
@@ -127,6 +130,10 @@ describe("example: optimized merge and transfer", () => {
       utxos.map((utxo) => ProofInputUtxo.fromKeypair(utxo, senderKeypair, {}, client.treeId)),
       client.treeId,
     ).prepare();
+    expect(prepared.inputs).toHaveLength(MAX_MERGE_INPUTS);
+    expect(prepared.inputs.filter((input) => input.isCompact())).toHaveLength(
+      MAX_MERGE_INPUTS - UTXO_COUNT,
+    );
 
     // 4. The merged output is predictable, so the transfer can spend it from the cache slot.
     const mergedInput = ProofInputUtxo.fromKeypair(

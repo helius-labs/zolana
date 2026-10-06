@@ -110,6 +110,10 @@ Breaking
   refuses any other order with `TRANSACTION_INVALID_OUTPUT_POSITION`, so a
   bundle built by an earlier release without an SPL change no longer recovers
   its outputs → build transfers and their bundles with this release.
+- `PreparedTransfer.withAppendedSlot` requires `recordSlot`, the output slot
+  the appended record takes, and refuses a slot before the transfer's outputs
+  or past the shape with `TRANSACTION_UNSUPPORTED_SHAPE` → pass the number of
+  the transfer's own outputs.
 
 Added
 
@@ -191,9 +195,10 @@ Fixed
   owner, built a proof the prover refuses, and its padding now stays in the
   ring as Rust's does.
 - A custom-ring transfer on a ring with a spend window could exceed the
-  4,096-byte transaction limit, and the spend record now follows the money
-  slots with compact padding after it, which the transaction leaves out
-  without revealing more than the proof shape already does.
+  4,096-byte transaction limit or be refused with `RING_BUILD_TRANSFER`, as a
+  transfer to two recipients with change was, and the proof shape now holds
+  the real inputs and outputs plus the spend record, which follows the real
+  outputs with compact padding after it that the transaction leaves out.
 
 ## 0.3.1-alpha — 2026-09-29
 

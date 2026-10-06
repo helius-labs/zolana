@@ -3,9 +3,13 @@
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use zolana_client::{assemble, AssembledTransfer, Rpc, ZolanaClient};
+use solana_instruction::Instruction;
+use zolana_client::{
+    assemble, transaction_size, AssembledTransfer, ComputeBudgetConfig, Rpc, ZolanaClient,
+};
 use zolana_interface::state::cache::CacheAccount;
-use zolana_transaction::instructions::transact::SppProofInputs;
+use zolana_program::instruction::MergeTransact;
+use zolana_transaction::instructions::{merge::MergeProofInputs, transact::SppProofInputs};
 
 pub fn assemble_cached_transfer<R: Rpc>(
     client: &ZolanaClient<R>,
@@ -54,6 +58,63 @@ pub fn assert_cache_closed_and_refunded<R: Rpc>(
     assert!(
         client.get_balance(rent_sponsor)? > sponsor_before,
         "the rent sponsor should be refunded"
+    );
+    Ok(())
+}
+
+/// A merge below the widest circuit is compact-padded up to it: each padding
+/// slot only proves its derived nullifier absent and adds nothing to the
+/// instruction.
+pub fn assert_merge_is_compact_padded(
+    prepared: &MergeProofInputs,
+    real_inputs: usize,
+    circuit_width: usize,
+) -> Result<()> {
+    assert_eq!(prepared.input_utxos.len(), circuit_width);
+    assert_eq!(
+        prepared.dummy_nullifiers().len(),
+        circuit_width - real_inputs,
+        "every slot past the real inputs should be compact padding"
+    );
+    prepared.check_padding()?;
+    Ok(())
+}
+
+/// `merge`, sent after `preceding` in one transaction, carries the most real
+/// inputs that fit: it clears the v1 ceilings and one more nullifier would not.
+pub fn assert_widest_merge_that_fits(
+    payer: &Address,
+    preceding: &[Instruction],
+    merge: &MergeTransact,
+    compute_budget: ComputeBudgetConfig,
+) -> Result<()> {
+    let size = |merge: &MergeTransact| {
+        let mut instructions = preceding.to_vec();
+        instructions.push(merge.instruction());
+        transaction_size(payer, &instructions, compute_budget)
+    };
+    let fitted = size(merge)?;
+    assert!(
+        fitted.fits(),
+        "the merge transaction should fit: {fitted:?}"
+    );
+    let mut data = merge.data.clone();
+    data.nullifiers.push([u8::MAX; 32]);
+    let overflow = size(&MergeTransact {
+        input_tree: merge.input_tree,
+        output_tree: merge.output_tree,
+        payer: merge.payer,
+        user_record: merge.user_record,
+        data,
+        cache: merge.cache,
+    })?;
+    assert!(
+        !overflow.fits(),
+        "one more merge input should not fit: {overflow:?}"
+    );
+    println!(
+        "merge transaction: {} bytes, {} addresses",
+        fitted.bytes, fitted.addresses
     );
     Ok(())
 }

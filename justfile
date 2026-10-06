@@ -1319,7 +1319,7 @@ test-client-example-merge-transfer: build-programs build-prover-server build-cli
       cargo run -p client-example --example merge_transfer
 
 # Optimized merge + transfer SDK example
-# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 54 UTXOs in
+# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 53 UTXOs in
 # one merge that writes its output commitment into a cache PDA, and spends that
 # commitment from the cache, so the transfer proof is generated concurrently
 # with the merge proof instead of waiting for the merged output to be indexed.

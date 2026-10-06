@@ -892,10 +892,8 @@ export interface PreparedTransfer {
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
-  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and last among the outputs. */
-  withAppendedSlot(
-    extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
-  ): PreparedTransfer;
+  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and at `recordSlot` among the outputs. */
+  withAppendedSlot(extension: RecordSlotExtension): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
@@ -907,6 +905,14 @@ export interface PreparedTransfer {
     }>,
   ): SppProofInputs;
 }
+
+export type RecordSlotExtension = Readonly<{
+  shape: Shape;
+  /** The output slot the record takes; slots between the transfer's outputs and it are padding. */
+  recordSlot: number;
+  input: ProofInputUtxo;
+  output: ProofOutputUtxo;
+}>;
 
 type RecipientRing = "transfer" | "default" | Readonly<{ programId: Address }>;
 
@@ -1302,26 +1308,32 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
-    withAppendedSlot: (
-      extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
-    ): PreparedTransfer => appendRecordSlot(fields, extension),
+    withAppendedSlot: (extension: RecordSlotExtension): PreparedTransfer =>
+      appendRecordSlot(fields, extension),
   });
 }
 
 /** Mirrors Rust `RecordSlots::append`. */
 function appendRecordSlot(
   fields: PreparedTransferFields,
-  extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+  extension: RecordSlotExtension,
 ): PreparedTransfer {
+  const { shape, recordSlot } = extension;
   const supported = SPP_SUPPORTED_SHAPES.some(
-    (candidate) =>
-      candidate.inputs === extension.shape.inputs && candidate.outputs === extension.shape.outputs,
+    (candidate) => candidate.inputs === shape.inputs && candidate.outputs === shape.outputs,
   );
-  if (!supported)
-    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...extension.shape });
+  const realInputs = fields.inputs.filter((input) => !input.isDummy()).length;
+  if (
+    !supported ||
+    realInputs + 1 > shape.inputs ||
+    recordSlot < fields.outputs.length ||
+    recordSlot >= shape.outputs
+  ) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...shape, recordSlot });
+  }
   const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
   const inputs = [...fields.inputs.filter((input) => !input.isDummy()), extension.input];
-  while (inputs.length < extension.shape.inputs) {
+  while (inputs.length < shape.inputs) {
     inputs.push(ProofInputUtxo.dummy(undefined, extension.input.treeId));
   }
   const sender = fields.owner.signingPublicKey.toBytes();
@@ -1336,7 +1348,7 @@ function appendRecordSlot(
       : fields.outputs.findLastIndex((output) => output.ownerAddress !== undefined);
   const template = fields.outputs[templateIndex];
   const outputs = [...fields.outputs];
-  while (outputs.length < fields.shape.outputs) {
+  while (outputs.length < recordSlot) {
     outputs.push(
       createProofOutput({
         ownerAddress: template?.ownerAddress ?? fields.owner,
@@ -1359,7 +1371,7 @@ function appendRecordSlot(
   };
   outputs.push(extension.output);
   // Compact padding trails the record, so the record stays the last output SPP carries.
-  while (outputs.length < extension.shape.outputs) {
+  while (outputs.length < shape.outputs) {
     outputs.push(
       createProofOutput({
         asset: ZERO_ADDRESS,
@@ -1374,7 +1386,7 @@ function appendRecordSlot(
     inputs,
     outputs,
     inputTreeIds: inputTreeIds(inputs),
-    shape: extension.shape,
+    shape,
     recordPadding,
   });
 }
