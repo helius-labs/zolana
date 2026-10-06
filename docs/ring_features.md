@@ -117,3 +117,24 @@ Entries are public, and a transfer doesn't reveal which entries it checked.
   approval list.
 - The blocklist is the ring's own, or one shared by a curator ring, such as a
   sanctions list.
+
+## 4. Curated lists
+
+A curator is a ring that maintains lists other rings read, for example a
+compliance provider running a sanctions blocklist. A change the curator makes
+applies to every subscribing ring as soon as the entry is added.
+
+### What can be shared
+
+- **Any list a rule reads:** allowlist, blocklist, frozen list or approval
+  list. The source is chosen per list, so a ring can read its blocklist from a
+  curator and keep its own allowlist.
+- **Local exceptions:** a subscribing ring can't change a curated list. It
+  clears individual parties through its own approval list.
+
+### Configuration
+
+- Any ring can act as a curator, and no registration is needed.
+- The ring authority points each list at its own entries or at a curator, and
+  can switch later without changing the policy.
+- A subscribing ring trusts every entry its curator adds or removes.
