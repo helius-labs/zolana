@@ -266,3 +266,13 @@ access.
 - The ring authority grants and revokes read access. Each grant is a public
   record on Solana.
 - The ring authority itself has no read access unless it grants itself one.
+
+## 12. Pause
+
+Pausing stops all activity in the ring until it's resumed: deposits,
+transfers, withdrawals, merges and delegate moves. Funds stay where they are.
+
+### Configuration
+
+- The ring authority pauses and resumes the ring at any time.
+- The Solana Privacy Program enforces the pause.
