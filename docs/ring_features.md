@@ -94,3 +94,26 @@ entries it used.
   list, and a transfer must pass all configured checks.
 - Which checks apply is part of the policy, and only the upgrade authority can
   change it.
+
+## 3. Blocklist
+
+A blocklist is a list of identities or tokens the ring refuses transfers to
+or from. A block takes effect as soon as the entry is added. Block lists can be shared.
+Entries are public, and a transfer doesn't reveal which entries it checked.
+
+### What can be checked
+
+- **Sender:** the sender is not on the blocklist.
+- **Recipients:** no recipient is on the blocklist.
+- **Tokens:** no token moved is on the blocklist.
+- **Approval list exception:** a blocked party passes if it is on the ring's
+  approval list. A ring that uses a curator's shared blocklist can't remove
+  entries from it, so the approval list lets it clear individual parties
+  locally.
+
+### Configuration
+
+- The ring authority adds and removes entries on its own blocklist and
+  approval list.
+- The blocklist is the ring's own, or one shared by a curator ring, such as a
+  sanctions list.
