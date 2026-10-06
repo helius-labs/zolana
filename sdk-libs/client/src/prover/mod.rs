@@ -1,5 +1,6 @@
 mod backend;
 mod cache;
+mod call;
 mod client;
 mod endpoint;
 pub mod field;
@@ -11,6 +12,7 @@ mod proof;
 pub mod proving_key;
 pub(crate) mod requests;
 pub mod ring_authority;
+pub mod tee;
 pub mod timing;
 pub mod transact;
 mod utxo;

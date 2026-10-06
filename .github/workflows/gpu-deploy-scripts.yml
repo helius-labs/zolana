@@ -7,20 +7,32 @@ on:
     branches: [main]
     paths:
       - "tools/gpu/**"
+      - "tools/nitro/**"
       - "tools/check-photon-image.sh"
       - "prover/server/build-aeglos.sh"
       - "prover/server/Dockerfile.aeglos"
       - "prover/server/prover/backend/aeglos-source.lock"
+      - "prover/server/nitro/**"
+      - "prover/server/Dockerfile.nitro"
+      - "prover/server/main.go"
+      - "prover/server/prover/common/key_downloader.go"
+      - "prover/server/prover/provingkeys/proving-keys.lock"
       - ".github/workflows/publish-gpu.yml"
       - ".github/workflows/gpu-deploy-scripts.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "tools/gpu/**"
+      - "tools/nitro/**"
       - "tools/check-photon-image.sh"
       - "prover/server/build-aeglos.sh"
       - "prover/server/Dockerfile.aeglos"
       - "prover/server/prover/backend/aeglos-source.lock"
+      - "prover/server/nitro/**"
+      - "prover/server/Dockerfile.nitro"
+      - "prover/server/main.go"
+      - "prover/server/prover/common/key_downloader.go"
+      - "prover/server/prover/provingkeys/proving-keys.lock"
       - ".github/workflows/publish-gpu.yml"
       - ".github/workflows/gpu-deploy-scripts.yml"
 
@@ -35,7 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck tools/gpu/*.sh tools/check-photon-image.sh prover/server/build-aeglos.sh
+      - run: shellcheck tools/gpu/*.sh tools/check-photon-image.sh prover/server/build-aeglos.sh prover/server/nitro/*.sh
       - run: python3 -m unittest discover -s tools/gpu -p 'test_*.py'
         env:
           GPU_GATEWAY_TEST: '1'
+      - run: python3 -m unittest discover -s tools/nitro -p 'test_*.py'
+        env:
+          NITRO_GATEWAY_TEST: '1'

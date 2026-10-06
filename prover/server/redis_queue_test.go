@@ -924,7 +924,10 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		},
 	}
 
-	serverJob := server.RunEnhanced(config, rq, keyManager)
+	serverJob, err := server.RunEnhanced(config, rq, keyManager)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer serverJob.RequestStop()
 
 	time.Sleep(100 * time.Millisecond)

@@ -31,6 +31,7 @@ var state = struct {
 	sync.RWMutex
 	prover      prover
 	initialized bool
+	gpu         bool
 }{prover: cpuProver{}}
 
 func Initialize() error {
@@ -58,8 +59,16 @@ func Initialize() error {
 	}
 	state.prover = selected
 	state.initialized = true
+	state.gpu = name == "aeglos"
 	logging.Logger().Info().Str("proof_backend", name).Msg("Proof backend initialized")
 	return nil
+}
+
+// UsesGPU reports whether proofs, and so their inputs, reach a GPU.
+func UsesGPU() bool {
+	state.RLock()
+	defer state.RUnlock()
+	return state.gpu
 }
 
 func prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness.Witness) (groth16.Proof, error) {

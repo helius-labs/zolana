@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
+use zolana_client::{prover::tee::TeePolicy, ProverClient};
 
 use crate::{
     args::{NetworkWalletOptions, SyncOptions},
@@ -23,7 +24,18 @@ pub(crate) struct ResolvedNetworkOptions {
     pub(crate) sync: ResolvedSyncOptions,
     pub(crate) tree: Pubkey,
     pub(crate) prover_url: String,
+    pub(crate) prover_tee: Option<TeePolicy>,
     pub(crate) airdrop_lamports: Option<u64>,
+}
+
+impl ResolvedNetworkOptions {
+    pub(crate) fn prover(&self) -> ProverClient {
+        let prover = ProverClient::new(self.prover_url.clone());
+        match &self.prover_tee {
+            Some(policy) => prover.with_tee(policy.clone()),
+            None => prover,
+        }
+    }
 }
 
 pub(crate) fn resolve_sync(opts: &SyncOptions) -> Result<ResolvedSyncOptions> {
@@ -57,6 +69,7 @@ pub(crate) fn get_network_with_config(
         sync,
         tree,
         prover_url: resolve_prover_url(opts.prover_url.as_deref(), config),
+        prover_tee: opts.tee.policy()?,
         airdrop_lamports: opts.airdrop_lamports,
     })
 }
@@ -69,7 +82,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::{args::WalletKeypairOptions, cli_config::CONFIG_ENV_LOCK};
+    use crate::{
+        args::{ProverTeeOptions, WalletKeypairOptions},
+        cli_config::CONFIG_ENV_LOCK,
+    };
 
     fn temp_config(tree: Option<&str>) -> String {
         let stamp = SystemTime::now()
@@ -105,6 +121,7 @@ mod tests {
             },
             tree: None,
             prover_url: None,
+            tee: ProverTeeOptions::default(),
             airdrop_lamports: None,
         })
         .expect("resolve network");
@@ -124,6 +141,7 @@ mod tests {
             },
             tree: None,
             prover_url: None,
+            tee: ProverTeeOptions::default(),
             airdrop_lamports: None,
         })
         .expect("resolve network");
@@ -146,6 +164,7 @@ mod tests {
             },
             tree: Some("So11111111111111111111111111111111111111112".to_string()),
             prover_url: None,
+            tee: ProverTeeOptions::default(),
             airdrop_lamports: None,
         })
         .expect("resolve network");

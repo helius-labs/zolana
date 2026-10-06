@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 from aws_host import CUDA_ARCH, GPUS, POSTGRES
-from aws_stack import template
+from aws_stack import export_template, template
 
 HERE = Path(__file__).resolve().parent
 REGISTRY_ACCOUNT = "558215002830"
@@ -78,15 +78,15 @@ def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def stack_name(value):
+def stack_name(value, prefix="zolana-gpu-"):
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,23}", value):
         raise argparse.ArgumentTypeError(
             "Use a lowercase name with at most 24 letters, digits or hyphens"
         )
-    return "zolana-gpu-" + value
+    return prefix + value
 
 
-def get_stack(aws, name):
+def get_stack(aws, name, owner=OWNER):
     try:
         stack = aws.call("cloudformation", "describe-stacks", StackName=name)["Stacks"][
             0
@@ -95,8 +95,8 @@ def get_stack(aws, name):
         if "does not exist" in str(error):
             return None
         raise
-    if OWNER not in stack.get("Tags", []):
-        raise RuntimeError("Stack is not owned by the GPU deployment tool")
+    if owner not in stack.get("Tags", []):
+        raise RuntimeError("Stack is not owned by the deployment tool")
     return stack
 
 
@@ -104,11 +104,11 @@ def outputs(stack):
     return {item["OutputKey"]: item["OutputValue"] for item in stack.get("Outputs", [])}
 
 
-def wait_stack(aws, name, deleting=False):
+def wait_stack(aws, name, deleting=False, owner=OWNER):
     deadline = time.monotonic() + 2400
     previous = None
     while time.monotonic() < deadline:
-        stack = get_stack(aws, name)
+        stack = get_stack(aws, name, owner)
         if stack is None and deleting:
             return None
         if stack is None:
@@ -304,33 +304,11 @@ def configuration(args, aws):
         or "x86_64" not in info["ProcessorInfo"]["SupportedArchitectures"]
     ):
         raise ValueError(f"Select an x86 EC2 instance with {' or '.join(GPUS)} GPUs")
-    offers = aws.call(
-        "ec2",
-        "describe-instance-type-offerings",
-        LocationType="availability-zone",
-        Filters=[{"Name": "instance-type", "Values": [instance_type]}],
-    )["InstanceTypeOfferings"]
-    zones = sorted(offer["Location"] for offer in offers)
-    zone = args.zone or (zones[0] if zones else None)
-    if zone not in zones:
-        raise ValueError(
-            "Instance type is not offered in the selected availability zone"
-        )
-    ami = aws.call(
-        "ssm",
-        "get-parameter",
-        Name="/aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id",
-    )["Parameter"]["Value"]
-    prefix = aws.call(
-        "ec2",
-        "describe-managed-prefix-lists",
-        Filters=[
-            {
-                "Name": "prefix-list-name",
-                "Values": ["com.amazonaws.global.cloudfront.origin-facing"],
-            }
-        ],
-    )["PrefixLists"][0]["PrefixListId"]
+    zone = placement(aws, instance_type, args.zone)
+    ami = parameter(
+        aws, "/aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id"
+    )
+    prefix = cloudfront_prefix(aws)
     config = {
         "region": args.region,
         "image_region": IMAGE_REGION,
@@ -369,6 +347,39 @@ def configuration(args, aws):
         )
         config["rpc_secret"] = rpc_secret(source)
     return config
+
+
+def placement(aws, instance_type, zone=None):
+    offers = aws.call(
+        "ec2",
+        "describe-instance-type-offerings",
+        LocationType="availability-zone",
+        Filters=[{"Name": "instance-type", "Values": [instance_type]}],
+    )["InstanceTypeOfferings"]
+    zones = sorted(offer["Location"] for offer in offers)
+    zone = zone or (zones[0] if zones else None)
+    if zone not in zones:
+        raise ValueError(
+            "Instance type is not offered in the selected availability zone"
+        )
+    return zone
+
+
+def parameter(aws, name):
+    return aws.call("ssm", "get-parameter", Name=name)["Parameter"]["Value"]
+
+
+def cloudfront_prefix(aws):
+    return aws.call(
+        "ec2",
+        "describe-managed-prefix-lists",
+        Filters=[
+            {
+                "Name": "prefix-list-name",
+                "Values": ["com.amazonaws.global.cloudfront.origin-facing"],
+            }
+        ],
+    )["PrefixLists"][0]["PrefixListId"]
 
 
 def rpc_secret(aws):
@@ -494,33 +505,32 @@ def installed(aws, instance):
     )
 
 
-def install(aws, config, out):
+def install(aws, config, out, root="/opt/zolana-gpu", scripts=(HERE / "aws_host.py",)):
+    """Runs the last script, the earlier ones are its imports."""
     deadline = time.monotonic() + 600
     while not installed(aws, out["InstanceId"]):
         if time.monotonic() >= deadline:
             raise RuntimeError("SSM registration timed out")
         time.sleep(5)
+    files = [Path(script) for script in scripts]
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "config.json"
         path.write_text(json.dumps(dict(config, outputs=out)))
-        for local, remote in (
-            (path, "config.json"),
-            (HERE / "aws_host.py", "aws_host.py"),
-        ):
+        for local in (path, *files):
             aws.command(
                 "s3",
                 "cp",
                 str(local),
-                f"s3://{out['Bucket']}/install/{remote}",
+                f"s3://{out['Bucket']}/install/{local.name}",
                 "--only-show-errors",
             )
     region, bucket = shlex.quote(config["region"]), shlex.quote(out["Bucket"])
-    commands = ["set -eu", "umask 077", "mkdir -p /opt/zolana-gpu"]
-    for name in ("config.json", "aws_host.py"):
+    commands = ["set -eu", "umask 077", f"mkdir -p {root}"]
+    for name in ("config.json", *(file.name for file in files)):
         commands.append(
-            f"aws --region {region} s3 cp s3://{bucket}/install/{name} /opt/zolana-gpu/{name} --only-show-errors"
+            f"aws --region {region} s3 cp s3://{bucket}/install/{name} {root}/{name} --only-show-errors"
         )
-    commands.append("python3 /opt/zolana-gpu/aws_host.py /opt/zolana-gpu/config.json")
+    commands.append(f"python3 {root}/{files[-1].name} {root}/config.json")
     command_id = aws.call(
         "ssm",
         "send-command",
@@ -585,7 +595,7 @@ def show(stack):
     for name in ("Url", "InstanceId", "ApiKeySecret", "LogGroup"):
         if name in out:
             result[name] = out[name]
-    if "Config" in out and json.loads(out["Config"])["with_indexer"]:
+    if "Config" in out and json.loads(out["Config"]).get("with_indexer"):
         result["IndexerUrl"] = out["Url"] + "/indexer"
     print(json.dumps(result, indent=2))
 
@@ -599,6 +609,8 @@ def deploy(args, aws, stack):
             item["ParameterKey"]: item["ParameterValue"] for item in stack["Parameters"]
         }
         config = json.loads(params["Config"])
+        if config.get("export_only"):
+            raise ValueError("This name holds an export stack. Use another name")
         saved = dict(
             config,
             source_cluster=config.get("source", {}).get("cluster"),
@@ -664,6 +676,53 @@ def deploy(args, aws, stack):
     show(stack)
 
 
+def export(args, aws, stack):
+    saved = {}
+    if stack:
+        params = {
+            item["ParameterKey"]: item["ParameterValue"] for item in stack["Parameters"]
+        }
+        saved = json.loads(params["Config"])
+    region = args.source_region or saved.get("source_region") or "eu-north-1"
+    source = Aws(region, args.profile)
+    previous = saved.get("source", {})
+    config = dict(
+        saved,
+        source_region=region,
+        source=discover_source(
+            source,
+            args.source_cluster or previous.get("cluster") or "zolnet-devnet-c",
+            args.source_service
+            or previous.get("service")
+            or "zolnet-devnet-c-photon-api",
+        ),
+    )
+    # The stack's execution role reads only the database secret it was created for.
+    if (
+        previous
+        and previous.get("database_secret") != config["source"]["database_secret"]
+    ):
+        raise ValueError("Stack exports another source. Use another name")
+    if stack is None:
+        config.update(region=args.region, export_only=True)
+        aws.call(
+            "cloudformation",
+            "create-stack",
+            StackName=args.name,
+            TemplateBody=json.dumps(export_template(config)),
+            Capabilities=["CAPABILITY_IAM"],
+            Tags=[OWNER],
+            OnFailure="DELETE",
+        )
+        log("Creating export stack " + args.name)
+        stack = wait_stack(aws, args.name)
+    out = outputs(stack)
+    if "ExportExecutionRole" not in out:
+        raise ValueError("Stack has no export roles. Use another name")
+    export_cache(source, config, out, args.name)
+    print(f"s3://{out['Bucket']}/cache/photon.dump")
+
+
 def object_exists(aws, bucket, key):
     try:
         aws.call("s3api", "head-object", Bucket=bucket, Key=key)
@@ -674,6 +733,29 @@ def object_exists(aws, bucket, key):
         raise
 
 
+def destroy(aws, stack, owner=OWNER):
+    name = stack["StackName"]
+    out = outputs(stack)
+    if "Bucket" in out:
+        aws.command(
+            "s3",
+            "rm",
+            f"s3://{out['Bucket']}",
+            "--recursive",
+            "--only-show-errors",
+            timeout=600,
+        )
+    aws.call("cloudformation", "delete-stack", StackName=name)
+    wait_stack(aws, name, deleting=True, owner=owner)
+    log("Deleted " + name)
+
+
+def api_key(aws, out):
+    return aws.call("secretsmanager", "get-secret-value", SecretId=out["ApiKeySecret"])[
+        "SecretString"
+    ]
+
+
 def check_gateway(aws, config, out):
     try:
         with urllib.request.urlopen(out["Url"] + "/ready", timeout=15):
@@ -681,9 +763,7 @@ def check_gateway(aws, config, out):
     except urllib.error.HTTPError as error:
         if error.code != 401:
             raise RuntimeError(f"Public gateway returned HTTP {error.code}") from error
-    key = aws.call("secretsmanager", "get-secret-value", SecretId=out["ApiKeySecret"])[
-        "SecretString"
-    ]
+    key = api_key(aws, out)
     paths = ["/ready"] + (["/indexer/readiness"] if config["with_indexer"] else [])
     for path in paths:
         request = urllib.request.Request(out["Url"] + path, headers={"X-API-Key": key})
@@ -696,7 +776,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Deploy an isolated Aeglos prover on AWS. Requires Python 3 and AWS CLI v2."
     )
-    parser.add_argument("action", choices=("deploy", "status", "destroy"))
+    parser.add_argument("action", choices=("deploy", "status", "export", "destroy"))
     parser.add_argument("name", type=stack_name)
     parser.add_argument("--profile", default=os.environ.get("AWS_PROFILE"))
     parser.add_argument("--region", default="eu-central-1")
@@ -756,24 +836,14 @@ def main():
     stack = get_stack(aws, args.name)
     if args.action == "deploy":
         deploy(args, aws, stack)
+    elif args.action == "export":
+        export(args, aws, stack)
     elif stack is None:
         raise ValueError("Deployment does not exist")
     elif args.action == "status":
         show(stack)
     else:
-        out = outputs(stack)
-        if "Bucket" in out:
-            aws.command(
-                "s3",
-                "rm",
-                f"s3://{out['Bucket']}",
-                "--recursive",
-                "--only-show-errors",
-                timeout=600,
-            )
-        aws.call("cloudformation", "delete-stack", StackName=args.name)
-        wait_stack(aws, args.name, deleting=True)
-        log("Deleted " + args.name)
+        destroy(aws, stack)
 
 
 if __name__ == "__main__":
