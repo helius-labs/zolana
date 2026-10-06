@@ -195,7 +195,7 @@ fn transfer_round_trip_outputs_and_slots() {
     let mut tx = transaction(&sender, 100);
     tx.transfer_sol(&recipient.shielded_address().unwrap(), 60)
         .unwrap();
-    let tx = sign(tx, &sender, Shape::IN2_OUT3).unwrap();
+    let tx = sign(tx, &sender, Shape::IN2_OUT4).unwrap();
     assert_outputs(
         &tx,
         &sender,
@@ -216,11 +216,11 @@ fn transfer_round_trip_outputs_and_slots() {
 fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     let sender = test_keypair();
     let recipient = test_keypair();
-    let without = sign(transaction(&sender, 100), &sender, Shape::IN2_OUT3).unwrap();
+    let without = sign(transaction(&sender, 100), &sender, Shape::IN2_OUT4).unwrap();
     let mut with = transaction(&sender, 100);
     with.transfer_sol(&recipient.shielded_address().unwrap(), 60)
         .unwrap();
-    let with = sign(with, &sender, Shape::IN2_OUT3).unwrap();
+    let with = sign(with, &sender, Shape::IN2_OUT4).unwrap();
     let sizes = |tx: &SppProofInputs| {
         tx.external_data
             .outputs
@@ -236,7 +236,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
             .iter()
             .map(SppProofOutputUtxo::is_dummy)
             .collect::<Vec<_>>(),
-        [false, true, true]
+        [false, true, true, true]
     );
 }
 
@@ -247,7 +247,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let mut tx = transaction(&sender, 100);
     tx.transfer_sol(&recipient.shielded_address().unwrap(), 60)
         .unwrap();
-    let tx = sign(tx, &sender, Shape::IN2_OUT3).unwrap();
+    let tx = sign(tx, &sender, Shape::IN2_OUT4).unwrap();
     let mut indexer = TestIndexer::new();
     indexer.add_utxo(tx.input_utxos[0].utxo_hash);
     let proofs = indexer
@@ -362,7 +362,7 @@ fn oversend_is_insufficient_balance() {
     tx.transfer_sol(&recipient.shielded_address().unwrap(), 200)
         .unwrap();
     assert!(matches!(
-        sign(tx, &sender, Shape::IN2_OUT3),
+        sign(tx, &sender, Shape::IN2_OUT4),
         Err(TransactionError::InsufficientBalance {
             requested: 100,
             available: 0
@@ -411,11 +411,20 @@ fn two_distinct_spl_assets_and_sol_are_supported() {
             .unwrap();
     }
     let tx = tx.encrypt(&sender).unwrap();
-    assert_eq!(tx.check_shape().unwrap(), Shape::IN3_OUT3);
+    assert_eq!(tx.check_shape().unwrap(), Shape::IN3_OUT4);
     assert_eq!(
-        tx.output_utxos.iter().map(|o| o.asset).collect::<Vec<_>>(),
+        tx.output_utxos
+            .iter()
+            .take(assets.len())
+            .map(|o| o.asset)
+            .collect::<Vec<_>>(),
         assets
     );
+    assert!(tx
+        .output_utxos
+        .iter()
+        .skip(assets.len())
+        .all(|o| o.is_dummy()));
 }
 struct AsyncTestAuthority {
     keypair: ShieldedKeypair,

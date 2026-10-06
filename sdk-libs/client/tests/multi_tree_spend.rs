@@ -109,6 +109,7 @@ fn two_tree_fixture() -> SppProofInputs {
             output(&recipient, SEND_AMOUNT),
             output(&sender, 2 * INPUT_AMOUNT - SEND_AMOUNT),
             output(&sender, 0),
+            output(&sender, 0),
         ],
         &sender,
         payer,

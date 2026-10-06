@@ -4,12 +4,14 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, MergeProver, ProverClient, ProverExt, SpendProof};
+use zolana_client::{
+    transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt, SpendProof,
+};
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program::instruction::MergeTransact;
 use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_transaction::{Utxo, WalletUtxo};
+use zolana_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
@@ -74,6 +76,11 @@ impl LifecycleHarness {
     /// UTXOs into one consolidated output, run by the configured merge authority for
     /// the registered owner `owner_solana`. Returns the transaction send result so
     /// the caller can assert success or the `MergeDisabled` failure.
+    ///
+    /// The merge vault pays through `execute_sync` up to the default merge
+    /// width. A wider merge carries a nullifier PDA per slot, and the smart
+    /// account program runs out of heap re-serializing that many accounts for
+    /// its CPI, so the merge key pays it directly.
     pub fn merge(
         &mut self,
         name: &str,
@@ -132,7 +139,6 @@ impl LifecycleHarness {
             .encrypt(&keypair)?;
         let total = transaction.output_utxo.amount;
         let output_blinding = transaction.output_utxo.blinding;
-        let input_count = transaction.input_utxos.len();
         let commitments = transaction.input_utxo_hashes()?;
         let utxo_hashes: Vec<_> = commitments.iter().map(|input| input.utxo_hash).collect();
         let real_nullifiers: Vec<_> = commitments.iter().map(|input| input.nullifier).collect();
@@ -162,55 +168,77 @@ impl LifecycleHarness {
         // the same way the prover bound `external_data_hash`, so they agree on-chain.
         let data = result.instruction_data(pack_merge_proof(&proof)?);
         let sent_nullifiers = data.nullifiers.clone();
+        let merge_key_pays = sent_nullifiers.len() > MERGE_DEFAULT_INPUT_COUNT;
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;
-        let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
+        let merge_key = self.merge_key.insecure_clone();
+        let payer = if merge_key_pays {
+            merge_key.pubkey()
+        } else {
+            self.merge_vault
+        };
+        let payer_before = fetch_account(&self.rpc, &payer)?;
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let user_record_before = fetch_account(&self.rpc, &user_record)?;
         let merge_ix = MergeTransact {
             input_tree: self.tree,
             output_tree: self.tree,
-            payer: self.merge_vault,
+            payer,
             user_record,
             data,
             cache: None,
         }
         .instruction();
-        let sync_ix = execute_sync_ix(
-            &self.merge_settings,
-            0,
-            &[self.merge_key.pubkey()],
-            &[merge_ix],
-        );
-        let merge_key = self.merge_key.insecure_clone();
+        let ix = if merge_key_pays {
+            merge_ix
+        } else {
+            execute_sync_ix(&self.merge_settings, 0, &[merge_key.pubkey()], &[merge_ix])
+        };
+        let budget = ComputeBudgetConfig::new(1_400_000);
+        self.last_transaction_size = Some(transaction_size(
+            &merge_key.pubkey(),
+            std::slice::from_ref(&ix),
+            budget,
+        )?);
         let sig = send_transaction_with_budget(
             &mut self.rpc,
-            &[sync_ix],
+            &[ix],
             &merge_key.pubkey(),
             &[&merge_key],
-            ComputeBudgetConfig::new(1_400_000),
+            budget,
         )?;
         // A successful merge collects the tree's insertion fee from the inner payer:
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The
-        // tree then funds one nullifier PDA per inserted nullifier.
-        let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, input_count as u64)?;
-        let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
+        // tree then funds one nullifier PDA per inserted nullifier. A merge key
+        // paying directly also pays the transaction fee.
+        let sent_count = sent_nullifiers.len() as u64;
+        let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, sent_count)?;
+        let transaction_fee = if merge_key_pays {
+            self.rpc
+                .fetch_confirmed_transaction(&sig)?
+                .transaction
+                .meta
+                .ok_or_else(|| anyhow!("confirmed merge has no metadata"))?
+                .fee
+        } else {
+            0
+        };
+        let payer_after = fetch_account(&self.rpc, &payer)?;
         assert_eq!(
             payer_before.lamports - payer_after.lamports,
-            forester_fee,
+            forester_fee + transaction_fee,
             "merge must charge the payer one forester share per nullifier"
         );
         let nullifier_pda_rent = nullifier_pda_rent(&self.rpc)?;
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
             tree_before.lamports - tree_after.lamports,
-            input_count as u64 * nullifier_pda_rent - forester_fee,
+            sent_count * nullifier_pda_rent - forester_fee,
             "merge forester fee must accrue to the tree net of the nullifier PDA rent it funds"
         );
         assert_eq!(
-            sent_nullifiers.len(),
-            input_count,
-            "merge queues one nullifier per input slot"
+            sent_nullifiers, real_nullifiers,
+            "merge queues one nullifier per real input; compact padding sends none"
         );
         assert_nullifier_pdas(&self.rpc, &self.tree, &sent_nullifiers)?;
         assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;

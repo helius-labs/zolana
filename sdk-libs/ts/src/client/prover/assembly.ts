@@ -17,7 +17,7 @@ import {
 import { CACHE_CAPACITY } from "../../interface/state.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
-  RING_AUTHORITY_MAX_WIDTH,
+  RING_AUTHORITY_WIDTHS,
   selectSppShape,
   signerWidth,
   type Shape,
@@ -244,7 +244,7 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   if (
     plan.authority &&
     (shape.inputs !== shape.outputs ||
-      shape.inputs > RING_AUTHORITY_MAX_WIDTH ||
+      !RING_AUTHORITY_WIDTHS.includes(shape.inputs) ||
       proofInputs.externalData.interfaceTransfers.length !== 0 ||
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
@@ -499,7 +499,7 @@ function publishedOwnerFields(
     case "every":
       return outputs.map((output) => output.ownerPublicKeyHash);
     case "confidentialMarked":
-      return confidentialMarkedOutputOwnerHashes(external);
+      return confidentialMarkedOutputOwnerHashes(external, outputs.length);
   }
 }
 
@@ -620,19 +620,24 @@ function transferCircuit(
  * Mirrors Rust `confidential_marked_output_owner_pk_hashes`, the ring rails
  * publish an owner hash only for a `Confidential` scheme output, a
  * `RingConfidential` one contributes zero. The tag is a Solana signer, so it
- * enters as its tagged identity.
+ * enters as its tagged identity. One entry per circuit output slot: the
+ * trailing compact padding the instruction leaves out contributes zero.
  */
-function confidentialMarkedOutputOwnerHashes(external: ExternalData): bigint[] {
-  if (external.outputs.length !== external.resolvedOwnerTags.length) {
+function confidentialMarkedOutputOwnerHashes(external: ExternalData, nOutputs: number): bigint[] {
+  if (
+    external.outputs.length !== external.resolvedOwnerTags.length ||
+    external.outputs.length > nOutputs
+  ) {
     throw new ClientError("CLIENT_PROVER_INPUT");
   }
-  return external.outputs.map((output, index) => {
+  const published = external.outputs.map((output, index) => {
     const tag = external.resolvedOwnerTags[index];
     if (tag === undefined) throw new ClientError("CLIENT_PROVER_INPUT");
     return output.data !== undefined && isConfidentialEncryptedOutput(output.data)
       ? bytesToBigInt(solanaOwnerIdentity(tag))
       : 0n;
   });
+  return [...published, ...Array.from({ length: nOutputs - published.length }, () => 0n)];
 }
 
 /** Mirrors Rust `is_confidential_encrypted_output`. */
@@ -1347,7 +1352,7 @@ export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
   });
   return Object.freeze({
     nIn: proofInputs.inputUtxos.length,
-    nOut: proofInputs.outputs.length,
+    nOut: proofInputs.outputs.filter((output) => !output.isCompact()).length,
     inputs: Object.freeze(inputs),
     outputs: Object.freeze(outputs),
   });

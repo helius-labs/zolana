@@ -134,7 +134,7 @@ function twoTreeFixture(): Readonly<{
       amount: 12n,
       blinding: slotBlinding(0),
     }),
-    ...[1, 2].map((index) =>
+    ...[1].map((index) =>
       createProofOutput({
         asset: SOL_MINT,
         amount: 0n,
@@ -359,12 +359,10 @@ describe("slot order", () => {
 
   it("refuses a real output after a dummy output", () => {
     const { proofInputs } = twoTreeFixture();
-    const [real, firstPad, secondPad] = proofInputs.outputs;
-    if (real === undefined || firstPad === undefined || secondPad === undefined) {
-      expect.unreachable();
-    }
+    const [real, pad] = proofInputs.outputs;
+    if (real === undefined || pad === undefined) expect.unreachable();
 
-    expect(() => reordered(proofInputs, { outputs: [firstPad, real, secondPad] })).toThrow(
+    expect(() => reordered(proofInputs, { outputs: [pad, real] })).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_REAL_SLOT_AFTER_DUMMY",
         details: { side: "output", index: 1 },

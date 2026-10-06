@@ -5,8 +5,9 @@ use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 use crate::{CircuitId, OrderProof, ProofInputUtxo, PROVER};
 
 /// Proof inputs for the `escrow_open` circuit (`create_escrow`): 2-in (source,
-/// maker_funding) / 3-out (order, reservation, maker_change), the exact supported
-/// IN2_OUT3 shape with no padding. No source change output: the source UTXO must
+/// maker_funding) / 3-out (order, reservation, maker_change). SPP proves the
+/// transaction at IN2_OUT4 with a compact fourth output, which leaves the
+/// private transaction hash unchanged. No source change output: the source UTXO must
 /// match `order_amount` exactly. `order_amount` is the one private witness shared
 /// across the order UTXO, the reservation size (`order_amount * max_price`), and
 /// the maker-change decrement.

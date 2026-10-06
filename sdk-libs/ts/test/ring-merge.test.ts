@@ -19,6 +19,7 @@ import { privateTxHash } from "../src/transaction/instructions/transact.js";
 import { Data } from "../src/transaction/data.js";
 import { Utxo, ProofInputUtxo } from "../src/transaction/utxo.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
+import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { ringMergeInstruction } from "../src/ring/instructions.js";
 import { intentHash } from "../src/transaction/wallet/intent.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
@@ -167,7 +168,7 @@ describe("ring merge", () => {
       );
       const fetch = vi.fn<typeof globalThis.fetch>(async () =>
         Response.json({
-          ...proofFor({ circuitType: "merge-ring", inputs: Array(8) }),
+          ...proofFor({ circuitType: "merge-ring", inputs: Array(prepared.inputs.length) }),
           resolution: {
             publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
             trees: [
@@ -286,7 +287,7 @@ describe("ring merge", () => {
     }
   });
 
-  it("merges up to maxInputs ring notes and refuses a width outside 2 through 36", async () => {
+  it("merges up to maxInputs ring notes and refuses a width outside 2 through 54", async () => {
     const wallet = ringWallet(Array.from({ length: 10 }, (_, index) => BigInt(index + 1)));
     const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared }) => {
       const data = provenMerge(prepared);
@@ -300,7 +301,7 @@ describe("ring merge", () => {
       });
     try {
       for (const [maxInputs, causeCode] of [
-        [37, "RING_TOO_MANY_INPUTS"],
+        [MAX_MERGE_INPUTS + 1, "RING_TOO_MANY_INPUTS"],
         [1, "RING_NOTHING_TO_MERGE"],
         [-1, "RING_NOTHING_TO_MERGE"],
         [2.5, "RING_NOTHING_TO_MERGE"],
@@ -315,7 +316,7 @@ describe("ring merge", () => {
       expect(wallet._reservationEntries()).toHaveLength(0);
       await build(9);
       const prepared = proveMerge.mock.calls[0]?.[0].prepared;
-      expect(prepared?.inputs).toHaveLength(36);
+      expect(prepared?.inputs).toHaveLength(MERGE_INPUT_COUNT);
       expect(prepared?.inputs.filter((spend) => !spend.isDummy())).toHaveLength(9);
     } finally {
       keys.destroy();
@@ -325,12 +326,18 @@ describe("ring merge", () => {
   it.each([
     [2, 8],
     [8, 8],
-    [9, 36],
-    [36, 36],
+    [9, 24],
+    [24, 24],
+    [25, 54],
+    [54, 54],
   ])("preserves owner, asset, value and ring for %s fragmented inputs", (count, width) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
     expect(prepared.inputs).toHaveLength(width);
+    expect(prepared.inputs.map((spend) => spend.isCompact())).toEqual(
+      Array.from({ length: width }, (_, index) => index >= count),
+    );
+    expect(provenMerge(prepared).nullifiers).toHaveLength(count);
     expect(prepared.output.amount).toBe(BigInt((count * (count + 1)) / 2));
     expect(prepared.output.asset).toBe(SOL_MINT);
     expect(prepared.output.ringProgramId).toBe(RING);
@@ -338,7 +345,7 @@ describe("ring merge", () => {
     expect(prepared.outputTreeId).toBe(7);
   });
 
-  it.each([2, 9, 36])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
+  it.each([2, 25, 54])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
     const assembly = assembleMergeWithProofs(
@@ -376,16 +383,16 @@ describe("ring merge", () => {
     expect(assembly.outputHash).not.toEqual(prepared.output.hash(7));
   });
 
-  it("refuses foreign rings, owner data, and more than 36 inputs", () => {
+  it("refuses foreign rings, owner data, and more than 54 inputs", () => {
     expect(() => merge([input(3n), input(5n, treeAddress(1))])).toThrow(
       "TRANSACTION_MERGE_INPUT_RING_MISMATCH",
     );
     expect(() =>
       merge([input(3n, RING, new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]))]),
     ).toThrow("TRANSACTION_MERGE_INPUT_HAS_DATA");
-    expect(() => merge(Array.from({ length: 37 }, (_, index) => input(BigInt(index + 1))))).toThrow(
-      "TRANSACTION_TOO_MANY_INPUTS",
-    );
+    expect(() =>
+      merge(Array.from({ length: MAX_MERGE_INPUTS + 1 }, (_, index) => input(BigInt(index + 1)))),
+    ).toThrow("TRANSACTION_TOO_MANY_INPUTS");
   });
 
   it("keeps the ordinary merge rail closed to ring notes", () => {
@@ -428,7 +435,7 @@ describe("ring merge", () => {
       address: await ringAuthAddress(RING),
       role: AccountRole.READONLY,
     });
-    expect(instruction.accounts).toHaveLength(17);
+    expect(instruction.accounts).toHaveLength(9 + inputs.length);
   });
 
   it("binds ring identity and destination into approval", () => {

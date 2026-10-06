@@ -9,7 +9,7 @@ import (
 )
 
 func TestTransferSetupInputCount(t *testing.T) {
-	for _, value := range []uint{1, 2, 3, 4, 5, 36, 60} {
+	for _, value := range []uint{1, 2, 3, 4, 5, 51, 60} {
 		t.Run(strconv.FormatUint(uint64(value), 10), func(t *testing.T) {
 			got, err := transferSetupInputCount(value)
 			if err != nil || uint(got) != value {

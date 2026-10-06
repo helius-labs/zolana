@@ -770,7 +770,7 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     expect(unspent(owner)).toHaveLength(8);
     await setMergingEnabled({ client: harness.client, owner: owner.signer, enabled: true });
 
-    // Three sent nullifiers select the 8-input circuit; the five compact
+    // Three sent nullifiers select the 24-input circuit; the 21 compact
     // slots never reach the instruction.
     const merged = unspent(owner).slice(0, 3);
     const mergeTransaction = await buildMergeTransaction({
@@ -779,7 +779,6 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       keys: owner.keys,
       feePayer: owner.signer.address,
       inputs: merged.map((entry) => entry.outputContext.hash),
-      compact: true,
     });
     await signSendAndConfirm(harness.client, mergeTransaction, [owner.signer]);
     await sync(harness.client, owner, { pageLimit: 1 });

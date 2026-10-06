@@ -5,48 +5,156 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub const IN1_OUT1: Self = Self {
-        n_inputs: 1,
-        n_outputs: 1,
-    };
     pub const IN1_OUT2: Self = Self {
         n_inputs: 1,
         n_outputs: 2,
     };
-    pub const IN2_OUT2: Self = Self {
-        n_inputs: 2,
-        n_outputs: 2,
-    };
-    pub const IN2_OUT3: Self = Self {
-        n_inputs: 2,
-        n_outputs: 3,
-    };
-    pub const IN3_OUT3: Self = Self {
-        n_inputs: 3,
-        n_outputs: 3,
-    };
-    pub const IN4_OUT3: Self = Self {
-        n_inputs: 4,
-        n_outputs: 3,
-    };
-    pub const IN4_OUT4: Self = Self {
-        n_inputs: 4,
-        n_outputs: 4,
-    };
-    pub const IN5_OUT3: Self = Self {
-        n_inputs: 5,
-        n_outputs: 3,
-    };
-    pub const IN5_OUT4: Self = Self {
-        n_inputs: 5,
+    pub const IN1_OUT4: Self = Self {
+        n_inputs: 1,
         n_outputs: 4,
     };
     pub const IN1_OUT8: Self = Self {
         n_inputs: 1,
         n_outputs: 8,
     };
-    pub const IN36_OUT2: Self = Self {
-        n_inputs: 36,
+    pub const IN1_OUT16: Self = Self {
+        n_inputs: 1,
+        n_outputs: 16,
+    };
+    pub const IN2_OUT2: Self = Self {
+        n_inputs: 2,
+        n_outputs: 2,
+    };
+    pub const IN2_OUT4: Self = Self {
+        n_inputs: 2,
+        n_outputs: 4,
+    };
+    pub const IN2_OUT8: Self = Self {
+        n_inputs: 2,
+        n_outputs: 8,
+    };
+    pub const IN2_OUT16: Self = Self {
+        n_inputs: 2,
+        n_outputs: 16,
+    };
+    pub const IN3_OUT2: Self = Self {
+        n_inputs: 3,
+        n_outputs: 2,
+    };
+    pub const IN3_OUT4: Self = Self {
+        n_inputs: 3,
+        n_outputs: 4,
+    };
+    pub const IN3_OUT8: Self = Self {
+        n_inputs: 3,
+        n_outputs: 8,
+    };
+    pub const IN4_OUT2: Self = Self {
+        n_inputs: 4,
+        n_outputs: 2,
+    };
+    pub const IN4_OUT4: Self = Self {
+        n_inputs: 4,
+        n_outputs: 4,
+    };
+    pub const IN4_OUT8: Self = Self {
+        n_inputs: 4,
+        n_outputs: 8,
+    };
+    pub const IN4_OUT16: Self = Self {
+        n_inputs: 4,
+        n_outputs: 16,
+    };
+    pub const IN5_OUT2: Self = Self {
+        n_inputs: 5,
+        n_outputs: 2,
+    };
+    pub const IN5_OUT4: Self = Self {
+        n_inputs: 5,
+        n_outputs: 4,
+    };
+    pub const IN5_OUT8: Self = Self {
+        n_inputs: 5,
+        n_outputs: 8,
+    };
+    pub const IN5_OUT16: Self = Self {
+        n_inputs: 5,
+        n_outputs: 16,
+    };
+    pub const IN6_OUT2: Self = Self {
+        n_inputs: 6,
+        n_outputs: 2,
+    };
+    pub const IN6_OUT4: Self = Self {
+        n_inputs: 6,
+        n_outputs: 4,
+    };
+    pub const IN6_OUT8: Self = Self {
+        n_inputs: 6,
+        n_outputs: 8,
+    };
+    pub const IN8_OUT2: Self = Self {
+        n_inputs: 8,
+        n_outputs: 2,
+    };
+    pub const IN8_OUT4: Self = Self {
+        n_inputs: 8,
+        n_outputs: 4,
+    };
+    pub const IN8_OUT8: Self = Self {
+        n_inputs: 8,
+        n_outputs: 8,
+    };
+    pub const IN8_OUT16: Self = Self {
+        n_inputs: 8,
+        n_outputs: 16,
+    };
+    pub const IN12_OUT2: Self = Self {
+        n_inputs: 12,
+        n_outputs: 2,
+    };
+    pub const IN12_OUT4: Self = Self {
+        n_inputs: 12,
+        n_outputs: 4,
+    };
+    pub const IN12_OUT8: Self = Self {
+        n_inputs: 12,
+        n_outputs: 8,
+    };
+    pub const IN16_OUT2: Self = Self {
+        n_inputs: 16,
+        n_outputs: 2,
+    };
+    pub const IN16_OUT4: Self = Self {
+        n_inputs: 16,
+        n_outputs: 4,
+    };
+    pub const IN16_OUT8: Self = Self {
+        n_inputs: 16,
+        n_outputs: 8,
+    };
+    pub const IN24_OUT2: Self = Self {
+        n_inputs: 24,
+        n_outputs: 2,
+    };
+    pub const IN24_OUT4: Self = Self {
+        n_inputs: 24,
+        n_outputs: 4,
+    };
+    pub const IN32_OUT2: Self = Self {
+        n_inputs: 32,
+        n_outputs: 2,
+    };
+    pub const IN40_OUT2: Self = Self {
+        n_inputs: 40,
+        n_outputs: 2,
+    };
+    pub const IN48_OUT2: Self = Self {
+        n_inputs: 48,
+        n_outputs: 2,
+    };
+    pub const IN49_OUT2: Self = Self {
+        n_inputs: 49,
         n_outputs: 2,
     };
 
@@ -71,7 +179,38 @@ impl Shape {
     pub const fn signer_width(self) -> usize {
         owner_signer_slots(self.n_inputs) + 1
     }
+
+    /// Whether the SPP prover has keys for this shape, see [`SPP_SUPPORTED_SHAPES`].
+    pub const fn is_supported(self) -> bool {
+        let mut shapes: &[Shape] = &SPP_SUPPORTED_SHAPES;
+        while let Some((shape, rest)) = shapes.split_first() {
+            if shape.n_inputs == self.n_inputs && shape.n_outputs == self.n_outputs {
+                return true;
+            }
+            shapes = rest;
+        }
+        false
+    }
+
+    /// Whether the ring authority rail has keys for this shape: square, with a
+    /// width from [`RING_AUTHORITY_WIDTHS`].
+    pub const fn is_ring_authority(self) -> bool {
+        if self.n_inputs != self.n_outputs {
+            return false;
+        }
+        let mut widths: &[usize] = &RING_AUTHORITY_WIDTHS;
+        while let Some((width, rest)) = widths.split_first() {
+            if *width == self.n_inputs {
+                return true;
+            }
+            widths = rest;
+        }
+        false
+    }
 }
+
+/// Square widths the ring authority rail has keys for, ascending.
+pub const RING_AUTHORITY_WIDTHS: [usize; 2] = [2, 4];
 
 /// Distinct addresses one transaction can carry, `solana_message::v1::MAX_ADDRESSES`.
 pub const MAX_TRANSACTION_ADDRESSES: usize = 64;
@@ -99,7 +238,7 @@ pub const fn owner_signer_slots(n_inputs: usize) -> usize {
 
 /// Widest public signer vector over [`SPP_SUPPORTED_SHAPES`]; the program sizes
 /// its fixed signer buffers from it.
-pub const MAX_SIGNERS: usize = 25;
+pub const MAX_SIGNERS: usize = 29;
 
 /// The buffer bounds hold for every supported shape, or the build fails.
 const _: () = {
@@ -112,19 +251,46 @@ const _: () = {
     }
 };
 
-/// Shapes the SPP prover has keys for. Slot-signed transactions declare their
-/// exact shape (they do not pad), so they validate against this full set rather
-/// than the fixed padded-transfer shape ([`Shape::IN2_OUT3`]).
-pub const SPP_SUPPORTED_SHAPES: [Shape; 11] = [
-    Shape::IN1_OUT1,
+/// Shapes the SPP prover has keys for, ordered by proving cost so the first
+/// shape that fits is the cheapest. Slot-signed transactions declare their
+/// exact shape (they do not pad), so they validate against this full set.
+pub const SPP_SUPPORTED_SHAPES: [Shape; 38] = [
     Shape::IN1_OUT2,
-    Shape::IN2_OUT2,
-    Shape::IN2_OUT3,
-    Shape::IN3_OUT3,
-    Shape::IN4_OUT3,
-    Shape::IN4_OUT4,
-    Shape::IN5_OUT3,
-    Shape::IN5_OUT4,
+    Shape::IN1_OUT4,
     Shape::IN1_OUT8,
-    Shape::IN36_OUT2,
+    Shape::IN2_OUT2,
+    Shape::IN2_OUT4,
+    Shape::IN1_OUT16,
+    Shape::IN2_OUT8,
+    Shape::IN3_OUT2,
+    Shape::IN3_OUT4,
+    Shape::IN2_OUT16,
+    Shape::IN3_OUT8,
+    Shape::IN4_OUT2,
+    Shape::IN4_OUT4,
+    Shape::IN4_OUT8,
+    Shape::IN5_OUT2,
+    Shape::IN5_OUT4,
+    Shape::IN4_OUT16,
+    Shape::IN5_OUT8,
+    Shape::IN6_OUT2,
+    Shape::IN6_OUT4,
+    Shape::IN5_OUT16,
+    Shape::IN6_OUT8,
+    Shape::IN8_OUT2,
+    Shape::IN8_OUT4,
+    Shape::IN8_OUT8,
+    Shape::IN8_OUT16,
+    Shape::IN12_OUT2,
+    Shape::IN12_OUT4,
+    Shape::IN12_OUT8,
+    Shape::IN16_OUT2,
+    Shape::IN16_OUT4,
+    Shape::IN16_OUT8,
+    Shape::IN24_OUT2,
+    Shape::IN24_OUT4,
+    Shape::IN32_OUT2,
+    Shape::IN40_OUT2,
+    Shape::IN48_OUT2,
+    Shape::IN49_OUT2,
 ];

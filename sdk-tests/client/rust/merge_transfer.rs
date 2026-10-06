@@ -16,7 +16,7 @@ use zolana_program::instruction::{MergeTransact, Transact};
 use zolana_transaction::{
     decrypt_spendable,
     instructions::{
-        merge::MergeTransaction,
+        merge::{MergeTransaction, MAX_MERGE_INPUTS},
         transact::{ConfidentialTransaction, Shape},
     },
     AssetRegistry, SOL_MINT,
@@ -24,15 +24,15 @@ use zolana_transaction::{
 use zolana_user_registry_interface::user_record_pda;
 
 /// One merge spends exactly `MAX_MERGE_INPUTS` inputs.
-const UTXO_COUNT: usize = 36;
+const UTXO_COUNT: usize = MAX_MERGE_INPUTS;
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const TRANSFER_AMOUNT: u64 = 500_000_000;
-/// A 36-input merge costs about 250,000 compute units, most of it the 36
+/// A 54-input merge costs about 300,000 compute units, most of it the 54
 /// nullifier PDAs.
 const MERGE_CU_LIMIT: u32 = 400_000;
 
-/// Spends a balance spread over more UTXOs than one transaction can take, the
-/// direct way: merge, then transfer the merged output.
+/// Spends a balance spread over more UTXOs than the widest transfer shape
+/// takes, the direct way: merge, then transfer the merged output.
 ///
 /// This is the baseline [`optimized_merge_transfer`] improves on. The transfer
 /// proves its input against a Merkle path, so it cannot be built until the
@@ -62,7 +62,7 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 ///
 /// [`optimized_merge_transfer`]: ../optimized_merge_transfer.rs
 fn main() -> Result<()> {
-    // A registered sender whose private balance sits in 36 separate UTXOs. The
+    // A registered sender whose private balance sits in 54 separate UTXOs. The
     // rent sponsor funds no cache here; it only pays for the merge.
     let MergeScenario {
         rpc_url,
@@ -84,7 +84,8 @@ fn main() -> Result<()> {
     let sender_address = sender.shielded_address()?;
     let recipient_address = recipient.shielded_address()?;
 
-    // 1. The balance cannot be spent in one transfer, so it has to be merged.
+    // 1. The balance spans more UTXOs than the widest transfer shape takes, so
+    // it is merged first.
     assert_balance_needs_merging(&utxos, UTXO_COUNT);
     let total: u64 = utxos.iter().map(|utxo| utxo.utxo.amount).sum();
 
@@ -154,7 +155,7 @@ fn main() -> Result<()> {
     let mut transfer = ConfidentialTransaction::new(vec![merged_note], sender.pubkey())?
         .with_output_tree_id(tree_id)?;
     transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
-    transfer.pad_utxos(Shape::IN2_OUT3, &sender_address)?;
+    transfer.pad_utxos(Shape::IN2_OUT4, &sender_address)?;
     let transfer_data = client.prove_transact(
         transfer.encrypt(&sender)?,
         Some(IndexerRpcConfig::at_slot(merge_slot)),

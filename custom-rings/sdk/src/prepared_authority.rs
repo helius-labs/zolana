@@ -155,7 +155,7 @@ mod tests {
             },
             payer: Address::default(),
             ring_program_id: None,
-            shape: Shape::IN2_OUT3,
+            shape: Shape::IN2_OUT2,
         };
         let first = input.nullifier();
         assert_eq!(prepared.first_nullifier().unwrap(), first);

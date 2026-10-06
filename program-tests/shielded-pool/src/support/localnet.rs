@@ -269,7 +269,7 @@ fn field_bytes(value: &num_bigint::BigUint) -> [u8; 32] {
 }
 
 /// Inputs for [`build_sol_transfer_witness`]: the indexer-agnostic half of a
-/// two-input/three-output SOL transfer or withdrawal. Callers fetch the
+/// two-input/two-output SOL transfer or withdrawal. Callers fetch the
 /// merkle/non-inclusion proofs and assemble the spend inputs their own way
 /// (local `TestIndexer` mirrors or a Photon indexer); this helper owns
 /// everything from instruction-data assembly through prover submission. The
@@ -293,7 +293,7 @@ pub struct SolTransferWitnessArgs {
     /// returns the resulting hashes and blindings in [`SolTransferWitness`].
     pub outputs: Vec<TransferOutput>,
     /// Per-output nullifier pubkeys (zero for dummies, whose owner is unconstrained).
-    pub output_nullifier_pks: [[u8; 32]; 3],
+    pub output_nullifier_pks: [[u8; 32]; 2],
     /// Declared interface transfers (empty for a pure shielded transfer).
     pub interface_transfers: Vec<InterfaceTransfer>,
     /// Settlement account pairs bound into the external-data hash, one per
@@ -326,7 +326,7 @@ pub struct SolTransferWitness {
     pub output_blindings: Vec<[u8; 32]>,
 }
 
-/// Assemble a proven two-input/three-output `transact` instruction payload for
+/// Assemble a proven two-input/two-output `transact` instruction payload for
 /// the SOL rail: derive the output blindings, build the instruction data from
 /// the declared inputs/outputs, stamp witness owner tags, hash external data
 /// and public inputs, then prove and locally verify the witness. Both localnet

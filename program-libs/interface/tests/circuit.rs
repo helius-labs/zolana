@@ -1,4 +1,5 @@
 use zolana_interface::{
+    shape::{RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
     verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
@@ -111,37 +112,53 @@ fn accessors_and_behavior_match_variants() {
 
 #[test]
 fn supported_shapes_are_fail_closed() {
-    assert!(CircuitId::ConfidentialEddsa(2, 3, 3).is_supported());
+    assert!(CircuitId::ConfidentialEddsa(2, 4, 3).is_supported());
     assert!(CircuitId::RingEddsa(1, 8, 3).is_supported());
-    assert!(CircuitId::RingP256(2, 3, 3, P256_PROOF_DATA).is_supported());
+    assert!(CircuitId::RingP256(2, 4, 3, P256_PROOF_DATA).is_supported());
     assert!(CircuitId::RingAuthority(4, 4, 3).is_supported());
-    assert!(CircuitId::ConfidentialEddsa(36, 2, 3).is_supported());
-    assert!(CircuitId::RingEddsa(36, 2, 3).is_supported());
-    assert!(CircuitId::RingP256(36, 2, 3, P256_PROOF_DATA).is_supported());
-    assert!(!CircuitId::RingAuthority(36, 2, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(36, 3, 3).is_supported());
+    assert!(CircuitId::ConfidentialEddsa(49, 2, 3).is_supported());
+    assert!(CircuitId::RingEddsa(49, 2, 3).is_supported());
+    assert!(CircuitId::RingP256(49, 2, 3, P256_PROOF_DATA).is_supported());
+    assert!(CircuitId::ConfidentialEddsa(8, 16, 3).is_supported());
+    assert!(!CircuitId::RingAuthority(49, 2, 3).is_supported());
+    assert!(!CircuitId::ConfidentialEddsa(49, 4, 3).is_supported());
+    assert!(!CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
-    assert!(!CircuitId::RingEddsa(2, 3, 2).is_supported());
-    assert!(!CircuitId::RingAuthority(2, 3, 3).is_supported());
+    assert!(!CircuitId::RingEddsa(2, 4, 2).is_supported());
+    assert!(!CircuitId::RingAuthority(2, 4, 3).is_supported());
+    for (n_inputs, n_outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2)] {
+        assert!(
+            !CircuitId::ConfidentialEddsa(n_inputs, n_outputs, 3).is_supported(),
+            "{n_inputs}x{n_outputs} was removed"
+        );
+    }
+    for n in [1, 3] {
+        assert!(!CircuitId::RingAuthority(n, n, 3).is_supported(), "{n}x{n}");
+    }
+}
+
+#[test]
+fn every_supported_shape_is_supported_on_every_owner_signed_rail() {
+    for shape in SPP_SUPPORTED_SHAPES {
+        let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
+        let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
+        for circuit in [
+            CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::RingP256(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, P256_PROOF_DATA),
+        ] {
+            assert!(circuit.is_supported(), "{circuit:?}");
+        }
+    }
 }
 
 #[cfg(feature = "verifying-keys")]
 #[test]
 fn every_supported_shape_resolves_exactly_one_key() {
-    let transfer_shapes = [
-        (1, 1),
-        (1, 2),
-        (1, 8),
-        (2, 2),
-        (2, 3),
-        (3, 3),
-        (4, 3),
-        (4, 4),
-        (5, 3),
-        (5, 4),
-        (36, 2),
-    ];
-    for (n_inputs, n_outputs) in transfer_shapes {
+    for shape in SPP_SUPPORTED_SHAPES {
+        let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
+        let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
         for circuit in [
             CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
             CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
@@ -167,7 +184,8 @@ fn every_supported_shape_resolves_exactly_one_key() {
             ));
         }
     }
-    for n in 1..=4 {
+    for width in RING_AUTHORITY_WIDTHS {
+        let n = u8::try_from(width).expect("fits u8");
         let circuit = CircuitId::RingAuthority(n, n, PUBLIC_ASSET_SLOTS);
         assert!(circuit.is_supported());
         assert!(circuit.verifying_key().is_some());
@@ -175,7 +193,7 @@ fn every_supported_shape_resolves_exactly_one_key() {
     assert!(CircuitId::ConfidentialEddsa(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()
         .is_none());
-    assert!(CircuitId::RingAuthority(36, 2, PUBLIC_ASSET_SLOTS)
+    assert!(CircuitId::RingAuthority(49, 2, PUBLIC_ASSET_SLOTS)
         .verifying_key()
         .is_none());
 }

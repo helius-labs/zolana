@@ -198,12 +198,13 @@ fn bench_cu_deposit() {
         description:
             "Compute unit profiling for feasible shielded-pool instruction families, replayed \
              under mollusk from litesvm-built account state: protocol creation, tree pause, \
-             proof-free SOL/SPL shields, all eleven Groth16-proven EdDSA transact shapes \
-             (including the 1x8 split shape and the 36x2 consolidation shape), the 36x2 \
-             consolidation shape on both `ring_transact` rails (EdDSA, and P256 whose BSB22 \
-             commitment adds a Pedersen proof-of-knowledge pairing to verification), both \
-             supported `merge_transact` shapes, compact padding on the 2x3 and 36x2 transact \
-             shapes and both merge shapes, and SOL/SPL withdrawals. This target is a pure \
+             proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the \
+             narrowest and widest shape of every output count (up to the 1x16 split shape \
+             and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails \
+             (EdDSA, and P256 whose BSB22 commitment adds a Pedersen proof-of-knowledge \
+             pairing to verification), every supported `merge_transact` shape, compact \
+             padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL \
+             withdrawals. This target is a pure \
              benchmark: no \
              CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
              ceiling that never runs would be unfalsifiable. Regression ceilings live in the \
@@ -231,17 +232,17 @@ fn bench_cu_deposit() {
     bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
     bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
     for (n_inputs, n_outputs) in [
-        (1, 1),
         (1, 2),
         (2, 2),
-        (2, 3),
-        (3, 3),
-        (4, 3),
+        (2, 4),
         (4, 4),
-        (5, 3),
         (5, 4),
+        (24, 4),
         (1, 8),
-        (36, 2),
+        (16, 8),
+        (1, 16),
+        (8, 16),
+        (49, 2),
     ] {
         bench_transfer_shape(
             &mollusk,
@@ -253,7 +254,7 @@ fn bench_cu_deposit() {
         );
     }
     // The same spend with compact padding: one input and one output sent.
-    for (n_inputs, n_outputs) in [(2, 3), (36, 2)] {
+    for (n_inputs, n_outputs) in [(2, 4), (49, 2)] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, true, &mut bench);
     }
     for rail in [RingRail::Eddsa, RingRail::P256] {
@@ -261,7 +262,7 @@ fn bench_cu_deposit() {
             &mut mollusk,
             &program_id,
             rail,
-            Shape::IN36_OUT2,
+            Shape::IN49_OUT2,
             &mut bench,
         );
     }
@@ -270,7 +271,7 @@ fn bench_cu_deposit() {
     }
     // Compact merges send only the real inputs, and their count picks the
     // width: the fewest that select each circuit.
-    for (input_count, real_input_count) in [(8, 1), (36, 9)] {
+    for (input_count, real_input_count) in [(8, 1), (24, 9), (54, 25)] {
         bench_merge_shape(
             &mut mollusk,
             &program_id,
@@ -280,16 +281,16 @@ fn bench_cu_deposit() {
             &mut bench,
         );
     }
-    // Cached spends at two supported shapes, both also measured uncached above
-    // so the cache's cost shows up as a direct difference: the widest
-    // non-consolidation shape, and the consolidation the cache exists for.
+    // Cached spends at two supported shapes: 5x4, also measured uncached above
+    // so the cache's cost shows up as a direct difference, and 32x2, the widest
+    // shape whose every input fits one cache.
     //
     // The last entry draws a single input from the widest cache. Selecting
     // every slot leaves the commitment chain with no zero tail, so the fold
     // runs its full group count; selecting one leaves the longest tail a
     // supported shape can have. The pair brackets what the cache selection
     // costs to reconstruct on chain.
-    for (n_inputs, n_outputs, cached_slots) in [(5, 4, 5), (36, 2, 36), (36, 2, 1)] {
+    for (n_inputs, n_outputs, cached_slots) in [(5, 4, 5), (32, 2, 32), (32, 2, 1)] {
         bench_cached_transfer_shape(
             &mollusk,
             &program_id,
@@ -925,7 +926,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
         utxo.owner,
         change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )
     .expect("change and dummy outputs");
@@ -933,7 +934,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
         .expect("derive output blindings");
     let change_output_hash = *output_hashes.first().expect("change output hash");
 
-    let view_tags = [payer_bytes; 3];
+    let view_tags = [payer_bytes; 2];
     let mut transact_ix_data = new_transact_ix_data(
         vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
         utxo_root_index,
@@ -942,18 +943,14 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
     );
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(
-        &mut outputs,
-        &owner_pk_hashes,
-        &[change_nullifier_pk, zero, zero],
-    );
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[change_nullifier_pk, zero]);
     let resolved_transfers = [sol_leg(&recipient)];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
-        &[change_output_hash, zero, zero],
+        &[change_output_hash, zero],
         &private_tx_blinding,
     )
     .hash()

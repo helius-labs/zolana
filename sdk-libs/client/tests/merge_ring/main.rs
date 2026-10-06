@@ -9,6 +9,7 @@ mod prover_bootstrap;
 mod test_indexer;
 
 use harness::{MergeRingHarness, MergeRingPlan};
+use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 #[test]
 #[serial_test::serial]
@@ -23,7 +24,7 @@ fn eddsa_merge_ring_proofs_cover_padding() {
 }
 
 fn run_owner_rail(eddsa: bool) {
-    for real_inputs in [1, 4, 8] {
+    for real_inputs in [1, 8, 9, 24] {
         MergeRingHarness {
             plan: MergeRingPlan { real_inputs, eddsa },
         }
@@ -35,7 +36,7 @@ fn run_owner_rail(eddsa: bool) {
 #[serial_test::serial]
 fn merge_ring_proofs_cover_the_wide_shape() {
     for eddsa in [false, true] {
-        for real_inputs in [9, 36] {
+        for real_inputs in [MERGE_DEFAULT_INPUT_COUNT + 1, MAX_MERGE_INPUTS] {
             MergeRingHarness {
                 plan: MergeRingPlan { real_inputs, eddsa },
             }

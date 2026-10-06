@@ -286,18 +286,18 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 /// The real `public_input_hash` agrees with the vector-pinned Go ordering for
 /// every circuit selector, with the public transfer slots interleaved as
 /// `(asset, amount)`, the payer-first signer run right-folded at the variant's
-/// width (input-signing rails: `Shape::signer_width`, 25 on `36x2`; the
-/// authority rail: a bare payer element), and the output-owner-chain appendix
-/// selected by the variant. The `36x2` confidential row fills every signer
-/// slot so the full-width path of the signer chain is covered.
+/// width (input-signing rails: `Shape::signer_width`, 29 on `32x2` and 12 on
+/// `49x2`; the authority rail: a bare payer element), and the output-owner-chain
+/// appendix selected by the variant. The `32x2` confidential row fills every
+/// signer slot so the full-width path of the signer chain is covered.
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
-        (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
-        (CircuitId::RingEddsa(2, 3, 3), 3, 2, true),
-        (CircuitId::RingAuthority(2, 3, 3), 1, 1, false),
-        (CircuitId::ConfidentialEddsa(36, 2, 3), 25, 25, true),
-        (CircuitId::RingEddsa(36, 2, 3), 25, 1, true),
+        (CircuitId::ConfidentialEddsa(2, 4, 3), 3usize, 2u8, true),
+        (CircuitId::RingEddsa(2, 4, 3), 3, 2, true),
+        (CircuitId::RingAuthority(2, 2, 3), 1, 1, false),
+        (CircuitId::ConfidentialEddsa(32, 2, 3), 29, 29, true),
+        (CircuitId::RingEddsa(49, 2, 3), 12, 1, true),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
@@ -582,7 +582,7 @@ fn padded_right_fold_matches_the_full_width_fold() {
         }
         bytes
     };
-    for width in (1..=8).chain([36]) {
+    for width in (1..=16).chain([24, 49, 54]) {
         for sent_count in 0..=width {
             for zero_last_sent in [false, true] {
                 let mut sent: Vec<[u8; 32]> = (0..sent_count).map(value).collect();

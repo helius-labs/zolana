@@ -34,8 +34,8 @@ use super::{
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
 
 /// A `merge_transact` verifies a Groth16 proof on chain, above the default
-/// per-instruction budget. The widest shape, "Merge 36x1" in
-/// program-tests/shielded-pool/CU_BENCHMARK.md, measures 242,057 CU.
+/// per-instruction budget. The widest shape, "Merge 54x1" in
+/// program-tests/shielded-pool/CU_BENCHMARK.md, measures 296,879 CU.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
 pub(super) fn client(
@@ -140,7 +140,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
-    let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
+    let max_parts = Shape::IN1_OUT16.n_outputs() as u8;
     if !(2..=max_parts).contains(&opts.parts) {
         bail!("--parts must be between 2 and {max_parts}");
     }

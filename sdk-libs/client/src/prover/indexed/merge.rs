@@ -393,7 +393,7 @@ mod tests {
                 .with_output_tree_id(4)
                 .encrypt(&owner)
                 .unwrap();
-            let expected = merge.dummy_nullifiers();
+            let real_nullifier = merge.input_utxos.first().unwrap().nullifier;
             let output = merge.output_hash().unwrap();
             let prepared = IndexedMergePreparation {
                 merge,
@@ -402,7 +402,7 @@ mod tests {
             .prepare()
             .unwrap();
             assert_eq!(prepared.data.output_utxo_hash, output);
-            assert_eq!(&prepared.data.nullifiers[1..], expected);
+            assert_eq!(prepared.data.nullifiers, vec![real_nullifier]);
             assert_eq!(prepared.request.input_trees()[0].id, 3);
             let body: serde_json::Value = serde_json::from_str(&prepared.body().unwrap()).unwrap();
             assert!(body["prepared"].get("treeSlots").is_none());

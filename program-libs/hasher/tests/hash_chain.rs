@@ -57,7 +57,7 @@ fn hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vector {
 }
 
 fn compute_hash_chain_4_vectors() -> HashChain4Vectors {
-    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 7, 8, 16, 36]
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 7, 8, 16, 36, 54]
         .iter()
         .map(|&len| {
             let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
@@ -101,7 +101,7 @@ fn right_hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vecto
 /// the all-zero vector a spend that draws on no cache publishes.
 fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
     let zero = [0u8; 32];
-    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36]
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36, 54]
         .iter()
         .map(|&len| {
             let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
@@ -123,6 +123,13 @@ fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
     }
     vectors.push(right_hash_chain_4_vector("trailing_zeros_36", &wide));
     vectors.push(right_hash_chain_4_vector("all_zero_36", &[zero; 36]));
+    let mut widest = vec![zero; 54];
+    for (index, slot) in widest.iter_mut().take(5).enumerate() {
+        *slot = field(index as u32 + 1);
+    }
+    vectors.push(right_hash_chain_4_vector("trailing_zeros_54", &widest));
+    vectors.push(right_hash_chain_4_vector("all_zero_54", &[zero; 54]));
+    vectors.push(right_hash_chain_4_vector("all_zero_49", &[zero; 49]));
     HashChain4Vectors {
         description: "Known-answer vectors for right_hash_chain_4, the right-folding 4-input \
                       Poseidon chain over 32-byte big-endian BN254 field elements: L == 0 -> 0, \
@@ -133,7 +140,7 @@ fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
                       folds to a constant of its length alone. The len_<L> entries fold \
                       e[i] = i + 1; zero_element_in_the_middle shows a zero element is \
                       positional and distinct from padding; the trailing_zeros_<L> and \
-                      all_zero_36 entries are the shapes the cache chain publishes. Produced by \
+                      all_zero_<L> entries are the shapes the cache chain publishes. Produced by \
                       program-libs/hasher/tests/hash_chain.rs print_right_hash_chain_4_vectors."
             .to_string(),
         vectors,
@@ -154,7 +161,7 @@ fn committed_right_hash_chain_4_vectors_match() {
 fn right_hash_chain_4_matches_every_committed_vector() {
     let committed: HashChain4Vectors =
         serde_json::from_str(RIGHT_HASH_CHAIN_4_VECTORS_JSON).unwrap();
-    assert_eq!(committed.vectors.len(), 17);
+    assert_eq!(committed.vectors.len(), 21);
     for vector in &committed.vectors {
         let inputs: Vec<[u8; 32]> = vector
             .inputs
@@ -194,7 +201,7 @@ fn print_right_hash_chain_4_vectors() {
 #[test]
 fn hash_chain_4_matches_every_committed_vector() {
     let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
-    assert_eq!(committed.vectors.len(), 11);
+    assert_eq!(committed.vectors.len(), 12);
     for vector in &committed.vectors {
         let inputs: Vec<[u8; 32]> = vector
             .inputs

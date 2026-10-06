@@ -55,7 +55,7 @@ pub(crate) fn transact_data() -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [3u8; 32],
-        circuit: CircuitId::RingEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::RingEddsa(1, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),
@@ -172,7 +172,7 @@ fn revocation_fixture_with(ix: CustomRingTransactIxData, target: RevocationTarge
 
 fn delegate_revocation_fixture(target: RevocationTarget) -> Fixture {
     let mut content = transact_data();
-    content.circuit = CircuitId::RingAuthority(1, 1, N_PUBLIC_SLOTS as u8);
+    content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     let ix = revoking(ix_data(0, 0, 0, content));
     let fixture = policy_delegate_transact_fixture(encode_transact(tag::DELEGATE_TRANSACT, &ix));
     with_target(fixture, target)

@@ -10,10 +10,13 @@ use zolana_interface::{
 };
 use zolana_keypair::NullifierKey;
 use zolana_program::{
-    compression::{CompressedAccount, SppTransactCpi},
+    compression::{CompressedAccount, SppTransactCpi, ACCOUNT_BLINDING_SEED},
     TransactExternalData,
 };
-use zolana_transaction::ExternalData;
+use zolana_transaction::{
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
+    ExternalData, SppProofOutputUtxo,
+};
 
 use crate::{
     err,
@@ -35,6 +38,18 @@ pub const UNPROVEN_TREE_CONTEXT: TreeContext = TreeContext {
 
 pub fn zero_nullifier_key() -> NullifierKey {
     NullifierKey::from_secret([0u8; 31])
+}
+
+/// The compact padding output filling the second output slot of the 2x2 shape
+/// a single write is proved at. SPP checks every output blinding against the
+/// transaction's derivation, padding included.
+pub fn padding_output(first_nullifier: &[u8; 32]) -> Result<SppProofOutputUtxo> {
+    let seed = derive_output_blinding_seed(first_nullifier, &ACCOUNT_BLINDING_SEED)?;
+    Ok(SppProofOutputUtxo {
+        blinding: derive_transact_output_blinding(first_nullifier, &seed, 1)?,
+        compact: true,
+        ..SppProofOutputUtxo::default()
+    })
 }
 
 pub fn external_data(output_hash: [u8; 32], pda: &Address, payload: Vec<u8>) -> ExternalData {

@@ -85,6 +85,39 @@ func TestPackInputFlagsLayoutIsRecoverable(t *testing.T) {
 	}
 }
 
+// The widest transact shape has 49 inputs: 1+3*49 = 148 bits, past any fixed 128-bit
+// integer, so every field must still land at its offset.
+func TestPackInputFlagsAtTheWidestShape(t *testing.T) {
+	const nInputs = 49
+	indexes := make([]*big.Int, nInputs)
+	for i := range indexes {
+		indexes[i] = big.NewInt(int64((i*5 + 3) % txcircuit.InputTrees))
+	}
+	flags, err := PackInputFlags(false, indexes)
+	if err != nil {
+		t.Fatalf("pack input flags: %v", err)
+	}
+	if flags.Bit(0) != 0 {
+		t.Fatal("dummy policy bit is set")
+	}
+	if width := 1 + txcircuit.TreeIndexBits*nInputs; flags.BitLen() > width || width != 148 {
+		t.Fatalf("input flags 0x%s exceed the %d-bit width", flags.Text(16), width)
+	}
+	if flags.BitLen() <= 128 {
+		t.Fatalf("input flags 0x%s do not reach past 128 bits", flags.Text(16))
+	}
+	for i, want := range indexes {
+		got := new(big.Int).Rsh(flags, uint(1+txcircuit.TreeIndexBits*i))
+		got.And(got, big.NewInt((1<<txcircuit.TreeIndexBits)-1))
+		if got.Cmp(want) != 0 {
+			t.Fatalf("input %d tree index: got %s want %s", i, got, want)
+		}
+	}
+	if err := ValidateInputFlags(flags, indexes); err != nil {
+		t.Fatalf("packed flags rejected: %v", err)
+	}
+}
+
 func TestPackInputFlagsRejectsUnrepresentableIndex(t *testing.T) {
 	for _, index := range []*big.Int{nil, big.NewInt(-1), big.NewInt(1 << txcircuit.TreeIndexBits)} {
 		if _, err := PackInputFlags(true, []*big.Int{big.NewInt(0), index}); err == nil {

@@ -28,11 +28,11 @@ const EXTERNAL_HASH: &str = "001329a899d89d646ce5958e2ec09d0fec95f547a2ef76922e7
 const CLAIM_PRIVATE_TX_HASH: &str =
     "2084195c27c25c187bff6963df6beb0ce817719088662d4a83b575f99943b11c";
 const CLAIM_PUBLIC_INPUT_HASH: &str =
-    "1f7784b676f62af654f38b8dc841d0608ee1e29298af4edcd32f8b8d2e5853c3";
+    "28504492f258339afe5ae7af22744560006852fa9eed4af18e3fb548382be291";
 const SPEND_PRIVATE_TX_HASH: &str =
     "05463251217cd0b40990a3f1163a0c1b6cb37b0b5fc4d27428798ad5c4d63679";
 const SPEND_PUBLIC_INPUT_HASH: &str =
-    "0551e452e7afe555e964a80545c0d84f9e99ec3e9e525f247c82b1fce84b0e7a";
+    "0a98e151ecb39be8b75f1211965a1d986403927b21ae436e8845b79ee42808cc";
 const CLAIM_BLINDING: &str = "078e398422043456dc67a4c39f57ab507670ab3d1024746d47a2e93c7a46c344";
 const SPEND_BLINDING: &str = "018be3ee8af2454b58a964be7d94a0b752f31e5a85f4a0c80b4d25213d44b256";
 
@@ -107,7 +107,7 @@ fn transition(spent: Option<ListEntry>) -> Transition {
     tree_slots[0] = TreeSlot::new(TREE_ID, STATE_ROOT, NULLIFIER_ROOT);
     let public_input = PublicInputs {
         nullifiers: &[nullifier],
-        output_hashes: &[output_hash],
+        output_hashes: &[output_hash, [0u8; 32]],
         tree_slots: &tree_slots,
         output_tree_id: TREE_ID,
         private_tx: &private_tx,
@@ -116,7 +116,7 @@ fn transition(spent: Option<ListEntry>) -> Transition {
         ring_program_id: &[0u8; 32],
         input_flags: &pack_input_flags(true, [0u8]).expect("input flags"),
         signer_pk_hashes: &[payer_hash, namespace_hash],
-        output_owner_pk_hashes: Some(&[namespace_hash]),
+        output_owner_pk_hashes: Some(&[namespace_hash, [0u8; 32]]),
         cached_inputs: empty_cached_input_fields(1).expect("cache selection"),
     }
     .hash()

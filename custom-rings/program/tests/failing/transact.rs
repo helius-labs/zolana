@@ -66,7 +66,7 @@ pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
-        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: auditor_pubkey(3),
         salt: [3; 16],
         proof: TransactProof::zeroed(),
@@ -207,7 +207,7 @@ fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     let slots = N_PUBLIC_SLOTS as u8;
     let p256 = CircuitId::RingP256(
         2,
-        3,
+        2,
         slots,
         RingP256ProofData {
             bsb22_commitment: Bsb22Commitment {
@@ -219,8 +219,8 @@ fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     );
     for circuit in [
         p256,
-        CircuitId::RingAuthority(2, 3, slots),
-        CircuitId::ConfidentialEddsa(2, 3, slots),
+        CircuitId::RingAuthority(2, 2, slots),
+        CircuitId::ConfidentialEddsa(2, 2, slots),
     ] {
         let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
         data.circuit = circuit;

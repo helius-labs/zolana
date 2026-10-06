@@ -3,7 +3,7 @@ use zolana_event::OutputDataEncoding;
 use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
 
 use super::{
-    inputs::{pad_with_dummies, validate_merge_owner},
+    inputs::{pad_with_compact, validate_merge_owner},
     MergeProofInputs, MergeTransaction,
 };
 use crate::{
@@ -68,7 +68,8 @@ impl MergeTransaction {
         )
     }
 
-    /// `dummy_nullifiers` contains final nullifiers in appended slot order.
+    /// `dummy_nullifiers` holds each padding slot's derived merge dummy
+    /// nullifier in slot order; the compact slot proves it absent.
     pub fn encrypt_with_viewing_key(
         self,
         sender: &ShieldedAddress,
@@ -83,7 +84,6 @@ impl MergeTransaction {
             output_tree_id,
             ring_program_id,
             output_ring_data_hash,
-            compact_padding,
         } = self;
         validate_merge_owner(sender, &inputs)?;
         let mut output_utxo =
@@ -129,11 +129,10 @@ impl MergeTransaction {
                 .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
         }
         let mut input_utxos = inputs.into_iter().map(SppProofInputUtxo::from).collect();
-        pad_with_dummies(
+        pad_with_compact(
             &mut input_utxos,
             validated_inputs.padded_input_count,
             dummy_nullifiers,
-            compact_padding,
         )?;
         Ok(MergeProofInputs {
             input_utxos,

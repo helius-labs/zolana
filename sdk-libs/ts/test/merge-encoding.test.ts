@@ -5,7 +5,7 @@ import {
   encodeMergeTransactInstructionData,
   mergeExternalDataHash,
 } from "../src/interface/codecs/index.js";
-import { MAX_MERGE_INPUTS } from "../src/interface/constants.js";
+import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { copyBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32, Bytes128, MergeTransactInstructionData } from "../src/interface/types.js";
 
@@ -27,7 +27,7 @@ const data: MergeTransactInstructionData = {
   outputUtxoHash: field(9),
   eddsaOwner: false,
   privateTxHash: field(3),
-  nullifiers: Array.from({ length: 8 }, (_, index) => field(index)),
+  nullifiers: Array.from({ length: MERGE_INPUT_COUNT }, (_, index) => field(index)),
   utxoTreeRootIndex: 4,
   nullifierTreeRootIndex: 10,
 };
@@ -39,7 +39,7 @@ describe("shared merge encoding", () => {
       ...data,
       cacheSlot: vector.cached.cache_slot,
     });
-    expect(encoded).toHaveLength(528);
+    expect(encoded).toHaveLength(1040);
     expect(Array.from(encoded.slice(-2))).toEqual([1, vector.cached.cache_slot]);
     expect(hex(sha256(encoded))).toBe(vector.cached.instruction_sha256);
     expect(
@@ -74,7 +74,7 @@ describe("shared merge encoding", () => {
 
   it("matches the Rust plain-merge encoding and external hash", () => {
     const encoded = encodeMergeTransactInstructionData(data);
-    expect(encoded).toHaveLength(527);
+    expect(encoded).toHaveLength(1039);
     expect(encoded.at(-1)).toBe(0);
     expect(hex(sha256(encoded))).toBe(vector.instruction_sha256);
     expect(

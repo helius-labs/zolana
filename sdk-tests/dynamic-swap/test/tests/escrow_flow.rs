@@ -17,6 +17,7 @@ use dynamic_swap_sdk::{
         settle::{settle_blinding_seed, Settle, SettleProofInputParams},
     },
     prover::DynamicSwapProverClient,
+    shared::pad_spp_outputs,
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
 use shared::{escrow_authority_identity, get_slot_with_retry, send, setup_with_pair, wait_until};
@@ -351,7 +352,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             );
             let spp_proof_inputs = SppProofInputs {
                 input_utxos,
-                output_utxos: encoded.output_utxos,
+                output_utxos: pad_spp_outputs(
+                    encoded.output_utxos,
+                    &first_nullifier,
+                    &output_blinding_seed,
+                )?,
                 external_data,
                 payer: authority_solana.pubkey(),
                 blinding_seed,
@@ -663,7 +668,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         );
         let spp_proof_inputs = SppProofInputs {
             input_utxos,
-            output_utxos: encoded.output_utxos,
+            output_utxos: pad_spp_outputs(
+                encoded.output_utxos,
+                &settle_first_nullifier,
+                &output_blinding_seed,
+            )?,
             external_data,
             payer: authority_solana.pubkey(),
             blinding_seed,

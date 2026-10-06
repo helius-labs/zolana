@@ -3,23 +3,27 @@ package protocol
 import "testing"
 
 func TestSupportedShapes(t *testing.T) {
-	tests := []Shape{
-		{NInputs: 1, NOutputs: 1},
-		{NInputs: 1, NOutputs: 2},
-		{NInputs: 2, NOutputs: 2},
-		{NInputs: 2, NOutputs: 3},
-		{NInputs: 3, NOutputs: 3},
-		{NInputs: 4, NOutputs: 3},
-		{NInputs: 4, NOutputs: 4},
-		{NInputs: 5, NOutputs: 3},
-		{NInputs: 5, NOutputs: 4},
-		{NInputs: 1, NOutputs: 8},
+	grid := map[int][]int{
+		2:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 49},
+		4:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24},
+		8:  {1, 2, 3, 4, 5, 6, 8, 12, 16},
+		16: {1, 2, 4, 5, 8},
 	}
-
-	for _, shape := range tests {
-		if err := shape.Validate(); err != nil {
-			t.Fatalf("expected shape %s to be supported: %v", shape, err)
+	count := 0
+	for nOutputs, inputCounts := range grid {
+		for _, nInputs := range inputCounts {
+			shape := Shape{NInputs: nInputs, NOutputs: nOutputs}
+			if err := shape.Validate(); err != nil {
+				t.Fatalf("expected shape %s to be supported: %v", shape, err)
+			}
+			count++
 		}
+	}
+	if len(SupportedShapes) != count {
+		t.Fatalf("supported shape count: got %d want %d", len(SupportedShapes), count)
+	}
+	if len(AutoShapes) != len(SupportedShapes) {
+		t.Fatalf("automatic selection reaches %d of %d shapes", len(AutoShapes), len(SupportedShapes))
 	}
 }
 
@@ -28,9 +32,19 @@ func TestUnsupportedShapes(t *testing.T) {
 		{NInputs: 0, NOutputs: 1},
 		{NInputs: 0, NOutputs: 2},
 		{NInputs: 1, NOutputs: 0},
-		{NInputs: 3, NOutputs: 2},
-		{NInputs: 2, NOutputs: 4},
-		{NInputs: 6, NOutputs: 3},
+		{NInputs: 1, NOutputs: 1},
+		{NInputs: 2, NOutputs: 3},
+		{NInputs: 3, NOutputs: 3},
+		{NInputs: 4, NOutputs: 3},
+		{NInputs: 5, NOutputs: 3},
+		{NInputs: 36, NOutputs: 2},
+		{NInputs: 7, NOutputs: 2},
+		{NInputs: 50, NOutputs: 2},
+		{NInputs: 51, NOutputs: 2},
+		{NInputs: 32, NOutputs: 4},
+		{NInputs: 24, NOutputs: 8},
+		{NInputs: 6, NOutputs: 16},
+		{NInputs: 1, NOutputs: 32},
 	}
 
 	for _, shape := range tests {
@@ -49,28 +63,41 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 		want              Shape
 	}{
 		// Exact arities map to themselves.
-		{1, 1, Shape{NInputs: 1, NOutputs: 1}},
-		{2, 2, Shape{NInputs: 2, NOutputs: 2}},
 		{1, 2, Shape{NInputs: 1, NOutputs: 2}},
-		{3, 3, Shape{NInputs: 3, NOutputs: 3}},
-		{4, 3, Shape{NInputs: 4, NOutputs: 3}},
+		{2, 2, Shape{NInputs: 2, NOutputs: 2}},
 		{4, 4, Shape{NInputs: 4, NOutputs: 4}},
-		{5, 3, Shape{NInputs: 5, NOutputs: 3}},
 		{5, 4, Shape{NInputs: 5, NOutputs: 4}},
 		{1, 8, Shape{NInputs: 1, NOutputs: 8}},
-		// Smaller arities map to the smallest shape with capacity; the unused
+		{1, 16, Shape{NInputs: 1, NOutputs: 16}},
+		{8, 16, Shape{NInputs: 8, NOutputs: 16}},
+		{16, 8, Shape{NInputs: 16, NOutputs: 8}},
+		{24, 4, Shape{NInputs: 24, NOutputs: 4}},
+		{49, 2, Shape{NInputs: 49, NOutputs: 2}},
+		// Smaller arities map to the cheapest shape with capacity; the unused
 		// slots are dummy-padded (shield: 0 inputs, full unshield: 0 outputs).
-		{0, 1, Shape{NInputs: 1, NOutputs: 1}},
+		{0, 1, Shape{NInputs: 1, NOutputs: 2}},
 		{0, 2, Shape{NInputs: 1, NOutputs: 2}},
-		{1, 0, Shape{NInputs: 1, NOutputs: 1}},
-		{2, 1, Shape{NInputs: 2, NOutputs: 2}},
-		{3, 1, Shape{NInputs: 3, NOutputs: 3}},
-		{2, 3, Shape{NInputs: 2, NOutputs: 3}},
-		{1, 3, Shape{NInputs: 2, NOutputs: 3}},
-		{1, 4, Shape{NInputs: 4, NOutputs: 4}},
-		{2, 4, Shape{NInputs: 4, NOutputs: 4}},
-		{3, 4, Shape{NInputs: 4, NOutputs: 4}},
-		{0, 8, Shape{NInputs: 1, NOutputs: 8}},
+		{1, 0, Shape{NInputs: 1, NOutputs: 2}},
+		{1, 1, Shape{NInputs: 1, NOutputs: 2}},
+		{1, 3, Shape{NInputs: 1, NOutputs: 4}},
+		{2, 3, Shape{NInputs: 2, NOutputs: 4}},
+		{3, 3, Shape{NInputs: 3, NOutputs: 4}},
+		{4, 3, Shape{NInputs: 4, NOutputs: 4}},
+		{5, 3, Shape{NInputs: 5, NOutputs: 4}},
+		{1, 5, Shape{NInputs: 1, NOutputs: 8}},
+		{2, 5, Shape{NInputs: 2, NOutputs: 8}},
+		{1, 9, Shape{NInputs: 1, NOutputs: 16}},
+		{2, 9, Shape{NInputs: 2, NOutputs: 16}},
+		{3, 9, Shape{NInputs: 4, NOutputs: 16}},
+		{6, 9, Shape{NInputs: 8, NOutputs: 16}},
+		{7, 1, Shape{NInputs: 8, NOutputs: 2}},
+		{9, 2, Shape{NInputs: 12, NOutputs: 2}},
+		{13, 5, Shape{NInputs: 16, NOutputs: 8}},
+		{17, 3, Shape{NInputs: 24, NOutputs: 4}},
+		{25, 2, Shape{NInputs: 32, NOutputs: 2}},
+		{36, 2, Shape{NInputs: 40, NOutputs: 2}},
+		{41, 1, Shape{NInputs: 48, NOutputs: 2}},
+		{49, 1, Shape{NInputs: 49, NOutputs: 2}},
 	}
 	for _, tc := range cases {
 		got, err := CanonicalShape(tc.nInputs, tc.nOutputs)
@@ -80,13 +107,31 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("CanonicalShape(%d, %d) = %s, want %s", tc.nInputs, tc.nOutputs, got, tc.want)
 		}
+		smallest, err := SmallestSupportedShape(tc.nInputs, tc.nOutputs)
+		if err != nil || smallest != got {
+			t.Fatalf("SmallestSupportedShape(%d, %d) = %s, %v; want %s", tc.nInputs, tc.nOutputs, smallest, err, got)
+		}
 	}
 
 	for _, tc := range []struct{ nInputs, nOutputs int }{
-		{6, 1}, {1, 9}, {2, 8}, {5, 5}, {4, 5}, {-1, 1}, {1, -1},
+		{50, 1}, {1, 17}, {9, 16}, {17, 8}, {25, 3}, {33, 3}, {-1, 1}, {1, -1},
 	} {
 		if _, err := CanonicalShape(tc.nInputs, tc.nOutputs); err == nil {
 			t.Fatalf("CanonicalShape(%d, %d) should be rejected", tc.nInputs, tc.nOutputs)
+		}
+	}
+}
+
+// The smallest-fit search returns the first shape that holds a transaction, so
+// the list must be sorted by proving cost for that shape to be the cheapest
+// fit. Measured on the confidential rail: about 22.7k constraints per input and
+// 2k per output; the P256 rail adds a constant on top.
+func TestSupportedShapesAreCostOrdered(t *testing.T) {
+	cost := func(s Shape) int { return 22700*s.NInputs + 2050*s.NOutputs }
+	for i := 1; i < len(SupportedShapes); i++ {
+		earlier, later := SupportedShapes[i-1], SupportedShapes[i]
+		if cost(later) <= cost(earlier) {
+			t.Fatalf("shape %s is not more expensive than earlier %s", later, earlier)
 		}
 	}
 }
@@ -146,18 +191,25 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 
 func TestShapeSignerWidth(t *testing.T) {
 	cases := map[Shape]int{
-		{NInputs: 1, NOutputs: 1}:  2,
+		{NInputs: 1, NOutputs: 2}:  2,
 		{NInputs: 5, NOutputs: 4}:  6,
-		{NInputs: 36, NOutputs: 2}: 25,
+		{NInputs: 24, NOutputs: 2}: 25,
+		{NInputs: 32, NOutputs: 2}: 29,
+		{NInputs: 49, NOutputs: 2}: 12,
 	}
 	for shape, want := range cases {
 		if got := shape.SignerWidth(); got != want {
 			t.Fatalf("%s signer width: got %d want %d", shape, got, want)
 		}
 	}
+	widest := 0
 	for _, shape := range SupportedShapes {
 		if OwnerSignerSlots(shape.NInputs)+shape.NInputs+FixedTransactAddresses > MaxTransactionAddresses {
 			t.Fatalf("%s owner signer slots exceed the address limit", shape)
 		}
+		widest = max(widest, shape.SignerWidth())
+	}
+	if widest != 29 {
+		t.Fatalf("widest signer vector: got %d want 29 (MAX_SIGNERS)", widest)
 	}
 }

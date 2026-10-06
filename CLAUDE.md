@@ -431,23 +431,29 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
 rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
-duplicated in four places that MUST stay in sync:
-`sdk-libs/client/src/shape.rs` (the client may use a subset), Go
+duplicated in places that MUST stay in sync: Rust
+`program-libs/interface/src/shape.rs` (`SPP_SUPPORTED_SHAPES`, cost-ordered,
+which automatic selection walks), the verifying-key table in
+`program-libs/interface/src/verifying_keys/circuit.rs` (`circuit_key_item!`),
+TS `sdk-libs/ts/src/interface/shape.ts`, Go
 `prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
 `prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
-shielded-pool verifier when it exists (`transact/proof.rs`).
+key-generation list in `prover/server/scripts/generate_keys_transfer.sh`. The
+merge widths (8, 24 and 54) live in `MERGE_SUPPORTED_INPUT_COUNTS`
+(`merge_transact.rs`), Go `spp_merge/shared` `SupportedInputCounts` and
+`lazy_key_manager.go` `mergeSupportedInputCounts`.
 
 ### Generate proving keys (`.key`)
 
 ```bash
-# All supported shapes, both rails -> prover/server/proving-keys/<rail>_<in>_<out>.key
+# All supported shapes, every rail -> prover/server/proving-keys/<rail>_<in>_<out>.key
 prover/server/scripts/generate_keys_transfer.sh
 
-# One shape directly (--circuit flag = transfer (eddsa) | transfer-p256).
-# Key files mirror the vk modules: transfer_<shape>.key / transfer_p256_<shape>.key.
+# One shape directly (--circuit flag = transfer-confidential | transfer-ring |
+# transfer-p256-ring | transfer-ring-authority). Key files mirror the vk modules.
 cd prover/server && go build -o light-prover .
-./light-prover setup-transfer --circuit transfer-p256 --n-inputs 2 --n-outputs 3 \
-    --output proving-keys/transfer_p256_2_3.key
+./light-prover setup-transfer --circuit transfer-p256-ring --n-inputs 2 --n-outputs 2 \
+    --output proving-keys/transfer_p256_ring_2_2.key
 ```
 
 `setup-transfer` runs `groth16.Setup` and writes the full `TransferProofSystem`

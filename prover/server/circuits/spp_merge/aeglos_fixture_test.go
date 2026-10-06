@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"testing"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	"zolana/prover/prover-test/aeglosfixture"
 )
 
@@ -13,7 +14,7 @@ func TestExportAeglosMergeFixtures(t *testing.T) {
 	if os.Getenv("AEGLOS_FIXTURES") == "" {
 		t.Skip("AEGLOS_FIXTURES is unset")
 	}
-	for _, inputs := range []int{8, 36} {
+	for _, inputs := range mergeshared.SupportedInputCounts {
 		for _, ring := range []bool{false, true} {
 			for variant := range 2 {
 				options := mergeFixtureOptions{inputCount: inputs, eddsa: true, externalDataHash: big.NewInt(int64(900 + variant))}

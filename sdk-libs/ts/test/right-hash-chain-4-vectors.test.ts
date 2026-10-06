@@ -9,11 +9,14 @@ function scalar(value: string): bigint {
 
 describe("rightHashChain4 known-answer vectors", () => {
   const expectedNames = [
-    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36].map((length) => `len_${String(length)}`),
+    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36, 54].map((length) => `len_${String(length)}`),
     "zero_element_in_the_middle",
     "trailing_zeros_8",
     "trailing_zeros_36",
     "all_zero_36",
+    "trailing_zeros_54",
+    "all_zero_54",
+    "all_zero_49",
   ];
 
   it("covers every length and shape the contract pins", () => {

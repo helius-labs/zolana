@@ -747,15 +747,20 @@ async function proveRingTransferStatement(
         },
         context,
       );
+      const moneyShape = {
+        inputs: prepared.inputs.filter((spend) => !spend.isDummy()).length,
+        outputs: moneyOutputs.length,
+      };
       plan = planVelocity({
         facts,
         movement,
         firstNullifier: prepared.firstNullifier,
         outputBlindingSeed: prepared.outputBlindingSeed(),
-        moneyShape: prepared.shape,
+        moneyShape,
       });
       prepared = prepared.withAppendedSlot({
         shape: plan.shape,
+        recordSlot: moneyShape.outputs,
         input: plan.recordInput,
         output: plan.recordOutput,
       });
@@ -765,7 +770,7 @@ async function proveRingTransferStatement(
   const approvalRequired = velocity?.approvalRequired ?? false;
 
   // 3. Bind audit and record messages to the SPP transaction hash.
-  const outputs = prepared.proofOutputs();
+  const outputs = prepared.proofOutputs().filter((output) => !output.isCompact());
   const seal = (tx: ViewingKey): EncryptedCustomRingTransfer =>
     encryptCustomRingTransfer(tx, {
       outputs,
@@ -812,8 +817,8 @@ async function proveRingTransferStatement(
       recordInput === undefined
         ? proofInputs.inputUtxos
         : proofInputs.inputUtxos.slice(0, Math.max(recordInput, 0));
-    const subjectOutputs =
-      plan === undefined ? proofInputs.outputs : proofInputs.outputs.slice(0, -1);
+    const activeOutputs = proofInputs.outputs.filter((output) => !output.isCompact());
+    const subjectOutputs = plan === undefined ? activeOutputs : activeOutputs.slice(0, -1);
     const policyRound =
       policy === undefined
         ? undefined
@@ -889,9 +894,7 @@ async function proveRingTransferStatement(
             txViewingPublicKey: encrypted.txViewingPublicKey,
             auditorPublicKey: config.auditorPublicKey,
             message,
-            outputHashes: proofInputs.outputs.map((output) =>
-              output.hash(proofInputs.outputTreeId),
-            ),
+            outputHashes: publishedOutputHashes(proofInputs),
             salt: encrypted.salt,
           }),
           privateTxHash: data.privateTxHash,
@@ -926,7 +929,7 @@ async function proveRingTransferStatement(
       txViewingPublicKey: encrypted.txViewingPublicKey,
       auditorPublicKey: config.auditorPublicKey,
       message,
-      outputHashes: proofInputs.outputs.map((output) => output.hash(proofInputs.outputTreeId)),
+      outputHashes: publishedOutputHashes(proofInputs),
       salt: encrypted.salt,
       policyHash: policyRound.config.policyHash,
       treeSlots: policyRound.treeSlots,
@@ -1098,6 +1101,13 @@ export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: A
   if (utxos.some((utxo) => utxo.ring === undefined && utxo.data !== undefined)) {
     throw new RingError("RING_DATA_OUTSIDE_RING");
   }
+}
+
+/** The program hashes only the outputs the transaction carries, so compact padding stays out. */
+function publishedOutputHashes(proofInputs: SppProofInputs): Bytes32[] {
+  return proofInputs.outputs
+    .filter((output) => !output.isCompact())
+    .map((output) => output.hash(proofInputs.outputTreeId));
 }
 
 /** A dummy copies the length of a real slot with its ring binding, else of the first real slot, mirrors Rust `frame_dummy_outputs`. */

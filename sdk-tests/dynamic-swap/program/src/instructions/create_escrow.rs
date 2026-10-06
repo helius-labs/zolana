@@ -23,10 +23,8 @@ use crate::{
 
 /// `escrow_open` circuit proof (2-in: taker source UTXO, maker funding UTXO /
 /// 3-out: escrow order UTXO, reservation UTXO, maker change UTXO). No taker
-/// change output: the source UTXO must match the order amount exactly -- this
-/// instruction's data already sits at Solana's whole-transaction size limit with
-/// a Groth16 proof, SPP's own embedded proof, and 3 real confidential outputs; a
-/// 4th output would push it over.
+/// change output: the source UTXO must match the order amount exactly, which
+/// keeps the instruction at three real confidential outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct EscrowOpenProof {
     pub proof_a: [u8; 32],
@@ -80,10 +78,10 @@ impl EscrowOpenPublicInput<'_> {
     }
 }
 
-/// Output order the `escrow_open` circuit commits to (exact IN2_OUT3 shape,
-/// no padding): order UTXO, reservation UTXO, maker change UTXO. The program only
-/// reads the first two; the maker change is bound in-circuit and needs no on-chain
-/// handling.
+/// Output order the `escrow_open` circuit commits to: order UTXO, reservation
+/// UTXO, maker change UTXO. SPP proves them at IN2_OUT4; the compact fourth
+/// slot is not in the instruction data. The program only reads the first two;
+/// the maker change is bound in-circuit and needs no on-chain handling.
 const ORDER_OUTPUT_INDEX: usize = 0;
 const RESERVATION_OUTPUT_INDEX: usize = 1;
 

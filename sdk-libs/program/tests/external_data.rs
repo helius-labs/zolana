@@ -67,7 +67,7 @@ fn ix_data() -> TransactIxData {
             data: vec![8, 9],
         }],
         private_tx_hash: [9u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
+        circuit: CircuitId::ConfidentialEddsa(1, 4, 3),
         proof: proof(),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],

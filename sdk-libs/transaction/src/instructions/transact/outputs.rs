@@ -5,7 +5,7 @@ use zolana_keypair::{shielded::ShieldedAddress, Curve};
 use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
-    instructions::transact::shape::{Shape, SPP_SUPPORTED_SHAPES},
+    instructions::transact::shape::Shape,
     utxo::{SppProofInputUtxo, SppProofOutputUtxo},
     Mint,
 };
@@ -71,7 +71,7 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
-        if !SPP_SUPPORTED_SHAPES.contains(&shape) {
+        if !shape.is_supported() {
             return Err(TransactionError::UnsupportedShape {
                 n_in: shape.n_inputs(),
                 n_out: shape.n_outputs(),

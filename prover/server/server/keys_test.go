@@ -32,13 +32,13 @@ func TestServedKeysDefaultToEveryKey(t *testing.T) {
 }
 
 func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
-	served := servedKeys(t, "*_36_*", "batch_address-append_40_250")
+	served := servedKeys(t, "*_49_*", "*_54_*", "batch_address-append_40_250")
 	for file, want := range map[string]bool{
-		"transfer_p256_ring_36_2.key":     true,
-		"merge_36_1.key":                  true,
+		"transfer_p256_ring_49_2.key":     true,
+		"merge_54_1.key":                  true,
 		"batch_address-append_40_250.key": true,
-		"transfer_confidential_1_1.key":   false,
-		"merge_8_1.key":                   false,
+		"transfer_confidential_1_2.key":   false,
+		"merge_24_1.key":                  false,
 		"batch_address-append_40_10.key":  false,
 	} {
 		if served.Serves(file) != want {
@@ -48,7 +48,7 @@ func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
 }
 
 func TestServedKeysRejectPatternsThatMatchNothing(t *testing.T) {
-	for _, pattern := range []string{"trasnfer_*", "transfer_confidential_1_1.key", "["} {
+	for _, pattern := range []string{"trasnfer_*", "transfer_confidential_1_2.key", "["} {
 		if _, err := ParseServedKeys([]string{pattern}); err == nil {
 			t.Errorf("pattern %q accepted", pattern)
 		}
@@ -62,11 +62,11 @@ func TestKeyAdmission(t *testing.T) {
 		file      string
 		code      string
 	}{
-		"path key":                           {keyAdmission{expected: "merge_8_1.key"}, "merge_8_1.key", ""},
-		"another key than the path":          {keyAdmission{expected: "merge_8_1.key"}, "merge_36_1.key", "proving_key_mismatch"},
-		"unsupported shape on a key path":    {keyAdmission{expected: "merge_8_1.key"}, "", "proving_key_mismatch"},
-		"job without a path key, served":     {keyAdmission{served: onlyMerges}, "merge_36_1.key", ""},
-		"job without a path key, not served": {keyAdmission{served: onlyMerges}, "transfer_ring_2_3.key", "proving_key_not_served"},
+		"path key":                           {keyAdmission{expected: "merge_24_1.key"}, "merge_24_1.key", ""},
+		"another key than the path":          {keyAdmission{expected: "merge_24_1.key"}, "merge_54_1.key", "proving_key_mismatch"},
+		"unsupported shape on a key path":    {keyAdmission{expected: "merge_24_1.key"}, "", "proving_key_mismatch"},
+		"job without a path key, served":     {keyAdmission{served: onlyMerges}, "merge_54_1.key", ""},
+		"job without a path key, not served": {keyAdmission{served: onlyMerges}, "transfer_ring_2_4.key", "proving_key_not_served"},
 		// Left to the key manager, which reports the unsupported shape.
 		"job without a path key, unsupported shape": {keyAdmission{served: onlyMerges}, "", ""},
 	} {
@@ -140,7 +140,7 @@ func errorCode(t *testing.T, response *httptest.ResponseRecorder) string {
 func TestKeyPathHoldsTheBodyToItsKey(t *testing.T) {
 	mux := proofMux(t, nil)
 	for _, prefix := range []string{"", gatewayPrefix} {
-		response := post(mux, prefix+"/prove/transfer_confidential_1_1", transferRequest(t))
+		response := post(mux, prefix+"/prove/transfer_confidential_1_2", transferRequest(t))
 		if response.Code != http.StatusBadRequest || errorCode(t, response) != "proving_key_mismatch" {
 			t.Fatalf("%s: mismatched body got %d %q", prefix, response.Code, response.Body.String())
 		}
@@ -174,7 +174,7 @@ func TestKeyPathsReachTheirHandlers(t *testing.T) {
 	mux := proofMux(t, nil)
 	for _, prefix := range []string{"", gatewayPrefix} {
 		// The status handler validates the job id before any lookup.
-		response := serve(mux, http.MethodGet, prefix+"/prove/merge_8_1/status?jobId=x", nil)
+		response := serve(mux, http.MethodGet, prefix+"/prove/merge_24_1/status?jobId=x", nil)
 		if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
 			t.Fatalf("%s status: got %d %q", prefix, response.Code, response.Body.String())
 		}
@@ -212,9 +212,9 @@ func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
 	_, queue := newTestQueue(t)
 	readiness := NewReadiness()
 	readiness.MarkReady()
-	handler := proveHandler{readiness: readiness, redisQueue: queue, enableQueue: true, provingKey: "transfer_confidential_1_1.key"}
+	handler := proveHandler{readiness: readiness, redisQueue: queue, enableQueue: true, provingKey: "transfer_confidential_1_2.key"}
 	response := httptest.NewRecorder()
-	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove/transfer_confidential_1_1", nil), transferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
+	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove/transfer_confidential_1_2", nil), transferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("enqueue got %d %q", response.Code, response.Body.String())
 	}
@@ -222,14 +222,14 @@ func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &queued); err != nil {
 		t.Fatal(err)
 	}
-	if queued.StatusURL != "/prove/transfer_confidential_1_1/status?jobId="+queued.JobID {
+	if queued.StatusURL != "/prove/transfer_confidential_1_2/status?jobId="+queued.JobID {
 		t.Fatalf("status url %q", queued.StatusURL)
 	}
 	job, err := queue.DequeueProof("zk_transfer_queue", 0)
 	if err != nil || job == nil {
 		t.Fatalf("dequeue: %v", err)
 	}
-	if job.ProvingKey != "transfer_confidential_1_1.key" {
+	if job.ProvingKey != "transfer_confidential_1_2.key" {
 		t.Fatalf("queued job key %q", job.ProvingKey)
 	}
 
@@ -237,7 +237,7 @@ func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
 	_, err = worker.generatePreparedProof(&indexed.Resolved{Payload: job.Payload}, job.ProvingKey)
 	var failure *Error
 	if !errors.As(err, &failure) || failure.Code != "proving_key_mismatch" {
-		t.Fatalf("worker proved a 2x2 body queued on the 1x1 path: %v", err)
+		t.Fatalf("worker proved a 2x2 body queued on the 1x2 path: %v", err)
 	}
 }
 
@@ -260,7 +260,7 @@ func TestHealthListsTheCircuitsOfServedKeys(t *testing.T) {
 func TestInputHashSeparatesKeyPaths(t *testing.T) {
 	body := transferRequest(t)
 	hashes := map[string]bool{}
-	for _, key := range []string{"", "transfer_confidential_1_1.key", "transfer_confidential_2_2.key"} {
+	for _, key := range []string{"", "transfer_confidential_1_2.key", "transfer_confidential_2_2.key"} {
 		hashes[ComputeInputHash(body, key)] = true
 	}
 	if len(hashes) != 3 {

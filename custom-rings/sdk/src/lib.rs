@@ -43,7 +43,7 @@ pub use zolana_ring_client::{
 pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
-    authority::{AuthoritySeal, RingAuthorityDraft, RingAuthorityMove},
+    authority::{ring_authority_width, AuthoritySeal, RingAuthorityDraft, RingAuthorityMove},
     delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
     escrow::RegistryKeyOpening,
     instructions::{

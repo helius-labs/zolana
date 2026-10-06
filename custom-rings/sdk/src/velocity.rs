@@ -220,6 +220,9 @@ pub(crate) struct VelocityPlan {
     pub counters_message: MessageData,
     pub proof_input: VelocityProofInput,
     pub shape: Shape,
+    /// The record's output slot: right after the money slots, ahead of the
+    /// compact padding that fills the rest of `shape`.
+    pub record_slot: usize,
 }
 
 pub(crate) struct VelocityPlanInput<'a> {
@@ -229,7 +232,7 @@ pub(crate) struct VelocityPlanInput<'a> {
     pub salt: [u8; 16],
     pub first_nullifier: [u8; 32],
     pub output_blinding_seed: [u8; 32],
-    /// The money slots the record follows, dummies included.
+    /// The real money slots, padding excluded; the record follows the last real output.
     pub money_shape: Shape,
 }
 
@@ -237,6 +240,7 @@ impl VelocityPlanInput<'_> {
     pub(crate) fn plan(self) -> Result<VelocityPlan, TransferError> {
         let facts = self.facts;
         let shape = record_shape(self.money_shape)?;
+        let record_slot = self.money_shape.n_outputs();
         let same_window = facts.live.record.window == facts.window_index;
         let previous = facts.counters.as_ref().filter(|_| same_window);
         let charges = ChargeRows {
@@ -266,7 +270,7 @@ impl VelocityPlanInput<'_> {
             blinding: derive_transact_output_blinding(
                 &self.first_nullifier,
                 &self.output_blinding_seed,
-                shape.n_outputs() as u32 - 1,
+                u32::try_from(record_slot).map_err(|_| TransferError::PolicyShapeUnsupported)?,
             )?,
         };
         let address = facts
@@ -365,6 +369,7 @@ impl VelocityPlanInput<'_> {
             },
             proof_input,
             shape,
+            record_slot,
         })
     }
 }
@@ -506,10 +511,14 @@ mod tests {
 
     #[test]
     fn the_record_takes_the_slot_after_the_money() {
-        assert_eq!(record_shape(Shape::IN1_OUT1).unwrap(), Shape::IN2_OUT2);
-        assert_eq!(record_shape(Shape::IN1_OUT2).unwrap(), Shape::IN2_OUT3);
-        assert_eq!(record_shape(Shape::IN2_OUT3).unwrap(), Shape::IN4_OUT4);
-        assert_eq!(record_shape(Shape::IN4_OUT3).unwrap(), Shape::IN5_OUT4);
+        assert_eq!(record_shape(Shape::new(1, 1)).unwrap(), Shape::IN2_OUT2);
+        assert_eq!(record_shape(Shape::IN1_OUT2).unwrap(), Shape::IN2_OUT4);
+        assert_eq!(record_shape(Shape::IN2_OUT2).unwrap(), Shape::IN3_OUT4);
+        assert_eq!(record_shape(Shape::new(1, 3)).unwrap(), Shape::IN2_OUT4);
+        assert_eq!(record_shape(Shape::new(2, 3)).unwrap(), Shape::IN3_OUT4);
+        assert_eq!(record_shape(Shape::new(3, 3)).unwrap(), Shape::IN4_OUT4);
+        assert_eq!(record_shape(Shape::IN4_OUT2).unwrap(), Shape::IN5_OUT4);
+        assert!(record_shape(Shape::IN1_OUT4).is_err());
         assert!(record_shape(Shape::IN4_OUT4).is_err());
     }
 

@@ -2202,24 +2202,24 @@ mod tests {
         let table: std::collections::BTreeMap<&str, [u8; 32]> =
             crate::prover::known_proving_keys().collect();
         let keys = [
-            ExpectedProvingKey::transfer_confidential(1, 1).expect("1x1 confidential"),
+            ExpectedProvingKey::transfer_confidential(1, 2).expect("1x2 confidential"),
             ExpectedProvingKey::transfer_ring(2, 2).expect("2x2 ring"),
             ExpectedProvingKey::transfer_ring_authority(4, 4).expect("4x4 authority"),
-            ExpectedProvingKey::transfer_p256_ring(36, 2).expect("36x2 p256"),
-            ExpectedProvingKey::merge(8).expect("merge 8"),
-            ExpectedProvingKey::merge_ring(36).expect("merge ring 36"),
+            ExpectedProvingKey::transfer_p256_ring(49, 2).expect("49x2 p256"),
+            ExpectedProvingKey::merge(24).expect("merge 24"),
+            ExpectedProvingKey::merge_ring(54).expect("merge ring 54"),
             ExpectedProvingKey::batch_address_append(40, 250).expect("address append 250"),
         ];
         let names: Vec<&str> = keys.iter().map(|key| key.name.as_str()).collect();
         assert_eq!(
             names,
             [
-                "transfer_confidential_1_1.key",
+                "transfer_confidential_1_2.key",
                 "transfer_ring_2_2.key",
                 "transfer_ring_authority_4_4.key",
-                "transfer_p256_ring_36_2.key",
-                "merge_8_1.key",
-                "merge_ring_36_1.key",
+                "transfer_p256_ring_49_2.key",
+                "merge_24_1.key",
+                "merge_ring_54_1.key",
                 "batch_address-append_40_250.key",
             ]
         );
@@ -2807,7 +2807,7 @@ mod tests {
         let request = IndexedProofRequest::new(IndexedProofData {
             witness: zeroize::Zeroizing::new(
                 json!({"circuitType":"transfer-confidential", "nInputs":1,
-                "nOutputs":1, "inputs":[{"treeSlot":"0x0","isDummy":"0x0"}], "outputs":[{}]})
+                "nOutputs":2, "inputs":[{"treeSlot":"0x0","isDummy":"0x0"}], "outputs":[{}, {}]})
                 .to_string(),
             ),
             inputs: vec![IndexedLookup {
@@ -2845,9 +2845,9 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/v1/zolana/prove/transfer_confidential_1_1/indexed?api-key=secret",
-                "/v1/zolana/prove/transfer_confidential_1_1/indexed?api-key=secret",
-                "/v1/zolana/prove/transfer_confidential_1_1/status?api-key=secret&jobId=indexed-queued",
+                "/v1/zolana/prove/transfer_confidential_1_2/indexed?api-key=secret",
+                "/v1/zolana/prove/transfer_confidential_1_2/indexed?api-key=secret",
+                "/v1/zolana/prove/transfer_confidential_1_2/status?api-key=secret&jobId=indexed-queued",
             ],
         );
         assert!(requests[0].sync_requested);
@@ -2865,7 +2865,7 @@ mod tests {
             .is_err());
         assert_paths(
             &server.requests(),
-            ["/prove/transfer_confidential_1_1/indexed"],
+            ["/prove/transfer_confidential_1_2/indexed"],
         );
     }
 
@@ -2960,7 +2960,7 @@ mod tests {
         let (request, _) = indexed_fixture();
         let server = MockServer::respond_with(vec![MockResponse::json(
             404,
-            json!({"code": "proving_key_not_served", "message": "transfer_confidential_1_1 is not proved by this deployment"}),
+            json!({"code": "proving_key_not_served", "message": "transfer_confidential_1_2 is not proved by this deployment"}),
         )]);
         let Err(error) = queued_prover_client(server.url()).prove_indexed(&request) else {
             panic!("an unserved key was proved");

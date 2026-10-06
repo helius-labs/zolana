@@ -1059,7 +1059,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
 
     let mut source = fixture.source();
     source.transactions[0].nullifiers.push([2; 32]);
-    source.transactions[0].output_slots = vec![source.transactions[0].output_slots[0].clone(); 8];
+    source.transactions[0].output_slots = vec![source.transactions[0].output_slots[0].clone(); 17];
     let service = fixture.hub(source).service().expect("service");
     let request = auth(&signer);
     assert!(matches!(

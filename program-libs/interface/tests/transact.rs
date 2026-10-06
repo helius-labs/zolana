@@ -10,6 +10,7 @@ use zolana_interface::{
         },
         tag,
     },
+    verifying_keys::{CacheAccess, CacheWrite, MAX_CACHE_WRITES},
     MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS,
 };
 
@@ -79,6 +80,40 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
 
     let unknown = 4u16.to_le_bytes();
     assert!(wincode::deserialize_exact::<CircuitId>(&unknown).is_err());
+}
+
+/// A cached selector appends its `CacheAccess`: the little-endian read bitmap,
+/// then `MAX_CACHE_WRITES` `(output, slot)` byte pairs, unused pairs `0xff`.
+#[test]
+fn cached_circuit_id_carries_one_write_pair_per_output() {
+    assert_eq!(MAX_CACHE_WRITES, MAX_OUTPUTS);
+    let mut write_slots = CacheAccess::NO_WRITES;
+    for (output, entry) in write_slots.iter_mut().enumerate() {
+        *entry = CacheWrite {
+            output: output as u8,
+            slot: 20 + output as u8,
+        };
+    }
+    let cache = CacheAccess {
+        read_bitmap: 0b101,
+        write_slots,
+    };
+    let cached = CircuitId::ConfidentialEddsaCached(8, 16, 3, cache);
+    let bytes = wincode::serialize(&cached).unwrap();
+    let mut expected = 4u16.to_le_bytes().to_vec();
+    expected.extend_from_slice(&[8, 16, 3]);
+    expected.extend_from_slice(&0b101u64.to_le_bytes());
+    for output in 0..MAX_CACHE_WRITES as u8 {
+        expected.extend_from_slice(&[output, 20 + output]);
+    }
+    assert_eq!(bytes.len(), 2 + 3 + 8 + 2 * MAX_CACHE_WRITES);
+    assert_eq!(bytes, expected);
+    assert_eq!(
+        wincode::deserialize_exact::<CircuitId>(&bytes).unwrap(),
+        cached
+    );
+    assert!(cache.valid(8, 16));
+    assert!(!cache.valid(8, 15));
 }
 
 fn proof() -> TransactProof {

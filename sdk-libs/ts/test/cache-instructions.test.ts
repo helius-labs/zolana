@@ -1,6 +1,8 @@
 import { AccountRole, address, type TransactionSigner } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import rightChainVectors from "../../../test-vectors/right_hash_chain_4.json" with { type: "json" };
+
 import { getCacheAddress } from "../src/addresses.js";
 import {
   getCloseCacheInstruction,
@@ -26,6 +28,7 @@ import {
   ringTransactAccounts,
   transactInstruction,
 } from "../src/interface/index.js";
+import { MAX_TRANSACT_INPUTS } from "../src/interface/shape.js";
 import { ringTransactInstruction } from "../src/ring/instructions.js";
 import type {
   Address,
@@ -254,9 +257,9 @@ describe("cache access validation", () => {
         ]),
       ),
     );
-    expect(cached.length - uncached.length).toBe(24);
+    expect(cached.length - uncached.length).toBe(40);
     const at = uncached.findIndex((_, index) => uncached[index] !== cached[index]);
-    expect(Array.from(cached.slice(at, at + 2 + 3 + 24))).toEqual([
+    expect(Array.from(cached.slice(at, at + 2 + 3 + 40))).toEqual([
       4,
       0,
       2,
@@ -274,7 +277,7 @@ describe("cache access validation", () => {
       7,
       0,
       8,
-      ...Array.from({ length: 12 }, () => 0xff),
+      ...Array.from({ length: 28 }, () => 0xff),
     ]);
   });
 });
@@ -584,6 +587,23 @@ describe("cached input fields", () => {
     expect(treeId.at(-1)).toBe(5);
   });
 
+  it("publishes the selection of a spend wider than the cache, up to the widest shape", () => {
+    const allZero = rightChainVectors.vectors.find(
+      (vector) => vector.name === `all_zero_${String(MAX_TRANSACT_INPUTS)}`,
+    );
+    const empty = emptyCachedInputFields(MAX_TRANSACT_INPUTS);
+    expect(MAX_TRANSACT_INPUTS).toBeGreaterThan(CACHE_CAPACITY);
+    expect(Buffer.from(empty[0]).toString("hex")).toBe("00".repeat(32));
+    expect(Buffer.from(empty[1]).toString("hex")).toBe(allZero?.output);
+    expect(
+      cachedInputFields(0n, 5, slots([]), MAX_TRANSACT_INPUTS).map((value) =>
+        Buffer.from(value).toString("hex"),
+      ),
+    ).toEqual(empty.map((value) => Buffer.from(value).toString("hex")));
+    const [, chain] = cachedInputFields(1n, 5, slots([[0, field(1)]]), MAX_TRANSACT_INPUTS);
+    expect(chain).not.toEqual(empty[1]);
+  });
+
   it("refuses selections no cached spend can declare", () => {
     expect(() => cachedInputFields(1n, 0, [field(1)], 1)).toThrow(
       expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }),
@@ -603,7 +623,7 @@ describe("cached input fields", () => {
     expect(() => cachedInputFields(1n, 0, slots([[0, filled(0xff, 32) as Bytes32]]), 2)).toThrow(
       expect.objectContaining({ code: "INTERFACE_HASH" }),
     );
-    expect(() => emptyCachedInputFields(CACHE_CAPACITY + 1)).toThrow(
+    expect(() => emptyCachedInputFields(MAX_TRANSACT_INPUTS + 1)).toThrow(
       expect.objectContaining({ code: "INTERFACE_INVALID_INTEGER" }),
     );
   });

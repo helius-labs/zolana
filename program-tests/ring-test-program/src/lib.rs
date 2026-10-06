@@ -9,7 +9,7 @@
 //! and marks `ring_auth` a signer.
 
 use pinocchio::{
-    cpi::{invoke_signed_with_bounds, Seed, Signer},
+    cpi::{invoke_signed_with_slice, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
@@ -74,9 +74,9 @@ fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -
     let bump = [bump];
     let seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
-    // A five-mint ring deposit carries the fixed prefix, ring_auth, and five
-    // SPL settlement groups.
-    invoke_signed_with_bounds::<24, _>(&instruction, accounts, core::slice::from_ref(&signer))
+    // A merge forwards one nullifier PDA per input, up to the 64 addresses a
+    // transaction carries, which overflows a stack-sized account buffer.
+    invoke_signed_with_slice(&instruction, accounts, core::slice::from_ref(&signer))
 }
 
 fn check_shielded_pool(account: &Address) -> Result<(), ProgramError> {

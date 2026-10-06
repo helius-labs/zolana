@@ -2,16 +2,17 @@ pub use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
 
 use crate::error::TransactionError;
 
-/// The consolidation shape: supported, but only reached by declaring it.
-pub const SPP_CONSOLIDATION_SHAPE: Shape = Shape::IN36_OUT2;
+/// Notes a wallet spend selects at most. Selection pads with random dummies,
+/// so the cheapest shape holding this many notes still fits one transaction
+/// with two encrypted outputs, inputs from every allowed tree, an owner
+/// signer other than the payer and an SPL withdrawal; the next wider shape
+/// does not. A wider balance merges first.
+pub const MAX_SPEND_INPUTS: usize = 40;
 
-/// Shapes automatic selection may pick: every supported shape except the
-/// consolidation one, which costs a 36-input proof and is only ever reached by
-/// declaring it.
+/// Shapes automatic selection may pick: every supported shape, in proving
+/// cost order, so the first one that fits is the cheapest.
 pub fn auto_shapes() -> impl Iterator<Item = Shape> {
-    SPP_SUPPORTED_SHAPES
-        .into_iter()
-        .filter(|shape| *shape != SPP_CONSOLIDATION_SHAPE)
+    SPP_SUPPORTED_SHAPES.into_iter()
 }
 
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
@@ -27,7 +28,7 @@ pub fn resolve_shape(
 ) -> Result<Shape, TransactionError> {
     match declared {
         Some(shape) => {
-            if !SPP_SUPPORTED_SHAPES.contains(&shape) {
+            if !shape.is_supported() {
                 return Err(TransactionError::UnsupportedShape {
                     n_in: shape.n_inputs(),
                     n_out: shape.n_outputs(),

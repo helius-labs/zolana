@@ -34,6 +34,7 @@ fn every_supported_shape_has_the_contracted_encoded_length() {
 
 #[test]
 fn max_merge_inputs_is_the_widest_supported_shape() {
+    assert_eq!(MERGE_SUPPORTED_INPUT_COUNTS, [8, 24, 54]);
     assert_eq!(
         MERGE_SUPPORTED_INPUT_COUNTS.iter().copied().max(),
         Some(MAX_MERGE_INPUTS)
@@ -44,6 +45,7 @@ fn max_merge_inputs_is_the_widest_supported_shape() {
 #[test]
 fn rejects_unsupported_input_counts() {
     for input_count in [0, MAX_MERGE_INPUTS + 1] {
+        assert_eq!(merge_circuit_width(input_count), None, "{input_count}");
         let bytes = data_with(input_count)
             .serialize()
             .expect("serialize merge instruction");
@@ -59,10 +61,10 @@ fn rejects_unsupported_input_counts() {
 #[test]
 fn every_count_up_to_the_widest_shape_selects_the_narrowest_circuit() {
     for input_count in 1..=MAX_MERGE_INPUTS {
-        let expected = if input_count <= MERGE_DEFAULT_INPUT_COUNT {
-            MERGE_DEFAULT_INPUT_COUNT
-        } else {
-            MAX_MERGE_INPUTS
+        let expected = match input_count {
+            1..=8 => 8,
+            9..=24 => 24,
+            _ => 54,
         };
         assert_eq!(merge_circuit_width(input_count), Some(expected));
         let bytes = data_with(input_count)

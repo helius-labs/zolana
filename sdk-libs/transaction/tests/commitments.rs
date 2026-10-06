@@ -360,8 +360,8 @@ fn a_real_slot_after_a_dummy_is_refused_before_signing_or_proving() {
         ..Default::default()
     };
     tx.input_utxos = vec![first.clone(), second.clone(), dummy.clone()];
-    tx.output_utxos = vec![output(), output(), ownerless.clone()];
-    assert_eq!(tx.check_shape(), Ok(Shape::IN3_OUT3));
+    tx.output_utxos = vec![output(), output(), ownerless.clone(), ownerless.clone()];
+    assert_eq!(tx.check_shape(), Ok(Shape::IN3_OUT4));
     assert!(tx.message_hash().is_ok());
 
     let inputs = SppProofInputs {
@@ -373,7 +373,7 @@ fn a_real_slot_after_a_dummy_is_refused_before_signing_or_proving() {
     assert_eq!(inputs.message_hash(), Err(input_error));
 
     let outputs = SppProofInputs {
-        output_utxos: vec![output(), ownerless, output()],
+        output_utxos: vec![output(), ownerless.clone(), output(), ownerless],
         ..tx
     };
     let output_error = TransactionError::RealOutputAfterDummy { index: 2 };

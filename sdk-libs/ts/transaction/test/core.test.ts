@@ -184,7 +184,20 @@ describe("transaction core", () => {
   });
 
   it("matches the P00 canonical shape and rejects unsupported declarations", () => {
-    expect(canonicalShape(2, 3)).toEqual({ inputs: 2, outputs: 3 });
+    expect(canonicalShape(2, 3)).toEqual({ inputs: 2, outputs: 4 });
+    expect(canonicalShape(1, 1)).toEqual({ inputs: 1, outputs: 2 });
+    expect(canonicalShape(6, 9)).toEqual({ inputs: 8, outputs: 16 });
+    expect(canonicalShape(25, 2)).toEqual({ inputs: 32, outputs: 2 });
+    expect(canonicalShape(49, 2)).toEqual({ inputs: 49, outputs: 2 });
+    expect(() => canonicalShape(50, 2)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
+    );
+    expect(() => canonicalShape(25, 3)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
+    );
+    expect(() => canonicalShape(1, 17)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
+    );
     expect(resolveShape(1, 1, { inputs: 2, outputs: 2 })).toEqual({
       inputs: 2,
       outputs: 2,

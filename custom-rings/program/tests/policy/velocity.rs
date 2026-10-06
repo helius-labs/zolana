@@ -179,7 +179,7 @@ fn a_deposit_leg_is_rejected_exactly() {
 fn the_delegate_rail_is_velocity_exempt_and_reaches_its_own_proof() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
-    content.circuit = CircuitId::RingAuthority(1, 1, N_PUBLIC_SLOTS as u8);
+    content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     let mut data = body(0, 0, 0, content);
     data[0] = tag::DELEGATE_TRANSACT;
     let mut fixture = policy_delegate_transact_fixture(data);

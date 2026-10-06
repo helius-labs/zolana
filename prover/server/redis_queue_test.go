@@ -952,7 +952,7 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		t.Fatalf("Failed to mark job failed: %v", err)
 	}
 
-	statusURL := fmt.Sprintf("http://%s/prove/transfer_confidential_1_1/status?jobId=%s", config.ProverAddress, jobID)
+	statusURL := fmt.Sprintf("http://%s/prove/transfer_confidential_1_2/status?jobId=%s", config.ProverAddress, jobID)
 	resp, err := http.Get(statusURL)
 	if err != nil {
 		t.Fatalf("Failed to make HTTP request: %v", err)

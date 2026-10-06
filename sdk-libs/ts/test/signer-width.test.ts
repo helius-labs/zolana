@@ -9,18 +9,32 @@ import {
 } from "../src/interface/shape.js";
 
 describe("signerWidth", () => {
-  it("reserves one payer slot plus one owner slot per input on every listed shape", () => {
-    for (const shape of SPP_SUPPORTED_SHAPES) {
+  it("reserves one payer slot plus one owner slot per input up to 30 inputs", () => {
+    for (const shape of SPP_SUPPORTED_SHAPES.filter((entry) => entry.inputs <= 30)) {
       expect(signerWidth(shape)).toBe(shape.inputs + 1);
     }
-    expect(signerWidth({ inputs: 1, outputs: 1 })).toBe(2);
+    expect(signerWidth({ inputs: 1, outputs: 2 })).toBe(2);
     expect(signerWidth({ inputs: 5, outputs: 4 })).toBe(6);
   });
 
-  it("narrows the wide consolidation shape to the address budget", () => {
+  it("narrows the wide shapes to the address budget", () => {
     expect(ownerSignerSlots(30)).toBe(30);
     expect(ownerSignerSlots(31)).toBe(29);
-    expect(signerWidth({ inputs: 36, outputs: 2 })).toBe(25);
+    expect(
+      SPP_SUPPORTED_SHAPES.filter((shape) => shape.inputs > 30).map((shape) => [
+        shape.inputs,
+        signerWidth(shape),
+      ]),
+    ).toEqual([
+      [32, 29],
+      [40, 21],
+      [48, 13],
+      [49, 12],
+    ]);
+  });
+
+  it("peaks at the 29 signer slots Rust `MAX_SIGNERS` sizes the program buffers for", () => {
+    expect(Math.max(...SPP_SUPPORTED_SHAPES.map(signerWidth))).toBe(29);
   });
 
   it("never exceeds the transaction address budget", () => {

@@ -623,7 +623,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
     set -euo pipefail
     : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL to a reachable Redis instance}"
     ZOLANA_EXPECT_ASYNC_PROVER=true \
-        cargo nextest run -p zolana-client --features proofs --test transfer_dummy -E 'test(=dummy_transfer_2_3_proof_verifies)' --test-threads 1
+        cargo nextest run -p zolana-client --features proofs --test transfer_dummy -E 'test(=dummy_transfer_2_4_proof_verifies)' --test-threads 1
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
@@ -997,7 +997,7 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p spp-test-validator --test lifecycle --test proof_cu
 
-# Run only real-validator CU ceilings for P256 transact and maximal 8x1 merge.
+# Run only real-validator CU ceilings for transact, withdrawal and an 8-input merge.
 test-spp-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1033,8 +1033,8 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p spp-test-validator --test lifecycle --no-capture -E 'test(=actor_payer_transfers_cover_sol_and_spl_assets)'
 
-# Run only the merge scenarios from test-spp-validator (the 1-8 consolidation
-# outline plus the disabled-service negative). For debugging the merge flow without
+# Run only the merge scenarios from test-spp-validator (consolidations across
+# every merge width plus the disabled-service negative). For debugging the merge flow without
 # running the full lifecycle suite.
 test-spp-validator-merge: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
@@ -1137,7 +1137,7 @@ test-ring-validator: build-programs build-prover-server build-cli ensure-photon 
       tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu
 
 # Run only real-validator CU ceilings for ring EdDSA/P256 transact,
-# ring-authority transact, and maximal 8x1 merge-ring.
+# ring-authority transact, and an 8-input merge-ring.
 test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1156,6 +1156,31 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --no-capture
+
+# Confirm the widest transact shape of every output count (49x2, 24x4, 16x8,
+# 8x16) on the confidential, ring EdDSA and ring P256 rails, and the 54-input
+# plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
+# Prints each transaction's bytes and compute units.
+test-max-shapes-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export RING_TEST_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      tools/ci/nextest-suite.sh -p spp-test-validator --test max_shapes --no-capture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      tools/ci/nextest-suite.sh -p ring-test-program --test max_shapes --no-capture
 
 # Regenerate services/photon/tests/fixtures/ring_transact.json from a real ring
 # CPI. The fixture is committed; Photon replays it without a validator. Run this
@@ -1294,11 +1319,11 @@ test-client-example-merge-transfer: build-programs build-prover-server build-cli
       cargo run -p client-example --example merge_transfer
 
 # Optimized merge + transfer SDK example
-# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 36 UTXOs in
+# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 53 UTXOs in
 # one merge that writes its output commitment into a cache PDA, and spends that
 # commitment from the cache, so the transfer proof is generated concurrently
 # with the merge proof instead of waiting for the merged output to be indexed.
-# Same stack as test-client-example; needs the merge_36_1 proving key, which the
+# Same stack as test-client-example; needs the merge_54_1 proving key, which the
 # prover lazy-loads on the first request.
 test-client-example-optimized-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
@@ -1448,8 +1473,8 @@ build-localnet-archives dir="target/nextest-archives":
     set -euo pipefail
     mkdir -p {{dir}}
     cargo nextest archive -p shielded-pool-tests --features localnet --test localnet_photon --test localnet_wallet_cli --archive-file {{dir}}/shielded-pool-tests.tar.zst
-    cargo nextest archive -p spp-test-validator --test lifecycle --test proof_cu --archive-file {{dir}}/spp-test-validator.tar.zst
-    cargo nextest archive -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --archive-file {{dir}}/ring-test-program.tar.zst
+    cargo nextest archive -p spp-test-validator --test lifecycle --test proof_cu --test max_shapes --archive-file {{dir}}/spp-test-validator.tar.zst
+    cargo nextest archive -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --test max_shapes --archive-file {{dir}}/ring-test-program.tar.zst
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
@@ -1624,7 +1649,7 @@ xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
 
 # Exports one verifying key end to end. The xtask shells out to the Go prover,
-# so Go is required. The single 8 MB proving key is fetched into a scratch
+# so Go is required. The single 9 MB proving key is fetched into a scratch
 # directory and checked against the lockfile sha256.
 [private]
 xtask-create-verifying-keys-smoke:
@@ -1634,7 +1659,7 @@ xtask-create-verifying-keys-smoke:
         echo "go is required because xtask create-verifying-keys runs the prover server's export-vk" >&2
         exit 1
     fi
-    name=transfer_confidential_1_1.key
+    name=transfer_confidential_1_2.key
     smoke_dir=target/verifying-keys-smoke
     keys_dir="$smoke_dir/keys"
     out_dir="$smoke_dir/out"
@@ -1646,8 +1671,8 @@ xtask-create-verifying-keys-smoke:
         [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" == "$want" ]]
     fi
     cargo run -p xtask -- create-verifying-keys --keys-dir "$keys_dir" --out-dir "$out_dir" --limit 1
-    [[ -s "$out_dir/transfer_confidential_1_1.vkey" ]]
-    grep -q transfer_confidential_1_1.vkey "$out_dir/MANIFEST.txt"
+    [[ -s "$out_dir/transfer_confidential_1_2.vkey" ]]
+    grep -q transfer_confidential_1_2.vkey "$out_dir/MANIFEST.txt"
 
 # === Maintenance ===
 

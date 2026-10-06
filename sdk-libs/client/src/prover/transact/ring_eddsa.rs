@@ -93,7 +93,7 @@ impl RingTransferProver {
             self.allow_dummy_inputs,
         )?;
         let published_output_owner_pk_hashes =
-            confidential_marked_output_owner_pk_hashes(&self.external_data)?;
+            confidential_marked_output_owner_pk_hashes(&self.external_data, self.outputs.len())?;
 
         // Bind the ring program: ring_program_id is the ring's pk_field. The UTXOs
         // themselves carry ring_program_id; the circuit binds each non-dummy UTXO's

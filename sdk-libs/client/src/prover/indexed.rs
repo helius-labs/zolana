@@ -28,7 +28,7 @@ use zolana_interface::{
     INPUT_TREES, MAX_INPUT_TREES,
 };
 
-use super::{field::right_align_slice, ExpectedProvingKey, Proof, SPP_SUPPORTED_SHAPES};
+use super::{field::right_align_slice, ExpectedProvingKey, Proof, Shape};
 use crate::ClientError;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -161,11 +161,10 @@ impl IndexedProofRequest {
                 {
                     return Err(invalid());
                 }
-                if !SPP_SUPPORTED_SHAPES.iter().any(|shape| {
-                    shape.n_inputs() == metadata.inputs.len()
-                        && shape.n_outputs() == metadata.outputs.len()
-                }) || (metadata.circuit_type == IndexedCircuit::TransferRingAuthority
-                    && metadata.inputs.len() != metadata.outputs.len())
+                let shape = Shape::new(metadata.inputs.len(), metadata.outputs.len());
+                if !shape.is_supported()
+                    || (metadata.circuit_type == IndexedCircuit::TransferRingAuthority
+                        && !shape.is_ring_authority())
                 {
                     return Err(invalid());
                 }
@@ -596,8 +595,8 @@ mod tests {
     fn request_data() -> IndexedProofData {
         IndexedProofData {
             witness: Zeroizing::new(
-                json!({"circuitType":"transfer-confidential", "nInputs":1, "nOutputs":1,
-                "inputs":[{"treeSlot":"0x0", "isDummy":"0x0"}], "outputs":[{}]})
+                json!({"circuitType":"transfer-confidential", "nInputs":1, "nOutputs":2,
+                "inputs":[{"treeSlot":"0x0", "isDummy":"0x0"}], "outputs":[{}, {}]})
                 .to_string(),
             ),
             trees: vec![IndexedTree {
@@ -644,12 +643,13 @@ mod tests {
         *data.witness = wire.to_string();
         assert!(IndexedProofRequest::new(data).is_err());
         let mut data = request_data();
-        wire["nInputs"] = json!(36);
+        let n_inputs = zolana_interface::MAX_TRANSACT_INPUTS;
+        wire["nInputs"] = json!(n_inputs);
         wire["nOutputs"] = json!(2);
-        wire["inputs"] = json!(vec![json!({"treeSlot":"0x0", "isDummy":"0x0"}); 36]);
+        wire["inputs"] = json!(vec![json!({"treeSlot":"0x0", "isDummy":"0x0"}); n_inputs]);
         wire["outputs"] = json!([{}, {}]);
         *data.witness = wire.to_string();
-        data.inputs = vec![data.inputs[0].clone(); 36];
+        data.inputs = vec![data.inputs.first().unwrap().clone(); n_inputs];
         assert!(IndexedProofRequest::new(data).is_ok());
     }
 

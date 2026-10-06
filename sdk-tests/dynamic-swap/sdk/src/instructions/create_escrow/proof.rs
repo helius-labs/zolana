@@ -9,13 +9,12 @@ use crate::{err, shared::check_output_utxo};
 
 /// Proof-input params for the `escrow_open` circuit (`create_escrow`): 2-in
 /// (taker source UTXO, maker funding UTXO) / 3-out (escrow order UTXO,
-/// reservation UTXO, maker change UTXO), the exact IN2_OUT3 shape, no padding.
-/// No taker change output: `source_in` must match `order_amount` exactly --
-/// `create_escrow`'s instruction data already sits at Solana's whole-transaction
-/// size limit with a Groth16 proof, SPP's own embedded proof, and 3 real
-/// confidential outputs, so a 4th output doesn't fit. `order_amount` is the one
-/// private witness shared across the order UTXO's amount, the reservation's
-/// worst-case size, and the maker-change decrement.
+/// reservation UTXO, maker change UTXO). SPP proves the transaction at
+/// [`SPP_SHAPE`](crate::shared::SPP_SHAPE), with compact padding in the fourth
+/// output slot. No taker change output: `source_in` must match `order_amount`
+/// exactly, which keeps the instruction at three real confidential outputs.
+/// `order_amount` is the one private witness shared across the order UTXO's
+/// amount, the reservation's worst-case size, and the maker-change decrement.
 pub struct EscrowOpenProofInputParams {
     pub source_in: SppProofInputUtxo,
     pub maker_funding: SppProofInputUtxo,
@@ -107,9 +106,9 @@ impl EscrowOpenProofInputParams {
             bail!("reservation output data_hash does not commit to the order output's own hash");
         }
 
-        // The real shape is 2-in/3-out, exactly the supported IN2_OUT3 shape --
-        // no padding. Output order (order, reservation, maker_change) must match
-        // the circuit's `privateTxHashInputs` and the program's output indices.
+        // Compact padding does not enter the private transaction hash. Output
+        // order (order, reservation, maker_change) must match the circuit's
+        // `privateTxHashInputs` and the program's output indices.
         let private_tx_hash = PrivateTxHash::new(
             &[
                 source_in.hash().map_err(err)?,

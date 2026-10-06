@@ -4,7 +4,7 @@ pub use zolana_program::PrivateTxHash;
 
 use super::{
     cache::{cache_bound_external_data_hash, cache_write_slots},
-    shape::{Shape, SPP_SUPPORTED_SHAPES},
+    shape::Shape,
     ExternalData, SppProofOutputUtxo,
 };
 use crate::{
@@ -55,10 +55,10 @@ impl SppProofInputs {
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
         let n_in = self.input_utxos.len();
         let n_out = self.output_utxos.len();
-        let shape = SPP_SUPPORTED_SHAPES
-            .into_iter()
-            .find(|shape| shape.n_inputs() == n_in && shape.n_outputs() == n_out)
-            .ok_or(TransactionError::UnsupportedShape { n_in, n_out })?;
+        let shape = Shape::new(n_in, n_out);
+        if !shape.is_supported() {
+            return Err(TransactionError::UnsupportedShape { n_in, n_out });
+        }
         self.check_dummies_last()?;
         Ok(shape)
     }

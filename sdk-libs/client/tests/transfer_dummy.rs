@@ -1,17 +1,17 @@
-//! Generate and verify a (2,3) transfer proof built from one real input plus
+//! Generate and verify a (2,4) transfer proof built from one real input plus
 //! dummy padding.
 //!
 //! Unlike `transaction_proving`, this does not go through the `Transaction`
 //! builder. It constructs a `TransferProver` directly with the slots already padded
-//! to the (2,3) shape: one zero-value Solana-owned input (the prover requires at
+//! to the (2,4) shape: one zero-value Solana-owned input (the prover requires at
 //! least one real input to supply the public tree roots) plus one dummy input, and
-//! three dummy outputs. The mechanical prover only converts these slots. The real
+//! four dummy outputs. The mechanical prover only converts these slots. The real
 //! input carries zero value, so the witness balances at zero and selects the vanilla
 //! Solana-only eddsa rail (`transfer_confidential`). The proof is produced on the
 //! prover server and verified against the committed verifying key.
 //!
 //! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_confidential_2_3.key` proving key available.
+//! `transfer_confidential_2_4.key` proving key available.
 //!
 //! Run with: `cargo test -p zolana-client --test transfer_dummy`
 
@@ -192,7 +192,7 @@ fn dummy_output(owner_tag: [u8; 32]) -> SppProofOutputUtxo {
 /// dummies) on the prover server and verify it through the shipped verifier,
 /// which resolves the committed `transfer_confidential_{shape}` key itself.
 /// Exercises proof generation + on-chain-style Groth16 verification for every
-/// supported shape, not just (2,3) -- and, because it is the shipped path, the
+/// supported shape, not just (2,4) -- and, because it is the shipped path, the
 /// shape-to-key mapping the SDK will use in production rather than a copy.
 fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     let (real_input, key) = real_input();
@@ -208,7 +208,11 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     }
     let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
     let blinding_seed = [42u8; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
     let shape = Shape::new(n_in, n_out);
     let mut signer_pk_hashes = vec![[0u8; 32]; shape.signer_width()];
     signer_pk_hashes[1] = solana_owner_identity(&owner_tag).expect("owner signer hash");
@@ -238,34 +242,40 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         .unwrap_or_else(|e| panic!("verify {n_in}x{n_out}: {e:?}"));
 }
 
-/// Sweep: prove + verify an eddsa transfer for every supported shape against its
-/// committed verifying key, so each shape's confidential vk has client-side
-/// proof-generation coverage (previously only (2,3) was exercised).
+/// Sweep: prove + verify an eddsa transfer against its committed verifying key
+/// for a spread of supported shapes: every output column, the widest shape of
+/// each column, and the small shapes automatic selection picks most.
 #[test]
 fn eddsa_transfer_all_shapes_proofs_verify() {
     start_prover();
     for (n_in, n_out) in [
-        (1, 1),
         (1, 2),
-        (2, 2),
-        (2, 3),
-        (3, 3),
-        (4, 3),
-        (4, 4),
-        (5, 3),
-        (5, 4),
+        (1, 4),
         (1, 8),
+        (1, 16),
+        (2, 2),
+        (2, 4),
+        (3, 2),
+        (4, 4),
+        (5, 2),
+        (5, 4),
+        (6, 8),
+        (8, 16),
+        (12, 4),
+        (16, 8),
+        (24, 4),
+        (49, 2),
     ] {
         prove_and_verify_eddsa_shape(n_in, n_out);
     }
 }
 
-/// A (2,3) transfer whose padding is compact: input slot 1 publishes nullifier 0
-/// while proving its derived nullifier absent, and output slots 1 and 2 publish
+/// A (2,4) transfer whose padding is compact: input slot 1 publishes nullifier 0
+/// while proving its derived nullifier absent, and output slots 1 to 3 publish
 /// hash 0. The compact input names the first tree and takes tree index 0, which
 /// SPP packs for the slots it never receives.
 #[test]
-fn compact_transfer_2_3_proof_verifies() {
+fn compact_transfer_2_4_proof_verifies() {
     start_prover();
     let (real_input, key) = real_input();
     let owner_tag = real_input
@@ -285,9 +295,18 @@ fn compact_transfer_2_3_proof_verifies() {
         compact: true,
         ..Default::default()
     };
-    let mut outputs = vec![dummy_output(owner_tag), compact_output(), compact_output()];
+    let mut outputs = vec![
+        dummy_output(owner_tag),
+        compact_output(),
+        compact_output(),
+        compact_output(),
+    ];
     let blinding_seed = [44u8; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
     let prover = TransferProver {
         blinding_seed,
         output_tree_id: TEST_TREE_ID,
@@ -301,7 +320,7 @@ fn compact_transfer_2_3_proof_verifies() {
             [0u8; 32],
         ],
         allow_dummy_inputs: false,
-        shape: Shape::new(2, 3),
+        shape: Shape::new(2, 4),
         cache_accounts: Default::default(),
     };
 
@@ -310,7 +329,7 @@ fn compact_transfer_2_3_proof_verifies() {
     assert_eq!(result.input_tree_indexes, vec![0, 0]);
     assert_eq!(
         result.output_hashes.get(1..),
-        Some([[0u8; 32]; 2].as_slice())
+        Some([[0u8; 32]; 3].as_slice())
     );
     complete_inputs(&mut result.inputs.inputs, &[key]);
     let proof = ProverClient::local()
@@ -320,7 +339,7 @@ fn compact_transfer_2_3_proof_verifies() {
 }
 
 #[test]
-fn dummy_transfer_2_3_proof_verifies() {
+fn dummy_transfer_2_4_proof_verifies() {
     start_prover();
     let queued_results_before = async_queue_result_count();
 
@@ -336,15 +355,20 @@ fn dummy_transfer_2_3_proof_verifies() {
         dummy_output(owner_tag),
         dummy_output(owner_tag),
         dummy_output(owner_tag),
+        dummy_output(owner_tag),
     ];
     let blinding_seed = [43u8; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
     let prover = TransferProver {
         blinding_seed,
         output_tree_id: TEST_TREE_ID,
         inputs,
         outputs,
-        external_data: dummy_external_data(owner_tag, 3),
+        external_data: dummy_external_data(owner_tag, 4),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![
             [0u8; 32],
@@ -352,7 +376,7 @@ fn dummy_transfer_2_3_proof_verifies() {
             [0u8; 32],
         ],
         allow_dummy_inputs: true,
-        shape: Shape::new(2, 3),
+        shape: Shape::new(2, 4),
         cache_accounts: Default::default(),
     };
 

@@ -359,7 +359,7 @@ fn assert_close_nullifier_pdas(
 #[test]
 fn transact_rejects_a_pending_nullifier() {
     let mut env = Pool::initialized();
-    let data = transfer_ix_data(2, 3);
+    let data = transfer_ix_data(2, 4);
     let nullifiers = nullifiers_of(&data);
     let pending = *nullifiers.first().expect("first nullifier");
     queue_nullifier_pda(&mut env, &pending, 1);
@@ -382,7 +382,7 @@ fn transact_rejects_a_pending_nullifier() {
 #[test]
 fn transact_rejects_the_same_nullifier_twice_in_one_instruction() {
     let mut env = Pool::initialized();
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     let first = data.inputs.first().expect("first input").nullifier_hash;
     data.inputs.get_mut(1).expect("second input").nullifier_hash = first;
 
@@ -399,7 +399,7 @@ fn transact_rejects_the_same_nullifier_twice_in_one_instruction() {
 #[test]
 fn transact_rejects_swapped_nullifier_pdas() {
     let mut env = Pool::initialized();
-    let data = transfer_ix_data(2, 3);
+    let data = transfer_ix_data(2, 4);
     let nullifiers = nullifiers_of(&data);
     let mut ix = transact_instruction(&env, data);
     ix.accounts.swap(
@@ -420,7 +420,7 @@ fn transact_rejects_swapped_nullifier_pdas() {
 fn transact_rejects_a_foreign_account_in_a_nullifier_pda_slot() {
     let mut env = Pool::initialized();
     let impostor = funded_system_account(&mut env);
-    let mut ix = transact_instruction(&env, transfer_ix_data(2, 3));
+    let mut ix = transact_instruction(&env, transfer_ix_data(2, 4));
     ix.accounts
         .get_mut(TRANSACT_NULLIFIER_PDA_OFFSET)
         .expect("first nullifier PDA meta")
@@ -436,7 +436,7 @@ fn transact_rejects_a_foreign_account_in_a_nullifier_pda_slot() {
 #[test]
 fn transact_rejects_a_read_only_nullifier_pda() {
     let mut env = Pool::initialized();
-    let mut ix = transact_instruction(&env, transfer_ix_data(2, 3));
+    let mut ix = transact_instruction(&env, transfer_ix_data(2, 4));
     ix.accounts
         .get_mut(TRANSACT_NULLIFIER_PDA_OFFSET + 1)
         .expect("second nullifier PDA meta")
@@ -452,7 +452,7 @@ fn transact_rejects_a_read_only_nullifier_pda() {
 #[test]
 fn transact_rejects_missing_nullifier_pda_accounts() {
     let mut env = Pool::initialized();
-    let mut ix = transact_instruction(&env, transfer_ix_data(2, 3));
+    let mut ix = transact_instruction(&env, transfer_ix_data(2, 4));
     ix.accounts.truncate(TRANSACT_NULLIFIER_PDA_OFFSET);
 
     expect_transact_rejection(
@@ -467,7 +467,7 @@ fn transact_rejects_a_tree_short_of_nullifier_pda_rent() {
     let mut env = Pool::initialized();
     let tree_rent = tree_rent(&env);
     let nullifier_pda_rent = pool_nullifier_pda_rent(&env);
-    let data = transfer_ix_data(2, 3);
+    let data = transfer_ix_data(2, 4);
     let nullifiers = nullifiers_of(&data);
     // The forester fee lands in the tree before the PDA rent check but is
     // reserved for the fee balance, so it never funds working capital: the
@@ -493,7 +493,7 @@ fn transact_rejects_when_working_capital_would_borrow_from_the_fee_pool() {
     let nullifier_pda_rent = pool_nullifier_pda_rent(&env);
     let fee_balance = 1_000_000;
     fund_fee_balance(&mut env, fee_balance);
-    let data = transfer_ix_data(2, 3);
+    let data = transfer_ix_data(2, 4);
     let nullifiers = nullifiers_of(&data);
 
     set_tree_lamports(
@@ -793,7 +793,7 @@ fn close_pays_a_recipient_other_than_the_payer() {
 #[test]
 fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
     let mut env = Pool::initialized();
-    let data = transfer_ix_data(2, 3);
+    let data = transfer_ix_data(2, 4);
     let nullifiers = nullifiers_of(&data);
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
     set_synthetic_watermark_and_zero_root(&mut env, 1 + nullifiers.len() as u64, 0);

@@ -692,10 +692,10 @@ describe("wallet sync", () => {
   // A compact merge publishes only its sent nullifiers; the count still picks
   // the circuit, so sync reconstructs it like a padded one.
   it.each([
-    { kind: "8-input", real: 2, width: 8, compact: false },
-    { kind: "36-input", real: 2, width: 36, compact: false },
-    { kind: "compact 8-input", real: 2, width: 8, compact: true },
-    { kind: "compact 36-input", real: 9, width: 36, compact: true },
+    { kind: "24-input", real: 2, width: 24, compact: false },
+    { kind: "54-input", real: 2, width: 54, compact: false },
+    { kind: "compact 24-input", real: 2, width: 24, compact: true },
+    { kind: "compact 54-input", real: 25, width: 54, compact: true },
   ])("reconstructs a ciphertext-free $kind merge", async ({ real, width, compact }) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });

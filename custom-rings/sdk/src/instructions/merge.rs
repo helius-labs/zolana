@@ -68,7 +68,8 @@ impl CustomRingMerge {
     }
 }
 
-/// An 8-slot custom-ring merge ready for tree proofs.
+/// A custom-ring merge, compact-padded to its circuit width, ready for tree
+/// proofs.
 #[must_use]
 #[derive(Clone)]
 pub struct PreparedCustomRingMerge {
@@ -512,7 +513,7 @@ mod tests {
             .encrypt(&owner)
             .expect("prepare");
 
-        assert_eq!(prepared.inputs().len(), MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(prepared.inputs().len(), 8);
         assert_eq!(prepared.output().amount, 8);
         assert_eq!(prepared.output().ring_program_id, Some(ring.program_id()));
         assert_eq!(prepared.output().asset, Mint::SOL);

@@ -12,7 +12,7 @@ use zolana_interface::{
 };
 use zolana_keypair::Curve;
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicTransfers, Shape, SPP_SUPPORTED_SHAPES},
+    instructions::transact::{PrivateTxHash, PublicTransfers, Shape},
     utxo::SppProofInputUtxo,
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -96,11 +96,13 @@ pub(crate) struct AssembledOutputs {
 }
 
 /// Derive the public per-slot owner vector for owner-signed custom-ring
-/// circuits. Only structurally confidential-encrypted slots publish the Solana
-/// owner identity of their resolved owner tag; every other slot contributes
-/// zero.
+/// circuits, one entry for each of the circuit's `n_outputs` slots. Only
+/// structurally confidential-encrypted slots publish the Solana owner identity
+/// of their resolved owner tag; every other slot contributes zero, including
+/// the trailing compact padding the instruction leaves out.
 pub(crate) fn confidential_marked_output_owner_pk_hashes(
     external_data: &ExternalData,
+    n_outputs: usize,
 ) -> Result<Vec<[u8; 32]>, ClientError> {
     if external_data.outputs.len() != external_data.resolved_owner_tags.len() {
         return Err(ClientError::OutputOwnerTagCountMismatch {
@@ -108,7 +110,13 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
             owner_tags: external_data.resolved_owner_tags.len(),
         });
     }
-    external_data
+    if external_data.outputs.len() > n_outputs {
+        return Err(ClientError::TooManyOutputs {
+            got: external_data.outputs.len(),
+            max: n_outputs,
+        });
+    }
+    let mut hashes = external_data
         .outputs
         .iter()
         .zip(external_data.resolved_owner_tags.iter())
@@ -123,7 +131,9 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
                 Ok([0u8; 32])
             }
         })
-        .collect()
+        .collect::<Result<Vec<_>, ClientError>>()?;
+    hashes.resize(n_outputs, [0u8; 32]);
+    Ok(hashes)
 }
 
 /// Selects how each input's private owner `pk_field` is derived for the witness.
@@ -673,10 +683,7 @@ impl TransferInputUtxo {
 }
 
 pub(crate) fn validate_shape(shape: Shape, n_in: usize, n_out: usize) -> Result<(), ClientError> {
-    if !SPP_SUPPORTED_SHAPES.contains(&shape)
-        || shape.n_inputs() != n_in
-        || shape.n_outputs() != n_out
-    {
+    if !shape.is_supported() || shape.n_inputs() != n_in || shape.n_outputs() != n_out {
         return Err(ClientError::UnsupportedShape { n_in, n_out });
     }
     Ok(())
@@ -1230,11 +1237,11 @@ mod tests {
                 zolana_transaction::TransactionError::DuplicateCacheWriteSlot { index: 1, slot: 5 }
             ))
         ));
-        let nine: Vec<_> = (0..9).map(|slot| cached_output(slot + 1, slot)).collect();
+        let seventeen: Vec<_> = (0..17).map(|slot| cached_output(slot + 1, slot)).collect();
         assert!(matches!(
-            derive(&inputs, &nine, writing()),
+            derive(&inputs, &seventeen, writing()),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::TooManyCacheWrites { index: 8, max: 8 }
+                zolana_transaction::TransactionError::TooManyCacheWrites { index: 16, max: 16 }
             ))
         ));
         assert!(matches!(
@@ -1470,9 +1477,11 @@ mod tests {
         };
 
         assert_eq!(
-            confidential_marked_output_owner_pk_hashes(&external_data).expect("published owners"),
+            confidential_marked_output_owner_pk_hashes(&external_data, 3)
+                .expect("published owners"),
             vec![
                 solana_owner_identity(&default_tag).expect("owner hash"),
+                [0u8; 32],
                 [0u8; 32],
             ]
         );

@@ -207,7 +207,7 @@ class ServiceLaunchTests(unittest.TestCase):
                 process.communicate(timeout=3)
 
     def test_prover_uses_local_indexer_without_empty_preload(self):
-        for preload in ("", "merge:36:1"):
+        for preload in ("", "merge:54:1"):
             with self.subTest(preload=preload), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / "current").mkdir()

@@ -21,7 +21,7 @@ pub(crate) fn resolve_outputs<'a>(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'a>,
 ) -> Result<ArrayVec<ResolvedOutput<'a>, MAX_OUTPUTS>, ProgramError> {
-    let mut outputs = ArrayVec::new(); // TODO: check whether we really need this allocation.
+    let mut outputs = ArrayVec::new();
     for output in &ix.outputs {
         let resolved = output
             .into_resolved(|i| accounts.get(usize::from(i)).map(|a| a.address().to_bytes()))?;

@@ -8,6 +8,7 @@ import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
+import { mergeDummyNullifier } from "../src/keypair/merge/index.js";
 import {
   AssetRegistry,
   ConfidentialTransfer,
@@ -96,7 +97,7 @@ describe("compact padding", () => {
       sender.shieldedAddress(),
       [solInput(sender, 10n)],
       PAYER,
-    ).withShape({ inputs: 2, outputs: 3 });
+    ).withShape({ inputs: 2, outputs: 4 });
     transfer.send(recipient.shieldedAddress(), SOL_MINT, 4n);
     const prepared = transfer.prepare();
     const signed = transfer.sign(sender, new AssetRegistry());
@@ -112,7 +113,7 @@ describe("compact padding", () => {
       ProofInputUtxo.dummy(new Uint8Array(32) as Bytes32, real.treeId).nullifier(),
     );
     expect(signed.dummyNullifiers()).toEqual([compactInput.nullifier()]);
-    expect(signed.outputs.map((output) => output.isCompact())).toEqual([false, false, true]);
+    expect(signed.outputs.map((output) => output.isCompact())).toEqual([false, false, true, true]);
     expect(signed.outputs[2]?.hash(signed.outputTreeId)).toEqual(new Uint8Array(32));
     expect(signed.outputs[2]?.blinding).toEqual(
       transactOutputBlinding(prepared.firstNullifier, prepared.outputBlindingSeed(), 2),
@@ -121,7 +122,7 @@ describe("compact padding", () => {
       signed.externalData.outputs.length,
       signed.externalData.resolvedOwnerTags.length,
     ]).toEqual([2, 2]);
-    expect(signed.checkShape()).toEqual({ inputs: 2, outputs: 3 });
+    expect(signed.checkShape()).toEqual({ inputs: 2, outputs: 4 });
 
     // The instruction carries only the sent slots; SPP fills the rest back in.
     // The statement publishes 0 for compact padding, and the lookup carries
@@ -247,7 +248,7 @@ describe("compact padding", () => {
 
   it("refuses a slot after compact padding on either side", () => {
     const sender = ShieldedKeypair.generate();
-    const signed = compactTransfer(sender, { inputs: 3, outputs: 3 });
+    const signed = compactTransfer(sender, { inputs: 3, outputs: 4 });
     const [real, compactInput] = signed.inputUtxos;
     const [change, compactOutput] = signed.outputs;
     if (!real || !compactInput || !change || !compactOutput) expect.unreachable();
@@ -277,7 +278,7 @@ describe("compact padding", () => {
       blinding: randomBlinding(),
       ownerTag: new Uint8Array(32).fill(8) as Bytes32,
     });
-    expect(() => rebuilt({ outputs: [change, compactOutput, randomDummy] })).toThrow(
+    expect(() => rebuilt({ outputs: [change, compactOutput, randomDummy, compactOutput] })).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_SLOT_AFTER_COMPACT_PADDING",
         details: { side: "output", index: 2 },
@@ -288,7 +289,7 @@ describe("compact padding", () => {
   it("refuses a prepared merge whose compact padding SPP would read differently", () => {
     const owner = ShieldedKeypair.generate();
     const inputs = [solInput(owner, 2n), solInput(owner, 3n), solInput(owner, 4n)];
-    const prepared = Merge.fromKeypair(owner, inputs, undefined, { compact: true }).prepare();
+    const prepared = Merge.fromKeypair(owner, inputs).prepare();
     const rebuilt = (padded: readonly ProofInputUtxo[], dummyNullifiers: readonly Bytes32[]) =>
       new PreparedMerge({
         inputs: padded,
@@ -307,9 +308,7 @@ describe("compact padding", () => {
       ...inputs,
       compact(),
       ProofInputUtxo.dummy(undefined, prepared.inputTreeId),
-      compact(),
-      compact(),
-      compact(),
+      ...Array.from({ length: prepared.inputs.length - inputs.length - 2 }, compact),
     ];
     expect(() => rebuilt(reordered, prepared.dummyNullifiers())).toThrow(
       expect.objectContaining({
@@ -317,12 +316,12 @@ describe("compact padding", () => {
         details: { side: "input", index: 4 },
       }),
     );
-    // Three sent nullifiers select the 8-input circuit, not the 36-input one.
-    const tooWide = [...inputs, ...Array.from({ length: 33 }, compact)];
+    // Three sent nullifiers select the 8-input circuit, not the 54-input one.
+    const tooWide = [...inputs, ...Array.from({ length: 51 }, compact)];
     expect(() => rebuilt(tooWide, prepared.dummyNullifiers())).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_UNSUPPORTED_SHAPE",
-        details: { inputs: 36, sent: 3 },
+        details: { inputs: 54, sent: 3 },
       }),
     );
     // Compact padding still takes one dummy nullifier per padded slot.
@@ -334,40 +333,28 @@ describe("compact padding", () => {
     );
   });
 
-  it("refuses compact padding on a ring merge", () => {
-    const owner = ShieldedKeypair.generate();
-    const first = solInput(owner, 2n);
-    expect(
-      () =>
-        new Merge({
-          address: owner.shieldedAddress(),
-          inputs: [first],
-          outputBlinding: randomBlinding(),
-          privateTxBlinding: randomBlinding(),
-          dummyNullifiers: [],
-          ring: { programId: PAYER },
-          compact: true,
-        }),
-    ).toThrow(expect.objectContaining({ code: "TRANSACTION_RING_MERGE_COMPACT_PADDING" }));
-  });
-
   it("pads a merge with compact slots that take the dummy nullifiers of padded slots", () => {
     const owner = ShieldedKeypair.generate();
     const inputs = [solInput(owner, 2n), solInput(owner, 3n), solInput(owner, 4n)];
-    const prepared = Merge.fromKeypair(owner, inputs, undefined, { compact: true }).prepare();
-    const padded = Merge.fromKeypair(owner, inputs).prepare();
+    const prepared = Merge.fromKeypair(owner, inputs).prepare();
+    const first = inputs[0];
+    if (!first) expect.unreachable();
+    const key = owner.nullifierKey();
+    const derived = PreparedMerge.dummySlots(inputs.length).map((slot) =>
+      mergeDummyNullifier(key, first.nullifier(), slot),
+    );
+    key.destroy();
 
     expect(prepared.inputs).toHaveLength(8);
     expect(prepared.inputs.slice(inputs.length).every((input) => input.isCompact())).toBe(true);
-    expect(prepared.dummyNullifiers()).toHaveLength(5);
-    expect(prepared.dummyNullifiers()).toEqual(padded.dummyNullifiers());
+    expect(prepared.dummyNullifiers()).toEqual(derived);
     expect(prepared.output.amount).toBe(9n);
   });
 
   it("proves non-inclusion of each compact merge slot's dummy nullifier and publishes 0", () => {
     const owner = ShieldedKeypair.generate();
     const inputs = [solInput(owner, 2n), solInput(owner, 3n), solInput(owner, 4n)];
-    const prepared = Merge.fromKeypair(owner, inputs, undefined, { compact: true }).prepare();
+    const prepared = Merge.fromKeypair(owner, inputs).prepare();
     const tree = treeAddress(prepared.inputTreeId);
     const dummyNullifiers = prepared.dummyNullifiers();
     const dummyProofs = dummyNullifiers.map((nullifier) =>

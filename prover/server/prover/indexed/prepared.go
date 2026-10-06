@@ -114,7 +114,7 @@ func decodePrepared(request Request) (*preparedProof, error) {
 	default:
 		return nil, fmt.Errorf("unsupported indexed circuit")
 	}
-	if !shape.Supported() || len(prepared.inputs) != len(request.Inputs) || len(prepared.inputs) == 0 || len(prepared.inputs) > 36 || len(*prepared.slots) != 0 || (*prepared.hash).Sign() != 0 {
+	if !shape.Supported() || len(prepared.inputs) != len(request.Inputs) || len(prepared.inputs) == 0 || len(prepared.inputs) > 54 || len(*prepared.slots) != 0 || (*prepared.hash).Sign() != 0 {
 		return nil, fmt.Errorf("invalid prepared shape")
 	}
 	// Inputs from different trees may interleave, so a dummy only needs an

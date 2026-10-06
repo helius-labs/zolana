@@ -18,11 +18,15 @@ use zolana_interface::{
         CircuitId, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof as ProofData, TreeContext,
     },
-    shape::{owner_signer_slots, Shape},
+    shape::{owner_signer_slots, Shape, SPP_SUPPORTED_SHAPES},
     verifying_keys::OutputOwnerMode,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_transaction::instructions::transact::SPP_CONSOLIDATION_SHAPE;
+
+/// The supported shape with the widest public signer vector: past 30 inputs
+/// the nullifier PDAs leave fewer addresses for owner signers than there are
+/// inputs.
+const WIDEST_SIGNER_SHAPE: Shape = Shape::IN32_OUT2;
 
 #[test]
 fn incomplete_proof_inputs_are_rejected() {
@@ -99,12 +103,18 @@ fn owner_signer_run_is_bounded_by_max_signers() {
 }
 
 #[test]
-fn consolidation_shape_has_the_widest_signer_vector() {
-    assert_eq!(SPP_CONSOLIDATION_SHAPE, Shape::new(36, 2));
-    assert_eq!(owner_signer_slots(36), 24);
-    assert_eq!(SPP_CONSOLIDATION_SHAPE.signer_width(), 25);
-    assert_eq!(MAX_SIGNERS, 25);
-    assert_eq!(SIGNER_ZERO_SUFFIX_CHAINS.len(), 25);
+fn widest_signer_shape_sizes_the_signer_buffers() {
+    let widest = SPP_SUPPORTED_SHAPES
+        .into_iter()
+        .map(Shape::signer_width)
+        .max()
+        .expect("supported shapes");
+    assert_eq!(owner_signer_slots(32), 28);
+    assert_eq!(owner_signer_slots(51), 9);
+    assert_eq!(WIDEST_SIGNER_SHAPE.signer_width(), widest);
+    assert_eq!(MAX_SIGNERS, 29);
+    assert_eq!(MAX_SIGNERS, widest);
+    assert_eq!(SIGNER_ZERO_SUFFIX_CHAINS.len(), MAX_SIGNERS);
 }
 
 fn small_fe(tag: u8) -> [u8; 32] {
@@ -115,8 +125,12 @@ fn small_fe(tag: u8) -> [u8; 32] {
     out
 }
 
-fn consolidation_ix_bytes() -> Vec<u8> {
-    let circuit = CircuitId::ConfidentialEddsa(36, 2, 3);
+fn widest_signer_ix_bytes() -> Vec<u8> {
+    let circuit = CircuitId::ConfidentialEddsa(
+        WIDEST_SIGNER_SHAPE.n_inputs() as u8,
+        WIDEST_SIGNER_SHAPE.n_outputs() as u8,
+        3,
+    );
     TransactIxData {
         expiry_unix_ts: 7,
         private_tx_hash: small_fe(0x51),
@@ -152,7 +166,7 @@ fn consolidation_ix_bytes() -> Vec<u8> {
 
 /// `payer`, `output_tree`, the program, the system program, `input_tree`, one
 /// nullifier PDA per input, then `owner_signer_count` distinct signers.
-fn consolidation_accounts(owner_signer_count: usize) -> Vec<AccountView> {
+fn widest_signer_accounts(owner_signer_count: usize) -> Vec<AccountView> {
     let pool = SHIELDED_POOL_PROGRAM_ID;
     let mut accounts = vec![
         get_account_view([1; 32], [0; 32], true, true, false, vec![]),
@@ -162,7 +176,7 @@ fn consolidation_accounts(owner_signer_count: usize) -> Vec<AccountView> {
         get_account_view([2; 32], pool, false, true, false, vec![]),
     ];
     accounts.extend(
-        (0..36u8)
+        (0..WIDEST_SIGNER_SHAPE.n_inputs() as u8)
             .map(|index| get_account_view([0x10 + index; 32], pool, false, true, false, vec![])),
     );
     accounts.extend((0..owner_signer_count).map(|index| {
@@ -173,22 +187,22 @@ fn consolidation_accounts(owner_signer_count: usize) -> Vec<AccountView> {
 }
 
 /// The account parser bounds the owner signer run by `owner_signer_slots`, not
-/// by the input count: on `36x2` the 25th owner signer (the 26th unique signer
+/// by the input count: on `32x2` the 29th owner signer (the 30th unique signer
 /// with the payer) is rejected before any hashing.
 #[test]
-fn consolidation_shape_rejects_an_owner_signer_run_past_its_slots() {
-    let bytes = consolidation_ix_bytes();
+fn widest_signer_shape_rejects_an_owner_signer_run_past_its_slots() {
+    let bytes = widest_signer_ix_bytes();
     let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
-    let slots = owner_signer_slots(36);
+    let slots = owner_signer_slots(WIDEST_SIGNER_SHAPE.n_inputs());
 
-    let mut accounts = consolidation_accounts(slots);
+    let mut accounts = widest_signer_accounts(slots);
     let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix)
         .expect("a run filling every owner signer slot parses");
     assert!(parsed.cache.is_none());
     assert_eq!(parsed.owner_signers.len(), slots);
-    assert_eq!(parsed.nullifier_pdas.len(), 36);
+    assert_eq!(parsed.nullifier_pdas.len(), WIDEST_SIGNER_SHAPE.n_inputs());
 
-    let mut accounts = consolidation_accounts(slots + 1);
+    let mut accounts = widest_signer_accounts(slots + 1);
     assert_eq!(
         TransactAccounts::validate_and_parse(&mut accounts, &ix).err(),
         Some(ProgramError::Custom(

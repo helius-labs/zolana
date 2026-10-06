@@ -1,15 +1,15 @@
 use std::{collections::BTreeSet, path::Path};
 
 use custom_ring_sdk::{
-    CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput, KeyRegistrationError,
-    ReadSealedKey, SetDelegate, TransactSend, TransferProofEnvironment,
+    ring_authority_width, CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput,
+    KeyRegistrationError, ReadSealedKey, SetDelegate, TransactSend, TransferProofEnvironment,
     SET_DELEGATE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
-use zolana_interface::{instruction::CircuitId, pda, N_PUBLIC_SLOTS};
+use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ViewingKey};
 use zolana_ring_client::{
     RecoveryEnvironment, RecoveryError, RingEnvironment, RingRecovery, SourceMember,
@@ -338,10 +338,7 @@ impl NoteSelection<'_> {
             if total >= u128::from(self.amount) {
                 break;
             }
-            let Ok(width) = u8::try_from(selected.len() + 1) else {
-                break;
-            };
-            if !CircuitId::RingAuthority(width, width, N_PUBLIC_SLOTS as u8).is_supported() {
+            if ring_authority_width(selected.len() + 1).is_none() {
                 break;
             }
             total += u128::from(note.utxo.amount);

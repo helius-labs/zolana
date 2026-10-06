@@ -72,8 +72,8 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
-    change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,
-    public_sol_field, real_output, single_tree_slots, sol_leg, transfer_output,
+    change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, fe, public_sol_field,
+    real_output, single_tree_slots, sol_leg, transfer_output,
 };
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);

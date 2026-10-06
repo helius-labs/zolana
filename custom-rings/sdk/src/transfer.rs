@@ -632,7 +632,7 @@ impl<'a> CustomRingTransfer<'a> {
         }
         .validate()?;
 
-        let money_shape = proof_inputs.check_shape()?;
+        proof_inputs.check_shape()?;
         let first_nullifier = proof_inputs.first_nullifier()?;
         let output_blinding_seed =
             derive_output_blinding_seed(&first_nullifier, &proof_inputs.blinding_seed)?;
@@ -676,7 +676,7 @@ impl<'a> CustomRingTransfer<'a> {
                     salt,
                     first_nullifier,
                     output_blinding_seed,
-                    money_shape,
+                    money_shape: money_shape(&proof_inputs),
                 }
                 .plan()?;
                 RecordSlots {
@@ -725,6 +725,7 @@ impl<'a> CustomRingTransfer<'a> {
             outputs: proof_inputs
                 .output_utxos
                 .iter()
+                .filter(|output| !output.is_compact())
                 .map(|output| ProofInputUtxo::try_from((output, proof_inputs.output_tree_id)))
                 .collect::<Result<Vec<_>, _>>()?,
         }
@@ -779,6 +780,22 @@ fn place_record_input(
         inputs.push(SppProofInputUtxo::dummy(padding_tree)?);
     }
     Ok(())
+}
+
+/// The real money slots: non-dummy inputs and the outputs ahead of the first dummy.
+fn money_shape(proof_inputs: &SppProofInputs) -> zolana_client::Shape {
+    zolana_client::Shape::new(
+        proof_inputs
+            .input_utxos
+            .iter()
+            .filter(|input| !input.is_dummy())
+            .count(),
+        proof_inputs
+            .output_utxos
+            .iter()
+            .take_while(|output| !output.is_dummy())
+            .count(),
+    )
 }
 
 pub(crate) fn record_input_position(inputs: &[SppProofInputUtxo]) -> Option<usize> {
@@ -930,8 +947,9 @@ impl RecordSlots<'_> {
             sender,
             sender_tag,
         } = self;
-        if proof_inputs.input_utxos.len() + 1 > plan.shape.n_inputs()
-            || proof_inputs.output_utxos.len() + 1 > plan.shape.n_outputs()
+        let money_shape = money_shape(proof_inputs);
+        if money_shape.n_inputs() + 1 > plan.shape.n_inputs()
+            || money_shape.n_outputs() + 1 > plan.shape.n_outputs()
         {
             return Err(TransferError::PolicyShapeUnsupported);
         }
@@ -940,11 +958,7 @@ impl RecordSlots<'_> {
             plan.input.clone(),
             plan.shape.n_inputs(),
         )?;
-        let money = proof_inputs
-            .output_utxos
-            .iter()
-            .take_while(|output| !output.is_dummy())
-            .count();
+        let money = money_shape.n_outputs();
         proof_inputs.output_utxos.truncate(money);
         proof_inputs.external_data.outputs.truncate(money);
         proof_inputs
@@ -954,7 +968,7 @@ impl RecordSlots<'_> {
 
         let blindings = OutputBlindings::of(proof_inputs)?;
         RecordPadding {
-            slots: plan.shape.n_outputs() - 1,
+            slots: plan.record_slot,
             sender,
             sender_tag,
             tx_viewing_key,
@@ -987,6 +1001,15 @@ impl RecordSlots<'_> {
             .resolved_owner_tags
             .push(encoded.view_tag);
         proof_inputs.output_utxos.push(output);
+        while proof_inputs.output_utxos.len() < plan.shape.n_outputs() {
+            let slot_index = u32::try_from(proof_inputs.output_utxos.len())
+                .map_err(|_| TransferError::PolicyShapeUnsupported)?;
+            proof_inputs.output_utxos.push(SppProofOutputUtxo {
+                blinding: blindings.at(slot_index)?,
+                compact: true,
+                ..Default::default()
+            });
+        }
         Ok(())
     }
 }
@@ -2960,7 +2983,7 @@ mod tests {
             .unwrap();
         transfer
             .pad_utxos(
-                zolana_interface::shape::Shape::IN2_OUT3,
+                zolana_interface::shape::Shape::IN2_OUT4,
                 &sender.shielded_address().unwrap(),
             )
             .unwrap();
@@ -3486,7 +3509,7 @@ mod tests {
         let plan = VelocityPlan {
             input: spend(9, 0),
             output: SppProofOutputUtxo {
-                blinding: blindings.at(3).unwrap(),
+                blinding: blindings.at(2).unwrap(),
                 ..SppProofOutputUtxo::new(Mint::SOL, 0, record_owner).unwrap()
             },
             record_message: MessageData {
@@ -3502,6 +3525,7 @@ mod tests {
                 namespace_owner_hash: [2; 32],
             }),
             shape,
+            record_slot: 2,
         };
         RecordSlots {
             plan: &plan,
@@ -3538,6 +3562,7 @@ mod tests {
         assert!(proof_inputs
             .output_utxos
             .iter()
+            .take(3)
             .all(|output| !output.is_dummy()));
         assert_eq!(
             proof_inputs.output_utxos.get(..money_outputs.len()),
@@ -3548,7 +3573,7 @@ mod tests {
         } else {
             address
         };
-        for slot in money_outputs.len()..3 {
+        for slot in money_outputs.len()..2 {
             assert_eq!(
                 proof_inputs.output_utxos.get(slot),
                 Some(&SppProofOutputUtxo {
@@ -3557,18 +3582,110 @@ mod tests {
                 })
             );
         }
-        assert_eq!(proof_inputs.output_utxos.last(), Some(&plan.output));
-        assert_eq!(proof_inputs.external_data.outputs.len(), shape.n_outputs());
+        assert_eq!(proof_inputs.output_utxos.get(2), Some(&plan.output));
+        assert!(proof_inputs
+            .output_utxos
+            .get(3)
+            .is_some_and(SppProofOutputUtxo::is_compact));
+        assert_eq!(proof_inputs.external_data.outputs.len(), 3);
+        assert_eq!(proof_inputs.external_data.resolved_owner_tags.len(), 3);
+    }
+
+    #[test]
+    fn the_record_shape_follows_the_real_outputs_not_the_padding() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let address = sender.shielded_address().unwrap();
+        let input = zolana_test_utils::utxo::wallet(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: Mint::SOL,
+                amount: 5,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &sender.nullifier_key,
+            4,
+            0,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut tx =
+            ConfidentialTransaction::new(vec![input], solana_signer::Signer::pubkey(&sender))
+                .unwrap();
+        for _ in 0..2 {
+            let recipient = ShieldedKeypair::new_ed25519().unwrap();
+            tx.transfer_sol(&recipient.shielded_address().unwrap(), 1)
+                .unwrap();
+        }
+        tx.pad_utxos(zolana_interface::shape::Shape::IN1_OUT4, &address)
+            .unwrap();
+        let sender_tag = tx.sender_owner_tag(&sender.signing_pubkey()).unwrap();
+        let tx_viewing_key = sender
+            .get_transaction_viewing_key(tx.first_nullifier())
+            .unwrap();
+        let mut proof_inputs = tx.encrypt(&sender).unwrap();
         assert_eq!(
-            proof_inputs.external_data.resolved_owner_tags.len(),
-            shape.n_outputs()
+            proof_inputs.check_shape().unwrap(),
+            zolana_interface::shape::Shape::IN1_OUT4
         );
+        let money = money_shape(&proof_inputs);
+        assert_eq!(money, zolana_interface::shape::Shape::new(1, 3));
+        let shape = crate::velocity::record_shape(money).unwrap();
+        assert_eq!(shape, zolana_interface::shape::Shape::IN2_OUT4);
+
+        let money_outputs: Vec<_> = proof_inputs.output_utxos.iter().take(3).cloned().collect();
+        let blindings = OutputBlindings::of(&proof_inputs).unwrap();
+        let record_owner = ShieldedAddress::for_pda(
+            &ring().namespace_pda(),
+            zero_nullifier_key().pubkey().unwrap(),
+            tx_viewing_key.pubkey(),
+        );
+        let plan = VelocityPlan {
+            input: spend(9, 0),
+            output: SppProofOutputUtxo {
+                blinding: blindings.at(3).unwrap(),
+                ..SppProofOutputUtxo::new(Mint::SOL, 0, record_owner).unwrap()
+            },
+            record_message: MessageData {
+                view_tag: [0; 32],
+                data: Vec::new(),
+            },
+            counters_message: MessageData {
+                view_tag: [0; 32],
+                data: Vec::new(),
+            },
+            proof_input: VelocityProofInput::off(RingIdentity {
+                ring_id: [1; 32],
+                namespace_owner_hash: [2; 32],
+            }),
+            shape,
+            record_slot: money.n_outputs(),
+        };
+        RecordSlots {
+            plan: &plan,
+            tx_viewing_key: &tx_viewing_key,
+            sender: &address,
+            sender_tag,
+        }
+        .append(&mut proof_inputs)
+        .unwrap();
+
+        assert_eq!(proof_inputs.check_shape().unwrap(), shape);
+        assert_eq!(record_input_position(&proof_inputs.input_utxos), Some(1));
+        assert_eq!(
+            proof_inputs.output_utxos.get(..3),
+            Some(money_outputs.as_slice())
+        );
+        assert_eq!(proof_inputs.output_utxos.get(3), Some(&plan.output));
+        assert_eq!(proof_inputs.external_data.outputs.len(), 4);
     }
 
     #[test]
     fn output_framing_selects_ring_membership() {
         for binding in [None, Some(ring().program_id())] {
-            let tx = framed_fixture(&[binding, binding, binding]);
+            let tx = framed_fixture(&[binding; 4]);
             for slot in &tx.external_data.outputs {
                 let data = slot.data.as_deref().unwrap();
                 assert_eq!(
@@ -3665,7 +3782,7 @@ mod tests {
 
     #[test]
     fn a_record_carrier_frames_a_full_withdrawals_dummy_outputs() {
-        let mut proof = framed_fixture(&[Some(ring().program_id()); 3]);
+        let mut proof = framed_fixture(&[Some(ring().program_id()); 4]);
         let money_count = proof.output_utxos.len() - 1;
         for output in &mut proof.output_utxos[..money_count] {
             output.owner_address = None;
@@ -3685,7 +3802,7 @@ mod tests {
 
     #[test]
     fn dummy_framing_matches_ring_slot_lengths() {
-        let mut proof_inputs = framed_fixture(&[Some(ring().program_id()); 3]);
+        let mut proof_inputs = framed_fixture(&[Some(ring().program_id()); 4]);
         proof_inputs.output_utxos[1].owner_address = None;
         proof_inputs.output_utxos[2].owner_address = None;
         assert!(

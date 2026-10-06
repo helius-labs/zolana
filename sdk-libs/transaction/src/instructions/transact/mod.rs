@@ -36,8 +36,7 @@ pub use settlement::{
     SettlementTarget, BN254_MODULUS_DEC,
 };
 pub use shape::{
-    auto_shapes, canonical_shape, resolve_shape, Shape, SPP_CONSOLIDATION_SHAPE,
-    SPP_SUPPORTED_SHAPES,
+    auto_shapes, canonical_shape, resolve_shape, Shape, MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
 };
 pub(crate) use transaction::real_slot_after_dummy;
 pub use transaction::{transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs};

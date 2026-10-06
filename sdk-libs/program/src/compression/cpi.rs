@@ -68,16 +68,14 @@ impl<'a> SppTransactCpi<'a> {
 
     /// Adds a write of `account`. Its state gets the blinding the circuit
     /// derives for its output slot, and is then hashed and published as it
-    /// stands. Each write takes one input and one output, so the number of
-    /// writes must be a square shape the pool supports.
+    /// stands. Each write takes one input and one output; the transaction is
+    /// proved at the smallest square shape the pool supports that holds every
+    /// write, and compact padding fills the slots the writes leave.
     pub fn with_compressed_account<A: CompressedAccountData>(
         mut self,
         account: CompressedAccount<'a, A>,
     ) -> Result<Self, CompressedAccountError> {
-        let count = self.writes.len() + 1;
-        if !SPP_SUPPORTED_SHAPES.contains(&Shape::new(count, count)) {
-            return Err(CompressedAccountError::TooManyAccounts);
-        }
+        square_width(self.writes.len() + 1)?;
         let CompressedAccount {
             owner,
             input,
@@ -143,8 +141,7 @@ impl<'a> SppTransactCpi<'a> {
             .ok_or(CompressedAccountError::NoAccounts)?
             .input
             .nullifier();
-        let count =
-            u8::try_from(self.writes.len()).map_err(|_| CompressedAccountError::TooManyAccounts)?;
+        let width = square_width(self.writes.len())?;
 
         let mut inputs = Vec::with_capacity(self.writes.len());
         let mut input_hashes = Vec::with_capacity(self.writes.len());
@@ -193,7 +190,7 @@ impl<'a> SppTransactCpi<'a> {
         .hash()?;
         Ok(external.into_ix_data(
             private_tx_hash,
-            CircuitId::ConfidentialEddsa(count, count, N_PUBLIC_SLOTS as u8),
+            CircuitId::ConfidentialEddsa(width, width, N_PUBLIC_SLOTS as u8),
             self.proof,
             TransactInputs {
                 inputs,
@@ -204,6 +201,19 @@ impl<'a> SppTransactCpi<'a> {
             },
         ))
     }
+}
+
+/// The width of the smallest supported square shape holding `count` writes.
+/// The instruction data carries only the writes: SPP fills the remaining
+/// slots with compact padding.
+fn square_width(count: usize) -> Result<u8, CompressedAccountError> {
+    SPP_SUPPORTED_SHAPES
+        .iter()
+        .filter(|shape| shape.n_inputs() == shape.n_outputs() && shape.n_inputs() >= count)
+        .map(Shape::n_inputs)
+        .min()
+        .and_then(|width| u8::try_from(width).ok())
+        .ok_or(CompressedAccountError::TooManyAccounts)
 }
 
 /// The blinding the circuit derives for output `slot` of a transaction with

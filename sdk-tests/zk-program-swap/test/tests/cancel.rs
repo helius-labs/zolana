@@ -185,7 +185,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let order_utxo = order.order_utxo;
         let taker_viewing_pubkey = order.taker_viewing_pubkey;
 
-        let mut source_output = order_utxo.source_output(maker_address, random_blinding());
+        let source_output = order_utxo.source_output(maker_address, random_blinding());
 
         let order_hash = order_utxo
             .output_utxo(maker_address.viewing_pubkey)?
@@ -200,8 +200,19 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
 
         let input_utxos = vec![order_input_utxo];
-        let blinding_seed =
-            prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
+        // SPP has no 1x1 circuit: the cancel is proved at 1x2, and the second
+        // output slot is compact padding the instruction leaves out.
+        let mut cancel_outputs = vec![
+            source_output,
+            SppProofOutputUtxo {
+                compact: true,
+                ..Default::default()
+            },
+        ];
+        let blinding_seed = prepare_output_blindings(&input_utxos, &mut cancel_outputs)?;
+        let [source_output, compact_output]: [_; 2] = cancel_outputs
+            .try_into()
+            .map_err(|_| anyhow!("cancel transaction must have two output slots"))?;
         let source_output_hash = source_output
             .hash(localnet.tree_id)
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
@@ -225,7 +236,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
         let cancel_spp_proof_inputs = SppProofInputs {
             input_utxos,
-            output_utxos: encoded.output_utxos,
+            output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
             external_data,
             payer: maker_address.solana_address()?,
             blinding_seed,

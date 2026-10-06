@@ -87,12 +87,61 @@ fn populated_chain_rejects_empty_and_oversized_input() {
     );
 }
 
-/// The packed element must fit one `u128` limb in every mirror; the same bound
-/// is pinned as a `const` assertion next to `pack_input_flags`.
-const _: () = assert!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS) <= 128);
-
 fn flags_field(value: u128) -> [u8; 32] {
     right_align(&value.to_be_bytes())
+}
+
+/// Reference packing bit by bit, independent of the byte-pair builder: bit `b`
+/// of the element is bit `b % 8` of byte `31 - b / 8`.
+fn reference_flags(allow_dummy_inputs: bool, tree_indexes: &[u8]) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    let mut set = |bit: usize| {
+        let byte = field
+            .iter_mut()
+            .rev()
+            .nth(bit / 8)
+            .expect("bit inside the element");
+        *byte |= 1 << (bit % 8);
+    };
+    if allow_dummy_inputs {
+        set(0);
+    }
+    for (index, tree_index) in tree_indexes.iter().enumerate() {
+        for bit in 0..INPUT_FLAGS_TREE_INDEX_BITS {
+            if (tree_index >> bit) & 1 == 1 {
+                set(input_flags_tree_index_shift(index) + bit);
+            }
+        }
+    }
+    field
+}
+
+fn highest_set_bit(field: &[u8; 32]) -> Option<usize> {
+    field
+        .iter()
+        .enumerate()
+        .find(|(_, byte)| **byte != 0)
+        .map(|(index, byte)| 8 * (field.len() - 1 - index) + 7 - byte.leading_zeros() as usize)
+}
+
+fn decimal_field(decimal: &str) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    for digit in decimal.chars() {
+        let mut carry = digit.to_digit(10).expect("decimal digit");
+        for byte in field.iter_mut().rev() {
+            let value = u32::from(*byte) * 10 + carry;
+            *byte = (value & 0xff) as u8;
+            carry = value >> 8;
+        }
+        assert_eq!(carry, 0, "decimal {decimal} overflows 32 bytes");
+    }
+    field
+}
+
+#[test]
+fn input_flags_width_at_the_widest_shape_exceeds_one_u128() {
+    assert_eq!(MAX_TRANSACT_INPUTS, 49);
+    assert_eq!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS), 148);
 }
 
 #[test]
@@ -123,20 +172,44 @@ fn input_flags_give_input_i_bits_1_plus_3i_through_3_plus_3i() {
     for index in 0..MAX_TRANSACT_INPUTS {
         let mut tree_indexes = vec![0u8; MAX_TRANSACT_INPUTS];
         *tree_indexes.get_mut(index).expect("index in range") = highest;
-        let packed = pack_input_flags(false, tree_indexes).expect("packs");
+        let packed = pack_input_flags(false, tree_indexes.iter().copied()).expect("packs");
 
         let shift = input_flags_tree_index_shift(index);
         assert_eq!(shift, 1 + 3 * index);
-        assert_eq!(packed, flags_field(u128::from(highest) << shift));
-
-        let occupied = ((1u128 << INPUT_FLAGS_TREE_INDEX_BITS) - 1) << shift;
-        let value = u128::from_be_bytes(
-            packed[16..]
-                .try_into()
-                .expect("packed flags fit the low 16 bytes"),
+        assert_eq!(
+            packed,
+            reference_flags(false, &tree_indexes),
+            "input {index}"
         );
-        assert_eq!(packed[..16], [0u8; 16]);
-        assert_eq!(value & !occupied, 0);
+        assert_eq!(highest_set_bit(&packed), Some(shift + 2), "input {index}");
+    }
+}
+
+/// Input 42 occupies bits 127..=129, straddling the 128-bit boundary the
+/// former `u128` builder stopped at.
+#[test]
+fn input_flags_carry_a_tree_index_across_the_128_bit_boundary() {
+    let mut tree_indexes = vec![0u8; 43];
+    *tree_indexes.last_mut().expect("43 inputs") = 3;
+    let packed = pack_input_flags(true, tree_indexes.iter().copied()).expect("packs");
+    assert_eq!(packed, reference_flags(true, &tree_indexes));
+    let mut expected = [0u8; 32];
+    *expected.get_mut(15).expect("byte 15") = 0x01;
+    *expected.get_mut(16).expect("byte 16") = 0x80;
+    *expected.get_mut(31).expect("byte 31") = 0x01;
+    assert_eq!(packed, expected);
+}
+
+#[test]
+fn input_flags_pack_every_slot_at_the_widest_shape() {
+    let tree_indexes: Vec<u8> = (0..MAX_TRANSACT_INPUTS)
+        .map(|index| (index % INPUT_TREES) as u8)
+        .collect();
+    for allow_dummy_inputs in [false, true] {
+        let packed =
+            pack_input_flags(allow_dummy_inputs, tree_indexes.iter().copied()).expect("packs");
+        assert_eq!(packed, reference_flags(allow_dummy_inputs, &tree_indexes));
+        assert!(highest_set_bit(&packed).is_some_and(|bit| (128..148).contains(&bit)));
     }
 }
 
@@ -213,16 +286,19 @@ fn input_flags_match_the_cross_language_vectors() {
                 u8::from_str_radix(pair, 16).expect("hex byte")
             })
             .collect();
-        let decimal: u128 = vector
-            .input_flags_decimal
-            .parse()
-            .expect("decimal input_flags");
+        let decimal = decimal_field(&vector.input_flags_decimal);
 
         let packed = pack_input_flags(vector.allow_dummy_inputs, vector.tree_indexes.clone())
             .unwrap_or_else(|error| panic!("vector {} failed to pack: {error:?}", vector.name));
 
         assert_eq!(packed.as_slice(), expected, "vector {}", vector.name);
-        assert_eq!(packed, flags_field(decimal), "vector {}", vector.name);
+        assert_eq!(packed, decimal, "vector {}", vector.name);
+        assert_eq!(
+            packed,
+            reference_flags(vector.allow_dummy_inputs, &vector.tree_indexes),
+            "vector {}",
+            vector.name
+        );
     }
 }
 

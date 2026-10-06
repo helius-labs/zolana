@@ -11,8 +11,6 @@ export async function prepareMerge(
     invalidAnswers(): Error;
     outputTreeId?: number;
     ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
-    /** Pads with compact padding, which publishes 0 in place of each derived dummy nullifier. */
-    compact?: boolean;
   }>,
   context?: RequestContext,
 ): Promise<PreparedMerge> {
@@ -45,6 +43,5 @@ export async function prepareMerge(
     dummyNullifiers,
     ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
     ...(input.ring === undefined ? {} : { ring: input.ring }),
-    ...(input.compact === true ? { compact: true } : {}),
   }).prepare();
 }

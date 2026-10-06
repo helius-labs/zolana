@@ -17,7 +17,7 @@ use harness::{Mode, Plan, RingAuthorityHarness};
 #[test]
 #[serial_test::serial]
 fn ring_authority_proofs_cover_shape_sweep() {
-    for n in 1..=4 {
+    for n in [2, 4] {
         RingAuthorityHarness {
             plan: Plan {
                 n_inputs: n,
@@ -33,8 +33,8 @@ fn ring_authority_proofs_cover_shape_sweep() {
 #[serial_test::serial]
 fn ring_authority_proofs_cover_owner_modes() {
     for (n_inputs, n_outputs, mode) in [
-        (3, 3, Mode::MultiReal),
-        (1, 1, Mode::P256Input),
+        (4, 4, Mode::MultiReal),
+        (2, 2, Mode::P256Input),
         (2, 2, Mode::MixedOwners),
     ] {
         RingAuthorityHarness {

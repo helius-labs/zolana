@@ -5,7 +5,7 @@ use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
 use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_36_1, merge_8_1},
+    verifying_keys::{merge_24_1, merge_54_1, merge_8_1},
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
@@ -68,13 +68,9 @@ impl MergeHarness {
         // The plan derives the merged output and owner identity; preparing it pads to
         // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
         // proofs. The prover never sees the high-level plan.
-        let merge = if self.plan.compact {
-            MergeTransaction::new_compact(inputs)
-        } else {
-            MergeTransaction::new(inputs)
-        }
-        .expect("build merge plan")
-        .with_expiry(0);
+        let merge = MergeTransaction::new(inputs)
+            .expect("build merge plan")
+            .with_expiry(0);
         let prepared = merge.encrypt(&sender).expect("encrypt merge");
         let expected_output = prepared.output_utxo.clone();
         let commitments = prepared.input_utxo_hashes().expect("input commitments");
@@ -106,24 +102,23 @@ impl MergeHarness {
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
         let vk = match result.nullifiers.len() {
             8 => &merge_8_1::VERIFYINGKEY,
-            36 => &merge_36_1::VERIFYINGKEY,
+            24 => &merge_24_1::VERIFYINGKEY,
+            54 => &merge_54_1::VERIFYINGKEY,
             other => panic!("no committed verifying key for a {other}-input merge"),
         };
         let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
             .expect("construct verifier");
         verifier.verify().expect("merge groth16 proof verifies");
-        if self.plan.compact {
-            let sent = result
-                .instruction_data(MergeProof::zeroed())
-                .nullifiers
-                .len();
-            assert_eq!(sent, n, "compact padding is left out of the instruction");
-        }
+        let sent = result
+            .instruction_data(MergeProof::zeroed())
+            .nullifiers
+            .len();
+        assert_eq!(sent, n, "compact padding is left out of the instruction");
 
         // The owner reconstructs the ciphertext-free merge output from the
         // first real input and its published nullifier.
         assert_eq!(
-            merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
+            merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
                 .expect("derive merge output blinding"),
             expected_output.blinding,
             "owner reconstructs the merged output blinding",

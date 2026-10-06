@@ -213,7 +213,7 @@ fn transact_rejects_a_stale_nullifier_root_index() {
     let mut env = Pool::initialized();
     // Root-history indices are caller-supplied; a zeroed (never-written)
     // history slot must be rejected, not treated as a valid root.
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.tree_contexts = tree_contexts(&[(0, 7)]);
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
 }
@@ -223,7 +223,7 @@ fn transact_rejects_a_stale_utxo_root_index() {
     let mut env = Pool::initialized();
     // INV-XC-09: the UTXO root history is symmetric to the nullifier root
     // history; an out-of-bounds or zeroed slot must map to StaleNullifierRoot.
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.tree_contexts = tree_contexts(&[(7, 0)]);
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
 }
@@ -231,11 +231,11 @@ fn transact_rejects_a_stale_utxo_root_index() {
 #[test]
 fn transact_without_a_utxo_root_reads_no_root_history() {
     let mut env = Pool::initialized();
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.tree_contexts = tree_contexts(&[(NO_UTXO_ROOT - 1, 0)]);
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
 
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.tree_contexts = tree_contexts(&[(NO_UTXO_ROOT, 0)]);
     expect_rejection(
         &mut env,
@@ -252,7 +252,7 @@ fn transact_rejects_a_paused_tree() {
         .pause_tree(&authority, &env.tree, true)
         .expect("pause tree");
     // Every wire field is valid; the pause alone must halt the tree mutation.
-    let data = transfer_ix_data(2, 3);
+    let data = transfer_ix_data(2, 4);
     expect_rejection(&mut env, data, ShieldedPoolError::TreePaused);
 }
 
@@ -261,7 +261,7 @@ fn transact_rejects_proof_points_that_fail_decompression() {
     let mut env = Pool::initialized();
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
     // fails at point decompression, before any pairing.
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.proof = TransactProof {
         a: [0xFF; 32],
         b: [0xFF; 128],
@@ -277,17 +277,17 @@ fn transact_rejects_proof_points_that_fail_decompression() {
 #[test]
 fn transact_rejects_more_outputs_than_any_circuit_supports() {
     let mut env = Pool::initialized();
-    // Nine outputs overflow the MAX_OUTPUTS = 8 resolve buffer.
-    let data = transfer_ix_data(2, 9);
+    // Seventeen outputs overflow the MAX_OUTPUTS = 16 resolve buffer.
+    let data = transfer_ix_data(2, 17);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }
 
 #[test]
 fn transact_rejects_an_unsupported_proof_shape() {
     let mut env = Pool::initialized();
-    // (2 inputs, 4 outputs) is wire-valid and within the resolve buffer, but no
+    // (2 inputs, 3 outputs) is wire-valid and within the resolve buffer, but no
     // circuit exists for it: the verifying-key selection must reject it.
-    let data = transfer_ix_data(2, 4);
+    let data = transfer_ix_data(2, 3);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }
 
@@ -308,7 +308,7 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transfer_ix_data(2, 3),
+        data: transfer_ix_data(2, 4),
     }
     .instruction();
     ix.accounts.get_mut(3).expect("system program meta").pubkey = impostor;
@@ -331,8 +331,8 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
         data: {
-            let mut data = transfer_ix_data(2, 3);
-            data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+            let mut data = transfer_ix_data(2, 4);
+            data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
             data
         },
     }
@@ -363,7 +363,7 @@ fn transact_rejects_a_non_writable_tree_meta() {
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transfer_ix_data(2, 3),
+        data: transfer_ix_data(2, 4),
     }
     .instruction();
     for meta in ix
@@ -384,7 +384,7 @@ fn transact_rejects_a_non_writable_tree_meta() {
 #[test]
 fn transact_rejects_a_non_canonical_output_utxo_hash() {
     let mut env = Pool::initialized();
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.outputs.get_mut(1).expect("second output").utxo_hash = BN254_SCALAR_MODULUS_BE;
     expect_rejection(
         &mut env,
@@ -396,7 +396,7 @@ fn transact_rejects_a_non_canonical_output_utxo_hash() {
 #[test]
 fn transact_rejects_a_non_canonical_input_nullifier() {
     let mut env = Pool::initialized();
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.inputs.get_mut(1).expect("second input").nullifier_hash = BN254_SCALAR_MODULUS_BE;
     expect_rejection(
         &mut env,
@@ -408,7 +408,7 @@ fn transact_rejects_a_non_canonical_input_nullifier() {
 #[test]
 fn transact_rejects_a_non_canonical_private_tx_hash() {
     let mut env = Pool::initialized();
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.private_tx_hash = BN254_SCALAR_MODULUS_BE;
     expect_rejection(&mut env, data, ShieldedPoolError::NonCanonicalPrivateTxHash);
 }
@@ -428,7 +428,7 @@ fn transact_rejects_a_tree_not_owned_by_the_program() {
         output_tree: impostor,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transfer_ix_data(2, 3),
+        data: transfer_ix_data(2, 4),
     }
     .instruction();
     expect_ix_rejection(
@@ -452,7 +452,7 @@ fn transact_rejects_a_tree_with_a_wrong_discriminator() {
         .expect("corrupt tree discriminator");
     expect_rejection(
         &mut env,
-        transfer_ix_data(2, 3),
+        transfer_ix_data(2, 4),
         ShieldedPoolError::InvalidTreeAccounts,
     );
 }
@@ -466,7 +466,7 @@ fn transact_rejects_a_malformed_wincode_payload() {
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transfer_ix_data(2, 3),
+        data: transfer_ix_data(2, 4),
     }
     .instruction();
 
@@ -531,7 +531,7 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transfer_ix_data(2, 3),
+        data: transfer_ix_data(2, 4),
     }
     .instruction();
     ix.data.extend_from_slice(&[0xAB; 7]);
@@ -546,11 +546,10 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
 #[test]
 fn transact_rejects_more_inputs_than_any_circuit_supports() {
     let mut env = Pool::initialized();
-    // INV-TRANSACT-09: no circuit has six inputs -- the supported counts jump
-    // from five to the 36-input consolidation shape -- so `is_supported()`
-    // rejects this in `validate_circuit_type`, before any tree write or proof
-    // check.
-    let data = transfer_ix_data(6, 3);
+    // INV-TRANSACT-09: no circuit has seven inputs -- the supported counts jump
+    // from six to eight -- so `is_supported()` rejects this in
+    // `validate_circuit_type`, before any tree write or proof check.
+    let data = transfer_ix_data(7, 2);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }
 
@@ -560,7 +559,7 @@ fn transact_rejects_a_duplicate_nullifier_within_one_instruction() {
     // INV-XC-10: the second input reuses the first input's nullifier PDA,
     // which the first input already created, so nullifier PDA creation rejects the
     // duplicate before proof verification.
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     let first = data.inputs.first().expect("first input").nullifier_hash;
     data.inputs.get_mut(1).expect("second input").nullifier_hash = first;
     expect_rejection(&mut env, data, ShieldedPoolError::NullifierAlreadyQueued);
@@ -575,7 +574,7 @@ fn transact_rejects_a_negative_clock() {
     env.rpc.svm.set_sysvar(&clock);
     expect_rejection(
         &mut env,
-        transfer_ix_data(2, 3),
+        transfer_ix_data(2, 4),
         ShieldedPoolError::ExpiredTransaction,
     );
 }
@@ -588,7 +587,7 @@ fn transact_rejects_an_expired_transaction() {
     let mut clock = env.rpc.svm.get_sysvar::<solana_clock::Clock>();
     clock.unix_timestamp = 100;
     env.rpc.svm.set_sysvar(&clock);
-    let mut data = transfer_ix_data(2, 3);
+    let mut data = transfer_ix_data(2, 4);
     data.expiry_unix_ts = 99;
     expect_rejection(&mut env, data, ShieldedPoolError::ExpiredTransaction);
 }
@@ -599,7 +598,7 @@ fn ring_transact_rejects_a_ring_config_with_a_wrong_owner() {
     // INV-RING-TRANSACT-02: correct RingConfig bytes at a signed but
     // system-owned account cannot authorize a ring.
     let ring_config = write_ring_config(&mut env, Pubkey::default(), RING_CONFIG, true, false);
-    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -614,7 +613,7 @@ fn ring_transact_rejects_a_ring_config_with_a_wrong_discriminator() {
     // INV-RING-TRANSACT-02: program-owned and signed, but the first byte is
     // not exactly the RingConfig discriminator (4).
     let ring_config = write_ring_config(&mut env, pda::shielded_pool_program_id(), 0, true, false);
-    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -628,7 +627,7 @@ fn ring_transact_rejects_a_ring_config_with_a_wrong_discriminator() {
 fn ring_transact_rejects_an_inactive_ring_config() {
     let mut env = Pool::initialized();
     let ring_config = write_inactive_ring_config(&mut env, true, false);
-    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -656,7 +655,7 @@ fn ring_authority_transact_rejects_an_inactive_ring_config() {
 fn ring_transact_prioritizes_inactive_over_paused() {
     let mut env = Pool::initialized();
     let ring_config = write_inactive_ring_config(&mut env, true, true);
-    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -675,7 +674,7 @@ fn ring_transact_rejects_a_paused_ring_config() {
         true,
         true,
     );
-    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -700,7 +699,7 @@ fn ring_transact_rejects_a_paused_tree() {
         false,
         false,
     );
-    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -815,7 +814,7 @@ fn ring_authority_transact_rejects_an_owner_signer() {
 fn ring_authority_transact_rejects_a_non_square_shape() {
     let mut env = Pool::initialized();
     // INV-RING-AUTH-04: the ring-authority keys cover exactly the square
-    // shapes (1,1)..(4,4); (2 inputs, 3 outputs) is wire-valid (and a
+    // shapes (2,2) and (4,4); (2 inputs, 4 outputs) is wire-valid (and a
     // supported ring_transact shape) but must fail key selection here.
     let ring_config = write_ring_config(
         &mut env,
@@ -824,7 +823,7 @@ fn ring_authority_transact_rejects_a_non_square_shape() {
         true,
         false,
     );
-    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 4));
     expect_ix_rejection(
         &mut env,
         ix,
@@ -836,7 +835,7 @@ fn ring_authority_transact_rejects_a_non_square_shape() {
 /// [`transfer_ix_data`] with one input per entry of `tree_indexes` and
 /// `context_count` declared input trees, all at root index zero.
 fn multi_tree_ix_data(tree_indexes: &[u8], context_count: usize) -> TransactIxData {
-    let mut data = transfer_ix_data(tree_indexes.len() as u64, 3);
+    let mut data = transfer_ix_data(tree_indexes.len() as u64, 4);
     data.inputs = tree_indexes
         .iter()
         .enumerate()
@@ -917,7 +916,7 @@ fn transact_rejects_input_trees_inserted_into_the_fixed_prefix() {
 fn transact_rejects_three_input_trees() {
     let mut env = Pool::initialized();
     assert_eq!(MAX_INPUT_TREES, 2);
-    // Three distinct trees and a supported 3x3 shape isolate the program's
+    // Three distinct trees and a supported 3x4 shape isolate the program's
     // two-tree limit from duplicate-account and circuit-shape validation.
     let data = multi_tree_ix_data(&[0, 1, 2], 3);
     let mut input_trees = vec![env.tree];

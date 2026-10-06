@@ -79,13 +79,13 @@ fn selector_family_must_match_instruction() {
     };
     for (circuit, instruction) in [
         (
-            CircuitId::ConfidentialEddsa(2, 3, 3),
+            CircuitId::ConfidentialEddsa(2, 4, 3),
             InstructionTag::Transact,
         ),
         (
             CircuitId::RingP256(
                 2,
-                3,
+                4,
                 3,
                 RingP256ProofData {
                     bsb22_commitment: commitment,
@@ -94,7 +94,7 @@ fn selector_family_must_match_instruction() {
             ),
             InstructionTag::RingTransact,
         ),
-        (CircuitId::RingEddsa(2, 3, 3), InstructionTag::RingTransact),
+        (CircuitId::RingEddsa(2, 4, 3), InstructionTag::RingTransact),
         (
             CircuitId::RingAuthority(2, 2, 3),
             InstructionTag::RingAuthorityTransact,
@@ -108,10 +108,10 @@ fn selector_family_must_match_instruction() {
 
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(2, 3, 3),
+            CircuitId::RingEddsa(2, 4, 3),
             InstructionTag::Transact,
             2,
-            3,
+            4,
         ),
         Err(ShieldedPoolError::MismatchedCircuitType.into())
     );
@@ -119,10 +119,10 @@ fn selector_family_must_match_instruction() {
 
 #[test]
 fn selector_dimensions_are_fail_closed() {
-    let valid = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let valid = CircuitId::ConfidentialEddsa(2, 4, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
-    for (inputs, outputs) in [(0, 3), (3, 3), (2, 4)] {
+    for (inputs, outputs) in [(0, 4), (3, 4), (2, 5)] {
         assert_eq!(
             validate(valid, InstructionTag::Transact, inputs, outputs),
             invalid_shape,
@@ -131,10 +131,10 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(2, 3, 2),
+            CircuitId::ConfidentialEddsa(2, 4, 2),
             InstructionTag::Transact,
             2,
-            3,
+            4,
         ),
         invalid_shape
     );
@@ -147,45 +147,69 @@ fn selector_dimensions_are_fail_closed() {
         ),
         invalid_shape
     );
+    for (inputs, outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2), (51, 2)] {
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsa(inputs, outputs, 3),
+                InstructionTag::Transact,
+                inputs as usize,
+                outputs as usize,
+            ),
+            invalid_shape,
+            "removed shape {inputs}x{outputs}"
+        );
+    }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(36, 2, 3),
+            CircuitId::ConfidentialEddsa(49, 2, 3),
             InstructionTag::Transact,
-            36,
+            49,
             2,
         ),
         Ok(())
     );
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(36, 2, 3),
+            CircuitId::RingEddsa(49, 2, 3),
             InstructionTag::RingTransact,
-            36,
+            49,
             2,
         ),
         Ok(())
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(36, 3, 3),
+            CircuitId::ConfidentialEddsa(49, 4, 3),
             InstructionTag::Transact,
-            36,
-            3,
+            49,
+            4,
         ),
         invalid_shape
     );
     assert_eq!(
         validate(
-            CircuitId::RingAuthority(36, 2, 3),
+            CircuitId::RingAuthority(49, 2, 3),
             InstructionTag::RingAuthorityTransact,
-            36,
+            49,
             2,
         ),
         invalid_shape
     );
+    for width in [1, 3] {
+        assert_eq!(
+            validate(
+                CircuitId::RingAuthority(width, width, 3),
+                InstructionTag::RingAuthorityTransact,
+                width as usize,
+                width as usize,
+            ),
+            invalid_shape,
+            "ring authority {width}x{width}"
+        );
+    }
     let p256 = CircuitId::RingP256(
         2,
-        3,
+        4,
         3,
         RingP256ProofData {
             bsb22_commitment: Bsb22Commitment {
@@ -195,7 +219,7 @@ fn selector_dimensions_are_fail_closed() {
             default_owner_tag: None,
         },
     );
-    assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 3), Ok(()));
+    assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 4), Ok(()));
 }
 
 /// The instruction carries at least one input and at most the circuit's slots;
@@ -203,8 +227,8 @@ fn selector_dimensions_are_fail_closed() {
 /// from that padding, so it is rejected.
 #[test]
 fn compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
-    for (inputs, outputs) in [(1, 3), (2, 1), (1, 0)] {
+    let circuit = CircuitId::ConfidentialEddsa(2, 4, 3);
+    for (inputs, outputs) in [(1, 4), (2, 1), (1, 0)] {
         assert_eq!(
             validate(circuit, InstructionTag::Transact, inputs, outputs),
             Ok(()),
@@ -285,7 +309,10 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
     }
 }
 
-fn cache_writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheWrite; 8] {
+fn cache_writes(
+    pairs: &[(u8, u8)],
+) -> [zolana_interface::verifying_keys::CacheWrite;
+       zolana_interface::verifying_keys::MAX_CACHE_WRITES] {
     use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
     let mut out = CacheAccess::NO_WRITES;
     for (entry, (output, slot)) in out.iter_mut().zip(pairs) {
@@ -322,7 +349,7 @@ fn a_cached_selector_counts_only_the_sent_slots() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 3, 3, access),
+                CircuitId::ConfidentialEddsaCached(2, 4, 3, access),
                 InstructionTag::Transact,
                 1,
                 1

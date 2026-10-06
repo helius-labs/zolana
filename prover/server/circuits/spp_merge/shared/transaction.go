@@ -24,7 +24,7 @@ const (
 // Merge instruction data carries no circuit selector: both the prover and the
 // program derive the shape from the declared nullifier count, so every side
 // must agree on which counts exist.
-var SupportedInputCounts = []int{8, 36}
+var SupportedInputCounts = []int{8, 24, 54}
 
 // IsSupportedInputCount reports whether a merge circuit exists for n inputs.
 func IsSupportedInputCount(n int) bool {

@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
+use zolana_client::{transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
@@ -109,7 +109,8 @@ struct MergeRingOptions {
 
 impl RingHarness {
     /// Build, prove, and submit a `merge_ring` of `count` of `name`'s spendable
-    /// `asset` ring UTXOs into one consolidated output. The fixture program signs
+    /// `asset` ring UTXOs into one consolidated output, padded with compact
+    /// slots so only the `count` real inputs reach the instruction. The fixture program signs
     /// the ring's `ring_auth` PDA on the CPI into SPP. Records `last_merge` and
     /// tracks the merged output (consumed inputs marked spent) so
     /// `assert_merged_ring` matches the synced wallet.
@@ -237,7 +238,12 @@ impl RingHarness {
                 Some(ring)
             },
         )?;
-        let first_nullifier = prover.transaction.input_utxos[0].nullifier;
+        let first_nullifier = prover
+            .transaction
+            .input_utxos
+            .first()
+            .ok_or_else(|| anyhow!("merge has no input"))?
+            .nullifier;
         let result = prover.build()?;
         let proof = if prove_for_default_merge {
             ProverClient::local().prove_merge(&result.inputs)?
@@ -246,7 +252,7 @@ impl RingHarness {
         };
         let data = result.ring_instruction_data(pack_merge_proof(&proof)?);
         let output_hash = result.output_hash;
-        let input_nullifiers = result.nullifiers;
+        let input_nullifiers = data.merge.nullifiers.clone();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
@@ -260,12 +266,18 @@ impl RingHarness {
             cache: None,
         }
         .instruction();
+        let budget = ComputeBudgetConfig::new(1_400_000);
+        self.last_transaction_size = Some(transaction_size(
+            &payer.pubkey(),
+            std::slice::from_ref(&merge_ix),
+            budget,
+        )?);
         let send_result = send_transaction_with_budget(
             &mut self.rpc,
             std::slice::from_ref(&merge_ix),
             &payer.pubkey(),
             &[&payer],
-            ComputeBudgetConfig::new(1_400_000),
+            budget,
         );
         if expect_proof_rejection {
             match send_result {
@@ -370,7 +382,7 @@ impl RingHarness {
 
     /// Attempt a `merge_ring` with a zeroed 192-byte proof, expecting SPP's shared
     /// merge verifier to reject it. Builds the same instruction the happy path does
-    /// (real inputs, padded dummies, a real output and ciphertext) but replaces the
+    /// (real inputs, compact padding, a real output and ciphertext) but replaces the
     /// proof bytes with zeros, so only proof verification fails.
     pub fn merge_ring_bad_proof(&mut self, name: &str, asset: Address, count: usize) -> Result<()> {
         if self.ring_config.is_none() {

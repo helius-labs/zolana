@@ -86,7 +86,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 }
 
 // TestProveTransferWithCompactPadding proves compact padding in both
-// directions: a 1-in/3-out transfer leaves input slot 1 compact in the 2-3
+// directions: a 7-in/1-out transfer leaves input slot 7 compact in the 8-2
 // shape, and a 2-in/1-out transfer leaves output slot 1 compact in the 2-2
 // shape.
 func TestProveTransferWithCompactPadding(t *testing.T) {
@@ -97,9 +97,9 @@ func TestProveTransferWithCompactPadding(t *testing.T) {
 		outputs []ProofUtxoRequest
 	}{
 		{
-			shape:   protocol.Shape{NInputs: 2, NOutputs: 3},
-			amounts: []int64{100},
-			outputs: []ProofUtxoRequest{solOutput(owner, 50, 2000), solOutput(owner, 30, 2001), solOutput(owner, 20, 2002)},
+			shape:   protocol.Shape{NInputs: 8, NOutputs: 2},
+			amounts: []int64{10, 20, 30, 5, 15, 12, 8},
+			outputs: []ProofUtxoRequest{solOutput(owner, 100, 2000)},
 		},
 		{
 			shape:   protocol.Shape{NInputs: 2, NOutputs: 2},
@@ -300,7 +300,7 @@ func TestProveSixSameAssetInterfaceTransfers(t *testing.T) {
 }
 
 func TestProveThreeDistinctPublicAssets(t *testing.T) {
-	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
+	shape := protocol.Shape{NInputs: 3, NOutputs: 4}
 	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
@@ -311,9 +311,9 @@ func TestProveThreeDistinctPublicAssets(t *testing.T) {
 	tx.Inputs[2].Utxo.Asset = proofFieldInput(assetB)
 	tx.Outputs[1].Asset = proofFieldInput(assetA)
 	tx.Outputs[2].Asset = proofFieldInput(assetB)
-	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(35))
-	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(23))
-	tx.Outputs[2].Amount = proofFieldInput(big.NewInt(32))
+	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(15))
+	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(33))
+	tx.Outputs[2].Amount = proofFieldInput(big.NewInt(42))
 	refreshStateEntry(t, &tx, 1)
 	refreshStateEntry(t, &tx, 2)
 	tx.InterfaceTransfers = []InterfaceTransferRequest{

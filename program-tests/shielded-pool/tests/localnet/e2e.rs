@@ -27,8 +27,8 @@ use shielded_pool_tests::support::localnet::{
 };
 
 use zolana_test_utils::transact::{
-    change_and_dummy_outputs, dummy_input, dummy_transfer_output, nullifier_tree, public_sol_field,
-    real_output, single_tree_slots, sol_leg, transfer_input, transfer_output, TransferInputArgs,
+    change_and_dummy_outputs, dummy_input, nullifier_tree, public_sol_field, real_output,
+    single_tree_slots, sol_leg, transfer_input, transfer_output, TransferInputArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -262,8 +262,6 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let transfer_tree_slots =
         single_tree_slots(tree_id, shielded.utxo_root, shielded.nullifier_root);
     let (transfer_dummy_input, _) = dummy_input(&[20u8; 31], &cycle.nf_tree, tree_id)?;
-    let (transfer_dummy_output, _) = dummy_transfer_output(&[19u8; 31], tree_id)
-        .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
     // Real outputs tag by owner (`confidential_view_tag`; see
     // `set_output_owner_tags`).
@@ -281,13 +279,12 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         root_index: shielded.utxo_root_index,
         tree_slots: transfer_tree_slots,
         output_tree_id: tree_id,
-        view_tags: vec![change_view_tag, recipient_view_tag, change_view_tag],
+        view_tags: vec![change_view_tag, recipient_view_tag],
         outputs: vec![
             transfer_output(&change_output, tree_id)?,
             transfer_output(&recipient_output, tree_id)?,
-            transfer_dummy_output,
         ],
-        output_nullifier_pks: [shielded.nullifier_pk, recipient_nullifier_pk, zero],
+        output_nullifier_pks: [shielded.nullifier_pk, recipient_nullifier_pk],
         interface_transfers: Vec::new(),
         resolved_transfers: Vec::new(),
         private_tx_inputs: [shielded.utxo_hash, zero],
@@ -396,14 +393,14 @@ fn phase_unshield(
     // A full withdrawal moves all of its value out through the public SOL slot,
     // so it has no real recipient output. `AssertDummyTags` refuses a dummy tag
     // that names only the payer, so slot 0 is a real zero-amount change output
-    // owned by the withdrawing owner and the two dummies name it.
+    // owned by the withdrawing owner and the dummy names it.
     let withdraw_change_nullifier_key = NullifierKey::from_secret([23u8; 31]);
     let withdraw_change_nullifier_pk = withdraw_change_nullifier_key.pubkey()?;
     let withdraw_outputs = change_and_dummy_outputs(
         transferred.public_key,
         withdraw_change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )?;
 
@@ -416,9 +413,9 @@ fn phase_unshield(
         root_index: transferred.utxo_root_index,
         tree_slots: withdraw_tree_slots,
         output_tree_id: tree_id,
-        view_tags: vec![recipient_view_tag; 3],
+        view_tags: vec![recipient_view_tag; 2],
         outputs: withdraw_outputs,
-        output_nullifier_pks: [withdraw_change_nullifier_pk, zero, zero],
+        output_nullifier_pks: [withdraw_change_nullifier_pk, zero],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],

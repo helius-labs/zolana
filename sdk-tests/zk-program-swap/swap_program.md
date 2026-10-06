@@ -330,7 +330,8 @@ struct TakeVerifiableEncryptionIxData {
 After expiry, the order UTXO is reclaimed to the committed `maker_address`. The swap program verifies
 the [cancel proof](#cancel-circuit), then CPIs SPP [`transact`](../../docs/spec.md#transact). The
 transact is 1-in/1-out: the order UTXO in, a `source_amount` `source_asset_id` UTXO to
-`maker_address` out. The maker signs as a dedicated readonly signer; the program includes
+`maker_address` out, proved at the SPP `(1, 2)` shape with compact padding in the second output
+slot, which the instruction data leaves out. The maker signs as a dedicated readonly signer; the program includes
 `hash_bytes` of its pubkey in the proof's public input and the circuit checks it against the
 committed
 `maker_owner_hash`, so only the maker can cancel, and the maker knows the refund blinding it chose.
@@ -468,7 +469,8 @@ the committed term.
 ### Cancel circuit
 
 Reclaims the order UTXO to the committed `maker_address` after expiry. Matches the 1-in/1-out
-transact (order UTXO in; source-to-maker out). The program enforces `now > expiry` against the Clock; the
+transact (order UTXO in; source-to-maker out), proved at the SPP `(1, 2)` shape with a compact
+padding second output that the private transaction hash does not see. The program enforces `now > expiry` against the Clock; the
 circuit only reveals `expiry` and checks it equals the committed term.
 
 - **Public inputs:** `Poseidon(private_tx_hash, expiry, maker_owner_pk_field)`, where

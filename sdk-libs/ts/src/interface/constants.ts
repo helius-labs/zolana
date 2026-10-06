@@ -5,12 +5,13 @@
  * package root, which imports the codecs.
  */
 
-/** Input slots of the narrower merge proof, the width an automatic merge sweeps. */
-export const MERGE_INPUT_COUNT = 8;
+/** Input slots of the middle merge proof, the width an automatic merge sweeps. */
+export const MERGE_INPUT_COUNT = 24;
 
-export const MAX_MERGE_INPUTS = 36;
+export const MAX_MERGE_INPUTS = 54;
 
 export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
+  8,
   MERGE_INPUT_COUNT,
   MAX_MERGE_INPUTS,
 ]);

@@ -27,41 +27,63 @@ type Shape struct {
 	NOutputs int
 }
 
-// SupportedShapes lists every fixed-size circuit that has a key, smallest
-// capacity first. This is the validation set, mirroring SPP_SUPPORTED_SHAPES in
+// SupportedShapes lists every fixed-size circuit that has a key, cheapest
+// first. This is the validation set, mirroring SPP_SUPPORTED_SHAPES in
 // program-libs/interface/src/shape.rs. It is the single source of truth for the
 // shape set; do not duplicate it.
 //
-// It is deliberately NOT the smallest-fit search order: see AutoShapes.
+// The order is the smallest-fit search order: an input costs about 22.7k
+// constraints and an output about 2k, so shapes are sorted by
+// 22.7k*NInputs + 2k*NOutputs and the first shape that holds a transaction is
+// the cheapest one that does. A shape that fits inside another is always
+// cheaper, so it always comes first.
 var SupportedShapes = []Shape{
-	{NInputs: 1, NOutputs: 1},
 	{NInputs: 1, NOutputs: 2},
-	{NInputs: 2, NOutputs: 2},
-	{NInputs: 2, NOutputs: 3},
-	{NInputs: 3, NOutputs: 3},
-	{NInputs: 4, NOutputs: 3},
-	{NInputs: 4, NOutputs: 4},
-	{NInputs: 5, NOutputs: 3},
-	{NInputs: 5, NOutputs: 4},
+	{NInputs: 1, NOutputs: 4},
 	{NInputs: 1, NOutputs: 8},
-	// Consolidation shape; sized against the custom-ring path, not a bare
-	// transact.
-	{NInputs: 36, NOutputs: 2},
+	{NInputs: 2, NOutputs: 2},
+	{NInputs: 2, NOutputs: 4},
+	{NInputs: 1, NOutputs: 16},
+	{NInputs: 2, NOutputs: 8},
+	{NInputs: 3, NOutputs: 2},
+	{NInputs: 3, NOutputs: 4},
+	{NInputs: 2, NOutputs: 16},
+	{NInputs: 3, NOutputs: 8},
+	{NInputs: 4, NOutputs: 2},
+	{NInputs: 4, NOutputs: 4},
+	{NInputs: 4, NOutputs: 8},
+	{NInputs: 5, NOutputs: 2},
+	{NInputs: 5, NOutputs: 4},
+	{NInputs: 4, NOutputs: 16},
+	{NInputs: 5, NOutputs: 8},
+	{NInputs: 6, NOutputs: 2},
+	{NInputs: 6, NOutputs: 4},
+	{NInputs: 5, NOutputs: 16},
+	{NInputs: 6, NOutputs: 8},
+	{NInputs: 8, NOutputs: 2},
+	{NInputs: 8, NOutputs: 4},
+	{NInputs: 8, NOutputs: 8},
+	{NInputs: 8, NOutputs: 16},
+	{NInputs: 12, NOutputs: 2},
+	{NInputs: 12, NOutputs: 4},
+	{NInputs: 12, NOutputs: 8},
+	{NInputs: 16, NOutputs: 2},
+	{NInputs: 16, NOutputs: 4},
+	{NInputs: 16, NOutputs: 8},
+	{NInputs: 24, NOutputs: 2},
+	{NInputs: 24, NOutputs: 4},
+	{NInputs: 32, NOutputs: 2},
+	{NInputs: 40, NOutputs: 2},
+	{NInputs: 48, NOutputs: 2},
+	{NInputs: 49, NOutputs: 2},
 }
 
-// AutoShapes is the smallest-fit search order. It excludes the large
-// consolidation shape: including it would silently route a six-input transfer
-// to a 36-input circuit, roughly twenty times the constraints for no benefit. A
-// caller that wants that shape names it.
-var AutoShapes = SupportedShapes[:10]
+// AutoShapes is the smallest-fit search order. Every supported shape is
+// reachable by automatic selection, so it is the full SupportedShapes list.
+var AutoShapes = SupportedShapes
 
 // SmallestSupportedShape returns the smallest shape with a key that holds the
 // given real input/output counts, searching the full validation set.
-//
-// Distinct from CanonicalShape: this answers "which shape should a transaction
-// with these real counts be padded up to", which must consider every shape a
-// key exists for. CanonicalShape answers "which shape should a client pick when
-// it declared none", which must not reach the large shapes.
 func SmallestSupportedShape(nInputs, nOutputs int) (Shape, error) {
 	if nInputs < 0 || nOutputs < 0 {
 		return Shape{}, fmt.Errorf("spp: negative arity %d inputs / %d outputs", nInputs, nOutputs)

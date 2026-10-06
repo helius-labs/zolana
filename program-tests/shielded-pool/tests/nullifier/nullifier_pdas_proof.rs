@@ -120,7 +120,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         utxo.owner,
         change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )
     .expect("change and dummy outputs");
@@ -131,22 +131,18 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
         utxo_root_index,
         Vec::new(),
-        inline_outputs(&output_hashes, &[payer_bytes; 3]),
+        inline_outputs(&output_hashes, &[payer_bytes; 2]),
     );
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(
-        &mut outputs,
-        &owner_pk_hashes,
-        &[change_nullifier_pk, zero, zero],
-    );
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[change_nullifier_pk, zero]);
 
     let external_hash = external_data_hash(&transact_ix_data, &[]).expect("external data hash");
     let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
     let change_output_hash = *output_hashes.first().expect("change output hash");
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
-        &[change_output_hash, zero, zero],
+        &[change_output_hash, zero],
         &private_tx_blinding,
     )
     .hash()

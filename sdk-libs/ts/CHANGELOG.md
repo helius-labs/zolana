@@ -4,9 +4,11 @@
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
-available. Merges take up to 36 notes in one transaction, wallet sync
-recovers the output of such a merge, and transfers and merges can leave their
-unused slots out of the transaction at the cost of revealing the real counts.
+available. Transfers prove on a grid of up to 49 inputs and 16 outputs, merges
+take up to 54 notes in one transaction, wallet sync recovers the output of
+such a merge, and transfers can leave their unused slots out of the
+transaction at the cost of revealing the real counts, which every merge now
+does.
 Registration never replaces an owner's published keys, and replacing them is
 its own transaction. The private transaction hash ignores padding and no longer
 covers the external data, which P-256 owners now sign alongside it.
@@ -44,8 +46,21 @@ Breaking
   `CLIENT_PROVER_TEE_ENCRYPTION`, each naming the failed check in
   `details.check` → handle both in exhaustive switches.
 - `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
-  `MERGE_INPUT_COUNT`, the eight-input default, or `MAX_MERGE_INPUTS` from
+  `MERGE_INPUT_COUNT`, the 24-input default, or `MAX_MERGE_INPUTS` from
   `@heliuslabs/zolana/interface`.
+- `SPP_SUPPORTED_SHAPES` lists 38 shapes of 1 to 49 inputs and 2, 4, 8 or 16
+  outputs in proving-cost order, `selectSppShape` and transfers take the
+  cheapest one that fits, and the 1x1, 2x3, 3x3, 4x3 and 5x3 transfer shapes,
+  the 8 and 36 input merges and the 1x1 and 3x3 ring authority shapes are
+  gone, so a declared removed shape fails with `TRANSACTION_UNSUPPORTED_SHAPE`,
+  a ring authority transfer of one or three slots proves the 2x2 or 4x4 shape,
+  and a ring list entry write or spend registration proves the 1x2 shape →
+  declare a listed shape and prove against the program and prover of this
+  release.
+- `MAX_CACHE_WRITES` is 16, so `bindCacheWrite`, `validCacheWrites` and a
+  cached `CircuitId` take 16 write slots and a cached selector encodes to 40
+  bytes → pass `NO_CACHE_WRITES` or 16 entries and build cache writes with
+  this release.
 - `ProverClient` and `ZolanaClient` send each proof to the path of its proving
   key, `/prove/<key>` or `/prove/<key>/indexed`, and poll a queued one at
   `/prove/<key>/status`, so a gateway can route and price each key apart, and
@@ -73,8 +88,7 @@ Breaking
   would reject → handle them in exhaustive switches.
 - `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
   `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
-  and `TRANSACTION_RING_MERGE_COMPACT_PADDING`, which `Merge` throws for
-  compact padding on a ring merge, and `ShieldedPoolError` gains
+  and `ShieldedPoolError` gains
   `ZeroInputNullifier` and `ZeroOutputUtxoHash` → handle them in exhaustive
   switches.
 - `ProofOutputUtxo` requires `isCompact()`, which the outputs
@@ -99,6 +113,10 @@ Breaking
   refuses any other order with `TRANSACTION_INVALID_OUTPUT_POSITION`, so a
   bundle built by an earlier release without an SPL change no longer recovers
   its outputs → build transfers and their bundles with this release.
+- `PreparedTransfer.withAppendedSlot` requires `recordSlot`, the output slot
+  the appended record takes, and refuses a slot before the transfer's outputs
+  or past the shape with `TRANSACTION_UNSUPPORTED_SHAPE` → pass the number of
+  the transfer's own outputs.
 
 Added
 
@@ -116,13 +134,10 @@ Added
 - `buildKeyUpdateTransaction(input)` replaces the viewing key published for an
   owner, returns `undefined` when the record already holds the address, and
   rejects a missing record and a changed nullifier key.
-- `ConfidentialTransfer.compact` and the `compact` options of `Merge`,
-  `Merge.fromKeypair` and `buildMergeTransaction` pad unused slots with compact
-  padding, which the transaction leaves out and which costs no nullifier
-  account, queue entry or tree leaf but reveals the real input and output
-  counts, while each compact slot still takes a non-inclusion proof for the
-  nullifier it derives, and `Merge` takes one `dummyNullifiers` entry per
-  padded slot, compact padding included.
+- `ConfidentialTransfer.compact` pads unused slots with compact padding, which
+  the transaction leaves out and which costs no nullifier account, queue entry
+  or tree leaf but reveals the real input and output counts, while each compact
+  slot still takes a non-inclusion proof for the nullifier it derives.
 - `ProofInputUtxo.compact` creates one compact padding input, which names the
   first input tree, carries its derived nullifier in `nullifier()` and 0 in the
   new `ProofInputUtxo.publishedNullifier()`, `ProofOutputInit.compact` makes
@@ -137,9 +152,10 @@ Added
 - Wallet sync recovers the output of a compact merge, which publishes only the
   nullifiers it sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
-  `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
-  proof above eight, and `buildRingMergeTransaction` and
-  `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
+  `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 8-input
+  proof, above 8 to the 24-input proof or above 24 to the 54-input proof, and
+  `buildRingMergeTransaction` and `createRingMergeSubmission` take
+  `maxInputs`, 24 by default and at most 54.
 - `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
   call, encrypted, only to a prover whose attestation matches it, an Intel TDX
   VM on Phala dstack under a `DstackTdxPolicy` or an AWS Nitro Enclave under an
@@ -158,8 +174,20 @@ Added
 
 Changed
 
+- `Merge`, `Merge.fromKeypair`, `buildMergeTransaction`,
+  `buildRingMergeTransaction` and `createRingMergeSubmission` fill a merge's
+  unused slots with compact padding where they used random dummies, so a
+  merge reveals its real input count, sends no nullifier for an unused slot,
+  and a ring merge of up to 53 notes fits one transaction, while `Merge` still
+  takes one `dummyNullifiers` entry per padded slot.
 - UTXO selection for transfers, withdrawals, merges and splits skips
   zero-amount UTXOs.
+- `buildTransferTransaction` and `buildWithdrawalTransaction` select up to 40
+  UTXOs where they stopped at 5, the most that always fit one transaction, and
+  still refuse a wider cover with `WALLET_TOO_MANY_INPUTS`, merge first.
+- `buildMergeTransaction` without named inputs sweeps up to 24, and
+  `emptyCachedInputFields` and `cachedInputFields` accept up to 49 inputs where
+  they stopped at the 36 cache slots.
 - `getMergeTransactInstructionAsync` accepts from one to `MAX_MERGE_INPUTS`
   nullifiers, the counts a compact merge sends, where it took only 8 or 36.
 
@@ -180,6 +208,15 @@ Fixed
 - `buildWithdrawalTransaction` failed with `WALLET_BUILD_WITHDRAWAL` when an
   owner who also pays the fee withdrew the whole balance of an SPL mint, and
   now builds that withdrawal with a zero-amount SOL change output.
+- A custom-ring transfer that padded an output slot, such as a
+  `buildRingWithdrawalTransaction` that keeps change and is paid for by its
+  owner, built a proof the prover refuses, and its padding now stays in the
+  ring as Rust's does.
+- A custom-ring transfer on a ring with a spend window could exceed the
+  4,096-byte transaction limit or be refused with `RING_BUILD_TRANSFER`, as a
+  transfer to two recipients with change was, and the proof shape now holds
+  the real inputs and outputs plus the spend record, which follows the real
+  outputs with compact padding after it that the transaction leaves out.
 
 Dependencies
 

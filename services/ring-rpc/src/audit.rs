@@ -2,12 +2,13 @@ use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_client::{GetShieldedTransactionsByTagsResponse, Shape, SPP_SUPPORTED_SHAPES};
+use zolana_client::GetShieldedTransactionsByTagsResponse;
 use zolana_indexer_api::{Base64String, Limit};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
     AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
 };
+use zolana_transaction::instructions::transact::canonical_shape;
 
 use crate::{
     api::{
@@ -337,10 +338,11 @@ fn validate_indexer_response(
             .messages
             .iter()
             .any(|message| message.view_tag == auditor_tag);
-        let supported_shape = SPP_SUPPORTED_SHAPES.contains(&Shape::new(
-            transaction.nullifiers.len(),
-            transaction.output_slots.len(),
-        ));
+        // Compact padding leaves trailing slots out of the instruction, so a
+        // transaction publishes at most, not exactly, its circuit's slots.
+        let supported_shape = !transaction.nullifiers.is_empty()
+            && canonical_shape(transaction.nullifiers.len(), transaction.output_slots.len())
+                .is_ok();
         if has_auditor_message && !supported_shape {
             return Err(RingRpcError::InvalidIndexerResponse);
         }

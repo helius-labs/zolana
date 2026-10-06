@@ -18,7 +18,7 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_client::{Rpc, SolanaRpc, TransactionSize, ZolanaIndexer};
 use zolana_interface::{
     pda,
     state::{default_tree_fees, nullifier_tree_params},
@@ -186,6 +186,10 @@ pub struct LocalnetHarness<D> {
     pub protocol_vault: Pubkey,
     pub merge_settings: Pubkey,
     pub merge_vault: Pubkey,
+    /// What the last proof-bearing transaction (transact, ring transact, merge
+    /// or ring merge) measured against the v1 ceilings, through
+    /// `zolana_client::transaction_size` with the budget it was sent with.
+    pub last_transaction_size: Option<TransactionSize>,
 }
 
 impl<D> LocalnetHarness<D> {
@@ -217,6 +221,7 @@ impl<D> LocalnetHarness<D> {
             protocol_vault: setup.accounts.protocol_vault,
             merge_settings: setup.accounts.merge_settings,
             merge_vault: setup.accounts.merge_vault,
+            last_transaction_size: None,
         };
         Ok((harness, setup.merge_key))
     }

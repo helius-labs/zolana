@@ -26,7 +26,7 @@ impl ProverEndpoint {
         }
     }
 
-    /// `path` is slash-separated segments, such as `/prove/merge_8_1`.
+    /// `path` is slash-separated segments, such as `/prove/merge_24_1`.
     pub(crate) fn url(&self, path: &str) -> Result<Url, ClientError> {
         let invalid = || ClientError::Prover("invalid prover URL".into());
         let mut url = self.base.clone().ok_or_else(invalid)?;
@@ -159,12 +159,12 @@ mod tests {
     fn the_job_id_is_encoded_and_the_key_kept() {
         let endpoint = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?api-key=k");
         let key = ExpectedProvingKey {
-            name: "merge_36_1.key".to_string(),
+            name: "merge_54_1.key".to_string(),
             sha256: [0; 32],
         };
         assert_eq!(
             String::from(endpoint.status_url(&key, "job-1").unwrap()),
-            "https://gateway.invalid/v1/zolana/prove/merge_36_1/status?api-key=k&jobId=job-1"
+            "https://gateway.invalid/v1/zolana/prove/merge_54_1/status?api-key=k&jobId=job-1"
         );
         // A `#` from the server must not push the key into a fragment.
         let url = endpoint.status_url(&key, "a#b&c").unwrap();

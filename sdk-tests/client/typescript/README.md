@@ -52,7 +52,7 @@ serves the RPC, the indexer, and the prover.
 [`optimized-merge-transfer.test.ts`](optimized-merge-transfer.test.ts) is the
 TypeScript counterpart of the Rust
 [`optimized_merge_transfer.rs`](../rust/optimized_merge_transfer.rs). It spends
-a balance spread over 36 UTXOs, the width of the widest merge, without
+a balance spread over 54 UTXOs, the width of the widest merge, without
 waiting for the merged output to be indexed. The merge writes its output
 commitment into a slot of a cache account, and the transfer proves that input
 against the cache instead of against a Merkle path, so both proofs are
@@ -65,7 +65,7 @@ The sender signs no merge: its registry record opted into merging.
 ### Flow
 
 1. Register the sender and opt its record into merging.
-2. Deposit 36 UTXOs, twelve per transaction, and decrypt them.
+2. Deposit 54 UTXOs, twelve per transaction, and decrypt them.
 3. Derive the cache address from the rent sponsor and a nonce with
    `getCacheAddress`, and prepare the merge.
 4. Build the transfer over the merge's predicted output. The merged output's

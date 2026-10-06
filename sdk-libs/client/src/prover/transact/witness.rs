@@ -395,7 +395,7 @@ mod tests {
         );
         let proof_inputs = SppProofInputs {
             input_utxos: vec![input.into()],
-            output_utxos: vec![SppProofOutputUtxo::default()],
+            output_utxos: vec![SppProofOutputUtxo::default(), SppProofOutputUtxo::default()],
             external_data: ExternalData::new(
                 [0u8; 33],
                 [0u8; 16],
@@ -475,7 +475,7 @@ mod tests {
             .transfer_sol(&recipient.shielded_address().expect("recipient address"), 4)
             .expect("transfer");
         transfer
-            .pad_utxos(Shape::IN2_OUT3, &sender.shielded_address().unwrap())
+            .pad_utxos(Shape::IN2_OUT4, &sender.shielded_address().unwrap())
             .unwrap();
         let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
 
@@ -484,7 +484,7 @@ mod tests {
         let indexed_body: serde_json::Value =
             serde_json::from_str(&indexed.body().unwrap()).unwrap();
         let requested = proof_inputs.dummy_nullifiers();
-        let real = &proof_inputs.input_utxos[0];
+        let real = proof_inputs.input_utxos.first().unwrap();
         let mut proof = fake_spend_proof();
         proof.state.leaf = real.utxo_hash;
         proof.state.leaf_index = real.leaf_index;

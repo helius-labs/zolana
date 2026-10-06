@@ -14,9 +14,7 @@ use zolana_indexer_api::PAGE_LIMIT;
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_SUPPORTED_INPUT_COUNTS,
-    },
+    instructions::merge::{merge_circuit_width, merge_dummy_nullifier, merge_output_blinding},
     AssetRegistry, Data, OutputContext, ShieldedTransaction, Utxo, WalletUtxo,
 };
 
@@ -339,7 +337,7 @@ impl<'a> MemberRecovery<'a> {
                         || transaction.tx_viewing_pk.is_some()
                         || transaction.salt.is_some()
                         || transaction.output_slots.len() != 1
-                        || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&transaction.nullifiers.len())
+                        || merge_circuit_width(transaction.nullifiers.len()).is_none()
                     {
                         continue;
                     }

@@ -35,7 +35,7 @@ const (
 // defaultFixtureInputs is the merge shape the fixtures build. Every supported
 // count shares the same per-slot constraints; the wider shapes are covered by
 // the compile smoke test and their own proving keys.
-const defaultFixtureInputs = 8
+const defaultFixtureInputs = 24
 
 type mergeFixtureOptions struct {
 	inputCount        int

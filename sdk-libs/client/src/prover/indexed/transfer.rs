@@ -229,6 +229,7 @@ impl IndexedTransferPreparation {
             IndexedTransferRail::Ring(_) | IndexedTransferRail::RingP256 { .. } => Some(
                 crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
                     &transaction.external_data,
+                    transaction.output_utxos.len(),
                 )?,
             ),
             IndexedTransferRail::RingAuthority(_) => None,
@@ -529,10 +530,11 @@ mod tests {
     use zolana_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{
-        Data, ExternalData, Mint, P256Signature, SppProofOutputUtxo, Utxo, WalletUtxo,
+        utxo::SppProofInputUtxo, Data, ExternalData, Mint, P256Signature, SppProofOutputUtxo, Utxo,
+        WalletUtxo,
     };
 
-    fn fixture(owner: &ShieldedKeypair, ring: Option<Address>) -> SppProofInputs {
+    fn fixture(owner: &ShieldedKeypair, ring: Option<Address>, n_inputs: usize) -> SppProofInputs {
         let utxo = Utxo {
             owner: owner.signing_pubkey(),
             asset: Mint::SOL,
@@ -578,9 +580,18 @@ mod tests {
             Vec::new(),
         );
         external.resolved_owner_tags = vec![[0; 32]];
+        let mut input_utxos = vec![SppProofInputUtxo::from(input)];
+        input_utxos.resize(n_inputs, SppProofInputUtxo::compact(3).unwrap());
         SppProofInputs {
-            input_utxos: vec![input.into()],
-            output_utxos: vec![output],
+            input_utxos,
+            output_utxos: vec![
+                output,
+                SppProofOutputUtxo {
+                    compact: true,
+                    blinding: derive_transact_output_blinding(&nullifier, &output_seed, 1).unwrap(),
+                    ..Default::default()
+                },
+            ],
             blinding_seed: seed,
             output_tree_id: 4,
             external_data: external,
@@ -607,15 +618,6 @@ mod tests {
             .cloned()
             .map(|utxo| {
                 let tree = zolana_interface::pda::tree(utxo.tree_id);
-                let state = MerkleProof {
-                    leaf: utxo.utxo_hash,
-                    merkle_context: MerkleContext { tree, tree_type: 1 },
-                    path: vec![[0; 32]; 32],
-                    leaf_index: 0,
-                    root: super::super::scalar_one(),
-                    root_seq: 0,
-                    root_index: 0,
-                };
                 let nullifier = NonInclusionProof {
                     leaf: utxo.nullifier,
                     merkle_context: MerkleContext { tree, tree_type: 2 },
@@ -624,6 +626,22 @@ mod tests {
                     high_element: [0; 32],
                     low_element_index: 0,
                     high_element_index: 1,
+                    root: super::super::scalar_one(),
+                    root_seq: 0,
+                    root_index: 0,
+                };
+                if utxo.is_compact() {
+                    return TransferInputUtxo {
+                        utxo,
+                        proof: None,
+                        nullifier_proof: Some(nullifier),
+                    };
+                }
+                let state = MerkleProof {
+                    leaf: utxo.utxo_hash,
+                    merkle_context: MerkleContext { tree, tree_type: 1 },
+                    path: vec![[0; 32]; 32],
+                    leaf_index: 0,
                     root: super::super::scalar_one(),
                     root_seq: 0,
                     root_index: 0,
@@ -651,7 +669,8 @@ mod tests {
                 ShieldedKeypair::new_ed25519().unwrap()
             };
             let ring = (rail != 0).then_some(Address::new_from_array([9; 32]));
-            let transaction = fixture(&owner, ring);
+            let n_inputs = if rail == 2 { 2 } else { 1 };
+            let transaction = fixture(&owner, ring, n_inputs);
             let shape = transaction.check_shape().unwrap();
             let inputs = complete_inputs(&transaction);
             let public_transfers = transaction.public_transfers().unwrap();
@@ -768,7 +787,7 @@ mod tests {
     fn p256_signature_binds_cache_write_address_and_slot() {
         let owner = ShieldedKeypair::new_p256().unwrap();
         let ring = Address::new_from_array([9; 32]);
-        let mut transaction = fixture(&owner, Some(ring));
+        let mut transaction = fixture(&owner, Some(ring), 1);
         transaction.cache_accounts.write = Some(Address::new_from_array([12; 32]));
         transaction.output_utxos[0].cache_slot = Some(3);
         let authorization = authorization(&transaction, &owner);

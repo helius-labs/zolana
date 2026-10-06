@@ -339,7 +339,7 @@ fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> Tra
         input_owner,
         tag::TRANSACT,
         2,
-        3,
+        4,
         false,
     )
 }
@@ -666,12 +666,12 @@ fn transact_sends_valid_proof() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect("transact with a valid proof");
 
-    // Tree state: three outputs appended and both input nullifiers queued.
+    // Tree state: four outputs appended and both input nullifiers queued.
     let (utxo_next_after, nullifier_next_after) = tree_progress(&env.rpc, &tree);
     assert_eq!(
         utxo_next_after,
-        utxo_next_before + 3,
-        "three outputs appended"
+        utxo_next_before + 4,
+        "four outputs appended"
     );
     assert_eq!(
         nullifier_next_after,
@@ -809,7 +809,7 @@ fn transact_with_no_sent_outputs_appends_nothing() {
         payer,
         tag::TRANSACT,
         2,
-        3,
+        4,
         true,
     );
     assert!(data.outputs.is_empty());
@@ -844,7 +844,7 @@ fn transact_with_no_sent_outputs_appends_nothing() {
         .expect("nullifier PDAs for the sent inputs");
 }
 
-/// One zero-value deposit spent through the SDK in the 2x3 shape, padded with
+/// One zero-value deposit spent through the SDK in the 2x4 shape, padded with
 /// compact padding when `compact` is set and with random dummies otherwise.
 /// Returns the padding's non-inclusion proofs with the real spend proof: the
 /// circuit checks non-inclusion for every slot, compact padding included.
@@ -899,10 +899,10 @@ fn single_deposit_spend(
         .expect("output tree");
     transfer
         .pad_utxos(
-            Shape::IN2_OUT3,
+            Shape::IN2_OUT4,
             &keypair.shielded_address().expect("address"),
         )
-        .expect("pad to 2x3");
+        .expect("pad to 2x4");
     let proof_inputs = transfer.encrypt(&keypair).expect("encrypt");
 
     let merkle_context = MerkleContext {
@@ -988,7 +988,7 @@ fn send_assembled_spend(
     (nullifiers, output_count)
 }
 
-/// Compact padding: one real input in the 2x3 shape. Input slot 1 and the unused
+/// Compact padding: one real input in the 2x4 shape. Input slot 1 and the unused
 /// outputs are left out of the instruction, so SPP queues one nullifier, creates
 /// one nullifier PDA and appends only the sent output.
 #[test]
@@ -1457,7 +1457,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     // Select the ring circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
     // discriminator, so verification must fail.
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1504,10 +1504,10 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         payer,
         tag::RING_TRANSACT,
         2,
-        3,
+        4,
         false,
     );
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1555,7 +1555,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
     let ring_b = Pubkey::new_unique();
 
-    let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 2, 3);
+    let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 2, 4);
     let mut base_ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1594,7 +1594,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same ring proof with the bound ring's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 4, "deposit leaf plus three outputs appended");
+    assert_eq!(utxo_next, 5, "deposit leaf plus four outputs appended");
     assert_eq!(
         nullifier_next, 3,
         "two nullifiers queued after the init sentinel"
@@ -1701,12 +1701,12 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
 }
 
 #[test]
-fn transact_accepts_the_consolidation_shape() {
+fn transact_accepts_the_widest_input_shape() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let shape = Shape::IN36_OUT2;
+    let shape = Shape::IN49_OUT2;
     let transact_ix_data = build_valid_transact_ix_for_owner_with_discriminator(
         &mut env,
         payer,
@@ -1717,7 +1717,7 @@ fn transact_accepts_the_consolidation_shape() {
     );
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::ConfidentialEddsa(36, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialEddsa(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -1743,7 +1743,7 @@ fn transact_accepts_the_consolidation_shape() {
             &[],
             ComputeBudgetConfig::new(1_400_000),
         )
-        .expect("consolidation-shape transact with a valid proof");
+        .expect("widest-input-shape transact with a valid proof");
 
     assert_eq!(
         tree_progress(&env.rpc, &tree),
@@ -1751,7 +1751,7 @@ fn transact_accepts_the_consolidation_shape() {
             utxo_next_before + shape.n_outputs() as u64,
             nullifier_next_before + shape.n_inputs() as u64
         ),
-        "two outputs appended and 36 nullifiers queued"
+        "two outputs appended and 49 nullifiers queued"
     );
     let forester_fee = fees.fee_per_nullifier * shape.n_inputs() as u64;
     assert_eq!(
@@ -1762,27 +1762,27 @@ fn transact_accepts_the_consolidation_shape() {
     let trace = env
         .rpc
         .last_transaction_trace()
-        .expect("consolidation transact trace");
+        .expect("widest-input-shape transact trace");
     println!(
-        "transact confidential eddsa 36x2: {} CU",
+        "transact confidential eddsa 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
 }
 
 #[test]
-fn ring_transact_accepts_the_consolidation_shape() {
+fn ring_transact_accepts_the_widest_input_shape() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
     let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
-    let shape = Shape::IN36_OUT2;
+    let shape = Shape::IN49_OUT2;
     let transact_ix_data =
         build_valid_ring_ix::<false>(&mut env, ring, shape.n_inputs(), shape.n_outputs());
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::RingEddsa(36, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::RingEddsa(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -1810,7 +1810,7 @@ fn ring_transact_accepts_the_consolidation_shape() {
             &[&ring_config],
             ComputeBudgetConfig::new(1_400_000),
         )
-        .expect("consolidation-shape ring transact");
+        .expect("widest-input-shape ring transact");
 
     assert_eq!(
         tree_progress(&env.rpc, &tree),
@@ -1818,26 +1818,26 @@ fn ring_transact_accepts_the_consolidation_shape() {
             utxo_next_before + shape.n_outputs() as u64,
             nullifier_next_before + shape.n_inputs() as u64
         ),
-        "two outputs appended and 36 nullifiers queued"
+        "two outputs appended and 49 nullifiers queued"
     );
     let trace = env
         .rpc
         .last_transaction_trace()
-        .expect("consolidation ring transact trace");
+        .expect("widest-input-shape ring transact trace");
     println!(
-        "transact ring eddsa 36x2: {} CU",
+        "transact ring eddsa 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
 }
 
 #[test]
-fn ring_p256_transact_accepts_the_consolidation_shape() {
+fn ring_p256_transact_accepts_the_widest_input_shape() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let shape = Shape::IN36_OUT2;
+    let shape = Shape::IN49_OUT2;
     let ring_config = Keypair::new();
     let proof = RealRingTransact {
         rail: RingRail::P256,
@@ -1849,7 +1849,7 @@ fn ring_p256_transact_accepts_the_consolidation_shape() {
     assert!(matches!(
         proof.data.circuit,
         CircuitId::RingP256(
-            36,
+            49,
             2,
             _,
             RingP256ProofData {
@@ -1866,7 +1866,7 @@ fn ring_p256_transact_accepts_the_consolidation_shape() {
             &[&ring_config],
             ComputeBudgetConfig::new(1_400_000),
         )
-        .expect("consolidation-shape P256 ring transact");
+        .expect("widest-input-shape P256 ring transact");
 
     assert_eq!(
         tree_progress(&env.rpc, &tree),
@@ -1874,14 +1874,14 @@ fn ring_p256_transact_accepts_the_consolidation_shape() {
             utxo_next_before + shape.n_outputs() as u64,
             nullifier_next_before + shape.n_inputs() as u64
         ),
-        "two outputs appended and 36 nullifiers queued"
+        "two outputs appended and 49 nullifiers queued"
     );
     let trace = env
         .rpc
         .last_transaction_trace()
-        .expect("consolidation P256 ring transact trace");
+        .expect("widest-input-shape P256 ring transact trace");
     println!(
-        "transact ring p256 36x2: {} CU",
+        "transact ring p256 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");
@@ -2006,7 +2006,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// Build a 3x3 spend whose inputs interleave two trees as `[0, 1, 0]`. The first
+/// Build a 3x4 spend whose inputs interleave two trees as `[0, 1, 0]`. The first
 /// input is a funded deposit; `second_input_amount` funds a real deposit in the
 /// second tree when present, otherwise that tree supplies a dummy input; the
 /// third input is a dummy from the first tree. Return the instruction and the
@@ -2019,7 +2019,7 @@ fn build_two_tree_transact_ix(
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
-    let n_outputs = 3;
+    let n_outputs = 4;
     let first_input_amount = 7_000_000u64;
     let output_amount = first_input_amount
         .checked_add(second_input_amount.unwrap_or(0))
@@ -2175,13 +2175,14 @@ fn build_two_tree_transact_ix(
 
     let change_output_hash = *output_hashes.first().expect("change output hash");
     let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
-    let private_tx = PrivateTxHash::new(
-        &input_hashes,
-        &[change_output_hash, zero, zero],
-        &private_tx_blinding,
-    )
-    .hash()
-    .expect("private tx hash");
+    let mut private_output_hashes = vec![zero; n_outputs];
+    if let Some(change) = private_output_hashes.first_mut() {
+        *change = change_output_hash;
+    }
+    let private_tx =
+        PrivateTxHash::new(&input_hashes, &private_output_hashes, &private_tx_blinding)
+            .hash()
+            .expect("private tx hash");
 
     let mut signer_hashes = vec![zero; Shape::new(nullifiers.len(), n_outputs).signer_width()];
     if let Some(first) = signer_hashes.first_mut() {
@@ -2352,8 +2353,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         tree_progress(&env.rpc, &second_tree);
     assert_eq!(
         first_utxo_next_after,
-        first_utxo_next_before + 3,
-        "three outputs appended to the output tree"
+        first_utxo_next_before + 4,
+        "four outputs appended to the output tree"
     );
     assert_eq!(
         second_utxo_next_after, second_utxo_next_before,

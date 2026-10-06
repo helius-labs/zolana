@@ -13,7 +13,7 @@ use zolana_program::instruction::{
 use zolana_transaction::{
     instructions::{
         merge::{MergeProofInputs, MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
-        transact::{auto_shapes, ConfidentialTransaction, SettlementTarget, SppProofInputs},
+        transact::{ConfidentialTransaction, SettlementTarget, SppProofInputs, MAX_SPEND_INPUTS},
     },
     keys::LocalShieldedKeys,
     Address, TransactionError, WalletUtxo, SOL_MINT,
@@ -333,9 +333,9 @@ pub struct SplitParams<'a> {
 /// asset on the single spend tree. The utxo must be plain (no ring binding, no
 /// attached data) and its amount evenly divisible into `parts`.
 pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
-    // A split re-mints into 2..=8 equal utxos. Reject an out-of-range arity up
+    // A split re-mints into 2..=16 equal utxos. Reject an out-of-range arity up
     // front so a direct SDK caller gets a clear error before utxo selection;
-    let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
+    let max_parts = Shape::IN1_OUT16.n_outputs() as u8;
     if !(2..=max_parts).contains(&request.parts) {
         return Err(TransactionError::UnsupportedShape {
             n_in: 1,
@@ -593,10 +593,6 @@ fn select_bounded_inputs(
     if amount == 0 {
         return Err(ClientError::ZeroSpendAmount);
     }
-    let max_inputs = auto_shapes()
-        .map(|shape| shape.n_inputs())
-        .max()
-        .unwrap_or(0);
     let mut candidates: Vec<&WalletUtxo> = wallet
         .unspent()
         .filter(|entry| entry.utxo.asset.asset == asset && entry.utxo.amount > 0 && eligible(entry))
@@ -610,7 +606,7 @@ fn select_bounded_inputs(
     }
     let mut selected = Vec::new();
     let mut available = 0u64;
-    for entry in candidates.iter().copied().take(max_inputs) {
+    for entry in candidates.iter().copied().take(MAX_SPEND_INPUTS) {
         selected.push(entry);
         available += entry.utxo.amount;
         if available >= amount {
@@ -620,7 +616,7 @@ fn select_bounded_inputs(
     if total >= amount {
         return Err(ClientError::TooManyInputs {
             got: candidates.len(),
-            max: max_inputs,
+            max: MAX_SPEND_INPUTS,
         });
     }
     Err(ClientError::InsufficientBalance {
@@ -2164,14 +2160,18 @@ mod tests {
     fn merge_auto_sweep_caps_at_shape_keeping_the_smallest_utxos() {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        for step in 1..=9u64 {
+        let count = MERGE_DEFAULT_INPUT_COUNT as u64;
+        for step in (1..=count + 1).rev() {
             push_utxo(&mut wallet, &keypair, step * 10, [step as u8; 31]);
         }
 
         let selected = select_merge_inputs(&wallet, test_tree(), SOL_MINT, None).unwrap();
 
         assert_eq!(selected.len(), MERGE_DEFAULT_INPUT_COUNT);
-        assert_eq!(amounts(&selected), vec![10, 20, 30, 40, 50, 60, 70, 80]);
+        assert_eq!(
+            amounts(&selected),
+            (1..=count).map(|step| step * 10).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -2313,7 +2313,8 @@ mod tests {
 
         assert_eq!(created.num_inputs, MERGE_DEFAULT_INPUT_COUNT + 1);
         assert_eq!(created.prepared.input_utxos.len(), MAX_MERGE_INPUTS);
-        assert_eq!(created.merged_amount, 45);
+        let count = MERGE_DEFAULT_INPUT_COUNT as u64 + 1;
+        assert_eq!(created.merged_amount, count * (count + 1) / 2);
     }
 
     #[test]
@@ -2803,20 +2804,23 @@ mod tests {
     fn select_spend_inputs_refuse_a_cover_wider_than_the_shape() {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        for index in 0..6u8 {
+        let widest = MAX_SPEND_INPUTS;
+        let count = u8::try_from(widest + 1).unwrap();
+        for index in 0..count {
             push_utxo(&mut wallet, &keypair, 5, [index + 1; 31]);
         }
 
+        let error = select_input_utxos_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 5 * u64::from(count),
+            },
+            &keypair,
+        );
         assert!(matches!(
-            select_input_utxos_sync(
-                SpendInputParams {
-                    wallet: &wallet,
-                    asset: SOL_MINT,
-                    amount: 30,
-                },
-                &keypair
-            ),
-            Err(ClientError::TooManyInputs { got: 6, max: 5 })
+            error,
+            Err(ClientError::TooManyInputs { got, max }) if got == widest + 1 && max == widest
         ));
     }
 
@@ -2962,10 +2966,7 @@ mod tests {
         assert_eq!(created.num_inputs, 3);
         assert_eq!(created.merged_amount, 60);
         assert_eq!(created.tree, test_tree());
-        assert_eq!(
-            created.prepared.input_utxos.len(),
-            MERGE_DEFAULT_INPUT_COUNT
-        );
+        assert_eq!(created.prepared.input_utxos.len(), 8);
         assert_eq!(created.prepared.output_utxo.amount, 60);
     }
 }

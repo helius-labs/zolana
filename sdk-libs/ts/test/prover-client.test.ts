@@ -89,13 +89,18 @@ const INPUTS: ProverInputs = {
   },
 };
 /** The proof a prover returns for `transferInputs()`. */
-const TRANSFER_PROOF = proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 });
+const TRANSFER_PROOF = proofFor({ circuitType: "transfer-confidential", nInputs: 2, nOutputs: 2 });
 
-/** A 1-in/1-out transfer, the smallest shape with a committed verifying key. */
+/** A 2-in/2-out transfer, the smallest shape every transfer rail has a key for. */
 function transferInputs(): ProverInputs {
+  const output = mergeInputs().output;
   return {
     ...INPUTS,
-    payload: { ...INPUTS.payload, inputs: [dummyTransferInput()], outputs: [mergeInputs().output] },
+    payload: {
+      ...INPUTS.payload,
+      inputs: [dummyTransferInput(), dummyTransferInput()],
+      outputs: [output, output],
+    },
   };
 }
 
@@ -573,9 +578,9 @@ describe("prover request routing", () => {
   it("expects the key of the circuit each transfer is proven by", async () => {
     const json = { "content-type": "application/json" };
     for (const [circuit, circuitType, keyName] of [
-      ["transfer", "transfer-confidential", "transfer_confidential_1_1.key"],
-      ["transferRing", "transfer-ring", "transfer_ring_1_1.key"],
-      ["transferRingAuthority", "transfer-ring-authority", "transfer_ring_authority_1_1.key"],
+      ["transfer", "transfer-confidential", "transfer_confidential_2_2.key"],
+      ["transferRing", "transfer-ring", "transfer_ring_2_2.key"],
+      ["transferRingAuthority", "transfer-ring-authority", "transfer_ring_authority_2_2.key"],
     ] as const) {
       const inputs = { ...transferInputs(), circuit };
       let posted: unknown;
@@ -617,7 +622,7 @@ describe("prover request routing", () => {
       new ProverClient({ url: "https://prover.example", fetch: plain }).proveMerge(ringMerge),
     ).rejects.toMatchObject({
       code: "CLIENT_PROVING_KEY_MISMATCH",
-      details: { keyName: "merge_ring_8_1.key" },
+      details: { keyName: "merge_ring_24_1.key" },
     });
   });
 
@@ -645,7 +650,7 @@ describe("prover request routing", () => {
     expect(bodies).toMatchObject([{ circuitType: "merge" }]);
     expect(deliveries).toEqual(["true"]);
     expect(redirects).toEqual(["error"]);
-    expect(urls[0]?.pathname).toBe("/zolana/prove/merge_8_1");
+    expect(urls[0]?.pathname).toBe("/zolana/prove/merge_24_1");
     expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
@@ -868,16 +873,7 @@ describe("prover request routing", () => {
   });
 
   it("pins the transfer request keys to the Go `TransferParametersJSON` tags", async () => {
-    const body = await sentBody((prover) =>
-      prover.prove({
-        ...INPUTS,
-        payload: {
-          ...INPUTS.payload,
-          inputs: [dummyTransferInput()],
-          outputs: [mergeInputs().output],
-        },
-      }),
-    );
+    const body = await sentBody((prover) => prover.prove(transferInputs()));
     const [input] = body["inputs"] as Record<string, unknown>[];
     const [output] = body["outputs"] as unknown[];
 
@@ -1044,8 +1040,8 @@ describe("prover request routing", () => {
     await prover.prove(transferInputs());
 
     expect(urls.map((url) => url.pathname)).toEqual([
-      "/zolana/prove/transfer_confidential_1_1",
-      "/zolana/prove/transfer_confidential_1_1/status",
+      "/zolana/prove/transfer_confidential_2_2",
+      "/zolana/prove/transfer_confidential_2_2/status",
     ]);
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
@@ -1090,7 +1086,7 @@ describe("proving key check", () => {
       expect(error).toMatchObject({
         code: "CLIENT_PROVING_KEY_MISMATCH",
         details: {
-          keyName: "transfer_confidential_1_1.key",
+          keyName: "transfer_confidential_2_2.key",
           expectedSha256: expected,
           reportedSha256: foreign,
         },
@@ -1104,7 +1100,7 @@ describe("proving key check", () => {
       const error = await proveAgainst(unreported, queued);
       expect(error).toMatchObject({
         code: "CLIENT_PROVING_KEY_MISSING",
-        details: { keyName: "transfer_confidential_1_1.key" },
+        details: { keyName: "transfer_confidential_2_2.key" },
       });
     }
   });
@@ -1197,28 +1193,28 @@ describe("prover proving keys check", () => {
 
   it("names every key whose expected or loaded digest differs", async () => {
     const report = matchingReport();
-    entry(report, "merge_8_1.key")["expectedSha256"] = "ab".repeat(32);
+    entry(report, "merge_24_1.key")["expectedSha256"] = "ab".repeat(32);
     entry(report, "custom_ring_base.key")["loadedSha256"] = "cd".repeat(32);
 
     expect(await check(report)).toMatchObject({
       code: "CLIENT_PROVER_PROVING_KEYS_MISMATCH",
-      details: { keyNames: "custom_ring_base.key,merge_8_1.key" },
+      details: { keyNames: "custom_ring_base.key,merge_24_1.key" },
     });
   });
 
   it("reports a key the prover lacks or cannot load without failing", async () => {
     const report = matchingReport();
-    report.keys = report.keys.filter((key) => key["name"] !== "merge_36_1.key");
-    entry(report, "transfer_ring_36_2.key")["available"] = false;
+    report.keys = report.keys.filter((key) => key["name"] !== "merge_54_1.key");
+    entry(report, "transfer_ring_49_2.key")["available"] = false;
 
     const result = (await check(report)) as {
       keys: { name: string; served: boolean; available: boolean }[];
     };
     expect(
-      result.keys.filter((key) => ["merge_36_1.key", "transfer_ring_36_2.key"].includes(key.name)),
+      result.keys.filter((key) => ["merge_54_1.key", "transfer_ring_49_2.key"].includes(key.name)),
     ).toEqual([
-      { name: "merge_36_1.key", served: false, available: false, loaded: false },
-      { name: "transfer_ring_36_2.key", served: true, available: false, loaded: false },
+      { name: "merge_54_1.key", served: false, available: false, loaded: false },
+      { name: "transfer_ring_49_2.key", served: true, available: false, loaded: false },
     ]);
   });
 
@@ -1227,12 +1223,12 @@ describe("prover proving keys check", () => {
       [],
       { keys: [] },
       { prefix: "p", keys: {} },
-      { prefix: "p", keys: [{ name: "merge_8_1.key", loadedSha256: null, available: true }] },
+      { prefix: "p", keys: [{ name: "merge_24_1.key", loadedSha256: null, available: true }] },
       {
         prefix: "p",
         keys: [
           {
-            name: "merge_8_1.key",
+            name: "merge_24_1.key",
             expectedSha256: "AB".repeat(32),
             loadedSha256: null,
             available: true,
@@ -1241,12 +1237,12 @@ describe("prover proving keys check", () => {
       },
       {
         prefix: "p",
-        keys: [{ name: "merge_8_1.key", expectedSha256: null, loadedSha256: 7, available: true }],
+        keys: [{ name: "merge_24_1.key", expectedSha256: null, loadedSha256: 7, available: true }],
       },
       {
         prefix: "p",
         keys: [
-          { name: "merge_8_1.key", expectedSha256: null, loadedSha256: null, available: "yes" },
+          { name: "merge_24_1.key", expectedSha256: null, loadedSha256: null, available: "yes" },
         ],
       },
     ];

@@ -9,7 +9,7 @@ use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, V
 use zolana_transaction::{
     instructions::merge::{
         merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
-        MergeTransaction,
+        MergeTransaction, MAX_MERGE_INPUTS,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::SppProofInputUtxo,
@@ -94,12 +94,14 @@ fn merge_count_boundaries_are_explicit() {
     for (count, padded) in [
         (0, None),
         (1, Some(8)),
-        (7, Some(8)),
         (8, Some(8)),
-        (9, Some(36)),
-        (35, Some(36)),
-        (36, Some(36)),
-        (37, None),
+        (9, Some(24)),
+        (23, Some(24)),
+        (24, Some(24)),
+        (25, Some(54)),
+        (53, Some(54)),
+        (54, Some(54)),
+        (55, None),
         (usize::MAX, None),
     ] {
         assert_eq!(merge_circuit_width(count), padded);
@@ -109,8 +111,8 @@ fn merge_count_boundaries_are_explicit() {
         Some(TransactionError::NoInputs)
     );
     assert_eq!(
-        MergeTransaction::new(inputs(&owner, 37)).err(),
-        Some(TransactionError::TooManyInputs { got: 37, max: 36 })
+        MergeTransaction::new(inputs(&owner, 55)).err(),
+        Some(TransactionError::TooManyInputs { got: 55, max: 54 })
     );
     let ring = Address::new_from_array([8; 32]);
     assert_eq!(
@@ -118,16 +120,16 @@ fn merge_count_boundaries_are_explicit() {
         Some(TransactionError::NoInputs)
     );
     assert_eq!(
-        MergeTransaction::new_with_ring(inputs(&owner, 37), ring, None).err(),
-        Some(TransactionError::TooManyInputs { got: 37, max: 36 })
+        MergeTransaction::new_with_ring(inputs(&owner, 55), ring, None).err(),
+        Some(TransactionError::TooManyInputs { got: 55, max: 54 })
     );
 }
 
 #[test]
-fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
+fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
     let owner = keypair(7);
     let sender = owner.shielded_address().unwrap();
-    for (count, padded) in [(1, 8), (8, 8), (9, 36), (36, 36)] {
+    for (count, padded) in [(1, 8), (8, 8), (9, 24), (24, 24), (25, 54), (54, 54)] {
         let notes = inputs(&owner, count);
         let first_nullifier = notes.first().unwrap().nullifier;
         let tx = owner.get_transaction_viewing_key(&first_nullifier).unwrap();
@@ -145,7 +147,7 @@ fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
             .input_utxos
             .iter()
             .skip(notes.len())
-            .all(|input| input.is_dummy() && input.utxo.amount == 0));
+            .all(|input| input.is_compact() && input.utxo.amount == 0));
         let expected_blinding =
             merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap();
         let expected = ConfidentialOutputPlaintext {
@@ -187,15 +189,15 @@ fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
     }
 }
 
-/// `new_compact` pads the merge circuit with compact slots. Each still derives
-/// the deterministic dummy nullifier of its slot, which its non-inclusion
-/// witness is fetched by, and publishes 0 instead.
+/// A merge pads its circuit with compact slots only. Each still derives the
+/// deterministic dummy nullifier of its slot, which its non-inclusion witness
+/// is fetched by, and publishes 0 instead.
 #[test]
-fn compact_merge_pads_with_compact_slots() {
+fn merge_pads_with_compact_slots() {
     let owner = keypair(7);
-    for (count, padded) in [(3, 8), (9, 36)] {
+    for (count, padded) in [(3, 8), (9, 24), (25, 54)] {
         let notes = inputs(&owner, count);
-        let result = MergeTransaction::new_compact(notes.clone())
+        let result = MergeTransaction::new(notes.clone())
             .unwrap()
             .encrypt(&owner)
             .unwrap();
@@ -217,13 +219,48 @@ fn compact_merge_pads_with_compact_slots() {
     }
 }
 
+#[test]
+fn ring_merge_pads_with_compact_slots() {
+    let owner = keypair(7);
+    let ring = Address::new_from_array([8; 32]);
+    let notes: Vec<WalletUtxo> = inputs(&owner, 53)
+        .into_iter()
+        .map(|mut note| {
+            note.utxo.ring_program_id = Some(ring);
+            note.utxo_hash = note
+                .utxo
+                .hash(&note.nullifier_pubkey, &[0; 32], &[0; 32], 0)
+                .unwrap();
+            note.nullifier = owner
+                .nullifier(&note.utxo_hash, &note.utxo.blinding)
+                .unwrap();
+            note
+        })
+        .collect();
+    let result = MergeTransaction::new_with_ring(notes.clone(), ring, None)
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    assert_eq!(result.input_utxos.len(), MAX_MERGE_INPUTS);
+    assert_eq!(result.ring_program_id, Some(ring));
+    for (actual, expected) in result.input_utxos.iter().zip(&notes) {
+        assert_preserved(actual, expected);
+    }
+    let padding: Vec<_> = result.input_utxos.iter().skip(notes.len()).collect();
+    assert_eq!(padding.len(), 1);
+    assert!(padding
+        .iter()
+        .all(|input| input.is_compact() && input.published_nullifier() == [0u8; 32]));
+    result.check_padding().expect("compact ring merge padding");
+}
+
 /// SPP fills compact padding back in at the end and picks the circuit from the
 /// sent count, so a merge with compact padding elsewhere or at another width
 /// is refused before proving.
 #[test]
 fn merge_padding_must_match_what_spp_fills_back_in() {
     let owner = keypair(7);
-    let compact = MergeTransaction::new_compact(inputs(&owner, 3))
+    let compact = MergeTransaction::new(inputs(&owner, 3))
         .unwrap()
         .encrypt(&owner)
         .unwrap();
@@ -240,16 +277,20 @@ fn merge_padding_must_match_what_spp_fills_back_in() {
     let mut too_wide = compact;
     too_wide
         .input_utxos
-        .resize(36, SppProofInputUtxo::compact(tree_id).unwrap());
+        .resize(54, SppProofInputUtxo::compact(tree_id).unwrap());
     assert!(matches!(
         too_wide.check_padding(),
-        Err(TransactionError::CompactMergeWidthMismatch { sent: 3, width: 36 })
+        Err(TransactionError::CompactMergeWidthMismatch { sent: 3, width: 54 })
     ));
 
-    MergeTransaction::new(inputs(&owner, 3))
+    let mut dummies = MergeTransaction::new(inputs(&owner, 3))
         .unwrap()
         .encrypt(&owner)
-        .unwrap()
+        .unwrap();
+    for input in dummies.input_utxos.iter_mut().skip(3) {
+        input.compact = false;
+    }
+    dummies
         .check_padding()
         .expect("deterministic dummies fill the circuit");
 }
@@ -592,7 +633,7 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
         })
         .collect();
     let tx = ViewingKey::new();
-    let first_nullifier = notes[0].nullifier;
+    let first_nullifier = notes.first().unwrap().nullifier;
     let dummy_nullifiers = (2..8)
         .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, slot).unwrap())
         .collect::<Vec<_>>();

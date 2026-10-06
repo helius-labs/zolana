@@ -122,8 +122,7 @@ key_fetch_script() {
     printf 'set -eu\ncd /keys\n'
     # shellcheck disable=SC2016
     printf 'fetch() { [ -f "$2" ] && echo "$3  $2" | sha256sum -c -s && return; wget -q -O "$2.part" "$1" && echo "$3  $2.part" | sha256sum -c -s && mv "$2.part" "$2"; }\n'
-    # 1_1 is the withdrawal shape without a recipient output.
-    for name in transfer_ring_1_1.key transfer_ring_1_2.key transfer_ring_2_2.key; do
+    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
         sha="$(jq -r --arg n "$name" '.keys[$n].sha256' "$lock")"
         printf 'fetch %s/%s %s %s\n' "$published_keys" "$name" "$name" "$sha"
     done

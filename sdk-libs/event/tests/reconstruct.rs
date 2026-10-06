@@ -16,6 +16,7 @@ use zolana_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
     InstructionGroup, ParsedInstruction,
 };
+use zolana_interface::instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT;
 use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
 use zolana_interface::verifying_keys::{CacheAccess, CircuitId};
 
@@ -499,7 +500,7 @@ fn merge_with_more_than_one_input_tree_is_not_reconstructible_yet() {
 
 fn expected_merge(output_view_tag: [u8; 32], output_data: Vec<u8>) -> GeneralEvent {
     GeneralEvent {
-        inputs: (0..8u64)
+        inputs: (0..MERGE_DEFAULT_INPUT_COUNT as u64)
             .map(|i| Input {
                 tree: INPUT_TREE,
                 input_queue_seq: 20 + i,
@@ -521,7 +522,7 @@ fn expected_merge(output_view_tag: [u8; 32], output_data: Vec<u8>) -> GeneralEve
 }
 
 #[test]
-fn merge_transact_event_rebuilds_eight_inputs_and_the_owner_indexed_output() {
+fn merge_transact_event_rebuilds_the_default_inputs_and_the_owner_indexed_output() {
     let spp = Pubkey::new_unique();
     let src = source(
         spp,

@@ -33,7 +33,7 @@ use zolana_interface::{
         read_tree_id,
     },
     tree_slot::{pack_input_flags, TreeSlot},
-    verifying_keys::{transfer_confidential_2_3, CacheAccess, CacheWrite, MAX_CACHE_WRITES},
+    verifying_keys::{CacheAccess, CacheWrite, MAX_CACHE_WRITES},
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
 use zolana_keypair::{
@@ -494,24 +494,26 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
     }
 }
 
-/// Prove and locally verify a transfer on the fixed (2 inputs, 3 outputs)
-/// confidential eddsa shape every current caller uses; the verifying key is
-/// pinned to that shape.
+/// Prove and locally verify a confidential eddsa transfer against the
+/// verifying key of the shape the inputs describe.
 pub fn prove_and_verify_transfer(
     prover_inputs: &TransferInputs,
     public_input_hash: [u8; 32],
     label: &str,
 ) -> Result<TransactProof> {
+    let circuit = CircuitId::ConfidentialEddsa(
+        u8::try_from(prover_inputs.inputs.len())?,
+        u8::try_from(prover_inputs.outputs.len())?,
+        N_PUBLIC_SLOTS as u8,
+    );
+    let verifying_key = circuit
+        .verifying_key()
+        .ok_or_else(|| anyhow!("{label}: no verifying key for {circuit:?}"))?;
     let proof = ProverClient::local().prove_transfer(prover_inputs)?;
     let public_inputs = [public_input_hash];
-    let mut verifier = Groth16Verifier::new(
-        &proof.a,
-        &proof.b,
-        &proof.c,
-        &public_inputs,
-        &transfer_confidential_2_3::VERIFYINGKEY,
-    )
-    .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
+    let mut verifier =
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+            .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
     verifier
         .verify()
         .map_err(|err| anyhow!("verify {label} proof: {err:?}"))?;
@@ -998,7 +1000,7 @@ pub fn build_spl_withdrawal(
         utxo.owner,
         change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )
     .expect("change and dummy outputs");
@@ -1011,13 +1013,13 @@ pub fn build_spl_withdrawal(
             amount,
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }],
-        inline_outputs(&output_hashes, &[payer_bytes; 3]),
+        inline_outputs(&output_hashes, &[payer_bytes; 2]),
     );
     let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
     set_output_owner_tags(
         &mut outputs,
         &output_owner_hashes,
-        &[change_nullifier_pk, zero, zero],
+        &[change_nullifier_pk, zero],
     );
     let external_hash =
         external_data_hash(&data, &[spl_leg(&mint, &user_token)]).expect("external data hash");
@@ -1026,7 +1028,7 @@ pub fn build_spl_withdrawal(
     let change_output_hash = *output_hashes.first().expect("change output hash");
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
-        &[change_output_hash, zero, zero],
+        &[change_output_hash, zero],
         &private_tx_blinding,
     )
     .hash()

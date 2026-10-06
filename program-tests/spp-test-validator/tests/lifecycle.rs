@@ -13,7 +13,7 @@ use zolana_test_utils::{
     lifecycle::{randomized::Workload, LifecycleHarness},
     localnet::{localnet_rpc_url, start_shielded_pool_localnet},
 };
-use zolana_transaction::SOL_MINT;
+use zolana_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, SOL_MINT};
 
 /// Pin the shared Squads `Settings` decoder
 /// (`zolana_test_utils::smart_account::settings::settings_member_keys`) against
@@ -211,12 +211,23 @@ fn eddsa_transfers_cover_spl_mixed_single_input_and_change_only() -> Result<()> 
     Ok(())
 }
 
+/// One and two inputs, then a full merge of each narrower width and the
+/// fewest inputs that select the next one.
+const MERGE_COVERED_INPUT_COUNTS: [usize; 6] = [
+    1,
+    2,
+    8,
+    9,
+    MERGE_DEFAULT_INPUT_COUNT,
+    MERGE_DEFAULT_INPUT_COUNT + 1,
+];
+
 #[test]
 #[serial]
-fn actor_owned_merge_covers_every_supported_input_count() -> Result<()> {
+fn actor_owned_merge_covers_every_merge_width() -> Result<()> {
     let mut harness = LifecycleHarness::new()?;
 
-    for count in 1..=8 {
+    for count in MERGE_COVERED_INPUT_COUNTS {
         let name = format!("owner-{count}");
         let owner = harness
             .register_merge_owner(&name, true)
@@ -239,7 +250,7 @@ fn actor_owned_merge_covers_every_supported_input_count() -> Result<()> {
 
 #[test]
 #[serial]
-fn eddsa_merge_covers_every_supported_input_count() -> Result<()> {
+fn eddsa_merge_covers_every_merge_width() -> Result<()> {
     let mut harness = LifecycleHarness::new()?;
     let name = "eddsa-owner";
     harness
@@ -248,7 +259,7 @@ fn eddsa_merge_covers_every_supported_input_count() -> Result<()> {
     let eddsa_owner = harness
         .register_merge_owner(name, true)
         .context("register EdDSA merge owner")?;
-    for count in 1..=8 {
+    for count in MERGE_COVERED_INPUT_COUNTS {
         // An EdDSA actor must be the transaction payer, so all shapes share one
         // registered owner. Each successful merge leaves one output; add enough
         // deposits to bring the next operation to exactly `count` inputs.

@@ -27,7 +27,7 @@ fn dummy_capacity_reserves_the_whole_state_tree_and_current_input_batch() {
             .expect("append UTXO");
     }
     let state_capacity = tree.utxo_tree().capacity();
-    for input_count in [1, 2, 8, 36] {
+    for input_count in [1, 2, 8, 24, 49, 54] {
         for (extra_capacity, allowed) in [(input_count - 1, false), (input_count, true)] {
             let nullifier = tree.nullifier_tree();
             nullifier.queue_next_index = nullifier.capacity - state_capacity - extra_capacity;

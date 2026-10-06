@@ -9,7 +9,9 @@ use zolana_interface::{
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
-    verifying_keys::{merge_36_1, merge_8_1, merge_ring_36_1, merge_ring_8_1},
+    verifying_keys::{
+        merge_24_1, merge_54_1, merge_8_1, merge_ring_24_1, merge_ring_54_1, merge_ring_8_1,
+    },
 };
 
 use crate::instructions::verifier;
@@ -102,9 +104,11 @@ impl<'a> MergeProof<'a> {
     fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
         let vk = match (&self.derived.owner_binding, self.circuit_width()?) {
             (MergeOwnerBinding::Default { .. }, 8) => &merge_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Default { .. }, 36) => &merge_36_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Default { .. }, 24) => &merge_24_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Default { .. }, 54) => &merge_54_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 36) => &merge_ring_36_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 54) => &merge_ring_54_1::VERIFYINGKEY,
             _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
         };
         Ok(vk)

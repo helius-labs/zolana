@@ -17,11 +17,11 @@ use zolana_keypair::{hash::owner_hash, PublicKey};
 use zolana_program::compression::{
     AddressSeed, CompressedAccount, NewAddress, PdaOwner, ACCOUNT_BLINDING_SEED,
 };
-use zolana_transaction::Utxo;
+use zolana_transaction::{utxo::SppProofInputUtxo, Utxo};
 
 use crate::{
     account_pda, err,
-    shared::{zero_nullifier_key, ProgramTransaction, DEFAULT_TREE_ID},
+    shared::{padding_output, zero_nullifier_key, ProgramTransaction, DEFAULT_TREE_ID},
     state::{AccountState, AccountUtxo},
 };
 
@@ -44,10 +44,19 @@ pub fn address_input(pda: &Address, tree_id: u16) -> Result<(ProofInputUtxo, [u8
     Ok((input, address))
 }
 
+/// The compact padding that fills the second input slot of the 2x2 shape a
+/// single write is proved at. Its derived nullifier needs a non-inclusion
+/// proof like any input, though it publishes 0 and SPP never receives it.
+pub fn padding_input(tree_id: u16) -> Result<SppProofInputUtxo> {
+    Ok(SppProofInputUtxo::compact(tree_id)?)
+}
+
 pub struct CreateProofInputParams {
     pub authority: Address,
     pub new_value: u64,
     pub non_inclusion: NonInclusionProof,
+    /// Non-inclusion of the [`padding_input`] nullifier.
+    pub padding_non_inclusion: NonInclusionProof,
     pub utxo_root: [u8; 32],
     pub utxo_root_index: u16,
 }
@@ -121,24 +130,54 @@ impl CreateProofInputParams {
             owner_pk_hash: be(&owner_pk_hash),
             nullifier_pk: be(&zero_nullifier_key().pubkey()?),
         };
+        let padding = padding_input(tree_id)?;
+        if self.padding_non_inclusion.leaf != padding.nullifier() {
+            return Err(anyhow!(
+                "padding non-inclusion proof is not for the padding nullifier"
+            ));
+        }
+        let padding_input = TransferInput {
+            utxo: ProofInputUtxo::try_from(&padding)?,
+            is_dummy: BigUint::from(1u8),
+            state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+            state_path_index: BigUint::ZERO,
+            nullifier_low_value: be(&self.padding_non_inclusion.low_element),
+            nullifier_next_value: be(&self.padding_non_inclusion.high_element),
+            nullifier_low_path_elements: self.padding_non_inclusion.path.iter().map(be).collect(),
+            nullifier_low_path_index: BigUint::from(self.padding_non_inclusion.low_element_index),
+            tree_slot: BigUint::ZERO,
+            nullifier: be(&padding.published_nullifier()),
+            owner_pk_hash: BigUint::ZERO,
+            nullifier_secret: Some(BigUint::ZERO),
+        };
+        let compact_output = padding_output(&address_nullifier)?;
+        let padding_transfer_output = TransferOutput {
+            utxo: ProofInputUtxo::try_from((&compact_output, tree_id))?,
+            is_dummy: BigUint::from(1u8),
+            hash: BigUint::ZERO,
+            owner_pk_hash: BigUint::ZERO,
+            nullifier_pk: BigUint::ZERO,
+        };
         let external_hash = program.external_data_hash;
         let private_tx = program.private_tx_hash;
         let payer_hash = solana_owner_identity(self.authority.as_array())?;
-        let signer_hashes = [payer_hash, owner_pk_hash];
-        let output_owner_hashes = [owner_pk_hash];
+        let signer_hashes = [payer_hash, owner_pk_hash, zero];
+        let output_owner_hashes = [owner_pk_hash, zero];
         let public_transfers = PublicTransfers::default();
-        // One real input in tree slot 0, dummy inputs allowed.
-        let input_flags = pack_input_flags(true, [0u8])?;
+        // The address slot and the compact padding, both in tree slot 0, dummy
+        // inputs allowed.
+        let input_flags = pack_input_flags(true, [0u8, 0u8])?;
         // Only slot 0 is populated: this example spends from one tree.
         let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
         if let Some(slot) = tree_slots.first_mut() {
             *slot = TreeSlot::new(tree_id, self.utxo_root, self.non_inclusion.root);
         }
-        // One input, spending no cache: the rail still publishes a selection.
-        let cached_inputs = empty_cached_input_fields(1)?;
+        // Two input slots, spending no cache: the rail still publishes a
+        // selection.
+        let cached_inputs = empty_cached_input_fields(2)?;
         let public_hash = PublicInputs {
-            nullifiers: &[address_nullifier],
-            output_hashes: &[output_hash],
+            nullifiers: &[address_nullifier, zero],
+            output_hashes: &[output_hash, zero],
             tree_slots: &tree_slots,
             output_tree_id: tree_id,
             private_tx: &private_tx,
@@ -152,8 +191,8 @@ impl CreateProofInputParams {
         }
         .hash()?;
         let transfer_inputs = TransferInputs {
-            inputs: vec![input],
-            outputs: vec![transfer_output],
+            inputs: vec![input, padding_input],
+            outputs: vec![transfer_output, padding_transfer_output],
             tree_slots: zolana_client::TreeSlotFields::encode_all(&tree_slots),
             output_tree_id: BigUint::from(tree_id),
             blinding_seed: be(&ACCOUNT_BLINDING_SEED),

@@ -5,6 +5,7 @@ import {
   STATE_TREE_HEIGHT,
   asField,
   cacheProverFields,
+  createOutput,
   emptyCachedInputs,
   signerIdentity,
   transferPublicInputHash,
@@ -36,8 +37,9 @@ import {
   transactOutputBlinding,
 } from "../keypair/transact/index.js";
 import { privateTxHash } from "../transaction/instructions/transact.js";
+import { SOL_MINT } from "../transaction/asset.js";
 import { U64_MAX, ZERO_32 } from "../transaction/internal.js";
-import type { TreeId } from "../transaction/utxo.js";
+import { createProofOutput, type TreeId } from "../transaction/utxo.js";
 
 import { ringPolicyNamespaceAddress } from "./config.js";
 import { checkedEntryProof, readTreeHeads } from "./policy-trees.js";
@@ -272,9 +274,25 @@ function dataTransitionInputs(
   });
   const treeSlots = inputTreeSlots([inputTree]);
   const cachedInputs = emptyCachedInputs(1);
+  // The 1x2 shape's second output is compact padding: it publishes hash and
+  // owner 0 and stays out of the instruction, the external data and the
+  // private transaction hash.
+  const padding = createOutput(
+    createProofOutput({
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: transactOutputBlinding(
+        slot.nullifier,
+        outputBlindingSeed(slot.nullifier, input.blindingSeed),
+        1,
+      ),
+      compact: true,
+    }),
+    input.trees.output,
+  );
   const publicInputHash = transferPublicInputHash({
     nullifiers: [bytesToBigInt(slot.nullifier)],
-    outputHashes: [bytesToBigInt(hashes.utxoHash)],
+    outputHashes: [bytesToBigInt(hashes.utxoHash), padding.hash],
     treeSlots,
     outputTreeId: input.trees.output,
     privateTxHash: bytesToBigInt(privateHash),
@@ -283,7 +301,7 @@ function dataTransitionInputs(
     ringProgramId: 0n,
     signerPublicKeyHashes: [payerHash, namespaceHash],
     inputFlags: inputFlags(true, [0]),
-    publishedOutputOwnerPublicKeyHashes: [namespaceHash],
+    publishedOutputOwnerPublicKeyHashes: [namespaceHash, padding.ownerPublicKeyHash],
     ...cachedInputs,
   });
   const transferInput: TransferInput = Object.freeze({
@@ -313,7 +331,7 @@ function dataTransitionInputs(
   });
   const inputs: TransferInputs = Object.freeze({
     inputs: Object.freeze([transferInput]),
-    outputs: Object.freeze([transferOutput]),
+    outputs: Object.freeze([transferOutput, padding]),
     treeSlots: Object.freeze(treeSlots.map(treeSlotFields)),
     outputTreeId: asField(BigInt(input.trees.output)),
     externalDataHash: asField(bytesToBigInt(external)),
@@ -324,7 +342,10 @@ function dataTransitionInputs(
     ringProgramId: asField(0n),
     signerPublicKeyHashes: Object.freeze([asField(payerHash), asField(namespaceHash)]),
     inputFlags: asField(inputFlags(true, [0])),
-    publishedOutputOwnerPublicKeyHashes: Object.freeze([asField(namespaceHash)]),
+    publishedOutputOwnerPublicKeyHashes: Object.freeze([
+      asField(namespaceHash),
+      padding.ownerPublicKeyHash,
+    ]),
     ...cacheProverFields(cachedInputs),
     publicInputHash: asField(publicInputHash),
   });

@@ -15,7 +15,7 @@ go build -o light-prover .
 # (merge_transact) and the policy-ring merge (merge_ring). Merge always produces
 # one output, so the shape is the input count alone. Keep in sync with
 # mergeshared.SupportedInputCounts.
-input_counts=(8 36)
+input_counts=(8 24 54)
 
 # "<setup-merge --circuit flag> <key-file prefix>". The prefix mirrors the
 # verifying-key module name.

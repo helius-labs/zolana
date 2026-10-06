@@ -142,7 +142,7 @@ describe("entry transition inputs", () => {
       "2084195c27c25c187bff6963df6beb0ce817719088662d4a83b575f99943b11c",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "1f7784b676f62af654f38b8dc841d0608ee1e29298af4edcd32f8b8d2e5853c3",
+      "28504492f258339afe5ae7af22744560006852fa9eed4af18e3fb548382be291",
     );
     const [input] = inputs.inputs;
     expect(input?.circuit.domain).toBe(2n);
@@ -150,8 +150,20 @@ describe("entry transition inputs", () => {
     expect(input?.nullifier).toBe(BigInt(`0x${Buffer.from(address).toString("hex")}`));
     expect(input?.statePathIndex).toBe(0n);
     expect(inputs.signerPublicKeyHashes).toHaveLength(2);
-    expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([inputs.signerPublicKeyHashes[1]]);
+    expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([
+      inputs.signerPublicKeyHashes[1],
+      0n,
+    ]);
     expect(inputs.outputs[0]?.circuit.blinding).toBe(bytesToBigInt(entry.blinding));
+    // The 1x2 shape's second output is compact padding: hash and owner 0.
+    expect(inputs.outputs).toHaveLength(2);
+    expect(inputs.outputs[1]).toMatchObject({
+      isDummy: 1n,
+      hash: 0n,
+      ownerPublicKeyHash: 0n,
+      nullifierPublicKey: 0n,
+    });
+    expect(inputs.outputs[1]?.circuit.domain).toBe(1n);
     expect(inputs.inputFlags).toBe(1n);
     expect(inputs.ringProgramId).toBe(0n);
   });
@@ -174,7 +186,7 @@ describe("entry transition inputs", () => {
       "05463251217cd0b40990a3f1163a0c1b6cb37b0b5fc4d27428798ad5c4d63679",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "0551e452e7afe555e964a80545c0d84f9e99ec3e9e525f247c82b1fce84b0e7a",
+      "0a98e151ecb39be8b75f1211965a1d986403927b21ae436e8845b79ee42808cc",
     );
     expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
     expect(inputs.inputs[0]?.statePathIndex).toBe(3n);

@@ -214,8 +214,8 @@ fn dummy_outputs(owner_tag: [u8; 32], output_tree_id: u16) -> Vec<WitnessOutput>
         .collect()
 }
 
-/// A real zero-amount SOL change output owned by `payer_owner` followed by two
-/// dummies that name it. `AssertDummyTags` only accepts a dummy tag that names
+/// A real zero-amount SOL change output owned by `payer_owner` followed by a
+/// dummy that names it. `AssertDummyTags` only accepts a dummy tag that names
 /// an owner signer other than the payer or a real output's owner, and these
 /// fixtures spend a payer-owned note with no other signer, so an all-dummy
 /// output set has no nameable participant. The wallet follows the same rule for
@@ -236,7 +236,7 @@ fn change_and_dummy_outputs(
         [30u8; 31],
         output_tree_id,
     )];
-    outputs.extend(dummy_outputs(payer_tag, output_tree_id).into_iter().take(2));
+    outputs.extend(dummy_outputs(payer_tag, output_tree_id).into_iter().take(1));
     outputs
 }
 
@@ -294,7 +294,7 @@ fn prove_spend(
     public_movements: impl IntoIterator<Item = ([u8; 32], i64)>,
     mut witness_outputs: Vec<WitnessOutput>,
 ) -> TransactIxData {
-    assert_eq!(witness_outputs.len(), 3);
+    assert_eq!(witness_outputs.len(), 2);
     let output_is_private: Vec<bool> = witness_outputs
         .iter()
         .map(|output| output.is_private)
@@ -672,10 +672,6 @@ fn three_distinct_assets_support_opposite_public_directions() {
             [42u8; 31],
             env.tree_id,
         ),
-        dummy_outputs(env.rpc.payer.pubkey().to_bytes(), env.tree_id)
-            .into_iter()
-            .next()
-            .expect("dummy output"),
     ];
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {

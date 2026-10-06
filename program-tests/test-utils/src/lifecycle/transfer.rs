@@ -4,7 +4,9 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{assemble, ComputeBudgetConfig, ProverClient, SpendProof};
+use zolana_client::{
+    assemble, transaction_size, ComputeBudgetConfig, ProverClient, Shape, SpendProof,
+};
 use zolana_keypair::PublicKey;
 use zolana_program::instruction::Transact;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
@@ -23,8 +25,8 @@ use crate::{
 
 impl LifecycleHarness {
     /// Transfer `amount` of `asset` from `from` to `to`, consolidating two of
-    /// `from`'s spendable UTXOs of `asset` into the (2, 3) shape. The single-input
-    /// variant is `transfer_single`, which pads with a dummy input.
+    /// `from`'s spendable UTXOs of `asset` into the 2x2 shape. The single-input
+    /// variant is `transfer_single`.
     pub fn transfer_asset(
         &mut self,
         from: &str,
@@ -47,11 +49,11 @@ impl LifecycleHarness {
             }
             taken
         };
-        self.execute_transfer(from, Some(to), inputs, asset, amount)
+        self.execute_transfer(from, &[to], inputs, asset, amount, None)
     }
 
     /// Transfer `amount` of the `spl_mint` SPL asset from `from` to `to`, spending
-    /// one SOL UTXO and one SPL UTXO (the supported (2, 3) shape). The recipient
+    /// one SOL UTXO and one SPL UTXO (the 2x4 shape). The recipient
     /// gets SPL; `from` gets back an SPL change and a SOL change.
     pub fn transfer_mixed(
         &mut self,
@@ -79,12 +81,11 @@ impl LifecycleHarness {
             let sol = actor.spendable.remove(sol_pos);
             vec![spl, sol]
         };
-        self.execute_transfer(from, Some(to), inputs, send_asset, amount)
+        self.execute_transfer(from, &[to], inputs, send_asset, amount, None)
     }
 
-    /// Transfer `amount` of `asset` from `from` to `to` spending a single UTXO. The
-    /// client pads the inputs to the (2, 3) shape with a dummy, so this exercises the
-    /// dummy-padding path. Picks a spendable UTXO of `asset` that covers `amount`.
+    /// Transfer `amount` of `asset` from `from` to `to` spending a single UTXO at the
+    /// 1x2 shape. Picks a spendable UTXO of `asset` that covers `amount`.
     pub fn transfer_single(
         &mut self,
         from: &str,
@@ -105,7 +106,7 @@ impl LifecycleHarness {
                 })?;
             vec![actor.spendable.remove(pos)]
         };
-        self.execute_transfer(from, Some(to), inputs, asset, amount)
+        self.execute_transfer(from, &[to], inputs, asset, amount, None)
     }
 
     /// Consolidate a single UTXO of `asset` with no recipient, so the only output is
@@ -121,41 +122,76 @@ impl LifecycleHarness {
                 .ok_or_else(|| anyhow!("{from} needs a spendable UTXO of {asset}"))?;
             actor.spendable.remove(pos)
         };
-        self.execute_transfer(from, None, vec![input], asset, 0)
+        self.execute_transfer(from, &[], vec![input], asset, 0, None)
+    }
+
+    /// Transfer `amount` of SOL from `from` to each of `recipients`, spending
+    /// `input_count` of `from`'s spendable SOL UTXOs at `shape` with compact
+    /// padding. Every output is real: one per recipient plus the sender's change.
+    pub fn transfer_to_many(
+        &mut self,
+        from: &str,
+        recipients: &[&str],
+        input_count: usize,
+        amount: u64,
+        shape: Shape,
+    ) -> Result<Signature> {
+        self.ensure_fresh_actor(from)?;
+        for recipient in recipients {
+            self.ensure_fresh_actor(recipient)?;
+        }
+        let inputs: Vec<Utxo> = {
+            let actor = self.actor_mut(from);
+            let mut taken = Vec::with_capacity(input_count);
+            for _ in 0..input_count {
+                let pos = actor
+                    .spendable
+                    .iter()
+                    .position(|u| u.asset.asset == SOL_MINT)
+                    .ok_or_else(|| anyhow!("{from} needs {input_count} spendable SOL UTXOs"))?;
+                taken.push(actor.spendable.remove(pos));
+            }
+            taken
+        };
+        self.execute_transfer(from, recipients, inputs, SOL_MINT, amount, Some(shape))
     }
 
     /// Build, prove, and submit a transfer of `amount` of `send_asset` from
-    /// `from` to `to` (or to no one, for a change-only consolidation) spending
-    /// `inputs`. Records the recipient UTXO and the per-asset sender change
+    /// `from` to each of `recipients` (or to no one, for a change-only
+    /// consolidation) spending `inputs`, at `shape` with compact padding or at
+    /// the smallest shape that fits with random padding. Records the recipient UTXOs and the per-asset sender change
     /// (decrypting each output's own ciphertext for the blinding), and marks
     /// consumed decrypted inputs spent.
     fn execute_transfer(
         &mut self,
         from: &str,
-        to: Option<&str>,
+        recipients: &[&str],
         inputs: Vec<Utxo>,
         send_asset: Address,
         amount: u64,
+        shape: Option<Shape>,
     ) -> Result<Signature> {
         let send_input: u64 = inputs
             .iter()
             .filter(|u| u.asset.asset == send_asset)
             .map(|u| u.amount)
             .sum();
-        if send_input < amount {
+        let sent_total = u64::try_from(recipients.len())?
+            .checked_mul(amount)
+            .ok_or_else(|| anyhow!("sent amount overflows"))?;
+        if send_input < sent_total {
             return Err(anyhow!(
-                "{from} has {send_input} of the sent asset, need {amount}"
+                "{from} has {send_input} of the sent asset, need {sent_total}"
             ));
         }
 
         let from_keypair = self.actor(from).keypair.clone();
-        let to_keypair = to.map(|t| self.actor(t).keypair.clone());
-        let to_address = to_keypair
-            .as_ref()
-            .map(|k| k.shielded_address())
-            .transpose()?;
-        let to_view_tag = to_keypair
-            .as_ref()
+        let recipient_keypairs = recipients
+            .iter()
+            .map(|recipient| self.actor(recipient).keypair.clone())
+            .collect::<Vec<_>>();
+        let to_view_tag = recipient_keypairs
+            .first()
             .map(|k| k.signing_pubkey().confidential_view_tag())
             .transpose()?;
         // Every actor pays and signs its own spend (the owner sits at signer index
@@ -193,13 +229,20 @@ impl LifecycleHarness {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        let mut transfer = ConfidentialTransaction::new(indexed_inputs, payer_address)?;
-        if let Some(addr) = &to_address {
+        let mut transfer = match shape {
+            Some(_) => ConfidentialTransaction::new_compact(indexed_inputs, payer_address)?,
+            None => ConfidentialTransaction::new(indexed_inputs, payer_address)?,
+        };
+        for keypair in &recipient_keypairs {
+            let addr = keypair.shielded_address()?;
             if send_asset == SOL_MINT {
-                transfer.transfer_sol(addr, amount)?;
+                transfer.transfer_sol(&addr, amount)?;
             } else {
-                transfer.transfer(addr, send_asset, amount)?;
+                transfer.transfer(&addr, send_asset, amount)?;
             }
+        }
+        if let Some(shape) = shape {
+            transfer.pad_utxos(shape, &from_keypair.shielded_address()?)?;
         }
         let proof_inputs = transfer.encrypt(&from_keypair)?;
         let finalized_outputs = proof_inputs.output_utxos.clone();
@@ -241,12 +284,18 @@ impl LifecycleHarness {
             data: ix_data,
         }
         .instruction();
+        let budget = ComputeBudgetConfig::new(1_400_000);
+        self.last_transaction_size = Some(transaction_size(
+            &fee_payer.pubkey(),
+            std::slice::from_ref(&transfer_ix),
+            budget,
+        )?);
         let sig = send_transaction_with_budget(
             &mut self.rpc,
             std::slice::from_ref(&transfer_ix),
             &fee_payer.pubkey(),
             &[&fee_payer],
-            ComputeBudgetConfig::new(1_400_000),
+            budget,
         )?;
         self.last_transact = Some((sig, transfer_ix));
 
@@ -260,8 +309,8 @@ impl LifecycleHarness {
         // wallet, not a comparison of sync to itself.
 
         let mut expected = Vec::new();
-        if let (Some(to), Some(keypair)) = (to, &to_keypair) {
-            expected.push((to, keypair.signing_pubkey(), send_asset, amount));
+        for (to, keypair) in recipients.iter().zip(&recipient_keypairs) {
+            expected.push((*to, keypair.signing_pubkey(), send_asset, amount));
         }
         let mut assets = Vec::new();
         for input in &inputs {
@@ -275,7 +324,7 @@ impl LifecycleHarness {
                 .filter(|input| input.asset.asset == asset)
                 .map(|input| input.amount)
                 .sum();
-            let change = total - if asset == send_asset { amount } else { 0 };
+            let change = total - if asset == send_asset { sent_total } else { 0 };
             if change > 0 {
                 expected.push((from, from_keypair.signing_pubkey(), asset, change));
             }
@@ -286,7 +335,9 @@ impl LifecycleHarness {
             .skip(expected.len())
             .all(SppProofOutputUtxo::is_dummy));
         for (position, (actor, owner, asset, amount)) in expected.into_iter().enumerate() {
-            let output = &finalized_outputs[position];
+            let output = finalized_outputs
+                .get(position)
+                .ok_or_else(|| anyhow!("missing finalized output {position}"))?;
             assert_eq!(
                 (
                     output.owner_address.unwrap().signing_pubkey,
