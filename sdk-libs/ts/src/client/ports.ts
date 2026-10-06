@@ -107,6 +107,37 @@ export interface RingSpendRecordReader {
   ): Promise<RingSpendRecordLookup>;
 }
 
+/** A user registry record, the shielded address a Solana pubkey publishes. */
+export interface RegistryRecord {
+  readonly owner: Address;
+  /** Absent for a Solana-only owner, whose signing key is the Ed25519 key `owner` encodes. */
+  readonly ownerP256?: P256PublicKey;
+  /** Wallet-wide nullifier pubkey. Never rotates. */
+  readonly nullifierPublicKey: Bytes32;
+  readonly viewingPublicKey: P256PublicKey;
+  /** Opt-in for `merge_transact`: any caller may merge this owner's UTXOs. */
+  readonly mergingEnabled: boolean;
+}
+
+/**
+ * One entry per requested owner, in request order; `null` for an owner with no
+ * record at the slot the registry was read, which is no earlier than
+ * `context.slot`.
+ */
+export interface UserRecordsLookup {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly records: readonly (RegistryRecord | null)[];
+}
+
+/** Reads registry records for many owners in one request. */
+export interface UserRecordReader {
+  getUserRecords(
+    owners: readonly Address[],
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<UserRecordsLookup>;
+}
+
 /** Authenticates insertion of a member's encrypted nullifier key. */
 export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
   readonly lowMember: Bytes32;

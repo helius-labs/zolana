@@ -1,5 +1,6 @@
 use photon_indexer::openapi::update_docs;
 use utoipa::openapi::{OpenApi, RefOr, Required};
+use zolana_indexer_api::MAX_USER_RECORD_OWNERS;
 
 const METHODS: &[&str] = &[
     "getEncryptedUtxosByTags",
@@ -15,6 +16,7 @@ const METHODS: &[&str] = &[
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",
     "getShieldedTransactionsByTags",
+    "getUserRecords",
 ];
 
 #[test]
@@ -84,5 +86,13 @@ pub fn test_documentation_generation() -> anyhow::Result<()> {
         .components
         .as_ref()
         .is_some_and(|components| !components.schemas.is_empty()));
+
+    // The documented ceiling is a literal in the schema attribute; keep it the
+    // ceiling the handler enforces.
+    let spec: serde_json::Value = serde_norway::from_str(&rings_spec)?;
+    let owners = &spec["paths"]["/getUserRecords"]["post"]["requestBody"]["content"]
+        ["application/json"]["schema"]["properties"]["params"]["properties"]["owners"];
+    assert_eq!(owners["maxItems"], MAX_USER_RECORD_OWNERS);
+    assert_eq!(owners["minItems"], 1);
     Ok(())
 }

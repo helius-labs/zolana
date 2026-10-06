@@ -18,13 +18,14 @@ use zolana_client::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
-        MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
-        RingSpendRecordRequest, Rpc, ShieldedTransaction,
+        GetUserRecordsResponse, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
+        OutputSlot, RingSpendRecordRequest, Rpc, ShieldedTransaction, UserRecord,
     },
     ClientError,
 };
 use zolana_indexer_api::{Hash as ApiHash, SerializablePubkey};
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_user_registry_interface::user_record_pda;
 
 #[test]
 fn decodes_compressed_p256_pubkey() {
@@ -616,6 +617,104 @@ fn spend_record_transport_returns_the_indexed_record() {
     assert_eq!(record.output_index, 2);
     assert_eq!(record.transaction.slot, 18);
     assert_eq!(record.transaction.event_index, Some(1));
+}
+
+#[test]
+fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
+    let owners = [
+        Address::new_from_array([1; 32]),
+        Address::new_from_array([2; 32]),
+        Address::new_from_array([3; 32]),
+    ];
+    let server = MockServer::respond_once(rpc_result(json!({
+        "context": { "blockTime": 42, "slot": 77 },
+        "records": [
+            {
+                "owner": encode_pubkey_string(owners[0]),
+                "ownerP256": STANDARD.encode([7; P256_PUBKEY_LEN]),
+                "nullifierPubkey": encode_hash_string(bytes32(3)),
+                "viewingPubkey": STANDARD.encode([4; P256_PUBKEY_LEN]),
+                "mergingEnabled": true,
+            },
+            null,
+            {
+                "owner": encode_pubkey_string(owners[2]),
+                "ownerP256": null,
+                "nullifierPubkey": encode_hash_string(bytes32(5)),
+                "viewingPubkey": STANDARD.encode([6; P256_PUBKEY_LEN]),
+                "mergingEnabled": false,
+            },
+        ],
+    })));
+
+    let got = ZolanaIndexer::new(server.url())
+        .get_user_records(owners.to_vec(), None)
+        .expect("user record lookup");
+    let request = server.request();
+
+    assert_eq!(request.path, "/getUserRecords");
+    assert_json_rpc_request(&request.body, "getUserRecords");
+    assert_eq!(
+        request.body["params"],
+        json!({ "owners": owners.iter().map(|owner| encode_pubkey_string(*owner)).collect::<Vec<_>>() })
+    );
+    assert_eq!(
+        got,
+        GetUserRecordsResponse {
+            context: Context {
+                block_time: 42,
+                slot: 77
+            },
+            records: vec![
+                Some(UserRecord {
+                    owner: owners[0],
+                    bump: user_record_pda(&owners[0]).1,
+                    owner_p256: Some([7; P256_PUBKEY_LEN]),
+                    nullifier_pubkey: bytes32(3),
+                    viewing_pubkey: [4; P256_PUBKEY_LEN],
+                    merging_enabled: true,
+                }),
+                None,
+                Some(UserRecord {
+                    owner: owners[2],
+                    bump: user_record_pda(&owners[2]).1,
+                    owner_p256: None,
+                    nullifier_pubkey: bytes32(5),
+                    viewing_pubkey: [6; P256_PUBKEY_LEN],
+                    merging_enabled: false,
+                }),
+            ],
+        }
+    );
+}
+
+#[tokio::test]
+async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
+    let owner = Address::new_from_array([1; 32]);
+    let server = MockServer::respond_once(rpc_result(json!({
+        "context": { "blockTime": 42, "slot": 77 },
+        "records": [{
+            "owner": encode_pubkey_string(owner),
+            "ownerP256": null,
+            "nullifierPubkey": encode_hash_string(bytes32(3)),
+            "viewingPubkey": STANDARD.encode([4; 32]),
+            "mergingEnabled": false,
+        }],
+    })));
+
+    let error = AsyncZolanaIndexer::new(server.url())
+        .get_user_records(vec![owner], None)
+        .await
+        .expect_err("a 32-byte viewing key is not a P256 point");
+    let _ = server.request();
+
+    assert!(
+        matches!(
+            &error,
+            ClientError::Rpc(message) if message.contains("records[0].viewingPubkey")
+        ),
+        "{error}"
+    );
 }
 
 #[tokio::test]

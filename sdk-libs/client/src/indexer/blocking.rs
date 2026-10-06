@@ -18,8 +18,8 @@ use crate::{
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, RingHistoryOptions,
-        RingMemberProofRequest, RingSpendRecordRequest, Rpc,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
+        RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest, Rpc,
     },
 };
 
@@ -28,8 +28,8 @@ use super::{
         convert_context, convert_encrypted_utxo_match, convert_merkle_proof,
         convert_non_inclusion_proof, convert_shielded_transaction,
         convert_shielded_transactions_by_signature_response,
-        convert_shielded_transactions_response, encode_cursor, encode_hash, encode_pubkey,
-        ring_history_request,
+        convert_shielded_transactions_response, convert_user_records_response, encode_cursor,
+        encode_hash, encode_pubkey, ring_history_request,
     },
     error::indexer_error,
 };
@@ -351,6 +351,25 @@ impl Rpc for ZolanaIndexer {
         self.api
             .get_ring_key_registry_register_proof(request)
             .map_err(indexer_error)
+    }
+
+    fn get_user_records(
+        &self,
+        owners: Vec<Address>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetUserRecordsResponse, ClientError> {
+        wait_for_indexer(
+            config,
+            |response: &GetUserRecordsResponse| response.context,
+            || {
+                let response = self
+                    .api
+                    .get_user_records(owners.iter().copied().map(encode_pubkey).collect())
+                    .map_err(indexer_error)?;
+
+                convert_user_records_response(response)
+            },
+        )
     }
 }
 

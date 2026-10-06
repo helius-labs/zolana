@@ -131,6 +131,10 @@ Added
   `buildSplitTransaction`, `buildMergeTransaction` and the ring transaction
   builders wait out `CLIENT_INDEXER_PROOF_DATA_NOT_READY` up to the retry
   bound instead of failing.
+- `ZolanaClient.getUserRecords(owners)` and the `UserRecordReader` port read
+  the registry records of up to 100 owners from the indexer in one request,
+  returning a `UserRecordsLookup` with one `RegistryRecord` or `null` per
+  owner in request order.
 - `buildKeyUpdateTransaction(input)` replaces the viewing key published for an
   owner, returns `undefined` when the record already holds the address, and
   rejects a missing record and a changed nullifier key.

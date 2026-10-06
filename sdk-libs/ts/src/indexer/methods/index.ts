@@ -14,6 +14,8 @@ import {
   decodeRingSpendRecordResponse,
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
+  decodeUserRecordsResponse,
+  encodeUserRecordsRequest,
 } from "../codec.js";
 import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
@@ -25,6 +27,7 @@ import {
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
+  GET_USER_RECORDS,
 } from "../names.js";
 import type {
   GetEncryptedUtxosByTagsResponse,
@@ -39,6 +42,8 @@ import type {
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
   GetRingSpendRecordResponse,
+  GetUserRecordsRequest,
+  GetUserRecordsResponse,
   RingMemberProofRequest,
   RingMemberRequest,
   RingKeyRegistryEntry,
@@ -129,3 +134,10 @@ export const getNonInclusionProofsMethod: MethodDescriptor<
   encodeRequest: encodeNonInclusionProofsRequest,
   decodeResponse: decodeNonInclusionProofsResponse,
 };
+
+export const getUserRecordsMethod: MethodDescriptor<GetUserRecordsRequest, GetUserRecordsResponse> =
+  {
+    name: GET_USER_RECORDS,
+    encodeRequest: encodeUserRecordsRequest,
+    decodeResponse: decodeUserRecordsResponse,
+  };

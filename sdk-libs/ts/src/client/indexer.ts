@@ -1,3 +1,5 @@
+import { isAddress } from "@solana/kit";
+
 import { ZolanaApi, ApiError } from "../api/index.js";
 import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
@@ -9,7 +11,9 @@ import type {
   MerkleProof as WireMerkleProof,
   NonInclusionProof as WireNonInclusionProof,
   RingsOutputSlot as WireOutputSlot,
+  UserRecord as WireUserRecord,
 } from "../indexer/types.js";
+import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
 import type {
   Address,
   Bytes16,
@@ -23,11 +27,13 @@ import type { IndexedShieldedTransaction } from "../transaction/instructions/tra
 
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
 import type {
+  RegistryRecord,
   RingMemberProofRequest,
   RingMemberRequest,
   RingSpendRecordLookup,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
+  UserRecordsLookup,
 } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
 import {
@@ -217,6 +223,39 @@ export class ZolanaIndexer {
     }
   }
 
+  getUserRecords(
+    owners: readonly Address[],
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<UserRecordsLookup> {
+    const requested = copyOwners(owners);
+    return pollIndexer(config, context, async () => {
+      const method = "getUserRecords";
+      try {
+        const response = await this.#api.getUserRecords({ owners: requested }, context);
+        if (response.records.length !== requested.length) {
+          throw invalidResponse(method, "$.records", requested.length, response.records.length);
+        }
+        return Object.freeze({
+          context: Object.freeze({
+            blockTime: response.context.blockTime,
+            slot: response.context.slot,
+          }),
+          records: Object.freeze(
+            requested.map((owner, index) => {
+              const record = response.records[index];
+              const path = `$.records[${String(index)}]`;
+              if (record === undefined) throw invalidResponse(method, path);
+              return record === null ? null : convertRegistryRecord(record, owner, method, path);
+            }),
+          ),
+        });
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
+  }
+
   getShieldedTransactionsBySignature(
     signature: Signature,
     config?: IndexerRpcConfig,
@@ -319,6 +358,51 @@ function decodeCiphertext(value: string, method: string, path: string): Bytes32 
   const bytes = decodeBase64(value, path);
   if (bytes.length !== 32) throw invalidResponse(method, path, 32, bytes.length);
   return bytes as Bytes32;
+}
+
+function copyOwners(owners: readonly Address[]): readonly Address[] {
+  const values: unknown = owners;
+  if (!Array.isArray(values)) {
+    throw new ClientError("CLIENT_INVALID_FIELD", { details: { field: "owners" } });
+  }
+  if (values.length < 1 || values.length > MAX_USER_RECORD_OWNERS) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: {
+        field: "owners",
+        expected: values.length < 1 ? 1 : MAX_USER_RECORD_OWNERS,
+        actual: values.length,
+      },
+    });
+  }
+  return Object.freeze(
+    values.map((owner: unknown, index) => {
+      if (typeof owner !== "string" || !isAddress(owner)) {
+        throw new ClientError("CLIENT_INVALID_FIELD", {
+          details: { field: `owners[${String(index)}]` },
+        });
+      }
+      return owner;
+    }),
+  );
+}
+
+/** The indexer answers from the owner's canonical record, so the record's owner is the requested one. */
+function convertRegistryRecord(
+  record: WireUserRecord,
+  owner: Address,
+  method: string,
+  path: string,
+): RegistryRecord {
+  if (record.owner !== owner) throw invalidResponse(method, `${path}.owner`);
+  return Object.freeze({
+    owner: record.owner,
+    ...(record.ownerP256 === undefined
+      ? {}
+      : { ownerP256: decodeP256(record.ownerP256, method, `${path}.ownerP256`) }),
+    nullifierPublicKey: hashBytes(record.nullifierPubkey),
+    viewingPublicKey: decodeP256(record.viewingPubkey, method, `${path}.viewingPubkey`),
+    mergingEnabled: record.mergingEnabled,
+  });
 }
 
 function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {

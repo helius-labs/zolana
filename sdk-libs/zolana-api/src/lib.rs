@@ -8,7 +8,7 @@ use zolana_indexer_api::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
         GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByTags, GetUserRecords,
     },
     RpcMethod,
 };
@@ -21,11 +21,12 @@ pub use zolana_indexer_api::{
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, Hash,
-    IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
-    ShieldedTransaction, PAGE_LIMIT,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
+    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement, RingMemberProofRequest,
+    RingSpendRecord, RingSpendRecordRequest, RingsOutputContext, RingsOutputSlot,
+    SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
+    MAX_USER_RECORD_OWNERS, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -291,6 +292,14 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_user_records(
+        &self,
+        owners: Vec<SerializablePubkey>,
+    ) -> Result<GetUserRecordsResponse, ApiError> {
+        self.call::<GetUserRecords>(user_records_request(owners)?)
+            .await
+    }
+
     async fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
     where
         M: RpcMethod,
@@ -476,6 +485,13 @@ impl BlockingZolanaApi {
         })
     }
 
+    pub fn get_user_records(
+        &self,
+        owners: Vec<SerializablePubkey>,
+    ) -> Result<GetUserRecordsResponse, ApiError> {
+        self.call::<GetUserRecords>(user_records_request(owners)?)
+    }
+
     fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
     where
         M: RpcMethod,
@@ -530,6 +546,18 @@ fn required_limit(value: u64) -> Result<Limit, ApiError> {
         field: "limit",
         message,
     })
+}
+
+fn user_records_request(
+    owners: Vec<SerializablePubkey>,
+) -> Result<GetUserRecordsRequest, ApiError> {
+    if owners.is_empty() || owners.len() > MAX_USER_RECORD_OWNERS {
+        return Err(ApiError::InvalidRequest {
+            field: "owners",
+            message: "value must name between 1 and 100 owners",
+        });
+    }
+    Ok(GetUserRecordsRequest { owners })
 }
 
 fn unwrap_response<M>(response: JsonRpcResponse<M::Response>) -> Result<M::Response, ApiError>
@@ -668,5 +696,25 @@ mod tests {
             Err(ApiError::InvalidRequest { field: "limit", .. })
         ));
         assert!(required_limit(zolana_indexer_api::PAGE_LIMIT).is_ok());
+    }
+
+    #[test]
+    fn rejects_an_empty_or_oversized_owner_list_before_transport() {
+        let owner = SerializablePubkey::from([1; 32]);
+        assert!(matches!(
+            user_records_request(Vec::new()),
+            Err(ApiError::InvalidRequest {
+                field: "owners",
+                ..
+            })
+        ));
+        assert!(matches!(
+            user_records_request(vec![owner; MAX_USER_RECORD_OWNERS + 1]),
+            Err(ApiError::InvalidRequest {
+                field: "owners",
+                ..
+            })
+        ));
+        assert!(user_records_request(vec![owner; MAX_USER_RECORD_OWNERS]).is_ok());
     }
 }

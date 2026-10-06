@@ -12,7 +12,7 @@ use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByTags, GetUserRecords,
     },
     RpcMethod,
 };
@@ -167,6 +167,17 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
 
+    module.register_async_method(
+        GetUserRecords::NAME,
+        |rpc_params, rpc_context, _extensions| async move {
+            let api = rpc_context.as_ref();
+            let payload = rpc_params.parse()?;
+            api.get_user_records(payload)
+                .await
+                .map_err(ErrorObjectOwned::from)
+        },
+    )?;
+
     #[cfg(feature = "ring-projection")]
     if ring_projection {
         module.register_async_method(
@@ -222,6 +233,7 @@ mod tests {
         assert!(methods.contains(&"getMerkleProofs"));
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
+        assert!(methods.contains(&"getUserRecords"));
         assert!(!methods.contains(&"getRingKeyRegistryEntry"));
         assert!(!methods.contains(&"getRingKeyRegistryRegisterProof"));
         assert!(!methods.contains(&"getRingSpendRecord"));

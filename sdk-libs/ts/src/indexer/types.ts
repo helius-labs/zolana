@@ -214,3 +214,34 @@ export interface GetNonInclusionProofsResponse {
   readonly context: IndexerContext;
   readonly proofs: readonly NonInclusionProof[];
 }
+
+export interface GetUserRecordsRequest {
+  /** At most `MAX_USER_RECORD_OWNERS`. */
+  readonly owners: readonly Address[];
+}
+
+/** A user registry record, the shielded address a Solana pubkey publishes. */
+export interface UserRecord {
+  readonly owner: Address;
+  /**
+   * SEC1-compressed P256 signing pubkey. Absent for a Solana-only owner, whose
+   * signing key is the Ed25519 key `owner` encodes.
+   */
+  readonly ownerP256?: Base64String;
+  /** Wallet-wide nullifier pubkey. Never rotates. */
+  readonly nullifierPubkey: Hash;
+  /** SEC1-compressed P256 ECDH viewing pubkey. */
+  readonly viewingPubkey: Base64String;
+  /** Opt-in for `merge_transact`: any caller may merge this owner's UTXOs. */
+  readonly mergingEnabled: boolean;
+}
+
+export interface GetUserRecordsResponse {
+  readonly context: IndexerContext;
+  /**
+   * One entry per requested owner, in request order; `null` for an owner with
+   * no record at the slot the records were read, which is no earlier than
+   * `context.slot`.
+   */
+  readonly records: readonly (UserRecord | null)[];
+}

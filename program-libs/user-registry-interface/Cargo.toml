@@ -8,7 +8,10 @@ publish = false
 
 [features]
 default = []
-solana = ["dep:solana-instruction", "dep:solana-secp256r1-program"]
+# Host-side PDA derivation only; `solana` adds the instruction builders and
+# their P-256 verification dependency.
+pda = ["solana-pubkey/curve25519"]
+solana = ["pda", "dep:solana-instruction", "dep:solana-secp256r1-program"]
 
 [dependencies]
 borsh = { workspace = true }

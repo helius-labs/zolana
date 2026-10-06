@@ -955,6 +955,132 @@ paths:
                     type: string
                   jsonrpc:
                     type: string
+  /getUserRecords:
+    summary: getUserRecords
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getUserRecords
+                params:
+                  type: object
+                  required:
+                  - owners
+                  properties:
+                    owners:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/SerializablePubkey'
+                      description: Solana pubkeys to look up in the user registry. At most 100.
+                      maxItems: 100
+                      minItems: 1
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - records
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      records:
+                        type: array
+                        items:
+                          oneOf:
+                          - type: 'null'
+                          - $ref: '#/components/schemas/UserRecord'
+                        description: |-
+                          One entry per requested owner, in request order. `null` when the owner
+                          has no registry record at the slot the records were read, which is no
+                          earlier than `context.slot`.
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
 components:
   schemas:
     Base64String:
@@ -1254,3 +1380,31 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
+    UserRecord:
+      type: object
+      description: A user registry record, the shielded address a Solana pubkey publishes.
+      required:
+      - owner
+      - nullifierPubkey
+      - viewingPubkey
+      - mergingEnabled
+      properties:
+        mergingEnabled:
+          type: boolean
+          description: Opt-in for `merge_transact`. When true, any caller may merge this owner's UTXOs.
+        nullifierPubkey:
+          $ref: '#/components/schemas/Hash'
+          description: Wallet-wide nullifier pubkey. Never rotates.
+        owner:
+          $ref: '#/components/schemas/SerializablePubkey'
+        ownerP256:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Base64String'
+            description: |-
+              SEC1-compressed P256 signing pubkey (33 bytes). `null` for Solana-only
+              owners, whose signing key is the Ed25519 key `owner` encodes.
+        viewingPubkey:
+          $ref: '#/components/schemas/Base64String'
+          description: SEC1-compressed P256 ECDH viewing pubkey (33 bytes).
+      additionalProperties: false

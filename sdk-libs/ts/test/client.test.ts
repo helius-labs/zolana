@@ -616,6 +616,30 @@ describe("ZolanaClient", () => {
     });
   });
 
+  it("forwards a user record lookup through the client facade", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "test-account",
+            jsonrpc: "2.0",
+            result: { context: { blockTime: 1, slot: 9 }, records: [null] },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    const lookup = await client(fetch).getUserRecords([TREE]);
+
+    expect(lookup).toEqual({ context: { blockTime: 1n, slot: 9n }, records: [null] });
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:8784/getUserRecords");
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      method: "getUserRecords",
+      params: { owners: [TREE] },
+    });
+  });
+
   it("preserves a ring filter for empty-tag scans and refuses an unscoped scan", async () => {
     const requests: unknown[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {

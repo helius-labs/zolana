@@ -12,6 +12,8 @@ import type {
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
   GetRingSpendRecordResponse,
+  GetUserRecordsRequest,
+  GetUserRecordsResponse,
   RingMemberProofRequest,
   RingMemberRequest,
   RingKeyRegistryEntry,
@@ -29,6 +31,7 @@ import {
   getRingSpendRecordMethod,
   getRingKeyRegistryEntryMethod,
   getRingKeyRegistryRegisterProofMethod,
+  getUserRecordsMethod,
 } from "../indexer/methods/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import {
@@ -144,6 +147,13 @@ export class ZolanaApi {
     context?: RequestContext,
   ): Promise<GetNonInclusionProofsResponse> {
     return this.#call(getNonInclusionProofsMethod, request, context);
+  }
+
+  getUserRecords(
+    request: GetUserRecordsRequest,
+    context?: RequestContext,
+  ): Promise<GetUserRecordsResponse> {
+    return this.#call(getUserRecordsMethod, request, context);
   }
 
   async #call<Request, Response>(
@@ -326,7 +336,7 @@ function hasControlCharacter(value: string): boolean {
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|merkleContext|nextCursor|nullifiers|outputContext|outputSlot|outputSlots|path|payload|proofless|proofs|root|rootIndex|rootSeq|salt|scannedThrough|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag)";
+    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|mergingEnabled|merkleContext|nextCursor|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|owner|ownerP256|owners|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|scannedThrough|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

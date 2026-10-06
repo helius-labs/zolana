@@ -70,6 +70,7 @@
     - [subscribeToShieldedTransactionsByTags](#subscribetoshieldedtransactionsbytags)
     - [getMerkleProofs](#getmerkleproofs)
     - [getNonInclusionProofs](#getnoninclusionproofs)
+    - [getUserRecords](#getuserrecords)
   - [Prover](#prover)
   - [Relayer](#relayer)
   - [Ring RPC](#ring-rpc)
@@ -2602,6 +2603,24 @@ struct NonInclusionProof {
     /// update consume no entry. Copy it into the corresponding
     /// `*_root_index` field.
     root_index: u16,
+}
+```
+
+### `getUserRecords`
+
+Returns the [registry](#registry) records of up to 100 Solana pubkeys in one request. The indexer does not index the registry; it reads the owners' record accounts from the chain at a slot no earlier than `context.slot` and answers in request order.
+
+```rust
+struct GetUserRecordsRequest {
+    /// At most 100.
+    owners: Vec<Address>,
+}
+
+struct GetUserRecordsResponse {
+    context: Context,
+    /// One entry per requested owner, in request order; `None` for an owner
+    /// with no [Record](#record) at the slot the records were read.
+    records: Vec<Option<Record>>,
 }
 ```
 
