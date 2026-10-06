@@ -19,8 +19,8 @@ pub use types::{
     GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
-    RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, ShieldedTransaction,
-    ShieldedTransactionStream,
+    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
+    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult,
+    RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    ShieldedTransaction, ShieldedTransactionStream, UserRecord,
 };

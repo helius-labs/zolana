@@ -9,6 +9,7 @@ pub use zolana_indexer_api::{
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
+pub use zolana_user_registry_interface::UserRecord;
 
 use crate::{error::ClientError, prover::ProofCompressed};
 
@@ -17,6 +18,15 @@ pub struct Context {
     pub block_time: i64,
     /// Highest slot the indexer has persisted.
     pub slot: u64,
+}
+
+/// Registry records read from the chain at one slot, one per requested owner
+/// in request order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GetUserRecordsResponse {
+    pub context: Context,
+    /// `None` for an owner with no record at `context.slot`.
+    pub records: Vec<Option<UserRecord>>,
 }
 
 /// Identifies the tree a proof was produced against.

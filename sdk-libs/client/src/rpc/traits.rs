@@ -21,8 +21,8 @@ use super::{
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
         GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        ProveResult, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
-        ShieldedTransactionStream,
+        GetUserRecordsResponse, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+        RingSpendRecordRequest, ShieldedTransactionStream,
     },
 };
 
@@ -231,6 +231,16 @@ pub trait Rpc {
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
         Err(unsupported("get_ring_key_registry_register_proof"))
+    }
+
+    /// Registry records for up to `MAX_USER_RECORD_OWNERS` owners, read at one
+    /// slot and returned in request order.
+    fn get_user_records(
+        &self,
+        owners: Vec<Address>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetUserRecordsResponse, ClientError> {
+        Err(unsupported("get_user_records"))
     }
 
     /// Resolve the state-inclusion and nullifier-non-inclusion proofs for each
@@ -451,6 +461,15 @@ pub trait AsyncRpc: Send + Sync {
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
         Err(unsupported("get_ring_key_registry_register_proof"))
+    }
+
+    /// See [`Rpc::get_user_records`].
+    async fn get_user_records(
+        &self,
+        owners: Vec<Address>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetUserRecordsResponse, ClientError> {
+        Err(unsupported("get_user_records"))
     }
 
     async fn get_input_merkle_proofs(

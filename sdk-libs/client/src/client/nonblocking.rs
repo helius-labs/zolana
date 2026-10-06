@@ -23,8 +23,8 @@ use crate::{
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
         GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        IndexerRpcConfig, ProveResult, RingHistoryOptions, RingMemberProofRequest,
-        RingSpendRecordRequest, ShieldedTransactionStream,
+        GetUserRecordsResponse, IndexerRpcConfig, ProveResult, RingHistoryOptions,
+        RingMemberProofRequest, RingSpendRecordRequest, ShieldedTransactionStream,
     },
 };
 
@@ -274,6 +274,16 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
         self.async_indexer
             .get_ring_key_registry_register_proof(request)
+            .await
+    }
+
+    async fn get_user_records(
+        &self,
+        owners: Vec<Address>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetUserRecordsResponse, ClientError> {
+        self.async_indexer
+            .get_user_records(owners, Some(config.unwrap_or(self.indexer_config)))
             .await
     }
 

@@ -61,10 +61,11 @@ pub use rpc::{
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, RingHistoryOptions, RingMemberProofRequest, RingSpendRecord,
-    RingSpendRecordRequest, Rpc, ShieldedTransaction, ShieldedTransactionStream,
-    MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
+    RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, Rpc, ShieldedTransaction,
+    ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use spendable::SpendableUtxos;

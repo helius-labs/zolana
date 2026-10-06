@@ -4,14 +4,15 @@ use zolana_api::{
     SerializablePubkey,
 };
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_user_registry_interface::user_record_pda;
 
 use crate::{
     error::ClientError,
     rpc::{
         Context, EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, RingHistoryOptions,
-        ShieldedTransaction,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
+        MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
+        RingHistoryOptions, ShieldedTransaction, UserRecord,
     },
 };
 
@@ -177,6 +178,48 @@ pub(super) fn convert_non_inclusion_proof(
         root_seq: proof.root_seq,
         root_index: proof.root_index,
     }
+}
+
+pub(super) fn convert_user_records_response(
+    response: zolana_api::GetUserRecordsResponse,
+) -> Result<GetUserRecordsResponse, ClientError> {
+    Ok(GetUserRecordsResponse {
+        context: convert_context(response.context),
+        records: response
+            .records
+            .into_iter()
+            .enumerate()
+            .map(|(index, record)| {
+                record
+                    .map(|record| convert_user_record(index, record))
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+/// The indexer answers from the owner's canonical PDA, so the record's bump is
+/// the canonical one even though it is not on the wire.
+fn convert_user_record(
+    index: usize,
+    record: zolana_api::UserRecord,
+) -> Result<UserRecord, ClientError> {
+    let field = |name: &str| format!("records[{index}].{name}");
+    Ok(UserRecord {
+        owner: record.owner.0,
+        bump: user_record_pda(&record.owner.0).1,
+        owner_p256: record
+            .owner_p256
+            .map(|key| fixed_bytes(key.0, P256_PUBKEY_LEN, &field("ownerP256")))
+            .transpose()?,
+        nullifier_pubkey: record.nullifier_pubkey.0,
+        viewing_pubkey: fixed_bytes(
+            record.viewing_pubkey.0,
+            P256_PUBKEY_LEN,
+            &field("viewingPubkey"),
+        )?,
+        merging_enabled: record.merging_enabled,
+    })
 }
 
 fn convert_merkle_context(context: zolana_api::MerkleContext) -> MerkleContext {
