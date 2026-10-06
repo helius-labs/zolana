@@ -513,7 +513,7 @@ func runCli() {
 						Usage: "Maximum number of retries for downloading keys",
 						Value: common.DefaultMaxRetries,
 					},
-					&cli.StringFlag{Name: "tee", Usage: "Serve TEE attestation and encrypted requests: dstack", EnvVars: []string{"PROVER_TEE"}},
+					&cli.StringFlag{Name: "tee", Usage: "Serve TEE attestation and encrypted requests: dstack or nitro", EnvVars: []string{"PROVER_TEE"}},
 					&cli.StringFlag{Name: "tee-socket", Usage: "dstack guest agent socket", Value: tee.DefaultSocket},
 					&cli.StringFlag{Name: "tee-pccs-url", Usage: "PCCS the attestation collateral is fetched from", Value: tee.DefaultPCCSURL, EnvVars: []string{"PROVER_TEE_PCCS_URL"}},
 				},
@@ -873,20 +873,33 @@ const shutdownTimeout = 25 * time.Second
 func initializeProofBackend(_ *cli.Context) error { return backend.Initialize() }
 
 func startTEE(context *cli.Context) (*tee.Server, error) {
-	switch mode := context.String("tee"); mode {
+	mode := context.String("tee")
+	attester, err := teeAttester(context, mode)
+	if err != nil {
+		return nil, fmt.Errorf("TEE: %w", err)
+	}
+	if attester == nil {
+		return nil, nil
+	}
+	teeServer, err := tee.New(context.Context, tee.Config{Attester: attester, UsesGPU: backend.UsesGPU()})
+	if err != nil {
+		return nil, fmt.Errorf("TEE: %w", err)
+	}
+	logging.Logger().Info().Str("tee", mode).Hex("hpke_public_key", teeServer.PublicKey()).Bool("gpu", backend.UsesGPU()).Msg("TEE attestation enabled")
+	return teeServer, nil
+}
+
+func teeAttester(context *cli.Context, mode string) (tee.Attester, error) {
+	switch mode {
 	case "":
 		return nil, nil
 	case "dstack":
-		teeServer, err := tee.New(context.Context, tee.Config{
+		return tee.NewDstack(tee.DstackConfig{
 			Socket:  context.String("tee-socket"),
 			PCCSURL: context.String("tee-pccs-url"),
-			UsesGPU: backend.UsesGPU(),
 		})
-		if err != nil {
-			return nil, fmt.Errorf("TEE: %w", err)
-		}
-		logging.Logger().Info().Hex("hpke_public_key", teeServer.PublicKey()).Bool("gpu", backend.UsesGPU()).Msg("TEE attestation enabled")
-		return teeServer, nil
+	case "nitro":
+		return tee.NewNitro()
 	default:
 		return nil, fmt.Errorf("unknown --tee mode %q", mode)
 	}

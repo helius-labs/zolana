@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -83,11 +85,16 @@ func startFakePCCS(t *testing.T, c Collateral) *httptest.Server {
 	return server
 }
 
-func TestAttestationHandler(t *testing.T) {
+func TestDstackAttestationHandler(t *testing.T) {
 	fixture := loadProbeFixture(t)
-	guest := startFakeGuest(t, fixture.Attestation.Quote, fixture.Attestation.EventLog)
-	pccs := startFakePCCS(t, fixture.Attestation.Collateral)
-	s, err := New(context.Background(), Config{Socket: guest.socket, PCCSURL: pccs.URL})
+	want := fixture.evidence(t)
+	guest := startFakeGuest(t, want.Quote, want.EventLog)
+	pccs := startFakePCCS(t, want.Collateral)
+	attester, err := NewDstack(DstackConfig{Socket: guest.socket, PCCSURL: pccs.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(context.Background(), Config{Attester: attester})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,24 +107,51 @@ func TestAttestationHandler(t *testing.T) {
 	}
 
 	nonce := strings.Repeat("22", NonceSize)
+	attestation := serveAttestation(t, s, nonce, "quote", "event_log", "vm_config", "collateral")
+	if attestation.Platform != "dstack-tdx" || attestation.HPKEPublicKey != hex.EncodeToString(s.PublicKey()) || attestation.GPU != nil {
+		t.Fatalf("platform %s key %s gpu %v", attestation.Platform, attestation.HPKEPublicKey, attestation.GPU)
+	}
+	var evidence dstackEvidence
+	if err := json.Unmarshal(attestation.Evidence, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Quote != want.Quote || evidence.VMConfig != `{"cpu_count":24}` {
+		t.Fatal("evidence does not carry the guest quote")
+	}
+	if evidence.Collateral != want.Collateral {
+		t.Fatal("collateral does not round trip through the PCCS fetch")
+	}
+	reportData := ReportData(mustHex(t, nonce), s.PublicKey(), nil)
+	if len(guest.reportData) != 1 || guest.reportData[0] != hex.EncodeToString(reportData[:]) {
+		t.Fatalf("quote requested for report_data %v", guest.reportData)
+	}
+}
+
+// serveAttestation fails unless the answer carries exactly the contract fields.
+func serveAttestation(t *testing.T, s *Server, nonce string, evidenceFields ...string) Attestation {
+	t.Helper()
 	recorder := httptest.NewRecorder()
 	s.AttestationHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, AttestationPath+"?nonce="+nonce, nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", recorder.Code, recorder.Body)
 	}
+	requireFields(t, recorder.Body.Bytes(), "platform", "hpke_public_key", "gpu", "evidence")
 	var attestation Attestation
 	if err := json.Unmarshal(recorder.Body.Bytes(), &attestation); err != nil {
 		t.Fatal(err)
 	}
-	if attestation.Collateral != fixture.Attestation.Collateral {
-		t.Fatal("collateral does not round trip through the PCCS fetch")
+	requireFields(t, attestation.Evidence, evidenceFields...)
+	return attestation
+}
+
+func requireFields(t *testing.T, raw []byte, want ...string) {
+	t.Helper()
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
 	}
-	if attestation.HPKEPublicKey != hex.EncodeToString(s.PublicKey()) || attestation.GPU != nil {
-		t.Fatalf("key %s gpu %v", attestation.HPKEPublicKey, attestation.GPU)
-	}
-	want := ReportData(mustHex(t, nonce), s.PublicKey(), nil)
-	if len(guest.reportData) != 1 || guest.reportData[0] != hex.EncodeToString(want[:]) {
-		t.Fatalf("quote requested for report_data %v", guest.reportData)
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
+		t.Fatalf("fields %v, want %v", got, want)
 	}
 }
 
@@ -133,8 +167,8 @@ func TestAttestationHandlerRejectsBadNonce(t *testing.T) {
 }
 
 func TestPCKPlatformOfFixture(t *testing.T) {
-	fixture := loadProbeFixture(t)
-	chain, err := pckChain(mustHex(t, fixture.Attestation.Quote))
+	evidence := loadProbeFixture(t).evidence(t)
+	chain, err := pckChain(mustHex(t, evidence.Quote))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,13 +179,13 @@ func TestPCKPlatformOfFixture(t *testing.T) {
 	var tcb struct {
 		FMSPC string `json:"fmspc"`
 	}
-	if err := json.Unmarshal([]byte(fixture.Attestation.Collateral.TCBInfo), &tcb); err != nil {
+	if err := json.Unmarshal([]byte(evidence.Collateral.TCBInfo), &tcb); err != nil {
 		t.Fatal(err)
 	}
 	if platform.fmspc != tcb.FMSPC {
 		t.Fatalf("fmspc %s, collateral is for %s", platform.fmspc, tcb.FMSPC)
 	}
-	if _, err := pckChain(mustHex(t, fixture.Attestation.Quote)[:700]); err == nil {
+	if _, err := pckChain(mustHex(t, evidence.Quote)[:700]); err == nil {
 		t.Fatal("truncated quote parsed")
 	}
 }

@@ -32,6 +32,15 @@ func loadProbeFixture(t *testing.T) probeFixture {
 	return fixture
 }
 
+func (f probeFixture) evidence(t *testing.T) dstackEvidence {
+	t.Helper()
+	var evidence dstackEvidence
+	if err := json.Unmarshal(f.Attestation.Evidence, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	return evidence
+}
+
 // TestCaptureProbeFixture rewrites probe_attestation.json with live PCCS collateral.
 func TestCaptureProbeFixture(t *testing.T) {
 	source := os.Getenv("ZOLANA_TEE_CAPTURE")
@@ -64,13 +73,20 @@ func TestCaptureProbeFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	evidence, err := json.Marshal(dstackEvidence{
+		Quote:      phala.AppCertificates[0].Quote,
+		EventLog:   phala.TCBInfo.EventLog,
+		Collateral: collateral,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture := probeFixture{
 		CapturedAt: time.Now().Unix(),
 		Attestation: Attestation{
-			Quote:         phala.AppCertificates[0].Quote,
-			EventLog:      phala.TCBInfo.EventLog,
-			Collateral:    collateral,
+			Platform:      "dstack-tdx",
 			HPKEPublicKey: hex.EncodeToString(make([]byte, 32)),
+			Evidence:      evidence,
 		},
 	}
 	out, err := json.MarshalIndent(fixture, "", "  ")

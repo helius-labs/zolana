@@ -11,14 +11,12 @@ import (
 const AttestationPath = "/tee/v1/attestation"
 
 type Attestation struct {
-	Quote         string          `json:"quote"`
-	EventLog      json.RawMessage `json:"event_log"`
-	VMConfig      string          `json:"vm_config"`
-	Collateral    Collateral      `json:"collateral"`
-	HPKEPublicKey string          `json:"hpke_public_key"`
+	Platform      string `json:"platform"`
+	HPKEPublicKey string `json:"hpke_public_key"`
 	// GPU is the raw NRAS response, already verified inside the TEE and bound
 	// into report_data by its sha256.
-	GPU *string `json:"gpu"`
+	GPU      *string         `json:"gpu"`
+	Evidence json.RawMessage `json:"evidence"`
 }
 
 // AttestationHandler serves GET AttestationPath?nonce=<32 byte hex>.
@@ -64,21 +62,23 @@ func (s *Server) attest(r *http.Request, nonce []byte) (*Attestation, error) {
 		text := string(token)
 		gpu = &text
 	}
-	quote, err := s.guest.quote(ctx, ReportData(nonce, s.publicKey, gpuToken))
+	evidence, err := s.attester.evidence(ctx, evidenceRequest{
+		nonce:      nonce,
+		reportData: ReportData(nonce, s.publicKey, gpuToken),
+		publicKey:  s.publicKey,
+	})
 	if err != nil {
 		return nil, err
 	}
-	collateral, err := s.collateral.forQuote(ctx, quote.Quote)
+	encoded, err := json.Marshal(evidence)
 	if err != nil {
 		return nil, err
 	}
 	return &Attestation{
-		Quote:         hex.EncodeToString(quote.Quote),
-		EventLog:      quote.EventLog,
-		VMConfig:      quote.VMConfig,
-		Collateral:    collateral,
+		Platform:      s.attester.platform(),
 		HPKEPublicKey: hex.EncodeToString(s.publicKey),
 		GPU:           gpu,
+		Evidence:      encoded,
 	}, nil
 }
 

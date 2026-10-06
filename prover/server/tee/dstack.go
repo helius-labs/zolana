@@ -3,14 +3,82 @@ package tee
 import (
 	"bytes"
 	"context"
+	"crypto/hpke"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"time"
 )
+
+const (
+	DefaultSocket = "/var/run/dstack.sock"
+	keyPath       = "zolana/prover/hpke/v1"
+)
+
+type DstackConfig struct {
+	Socket  string
+	PCCSURL string
+}
+
+type dstack struct {
+	guest      *guest
+	collateral *collateralSource
+}
+
+type dstackEvidence struct {
+	Quote      string          `json:"quote"`
+	EventLog   json.RawMessage `json:"event_log"`
+	VMConfig   string          `json:"vm_config"`
+	Collateral Collateral      `json:"collateral"`
+}
+
+// NewDstack attests from an Intel TDX confidential VM on Phala dstack.
+func NewDstack(config DstackConfig) (Attester, error) {
+	if _, err := os.Stat(config.Socket); err != nil {
+		return nil, fmt.Errorf("dstack guest agent socket: %w", err)
+	}
+	return &dstack{guest: newGuest(config.Socket), collateral: newCollateralSource(config.PCCSURL)}, nil
+}
+
+func (d *dstack) platform() string { return "dstack-tdx" }
+
+func (d *dstack) hostsGPU() bool { return true }
+
+func (d *dstack) key(ctx context.Context) (hpke.PrivateKey, error) {
+	secret, err := d.guest.key(ctx, keyPath)
+	if err != nil {
+		return nil, err
+	}
+	return deriveKey(secret)
+}
+
+func (d *dstack) evidence(ctx context.Context, in evidenceRequest) (any, error) {
+	quote, err := d.guest.quote(ctx, in.reportData)
+	if err != nil {
+		return nil, err
+	}
+	collateral, err := d.collateral.forQuote(ctx, quote.Quote)
+	if err != nil {
+		return nil, err
+	}
+	return dstackEvidence{
+		Quote:      hex.EncodeToString(quote.Quote),
+		EventLog:   quote.EventLog,
+		VMConfig:   quote.VMConfig,
+		Collateral: collateral,
+	}, nil
+}
+
+// deriveKey runs RFC 9180 DeriveKeyPair on the KMS secret, so every replica
+// of the app serves the key pinned in client releases.
+func deriveKey(secret []byte) (hpke.PrivateKey, error) {
+	kem, _, _ := suite()
+	return kem.DeriveKeyPair(secret)
+}
 
 // guest speaks the dstack v0 guest agent API, the one dstack-nvidia-0.5.x serves.
 type guest struct {

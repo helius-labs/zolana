@@ -8,11 +8,22 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 
 	"zolana/prover/logging"
+)
+
+const (
+	codeVersionUnsupported = "tee_version_unsupported"
+	codeRequestMalformed   = "tee_request_malformed"
+	// Reserved for an HPKE failure, a client re-attests on it when the platform rotates its key per boot.
+	codeDecryptionFailed = "tee_decryption_failed"
+
+	// Nenc of DHKEM(X25519), RFC 9180.
+	encSize = 32
 )
 
 // Wrap passes a request without HeaderVersion through unencrypted, so TEE use
@@ -25,17 +36,22 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		if version != Version {
-			rejectEncrypted(w, "tee_version_unsupported")
+			rejectEncrypted(w, codeVersionUnsupported)
 			return
 		}
 		// net/http drops a HEAD answer body, so its encrypted answer never arrives.
 		if r.Method == http.MethodHead {
-			rejectEncrypted(w, "tee_decryption_failed")
+			rejectEncrypted(w, codeRequestMalformed)
 			return
 		}
-		plaintext, responseKey, err := s.decrypt(w, r)
+		enc, ciphertext, err := readEncrypted(w, r)
 		if err != nil {
-			rejectEncrypted(w, "tee_decryption_failed")
+			rejectEncrypted(w, codeRequestMalformed)
+			return
+		}
+		plaintext, responseKey, err := s.open(r, enc, ciphertext)
+		if err != nil {
+			rejectEncrypted(w, codeDecryptionFailed)
 			return
 		}
 		inner := r.Clone(r.Context())
@@ -71,22 +87,32 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) decrypt(w http.ResponseWriter, r *http.Request) ([]byte, []byte, error) {
-	enc, err := hex.DecodeString(r.Header.Get(HeaderEnc))
-	if err != nil {
+func readEncrypted(w http.ResponseWriter, r *http.Request) (enc, ciphertext []byte, err error) {
+	if enc, err = hexHeader(r, HeaderEnc); err != nil {
 		return nil, nil, err
 	}
-	_, kdf, aead := suite()
-	recipient, err := hpke.NewRecipient(enc, s.key, kdf, aead, []byte(hpkeInfo))
-	if err != nil {
-		return nil, nil, err
+	if len(enc) != encSize {
+		return nil, nil, fmt.Errorf("%s is not %d bytes", HeaderEnc, encSize)
 	}
-	var ciphertext []byte
 	if bodiless(r.Method) {
-		ciphertext, err = hex.DecodeString(r.Header.Get(HeaderCiphertext))
+		ciphertext, err = hexHeader(r, HeaderCiphertext)
 	} else {
 		ciphertext, err = io.ReadAll(http.MaxBytesReader(w, r.Body, maxEncryptedBody))
 	}
+	return enc, ciphertext, err
+}
+
+func hexHeader(r *http.Request, name string) ([]byte, error) {
+	value := r.Header.Get(name)
+	if value == "" {
+		return nil, fmt.Errorf("%s is missing", name)
+	}
+	return hex.DecodeString(value)
+}
+
+func (s *Server) open(r *http.Request, enc, ciphertext []byte) ([]byte, []byte, error) {
+	_, kdf, aead := suite()
+	recipient, err := hpke.NewRecipient(enc, s.key, kdf, aead, []byte(hpkeInfo))
 	if err != nil {
 		return nil, nil, err
 	}

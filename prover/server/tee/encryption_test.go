@@ -5,6 +5,7 @@ import (
 	"crypto/hpke"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -132,36 +133,70 @@ func TestWrapRefusesAnEncryptedHead(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			reached := false
 			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
-			if reached || recorder.Code != http.StatusBadRequest {
-				t.Fatalf("reached %v status %d", reached, recorder.Code)
-			}
+			assertRejected(t, recorder, reached, codeRequestMalformed)
 		})
 	}
 }
 
 func TestWrapRejectsRebinding(t *testing.T) {
 	s := testServer(t)
-	cases := map[string]func(*http.Request){
-		"other job":    func(r *http.Request) { r.RequestURI = "/prove/transfer_2_2/status?jobId=other" },
-		"other method": func(r *http.Request) { r.Method = http.MethodPut },
-		"bad enc":      func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) },
-		"version":      func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") },
-		"ciphertext in body": func(r *http.Request) {
+	type rejection struct {
+		mutate func(*http.Request)
+		code   string
+	}
+	cases := map[string]rejection{
+		"other job":    {func(r *http.Request) { r.RequestURI = "/prove/transfer_2_2/status?jobId=other" }, codeDecryptionFailed},
+		"other method": {func(r *http.Request) { r.Method = http.MethodPut }, codeDecryptionFailed},
+		"bad enc":      {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) }, codeDecryptionFailed},
+		"version":      {func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") }, codeVersionUnsupported},
+		"ciphertext in body": {func(r *http.Request) {
 			r.Body = io.NopCloser(strings.NewReader(r.Header.Get(HeaderCiphertext)))
 			r.Header.Del(HeaderCiphertext)
-		},
+		}, codeRequestMalformed},
+		"missing enc":        {func(r *http.Request) { r.Header.Del(HeaderEnc) }, codeRequestMalformed},
+		"non-hex enc":        {func(r *http.Request) { r.Header.Set(HeaderEnc, "zz") }, codeRequestMalformed},
+		"short enc":          {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", encSize-1)) }, codeRequestMalformed},
+		"long enc":           {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", encSize+1)) }, codeRequestMalformed},
+		"non-hex ciphertext": {func(r *http.Request) { r.Header.Set(HeaderCiphertext, "zz") }, codeRequestMalformed},
 	}
-	for name, mutate := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			request, _ := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
-			mutate(request)
+			c.mutate(request)
 			recorder := httptest.NewRecorder()
 			reached := false
 			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
-			if reached || recorder.Code != http.StatusBadRequest || recorder.Header().Get(HeaderVersion) != "" {
-				t.Fatalf("reached %v status %d", reached, recorder.Code)
-			}
+			assertRejected(t, recorder, reached, c.code)
 		})
+	}
+}
+
+func TestWrapRejectsABodyOverTheCap(t *testing.T) {
+	s := testServer(t)
+	request, _ := encryptedRequest(t, s, http.MethodPost, "/prove/merge", nil)
+	request.Body = io.NopCloser(io.LimitReader(zeros{}, maxEncryptedBody+1))
+	request.ContentLength = -1
+	recorder := httptest.NewRecorder()
+	reached := false
+	s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+	assertRejected(t, recorder, reached, codeRequestMalformed)
+}
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+func assertRejected(t *testing.T, recorder *httptest.ResponseRecorder, reached bool, code string) {
+	t.Helper()
+	var body struct{ Code string }
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if reached || recorder.Code != http.StatusBadRequest || recorder.Header().Get(HeaderVersion) != "" || body.Code != code {
+		t.Fatalf("reached %v status %d code %q, want %q", reached, recorder.Code, body.Code, code)
 	}
 }
 
@@ -186,10 +221,9 @@ func TestWrapRejectsTamperedBody(t *testing.T) {
 	request.Header.Set(HeaderVersion, Version)
 	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
 	recorder := httptest.NewRecorder()
-	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status %d", recorder.Code)
-	}
+	reached := false
+	s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+	assertRejected(t, recorder, reached, codeDecryptionFailed)
 }
 
 func TestWrapPassesPlainRequests(t *testing.T) {

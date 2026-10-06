@@ -1,6 +1,6 @@
-// Package tee serves dstack TDX attestation and encrypts prover traffic to the
-// attested HPKE key, in the byte layouts prover/tee/testdata pins for the Rust
-// and TypeScript clients.
+// Package tee serves confidential computing attestation and encrypts prover
+// traffic to the attested HPKE key, in the byte layouts prover/tee/testdata
+// pins for the Rust and TypeScript clients.
 package tee
 
 import (
@@ -24,7 +24,6 @@ const (
 	gpuDomain      = "zolana/prover-tee/v1/gpu"
 	hpkeInfo       = "zolana/prover-tee/v1"
 	responseExport = "zolana/prover-tee/v1/response"
-	keyPath        = "zolana/prover/hpke/v1"
 
 	responseKeySize = 32
 	apiKeyParam     = "api-key"
