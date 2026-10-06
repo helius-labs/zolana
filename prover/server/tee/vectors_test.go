@@ -1,0 +1,162 @@
+package tee
+
+import (
+	"bytes"
+	"crypto/hpke"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// Encrypted vectors carry a random HPKE ephemeral, so only
+// ZOLANA_TEE_WRITE_VECTORS=1 regenerates them.
+type vectors struct {
+	IKM               string    `json:"ikm"`
+	HPKEPublicKey     string    `json:"hpke_public_key"`
+	Nonce             string    `json:"nonce"`
+	GPUToken          string    `json:"gpu_token"`
+	ReportData        string    `json:"report_data"`
+	ReportDataNoGPU   string    `json:"report_data_no_gpu"`
+	GPUNonce          string    `json:"gpu_nonce"`
+	Method            string    `json:"method"`
+	RequestURI        string    `json:"request_uri"`
+	Enc               string    `json:"enc"`
+	Ciphertext        string    `json:"ciphertext"`
+	Plaintext         string    `json:"plaintext"`
+	ResponseKey       string    `json:"response_key"`
+	ResponseStatus    int       `json:"response_status"`
+	ResponseBody      string    `json:"response_body"`
+	EncryptedResponse string    `json:"encrypted_response"`
+	AADCases          []aadCase `json:"aad_cases"`
+}
+
+type aadCase struct {
+	Method        string `json:"method"`
+	RequestTarget string `json:"request_target"`
+	AAD           string `json:"aad"`
+}
+
+// aadTargets cover where a proxy may put, repeat or drop the credential.
+var aadTargets = [][2]string{
+	{"GET", "/health"},
+	{"POST", "/v1/zolana/prove/transfer_2_2?api-key=k"},
+	{"GET", "/prove/merge_8_1/status?api-key=k&jobId=a1"},
+	{"GET", "/prove/merge_8_1/status?jobId=a1&api-key=k"},
+	{"GET", "/tee/v1/attestation?nonce=ab&api-key=k1&api-key=k2"},
+	{"GET", "/prove/x?api-keys=v&api-key"},
+	{"GET", "/prove/x?&&jobId=a&"},
+}
+
+func aadCases() []aadCase {
+	cases := make([]aadCase, len(aadTargets))
+	for i, target := range aadTargets {
+		cases[i] = aadCase{Method: target[0], RequestTarget: target[1], AAD: string(requestAAD(target[0], target[1]))}
+	}
+	return cases
+}
+
+func TestVectors(t *testing.T) {
+	path := filepath.Join(testdata, "vectors.json")
+	ikm := bytes.Repeat([]byte{0x5a}, 32)
+	nonce := bytes.Repeat([]byte{0x11}, NonceSize)
+	gpuToken := []byte(`[["JWT","header.payload.signature"],{"GPU-0":"device"}]`)
+	key, err := deriveKey(ikm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey := key.PublicKey().Bytes()
+	reportData := ReportData(nonce, publicKey, gpuToken)
+	reportDataNoGPU := ReportData(nonce, publicKey, nil)
+	gpuNonce := GPUNonce(nonce, publicKey)
+
+	if os.Getenv("ZOLANA_TEE_WRITE_VECTORS") != "" {
+		method, uri := "POST", "/v1/zolana/prove/transfer_2_2?api-key=k"
+		plaintext := []byte(`{"inputs":["secret"]}`)
+		enc, ciphertext, responseKey := encryptRequest(t, publicKey, method, uri, plaintext)
+		responseBody := []byte(`{"proof":"ok"}`)
+		encrypted, err := encryptResponse(responseKey, 200, responseBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := json.MarshalIndent(vectors{
+			IKM:               hex.EncodeToString(ikm),
+			HPKEPublicKey:     hex.EncodeToString(publicKey),
+			Nonce:             hex.EncodeToString(nonce),
+			GPUToken:          string(gpuToken),
+			ReportData:        hex.EncodeToString(reportData[:]),
+			ReportDataNoGPU:   hex.EncodeToString(reportDataNoGPU[:]),
+			GPUNonce:          hex.EncodeToString(gpuNonce[:]),
+			Method:            method,
+			RequestURI:        uri,
+			Enc:               hex.EncodeToString(enc),
+			Ciphertext:        hex.EncodeToString(ciphertext),
+			Plaintext:         string(plaintext),
+			ResponseKey:       hex.EncodeToString(responseKey),
+			ResponseStatus:    200,
+			ResponseBody:      string(responseBody),
+			EncryptedResponse: hex.EncodeToString(encrypted),
+			AADCases:          aadCases(),
+		}, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v vectors
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	expect := func(name, got, want string) {
+		if got != want {
+			t.Errorf("%s: got %s want %s", name, got, want)
+		}
+	}
+	expect("ikm", hex.EncodeToString(ikm), v.IKM)
+	expect("hpke_public_key", hex.EncodeToString(publicKey), v.HPKEPublicKey)
+	expect("report_data", hex.EncodeToString(reportData[:]), v.ReportData)
+	expect("report_data_no_gpu", hex.EncodeToString(reportDataNoGPU[:]), v.ReportDataNoGPU)
+	expect("gpu_nonce", hex.EncodeToString(gpuNonce[:]), v.GPUNonce)
+	for i, c := range aadCases() {
+		if i >= len(v.AADCases) || v.AADCases[i] != c {
+			t.Errorf("aad case %d: got %+v", i, c)
+		}
+	}
+
+	_, kdf, aead := suite()
+	recipient, err := hpke.NewRecipient(mustHex(t, v.Enc), key, kdf, aead, []byte(hpkeInfo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := recipient.Open(requestAAD(v.Method, v.RequestURI), mustHex(t, v.Ciphertext))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect("plaintext", string(plaintext), v.Plaintext)
+	responseKey, err := recipient.Export(responseExport, responseKeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect("response_key", hex.EncodeToString(responseKey), v.ResponseKey)
+	status, body, err := decryptResponse(responseKey, mustHex(t, v.EncryptedResponse))
+	if err != nil || status != v.ResponseStatus || string(body) != v.ResponseBody {
+		t.Fatalf("encrypted response: status %d body %q err %v", status, body, err)
+	}
+}
+
+func mustHex(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}

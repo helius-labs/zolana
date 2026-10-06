@@ -1,13 +1,15 @@
 use super::indexed::{ProofDataSource, Request};
 use std::{
     env,
+    io::Read,
     path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
+use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::redirect::Policy;
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
@@ -18,11 +20,13 @@ use crate::{
     error::ClientError,
     prover::{
         backend::Prover,
+        call::{Answer, Call, CallError, Recipient},
         endpoint::{scrub, ProverEndpoint},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         proof::{proof_from_gnark_json, Proof},
         proving_key::{parse_sha256_hex, ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
+        tee::{AttestedProver, TeeError, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES},
     },
 };
 
@@ -111,6 +115,7 @@ pub trait ProveRequest {
 
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
+const ATTESTATION_RETRY_AFTER_CAP_SECS: u64 = 30;
 // Generous bound so a slow cold prove never hangs the client forever; the server
 // caps sync work at 120–180s depending on circuit, so a clean timeout returns
 // well before this.
@@ -214,6 +219,7 @@ pub struct ProverClient {
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
     proof_data_source: ProofDataSource,
+    tee: Option<TeeSession>,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -224,6 +230,7 @@ pub struct AsyncProverClient {
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
     proof_data_source: ProofDataSource,
+    tee: Option<TeeSession>,
 }
 
 impl Default for ProverClient {
@@ -260,6 +267,7 @@ impl ProverClient {
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
+            tee: None,
         }
     }
 
@@ -276,6 +284,7 @@ impl ProverClient {
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
+            tee: None,
         }
     }
 
@@ -294,6 +303,14 @@ impl ProverClient {
         self.http = build_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
         Ok(self)
+    }
+
+    /// Send every call, health and key checks included, only to a prover
+    /// that attests to `policy`, encrypted to the key its quote binds.
+    #[must_use]
+    pub fn with_tee(mut self, policy: TeePolicy) -> Self {
+        self.tee = Some(TeeSession::new(policy));
+        self
     }
 
     /// Override the async-proof polling config (see [`AsyncPollConfig`]).
@@ -358,19 +375,99 @@ impl ProverClient {
 
     fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
         let url = self.endpoint.url(path)?;
-        let response = self
-            .http
-            .get(url)
-            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-            .send()
-            .map_err(|e| {
-                ClientError::ProverServer(format!("{} failed: {}", get_label(path), scrub(e)))
-            })?;
+        self.call(Call::get(
+            &url,
+            Duration::from_secs(STATUS_POLL_TIMEOUT_SECS),
+        ))
+        .map_err(|e| e.into_client_error(&get_label(path)))
+    }
+
+    fn call(&self, call: Call<'_>) -> Result<(StatusCode, String), CallError> {
+        match self.exchange(&call)? {
+            Answer::KeyLost { recipient, .. } => {
+                recipient.forget();
+                self.exchange(&call).map(Answer::into_parts)
+            }
+            answer => Ok(answer.into_parts()),
+        }
+    }
+
+    fn exchange(&self, call: &Call<'_>) -> Result<Answer<'_>, CallError> {
+        let recipient = self.recipient().map_err(CallError::Refused)?;
+        let prepared = call.prepare(recipient)?;
+        let mut request = self.http.request(call.method.clone(), call.url.clone());
+        for (name, value) in &prepared.headers {
+            request = request.header(*name, value);
+        }
+        if let Some(timeout) = call.timeout {
+            request = request.timeout(timeout);
+        }
+        if let Some(body) = &prepared.body {
+            request = request.body(body.clone());
+        }
+        let response = request.send().map_err(CallError::Connect)?;
         let status = response.status();
-        let text = response.text().map_err(|e| {
-            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
-        })?;
-        Ok((status, text))
+        let is_encrypted = TeeSession::is_encrypted(response.headers());
+        let body = response.bytes().map_err(CallError::Read)?;
+        prepared.finish(status, is_encrypted, &body)
+    }
+
+    /// `None` without a TEE requirement, attesting first when no key is cached.
+    fn recipient(&self) -> Result<Option<Recipient<'_>>, ClientError> {
+        let Some(session) = &self.tee else {
+            return Ok(None);
+        };
+        let key = session.key_or_attest(|| self.attest_with(session))?;
+        Ok(Some(Recipient { session, key }))
+    }
+
+    /// Attest the prover now against the [`Self::with_tee`] policy.
+    pub fn attest(&self) -> Result<AttestedProver, ClientError> {
+        let tee = self
+            .tee
+            .as_ref()
+            .ok_or(ClientError::Tee(TeeError::NoPolicy))?;
+        tee.attest_exclusive(|| self.attest_with(tee))
+    }
+
+    /// Retries a transport failure and a busy or unavailable answer, each try with a fresh nonce.
+    fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let nonce = TeeSession::nonce()?;
+            let response = match self
+                .http
+                .get(self.endpoint.attestation_url(&nonce)?)
+                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .send()
+            {
+                Ok(response) => response,
+                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                    sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+                    continue;
+                }
+                Err(e) => return Err(attestation_unreachable(attempt, e)),
+            };
+            let status = response.status();
+            if let Some(delay) =
+                attestation_retry_delay(status, retry_after(response.headers(), SystemTime::now()))
+                    .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
+            {
+                drop(response);
+                sleep(delay);
+                continue;
+            }
+            let mut body = Vec::new();
+            response
+                .take(MAX_ATTESTATION_BYTES as u64 + 1)
+                .read_to_end(&mut body)
+                .map_err(|e| {
+                    ClientError::ProverServer(format!("failed to read attestation: {}", e.kind()))
+                })?;
+            TeeSession::check_attestation_len(body.len())?;
+            return tee.accept(&nonce, status, &body);
+        }
     }
 
     /// One POST to a proof path, retried for transport failures and for a queued
@@ -383,44 +480,31 @@ impl ProverClient {
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
         let mut attempt = 0;
-        let response = loop {
+        loop {
             attempt += 1;
-            let mut request = self
-                .http
-                .post(url.clone())
-                .header("Content-Type", "application/json");
-            if delivery == Delivery::InResponse {
-                request = request.header("X-Sync", "true");
-            } else {
-                request = request.header("X-Async", "true");
-            }
-            match request.body(body.to_string()).send() {
+            match self.call(Call::post(url, body, delivery)) {
                 // A prover without a queue proves a queued request in the
                 // response too, and sheds it the same way while it is busy.
-                Ok(response)
-                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                Ok((status, _))
+                    if status == StatusCode::TOO_MANY_REQUESTS
                         && delivery == Delivery::Queued
                         && attempt < PROVE_MAX_ATTEMPTS =>
                 {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
-                Ok(response) => break response,
-                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                Ok(response) => return Ok(response),
+                Err(CallError::Connect(_)) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
-                Err(e) => {
+                Err(CallError::Connect(e)) => {
                     return Err(ClientError::ProverServer(format!(
                         "request failed after {attempt} attempt(s): {}",
                         scrub(e)
                     )));
                 }
+                Err(error) => return Err(error.into_client_error("request")),
             }
-        };
-        let status = response.status();
-        let text = response.text().map_err(|e| {
-            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
-        })?;
-        Ok((status, text))
+        }
     }
 
     fn send(
@@ -515,25 +599,19 @@ impl ProverClient {
         let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let response = match self
-                .http
-                .get(url.clone())
-                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-                .send()
-            {
+            let (status, text) = match self.call(Call::get(
+                &url,
+                Duration::from_secs(STATUS_POLL_TIMEOUT_SECS),
+            )) {
                 Ok(response) => response,
-                Err(_) => {
+                Err(CallError::Refused(error)) => return Err(error),
+                Err(CallError::Connect(_) | CallError::Read(_)) => {
                     wait_or_timeout(job_id, started, max_wait, interval_ms)?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
             };
-            let status = response.status();
             if status.is_client_error() {
-                let text = match response.text() {
-                    Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {}", scrub(e)),
-                };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
                 )));
@@ -544,14 +622,6 @@ impl ProverClient {
                 continue;
             }
 
-            let text = match response.text() {
-                Ok(text) => text,
-                Err(_) => {
-                    wait_or_timeout(job_id, started, max_wait, interval_ms)?;
-                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
-                    continue;
-                }
-            };
             let value: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
 
@@ -780,6 +850,40 @@ fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKey
 /// early is one cheap GET.
 const INITIAL_POLL_MS: u64 = 25;
 
+/// The wait before retrying an attestation answer, `None` for a final one.
+fn attestation_retry_delay(status: StatusCode, retry_after: Option<Duration>) -> Option<Duration> {
+    let backoff = Duration::from_secs(PROVE_RETRY_BACKOFF_SECS);
+    match status {
+        StatusCode::TOO_MANY_REQUESTS => Some(retry_after.unwrap_or(backoff)),
+        StatusCode::SERVICE_UNAVAILABLE => Some(backoff),
+        _ => None,
+    }
+}
+
+/// `Retry-After` as delay seconds or an IMF-fixdate, capped, `None` for any other value.
+fn retry_after(headers: &HeaderMap, now: SystemTime) -> Option<Duration> {
+    let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
+    let delay = if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        // All digits, so only an overflow fails to parse.
+        Duration::from_secs(value.parse().unwrap_or(u64::MAX))
+    } else {
+        let date = httpdate::parse_http_date(value).ok()?;
+        // Refuses the obsolete date forms, as the TS SDK does.
+        if httpdate::fmt_http_date(date) != value {
+            return None;
+        }
+        date.duration_since(now).unwrap_or_default()
+    };
+    Some(delay.min(Duration::from_secs(ATTESTATION_RETRY_AFTER_CAP_SECS)))
+}
+
+fn attestation_unreachable(attempts: usize, error: reqwest::Error) -> ClientError {
+    ClientError::ProverServer(format!(
+        "attestation failed after {attempts} attempt(s): {}",
+        scrub(error)
+    ))
+}
+
 /// Next gap in the backoff, doubling up to `cap_ms`.
 ///
 /// The configured poll interval is the CEILING, not a fixed period: a proof that
@@ -850,6 +954,7 @@ impl AsyncProverClient {
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
+            tee: None,
         }
     }
 
@@ -863,6 +968,7 @@ impl AsyncProverClient {
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
+            tee: None,
         }
     }
 
@@ -884,6 +990,13 @@ impl AsyncProverClient {
         self.http = build_async_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
         Ok(self)
+    }
+
+    /// Async counterpart of [`ProverClient::with_tee`].
+    #[must_use]
+    pub fn with_tee(mut self, policy: TeePolicy) -> Self {
+        self.tee = Some(TeeSession::new(policy));
+        self
     }
 
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
@@ -977,20 +1090,101 @@ impl AsyncProverClient {
 
     async fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
         let url = self.endpoint.url(path)?;
-        let response = self
-            .http
-            .get(url)
-            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-            .send()
-            .await
-            .map_err(|e| {
-                ClientError::ProverServer(format!("{} failed: {}", get_label(path), scrub(e)))
-            })?;
+        self.call(Call::get(
+            &url,
+            Duration::from_secs(STATUS_POLL_TIMEOUT_SECS),
+        ))
+        .await
+        .map_err(|e| e.into_client_error(&get_label(path)))
+    }
+
+    async fn call(&self, call: Call<'_>) -> Result<(StatusCode, String), CallError> {
+        match self.exchange(&call).await? {
+            Answer::KeyLost { recipient, .. } => {
+                recipient.forget();
+                self.exchange(&call).await.map(Answer::into_parts)
+            }
+            answer => Ok(answer.into_parts()),
+        }
+    }
+
+    async fn exchange(&self, call: &Call<'_>) -> Result<Answer<'_>, CallError> {
+        let recipient = self.recipient().await.map_err(CallError::Refused)?;
+        let prepared = call.prepare(recipient)?;
+        let mut request = self.http.request(call.method.clone(), call.url.clone());
+        for (name, value) in &prepared.headers {
+            request = request.header(*name, value);
+        }
+        if let Some(timeout) = call.timeout {
+            request = request.timeout(timeout);
+        }
+        if let Some(body) = &prepared.body {
+            request = request.body(body.clone());
+        }
+        let response = request.send().await.map_err(CallError::Connect)?;
         let status = response.status();
-        let text = response.text().await.map_err(|e| {
-            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
-        })?;
-        Ok((status, text))
+        let is_encrypted = TeeSession::is_encrypted(response.headers());
+        let body = response.bytes().await.map_err(CallError::Read)?;
+        prepared.finish(status, is_encrypted, &body)
+    }
+
+    async fn recipient(&self) -> Result<Option<Recipient<'_>>, ClientError> {
+        let Some(session) = &self.tee else {
+            return Ok(None);
+        };
+        let key = session
+            .key_or_attest_async(|| self.attest_with(session))
+            .await?;
+        Ok(Some(Recipient { session, key }))
+    }
+
+    /// Async counterpart of [`ProverClient::attest`].
+    pub async fn attest(&self) -> Result<AttestedProver, ClientError> {
+        let tee = self
+            .tee
+            .as_ref()
+            .ok_or(ClientError::Tee(TeeError::NoPolicy))?;
+        tee.attest_exclusive_async(|| self.attest_with(tee)).await
+    }
+
+    /// Async counterpart of [`ProverClient::attest_with`].
+    async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let nonce = TeeSession::nonce()?;
+            let mut response = match self
+                .http
+                .get(self.endpoint.attestation_url(&nonce)?)
+                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                    async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
+                    continue;
+                }
+                Err(e) => return Err(attestation_unreachable(attempt, e)),
+            };
+            let status = response.status();
+            if let Some(delay) =
+                attestation_retry_delay(status, retry_after(response.headers(), SystemTime::now()))
+                    .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
+            {
+                drop(response);
+                async_sleep(delay).await;
+                continue;
+            }
+            let mut body = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(|e| {
+                ClientError::ProverServer(format!("failed to read attestation: {}", scrub(e)))
+            })? {
+                TeeSession::check_attestation_len(body.len() + chunk.len())?;
+                body.extend_from_slice(&chunk);
+            }
+            return tee.accept(&nonce, status, &body);
+        }
     }
 
     async fn send(
@@ -1051,42 +1245,25 @@ impl AsyncProverClient {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let mut request = self
-                .http
-                .post(url.clone())
-                .header("Content-Type", "application/json");
-            if delivery == Delivery::InResponse {
-                request = request.header("X-Sync", "true");
-            } else {
-                request = request.header("X-Async", "true");
-            }
-            match request.body(body.to_string()).send().await {
-                Ok(response)
-                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+            match self.call(Call::post(url, body, delivery)).await {
+                Ok((status, _))
+                    if status == StatusCode::TOO_MANY_REQUESTS
                         && delivery == Delivery::Queued
                         && attempt < PROVE_MAX_ATTEMPTS =>
                 {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
                 }
-                Ok(response) => {
-                    let status = response.status();
-                    let text = response.text().await.map_err(|e| {
-                        ClientError::ProverServer(format!(
-                            "failed to read response body: {}",
-                            scrub(e)
-                        ))
-                    })?;
-                    return Ok((status, text));
-                }
-                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                Ok(response) => return Ok(response),
+                Err(CallError::Connect(_)) if attempt < PROVE_MAX_ATTEMPTS => {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
                 }
-                Err(e) => {
+                Err(CallError::Connect(e)) => {
                     return Err(ClientError::ProverServer(format!(
                         "request failed after {attempt} attempt(s): {}",
                         scrub(e)
                     )));
                 }
+                Err(error) => return Err(error.into_client_error("request")),
             }
         }
     }
@@ -1106,26 +1283,17 @@ impl AsyncProverClient {
         let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let response = match self
-                .http
-                .get(url.clone())
-                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-                .send()
-                .await
-            {
+            let call = Call::get(&url, Duration::from_secs(STATUS_POLL_TIMEOUT_SECS));
+            let (status, text) = match self.call(call).await {
                 Ok(response) => response,
-                Err(_) => {
+                Err(CallError::Refused(error)) => return Err(error),
+                Err(CallError::Connect(_) | CallError::Read(_)) => {
                     async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
             };
-            let status = response.status();
             if status.is_client_error() {
-                let text = match response.text().await {
-                    Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {}", scrub(e)),
-                };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
                 )));
@@ -1136,14 +1304,6 @@ impl AsyncProverClient {
                 continue;
             }
 
-            let text = match response.text().await {
-                Ok(text) => text,
-                Err(_) => {
-                    async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
-                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
-                    continue;
-                }
-            };
             let value: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
 
@@ -1403,10 +1563,12 @@ mod tests {
         thread,
     };
 
+    use reqwest::header::HeaderValue;
     use serde_json::{json, Value};
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
+    use crate::prover::tee::NitroFixture;
 
     #[test]
     fn proxy_urls_require_an_explicit_supported_scheme() {
@@ -1585,6 +1747,270 @@ mod tests {
             "collecting a ready proof took {elapsed:?}; the poll interval is a \
              ceiling, not a floor"
         );
+    }
+
+    fn probe_policy() -> TeePolicy {
+        TeePolicy::from_json(include_str!(
+            "../../../../prover/tee/testdata/probe_policy.json"
+        ))
+        .unwrap()
+    }
+
+    fn assert_only_attestation_was_asked(requests: &[RecordedRequest]) {
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].path.starts_with("/tee/v1/attestation?nonce="));
+    }
+
+    fn unattested_answers() -> [MockResponse; 2] {
+        [
+            MockResponse::text(404, "404 page not found"),
+            MockResponse::json(200, json!({ "quote": "00" })),
+        ]
+    }
+
+    #[test]
+    fn attestation_retries_only_busy_and_unavailable_answers() {
+        let backoff = Some(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+        let delay = |status, retry_after| {
+            attestation_retry_delay(StatusCode::from_u16(status).unwrap(), retry_after)
+        };
+        assert_eq!(
+            delay(429, Some(Duration::from_secs(3))),
+            Some(Duration::from_secs(3))
+        );
+        assert_eq!(delay(429, None), backoff);
+        assert_eq!(delay(503, Some(Duration::from_secs(3))), backoff);
+        for status in [200, 400, 401, 404, 500] {
+            assert_eq!(delay(status, None), None, "{status}");
+        }
+    }
+
+    #[test]
+    fn retry_after_takes_delay_seconds_or_an_imf_fixdate() {
+        let now = httpdate::parse_http_date("Wed, 21 Oct 2026 07:28:00 GMT").unwrap();
+        let cap = Some(Duration::from_secs(ATTESTATION_RETRY_AFTER_CAP_SECS));
+        let parse = |value: &'static str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(RETRY_AFTER, HeaderValue::from_static(value));
+            retry_after(&headers, now)
+        };
+        assert_eq!(parse("3"), Some(Duration::from_secs(3)));
+        assert_eq!(parse("86400"), cap);
+        assert_eq!(parse("99999999999999999999999"), cap);
+        assert_eq!(
+            parse("Wed, 21 Oct 2026 07:28:10 GMT"),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(parse("Wed, 21 Oct 2026 07:27:00 GMT"), Some(Duration::ZERO));
+        assert_eq!(parse("Wed, 21 Oct 2026 08:28:00 GMT"), cap);
+        for garbage in [
+            "soon",
+            "+3",
+            "-3",
+            "Thu, 21 Oct 2026 07:28:10 GMT",
+            "Wed, 31 Feb 2026 07:28:10 GMT",
+            "Wed, 31 Dec 1969 23:59:59 GMT",
+            "Wednesday, 21-Oct-26 07:28:10 GMT",
+            "Wed Oct 21 07:28:10 2026",
+        ] {
+            assert_eq!(parse(garbage), None, "{garbage}");
+        }
+        assert_eq!(retry_after(&HeaderMap::new(), now), None);
+    }
+
+    #[test]
+    fn a_dropped_or_unavailable_attestation_is_retried() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::disconnect(),
+            MockResponse::text(503, "busy"),
+            MockResponse::json(200, json!({ "quote": "00" })),
+        ]);
+        let error = ProverClient::new(server.url().to_string())
+            .with_tee(probe_policy())
+            .attest()
+            .unwrap_err();
+        assert!(
+            matches!(error, ClientError::Tee(TeeError::MalformedAttestation(_))),
+            "{error}"
+        );
+        let requests = server.requests();
+        assert_eq!(requests.len(), 3);
+        assert!(requests
+            .iter()
+            .all(|request| request.path.starts_with("/tee/v1/attestation?nonce=")));
+    }
+
+    fn oversized_attestation() -> MockResponse {
+        MockResponse::text(200, &" ".repeat(MAX_ATTESTATION_BYTES + 1))
+    }
+
+    fn assert_oversized(error: ClientError) {
+        assert!(
+            matches!(&error, ClientError::Tee(TeeError::MalformedAttestation(message)) if message.contains("exceeds")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_oversized_attestation_is_refused() {
+        let server = MockServer::respond_with(vec![oversized_attestation()]);
+        let client = ProverClient::new(server.url().to_string()).with_tee(probe_policy());
+        assert_oversized(client.attest().unwrap_err());
+    }
+
+    #[tokio::test]
+    async fn an_async_oversized_attestation_is_refused() {
+        let server = MockServer::respond_with(vec![oversized_attestation()]);
+        let client = AsyncProverClient::new(server.url().to_string()).with_tee(probe_policy());
+        assert_oversized(client.attest().await.unwrap_err());
+    }
+
+    #[test]
+    fn a_tee_client_sends_nothing_to_a_prover_that_does_not_attest() {
+        for answer in unattested_answers() {
+            let server = MockServer::respond_with(vec![answer]);
+            let error = ProverClient::new(server.url().to_string())
+                .with_tee(probe_policy())
+                .send(r#"{"secret":1}"#, Delivery::InResponse, &test_key())
+                .unwrap_err();
+            assert!(
+                matches!(error, ClientError::ProverServer(_) | ClientError::Tee(_)),
+                "{error}"
+            );
+            assert_only_attestation_was_asked(&server.requests());
+        }
+    }
+
+    #[tokio::test]
+    async fn an_async_tee_client_sends_nothing_to_a_prover_that_does_not_attest() {
+        for answer in unattested_answers() {
+            let server = MockServer::respond_with(vec![answer]);
+            let client = AsyncProverClient::new(server.url().to_string()).with_tee(probe_policy());
+            assert!(client.check_proving_keys().await.is_err());
+            assert_only_attestation_was_asked(&server.requests());
+        }
+    }
+
+    fn now_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
+
+    fn nitro_session(now: u64) -> TeeSession {
+        NitroFixture::at([0; 32], now).session()
+    }
+
+    fn nitro_attestation(now: u64) -> MockResponse {
+        MockResponse::computed(move |request| {
+            let nonce = request
+                .path
+                .split_once("nonce=")
+                .and_then(|(_, nonce)| hex::decode(nonce).ok())
+                .and_then(|nonce| nonce.try_into().ok())
+                .unwrap();
+            MockResponse::json(200, NitroFixture::at(nonce, now).attestation_json())
+        })
+    }
+
+    fn key_lost() -> MockResponse {
+        MockResponse::json(
+            400,
+            json!({ "code": "tee_decryption_failed", "error": "decryption failed" }),
+        )
+    }
+
+    fn assert_attested_twice(requests: &[RecordedRequest]) {
+        let kinds: Vec<_> = requests
+            .iter()
+            .map(|request| {
+                if request.path.starts_with("/tee/v1/attestation?nonce=") {
+                    "attest"
+                } else {
+                    assert!(request.encrypted, "{} sent in plaintext", request.path);
+                    request.path.as_str()
+                }
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            ["attest", "/proving-keys", "attest", "/proving-keys"]
+        );
+    }
+
+    #[test]
+    fn a_lost_key_is_attested_again_and_the_call_resent() {
+        let now = now_secs();
+        let server = MockServer::respond_with(vec![
+            nitro_attestation(now),
+            key_lost(),
+            nitro_attestation(now),
+            MockResponse::text(404, "resent"),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.tee = Some(nitro_session(now));
+        let error = client.check_proving_keys().unwrap_err();
+        assert!(error.to_string().contains("resent"), "{error}");
+        assert_attested_twice(&server.requests());
+    }
+
+    #[tokio::test]
+    async fn an_async_lost_key_is_attested_again_and_the_call_resent() {
+        let now = now_secs();
+        let server = MockServer::respond_with(vec![
+            nitro_attestation(now),
+            key_lost(),
+            nitro_attestation(now),
+            MockResponse::text(404, "resent"),
+        ]);
+        let mut client = AsyncProverClient::new(server.url().to_string());
+        client.tee = Some(nitro_session(now));
+        let error = client.check_proving_keys().await.unwrap_err();
+        assert!(error.to_string().contains("resent"), "{error}");
+        assert_attested_twice(&server.requests());
+    }
+
+    #[test]
+    fn a_key_lost_again_after_attesting_anew_surfaces() {
+        let now = now_secs();
+        let server = MockServer::respond_then_hold(vec![
+            nitro_attestation(now),
+            key_lost(),
+            nitro_attestation(now),
+            key_lost(),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.tee = Some(nitro_session(now));
+        let error = client.check_proving_keys().unwrap_err();
+        assert!(
+            error.to_string().contains("tee_decryption_failed"),
+            "{error}"
+        );
+        assert_attested_twice(&server.requests());
+        assert!(client.tee.unwrap().attested_key().is_some());
+    }
+
+    #[test]
+    fn a_malformed_request_surfaces_without_attesting_again() {
+        let now = now_secs();
+        let server = MockServer::respond_then_hold(vec![
+            nitro_attestation(now),
+            MockResponse::json(
+                400,
+                json!({ "code": "tee_request_malformed", "message": "encrypted request rejected" }),
+            ),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.tee = Some(nitro_session(now));
+        let error = client.check_proving_keys().unwrap_err();
+        assert!(
+            error.to_string().contains("tee_request_malformed"),
+            "{error}"
+        );
+        let requests = server.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].path, "/proving-keys");
     }
 
     #[test]
@@ -2655,6 +3081,7 @@ mod tests {
         /// Whether the request asked for the proof in the response.
         sync_requested: bool,
         async_requested: bool,
+        encrypted: bool,
     }
 
     enum MockResponse {
@@ -2671,6 +3098,7 @@ mod tests {
             delay: Duration,
         },
         Disconnect,
+        Computed(Box<dyn FnOnce(&RecordedRequest) -> MockResponse + Send>),
     }
 
     impl MockResponse {
@@ -2698,6 +3126,17 @@ mod tests {
 
         fn disconnect() -> Self {
             Self::Disconnect
+        }
+
+        fn computed(answer: impl FnOnce(&RecordedRequest) -> Self + Send + 'static) -> Self {
+            Self::Computed(Box::new(answer))
+        }
+
+        fn resolve(self, request: &RecordedRequest) -> Self {
+            match self {
+                Self::Computed(answer) => answer(request),
+                response => response,
+            }
         }
     }
 
@@ -2735,6 +3174,7 @@ mod tests {
                         accept_socks_connect(&mut stream);
                     }
                     let request = read_http_request(&mut stream);
+                    let response = response.resolve(&request);
                     request_tx
                         .send(request)
                         .expect("mock request receiver should stay open");
@@ -2751,6 +3191,7 @@ mod tests {
                             write_http_response(&mut stream, status, &body);
                         }
                         MockResponse::Disconnect => {}
+                        MockResponse::Computed(_) => unreachable!("resolved above"),
                     }
                 }
             });
@@ -2790,10 +3231,11 @@ mod tests {
                         break;
                     }
                     let request = read_http_request(&mut stream);
+                    let response = remaining.next().map(|response| response.resolve(&request));
                     if request_tx.send(request).is_err() {
                         break;
                     }
-                    match remaining.next() {
+                    match response {
                         Some(MockResponse::Http { status, body }) => {
                             write_http_response(&mut stream, status, &body);
                             last = Some((status, body));
@@ -2808,6 +3250,7 @@ mod tests {
                             last = Some((status, body));
                         }
                         Some(MockResponse::Disconnect) => {}
+                        Some(MockResponse::Computed(_)) => unreachable!("resolved above"),
                         None => {
                             if let Some((status, body)) = last.as_ref() {
                                 write_http_response(&mut stream, *status, body);
@@ -2925,6 +3368,10 @@ mod tests {
             sync_requested: header.lines().any(|line| {
                 let lower = line.to_ascii_lowercase();
                 lower.strip_prefix("x-sync:").map(str::trim) == Some("true")
+            }),
+            encrypted: header.lines().any(|line| {
+                let lower = line.to_ascii_lowercase();
+                lower.strip_prefix("zolana-tee:").map(str::trim) == Some("v1")
             }),
         }
     }

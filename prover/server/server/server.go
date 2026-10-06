@@ -14,6 +14,7 @@ import (
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/indexed"
 	"zolana/prover/prover/timing"
+	"zolana/prover/tee"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -276,6 +277,8 @@ type EnhancedConfig struct {
 	Queue             *QueueConfig
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
+	// TEE, when set, serves attestation and decrypts encrypted requests.
+	TEE *tee.Server
 }
 
 type proveHandler struct {
@@ -617,7 +620,7 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) (RunningJob, error) {
 	return RunEnhanced(&EnhancedConfig{
 		Readiness:         config.Readiness,
 		Indexer:           config.Indexer,
@@ -628,6 +631,7 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 			Enabled: redisQueue != nil,
 		},
 		Served: config.Served,
+		TEE:    config.TEE,
 	}, redisQueue, keyManager)
 }
 
@@ -669,7 +673,10 @@ func registerProofPaths(mux *http.ServeMux, prove proveHandler) {
 	}
 }
 
-func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) (RunningJob, error) {
+	if config.TEE != nil && (redisQueue != nil || config.Queue != nil && config.Queue.Enabled) {
+		return RunningJob{}, tee.ErrQueueUnsupported
+	}
 	transferExecution := config.TransferExecution
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
@@ -715,6 +722,12 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
 	}
 
+	var proverHandler http.Handler = proverMux
+	if config.TEE != nil {
+		handleBoth(proverMux, tee.AttestationPath, config.TEE.AttestationHandler())
+		proverHandler = config.TEE.Wrap(proverMux)
+	}
+
 	corsHandler := handlers.CORS(
 		handlers.MaxAge(600),
 		handlers.AllowedHeaders([]string{
@@ -726,14 +739,17 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			"X-Sync",
 			"X-Prover-Timing",
 			"X-Request-ID",
+			tee.HeaderVersion,
+			tee.HeaderEnc,
+			tee.HeaderCiphertext,
 		}),
 		handlers.AllowedOrigins([]string{"*"}),
-		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID"}),
+		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID", tee.HeaderVersion}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 	)
 
 	authHandler := conditionalAuthMiddleware(apiKey)
-	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverMux))}
+	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverHandler))}
 	proverJob := spawnServerJob(proverServer, "prover server")
 
 	if redisQueue != nil {
@@ -748,10 +764,10 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			Msg("prover server started (no queue support)")
 	}
 
-	return CombineJobs(metricsJob, proverJob)
+	return CombineJobs(metricsJob, proverJob), nil
 }
 
-func Run(config *Config, keyManager *common.LazyKeyManager) RunningJob {
+func Run(config *Config, keyManager *common.LazyKeyManager) (RunningJob, error) {
 	return RunWithQueue(config, nil, keyManager)
 }
 
@@ -867,6 +883,7 @@ type Config struct {
 	MetricsAddress    string
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
+	TEE    *tee.Server
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {

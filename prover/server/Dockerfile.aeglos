@@ -14,6 +14,8 @@ FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04@sha256:4a801ef9232d2b05e69df4eb8aa05
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 COPY --from=repository LICENSE THIRD_PARTY_NOTICES /usr/share/licenses/zolana/
+# A new named volume copies the ownership, so the non-root prover can cache keys.
+RUN mkdir -p /proving-keys && chown 65532:65532 /proving-keys
 USER 65532:65532
 ENTRYPOINT ["light-prover"]
 CMD ["start", "--require-optimized-build", "--server-only", "--auto-download", "--preload-keys", "none", "--keys-dir", "/proving-keys"]

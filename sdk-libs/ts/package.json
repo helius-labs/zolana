@@ -67,13 +67,18 @@
     "check:dist": "tsc -p tsconfig.dist.json && tsc -p tsconfig.bench.json"
   },
   "dependencies": {
+    "@hpke/core": "^1.9.0",
     "@lightprotocol/hasher.rs": "^0.2.1",
     "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
+    "@peculiar/asn1-schema": "^2.10.0",
+    "@peculiar/asn1-x509": "^2.10.0",
+    "@phala/dcap-qvl": "^0.6.5",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",
-    "bn.js": "^5.2.5"
+    "bn.js": "^5.2.5",
+    "cborg": "^6.1.3"
   },
   "devDependencies": {
     "@solana/kit": "^8.3.0",

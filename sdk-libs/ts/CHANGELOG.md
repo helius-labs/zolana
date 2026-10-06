@@ -42,6 +42,9 @@ Breaking
   JSON, and their `ClientErrorDetailsMap` types drop `value` → read
   `details.field` to name the rejected input and drop `value` when
   constructing either error.
+- `ClientErrorCode` gains `CLIENT_PROVER_TEE_ATTESTATION` and
+  `CLIENT_PROVER_TEE_ENCRYPTION`, each naming the failed check in
+  `details.check` → handle both in exhaustive switches.
 - `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
   `MERGE_INPUT_COUNT`, the 24-input default, or `MAX_MERGE_INPUTS` from
   `@heliuslabs/zolana/interface`.
@@ -153,6 +156,21 @@ Added
   proof, above 8 to the 24-input proof or above 24 to the 54-input proof, and
   `buildRingMergeTransaction` and `createRingMergeSubmission` take
   `maxInputs`, 24 by default and at most 54.
+- `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
+  call, encrypted, only to a prover whose attestation matches it, an Intel TDX
+  VM on Phala dstack under a `DstackTdxPolicy` or an AWS Nitro Enclave under an
+  `AwsNitroPolicy` that pins its PCR0 to PCR2.
+  Concurrent calls share one attestation. It takes up to three attempts after a
+  transport failure, a 503, or a 429. It waits out the `Retry-After` of a 429,
+  in seconds or as an IMF-fixdate. It re-attests and resends once when a Nitro
+  enclave lost its key.
+- `teePolicyFromJson` parses a policy that names its `platform` and refuses
+  unknown fields, and `ZolanaClient.attestProver` returns the verified
+  `AttestedProver` with its `platform`, HPKE key, `imageId` (the dstack compose
+  hash or the Nitro PCR0) and, on dstack, `tcbStatus`.
+  `defaultTeePolicy()` rejects with `CLIENT_PROVER_TEE_ATTESTATION` and
+  `details.check` `no_default_deployment` when the release has no deployment pin.
+  This release requires an explicit policy.
 
 Changed
 
@@ -199,6 +217,14 @@ Fixed
   transfer to two recipients with change was, and the proof shape now holds
   the real inputs and outputs plus the spend record, which follows the real
   outputs with compact padding after it that the transaction leaves out.
+
+Dependencies
+
+- `@hpke/core` ^1.9.0 (new).
+- `@peculiar/asn1-schema` ^2.10.0 (new).
+- `@peculiar/asn1-x509` ^2.10.0 (new).
+- `@phala/dcap-qvl` ^0.6.5 (new).
+- `cborg` ^6.1.3 (new).
 
 ## 0.3.1-alpha — 2026-09-29
 

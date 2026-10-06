@@ -48,6 +48,10 @@ import {
 } from "../internal.js";
 import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
+import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import type { TeePolicy } from "./tee/registry.js";
+import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
+import type { AttestedProver } from "./tee/verify.js";
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_INPUT_SLOTS,
@@ -84,8 +88,6 @@ import type {
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** An error body is a code and a message; anything larger is not read. */
 const MAX_REASON_BYTES = 4096;
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 2_000n;
 /// Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
 /// Generous enough for a cold prove that first loads a 63MB proving key, so a
 /// clean server-side timeout still returns before it.
@@ -112,6 +114,7 @@ const INDEXED_PATH = "/indexed";
 const STATUS_PATH = "/status";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
+const ATTESTATION_PATH = "/tee/v1/attestation";
 const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
@@ -160,6 +163,7 @@ export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
   readonly #asyncPoll: AsyncPollConfig;
+  readonly #tee: TeeSession | undefined;
 
   constructor(
     input: Readonly<{
@@ -168,6 +172,11 @@ export class ProverClient {
       asyncPoll?: AsyncPollConfig;
       /** See `ZolanaClientConfig.allowInsecureHttp`. */
       allowInsecureHttp?: boolean;
+      /**
+       * Encrypts every call, health and key checks included, to a prover that
+       * attests to the policy.
+       */
+      tee?: TeePolicy;
     }>,
   ) {
     const candidate: unknown = input;
@@ -184,6 +193,44 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
+    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+  }
+
+  /** Attests the prover now against the `tee` policy. */
+  async attest(context?: RequestContext): Promise<AttestedProver> {
+    if (this.#tee === undefined) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "tee" } });
+    }
+    const request = composeSignal(context, "attest");
+    try {
+      return await this.#tee.attest(this.#fetch, this.#siblingUrl(ATTESTATION_PATH), request);
+    } finally {
+      request.cleanup();
+    }
+  }
+
+  /** A path beside `/prove`, keeping any gateway prefix and query. */
+  #siblingUrl(path: string): URL {
+    const url = new URL(this.#url);
+    url.pathname = url.pathname.replace(/\/prove$/u, path);
+    return url;
+  }
+
+  #call(
+    url: URL,
+    signal: ComposedSignal,
+    post?: Readonly<{ headers: Readonly<Record<string, string>>; body: string }>,
+  ): ProverCall {
+    return {
+      fetch: this.#fetch,
+      attestationUrl: this.#siblingUrl(ATTESTATION_PATH),
+      url,
+      method: post === undefined ? "GET" : "POST",
+      headers: post?.headers ?? {},
+      ...(post === undefined ? {} : { body: post.body }),
+      signal,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+    };
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
@@ -317,14 +364,11 @@ export class ProverClient {
 
   /** The circuits the server serves. */
   async health(context?: RequestContext): Promise<ProverHealth> {
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
+    const url = this.#siblingUrl(HEALTH_PATH);
     const request = composeSignal(context, "health");
     try {
-      let response: Response;
-      try {
-        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
-      } catch {
+      const response = await sendCall(this.#tee, this.#call(url, request));
+      if (response === undefined) {
         if (request.timedOut()) throw requestError("health", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
           details: { method: "health", attempts: 1 },
@@ -359,14 +403,11 @@ export class ProverClient {
    * such key; a key the prover lacks or cannot load is only reported.
    */
   async checkProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, PROVING_KEYS_PATH);
+    const url = this.#siblingUrl(PROVING_KEYS_PATH);
     const request = composeSignal(context, "provingKeys");
     try {
-      let response: Response;
-      try {
-        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
-      } catch {
+      const response = await sendCall(this.#tee, this.#call(url, request));
+      if (response === undefined) {
         if (request.timedOut() || request.signal.aborted)
           throw requestError("provingKeys", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
@@ -407,19 +448,14 @@ export class ProverClient {
             "prove",
           );
           try {
-            let response: Response;
-            try {
-              response = await this.#fetch(url, {
-                method: "POST",
-                headers: {
-                  "content-type": "application/json",
-                  ...(delivery === "inResponse" ? { "X-Sync": "true" } : { "X-Async": "true" }),
-                },
+            const response = await sendCall(
+              this.#tee,
+              this.#call(url, request, {
+                headers: delivery === "inResponse" ? { "X-Sync": "true" } : { "X-Async": "true" },
                 body,
-                redirect: "error",
-                signal: request.signal,
-              });
-            } catch {
+              }),
+            );
+            if (response === undefined) {
               if (signal.signal.aborted) throw requestError("prove", signal);
               if (attempt < MAX_ATTEMPTS) continue;
               if (request.timedOut()) throw requestError("prove", request);
@@ -526,11 +562,9 @@ export class ProverClient {
         { signal: signal.signal, timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remaining) },
         "proveStatus",
       );
-      let response: Response;
       try {
-        try {
-          response = await this.#fetch(url, { redirect: "error", signal: request.signal });
-        } catch {
+        const response = await sendCall(this.#tee, this.#call(url, request));
+        if (response === undefined) {
           if (signal.signal.aborted) throw requestError("prove", signal);
           await waitOrTimeout();
           continue;

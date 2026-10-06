@@ -1,0 +1,103 @@
+//! Proves a live TEE prover end to end through the SDK, encrypted to its attested key.
+
+use std::{fs, path::PathBuf};
+
+use anyhow::{bail, Context, Result};
+use reqwest::Url;
+use zeroize::Zeroizing;
+use zolana_client::{
+    error::ClientError,
+    prover::{
+        known_proving_keys, tee::TeePolicy, ExpectedProvingKey, ProveRequest, Prover, ProverClient,
+    },
+};
+
+pub struct TeeCheckOptions {
+    pub prover_url: String,
+    /// A policy JSON file, the release pin when absent.
+    pub policy: Option<PathBuf>,
+    /// A raw prover request body and the proving key it targets.
+    pub proof: Option<(PathBuf, String)>,
+}
+
+struct RawRequest {
+    body: String,
+    key: ExpectedProvingKey,
+}
+
+impl ProveRequest for RawRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        Ok(Zeroizing::new(self.body.clone()))
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(self.key.clone())
+    }
+}
+
+impl TeeCheckOptions {
+    pub fn parse(mut args: impl Iterator<Item = String>) -> Result<Self> {
+        let usage =
+            "usage: tee-check <prover-url> [--policy <policy.json>] [--prove <request.json> <key name>]";
+        let mut options = Self {
+            prover_url: args.next().context(usage)?,
+            policy: None,
+            proof: None,
+        };
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--policy" => options.policy = Some(PathBuf::from(args.next().context(usage)?)),
+                "--prove" => {
+                    options.proof = Some((
+                        PathBuf::from(args.next().context(usage)?),
+                        args.next().context(usage)?,
+                    ))
+                }
+                other => bail!("tee-check unexpected arg {other:?}"),
+            }
+        }
+        Ok(options)
+    }
+
+    pub fn run(self) -> Result<()> {
+        let mut url = Url::parse(&self.prover_url)?;
+        // The key comes from the environment, a command line argument shows in the process list.
+        if let Ok(key) = std::env::var("PROVER_API_KEY") {
+            url.query_pairs_mut().append_pair("api-key", &key);
+        }
+        let policy = match &self.policy {
+            Some(path) => {
+                let json = fs::read_to_string(path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                TeePolicy::from_file_json(&json)
+                    .with_context(|| format!("policy {}", path.display()))?
+            }
+            None => TeePolicy::default_deployment()?,
+        };
+        let prover = ProverClient::new(url.into()).with_tee(policy);
+
+        let attested = prover.attest().context("attestation")?;
+        println!("attested {attested}");
+        let report = prover
+            .check_proving_keys()
+            .context("encrypted proving key check")?;
+        println!(
+            "encrypted proving key check passed, {} keys",
+            report.keys.len()
+        );
+
+        if let Some((path, name)) = self.proof {
+            let sha256 = known_proving_keys()
+                .find(|(known, _)| *known == name)
+                .map(|(_, sha256)| sha256)
+                .with_context(|| format!("{name} is not a known proving key"))?;
+            let request = RawRequest {
+                body: fs::read_to_string(&path)?,
+                key: ExpectedProvingKey { name, sha256 },
+            };
+            prover.prove(&request).context("encrypted proof")?;
+            println!("encrypted proof returned from {}", request.key.name);
+        }
+        Ok(())
+    }
+}

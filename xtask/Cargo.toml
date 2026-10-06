@@ -13,6 +13,9 @@ anyhow = { workspace = true }
 bincode = "1.3"
 bs58 = { workspace = true }
 flate2 = { workspace = true }
+hex = { workspace = true }
+rand_core = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk"] }
@@ -28,6 +31,7 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 tar = { workspace = true }
+zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true, features = ["protocol"] }

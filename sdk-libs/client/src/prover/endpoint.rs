@@ -2,7 +2,10 @@
 
 use reqwest::Url;
 
-use crate::{error::ClientError, prover::ExpectedProvingKey};
+use crate::{
+    error::ClientError,
+    prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
+};
 
 const API_KEY: &str = "api-key";
 const REDACTED: &str = "redacted";
@@ -43,6 +46,14 @@ impl ProverEndpoint {
     ) -> Result<Url, ClientError> {
         let mut url = self.url(&format!("{}/status", key.prove_path()))?;
         url.query_pairs_mut().append_pair("jobId", job_id);
+        Ok(url)
+    }
+
+    /// Where the prover quotes `nonce`.
+    pub(crate) fn attestation_url(&self, nonce: &[u8]) -> Result<Url, ClientError> {
+        let mut url = self.url(ATTESTATION_PATH)?;
+        url.query_pairs_mut()
+            .append_pair("nonce", &hex::encode(nonce));
         Ok(url)
     }
 

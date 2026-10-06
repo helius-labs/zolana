@@ -84,6 +84,8 @@ import {
   type ProvingKeyReport,
 } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
+import type { TeePolicy } from "./prover/tee/registry.js";
+import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
 import type {
   CustomRingBaseProofRequest,
@@ -170,6 +172,11 @@ export interface ZolanaClientConfig {
   readonly priorityFeeLamports?: bigint;
   readonly indexerConfig?: IndexerRpcConfig;
   readonly proverAsyncPoll?: AsyncPollConfig;
+  /**
+   * Encrypts every prover call to a prover that attests to the policy, usually
+   * `defaultTeePolicy()`.
+   */
+  readonly proverTee?: TeePolicy;
   readonly fetch?: typeof globalThis.fetch;
   /**
    * Permit plain http to non-loopback indexer and prover URLs.
@@ -285,6 +292,7 @@ export class ZolanaClient
         allowInsecureHttp,
         ...(input.proverAsyncPoll === undefined ? {} : { asyncPoll: input.proverAsyncPoll }),
         ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+        ...(input.proverTee === undefined ? {} : { tee: input.proverTee }),
       });
     } catch (cause) {
       throw new ClientError("CLIENT_INVALID_CONFIG", {
@@ -809,6 +817,11 @@ export class ZolanaClient
   /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
   checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
     return this.#proving(() => this.#prover.checkProvingKeys(context));
+  }
+
+  /** Attests the prover now against `proverTee`. */
+  attestProver(context?: RequestContext): Promise<AttestedProver> {
+    return this.#proving(() => this.#prover.attest(context));
   }
 
   get proofDataSource(): ProofDataSource {
