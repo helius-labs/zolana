@@ -3,9 +3,9 @@
     "platform": "aws-nitro",
     "measurements": [
       {
-        "pcr0": "ddaa3ab11120e0a37f8613b9f7a3980339384b7fa4fa67ace2a3ffc483a5b2e8a31c69ada27503c43dade250ab1c05c9",
+        "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
         "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-        "pcr2": "64fbf811839c90a50464de6fa9adcf442cb87a384e741f3390d985ce7632477cac2c80c8acd9613c5de75db6f7695963"
+        "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
       }
     ],
     "gpu": "optional",
