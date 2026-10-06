@@ -248,3 +248,21 @@ can't move funds.
 ### Configuration
 
 - The auditor key is configured when the ring is created.
+
+## 11. Readers
+
+A reader can see what the auditor sees, without holding the auditor key. The
+ring RPC decrypts transactions for readers the ring authority has granted
+access.
+
+### Who can be a reader
+
+- **Solana keys:** a reader signs each request with their wallet.
+- **Passkeys:** a reader signs each request with a passkey, for example a
+  regulator using a browser.
+
+### Configuration
+
+- The ring authority grants and revokes read access. Each grant is a public
+  record on Solana.
+- The ring authority itself has no read access unless it grants itself one.
