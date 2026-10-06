@@ -141,11 +141,16 @@ Added
   proof above eight, and `buildRingMergeTransaction` and
   `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
 - `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
-  call, encrypted, only to a prover whose Intel TDX attestation matches it.
+  call, encrypted, only to a prover whose attestation matches it, an Intel TDX
+  VM on Phala dstack under a `DstackTdxPolicy` or an AWS Nitro Enclave under an
+  `AwsNitroPolicy` that pins its PCR0 to PCR2.
   Concurrent calls share one attestation. It takes up to three attempts after a
-  transport failure, a 503, or a 429, waiting out its `Retry-After`.
-- `teePolicyFromJson` parses an explicit TEE policy, and
-  `ZolanaClient.attestProver` returns the verified `AttestedProver`.
+  transport failure, a 503, or a 429, waiting out its `Retry-After`, and
+  re-attests and resends once when a Nitro enclave lost its key.
+- `teePolicyFromJson` parses a policy that names its `platform` and refuses
+  unknown fields, and `ZolanaClient.attestProver` returns the verified
+  `AttestedProver` with its `platform`, HPKE key, `imageId` (the dstack compose
+  hash or the Nitro PCR0) and, on dstack, `tcbStatus`.
   `defaultTeePolicy()` rejects with `CLIENT_PROVER_TEE_ATTESTATION` and
   `details.check` `no_default_deployment` when the release has no deployment pin.
   This release requires an explicit policy.
@@ -178,7 +183,10 @@ Fixed
 Dependencies
 
 - `@hpke/core` ^1.9.0 (new).
+- `@peculiar/asn1-schema` ^2.10.0 (new).
+- `@peculiar/asn1-x509` ^2.10.0 (new).
 - `@phala/dcap-qvl` ^0.6.5 (new).
+- `cborg` ^6.1.3 (new).
 
 ## 0.3.1-alpha — 2026-09-29
 

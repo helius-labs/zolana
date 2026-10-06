@@ -67,13 +67,15 @@ export {
   type ProvingKeyCheck,
   type ProvingKeyReport,
 } from "./prover/client.js";
-export {
-  defaultTeePolicy,
-  teePolicyFromJson,
-  type GpuRequirement,
-  type TeeMeasurement,
-  type TeePolicy,
-} from "./prover/tee/policy.js";
+export { defaultTeePolicy, teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
+export type {
+  AwsNitroPolicy,
+  DstackTdxPolicy,
+  NitroMeasurement,
+  TdxMeasurement,
+  TeePlatform,
+  TeePolicy,
+} from "./prover/tee/registry.js";
 export type { AttestedProver } from "./prover/tee/verify.js";
 export { ringOpenings } from "./prover/assembly.js";
 export type { RingOpenings } from "./prover/assembly.js";

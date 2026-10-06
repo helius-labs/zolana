@@ -1,32 +1,36 @@
-import { verify as verifyQuote, type Collateral } from "@phala/dcap-qvl";
-import { sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
-import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { sha256, sha512 } from "@noble/hashes/sha2.js";
+import { equalBytes } from "@noble/curves/utils.js";
+import { concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
-import { wireDecoder } from "../../../interface/decode.js";
-import { ClientError } from "../../error.js";
-import type { TeePolicy } from "./policy.js";
+import {
+  evidenceBytes,
+  evidenceDecode as decode,
+  refused,
+  type AttestationClaims,
+  type PlatformVerdict,
+} from "./platform.js";
+import {
+  PLATFORMS,
+  type PlatformTable,
+  type PolicyFor,
+  type TeePlatform,
+  type TeePolicy,
+} from "./registry.js";
 
-/** TCG event type of every dstack runtime event in RTMR3. */
-const RUNTIME_EVENT_TYPE = 0x0800_0001;
 const REPORT_DOMAIN = utf8ToBytes("zolana/prover-tee/v1/report");
 
 /** Attestation verified for one session nonce. */
 export type AttestedProver = Readonly<{
+  platform: TeePlatform;
   hpkePublicKey: Uint8Array;
-  tcbStatus: string;
-  composeHash: string;
+  /** The dstack compose hash, or the Nitro PCR0. */
+  imageId: Uint8Array;
+  /** Set by `dstack-tdx` only. */
+  tcbStatus?: string;
   gpuVerified: boolean;
 }>;
 
-type EventLogEntry = Readonly<{
-  imr: number;
-  eventType: number;
-  digest: string;
-  event: string;
-  eventPayload: Uint8Array;
-}>;
-
-/** Binds the session nonce, the encryption key and the NRAS digest into the quote, zeros without a GPU. */
+/** Binds the session nonce, the encryption key and the NRAS digest into the evidence, zeros without a GPU. */
 export function reportData(
   nonce: Uint8Array,
   hpkePublicKey: Uint8Array,
@@ -37,150 +41,54 @@ export function reportData(
 }
 
 /**
- * Accepts the attestation only if Intel signed a TDX quote whose measurements,
- * app identity and report_data all match `policy` and `nonce` at `nowSecs`.
+ * Accepts the attestation only if its platform's evidence matches `policy` at
+ * `nowSecs` and binds `nonce`, the HPKE key and the GPU verdict.
  */
 export function verifyAttestation(
   json: unknown,
   policy: TeePolicy,
   nonce: Uint8Array,
   nowSecs: number,
+  platforms: PlatformTable = PLATFORMS,
 ): AttestedProver {
   const attestation = decode.record(json, "attestation");
-  const quote = bytesOf(attestation["quote"], "quote");
-  const collateral = collateralOf(attestation["collateral"]);
-  const hpkePublicKey = bytesOf(attestation["hpke_public_key"], "hpke_public_key", 32);
+  if (decode.string(attestation["platform"], "platform") !== policy.platform) {
+    throw refused("platform");
+  }
+  const hpkePublicKey = evidenceBytes(attestation["hpke_public_key"], "hpke_public_key", 32);
   const gpu = attestation["gpu"];
   if (gpu !== null && typeof gpu !== "string") throw refused("malformed_attestation");
-  const events = decode.list(attestation["event_log"], "event_log").map(eventOf);
+  if (gpu !== null && !platforms[policy.platform].hostsGpu) throw refused("gpu");
+  const claims: AttestationClaims = Object.freeze({ nonce, hpkePublicKey, nowSecs });
+  const verdict = platformVerdict(
+    platforms,
+    policy.platform,
+    policy,
+    attestation["evidence"],
+    claims,
+  );
 
-  let verified;
-  try {
-    verified = verifyQuote(quote, collateral, nowSecs);
-  } catch {
-    throw refused("quote");
-  }
-  if (!policy.tcbStatuses.includes(verified.status)) throw refused("tcb_status");
-  const report = verified.report.asTd10();
-  if (report === null) throw refused("quote");
-  const measured = (field: Uint8Array, expected: string): boolean => bytesToHex(field) === expected;
-  if (
-    !policy.measurements.some(
-      (m) =>
-        measured(report.mrTd, m.mrtd) &&
-        measured(report.rtMr0, m.rtmr0) &&
-        measured(report.rtMr1, m.rtmr1) &&
-        measured(report.rtMr2, m.rtmr2),
-    )
-  ) {
-    throw refused("measurement");
-  }
-
-  const runtime = runtimeEvents(events, report.rtMr3);
-  if (bytesToHex(single(runtime, "app-id")) !== policy.appId) throw refused("app_id");
-  const composeHash = bytesToHex(single(runtime, "compose-hash"));
-  if (!policy.composeHashes.includes(composeHash)) throw refused("compose_hash");
-  if (!policy.osImageHashes.includes(bytesToHex(single(runtime, "os-image-hash")))) {
-    throw refused("os_image");
-  }
-  checkKeyProvider(single(runtime, "key-provider"), policy);
-
-  if (bytesToHex(hpkePublicKey) !== policy.hpkePublicKey) throw refused("hpke_key");
   const gpuToken = gpu === null ? undefined : utf8ToBytes(gpu);
-  if (bytesToHex(report.reportData) !== bytesToHex(reportData(nonce, hpkePublicKey, gpuToken))) {
+  if (!equalBytes(verdict.reportData, reportData(nonce, hpkePublicKey, gpuToken))) {
     throw refused("report_data");
   }
   if (policy.gpu === "required" && gpuToken === undefined) throw refused("gpu_missing");
   return Object.freeze({
+    platform: policy.platform,
     hpkePublicKey,
-    tcbStatus: verified.status,
-    composeHash,
+    imageId: verdict.imageId,
+    ...(verdict.tcbStatus === undefined ? {} : { tcbStatus: verdict.tcbStatus }),
     gpuVerified: gpuToken !== undefined,
   });
 }
 
-/** Swapped event content fails even when the stated digests replay to `rtmr3`. */
-function runtimeEvents(log: readonly EventLogEntry[], rtmr3: Uint8Array): readonly EventLogEntry[] {
-  let replayed = new Uint8Array(48);
-  const runtime = log.filter((entry) => entry.imr === 3);
-  const eventType = new Uint8Array(4);
-  new DataView(eventType.buffer).setUint32(0, RUNTIME_EVENT_TYPE, true);
-  const separator = utf8ToBytes(":");
-  for (const entry of runtime) {
-    if (entry.eventType !== RUNTIME_EVENT_TYPE) throw refused("event_log");
-    const digest = sha384(
-      concatBytes(eventType, separator, utf8ToBytes(entry.event), separator, entry.eventPayload),
-    );
-    // The guest agent's GetQuote leaves RTMR3 digests empty, a stated one must still match.
-    if (entry.digest !== "" && bytesToHex(digest) !== entry.digest) throw refused("event_log");
-    replayed = sha384(concatBytes(replayed, digest));
-  }
-  if (bytesToHex(replayed) !== bytesToHex(rtmr3)) throw refused("event_log");
-  return runtime;
+function platformVerdict<K extends TeePlatform>(
+  platforms: PlatformTable,
+  platform: K,
+  policy: PolicyFor<K>,
+  evidence: unknown,
+  claims: AttestationClaims,
+): PlatformVerdict {
+  const module = platforms[platform];
+  return module.verify(evidence, policy, claims, module.anchors);
 }
-
-function single(events: readonly EventLogEntry[], name: string): Uint8Array {
-  const matching = events.filter((event) => event.event === name);
-  const [event] = matching;
-  if (matching.length !== 1 || event === undefined) throw refused("runtime_event");
-  return event.eventPayload;
-}
-
-function checkKeyProvider(eventPayload: Uint8Array, policy: TeePolicy): void {
-  let provider: unknown;
-  try {
-    provider = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(eventPayload));
-  } catch {
-    throw refused("runtime_event");
-  }
-  const record = decode.record(provider, "key-provider");
-  const id = bytesToHex(bytesOf(record["id"], "key-provider"));
-  if (record["name"] !== "kms" || id !== policy.keyProviderId) {
-    throw refused("key_provider");
-  }
-}
-
-function eventOf(value: unknown): EventLogEntry {
-  const entry = decode.record(value, "event_log");
-  const imr = entry["imr"];
-  const eventType = entry["event_type"];
-  if (!Number.isSafeInteger(imr) || !Number.isSafeInteger(eventType))
-    throw refused("malformed_attestation");
-  return Object.freeze({
-    imr: Number(imr),
-    eventType: Number(eventType),
-    digest: entry["digest"] === undefined ? "" : bytesToHex(bytesOf(entry["digest"], "digest")),
-    event: decode.string(entry["event"], "event"),
-    eventPayload: bytesOf(entry["event_payload"], "event_payload"),
-  });
-}
-
-/** dcap-qvl only ever sees checked hex. */
-function collateralOf(value: unknown): Collateral {
-  const c = decode.record(value, "collateral");
-  const text = (field: string): string => decode.string(c[field], field);
-  const hex = (field: string): string => bytesToHex(bytesOf(c[field], field));
-  return {
-    pck_crl_issuer_chain: text("pck_crl_issuer_chain"),
-    root_ca_crl: hex("root_ca_crl"),
-    pck_crl: hex("pck_crl"),
-    tcb_info_issuer_chain: text("tcb_info_issuer_chain"),
-    tcb_info: text("tcb_info"),
-    tcb_info_signature: hex("tcb_info_signature"),
-    qe_identity_issuer_chain: text("qe_identity_issuer_chain"),
-    qe_identity: text("qe_identity"),
-    qe_identity_signature: hex("qe_identity_signature"),
-  };
-}
-
-function bytesOf(value: unknown, path: string, length?: number): Uint8Array {
-  const hex = decode.string(value, path);
-  if (!/^(?:[0-9a-fA-F]{2})*$/u.test(hex)) throw refused("malformed_attestation");
-  const bytes = hexToBytes(hex);
-  if (length !== undefined && bytes.length !== length) throw refused("malformed_attestation");
-  return bytes;
-}
-
-const refused = (check: string): ClientError =>
-  new ClientError("CLIENT_PROVER_TEE_ATTESTATION", { details: { check } });
-const decode = wireDecoder(() => refused("malformed_attestation"));

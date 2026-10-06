@@ -1,3 +1,4 @@
+import { equalBytes } from "@noble/curves/utils.js";
 import { bytesToHex, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { TransportFailure, readBoundedBody, readBoundedJson } from "../../../services/transport.js";
@@ -18,13 +19,17 @@ import {
   encryptRequest,
   type EncryptedRequest,
 } from "./encryption.js";
-import { checkedTeePolicy, type TeePolicy } from "./policy.js";
+import { checkedTeePolicy } from "./policy.js";
+import { PLATFORMS, type TeePolicy } from "./registry.js";
 import { verifyAttestation, type AttestedProver } from "./verify.js";
 
 const NONCE_SIZE = 32;
 const MAX_ATTESTATION_BYTES = 1024 * 1024;
 const GCM_TAG_SIZE = 16;
 const STATUS_SIZE = 2;
+const MAX_ERROR_BYTES = 4096;
+/** The prover no longer holds the key the request was encrypted to. */
+const KEY_LOST = "tee_decryption_failed";
 
 /** One prover HTTP call before it is sent. */
 export type ProverCall = Readonly<{
@@ -38,8 +43,7 @@ export type ProverCall = Readonly<{
   maxResponseBytes: number;
 }>;
 
-/** A call as sent, and how its answer is read back. */
-export type PreparedCall = Readonly<{
+type PreparedCall = Readonly<{
   init: RequestInit;
   finish(response: Response): Promise<Response>;
 }>;
@@ -158,6 +162,22 @@ export class TeeSession {
     return prover;
   }
 
+  /** Resends once to a fresh attestation when a prover that draws its key per boot lost it. */
+  async send(call: ProverCall): Promise<Response | undefined> {
+    const keyPerBoot = PLATFORMS[this.#policy.platform].keyPerBoot;
+    for (let resent = false; ; resent = true) {
+      const key = await this.#key(call);
+      const prepared = await this.#encrypt(call, key);
+      const response = await fetched(call, prepared.init);
+      if (response === undefined) return undefined;
+      if (resent || !keyPerBoot || !(await keyLost(response))) return prepared.finish(response);
+      await response.body?.cancel();
+      if (this.#attested !== undefined && equalBytes(this.#attested.key, key)) {
+        this.#attested = undefined;
+      }
+    }
+  }
+
   async #key(call: ProverCall): Promise<Uint8Array> {
     const cached = this.#attested;
     if (cached !== undefined && Date.now() - cached.at < this.#policy.maxAgeSecs * 1000) {
@@ -166,9 +186,7 @@ export class TeeSession {
     return (await this.attest(call.fetch, call.attestationUrl, call.signal)).hpkePublicKey;
   }
 
-  /** Encrypts the call to the attested key, attesting first when no fresh key is cached. */
-  async encrypt(call: ProverCall): Promise<PreparedCall> {
-    const key = await this.#key(call);
+  async #encrypt(call: ProverCall, key: Uint8Array): Promise<PreparedCall> {
     const plaintext = utf8ToBytes(call.body ?? "");
     let encrypted;
     try {
@@ -241,25 +259,43 @@ export function encryptedInit(call: ProverCall, encrypted: EncryptedRequest): Re
   };
 }
 
-/** The plain call, or the encrypted one when `session` requires a TEE. */
-export async function prepareCall(
+/** Undefined when fetch rejects. */
+export async function sendCall(
   session: TeeSession | undefined,
   call: ProverCall,
-): Promise<PreparedCall> {
-  if (session !== undefined) return session.encrypt(call);
-  return Object.freeze({
-    init: {
-      method: call.method,
-      headers:
-        call.body === undefined
-          ? call.headers
-          : { ...call.headers, "content-type": "application/json" },
-      ...(call.body === undefined ? {} : { body: call.body }),
-      redirect: "error",
-      signal: call.signal.signal,
-    },
-    finish: (response: Response) => Promise.resolve(response),
+): Promise<Response | undefined> {
+  if (session !== undefined) return session.send(call);
+  return fetched(call, {
+    method: call.method,
+    headers:
+      call.body === undefined
+        ? call.headers
+        : { ...call.headers, "content-type": "application/json" },
+    ...(call.body === undefined ? {} : { body: call.body }),
+    redirect: "error",
+    signal: call.signal.signal,
   });
+}
+
+async function fetched(call: ProverCall, init: RequestInit): Promise<Response | undefined> {
+  try {
+    return await call.fetch(call.url, init);
+  } catch {
+    return undefined;
+  }
+}
+
+async function keyLost(response: Response): Promise<boolean> {
+  if (response.status !== 400 || response.headers.get(HEADER_VERSION) === VERSION) return false;
+  let answer: unknown;
+  try {
+    answer = await readBoundedJson(response.clone(), MAX_ERROR_BYTES);
+  } catch {
+    return false;
+  }
+  return (
+    typeof answer === "object" && answer !== null && "code" in answer && answer.code === KEY_LOST
+  );
 }
 
 const refused = (check: string): ClientError =>

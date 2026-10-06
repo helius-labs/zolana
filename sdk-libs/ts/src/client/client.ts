@@ -84,7 +84,7 @@ import {
   type ProvingKeyReport,
 } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
-import type { TeePolicy } from "./prover/tee/policy.js";
+import type { TeePolicy } from "./prover/tee/registry.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
 import type {

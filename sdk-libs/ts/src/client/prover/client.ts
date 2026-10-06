@@ -49,8 +49,8 @@ import {
 import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
-import type { TeePolicy } from "./tee/policy.js";
-import { TeeSession, prepareCall, type ProverCall } from "./tee/session.js";
+import type { TeePolicy } from "./tee/registry.js";
+import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
 import {
   RING_INLINE_ASSET_SLOTS,
@@ -367,17 +367,13 @@ export class ProverClient {
     const url = this.#siblingUrl(HEALTH_PATH);
     const request = composeSignal(context, "health");
     try {
-      const prepared = await prepareCall(this.#tee, this.#call(url, request));
-      let response: Response;
-      try {
-        response = await this.#fetch(url, prepared.init);
-      } catch {
+      const response = await sendCall(this.#tee, this.#call(url, request));
+      if (response === undefined) {
         if (request.timedOut()) throw requestError("health", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
           details: { method: "health", attempts: 1 },
         });
       }
-      response = await prepared.finish(response);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: { method: "health", status: response.status, ...(await proverReason(response)) },
@@ -410,18 +406,14 @@ export class ProverClient {
     const url = this.#siblingUrl(PROVING_KEYS_PATH);
     const request = composeSignal(context, "provingKeys");
     try {
-      const prepared = await prepareCall(this.#tee, this.#call(url, request));
-      let response: Response;
-      try {
-        response = await this.#fetch(url, prepared.init);
-      } catch {
+      const response = await sendCall(this.#tee, this.#call(url, request));
+      if (response === undefined) {
         if (request.timedOut() || request.signal.aborted)
           throw requestError("provingKeys", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
           details: { method: "provingKeys", attempts: 1 },
         });
       }
-      response = await prepared.finish(response);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: {
@@ -456,17 +448,14 @@ export class ProverClient {
             "prove",
           );
           try {
-            const prepared = await prepareCall(
+            const response = await sendCall(
               this.#tee,
               this.#call(url, request, {
                 headers: delivery === "inResponse" ? { "X-Sync": "true" } : { "X-Async": "true" },
                 body,
               }),
             );
-            let response: Response;
-            try {
-              response = await this.#fetch(url, prepared.init);
-            } catch {
+            if (response === undefined) {
               if (signal.signal.aborted) throw requestError("prove", signal);
               if (attempt < MAX_ATTEMPTS) continue;
               if (request.timedOut()) throw requestError("prove", request);
@@ -474,7 +463,6 @@ export class ProverClient {
                 details: { method: "prove", attempts: attempt },
               });
             }
-            response = await prepared.finish(response);
             if (response.status === 429 && delivery === "inResponse") {
               await response.body?.cancel();
               delivery = "queued";
@@ -574,17 +562,13 @@ export class ProverClient {
         { signal: signal.signal, timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remaining) },
         "proveStatus",
       );
-      let response: Response;
       try {
-        const prepared = await prepareCall(this.#tee, this.#call(url, request));
-        try {
-          response = await this.#fetch(url, prepared.init);
-        } catch {
+        const response = await sendCall(this.#tee, this.#call(url, request));
+        if (response === undefined) {
           if (signal.signal.aborted) throw requestError("prove", signal);
           await waitOrTimeout();
           continue;
         }
-        response = await prepared.finish(response);
         if (response.status >= 400 && response.status < 500) {
           throw new ClientError("CLIENT_PROVER_HTTP", {
             details: {
