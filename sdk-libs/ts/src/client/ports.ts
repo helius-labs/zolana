@@ -121,7 +121,8 @@ export interface RegistryRecord {
 
 /**
  * One entry per requested owner, in request order; `null` for an owner with no
- * record at `context.slot`, the slot the registry was read at.
+ * record at the slot the registry was read, which is no earlier than
+ * `context.slot`.
  */
 export interface UserRecordsLookup {
   readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;

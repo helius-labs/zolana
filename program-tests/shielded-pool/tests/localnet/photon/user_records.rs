@@ -36,7 +36,7 @@ fn registered_user_record_is_served_by_photon() -> TestResult {
     })?;
 
     // A full batch of unregistered owners ahead of the registered one pins the
-    // null entries, request order, and the two-call read a full batch takes.
+    // null entries, request order, and the largest request one call serves.
     let mut owners = (1..zolana_client::MAX_USER_RECORD_OWNERS)
         .map(|_| Address::new_from_array(Keypair::new().pubkey().to_bytes()))
         .collect::<Vec<_>>();

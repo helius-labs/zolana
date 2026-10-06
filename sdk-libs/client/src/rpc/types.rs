@@ -21,12 +21,12 @@ pub struct Context {
     pub slot: u64,
 }
 
-/// Registry records read from the chain at one slot, one per requested owner
-/// in request order.
+/// Registry records read from the chain no earlier than `context.slot`, one
+/// per requested owner in request order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GetUserRecordsResponse {
     pub context: Context,
-    /// `None` for an owner with no record at `context.slot`.
+    /// `None` for an owner with no record at the slot the records were read.
     pub records: Vec<Option<UserRecord>>,
 }
 

@@ -185,7 +185,7 @@ impl PhotonApi {
         &self,
         request: GetUserRecordsRequest,
     ) -> Result<GetUserRecordsResponse, PhotonApiError> {
-        get_user_records(&self.rpc_client, request).await
+        get_user_records(self.db_conn.as_ref(), &self.rpc_client, request).await
     }
 
     #[cfg(feature = "ring-projection")]

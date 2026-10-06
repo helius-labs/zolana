@@ -936,7 +936,8 @@ pub struct UserRecord {
 pub struct GetUserRecordsResponse {
     pub context: Context,
     /// One entry per requested owner, in request order. `null` when the owner
-    /// has no registry record at `context.slot`.
+    /// has no registry record at the slot the records were read, which is no
+    /// earlier than `context.slot`.
     pub records: Vec<Option<UserRecord>>,
 }
 

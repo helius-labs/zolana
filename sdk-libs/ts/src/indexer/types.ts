@@ -237,8 +237,11 @@ export interface UserRecord {
 }
 
 export interface GetUserRecordsResponse {
-  /** The slot the records were read at; the registry is read, not indexed. */
   readonly context: IndexerContext;
-  /** One entry per requested owner, in request order; `null` for an unregistered owner. */
+  /**
+   * One entry per requested owner, in request order; `null` for an owner with
+   * no record at the slot the records were read, which is no earlier than
+   * `context.slot`.
+   */
   readonly records: readonly (UserRecord | null)[];
 }

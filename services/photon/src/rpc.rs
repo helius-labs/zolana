@@ -202,17 +202,26 @@ impl RpcClient {
         pubkeys: &[Pubkey],
     ) -> Result<Vec<Option<Account>>, RpcError> {
         let response: ContextValue<Vec<Option<EncodedAccount>>> = self
-            .call("getMultipleAccounts", multiple_accounts_params(pubkeys))
+            .call(
+                "getMultipleAccounts",
+                multiple_accounts_params(pubkeys, None),
+            )
             .await?;
         decode_accounts(response.value)
     }
 
-    pub async fn get_multiple_accounts_at_slot(
+    /// Accounts from a bank no older than `min_context_slot`, with that bank's
+    /// slot; the node refuses to answer from an older one.
+    pub async fn get_multiple_accounts_from_slot(
         &self,
         pubkeys: &[Pubkey],
+        min_context_slot: u64,
     ) -> Result<AccountsAtSlot, RpcError> {
         let response: ValueAtSlot<Vec<Option<EncodedAccount>>> = self
-            .call("getMultipleAccounts", multiple_accounts_params(pubkeys))
+            .call(
+                "getMultipleAccounts",
+                multiple_accounts_params(pubkeys, Some(min_context_slot)),
+            )
             .await?;
         Ok(AccountsAtSlot {
             slot: response.context.slot,
@@ -328,9 +337,13 @@ fn account_config() -> Value {
     })
 }
 
-fn multiple_accounts_params(pubkeys: &[Pubkey]) -> Value {
+fn multiple_accounts_params(pubkeys: &[Pubkey], min_context_slot: Option<u64>) -> Value {
     let addresses = pubkeys.iter().map(ToString::to_string).collect::<Vec<_>>();
-    json!([addresses, account_config()])
+    let mut config = account_config();
+    if let Some(slot) = min_context_slot {
+        config["minContextSlot"] = json!(slot);
+    }
+    json!([addresses, config])
 }
 
 fn decode_accounts(
@@ -533,7 +546,7 @@ mod tests {
             ),
         )]);
         let fetched = RpcClient::new(url)
-            .get_multiple_accounts_at_slot(&[Pubkey::from([1; 32]), Pubkey::from([2; 32])])
+            .get_multiple_accounts_from_slot(&[Pubkey::from([1; 32]), Pubkey::from([2; 32])], 4200)
             .await
             .unwrap();
         let requests = server.join().unwrap();
@@ -546,6 +559,8 @@ mod tests {
         let request: Value = serde_json::from_str(&requests[0]).unwrap();
         assert_eq!(request["method"], "getMultipleAccounts");
         assert_eq!(request["params"][0].as_array().unwrap().len(), 2);
+        assert_eq!(request["params"][1]["minContextSlot"], 4200);
+        assert_eq!(request["params"][1]["commitment"], "confirmed");
     }
 
     #[test]
