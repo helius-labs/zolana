@@ -9,6 +9,7 @@ export const HEADER_ENC = "Zolana-Tee-Enc";
 /** Carries the sealed bytes of a GET, fetch refuses a GET body. */
 export const HEADER_SEAL = "Zolana-Tee-Seal";
 export const VERSION = "v1";
+export const RESPONSE_NONCE_SIZE = 12;
 
 // Domain separation for the HPKE context and its response exporter.
 const HPKE_INFO = utf8ToBytes("zolana/prover-tee/v1");
@@ -64,11 +65,12 @@ export function requestAad(method: string, requestUri: string): string {
   return kept.length === 0 ? `${method} ${path}` : `${method} ${path}?${kept.join("&")}`;
 }
 
-/** The response key is single use, so the zero nonce never repeats under it. */
 export function openResponse(key: Uint8Array, sealed: Uint8Array): OpenedResponse {
   let plaintext: Uint8Array;
   try {
-    plaintext = gcm(key, new Uint8Array(12)).decrypt(sealed);
+    plaintext = gcm(key, sealed.subarray(0, RESPONSE_NONCE_SIZE)).decrypt(
+      sealed.subarray(RESPONSE_NONCE_SIZE),
+    );
   } catch {
     throw new ClientError("CLIENT_PROVER_TEE_SEAL", { details: { check: "response" } });
   }

@@ -54,12 +54,14 @@ impl SealedRequest {
     }
 }
 
-/// The response key is single use, so the zero nonce never repeats under it.
 pub fn open_response(key: &[u8; 32], sealed: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
+    let (nonce, ciphertext) = sealed
+        .split_first_chunk::<12>()
+        .ok_or(TeeError::Sealing("response too short"))?;
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| TeeError::Sealing("bad response key"))?;
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(&[0; 12]), sealed)
+        .decrypt(Nonce::from_slice(nonce), ciphertext)
         .map_err(|_| TeeError::Sealing("response does not open"))?;
     let (status, body) = plaintext
         .split_first_chunk::<2>()

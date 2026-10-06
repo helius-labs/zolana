@@ -261,3 +261,23 @@ fn a_sealed_request_opens_only_on_its_route() {
     assert!(open_on("/prove/merge/status?jobId=a"));
     assert!(!open_on("/prove/merge/status?jobId=b"));
 }
+
+#[test]
+fn sealed_responses_reject_tampering_and_truncation() {
+    let v: Vectors = serde_json::from_str(VECTORS).unwrap();
+    let key = bytes::<32>(&v.response_key);
+    let sealed = hex::decode(&v.sealed_response).unwrap();
+    assert_eq!(sealed.len(), 12 + 2 + v.response_body.len() + 16);
+    for offset in [0, 12, sealed.len() - 1] {
+        let mut tampered = sealed.clone();
+        tampered[offset] ^= 1;
+        assert!(open_response(&key, &tampered).is_err());
+    }
+    for end in 0..sealed.len() {
+        assert!(open_response(&key, &sealed[..end]).is_err());
+    }
+    assert!(open_response(&key, &sealed[12..]).is_err());
+    let mut wrong_key = key;
+    wrong_key[0] ^= 1;
+    assert!(open_response(&wrong_key, &sealed).is_err());
+}

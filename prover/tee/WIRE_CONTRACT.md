@@ -65,8 +65,10 @@ aad = METHOD " " path [ "?" query ]
 The path is the one sent.
 The query keeps its pairs in order and drops empty pairs and every pair whose key is `api-key`.
 The AAD omits `?` when no pair remains.
-The answer is AES-256-GCM with a zero 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1/response`.
+The answer is AES-256-GCM with a fresh random 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1/response`.
+Its wire bytes are the nonce, ciphertext and 16-byte tag.
 Its plaintext is the status as a big-endian `u16`, then the body.
+A replayed request derives the same response key, but each answer gets an independent nonce.
 A client refuses a 2xx answer without `Zolana-Tee: v1`.
 An unsealed failure reaches the caller as unauthenticated, so load shedding and retries still work.
 

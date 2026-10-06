@@ -7,6 +7,7 @@ import {
   HEADER_ENC,
   HEADER_SEAL,
   HEADER_VERSION,
+  RESPONSE_NONCE_SIZE,
   VERSION,
   sealRequest,
   type SealedRequest,
@@ -111,7 +112,10 @@ export class TeeSession {
       }
       let bytes: Uint8Array;
       try {
-        bytes = await readBoundedBody(response, call.maxResponseBytes + STATUS_SIZE + GCM_TAG_SIZE);
+        bytes = await readBoundedBody(
+          response,
+          call.maxResponseBytes + RESPONSE_NONCE_SIZE + STATUS_SIZE + GCM_TAG_SIZE,
+        );
       } catch (error) {
         if (!(error instanceof TransportFailure)) throw error;
         if (error.kind === "responseTooLarge")

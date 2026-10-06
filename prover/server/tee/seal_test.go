@@ -41,7 +41,7 @@ func openResponse(key, sealed []byte) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	plaintext, err := gcm.Open(nil, make([]byte, gcm.NonceSize()), sealed, nil)
+	plaintext, err := gcm.Open(nil, nil, sealed, nil)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -200,5 +200,49 @@ func TestWrapPassesPlainRequests(t *testing.T) {
 	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
 	if recorder.Body.String() != "POST:text/plain:plain" || recorder.Header().Get(HeaderVersion) != "" {
 		t.Fatalf("body %q", recorder.Body.String())
+	}
+}
+
+func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			s := testServer(t)
+			request, responseKey := sealedRequest(t, s, method, "/prove/merge/status?jobId=abc", nil)
+			ciphertext, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bodies := []string{"known status response", "known status response", "secret proof response"}
+			servers := []*Server{s, s, testServer(t)}
+			responses := make([][]byte, len(bodies))
+			for i, body := range bodies {
+				replay := request.Clone(request.Context())
+				replay.Body = io.NopCloser(bytes.NewReader(ciphertext))
+				recorder := httptest.NewRecorder()
+				servers[i].Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = io.WriteString(w, body)
+				})).ServeHTTP(recorder, replay)
+				responses[i] = recorder.Body.Bytes()
+				status, opened, err := openResponse(responseKey, responses[i])
+				if err != nil || status != http.StatusOK || string(opened) != body {
+					t.Fatalf("response %d did not open", i)
+				}
+				if len(responses[i]) != 12+2+len(body)+16 {
+					t.Fatalf("response %d has invalid framing", i)
+				}
+				for _, previous := range responses[:i] {
+					if bytes.Equal(previous[:12], responses[i][:12]) {
+						t.Fatal("replayed request reused a response nonce")
+					}
+				}
+			}
+			leaked := make([]byte, len(bodies[2]))
+			for i := range leaked {
+				leaked[i] = responses[0][14+i] ^ responses[2][14+i] ^ bodies[0][i]
+			}
+			if string(leaked) == bodies[2] {
+				t.Fatal("replayed request exposed the response plaintext")
+			}
+		})
 	}
 }

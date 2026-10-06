@@ -136,6 +136,27 @@ describe("attestation verification", () => {
 });
 
 describe("sealing", () => {
+  it("rejects tampered and truncated responses", () => {
+    const key = hexToBytes(vector("response_key"));
+    const sealed = hexToBytes(vector("sealed_response"));
+    expect(sealed.length).toBe(12 + 2 + utf8ToBytes(vector("response_body")).length + 16);
+    const reject = (body: Uint8Array, responseKey = key): void => {
+      expect(() => openResponse(responseKey, body)).toThrow(
+        expect.objectContaining({ code: "CLIENT_PROVER_TEE_SEAL" }),
+      );
+    };
+    for (const offset of [0, 12, sealed.length - 1]) {
+      const tampered = sealed.slice();
+      tampered.set([tampered[offset]! ^ 1], offset);
+      reject(tampered);
+    }
+    for (let end = 0; end < sealed.length; end++) reject(sealed.subarray(0, end));
+    reject(sealed.subarray(12));
+    const wrongKey = key.slice();
+    wrongKey.set([wrongKey[0]! ^ 1]);
+    reject(sealed, wrongKey);
+  });
+
   async function recipient(enc: Uint8Array) {
     const pair = await suite.kem.deriveKeyPair(hexToBytes(vector("ikm")));
     expect(bytesToHex(new Uint8Array(await suite.kem.serializePublicKey(pair.publicKey)))).toBe(

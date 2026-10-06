@@ -8,8 +8,7 @@ use zeroize::Zeroizing;
 use zolana_client::{
     error::ClientError,
     prover::{
-        known_proving_keys, tee::TeePolicy, ExpectedProvingKey, ProveRequest, Prover,
-        ProverClient,
+        known_proving_keys, tee::TeePolicy, ExpectedProvingKey, ProveRequest, Prover, ProverClient,
     },
 };
 
@@ -62,12 +61,19 @@ impl TeeCheckOptions {
             "attested, TCB {}, compose {}, GPU {}",
             attested.tcb_status,
             hex::encode(attested.compose_hash),
-            if attested.gpu_verified { "verified" } else { "absent" },
+            if attested.gpu_verified {
+                "verified"
+            } else {
+                "absent"
+            },
         );
         let report = prover
             .check_proving_keys()
             .context("sealed proving key check")?;
-        println!("sealed proving key check passed, {} keys", report.keys.len());
+        println!(
+            "sealed proving key check passed, {} keys",
+            report.keys.len()
+        );
 
         if let Some((path, name)) = self.proof {
             let sha256 = known_proving_keys()

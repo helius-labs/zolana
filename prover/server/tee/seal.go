@@ -101,8 +101,7 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) ([]byte, []byte, e
 	return plaintext, responseKey, nil
 }
 
-// sealResponse keys AES-GCM with a single use export of the request context,
-// so the zero nonce never repeats under one key.
+// Replayed requests share a response key and require independent nonces.
 func sealResponse(key []byte, status int, body []byte) ([]byte, error) {
 	gcm, err := responseAEAD(key)
 	if err != nil {
@@ -111,7 +110,7 @@ func sealResponse(key []byte, status int, body []byte) ([]byte, error) {
 	plaintext := make([]byte, 2, 2+len(body))
 	binary.BigEndian.PutUint16(plaintext, uint16(status))
 	plaintext = append(plaintext, body...)
-	return gcm.Seal(nil, make([]byte, gcm.NonceSize()), plaintext, nil), nil
+	return gcm.Seal(nil, nil, plaintext, nil), nil
 }
 
 func responseAEAD(key []byte) (cipher.AEAD, error) {
@@ -119,7 +118,7 @@ func responseAEAD(key []byte) (cipher.AEAD, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cipher.NewGCM(block)
+	return cipher.NewGCMWithRandomNonce(block)
 }
 
 func bodiless(method string) bool {
