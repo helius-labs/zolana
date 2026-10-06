@@ -10,7 +10,7 @@
 //! [`SpendableUtxos::fetch_history`] makes the same reads and keeps the
 //! transactions and the spent UTXOs as well.
 //!
-//! Both read notes only in the assets of the [`AssetRegistry`] they are given
+//! Both read UTXOs only in the assets of the [`AssetRegistry`] they are given
 //! and report the others as unknown; [`fetch_asset_id`] reads the id the pool
 //! registered for a mint, to add it.
 
@@ -159,7 +159,7 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
 /// The asset id the shielded pool uses for `asset`: [`SOL_ASSET_ID`] for SOL,
 /// without a request, and for an SPL mint the id in the registry account the
 /// pool wrote when it registered the mint.
-pub fn fetch_asset_id<R: Rpc>(rpc: &R, asset: Address) -> Result<u64, ClientError> {
+pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, ClientError> {
     if asset == SOL_MINT {
         return Ok(SOL_ASSET_ID);
     }

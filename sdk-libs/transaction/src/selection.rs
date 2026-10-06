@@ -1,8 +1,8 @@
-//! Which notes a spend takes.
+//! Which UTXOs a spend takes.
 //!
 //! A transact binds one input tree and at most as many inputs as the widest
-//! automatic shape has, so a spend takes the largest notes of one tree first.
-//! A balance spread over trees, or one that needs more notes, is merged first.
+//! automatic shape has, so a spend takes the largest UTXOs of one tree first.
+//! A balance spread over trees, or one that needs more UTXOs, is merged first.
 
 use std::{cmp::Reverse, collections::HashSet};
 
@@ -13,42 +13,42 @@ use crate::{
     instructions::transact::auto_shapes, utxo::WalletUtxo,
 };
 
-/// A ring-bound note's commitment covers its ring; the default-ring circuit
+/// A ring-bound UTXO's commitment covers its ring; the default-ring circuit
 /// does not.
-pub fn is_default_ring_spendable(note: &WalletUtxo) -> bool {
-    note.utxo.ring_program_id.is_none() && note.ring_data_hash.is_none()
+pub fn is_default_ring_spendable(utxo: &WalletUtxo) -> bool {
+    utxo.utxo.ring_program_id.is_none() && utxo.ring_data_hash.is_none()
 }
 
-/// No ring binding and no attached data: the only notes a split or a merge
+/// No ring binding and no attached data: the only UTXOs a split or a merge
 /// takes, since their spend input drops the committed data hashes.
-pub fn is_plain_utxo(note: &WalletUtxo) -> bool {
-    is_default_ring_spendable(note) && note.data_hash.is_none() && note.utxo.data.is_empty()
+pub fn is_plain_utxo(utxo: &WalletUtxo) -> bool {
+    is_default_ring_spendable(utxo) && utxo.data_hash.is_none() && utxo.utxo.data.is_empty()
 }
 
 impl SpendableDecryptionResult {
-    /// The single tree holding the notes of `asset` that `eligible` accepts.
+    /// The single tree holding the UTXOs of `asset` that `eligible` accepts.
     pub fn spend_tree(
         &self,
         asset: Address,
         eligible: impl Fn(&WalletUtxo) -> bool,
     ) -> Result<u16, TransactionError> {
-        let notes: Vec<&WalletUtxo> = self
+        let utxos: Vec<&WalletUtxo> = self
             .utxos()
-            .filter(|note| note.utxo.asset.asset == asset && eligible(note))
+            .filter(|utxo| utxo.utxo.asset.asset == asset && eligible(utxo))
             .collect();
-        single_tree(&notes, asset)
+        single_tree(&utxos, asset)
     }
 
-    /// The notes a default-ring spend of `amount` of `asset` takes: the
+    /// The UTXOs a default-ring spend of `amount` of `asset` takes: the
     /// largest first, all on one tree, at most as many as the widest automatic
-    /// shape has inputs. Zero-amount notes are left out: they add an input and
+    /// shape has inputs. Zero-amount UTXOs are left out: they add an input and
     /// nothing to the amount.
     ///
-    /// Notes whose nullifier is in `excluded` are left out, such as the notes
-    /// of a spend that is prepared but not sent yet. When the other notes do
+    /// UTXOs whose nullifier is in `excluded` are left out, such as the UTXOs
+    /// of a spend that is prepared but not sent yet. When the other UTXOs do
     /// not hold `amount` and the excluded ones would cover it, this fails with
-    /// [`TransactionError::SpendNeedsExcludedNotes`]. A balance that needs a
-    /// merge first is reported as such, excluded notes or not.
+    /// [`TransactionError::SpendNeedsExcludedUtxos`]. A balance that needs a
+    /// merge first is reported as such, excluded UTXOs or not.
     pub fn select_spend(
         &self,
         asset: Address,
@@ -57,16 +57,16 @@ impl SpendableDecryptionResult {
     ) -> Result<Vec<WalletUtxo>, TransactionError> {
         let eligible: Vec<&WalletUtxo> = self
             .utxos()
-            .filter(|note| {
-                note.utxo.asset.asset == asset
-                    && note.utxo.amount > 0
-                    && is_default_ring_spendable(note)
+            .filter(|utxo| {
+                utxo.utxo.asset.asset == asset
+                    && utxo.utxo.amount > 0
+                    && is_default_ring_spendable(utxo)
             })
             .collect();
         let free = eligible
             .iter()
             .copied()
-            .filter(|note| !excluded.contains(&note.nullifier))
+            .filter(|utxo| !excluded.contains(&utxo.nullifier))
             .collect();
         select(free, asset, amount).map_err(|error| {
             let short = matches!(
@@ -75,7 +75,7 @@ impl SpendableDecryptionResult {
                     | TransactionError::NoSpendableBalance { .. }
             );
             if short && !excluded.is_empty() && select(eligible, asset, amount).is_ok() {
-                TransactionError::SpendNeedsExcludedNotes { amount }
+                TransactionError::SpendNeedsExcludedUtxos { amount }
             } else {
                 error
             }
@@ -83,8 +83,8 @@ impl SpendableDecryptionResult {
     }
 }
 
-fn single_tree(notes: &[&WalletUtxo], asset: Address) -> Result<u16, TransactionError> {
-    let mut trees: Vec<u16> = notes.iter().map(|note| note.tree_id()).collect();
+fn single_tree(utxos: &[&WalletUtxo], asset: Address) -> Result<u16, TransactionError> {
+    let mut trees: Vec<u16> = utxos.iter().map(|utxo| utxo.tree_id()).collect();
     trees.sort_unstable();
     trees.dedup();
     match trees.as_slice() {
@@ -95,24 +95,24 @@ fn single_tree(notes: &[&WalletUtxo], asset: Address) -> Result<u16, Transaction
 }
 
 fn select(
-    mut notes: Vec<&WalletUtxo>,
+    mut utxos: Vec<&WalletUtxo>,
     asset: Address,
     amount: u64,
 ) -> Result<Vec<WalletUtxo>, TransactionError> {
-    single_tree(&notes, asset)?;
+    single_tree(&utxos, asset)?;
     let max_inputs = auto_shapes()
         .map(|shape| shape.n_inputs())
         .max()
         .unwrap_or(0);
-    notes.sort_by_key(|note| Reverse(note.utxo.amount));
-    let available = notes
+    utxos.sort_by_key(|utxo| Reverse(utxo.utxo.amount));
+    let available = utxos
         .iter()
-        .fold(0u64, |total, note| total.saturating_add(note.utxo.amount));
+        .fold(0u64, |total, utxo| total.saturating_add(utxo.utxo.amount));
     let mut selected = Vec::new();
     let mut covered = 0u64;
-    for note in notes.into_iter().take(max_inputs) {
-        covered = covered.saturating_add(note.utxo.amount);
-        selected.push(note.clone());
+    for utxo in utxos.into_iter().take(max_inputs) {
+        covered = covered.saturating_add(utxo.utxo.amount);
+        selected.push(utxo.clone());
         if covered >= amount {
             return Ok(selected);
         }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use zolana_client::{
@@ -64,7 +66,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
 
     let inputs = ctx
         .spendable
-        .select_spend(asset, opts.amount, &Default::default())?;
+        .select_spend(asset, opts.amount, &HashSet::new())?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
     let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
         Some(registered) => {

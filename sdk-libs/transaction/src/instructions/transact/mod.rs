@@ -326,8 +326,8 @@ impl ConfidentialTransaction {
     ///
     /// SOL goes to `recipient` itself. An SPL mint goes to `recipient`'s
     /// associated token account under `token_program`, the mint's token
-    /// program (`None` for SOL); that account must exist when the transaction
-    /// lands.
+    /// program, which must be `None` for SOL; that account must exist when
+    /// the transaction lands.
     pub fn withdraw_to(
         &mut self,
         asset: Address,
@@ -336,6 +336,9 @@ impl ConfidentialTransaction {
         token_program: Option<Address>,
     ) -> Result<TransactInterfaceTransferAccounts, TransactionError> {
         if asset == SOL_MINT {
+            if let Some(token_program) = token_program {
+                return Err(TransactionError::UnexpectedSolTokenProgram { token_program });
+            }
             self.withdraw_sol(amount, recipient)?;
             return Ok(TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts { recipient },

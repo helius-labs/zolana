@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
@@ -34,7 +36,7 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
 
     let inputs = ctx
         .spendable
-        .select_spend(asset, opts.amount, &Default::default())?;
+        .select_spend(asset, opts.amount, &HashSet::new())?;
     let payer = Address::new_from_array(ctx.material.funding.pubkey().to_bytes());
     let mut transaction = ConfidentialTransaction::new(inputs, payer)?;
     let settlement = transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;

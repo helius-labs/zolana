@@ -1,5 +1,5 @@
-//! Which notes a spend takes: largest first, one tree, bounded by the widest
-//! automatic shape, leaving out excluded and zero-amount notes.
+//! Which UTXOs a spend takes: largest first, one tree, bounded by the widest
+//! automatic shape, leaving out excluded and zero-amount UTXOs.
 mod common;
 
 use std::collections::HashSet;
@@ -13,19 +13,19 @@ use zolana_transaction::{
 
 const TOKEN: Mint = Mint::new(Address::new_from_array([7; 32]), 2);
 
-fn spendable(notes: Vec<WalletUtxo>) -> SpendableDecryptionResult {
+fn spendable(utxos: Vec<WalletUtxo>) -> SpendableDecryptionResult {
     let mut assets: Vec<AssetBalance> = Vec::new();
-    for note in notes {
-        match assets.iter_mut().find(|b| b.mint == note.utxo.asset.asset) {
+    for utxo in utxos {
+        match assets.iter_mut().find(|b| b.mint == utxo.utxo.asset.asset) {
             Some(balance) => {
-                balance.amount += note.utxo.amount;
-                balance.utxos.push(note);
+                balance.amount += utxo.utxo.amount;
+                balance.utxos.push(utxo);
             }
             None => assets.push(AssetBalance {
-                asset_id: note.utxo.asset.asset_id,
-                mint: note.utxo.asset.asset,
-                amount: note.utxo.amount,
-                utxos: vec![note],
+                asset_id: utxo.utxo.asset.asset_id,
+                mint: utxo.utxo.asset.asset,
+                amount: utxo.utxo.amount,
+                utxos: vec![utxo],
             }),
         }
     }
@@ -35,8 +35,8 @@ fn spendable(notes: Vec<WalletUtxo>) -> SpendableDecryptionResult {
     }
 }
 
-fn amounts(notes: &[WalletUtxo]) -> Vec<u64> {
-    notes.iter().map(|note| note.utxo.amount).collect()
+fn amounts(utxos: &[WalletUtxo]) -> Vec<u64> {
+    utxos.iter().map(|utxo| utxo.utxo.amount).collect()
 }
 
 #[test]
@@ -68,18 +68,18 @@ fn takes_the_largest_notes_of_the_asset_until_the_amount_is_covered() {
 #[test]
 fn leaves_out_excluded_notes() {
     let owner = keypair(1);
-    let notes = vec![
+    let utxos = vec![
         wallet_utxo(&owner, Mint::SOL, 50, 0, 1),
         wallet_utxo(&owner, Mint::SOL, 30, 0, 2),
         wallet_utxo(&owner, Mint::SOL, 20, 0, 3),
     ];
-    let excluded = HashSet::from([notes[0].nullifier]);
-    let wallet = spendable(notes);
+    let excluded = HashSet::from([utxos[0].nullifier]);
+    let wallet = spendable(utxos);
     let select = |amount| wallet.select_spend(Mint::SOL.asset, amount, &excluded);
     assert_eq!(amounts(&select(40).unwrap()), [30, 20]);
     assert_eq!(
         select(60),
-        Err(TransactionError::SpendNeedsExcludedNotes { amount: 60 })
+        Err(TransactionError::SpendNeedsExcludedUtxos { amount: 60 })
     );
     assert_eq!(
         select(101),
@@ -93,7 +93,7 @@ fn leaves_out_excluded_notes() {
 #[test]
 fn leaves_out_zero_amount_notes() {
     let owner = keypair(1);
-    // A zero-amount note on another tree does not split the balance.
+    // A zero-amount UTXO on another tree does not split the balance.
     let wallet = spendable(vec![
         wallet_utxo(&owner, Mint::SOL, 0, 1, 1),
         wallet_utxo(&owner, Mint::SOL, 0, 0, 2),
@@ -141,7 +141,7 @@ fn spends_one_tree_of_default_ring_notes() {
         Err(TransactionError::NoSpendableBalance { asset: TOKEN.asset })
     );
     assert_eq!(
-        wallet.spend_tree(Mint::SOL.asset, |note| note.tree_id() == 1),
+        wallet.spend_tree(Mint::SOL.asset, |utxo| utxo.tree_id() == 1),
         Ok(1)
     );
     assert_eq!(
@@ -174,22 +174,22 @@ fn a_merge_is_reported_even_when_excluded_notes_would_cover_the_amount() {
     let count = u8::try_from(max_inputs + 1).unwrap();
     let large = wallet_utxo(&owner, Mint::SOL, 100, 0, count + 1);
     let excluded = HashSet::from([large.nullifier]);
-    let mut notes: Vec<_> = (1..=count)
+    let mut utxos: Vec<_> = (1..=count)
         .map(|nonce| wallet_utxo(&owner, Mint::SOL, 10, 0, nonce))
         .collect();
-    notes.push(large);
-    let wallet = spendable(notes);
+    utxos.push(large);
+    let wallet = spendable(utxos);
     let amount = 10 * u64::from(count);
     assert_eq!(
         wallet.select_spend(Mint::SOL.asset, amount, &excluded),
         Err(TransactionError::SpendNeedsMerge { amount, max_inputs })
     );
 
-    // With every note excluded, nothing is left: the excluded notes are needed.
+    // With every UTXO excluded, nothing is left: the excluded UTXOs are needed.
     let only = wallet_utxo(&owner, Mint::SOL, 100, 0, 1);
     let excluded = HashSet::from([only.nullifier]);
     assert_eq!(
         spendable(vec![only]).select_spend(Mint::SOL.asset, 50, &excluded),
-        Err(TransactionError::SpendNeedsExcludedNotes { amount: 50 })
+        Err(TransactionError::SpendNeedsExcludedUtxos { amount: 50 })
     );
 }

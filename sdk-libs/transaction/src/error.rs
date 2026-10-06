@@ -161,11 +161,11 @@ pub enum TransactionError {
     #[error("balance is spread over {trees} trees; merge each tree first")]
     BalanceOnSeveralTrees { trees: usize },
 
-    #[error("{amount} needs more than {max_inputs} notes; merge first")]
+    #[error("{amount} needs more than {max_inputs} UTXOs; merge first")]
     SpendNeedsMerge { amount: u64, max_inputs: usize },
 
-    #[error("{amount} needs notes that are excluded from this spend")]
-    SpendNeedsExcludedNotes { amount: u64 },
+    #[error("{amount} needs UTXOs that are excluded from this spend")]
+    SpendNeedsExcludedUtxos { amount: u64 },
 
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },
@@ -187,6 +187,9 @@ pub enum TransactionError {
 
     #[error("SPL mint {mint} needs its token program")]
     MissingSplTokenProgram { mint: Address },
+
+    #[error("SOL has no token program, got {token_program}")]
+    UnexpectedSolTokenProgram { token_program: Address },
 
     #[error("public transfer sum overflow for asset {asset}")]
     PublicTransferOverflow { asset: Address },

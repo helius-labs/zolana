@@ -624,10 +624,14 @@ fn withdraw_to_settles_sol_to_the_recipient_and_spl_to_its_associated_token_acco
 }
 
 #[test]
-fn withdraw_to_refuses_an_spl_mint_without_its_token_program_or_without_an_input() {
+fn withdraw_to_refuses_a_missing_or_sol_token_program_and_an_unknown_mint() {
     let recipient = address(30);
     let token_program = Address::new_from_array(SPL_TOKEN_PROGRAM_ID);
     let mut tx = sol_and_spl_builder();
+    assert!(matches!(
+        tx.withdraw_to(SOL_MINT, 1, recipient, Some(token_program)),
+        Err(TransactionError::UnexpectedSolTokenProgram { token_program: got }) if got == token_program
+    ));
     assert!(matches!(
         tx.withdraw_to(address(4), 1, recipient, None),
         Err(TransactionError::MissingSplTokenProgram { mint }) if mint == address(4)

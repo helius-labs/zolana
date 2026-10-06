@@ -1,3 +1,4 @@
+use solana_address::Address;
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
@@ -131,10 +132,10 @@ pub enum ClientError {
     UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },
 
     #[error("mint {mint} is not registered with the shielded pool")]
-    SplAssetNotRegistered { mint: solana_address::Address },
+    SplAssetNotRegistered { mint: Address },
 
     #[error("the shielded pool's asset registry account for mint {mint} is invalid")]
-    InvalidSplAssetRegistry { mint: solana_address::Address },
+    InvalidSplAssetRegistry { mint: Address },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),
