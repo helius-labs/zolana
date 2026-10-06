@@ -39,17 +39,17 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		wantConfidential bool
 		want             CircuitType
 	}{
-		{"transfer_ring_2_3.key", false, true, TransferRingCircuitType},
-		{"transfer_confidential_2_3.key", false, true, TransferConfidentialCircuitType},
-		{"transfer_p256_ring_2_3.key", true, true, TransferP256RingCircuitType},
-		{"transfer_p256_confidential_2_3.key", true, true, TransferConfidentialCircuitType},
+		{"transfer_ring_2_4.key", false, true, TransferRingCircuitType},
+		{"transfer_confidential_2_4.key", false, true, TransferConfidentialCircuitType},
+		{"transfer_p256_ring_2_4.key", true, true, TransferP256RingCircuitType},
+		{"transfer_p256_confidential_2_4.key", true, true, TransferConfidentialCircuitType},
 	}
 
 	dir := t.TempDir()
 	for _, tc := range cases {
 		ps := &TransferProofSystem{
 			NInputs:          2,
-			NOutputs:         3,
+			NOutputs:         4,
 			RequiresP256:     tc.requiresP256,
 			ProvingKey:       pk,
 			VerifyingKey:     vk,

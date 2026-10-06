@@ -23,8 +23,8 @@ func TestRingPreloadRequiresSelectedKey(t *testing.T) {
 
 func TestTransferPreloadSelection(t *testing.T) {
 	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
-	paths, matched, err := manager.selectedTransferPaths("transfer-confidential:2:3")
-	if err != nil || !matched || len(paths) != 1 || filepath.Base(paths[0]) != "transfer_confidential_2_3.key" {
+	paths, matched, err := manager.selectedTransferPaths("transfer-confidential:2:4")
+	if err != nil || !matched || len(paths) != 1 || filepath.Base(paths[0]) != "transfer_confidential_2_4.key" {
 		t.Fatalf("selection %v %v", paths, err)
 	}
 	paths, matched, err = manager.selectedTransferPaths("merge")
@@ -34,7 +34,7 @@ func TestTransferPreloadSelection(t *testing.T) {
 	if err := manager.PreloadForRunMode(Rpc); err == nil {
 		t.Fatal("missing RPC keys reported ready")
 	}
-	if err := manager.PreloadCircuits([]string{"transfer-confidential:2:3"}); err == nil {
+	if err := manager.PreloadCircuits([]string{"transfer-confidential:2:4"}); err == nil {
 		t.Fatal("missing selected key reported ready")
 	}
 	if err := manager.PreloadCircuits([]string{"unknown"}); err == nil {

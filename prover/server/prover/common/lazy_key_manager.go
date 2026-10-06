@@ -287,24 +287,50 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 // canonical shape set). Kept here because common must not import prover-test;
 // keep in sync with prover-test/spp/protocol/shape.go.
 var transferSupportedShapes = [][2]uint32{
-	{1, 1},
 	{1, 2},
-	{2, 2},
-	{2, 3},
-	{3, 3},
-	{4, 3},
-	{4, 4},
-	{5, 3},
-	{5, 4},
+	{1, 4},
 	{1, 8},
-	// Consolidation shape; keep in sync with protocol.SupportedShapes.
-	{36, 2},
+	{2, 2},
+	{2, 4},
+	{1, 16},
+	{2, 8},
+	{3, 2},
+	{3, 4},
+	{2, 16},
+	{3, 8},
+	{4, 2},
+	{4, 4},
+	{4, 8},
+	{5, 2},
+	{5, 4},
+	{4, 16},
+	{5, 8},
+	{6, 2},
+	{6, 4},
+	{5, 16},
+	{6, 8},
+	{8, 2},
+	{8, 4},
+	{8, 8},
+	{8, 16},
+	{12, 2},
+	{12, 4},
+	{12, 8},
+	{16, 2},
+	{16, 4},
+	{16, 8},
+	{24, 2},
+	{24, 4},
+	{32, 2},
+	{40, 2},
+	{48, 2},
+	{51, 2},
 }
 
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
-var mergeSupportedInputCounts = []uint32{8, 36}
+var mergeSupportedInputCounts = []uint32{24, 51}
 
 type ProofShape struct {
 	Circuit CircuitType

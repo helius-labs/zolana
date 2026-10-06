@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
+use zolana_client::{transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
@@ -260,12 +260,18 @@ impl RingHarness {
             cache: None,
         }
         .instruction();
+        let budget = ComputeBudgetConfig::new(1_400_000);
+        self.last_transaction_size = Some(transaction_size(
+            &payer.pubkey(),
+            std::slice::from_ref(&merge_ix),
+            budget,
+        )?);
         let send_result = send_transaction_with_budget(
             &mut self.rpc,
             std::slice::from_ref(&merge_ix),
             &payer.pubkey(),
             &[&payer],
-            ComputeBudgetConfig::new(1_400_000),
+            budget,
         );
         if expect_proof_rejection {
             match send_result {

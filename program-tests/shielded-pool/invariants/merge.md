@@ -5,8 +5,8 @@ Covers `MergeTransact` (tag 13) and `RingMergeTransact` (tag 16). Shared invaria
 live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously described a variable input
-count `N` and an oversized proof; `docs/spec.md` now matches the code: a fixed
-8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof with no BSB22
+count `N` and an oversized proof; `docs/spec.md` now matches the code: 24-in/1-out
+and 51-in/1-out shapes and a vanilla Groth16 `a||b||c` proof with no BSB22
 commitment (`program-libs/interface/src/instruction/instruction_data/merge_transact.rs:9-22`,
 `docs/spec.md:1795-1836`). Post-PR164 the merge output is ciphertext-free (no
 `encrypted_utxo` field and no `merge_view_tag`): the output is recovered from the
@@ -83,9 +83,9 @@ nullifiers.
 ### Instruction Data Validation
 
 - [x] **INV-MERGE-06: a supported merge shape is enforced at parse time**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (0 and 37 inputs), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (36 inputs parse and reach verification), `merge_rejects_a_sent_zero_nullifier`; `program-tests/shielded-pool/tests/merge/functional.rs` `merge_with_compact_padding_spends_only_the_real_inputs`
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (0 and 52 inputs), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (51 inputs parse and reach verification), `merge_rejects_a_sent_zero_nullifier`; `program-tests/shielded-pool/tests/merge/functional.rs` `merge_with_compact_padding_spends_only_the_real_inputs`
   - Kind: precondition
-  - Statement: `merge_transact` returns Err unless `nullifiers.len()` is between 1 and `MAX_MERGE_INPUTS` (36) and no sent nullifier is 0 (`ZeroInputNullifier = 7078`). `merge_circuit_width` picks the narrowest merge circuit (8 or 36) that holds the sent nullifiers, and the slots past them are compact padding. The instruction carries one `utxo_tree_root_index` / `nullifier_tree_root_index` pair for every input.
+  - Statement: `merge_transact` returns Err unless `nullifiers.len()` is between 1 and `MAX_MERGE_INPUTS` (51) and no sent nullifier is 0 (`ZeroInputNullifier = 7078`). `merge_circuit_width` picks the narrowest merge circuit (24 or 51) that holds the sent nullifiers, and the slots past them are compact padding. The instruction carries one `utxo_tree_root_index` / `nullifier_tree_root_index` pair for every input.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs:106-115` (`fn validate_shape`), `programs/shielded-pool/src/instructions/merge/processor.rs:31-32`
   - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High
@@ -112,16 +112,16 @@ nullifiers.
   - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).
 
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (8 inputs) and `merge_verifies_the_wide_shape_on_chain` (36 inputs), each proving with the workspace prover and requiring the program to accept
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (24 inputs) and `merge_verifies_the_wide_shape_on_chain` (51 inputs), each proving with the workspace prover and requiring the program to accept
   - Kind: precondition
-  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_8_1` / `merge_36_1` (default rail), `merge_ring_8_1` / `merge_ring_36_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
+  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_24_1` / `merge_51_1` (default rail), `merge_ring_24_1` / `merge_ring_51_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:51-73` (`fn verify`)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
   - Severity: Critical
   - Suggested test: negative both errors; harness: mollusk unit
 
 - [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus both owner keys**
-  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
+  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_both_merge_widths` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
   - Kind: state
   - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
@@ -131,7 +131,7 @@ nullifiers.
 ### Success Postconditions
 
 - [ ] **INV-MERGE-13: one nullifier per sent input is inserted and one leaf appended**
-  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (output appended and inputs spent); `program-tests/shielded-pool/tests/merge/functional.rs` `merge_with_compact_padding_spends_only_the_real_inputs` (the exact queue and tree `next_index` deltas, and no nullifier PDA for compact padding; the appended leaf value is not asserted)
+  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_both_merge_widths` (output appended and inputs spent); `program-tests/shielded-pool/tests/merge/functional.rs` `merge_with_compact_padding_spends_only_the_real_inputs` (the exact queue and tree `next_index` deltas, and no nullifier PDA for compact padding; the appended leaf value is not asserted)
   - Kind: postcondition
   - Statement: after a successful `merge_transact`, the nullifier queue's `next_index` is exactly its value before plus `nullifiers.len()` (compact padding inserts nothing), and the UTXO tree's `next_index` is exactly its value before plus 1 with the appended leaf equal to `output_utxo_hash`.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:141-172` (`fn apply_input_tree`), `merge/processor.rs:174-189` (`fn apply_output_tree`)
@@ -139,18 +139,18 @@ nullifiers.
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
 - [ ] **INV-MERGE-14: successful merge emits exactly one Merge GeneralEvent tagged by the owner key**
-  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (output rediscovered by owner signing-key tag; nullifier sequence numbers, verbatim `data`, and the empty `spl_transfers` list unasserted)
+  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_both_merge_widths` (output rediscovered by owner signing-key tag; nullifier sequence numbers, verbatim `data`, and the empty `spl_transfers` list unasserted)
   - Kind: postcondition
   - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the sent nullifiers with assigned queue sequence numbers and exactly one output whose `view_tag` is the owner's signing-key tag from the registry record and whose `data` is empty (ciphertext-free output), and an empty `spl_transfers` list (no public movements).
   - Location: `programs/shielded-pool/src/instructions/merge/event.rs:15-42` (`fn build_merge_event`), `merge/account.rs:58-89`
   - Severity: Medium (owner rediscovery on sync)
   - Suggested test: positive; harness: litesvm
 
-- [x] **INV-MERGE-19: merge collects the tree's insertion fee for 8 queued nullifiers and credits the fee balance**
-  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (real on-chain merge proof; the input tree gains exactly `8 * fees.fee_per_nullifier` lamports read from the tree header, its `fee_balance` grows by the same amount, the payer loses exactly the signature fee plus that amount, every other account byte-identical); also `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which asserts the payer loses and the input tree gains exactly `MERGE_INPUT_COUNT` (8) × the tree's per-nullifier fee (`spp-test-validator/tests/actions/merge.rs`)
+- [x] **INV-MERGE-19: merge collects the tree's insertion fee for every queued nullifier and credits the fee balance**
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (real on-chain merge proof; the input tree gains exactly `nullifiers.len() * fees.fee_per_nullifier` lamports read from the tree header, its `fee_balance` grows by the same amount, the payer loses exactly the signature fee plus that amount, every other account byte-identical); also `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_both_merge_widths` and `eddsa_merge_covers_both_merge_widths` via the shared merge action, which asserts the payer loses and the input tree gains exactly `nullifiers.len()` × the tree's per-nullifier fee (`spp-test-validator/tests/actions/merge.rs`)
   - Kind: postcondition
-  - Statement: while queueing the inputs the input tree's `fee_balance` increases by exactly `fee = MERGE_INPUT_COUNT` (8) × `input_tree.fees.fee_per_nullifier` (the schedule stored in the tree header; no constant fee exists any more), and the payer then transfers exactly `fee` lamports to the input tree via one System-Program CPI before the PDAs are funded; a fee-computation overflow returns 7022; a zero fee (all-zero schedule) skips the CPI; the tree must be writable and program-owned else 7001.
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`: `credit_insertion_fee(MERGE_INPUT_COUNT)`, `create_nullifier_pdas`), `nullifier_pda/create.rs` (`fn create_nullifier_pdas`, `fn collect_forester_fee`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::credit_insertion_fee`)
+  - Statement: while queueing the inputs the input tree's `fee_balance` increases by exactly `fee = nullifiers.len()` × `input_tree.fees.fee_per_nullifier` (the schedule stored in the tree header; no constant fee exists any more), and the payer then transfers exactly `fee` lamports to the input tree via one System-Program CPI before the PDAs are funded; a fee-computation overflow returns 7022; a zero fee (all-zero schedule) skips the CPI; the tree must be writable and program-owned else 7001.
+  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`: `credit_insertion_fee(nullifiers.len())`, `create_nullifier_pdas`), `nullifier_pda/create.rs` (`fn create_nullifier_pdas`, `fn collect_forester_fee`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::credit_insertion_fee`)
   - Error: `ShieldedPoolError::InvalidForesterFee = 7022`
   - Severity: High (fund movement)
   - Suggested test: none remaining (exact deltas pinned; 7022 overflow legs covered by `program-tests/shielded-pool/tests/tree/contract.rs` `forester_fee_overflow_is_invalid_forester_fee`, `reimbursement_recipient_balance_overflow_is_invalid_forester_fee`)
@@ -158,9 +158,9 @@ nullifiers.
 ### Frame Conditions
 
 - [x] **INV-MERGE-15: merge modifies only the two tree accounts and the payer**
-  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (every account other than the trees and the payer byte-identical); `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which asserts the payer loses exactly one `fees.fee_per_nullifier` of the tree per sent nullifier, the input tree gains exactly that amount, and the read-only user record is unchanged around every successful merge (`spp-test-validator/tests/actions/merge.rs`); the remaining instruction account is the system program, which cannot be modified by the program.
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (every account other than the trees and the payer byte-identical); `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_both_merge_widths` and `eddsa_merge_covers_both_merge_widths` via the shared merge action, which asserts the payer loses exactly one `fees.fee_per_nullifier` of the tree per sent nullifier, the input tree gains exactly that amount, and the read-only user record is unchanged around every successful merge (`spp-test-validator/tests/actions/merge.rs`); the remaining instruction account is the system program, which cannot be modified by the program.
   - Kind: frame
-  - Statement: after a successful `merge_transact`, every account other than the two tree accounts (`input_tree`, `output_tree`) and the `payer` has unchanged data and unchanged lamports (no settlement exists on this instruction); the only lamport movement is the insertion fee (`MERGE_INPUT_COUNT` × `input_tree.fees.fee_per_nullifier`, credited to the tree's `fee_balance`; zero under the sponsored default, which skips the transfer) from the payer to the input tree; in particular the `user_record` is read-only.
+  - Statement: after a successful `merge_transact`, every account other than the two tree accounts (`input_tree`, `output_tree`) and the `payer` has unchanged data and unchanged lamports (no settlement exists on this instruction); the only lamport movement is the insertion fee (`nullifiers.len()` × `input_tree.fees.fee_per_nullifier`, credited to the tree's `fee_balance`; zero under the sponsored default, which skips the transfer) from the payer to the input tree; in particular the `user_record` is read-only.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_transact_ix`, `fn process_merge_core`: `credit_insertion_fee`, `create_nullifier_pdas`), `nullifier_pda/create.rs` (`fn collect_forester_fee`)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (account snapshot compare)
@@ -246,10 +246,10 @@ nullifiers.
   - Severity: Critical (cross-ring merge prevention)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-MERGE-07: ring merge verifies only against merge_ring_8_1**
-  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic` (zeroed proof -> 7008; a real `merge_8_1` proof cross-submitted to ring merge is not tested)
+- [ ] **INV-RING-MERGE-07: ring merge verifies only against the merge_ring keys**
+  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic` (zeroed proof -> 7008; a real `merge_24_1` proof cross-submitted to ring merge is not tested)
   - Kind: precondition
-  - Statement: `ring_merge_transact` verifies only against `merge_ring_8_1::VERIFYINGKEY`; a proof for the default `merge_8_1` circuit does not verify (the two key selections are mutually exclusive by owner-binding variant).
+  - Statement: `ring_merge_transact` verifies only against `merge_ring_24_1::VERIFYINGKEY` or `merge_ring_51_1::VERIFYINGKEY`, by input count; a proof for the default `merge_24_1` or `merge_51_1` circuit does not verify (the two key selections are mutually exclusive by owner-binding variant).
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:62-73` (`fn verify`, key selection and `verify_groth16` call)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical
@@ -347,7 +347,7 @@ than by entries of their own.
 - [x] **INV-MERGE-22: a proof names its cache destination**
   - Covered by: `program-libs/interface/tests/merge_shape.rs` `cache_mode_address_and_slot_are_bound_by_both_merge_hashes` (both merge tags, every address and slot change moves the external data hash), `sdk-libs/program/tests/cache.rs` `cache_write_binding_commits_to_destination_writes_and_external_data`, `program-tests/shielded-pool/tests/cache/queued.rs` `ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends` (a proven transact redirected to another cache or given other write slots -> 7008, atomically)
   - Kind: precondition
-  - Statement: the merge rails fold the cache address and slot into `MergeExternalDataHash`, and transact folds the cache address and write bitmap into its external data hash (`bind_cache_write`), so a relayer holding the writer's signature still cannot move a proven output to another cache or slot. A read-only transact binds no destination and keeps its original preimage.
+  - Statement: the merge rails fold the cache address and slot into `MergeExternalDataHash`, and transact folds the cache address and its `write_slots` pairs into its external data hash (`bind_cache_write`), so a relayer holding the writer's signature still cannot move a proven output to another cache or slot. A read-only transact binds no destination and keeps its original preimage.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`MergeExternalDataHash`), `program-libs/interface/src/state/cache.rs` (`fn bind_cache_write`), `programs/shielded-pool/src/instructions/transact/cache.rs` (`fn bind_cache_write`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High

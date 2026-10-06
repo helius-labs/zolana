@@ -4,6 +4,7 @@ import { prepareMerge } from "../src/client/prover/merge.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
 import { Merge, ProofInputUtxo, SOL_MINT, Utxo } from "../src/transaction/index.js";
+import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { decodeIndexedInputs, proveThroughAuthority } from "../src/client/prover/indexed.js";
 import { readFileSync } from "node:fs";
@@ -18,49 +19,52 @@ import {
 } from "../src/client/internal.js";
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 
-const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(8) });
+const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(MERGE_INPUT_COUNT) });
 
 const decode = wireDecoder(() => new Error("invalid shared vector"));
 
-it.each([1, 8])("hashes each real merge input once with %i real inputs", (count) => {
-  const owner = ShieldedKeypair.generate();
-  try {
-    const inputs = Array.from({ length: count }, () =>
-      ProofInputUtxo.fromKeypair(
-        new Utxo({
-          owner: owner.signingPublicKey(),
-          asset: SOL_MINT,
-          amount: 5n,
-          blinding: randomBlinding(),
-        }),
-        owner,
-      ),
-    );
-    const prepared = Merge.fromKeypair(owner, inputs).prepare();
-    const expected = inputs.map((input) => input.hash());
-    const hashes = inputs.map((input) => vi.spyOn(input, "hash"));
+it.each([1, 8, MERGE_INPUT_COUNT])(
+  "hashes each real merge input once with %i real inputs",
+  (count) => {
+    const owner = ShieldedKeypair.generate();
     try {
-      const tree = treeAddress(prepared.inputTreeId);
-      const first = prepareMerge(prepared, tree);
-      hashes.forEach((hash) => expect(hash).toHaveBeenCalledTimes(1));
-      expect(first.inputs.lookups.map((lookup) => lookup.commitment)).toEqual([
-        ...expected,
-        ...Array.from({ length: 8 - count }, () => null),
-      ]);
-      const input = inputs[0];
-      if (input === undefined) throw new Error("missing test input");
-      input.utxo.blinding.fill(0);
-      const second = prepareMerge(prepared, tree);
-      expect(second.inputs.lookups[0]?.commitment).not.toEqual(expected[0]);
-      expect(second.inputs.payload.privateTxHash).not.toBe(first.inputs.payload.privateTxHash);
-      expect(first.inputs.lookups[0]?.commitment).toEqual(expected[0]);
+      const inputs = Array.from({ length: count }, () =>
+        ProofInputUtxo.fromKeypair(
+          new Utxo({
+            owner: owner.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 5n,
+            blinding: randomBlinding(),
+          }),
+          owner,
+        ),
+      );
+      const prepared = Merge.fromKeypair(owner, inputs).prepare();
+      const expected = inputs.map((input) => input.hash());
+      const hashes = inputs.map((input) => vi.spyOn(input, "hash"));
+      try {
+        const tree = treeAddress(prepared.inputTreeId);
+        const first = prepareMerge(prepared, tree);
+        hashes.forEach((hash) => expect(hash).toHaveBeenCalledTimes(1));
+        expect(first.inputs.lookups.map((lookup) => lookup.commitment)).toEqual([
+          ...expected,
+          ...Array.from({ length: MERGE_INPUT_COUNT - count }, () => null),
+        ]);
+        const input = inputs[0];
+        if (input === undefined) throw new Error("missing test input");
+        input.utxo.blinding.fill(0);
+        const second = prepareMerge(prepared, tree);
+        expect(second.inputs.lookups[0]?.commitment).not.toEqual(expected[0]);
+        expect(second.inputs.payload.privateTxHash).not.toBe(first.inputs.payload.privateTxHash);
+        expect(first.inputs.lookups[0]?.commitment).toEqual(expected[0]);
+      } finally {
+        hashes.forEach((hash) => hash.mockRestore());
+      }
     } finally {
-      hashes.forEach((hash) => hash.mockRestore());
+      owner.destroy();
     }
-  } finally {
-    owner.destroy();
-  }
-});
+  },
+);
 
 describe("indexed proof transcript", () => {
   it("matches the Go and Rust transcript vector", () => {
@@ -159,7 +163,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(envelope["circuitType"]).toBe("merge");
     expect(payload).not.toHaveProperty("treeSlots");
     expect(typeof payload["userNullifierSecret"]).toBe("string");
-    expect(decode.list(payload["inputs"], "inputs")).toHaveLength(8);
+    expect(decode.list(payload["inputs"], "inputs")).toHaveLength(MERGE_INPUT_COUNT);
     expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
     expect(publicInputs).toHaveLength(8);

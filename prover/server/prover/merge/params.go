@@ -39,7 +39,7 @@ type OutputParams struct {
 	Hash         *big.Int
 }
 
-// MergeParameters is the flat, pre-computed witness for the 8-in/1-out merge
+// MergeParameters is the flat, pre-computed witness for the n-in/1-out merge
 // circuit. The prover does no hashing: the client computes every field (utxo
 // hashes, nullifiers, tree roots/proofs, the private-tx hash, the encryption,
 // and the public-input hash) and sends them here.

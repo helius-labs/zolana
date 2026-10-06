@@ -7,8 +7,9 @@ use zolana_test_utils::{
 };
 use zolana_transaction::SOL_MINT;
 
-// Local-validator baselines: transact 2x3 = 290,961; withdrawal = 294,026;
-// merge 8x1 = 326,407.
+// Local-validator baselines (surfpool, 2026-10-06): transact 2x4 = 142,432;
+// withdrawal = 146,029; merge 8 inputs at 24x1 = 242,412. The widest shapes
+// measure up to 309,168 (`max_shapes`).
 const TRANSACT_CU_LIMIT: u64 = 350_000;
 const WITHDRAWAL_CU_LIMIT: u64 = 350_000;
 const MERGE_TRANSACTION_CU_LIMIT: u64 = 400_000;
@@ -22,7 +23,7 @@ fn proof_bearing_default_ring_variants_stay_within_budget() -> Result<()> {
         harness.deposit_sol("sender", 1_000_000_000)?;
     }
     let signature = harness.transfer_asset("sender", "recipient", SOL_MINT, 400_000_000)?;
-    assert_transaction_compute_units(&harness.rpc, &signature, "transact 2x3", TRANSACT_CU_LIMIT)?;
+    assert_transaction_compute_units(&harness.rpc, &signature, "transact 2x4", TRANSACT_CU_LIMIT)?;
 
     for _ in 0..2 {
         harness.deposit_sol("withdrawer", 1_000_000_000)?;
@@ -31,7 +32,7 @@ fn proof_bearing_default_ring_variants_stay_within_budget() -> Result<()> {
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
-        "SOL withdrawal 2x3",
+        "SOL withdrawal",
         WITHDRAWAL_CU_LIMIT,
     )?;
 
@@ -43,7 +44,7 @@ fn proof_bearing_default_ring_variants_stay_within_budget() -> Result<()> {
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
-        "merge 8x1",
+        "merge 8 inputs at 24x1",
         MERGE_TRANSACTION_CU_LIMIT,
     )?;
 

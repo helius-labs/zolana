@@ -108,9 +108,11 @@ function proofFixture(
     blinding: slotBlinding(0),
     ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
   });
+  // No supported shape has a single output, so the real one always gains a pad.
+  const padOutputs = Math.max(dummyInputs.length, 1);
   const outputs = [
     output,
-    ...dummyInputs.map((_, index) =>
+    ...Array.from({ length: padOutputs }, (_, index) =>
       createProofOutput({
         asset: SOL_MINT,
         amount: 0n,
@@ -310,7 +312,7 @@ describe("ZolanaClient", () => {
       overrides: {},
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove/transfer_confidential_1_1",
+        "https://rpc.example.com/zolana/prove/transfer_confidential_1_2",
       ],
     },
     {
@@ -318,7 +320,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove/transfer_confidential_1_1",
+        "https://rpc.example.com/zolana/prove/transfer_confidential_1_2",
       ],
     },
     {
@@ -326,7 +328,7 @@ describe("ZolanaClient", () => {
       overrides: { proverUrl: PROVER_URL },
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove/transfer_confidential_1_1",
+        "https://prover.example.com/api/prove/transfer_confidential_1_2",
       ],
     },
     {
@@ -334,7 +336,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL, proverUrl: PROVER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove/transfer_confidential_1_1",
+        "https://prover.example.com/api/prove/transfer_confidential_1_2",
       ],
     },
   ] satisfies readonly Readonly<{
@@ -350,7 +352,7 @@ describe("ZolanaClient", () => {
       serviceRequestUrls(RPC_URL, { indexerUrl: undefined, proverUrl: undefined }),
     ).resolves.toEqual([
       "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-      "https://rpc.example.com/zolana/prove/transfer_confidential_1_1",
+      "https://rpc.example.com/zolana/prove/transfer_confidential_1_2",
     ]);
   });
 
@@ -360,7 +362,7 @@ describe("ZolanaClient", () => {
 
     await expect(serviceRequestUrls(rpcUrl)).resolves.toEqual([
       "https://gateway.example.com/base/getShieldedTransactionsByNullifiers?cluster=devnet",
-      "https://gateway.example.com/base/prove/transfer_confidential_1_1?cluster=devnet",
+      "https://gateway.example.com/base/prove/transfer_confidential_1_2?cluster=devnet",
     ]);
     expect(rpcUrl.href).toBe(original);
   });
@@ -656,7 +658,7 @@ describe("ZolanaClient", () => {
 
     expect(Object.keys(proof).sort()).toEqual(["a", "b", "c"]);
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
-      "http://127.0.0.1:3001/prove/transfer_confidential_1_1",
+      "http://127.0.0.1:3001/prove/transfer_confidential_1_2",
     );
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
       circuitType: "transfer-confidential",
@@ -885,7 +887,7 @@ describe("prover indexer fetching", () => {
       { publicInputHash: modulus, trees: [tree] },
     ];
     const proof = parseProof(
-      proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
+      proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 2 }),
     );
     const instance = new ZolanaClient({ proofDataSource: "prover", fetch: vi.fn() });
     try {
@@ -1272,7 +1274,7 @@ describe("prover indexer fetching", () => {
         async () =>
           new Response(
             JSON.stringify({
-              ...proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
+              ...proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 2 }),
               ...(corruption === "missing" ? {} : { resolution }),
             }),
             { headers: { "content-type": "application/json" } },

@@ -16,7 +16,7 @@ use zolana_transaction::{
     instructions::transact::{
         canonical_shape, inputs_require_p256, pad_input_utxos, resolve_shape,
         ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
-        SppProofOutputUtxo,
+        SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
@@ -260,7 +260,7 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
     .map(SppProofInputUtxo::from)
     .collect();
     let prefix = inputs.clone();
-    pad_input_utxos(&mut inputs, Shape::IN5_OUT3).unwrap();
+    pad_input_utxos(&mut inputs, Shape::IN5_OUT2).unwrap();
     for (actual, expected) in inputs.iter().zip(&prefix) {
         assert_input(actual, expected);
     }
@@ -288,19 +288,19 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
         );
     }
     let full = inputs.clone();
-    pad_input_utxos(&mut inputs, Shape::IN5_OUT3).unwrap();
+    pad_input_utxos(&mut inputs, Shape::IN5_OUT2).unwrap();
     for (a, b) in inputs.iter().zip(&full) {
         assert_input(a, b);
     }
     error(
-        pad_input_utxos(&mut inputs, Shape::IN1_OUT1),
+        pad_input_utxos(&mut inputs, Shape::IN1_OUT2),
         E::TooManyInputs { got: 5, max: 1 },
     );
-    error(pad_input_utxos(&mut vec![], Shape::IN1_OUT1), E::NoInputs);
+    error(pad_input_utxos(&mut vec![], Shape::IN1_OUT2), E::NoInputs);
     error(
         pad_input_utxos(
             &mut vec![SppProofInputUtxo::dummy(0).unwrap()],
-            Shape::IN1_OUT1,
+            Shape::IN1_OUT2,
         ),
         E::NoInputs,
     );
@@ -308,7 +308,7 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
         .map(|t| SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 1, t as u16, t as u8)))
         .collect();
     error(
-        pad_input_utxos(&mut many, Shape::IN36_OUT2),
+        pad_input_utxos(&mut many, Shape::IN51_OUT2),
         E::TooManyInputTrees {
             got: MAX_INPUT_TREES + 1,
             max: MAX_INPUT_TREES,
@@ -317,22 +317,50 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
 }
 
 #[test]
-fn shape_selection_boundaries_and_explicit_consolidation() {
+fn shape_selection_boundaries_and_explicit_declaration() {
     // Literal expected order is independent of the selector's iterator.
     let shapes = [
-        Shape::IN1_OUT1,
         Shape::IN1_OUT2,
-        Shape::IN2_OUT2,
-        Shape::IN2_OUT3,
-        Shape::IN3_OUT3,
-        Shape::IN4_OUT3,
-        Shape::IN4_OUT4,
-        Shape::IN5_OUT3,
-        Shape::IN5_OUT4,
+        Shape::IN1_OUT4,
         Shape::IN1_OUT8,
+        Shape::IN2_OUT2,
+        Shape::IN2_OUT4,
+        Shape::IN1_OUT16,
+        Shape::IN2_OUT8,
+        Shape::IN3_OUT2,
+        Shape::IN3_OUT4,
+        Shape::IN2_OUT16,
+        Shape::IN3_OUT8,
+        Shape::IN4_OUT2,
+        Shape::IN4_OUT4,
+        Shape::IN4_OUT8,
+        Shape::IN5_OUT2,
+        Shape::IN5_OUT4,
+        Shape::IN4_OUT16,
+        Shape::IN5_OUT8,
+        Shape::IN6_OUT2,
+        Shape::IN6_OUT4,
+        Shape::IN5_OUT16,
+        Shape::IN6_OUT8,
+        Shape::IN8_OUT2,
+        Shape::IN8_OUT4,
+        Shape::IN8_OUT8,
+        Shape::IN8_OUT16,
+        Shape::IN12_OUT2,
+        Shape::IN12_OUT4,
+        Shape::IN12_OUT8,
+        Shape::IN16_OUT2,
+        Shape::IN16_OUT4,
+        Shape::IN16_OUT8,
+        Shape::IN24_OUT2,
+        Shape::IN24_OUT4,
+        Shape::IN32_OUT2,
+        Shape::IN40_OUT2,
+        Shape::IN48_OUT2,
+        Shape::IN51_OUT2,
     ];
-    for n_in in 0..=37 {
-        for n_out in 0..=9 {
+    for n_in in 0..=52 {
+        for n_out in 0..=17 {
             let expected = shapes
                 .iter()
                 .copied()
@@ -350,29 +378,28 @@ fn shape_selection_boundaries_and_explicit_consolidation() {
         E::TooManyInputs { got: 2, max: 1 },
     );
     error(
-        resolve_shape(Some(Shape::IN1_OUT1), 1, 2),
-        E::TooManyOutputsForShape { got: 2, max: 1 },
+        resolve_shape(Some(Shape::IN1_OUT2), 1, 3),
+        E::TooManyOutputsForShape { got: 3, max: 2 },
     );
     assert_eq!(
-        resolve_shape(Some(Shape::IN36_OUT2), 6, 1).unwrap(),
-        Shape::IN36_OUT2
+        resolve_shape(Some(Shape::IN51_OUT2), 6, 1).unwrap(),
+        Shape::IN51_OUT2
     );
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
     let notes: Vec<_> = (1..=6)
         .map(|n| wallet_utxo(&owner, Mint::SOL, 1, 7, n))
         .collect();
-    error(
-        ConfidentialTransaction::new(notes.clone(), payer(&owner))
-            .unwrap()
-            .encrypt(&owner),
-        E::UnsupportedShape { n_in: 6, n_out: 1 },
-    );
+    let automatic = ConfidentialTransaction::new(notes.clone(), payer(&owner))
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    assert_eq!(automatic.check_shape().unwrap(), Shape::IN6_OUT2);
     let mut tx = ConfidentialTransaction::new(notes, payer(&owner)).unwrap();
-    tx.pad_utxos(Shape::IN36_OUT2, &sender).unwrap();
+    tx.pad_utxos(Shape::IN51_OUT2, &sender).unwrap();
     let mut proof = tx.encrypt(&owner).unwrap();
-    assert_eq!(proof.check_shape().unwrap(), Shape::IN36_OUT2);
-    assert_eq!(proof.input_utxos.len(), 36);
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN51_OUT2);
+    assert_eq!(proof.input_utxos.len(), 51);
     assert_eq!(
         proof
             .output_utxos
@@ -382,13 +409,13 @@ fn shape_selection_boundaries_and_explicit_consolidation() {
         [6, 0]
     );
     proof.input_utxos.get_mut(1).unwrap().tree_id = 9;
-    assert_eq!(proof.check_shape().unwrap(), Shape::IN36_OUT2);
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN51_OUT2);
     assert!(proof.message_hash().is_ok());
     assert!(proof.input_utxo_hashes().is_ok());
     proof.output_utxos.pop();
     error(
         proof.check_shape(),
-        E::UnsupportedShape { n_in: 36, n_out: 1 },
+        E::UnsupportedShape { n_in: 51, n_out: 1 },
     );
 }
 
@@ -398,6 +425,7 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
     let sender = owner.shielded_address().unwrap();
     let mut tx = builder(&owner, 5).with_output_tree_id(19).unwrap();
     tx.transfer_sol(&sender, 3).unwrap();
+    tx.transfer_sol(&sender, 1).unwrap();
     unchanged_failure(
         &mut tx,
         Shape::new(2, 1),
@@ -406,14 +434,14 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
     );
     unchanged_failure(
         &mut tx,
-        Shape::IN1_OUT1,
+        Shape::IN1_OUT2,
         &sender,
-        E::TooManyOutputsForShape { got: 2, max: 1 },
+        E::TooManyOutputsForShape { got: 3, max: 2 },
     );
-    tx.pad_utxos(Shape::IN1_OUT2, &sender).unwrap();
+    tx.pad_utxos(Shape::IN1_OUT4, &sender).unwrap();
     assert_eq!(
         tx.outputs().iter().map(|o| o.amount).collect::<Vec<_>>(),
-        [3, 2]
+        [3, 1, 1, 0]
     );
     let notes = vec![
         wallet_utxo(&owner, Mint::SOL, 2, 7, 1),
@@ -422,7 +450,7 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
     let mut tx = ConfidentialTransaction::new(notes, payer(&owner)).unwrap();
     unchanged_failure(
         &mut tx,
-        Shape::IN1_OUT1,
+        Shape::IN1_OUT2,
         &sender,
         E::TooManyInputs { got: 2, max: 1 },
     );
@@ -504,10 +532,10 @@ fn asset_limit_ignores_zero_private_slots_and_failure_retains_configurability() 
     let mut zero_input = vec![wallet_utxo(&owner, Mint::SOL, 1, 7, 1)];
     zero_input.extend((2..=5).map(|id| wallet_utxo(&owner, mint(id), 0, 7, id)));
     let mut tx = ConfidentialTransaction::new(zero_input, payer(&owner)).unwrap();
-    tx.pad_utxos(Shape::IN5_OUT3, &sender).unwrap();
+    tx.pad_utxos(Shape::IN5_OUT2, &sender).unwrap();
     assert_eq!(
         tx.outputs().iter().map(|o| o.amount).collect::<Vec<_>>(),
-        [1, 0, 0]
+        [1, 0]
     );
 }
 
@@ -553,7 +581,7 @@ fn explicit_output_fields_survive_padding_and_change_uses_asset_first_use_order(
     );
     assert!(padding.is_dummy());
     let mut max = builder(&owner, u64::MAX);
-    max.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
+    max.pad_utxos(Shape::IN1_OUT2, &sender).unwrap();
     assert_eq!(max.outputs().first().unwrap().amount, u64::MAX);
 }
 
@@ -616,7 +644,7 @@ fn padded_builder_rejects_every_mutator_and_remains_encryptable() {
         Shape::IN1_OUT2
     );
     let mut tx = builder(&owner, 1);
-    tx.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
+    tx.pad_utxos(Shape::IN1_OUT2, &sender).unwrap();
     error(tx.with_output_tree_id(4), E::OutputUtxosAlreadyPadded);
 }
 
@@ -850,8 +878,7 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
         } else {
             match expected.len() {
                 2 => Shape::IN2_OUT2,
-                3 => Shape::IN2_OUT3,
-                4 => Shape::IN4_OUT4,
+                3 | 4 => Shape::IN2_OUT4,
                 _ => unreachable!(),
             }
         };
@@ -1042,7 +1069,7 @@ fn compact_padding_is_left_out_of_the_instruction() {
     )
     .unwrap();
     tx.transfer_sol(&recipient, 4).unwrap();
-    tx.pad_utxos(Shape::IN2_OUT3, &sender).unwrap();
+    tx.pad_utxos(Shape::IN2_OUT4, &sender).unwrap();
     let proof = tx.encrypt(&owner).unwrap();
 
     let compact_inputs: Vec<bool> = proof
@@ -1069,7 +1096,7 @@ fn compact_padding_is_left_out_of_the_instruction() {
         .iter()
         .map(SppProofOutputUtxo::is_compact)
         .collect();
-    assert_eq!(compact_outputs, vec![false, false, true]);
+    assert_eq!(compact_outputs, vec![false, false, true, true]);
     let compact_output = proof.output_utxos.get(2).unwrap();
     assert_eq!(
         compact_output.hash(proof.output_tree_id).unwrap(),
@@ -1083,7 +1110,7 @@ fn compact_padding_is_left_out_of_the_instruction() {
         (2, 2)
     );
     assert_eq!(proof.dummy_nullifiers(), vec![compact_input.nullifier]);
-    assert_eq!(proof.check_shape().unwrap(), Shape::IN2_OUT3);
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN2_OUT4);
 
     let mut compact_first = proof.clone();
     compact_first.input_utxos = vec![
@@ -1338,23 +1365,12 @@ fn pda_sender_owner_tags_resolve_for_self_paid_and_relayed_transactions() {
 }
 
 #[test]
-fn builder_automatically_selects_every_supported_nonconsolidation_boundary() {
+fn builder_automatically_selects_every_supported_boundary() {
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
-    for shape in [
-        Shape::IN1_OUT1,
-        Shape::IN1_OUT2,
-        Shape::IN2_OUT2,
-        Shape::IN2_OUT3,
-        Shape::IN3_OUT3,
-        Shape::IN4_OUT3,
-        Shape::IN4_OUT4,
-        Shape::IN5_OUT3,
-        Shape::IN5_OUT4,
-        Shape::IN1_OUT8,
-    ] {
+    for shape in SPP_SUPPORTED_SHAPES {
         let inputs = (0..shape.n_inputs())
-            .map(|n| wallet_utxo(&owner, Mint::SOL, 10, 7, n as u8))
+            .map(|n| wallet_utxo(&owner, Mint::SOL, 20, 7, n as u8))
             .collect();
         let mut tx = ConfidentialTransaction::new(inputs, payer(&owner)).unwrap();
         for _ in 1..shape.n_outputs() {
@@ -1368,7 +1384,7 @@ fn builder_automatically_selects_every_supported_nonconsolidation_boundary() {
                 .iter()
                 .map(|o| u128::from(o.amount))
                 .sum::<u128>(),
-            10 * shape.n_inputs() as u128
+            20 * shape.n_inputs() as u128
         );
         assert!(proof
             .output_utxos
@@ -1377,7 +1393,7 @@ fn builder_automatically_selects_every_supported_nonconsolidation_boundary() {
             .all(|o| o.amount == 1));
         assert_eq!(
             proof.output_utxos.last().unwrap().amount,
-            10 * shape.n_inputs() as u64 - (shape.n_outputs() - 1) as u64
+            20 * shape.n_inputs() as u64 - (shape.n_outputs() - 1) as u64
         );
     }
 }
@@ -1399,9 +1415,11 @@ fn encrypted_explicit_data_and_memo_survive_with_their_commitment_hashes() {
         .with_utxo_data(vec![3, 4], [2; 32])
         .with_memo(b"receipt".to_vec());
     tx.add_output_utxo(explicit.clone()).unwrap();
-    tx.pad_utxos(Shape::IN1_OUT1, &owner.shielded_address().unwrap())
+    tx.pad_utxos(Shape::IN1_OUT2, &owner.shielded_address().unwrap())
         .unwrap();
-    assert_eq!(tx.outputs(), std::slice::from_ref(&explicit));
+    assert_eq!(tx.outputs().len(), 2);
+    assert_eq!(tx.outputs().first(), Some(&explicit));
+    assert!(tx.outputs().get(1).unwrap().is_dummy());
     let proof = tx.encrypt(&owner).unwrap();
     assert_ne!(
         proof.output_utxos.first().unwrap().blinding,
@@ -1447,7 +1465,7 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
         }
         unchanged_failure(
             &mut tx,
-            Shape::IN3_OUT3,
+            Shape::IN3_OUT4,
             &sender,
             E::InsufficientBalance {
                 requested: 1,
@@ -1455,11 +1473,21 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
             },
         );
         tx.deposit(mint(2), 1, payer(&owner)).unwrap();
-        tx.pad_utxos(Shape::IN3_OUT3, &sender).unwrap();
+        tx.pad_utxos(Shape::IN3_OUT4, &sender).unwrap();
         let expected = if public {
-            vec![(Mint::SOL, 100), (Mint::SOL, 0), (Mint::SOL, 0)]
+            vec![
+                (Mint::SOL, 100),
+                (Mint::SOL, 0),
+                (Mint::SOL, 0),
+                (Mint::SOL, 0),
+            ]
         } else {
-            vec![(mint(2), 5), (Mint::SOL, 100), (Mint::SOL, 0)]
+            vec![
+                (mint(2), 5),
+                (Mint::SOL, 100),
+                (Mint::SOL, 0),
+                (Mint::SOL, 0),
+            ]
         };
         assert_eq!(
             tx.outputs()

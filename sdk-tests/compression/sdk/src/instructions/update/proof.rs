@@ -9,7 +9,7 @@ use zolana_transaction::{
 
 use crate::{
     account_pda, err,
-    shared::{external_data, ProgramTransaction, UNPROVEN_TREE_CONTEXT},
+    shared::{external_data, padding_output, ProgramTransaction, UNPROVEN_TREE_CONTEXT},
     state::{decode_state, AccountUtxo},
 };
 
@@ -84,9 +84,13 @@ impl UpdateProofInputParams {
             .data_hash
             .ok_or_else(|| anyhow!("missing current data hash"))?;
         let input = SppProofInputUtxo::from(&self.current);
+        // One write is proved at the 2x2 shape; compact padding fills the
+        // second slots and the instruction leaves them out.
+        let padding = SppProofInputUtxo::compact(self.current.tree_id())?;
+        let compact_output = padding_output(&self.current.nullifier)?;
         let spp_proof_inputs = SppProofInputs {
-            input_utxos: vec![input],
-            output_utxos: vec![output],
+            input_utxos: vec![input, padding],
+            output_utxos: vec![output, compact_output],
             external_data: external,
             payer: self.authority,
             blinding_seed: ACCOUNT_BLINDING_SEED,

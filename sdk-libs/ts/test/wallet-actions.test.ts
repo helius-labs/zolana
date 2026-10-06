@@ -67,6 +67,7 @@ import { emptyTransaction } from "./helpers/transactions.js";
 import { ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { ringConfigPda } from "../src/interface/pda/index.js";
 import { approveIntent, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
+import { MAX_SPEND_INPUTS } from "../src/flows/select.js";
 import { withdrawalSetupInstructions } from "../src/flows/settlement.js";
 import { buildMergeTransaction, createMerge, type MergeClient } from "../src/wallet/merge.js";
 import {
@@ -241,15 +242,18 @@ describe("private transaction construction", () => {
     const keypair = ShieldedKeypair.generate();
     await expect(
       createWithdrawal({
-        wallet: fundedWallet(keypair, [10n, 10n, 10n, 10n, 10n, 10n]),
+        wallet: fundedWallet(
+          keypair,
+          Array.from({ length: MAX_SPEND_INPUTS + 1 }, () => 10n),
+        ),
         payer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
-        amount: 60n,
+        amount: 10n * BigInt(MAX_SPEND_INPUTS + 1),
       }),
     ).rejects.toMatchObject({
       code: "WALLET_TOO_MANY_INPUTS",
-      details: { got: 6, max: 5 },
+      details: { got: MAX_SPEND_INPUTS + 1, max: MAX_SPEND_INPUTS },
     });
   });
 
@@ -356,18 +360,19 @@ describe("private transaction construction", () => {
     expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
   });
 
-  it("pads named merge inputs to the narrowest proof and refuses more than 36", async () => {
+  it("pads named merge inputs to the narrowest proof and refuses more than 51", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(
       keypair,
-      Array.from({ length: 37 }, (_, index) => BigInt(index + 1)),
+      Array.from({ length: 52 }, (_, index) => BigInt(index + 1)),
     );
     const hashes = wallet.utxos().map((entry) => entry.outputContext.hash);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
     for (const [count, width] of [
-      [8, 8],
-      [9, 36],
-      [36, 36],
+      [8, 24],
+      [24, 24],
+      [25, 51],
+      [51, 51],
     ] as const) {
       const merge = await createMerge({
         wallet,
@@ -383,7 +388,7 @@ describe("private transaction construction", () => {
       createMerge({ wallet, keys, asset: SOL_MINT, inputs: hashes }),
     ).rejects.toMatchObject({
       code: "WALLET_TOO_MANY_INPUTS",
-      details: { got: 37, max: 36 },
+      details: { got: 52, max: 51 },
     });
   });
 
@@ -397,17 +402,13 @@ describe("private transaction construction", () => {
       false,
       false,
       false,
-      true,
-      true,
-      true,
-      true,
-      true,
+      ...Array.from({ length: 21 }, () => true),
     ]);
     wallet._releaseReservation(compact.reservationId);
 
     const padded = await createMerge({ wallet, keys, asset: SOL_MINT });
     expect(padded.prepared.inputs.some((input) => input.isCompact())).toBe(false);
-    expect(padded.prepared.dummyNullifiers()).toHaveLength(5);
+    expect(padded.prepared.dummyNullifiers()).toHaveLength(21);
     expect(compact.prepared.dummyNullifiers()).toEqual(padded.prepared.dummyNullifiers());
   });
 });

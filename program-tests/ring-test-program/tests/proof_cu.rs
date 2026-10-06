@@ -7,11 +7,12 @@ use zolana_test_utils::{
 };
 use zolana_transaction::SOL_MINT;
 
-// Local-validator baselines (measured 2026-07-22): EdDSA 2x3 = 162,830;
-// withdrawal = 165,260; ring-authority 1x1 = 150,839;
-// merge-ring 8x1 = 310,385. Each ceiling sits at roughly 20% over its own
-// baseline so a consumption regression trips its variant's assert. The P256
-// 2x3 case was removed with the P256 transact rail (PR164).
+// Local-validator baselines (surfpool, 2026-10-06): EdDSA 2x4 = 153,949;
+// withdrawal = 150,162; ring-authority 2x2 = 142,468; merge-ring 8 inputs at
+// 24x1 = 202,894. The ceilings date from the wider-costing shapes these
+// replaced (2x3, 1x1 authority, 8x1 merge) and sit 18% to 85% above the
+// current baselines. The 51-input ring merge measures 301,037
+// (`max_shapes`).
 const RING_EDDSA_TRANSACTION_CU_LIMIT: u64 = 196_000;
 const RING_WITHDRAWAL_CU_LIMIT: u64 = 199_000;
 const RING_AUTHORITY_TRANSACTION_CU_LIMIT: u64 = 182_000;
@@ -32,7 +33,7 @@ fn proof_bearing_ring_variants_stay_within_budget() -> Result<()> {
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
-        "ring transact EdDSA 2x3",
+        "ring transact EdDSA 2x4",
         RING_EDDSA_TRANSACTION_CU_LIMIT,
     )?;
 
@@ -44,7 +45,7 @@ fn proof_bearing_ring_variants_stay_within_budget() -> Result<()> {
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
-        "ring SOL withdrawal EdDSA 2x3",
+        "ring SOL withdrawal EdDSA",
         RING_WITHDRAWAL_CU_LIMIT,
     )?;
 
@@ -54,7 +55,7 @@ fn proof_bearing_ring_variants_stay_within_budget() -> Result<()> {
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
-        "ring-authority transact 1x1",
+        "ring-authority transact 2x2",
         RING_AUTHORITY_TRANSACTION_CU_LIMIT,
     )?;
 
@@ -65,7 +66,7 @@ fn proof_bearing_ring_variants_stay_within_budget() -> Result<()> {
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
-        "merge-ring 8x1",
+        "merge-ring 8 inputs at 24x1",
         RING_MERGE_TRANSACTION_CU_LIMIT,
     )?;
 

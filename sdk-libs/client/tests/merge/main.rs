@@ -12,8 +12,8 @@ use harness::{MergeHarness, MergePlan};
 
 #[test]
 #[serial_test::serial]
-fn p256_merge_proofs_cover_every_real_input_count() {
-    for real_inputs in 1..=8 {
+fn p256_merge_proofs_cover_the_narrow_shape_padding_boundaries() {
+    for real_inputs in [1, 2, 12, 23, 24] {
         MergeHarness {
             plan: MergePlan {
                 real_inputs,
@@ -28,7 +28,7 @@ fn p256_merge_proofs_cover_every_real_input_count() {
 #[test]
 #[serial_test::serial]
 fn eddsa_merge_proofs_cover_minimum_middle_and_full_shapes() {
-    for real_inputs in [1, 4, 8] {
+    for real_inputs in [1, 12, 24] {
         MergeHarness {
             plan: MergePlan {
                 real_inputs,
@@ -44,7 +44,7 @@ fn eddsa_merge_proofs_cover_minimum_middle_and_full_shapes() {
 #[serial_test::serial]
 fn merge_proofs_cover_the_wide_shape() {
     for eddsa in [false, true] {
-        for real_inputs in [9, 36] {
+        for real_inputs in [25, 51] {
             MergeHarness {
                 plan: MergePlan {
                     real_inputs,
@@ -60,7 +60,7 @@ fn merge_proofs_cover_the_wide_shape() {
 #[test]
 #[serial_test::serial]
 fn compact_merge_proofs_cover_both_shapes() {
-    for real_inputs in [3, 9] {
+    for real_inputs in [3, 25] {
         MergeHarness {
             plan: MergePlan {
                 real_inputs,

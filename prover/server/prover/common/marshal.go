@@ -372,7 +372,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
-		// (merge_8_1.key) carries no "transfer" substring, so it needs its own
+		// (merge_24_1.key) carries no "transfer" substring, so it needs its own
 		// branch or it would fall through to the unrecognized-file error.
 		ps := new(TransferProofSystem)
 		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
@@ -380,8 +380,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			return nil, err
 		}
 		ps.ProvingKeySha256 = digest
-		// merge_ring_8_1.key is the policy-ring variant; the default merge file is
-		// merge_8_1.key.
+		// merge_ring_24_1.key is the policy-ring variant; the default merge file is
+		// merge_24_1.key.
 		if strings.Contains(strings.ToLower(path), "ring") {
 			ps.CircuitType = MergeRingCircuitType
 		} else {

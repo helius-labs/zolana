@@ -254,7 +254,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
 | `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
-| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `RingEddsa`, `RingP256`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Owner-signed families have `*Cached` twins that add `CacheAccess { input_bitmap: u64, write_bitmap: u64 }` and use the family's key. Unknown values are rejected at deserialization. |
+| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `RingEddsa`, `RingP256`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Owner-signed families have `*Cached` twins that add `CacheAccess { read_bitmap: u64, write_slots: [CacheWrite; MAX_CACHE_WRITES] }` (40 bytes, `MAX_CACHE_WRITES = 16`; validated in [`transact`](#transact) check 14) and use the family's key. Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -1041,7 +1041,7 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to [`signer_width`](#signer-width). `RingAuthority` uses only the payer (width 1). |
 | `input_flags` | the dummy-input policy and every input's tree slot index, packed into one field element; see [input_flags](#input-flags) |
 | published output owner hash chain (owner-signed variants) | `RightHashChain4` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `RingEddsa` and `RingP256` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
-| cache selection (owner-signed variants) | `input_bitmap`, the cache's raw `u16` `tree_id`, and `RightHashChain4` over the selected slots' UTXO hashes, `0` at unselected inputs. Without a cache the bitmap and tree id are `0` and the chain is over `n_inputs` zeros. Selected inputs skip UTXO inclusion. `RingAuthority` omits these fields. |
+| cache selection (owner-signed variants) | the cache's raw `u16` `tree_id` and `RightHashChain4` over the UTXO hashes of the cache slots `read_bitmap` selects, in ascending slot order, zero-padded to `n_inputs`. Without a cache read the tree id is `0` and the chain is over `n_inputs` zeros. Selected inputs skip UTXO inclusion. `RingAuthority` omits these fields. |
 
 A `RingP256` proof spending a policy-ring P256 UTXO must keep the shared identity
 private: it cannot also spend a default-ring P256 UTXO or publish an output owner
@@ -1081,8 +1081,8 @@ input_flags = allow_dummy_inputs                  (bit 0)
             | tree_index[i] << (1 + 3 * i)        for each input i
 ```
 
-The element is `1 + 3 * n_inputs` bits wide, so the widest supported shape uses
-109 of the 254 available bits. The circuit decomposes it to exactly that width,
+The element is `1 + 3 * n_inputs` bits wide, so the widest supported shape
+(51 inputs) uses 154 of the 254 available bits. The circuit decomposes it to exactly that width,
 which range-checks the element, reads bit 0 as the dummy policy, and asserts
 each input's private `tree_slot` equals its three-bit group. `allow_dummy_inputs`
 is the conjunction over every input tree of that tree's remaining-capacity gate
@@ -1159,8 +1159,10 @@ Thus different recipients or funding accounts cannot cancel out of
 `external_data_hash`.
 
 A transact that writes a cache uses `Sha256BE("cache_write" ||
-external_data_hash || cache_address || u64_le(write_bitmap))` as its
-`external_data_hash`.
+external_data_hash || cache_address || write_bytes)` as its
+`external_data_hash`, where `write_bytes` is the 32-byte concatenation of the
+`MAX_CACHE_WRITES = 16` `CacheAccess.write_slots` entries as `(output, slot)`
+byte pairs, unused entries `(0xff, 0xff)`.
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
@@ -1264,7 +1266,7 @@ MAX_TRANSACTION_ADDRESSES = 64
 FIXED_TRANSACT_ADDRESSES  = 4
 owner_signer_slots(n)     = min(n, MAX_TRANSACTION_ADDRESSES - FIXED_TRANSACT_ADDRESSES - n)
 signer_width              = owner_signer_slots(n_inputs) + 1
-MAX_SIGNERS               = max over the supported shapes of signer_width = 25
+MAX_SIGNERS               = max over the supported shapes of signer_width = 29
 ```
 
 A v1 transaction carries at most 64 distinct addresses; a `transact` spends
@@ -1273,8 +1275,9 @@ it), the shielded pool program and the system program, and one per input on
 its nullifier PDA. Owner signers are ordinary accounts, so at most
 `64 - 4 - n_inputs` of them can exist; the transaction signature cap does not
 bound them because PDA owners sign through CPI. The width is that bound capped
-by the input count: `n_inputs + 1` for every shape up to 30 inputs and 25 for
-`36x2`.
+by the input count: `n_inputs + 1` for every shape up to 24 inputs, then 29
+for `32x2`, 21 for `40x2`, 13 for `48x2` and 10 for `51x2`. `MAX_SIGNERS` is
+reached at `32x2`, not at the widest shape.
 
 Declaring more than one `tree_contexts` entry spends one further address per
 extra input tree, so fewer owner signers fit. The circuit width is an upper
@@ -1320,32 +1323,52 @@ every merge, policy, and third-party circuit that recomputes those hashes.
 Circuits that only take them as public inputs need no key change for these
 derivations.
 
-| Circuit | Use | Shape | Variants |
-| --- | --- | --- | --- |
-| 1 in 1 out | Re-randomize a single UTXO | 1 input UTXO, 1 output UTXO of the same owner, asset, and amount with fresh blinding; transaction fees are paid by the payer | Ed25519
-| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the payer | Ed25519
-| 2 in 2 out | Deposit with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output | Ed25519
-| 2 in 3 out | Single-input transfer with fee UTXO (currently the only implemented shape) | 1 SOL fee UTXO, 1 sender input UTXO, 1 recipient output, 1 SPL change output, 1 SOL change output | Ed25519
-| 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | Ed25519
-| 4 in 3 out | Multi-input transfer | 1 SOL fee UTXO, 3 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | Ed25519
-| 4 in 4 out | Multi-input transfer, two recipients | 1 SOL fee UTXO, 3 sender input UTXOs, 2 recipient outputs, 1 SPL change output, 1 SOL change output | Ed25519
-| 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | Ed25519
-| 5 in 4 out | Higher concurrency, two recipients | 1 SOL fee UTXO, 4 sender input UTXOs, 2 recipient outputs, 1 SPL change output, 1 SOL change output | Ed25519
-| 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | Ed25519
+<a id="supported-shapes"></a>
+**Supported shapes.** `ConfidentialEddsa`, `RingEddsa` and `RingP256` share
+one grid of 38 `n_inputs x n_outputs` shapes, each with its own proving and
+verifying key per family (114 transfer keys). `CircuitId` dimensions outside
+this grid are rejected.
+
+| Outputs | Input counts |
+| --- | --- |
+| 2 | 1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 51 |
+| 4 | 1, 2, 3, 4, 5, 6, 8, 12, 16, 24 |
+| 8 | 1, 2, 3, 4, 5, 6, 8, 12, 16 |
+| 16 | 1, 2, 4, 5, 8 |
+
+```
+MAX_TRANSACT_INPUTS = 51   // widest input count, 51x2
+MAX_OUTPUTS         = 16   // widest output count, 1x16 .. 8x16
+```
+
+`SPP_SUPPORTED_SHAPES` (`program-libs/interface/src/shape.rs`) lists the grid
+in proving-cost order: 1x2, 1x4, 1x8, 2x2, 2x4, 1x16, 2x8, 3x2, 3x4, 2x16, 3x8,
+4x2, 4x4, 4x8, 5x2, 5x4, 4x16, 5x8, 6x2, 6x4, 5x16, 6x8, 8x2, 8x4, 8x8, 8x16,
+12x2, 12x4, 12x8, 16x2, 16x4, 16x8, 24x2, 24x4, 32x2, 40x2, 48x2, 51x2. A
+client that does not declare a shape takes the first entry with at least as
+many inputs and outputs as the transaction has, so automatic selection can
+reach every shape. A transaction smaller than its shape fills the remaining
+slots with padding; [compact padding](#compact-padding) keeps those slots out
+of the instruction data, which is what lets a wide shape carry fewer real
+inputs than it has slots (see [Transaction size](#transaction-size)). There is no
+1-output shape: a transaction with one output uses a 2-output shape and pads
+the second slot.
 
 **Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no P256 gadget, no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so both P256- and Ed25519-owned UTXOs can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created, so the authority cannot move funds out of the policy ring without an owner-signed path. Supported shapes:
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
-| 1 in 1 out | Re-randomize a UTXO | 1 input, 1 output of the same owner, asset, and amount with fresh blinding |
-| 2 in 2 out | Ring-authority transact | 2 inputs, 2 outputs |
-| 3 in 3 out | Ring-authority transact | 3 inputs, 3 outputs |
-| 4 in 4 out | Ring-authority transact | 4 inputs, 4 outputs |
+| 2 in 2 out | Ring-authority transact with one or two inputs and outputs | 2 inputs, 2 outputs |
+| 4 in 4 out | Ring-authority transact with three or four inputs and outputs | 4 inputs, 4 outputs |
+
+The authority circuit is square. A move uses the smallest supported width at
+least as large as both its input and output counts and pads the rest, so a
+move of width 1 uses 2x2 and one of width 3 uses 4x4.
 
 
 # Merge Proof - Merge ZK Proof
 
-ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_8_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_8_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
+ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_<N>_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_<N>_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
 
 The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The merged output is ciphertext-free: its blinding is derived deterministically in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), and padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), so the owner reconstructs the output on sync without any decryption (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
 
@@ -1410,7 +1433,20 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
-| 8 in 1 out (merge) | Reconsolidate fragmented balance | Exactly 8 input slots of the same owner/asset, 1 combined output. Fewer-than-8 real inputs pad with dummy slots (ownership, inclusion, and nullifier derivation skipped; the deterministic dummy nullifier and the zeroed input-hash contribution keep padding indistinguishable). `merge_transact` verifies against `merge_8_1`, `merge_ring` against `merge_ring_8_1`. |
+| 24 in 1 out (merge) | Reconsolidate fragmented balance; the default width | 24 input slots of the same owner/asset, 1 combined output. `merge_transact` verifies against `merge_24_1`, `merge_ring` against `merge_ring_24_1`. |
+| 51 in 1 out (merge) | Reconsolidate up to 51 UTXOs in one transaction | 51 input slots, 1 combined output. `merge_transact` verifies against `merge_51_1`, `merge_ring` against `merge_ring_51_1`. |
+
+```
+MERGE_SUPPORTED_INPUT_COUNTS = [24, 51]
+MAX_MERGE_INPUTS             = 51
+MERGE_DEFAULT_INPUT_COUNT    = 24   // width a client merges at unless asked for more
+```
+
+A merge with `k` real inputs uses the narrowest width `>= k`. Slots past the
+real inputs are either dummy slots (ownership, inclusion, and nullifier
+derivation skipped; the deterministic dummy nullifier and the zeroed
+input-hash contribution keep padding indistinguishable) or
+[compact padding](#compact-padding), which the instruction data omits.
 
 # SPP - Solana Privacy Program
 
@@ -1555,10 +1591,10 @@ operations, and tags 18–21 are maintenance and administration.
 | emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
-| merge_transact | Tag 13; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
+| merge_transact | Tag 13; consolidates the input slots of a 24- or 51-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
-| merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
+| merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of a 24- or 51-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. |
@@ -1726,72 +1762,120 @@ struct TransactIxData {
 }
 ```
 
-Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-size`. Assumes confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
+<a id="transaction-size"></a>
+**Transaction size.** The tables below are computed by `cargo run -p xtask --
+tx-size`. Each output carries its own confidential ciphertext with an empty
+`data` field: 89 bytes, the size the transaction builder emits (a 5-byte
+`OutputDataEncoding` wrapper, the scheme byte, the embedded 33-byte recipient
+viewing key, and the 50-byte [recipient plaintext](#recipient)). Output 0 is
+the sender's change under `Account(0)`, every other output a recipient under an
+inline tag. Each populated data record adds `3 + len` bytes.
 
 | Circuit | N | M | ix data (B) | transfer (B / addresses) | deposit / withdraw (B / addresses) |
 | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 494 | — | 854 / 7 |
-| 1 in 2 out | 1 | 2 | 461 | — | 821 / 7 |
-| 3 in 3 out | 3 | 3 | 643 | 861 / 3 | 1003 / 7 |
-| 5 in 3 out | 5 | 3 | 709 | 927 / 3 | 1069 / 7 |
-| 1 in 8 out | 1 | 8 | 1157\* | 1375\* / 3 | 1517\* / 7 |
+| 1 in 2 out | 1 | 2 | 614 | 832 / 3 | 974 / 7 |
+| 2 in 2 out | 2 | 2 | 647 | 865 / 3 | 1007 / 7 |
+| 3 in 4 out | 3 | 4 | 994 | 1212 / 3 | 1354 / 7 |
+| 5 in 4 out | 5 | 4 | 1060 | 1278 / 3 | 1420 / 7 |
+| 1 in 8 out | 1 | 8 | 1556 | 1774 / 3 | 1916 / 7 |
+| 1 in 16 out | 1 | 16 | 2812 | 3030 / 3 | 3172 / 7 |
 
-These ciphertext-layout comparisons include the serialized 192-byte proof and
-use synthetic account lists that omit the System Program and nullifier PDAs;
-the builder table below measures complete instruction account layouts.
-Transaction sizes are Solana transaction v1 messages with all accounts inline
-and the same pubkey for `input_tree` and `output_tree`; a distinct output tree
-adds one 32-byte account key. v1 carries its compute ceilings in the message
-header, so no compute-budget instruction contributes to these figures. — =
-shape has no recipient slots (R = M − 2 = 0) and is used only for deposit /
-merge, not transfer.
-
-\* The 1-in-8-out row uses [UTXO Split](#utxo-split), which has a distinct ciphertext layout. The sizes shown use the standard transfer ciphertext structure with R = 6 recipients and do not reflect the actual UTXO Split encoding.
+These rows include the serialized 192-byte proof and use synthetic account
+lists that omit the System Program and nullifier PDAs; the builder table below
+measures complete instruction account layouts. Transaction sizes are Solana
+transaction v1 messages with all accounts inline and the same pubkey for
+`input_tree` and `output_tree`; a distinct output tree adds one 32-byte account
+key. v1 carries its compute ceilings in the message header, so no
+compute-budget instruction contributes to these figures.
 
 Public legs add both instruction data and settlement account groups. For a
-3-in/3-out transaction containing repeated withdrawals of one SPL asset:
+3-in/4-out transaction containing repeated withdrawals of one SPL asset:
 
 | Public legs | ix data (B) | transaction (B) | addresses |
 | --- | --- | --- | --- |
-| 0 | 643 | 861 | 3 |
-| 1 | 653 | 1036 | 8 |
-| 5 | 693 | 1352 | 16 |
+| 0 | 994 | 1212 | 3 |
+| 1 | 1004 | 1387 | 8 |
+| 5 | 1044 | 1703 | 16 |
 
 Five legs in this table are a transaction-size datapoint, not a protocol
-maximum. Every transaction has to fit the 4,096-byte transaction v1 limit, which
-the five-leg example above clears; under the older 1,232-byte legacy packet it
-did not, and had to be split.
+maximum. Every transaction has to fit the 4,096-byte transaction v1 limit.
 
 Complete builder layouts, with one writable nullifier PDA per input, one input
 tree also used for outputs, no extra owner signers, and no public legs. A
 compact row sends fewer slots than its circuit has and fills the rest with
-[compact padding](#compact-padding):
+[compact padding](#compact-padding). The `51x2 compact` rows carry the most
+real inputs that fit. Ring rows are the bare SPP instruction with every output
+in the ring (a 121-byte ciphertext, the plaintext names the ring program); a
+ring program's own wrapper around the CPI adds to them. OVER marks a layout
+that misses the 4,096-byte limit:
 
 | Transaction | ix data (B) | transaction v1 (B) | addresses |
 | --- | --- | --- | --- |
-| Transact 2 in 3 out | 610 | 927 | 6 |
-| Transact 3 in 3 out | 643 | 993 | 7 |
-| Transact 5 in 3 out | 709 | 1125 | 9 |
-| Transact 36 in 2 out | 1616 | 3055 | 40 |
-| Transact 1 in 3 out, 2x3 compact | 577 | 861 | 5 |
-| Transact 9 in 2 out, 36x2 compact | 725 | 1273 | 13 |
-| Ring transact EdDSA 36 in 2 out | 1616 | 3120 | 42 |
-| Ring transact P256 36 in 2 out | 1713 | 3217 | 42 |
-| Merge 8 in 1 out, direct | 528 | 1172 | 14 |
-| Merge 8 in 1 out, execute_sync | 562 | 1208 | 16 |
-| Merge 36 in 1 out, direct | 1424 | 2992 | 42 |
-| Merge 36 in 1 out, execute_sync | 1486 | 3056 | 44 |
-| Merge 3 in 1 out, 8 compact, direct | 368 | 847 | 9 |
-| Merge 3 in 1 out, 8 compact, execute_sync | 397 | 878 | 11 |
-| Merge 9 in 1 out, 36 compact, direct | 560 | 1237 | 15 |
-| Merge 9 in 1 out, 36 compact, execute_sync | 595 | 1274 | 17 |
+| Transact 2 in 4 out | 961 | 1278 | 6 |
+| Transact 3 in 4 out | 994 | 1344 | 7 |
+| Transact 5 in 4 out | 1060 | 1476 | 9 |
+| Transact 24 in 4 out | 1687 | 2730 | 28 |
+| Transact 16 in 8 out | 2051 | 2830 | 20 |
+| Transact 8 in 16 out | 3043 | 3558 | 12 |
+| Transact 51 in 2 out | 2264 | 4198 OVER | 55 |
+| Transact 49 in 2 out, 51x2 compact | 2198 | 4066 | 53 |
+| Transact 9 in 2 out, 51x2 compact | 878 | 1426 | 13 |
+| Transact 1 in 3 out, 2x4 compact | 771 | 1055 | 5 |
+| Ring transact EdDSA 24 in 4 out | 1815 | 2923 | 30 |
+| Ring transact P256 24 in 4 out | 1912 | 3020 | 30 |
+| Ring transact EdDSA 16 in 8 out | 2307 | 3151 | 22 |
+| Ring transact P256 16 in 8 out | 2404 | 3248 | 22 |
+| Ring transact EdDSA 8 in 16 out | 3555 | 4135 OVER | 14 |
+| Ring transact P256 8 in 16 out | 3652 | 4232 OVER | 14 |
+| Ring transact EdDSA 51 in 2 out | 2328 | 4327 OVER | 57 |
+| Ring transact P256 51 in 2 out | 2425 | 4424 OVER | 57 |
+| Ring transact EdDSA 47 in 2 out, 51x2 compact | 2196 | 4063 | 53 |
+| Ring transact P256 46 in 2 out, 51x2 compact | 2260 | 4094 | 52 |
+| Merge 24 in 1 out, direct | 1040 | 2212 | 30 |
+| Merge 24 in 1 out, execute_sync | 1090 | 2264 | 32 |
+| Ring merge 24 in 1 out | 1072 | 2180 | 30 |
+| Merge 51 in 1 out, direct | 1904 | 3967 | 57 |
+| Merge 51 in 1 out, execute_sync | 1981 | 4046 | 59 |
+| Ring merge 51 in 1 out | 1936 | 3935 | 57 |
+| Merge 3 in 1 out, 24 compact, direct | 368 | 847 | 9 |
+| Merge 3 in 1 out, 24 compact, execute_sync | 397 | 878 | 11 |
+| Merge 25 in 1 out, 51 compact, direct | 1072 | 2277 | 31 |
+| Merge 25 in 1 out, 51 compact, execute_sync | 1123 | 2330 | 33 |
+
+A 51-input merge fits a Squads `execute_transaction_sync` transaction by size
+(the `execute_sync` row above) but fails at execution: the smart account
+program runs out of heap re-serializing one nullifier PDA per slot for its CPI.
+A merge wider than the 24-input default is therefore sent with the merge
+service paying and signing `merge_transact` directly.
+
+The widest layouts confirm on a validator (surfpool,
+`program-tests/spp-test-validator/tests/max_shapes.rs` and
+`program-tests/ring-test-program/tests/max_shapes.rs`), each with the most real
+inputs and outputs that fit 4,096 bytes:
+
+| Transaction | real inputs | compute units |
+| --- | --- | --- |
+| Confidential EdDSA 51x2 | 49 | 309,168 |
+| Ring EdDSA 51x2 | 48 | 310,233 |
+| Ring P256 51x2 | 45 | 361,490 |
+| Merge 51x1, direct | 51 | 296,612 |
+| Ring merge 51x1 | 51 | 301,037 |
+
+24x4, 16x8 and 8x16 confirm with every slot real on every rail, except ring
+P256 8x16, which fits 15 real outputs. The 51-input merges take 3,871 bytes
+(direct) and 3,935 bytes (ring).
+
+The ring tests send through the ring test program, so their transactions carry
+the ring program's instruction around the SPP CPI; the ring EdDSA test keeps
+its outputs out of the ring, the P256 test puts every output in the ring.
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
-input. Both ceilings allow the layouts above; extra trees, signers, settlement
-legs, or output data consume the remaining budget. Aggregating repeated legs into one proof slot does not remove
-their individual account metas, so a client that runs out of either must still
-choose a smaller proof shape, use fewer legs, or split the operation.
+input. At the widest shapes the 4,096-byte limit binds first. Extra trees,
+signers, settlement legs, or output data consume the remaining budget.
+Aggregating repeated legs into one proof slot does not remove their individual
+account metas, so a client that runs out of either must still choose a smaller
+proof shape, use fewer legs, or split the operation.
 
 **Checks**
 
@@ -1810,7 +1894,7 @@ choose a smaller proof shape, use fewer legs, or split the operation.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`TransactEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
 13. An output with nonzero `data_hash` must be owned by a transaction participant (see the UTXO data [check](#spp-proof---solana-privacy-zk-proof)). Spending an input with `utxo_data` uses the normal owner-signed path; SPP enforces no program ownership.
-14. Cached `CircuitId`: `input_bitmap` bits lie below `n_inputs`, `write_bitmap` is zero or sets one bit per output below 36, and not both are zero (`InvalidCacheBitmap`). Before any write, selected inputs read nonzero slots (`CacheSlotEmpty`) of a cache on their tree (`CacheTreeMismatch`); a fully cached tree context uses root index 0 (`InvalidCacheRootIndex`). A write requires the `write_authority` signer (`CacheWriteAuthorityMismatch`) and an unexpired cache (`CacheExpired`) on `output_tree` (`CacheTreeMismatch`), and stores the outputs in ascending bit order after the proof.
+14. Cached `CircuitId`: `read_bitmap` sets only bits below the 36 cache slots and at most `inputs.len()` of them; the used `write_slots` entries form a prefix of the 16, each names an output below `outputs.len()` and a slot below 36, no two share an output or a slot, and the remaining entries are `(0xff, 0xff)`; a read, a write, or both is present (`InvalidCacheBitmap`). Before any write, selected inputs read nonzero slots (`CacheSlotEmpty`) of a cache on their tree (`CacheTreeMismatch`); a fully cached tree context uses root index 0 (`InvalidCacheRootIndex`). A write requires the `write_authority` signer (`CacheWriteAuthorityMismatch`) and an unexpired cache (`CacheExpired`) on `output_tree` (`CacheTreeMismatch`), and stores each write entry's output in its slot, in entry order, after the proof.
 15. `inputs` holds at least one and at most `n_inputs` entries and `outputs` at most `n_outputs` (`InvalidTransactShape`), and no `nullifier_hash` or `utxo_hash` is `0` (`ZeroInputNullifier`, `ZeroOutputUtxoHash`); see [compact padding](#compact-padding).
 
 **Event**
@@ -2202,7 +2286,7 @@ the instruction and must use a fresh blinding per output.
 
 **Discriminator:** 13
 
-**Description.** Consolidates eight input slots of one owner and asset into one output of the same owner, asset, and total amount; dummy slots pad shorter merges. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
+**Description.** Consolidates up to 51 input slots (a [24- or 51-input circuit](#merge-proof---merge-zk-proof)) of one owner and asset into one output of the same owner, asset, and total amount; dummy slots or compact padding fill the slots past the real inputs. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
 
 **Accounts**
 
@@ -2239,8 +2323,8 @@ struct MergeTransactIxData {
     /// [Merge Proof](#merge-proof---merge-zk-proof).
     private_tx_hash: [u8; 32],
     /// Input nullifiers. Inserted into the nullifier queue and part of the
-    /// public input hash. `u8` length prefix; at least one and at most 36.
-    /// The narrowest merge circuit (8 or 36 inputs) that holds them selects
+    /// public input hash. `u8` length prefix; at least one and at most 51.
+    /// The narrowest merge circuit (24 or 51 inputs) that holds them selects
     /// the verifying key and the input width; the slots past them are
     /// [compact padding](#compact-padding), omitted from instruction data.
     nullifiers: Vec<[u8; 32]>,
@@ -2276,7 +2360,8 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
 Serialized body: `271 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
-With discriminator, `N = 8`: `528 B`; with `~206 B` transaction overhead: `~734 B`.
+With discriminator, `N = 24`: `1,040 B` (a `2,212 B` transaction); `N = 51`:
+`1,904 B` (`3,967 B`). See [Transaction size](#transaction-size).
 
 ### `merge_ring`
 
@@ -2296,7 +2381,7 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 | 4 | payer |   | x | fee payer |
 | 5 | system_program |   |   | canonical System Program |
 | 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
-| .. | nullifier_pdas | x |   | eight, one per `nullifiers[i]` in order, as in [`merge_transact`](#merge_transact) |
+| .. | nullifier_pdas | x |   | one per `nullifiers[i]` in order, as in [`merge_transact`](#merge_transact) |
 | .. | cache, cache_writer |   |   | as in [`merge_transact`](#merge_transact) |
 
 **Instruction data**
@@ -2860,7 +2945,7 @@ sequenceDiagram
     Wallet->>SPP: set_merging_enabled(true)<br/>owner enables merging on their registry record
 
     Note over Wallet,Merge: Per-batch handover
-    Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)
+    Wallet->>Wallet: select up to 24 fragmented UTXOs (same owner, same asset;<br/>51 for a wide merge)
     Wallet->>Merge: plaintext inputs + merge proof inputs<br/>(including nullifier_secret)
 
     Note over Merge: Build witness + proof
@@ -2968,15 +3053,15 @@ The ring program and transaction accounts are public.
 **UTXO Cache accounts:**
 
 1. Scenario, a user has hundreds of UTXOs and wants to spend her complete balance in a single transfer.
-2. Problem, we can spend at most 36 UTXOs in a single transaction, therefore need to send multiple merge transactions and a transfer with the merged UTXOs. If we do that in sequence it will be slow.
-3. We can perform up to 36 merges in parallel, with GPU proving we should be able to perform up to 36 merges in 1-2 seconds.
+2. Problem, we can spend at most 51 UTXOs in a single transaction (49 real inputs fit the 4,096-byte limit on the confidential rail), therefore need to send multiple merge transactions and a transfer with the merged UTXOs. If we do that in sequence it will be slow.
+3. We can perform up to 36 merges in parallel, one per cache slot; with GPU proving we should be able to perform up to 36 merges in 1-2 seconds.
 4. A naive implementation needs to wait for the indexer and prover once all merge transactions are confirmed because the UTXOs need to be inserted into the tree and concurrent traffic makes the root unpredictable.
 5. Idea, we know the merged UTXOs before their proofs are computed, thus if we can compute a proof without a dependency on the utxo merkle tree we can compute the transfer proof in parallel with the merge proofs. If we cache merge output utxos in a SPP pda and prove inclusion by existence in the cache we do not need to wait for the indexer and can send the transfer instruction as soon as the cache pda is filled.
 
 **Optimized Merge flow:**
 1. detect too many UTXOs
 2. Proof Input
-  1. build merge proof inputs (up to 36)
+  1. build merge proof inputs (up to 36, one per cache slot)
   2. build tranfer proof inputs (uses new merge output utxos)
 3. Proof generation (merge and transfer proof)
 4. Subscribe to cache pda account change
@@ -3008,8 +3093,8 @@ The ring program and transaction accounts are public.
 1. We skip inclusion proofs in zk proof for elements that are read from cache
 2. nullification is unchanged
 3. cached `CircuitId` twins reuse their rail's verifying key
-4. `CacheAccess { input_bitmap, write_bitmap }` lives in the cached circuit selector. One cache supplies all reads and writes. Reads use original contents before writes and require no writer signature. A zero `input_bitmap` publishes the same cache selection as a spend without a cache, so a write-only selector needs no special encoding.
-5. Set write bits select slots in ascending order for all outputs. The writer signs immediately after the writable cache; the bitmap and cache address are bound through external data. Writes retain the output-tree binding.
+4. `CacheAccess { read_bitmap, write_slots }` lives in the cached circuit selector. One cache supplies all reads and writes. Reads use original contents before writes and require no writer signature. A zero `read_bitmap` publishes the same cache selection as a spend without a cache, so a write-only selector needs no special encoding.
+5. Each used `write_slots` entry pairs one output with one slot, up to `MAX_CACHE_WRITES = 16` entries, so every output of a 16-output shape can be cached. The writer signs immediately after the writable cache; the write entries and cache address are bound through external data. Writes retain the output-tree binding.
 6. Cached inputs and writes are supported on every owner-signed rail.
 7. A writer may replace spent or unspent commitments. Nullifiers enforce spending; evicted unspent UTXOs retain their normal tree path.
 8. Plan dependent UTXOs and cache contents locally, compute proofs concurrently against a retained nullifier root, then submit transactions in dependency order before transaction expiry.

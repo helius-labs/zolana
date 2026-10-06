@@ -1,5 +1,5 @@
-//! Both entry transitions are a 1-in 1-out `ConfidentialEddsa` transfer signed by
-//! the namespace PDA. Create fills the address slot, update fills the input slot with
+//! Both entry transitions are a 1-in 2-out `ConfidentialEddsa` transfer signed by
+//! the namespace PDA whose second output is compact padding. Create fills the address slot, update fills the input slot with
 //! the live version.
 
 use num_bigint::BigUint;
@@ -29,6 +29,7 @@ use zolana_transaction::{
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
+    SppProofOutputUtxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -275,6 +276,15 @@ impl NamespaceWrite<'_> {
             .map_err(|_| EntryProofError::Hashing)?;
         let private_tx_blinding = derive_private_tx_blinding(&slot.nullifier, &blinding_seed)
             .map_err(|_| EntryProofError::Hashing)?;
+        let padding = SppProofOutputUtxo {
+            blinding: derive_transact_output_blinding(&slot.nullifier, &output_seed, 1)
+                .map_err(|_| EntryProofError::Hashing)?,
+            compact: true,
+            ..SppProofOutputUtxo::default()
+        };
+        let padding_hash = padding
+            .hash(output_tree_id)
+            .map_err(|_| EntryProofError::Hashing)?;
 
         let owner_pk_hash = solana_owner_identity(self.namespace.as_array())
             .map_err(|_| EntryProofError::Hashing)?;
@@ -334,7 +344,8 @@ impl NamespaceWrite<'_> {
         tree_slots[0] = TreeSlot::new(input_tree_id, utxo_root, non_inclusion.root);
 
         let signer_hashes = [payer_hash, owner_pk_hash];
-        let output_owner_hashes = [owner_pk_hash];
+        let output_hashes = [output_hash, padding_hash];
+        let output_owner_hashes = [owner_pk_hash, [0u8; 32]];
         let public_transfers = PublicTransfers::default();
         // One real input in tree slot 0, dummy inputs allowed.
         let input_flags = pack_input_flags(true, [0u8]).map_err(|_| EntryProofError::Hashing)?;
@@ -342,7 +353,7 @@ impl NamespaceWrite<'_> {
         let cached_inputs = empty_cached_input_fields(1).map_err(|_| EntryProofError::Hashing)?;
         let public_hash = PublicInputs {
             nullifiers: &[slot.nullifier],
-            output_hashes: &[output_hash],
+            output_hashes: &output_hashes,
             tree_slots: &tree_slots,
             output_tree_id,
             private_tx: &private_tx,
@@ -390,10 +401,18 @@ impl NamespaceWrite<'_> {
             owner_pk_hash: be(&owner_pk_hash),
             nullifier_pk: be(&zero_nullifier_pubkey()?),
         };
+        let padding_output = TransferOutput {
+            utxo: ProofInputUtxo::try_from((&padding, output_tree_id))
+                .map_err(|_| EntryProofError::Hashing)?,
+            is_dummy: BigUint::from(1u8),
+            hash: be(&padding_hash),
+            owner_pk_hash: BigUint::ZERO,
+            nullifier_pk: BigUint::ZERO,
+        };
 
         let inputs = TransferInputs {
             inputs: vec![transfer_input],
-            outputs: vec![transfer_output],
+            outputs: vec![transfer_output, padding_output],
             tree_slots: TreeSlotFields::encode_all(&tree_slots),
             output_tree_id: BigUint::from(output_tree_id),
             blinding_seed: be(&blinding_seed),

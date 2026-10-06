@@ -184,7 +184,7 @@ fn escrow_then_withdraw() -> Result<()> {
 
     // withdraw: after `unlock_timestamp`, spend the escrow UTXO back to the
     // creator.
-    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
+    let source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
     let escrow_hash = escrow_utxo.output_utxo()?.hash(localnet.tree_id)?;
     let escrow_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
@@ -196,8 +196,19 @@ fn escrow_then_withdraw() -> Result<()> {
         .to_input_utxo(localnet.tree_id, escrow_state.leaf_index)
         .map_err(|e| anyhow!("escrow input_utxo: {e:?}"))?;
     let input_utxos = vec![escrow_input_utxo];
-    let blinding_seed =
-        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
+    // SPP has no 1x1 circuit: the withdraw is proved at 1x2, and the second
+    // output slot is compact padding the instruction leaves out.
+    let mut withdraw_outputs = vec![
+        source_output,
+        SppProofOutputUtxo {
+            compact: true,
+            ..Default::default()
+        },
+    ];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut withdraw_outputs)?;
+    let [source_output, compact_output]: [_; 2] = withdraw_outputs
+        .try_into()
+        .map_err(|_| anyhow!("withdraw transaction must have two output slots"))?;
     let source_output_blinding = source_output.blinding;
     let source_output_hash = source_output
         .hash(localnet.tree_id)
@@ -222,7 +233,7 @@ fn escrow_then_withdraw() -> Result<()> {
     external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
     let withdraw_spp_proof_inputs = SppProofInputs {
         input_utxos,
-        output_utxos: encoded.output_utxos,
+        output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
         external_data,
         payer: creator_address.solana_address()?,
         blinding_seed,

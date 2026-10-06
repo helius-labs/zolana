@@ -95,7 +95,7 @@ impl RingTransferP256Prover {
             self.allow_dummy_inputs,
         )?;
         let published_output_owner_pk_hashes =
-            confidential_marked_output_owner_pk_hashes(&self.external_data)?;
+            confidential_marked_output_owner_pk_hashes(&self.external_data, self.outputs.len())?;
         let PreparedP256Authorization {
             pub_x,
             pub_y,

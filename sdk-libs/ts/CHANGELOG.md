@@ -4,9 +4,10 @@
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
-available. Merges take up to 36 notes in one transaction, wallet sync
-recovers the output of such a merge, and transfers and merges can leave their
-unused slots out of the transaction at the cost of revealing the real counts.
+available. Transfers prove on a grid of up to 51 inputs and 16 outputs, merges
+take up to 51 notes in one transaction, wallet sync recovers the output of
+such a merge, and transfers and merges can leave their unused slots out of the
+transaction at the cost of revealing the real counts.
 Registration never replaces an owner's published keys, and replacing them is
 its own transaction. The private transaction hash ignores padding and no longer
 covers the external data, which P-256 owners now sign alongside it.
@@ -41,8 +42,21 @@ Breaking
   `details.field` to name the rejected input and drop `value` when
   constructing either error.
 - `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
-  `MERGE_INPUT_COUNT`, the eight-input default, or `MAX_MERGE_INPUTS` from
+  `MERGE_INPUT_COUNT`, the 24-input default, or `MAX_MERGE_INPUTS` from
   `@heliuslabs/zolana/interface`.
+- `SPP_SUPPORTED_SHAPES` lists 38 shapes of 1 to 51 inputs and 2, 4, 8 or 16
+  outputs in proving-cost order, `selectSppShape` and transfers take the
+  cheapest one that fits, and the 1x1, 2x3, 3x3, 4x3 and 5x3 transfer shapes,
+  the 8 and 36 input merges and the 1x1 and 3x3 ring authority shapes are
+  gone, so a declared removed shape fails with `TRANSACTION_UNSUPPORTED_SHAPE`,
+  a ring authority transfer of one or three slots proves the 2x2 or 4x4 shape,
+  and a ring list entry write or spend registration proves the 1x2 shape →
+  declare a listed shape and prove against the program and prover of this
+  release.
+- `MAX_CACHE_WRITES` is 16, so `bindCacheWrite`, `validCacheWrites` and a
+  cached `CircuitId` take 16 write slots and a cached selector encodes to 40
+  bytes → pass `NO_CACHE_WRITES` or 16 entries and build cache writes with
+  this release.
 - `ProverClient` and `ZolanaClient` send each proof to the path of its proving
   key, `/prove/<key>` or `/prove/<key>/indexed`, and poll a queued one at
   `/prove/<key>/status`, so a gateway can route and price each key apart, and
@@ -134,14 +148,20 @@ Added
 - Wallet sync recovers the output of a compact merge, which publishes only the
   nullifiers it sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
-  `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
-  proof above eight, and `buildRingMergeTransaction` and
-  `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
+  `MAX_MERGE_INPUTS` (51) notes in one transaction, padded to the 24-input
+  proof or above 24 to the 51-input proof, and `buildRingMergeTransaction` and
+  `createRingMergeSubmission` take `maxInputs`, 24 by default and at most 51.
 
 Changed
 
 - UTXO selection for transfers, withdrawals, merges and splits skips
   zero-amount UTXOs.
+- `buildTransferTransaction` and `buildWithdrawalTransaction` select up to 40
+  UTXOs where they stopped at 5, the most that always fit one transaction, and
+  still refuse a wider cover with `WALLET_TOO_MANY_INPUTS`, merge first.
+- `buildMergeTransaction` without named inputs sweeps up to 24, and
+  `emptyCachedInputFields` and `cachedInputFields` accept up to 51 inputs where
+  they stopped at the 36 cache slots.
 - `getMergeTransactInstructionAsync` accepts from one to `MAX_MERGE_INPUTS`
   nullifiers, the counts a compact merge sends, where it took only 8 or 36.
 

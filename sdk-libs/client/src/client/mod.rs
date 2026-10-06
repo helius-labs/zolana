@@ -32,12 +32,13 @@ use validation::check_service_url;
 /// on-chain, which does not fit inside the default per-instruction budget.
 ///
 /// Sized from the widest shape this client can send on the rail it sends it on:
-/// `submit` proves through `TransferInputs`, and
-/// `program-tests/shielded-pool/CU_BENCHMARK.md` measures "Transfer eddsa 36x2"
-/// at 292,473 CU for `process_instruction`. The remaining headroom absorbs the
-/// per-input `create_nullifier_pdas` cost, which moves with tree state rather
-/// than with the shape. The ring P256 rail is more expensive again, but it
-/// carries its own ceiling and does not come through here.
+/// `submit` proves through `TransferInputs`, and the widest confidential
+/// transaction, 51x2 with the 49 real inputs that fit 4,096 bytes, consumes
+/// 309,168 CU on a validator (`program-tests/spp-test-validator/tests/max_shapes.rs`).
+/// The remaining headroom absorbs the per-input `create_nullifier_pdas` cost,
+/// which moves with tree state rather than with the shape. The ring P256 rail
+/// is more expensive again (361,490 CU at 51x2), but it carries its own
+/// ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
 /// Unified client for private transaction proving and submission helpers.

@@ -81,9 +81,9 @@ pub const fn input_flags_tree_index_shift(index: usize) -> usize {
 
 /// Three bits hold every valid tree index.
 const _: () = assert!(INPUT_TREES <= 1 << INPUT_FLAGS_TREE_INDEX_BITS);
-/// The packed element is built in a single `u128` limb; a wider shape would
-/// need a two-limb builder in every mirror.
-const _: () = assert!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS) <= 128);
+/// The packed value stays below `2^253`, so it is a canonical BN254 field
+/// element at every supported input count.
+const _: () = assert!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS) <= 253);
 
 /// Pack the transaction's dummy-input policy and every input's tree index into
 /// the single `input_flags` public-input element (spec: `transact`
@@ -95,16 +95,19 @@ const _: () = assert!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS) <= 128);
 ///             | tree_index[i] << (1 + 3 * i)   for each input i
 /// ```
 ///
-/// The value is built as a big-endian `u128` and right-aligned into a
-/// 32-byte field element. `tree_indexes` is the inputs' `tree_index` in input
-/// order; the circuit decodes exactly `1 + 3 * n_inputs` bits, so an index
-/// outside `0..INPUT_TREES` or an input count above [`MAX_TRANSACT_INPUTS`]
-/// is rejected here rather than silently aliasing another input's bits.
+/// The value is built directly as a big-endian 32-byte field element (bit
+/// `b` is bit `b % 8` of byte `31 - b / 8`); at 51 inputs it spans 154 bits,
+/// wider than one `u128`. `tree_indexes` is the inputs' `tree_index` in
+/// input order; the circuit decodes exactly `1 + 3 * n_inputs` bits, so an
+/// index outside `0..INPUT_TREES` or an input count above
+/// [`MAX_TRANSACT_INPUTS`] is rejected here rather than silently aliasing
+/// another input's bits.
 pub fn pack_input_flags(
     allow_dummy_inputs: bool,
     tree_indexes: impl IntoIterator<Item = u8>,
 ) -> Result<[u8; 32], ShieldedPoolError> {
-    let mut flags = u128::from(allow_dummy_inputs);
+    let mut flags = [0u8; 32];
+    or_input_flags_bits(&mut flags, u8::from(allow_dummy_inputs), 0)?;
     for (index, tree_index) in tree_indexes.into_iter().enumerate() {
         if index >= MAX_TRANSACT_INPUTS {
             return Err(ShieldedPoolError::InvalidTransactShape);
@@ -112,9 +115,35 @@ pub fn pack_input_flags(
         if usize::from(tree_index) >= INPUT_TREES {
             return Err(ShieldedPoolError::InputTreeIndexOutOfRange);
         }
-        flags |= u128::from(tree_index) << input_flags_tree_index_shift(index);
+        or_input_flags_bits(&mut flags, tree_index, input_flags_tree_index_shift(index))?;
     }
-    Ok(right_align(&flags.to_be_bytes()))
+    Ok(flags)
+}
+
+/// ORs `value << shift` into the big-endian element. `value` holds at most
+/// [`INPUT_FLAGS_TREE_INDEX_BITS`] bits, so it spans at most two bytes.
+fn or_input_flags_bits(
+    flags: &mut [u8; 32],
+    value: u8,
+    shift: usize,
+) -> Result<(), ShieldedPoolError> {
+    let [high, low] = (u16::from(value) << (shift % 8)).to_be_bytes();
+    let low_index = flags
+        .len()
+        .checked_sub(1 + shift / 8)
+        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+    let low_byte = flags
+        .get_mut(low_index)
+        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+    *low_byte |= low;
+    if high != 0 {
+        let high_byte = low_index
+            .checked_sub(1)
+            .and_then(|index| flags.get_mut(index))
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+        *high_byte |= high;
+    }
+    Ok(())
 }
 
 /// Right-folds every slot's [`TreeSlot::hash`]:

@@ -1,6 +1,7 @@
 import { getBase58Encoder } from "@solana/kit";
 
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
+import { MAX_CACHE_WRITES } from "../interface/cache.js";
 import { wireDecoder } from "../interface/decode.js";
 import { Reader } from "../interface/internal.js";
 import {
@@ -399,7 +400,7 @@ function readSettlementData(reader: Reader): {
   if (hasCache) {
     const reads = reader.u64("circuit.cacheAccess.readBitmap");
     const firstWrite = reader.bytes(2, "circuit.cacheAccess.writeSlots[0]");
-    reader.bytes(14, "circuit.cacheAccess.writeSlots");
+    reader.bytes(2 * (MAX_CACHE_WRITES - 1), "circuit.cacheAccess.writeSlots");
     const writes = firstWrite.some((byte) => byte !== 0xff);
     cacheAccountCount = (reads === 0n ? 0 : 1) + (writes ? 2 : 0);
   }

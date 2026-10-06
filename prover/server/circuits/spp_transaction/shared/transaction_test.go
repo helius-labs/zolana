@@ -62,8 +62,10 @@ func TestShapeSignerWidth(t *testing.T) {
 	}{
 		{1, 2},
 		{5, 6},
+		{24, 25},
 		{30, 31},
-		{36, 25},
+		{32, 29},
+		{51, 10},
 	}
 	for _, tc := range cases {
 		if got := (Shape{NInputs: tc.nInputs, NOutputs: 1}).SignerWidth(); got != tc.want {

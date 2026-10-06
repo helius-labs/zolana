@@ -13,12 +13,12 @@ func strPtr(s string) *string { return &s }
 
 func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
 	pinnedOnDisk := sha256.Sum256([]byte("transfer_ring_2_2"))
-	pinnedMissing := sha256.Sum256([]byte("merge_36_1"))
+	pinnedMissing := sha256.Sum256([]byte("merge_51_1"))
 	useTestManifest(t, &lockManifest{
 		Prefix: "proving-keys/test",
 		Keys: map[string]lockEntry{
 			"transfer_ring_2_2.key": {Sha256: hex.EncodeToString(pinnedOnDisk[:]), Size: 1},
-			"merge_36_1.key":        {Sha256: hex.EncodeToString(pinnedMissing[:]), Size: 1},
+			"merge_51_1.key":        {Sha256: hex.EncodeToString(pinnedMissing[:]), Size: 1},
 		},
 	})
 	keysDir := t.TempDir()
@@ -39,7 +39,7 @@ func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
 		Prefix: "proving-keys/test",
 		Keys: []ProvingKeyStatus{
 			{Name: "local_only.key", Available: true},
-			{Name: "merge_36_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinnedMissing[:])), Available: false},
+			{Name: "merge_51_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinnedMissing[:])), Available: false},
 			{
 				Name:           "transfer_ring_2_2.key",
 				ExpectedSha256: strPtr(hex.EncodeToString(pinnedOnDisk[:])),
@@ -54,12 +54,12 @@ func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
 }
 
 func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
-	pinned := sha256.Sum256([]byte("merge_8_1"))
+	pinned := sha256.Sum256([]byte("merge_24_1"))
 	release := sha256.Sum256([]byte("custom_ring_policy"))
 	useTestManifest(t, &lockManifest{
 		Prefix: "proving-keys/test",
 		Keys: map[string]lockEntry{
-			"merge_8_1.key": {Sha256: hex.EncodeToString(pinned[:]), Size: 1},
+			"merge_24_1.key": {Sha256: hex.EncodeToString(pinned[:]), Size: 1},
 			// Release assets are never auto-downloaded, so they stay unavailable.
 			"custom_ring_policy.key": {Sha256: hex.EncodeToString(release[:]), Size: 1, Source: "release"},
 		},
@@ -72,7 +72,7 @@ func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
 	}
 	want := []ProvingKeyStatus{
 		{Name: "custom_ring_policy.key", ExpectedSha256: strPtr(hex.EncodeToString(release[:])), Available: false},
-		{Name: "merge_8_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinned[:])), Available: true},
+		{Name: "merge_24_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinned[:])), Available: true},
 	}
 	if !reflect.DeepEqual(report.Keys, want) {
 		t.Fatalf("keys = %+v, want %+v", report.Keys, want)

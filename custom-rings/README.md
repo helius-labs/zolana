@@ -340,10 +340,10 @@ recipient in `Allow` first, unless a curator serves `Allow`. `zolana-ring
 transfer` sends an amount to a shielded address. Both spend from
 `keys/sender-keypair.json`, created on first use. Its change and fee budget
 stay spendable with that key, keep it with the other keys.
-`zolana-ring merge` syncs that sender, selects the smallest two to eight clean
+`zolana-ring merge` syncs that sender, selects the smallest two to 24 clean
 notes of one mint on one tree, and consolidates them. It merges SOL by default;
 `--mint <address>` selects a registered SPL mint and `--count` caps the input
-count.
+count, up to 51.
 `zolana-ring pipeline` runs deploy to transact and takes `--program-so` like
 `deploy`.
 
@@ -459,7 +459,7 @@ once for each windowed member.
 `recoverRingMemberNotes` feeds `buildRingDelegateRecoveredTransaction`. Explicit
 submission APIs handle signing and eligible stale key-registry root,
 window-boundary and verified blockhash-expiry retries. `createRingMergeSubmission` consolidates
-two to eight clean notes of one owner, asset and ring, preserving their
+two to 24 clean notes of one owner, asset and ring (up to 51 with `maxInputs`), preserving their
 value and enforcing the configured transfer co-signer.
 
 TypeScript callers needing restart recovery use `sendPersisted` with a
@@ -505,7 +505,7 @@ Both deposit instructions require the canonical deposit audit account after
 the co-signer slots. Upgrade the ring clients with the program. The proofless
 instruction is rejected while disclosure is required. An audited instruction
 always verifies its proof, including when the setting is off.
-Ring merge is also ciphertext-free: it combines up to eight notes of one owner,
+Ring merge is also ciphertext-free: it combines up to 51 notes of one owner,
 asset and ring into one note without moving value to another owner. It is not in
 the auditor-tag scan; any later transfer of the merged value still takes the
 normal audited policy path.

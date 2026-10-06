@@ -527,15 +527,24 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         asset: zolana_transaction::Mint::SOL,
         amount: LOCK_AMOUNT,
     };
-    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
+    let source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
     let escrow_input_utxo = escrow_utxo
         .to_input_utxo(BENCH_TREE_ID, 0)
         .expect("escrow input_utxo");
     let input_utxos = vec![escrow_input_utxo];
-    let blinding_seed =
-        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
-            .expect("derive withdraw output blinding");
+    let mut withdraw_outputs = vec![
+        source_output,
+        SppProofOutputUtxo {
+            compact: true,
+            ..Default::default()
+        },
+    ];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut withdraw_outputs)
+        .expect("derive withdraw output blinding");
+    let [source_output, compact_output]: [_; 2] = withdraw_outputs
+        .try_into()
+        .expect("withdraw transaction has two output slots");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let transaction_viewing_key = get_transaction_viewing_key(&creator, &input_utxos)
@@ -557,7 +566,7 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
     external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
     let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        output_utxos: encoded.output_utxos,
+        output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
         external_data,
         payer: payer_address,
         blinding_seed,

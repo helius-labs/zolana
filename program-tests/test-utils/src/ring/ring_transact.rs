@@ -9,8 +9,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProofCompressed,
-    ProverClient, ProverExt, RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
+    input_utxos_from_nullifiers, transaction_size, ComputeBudgetConfig, ProofAuthority,
+    ProofCompressed, ProverClient, ProverExt, RingTransferP256Prover, RingTransferProver, Shape,
+    TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -49,8 +50,9 @@ use crate::{
 /// `Wallet::sync` rediscovers each one.
 #[derive(Default)]
 struct DiscoveredOutputs {
-    /// The recipient output hash (`None` for a change-only transfer / withdrawal).
-    recipient: Option<[u8; 32]>,
+    /// The recipient output hashes in recipient order (empty for a change-only
+    /// transfer / withdrawal).
+    recipients: Vec<[u8; 32]>,
     /// The sender's per-asset change output hashes.
     change: Vec<[u8; 32]>,
 }
@@ -145,13 +147,17 @@ impl RingWithdrawal {
 
 struct RingTransferOperation<'a> {
     from: &'a str,
-    to: Option<&'a str>,
+    /// Each recipient receives `amount` of `send_asset`.
+    recipients: &'a [&'a str],
     inputs: &'a [Utxo],
     send_asset: Address,
     amount: u64,
     withdrawal: Option<RingWithdrawal>,
     rail: RingRail,
     tamper: ProofTamper,
+    /// Pad to this shape with compact padding instead of random dummies at
+    /// the smallest shape that fits.
+    compact_shape: Option<Shape>,
 }
 
 /// What a landed ring operation produced, for rebuilding the expected
@@ -159,7 +165,7 @@ struct RingTransferOperation<'a> {
 /// (`None` for the default ring), which is folded into each output's hash.
 struct TrackedOutputs<'a> {
     from: &'a str,
-    to: Option<&'a str>,
+    recipients: &'a [&'a str],
     inputs: &'a [Utxo],
     send_asset: Address,
     amount: u64,
@@ -170,7 +176,7 @@ impl RingHarness {
     /// Ring-transfer `amount` of `asset` from `from` to `to` over the eddsa rail
     /// (the owner authorizes the spend with its ed25519 transaction signature),
     /// consolidating two of `from`'s spendable UTXOs of `asset` into the
-    /// (2, 3) shape.
+    /// 2x4 shape.
     pub fn ring_transfer(
         &mut self,
         from: &str,
@@ -184,7 +190,7 @@ impl RingHarness {
     /// Ring-transfer `amount` of `asset` from `from` to `to` over the P256 rail
     /// (ownership proved inside the RingP256 proof; the harness payer funds the
     /// transaction), consolidating two of `from`'s spendable UTXOs into the
-    /// (2, 3) shape.
+    /// 2x4 shape.
     pub fn ring_transfer_p256(
         &mut self,
         from: &str,
@@ -280,13 +286,60 @@ impl RingHarness {
         let inputs = self.take_ring_inputs(from, input_assets)?;
         self.execute_ring_operation(RingTransferOperation {
             from,
-            to,
+            recipients: to.as_slice(),
             inputs: &inputs,
             send_asset,
             amount,
             withdrawal,
             rail,
             tamper: ProofTamper::None,
+            compact_shape: None,
+        })
+    }
+
+    /// Ring-transfer `amount` of SOL from `from` to each of `recipients` on
+    /// `rail`, spending `input_count` of `from`'s spendable SOL ring UTXOs at
+    /// `shape` with compact padding. Every output is real: one per recipient
+    /// plus the sender's change.
+    pub fn ring_transfer_to_many(
+        &mut self,
+        from: &str,
+        recipients: &[&str],
+        input_count: usize,
+        amount: u64,
+        rail: RingRail,
+        shape: Shape,
+    ) -> Result<Signature> {
+        if self.ring_config.is_none() {
+            self.create_enabled_ring_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        for recipient in recipients {
+            self.ensure_fresh_actor(recipient)?;
+        }
+        let inputs: Vec<Utxo> = {
+            let actor = self.actor_mut(from);
+            let mut taken = Vec::with_capacity(input_count);
+            for _ in 0..input_count {
+                let pos = actor
+                    .spendable
+                    .iter()
+                    .position(|u| u.asset.asset == SOL_MINT)
+                    .ok_or_else(|| anyhow!("{from} needs {input_count} spendable SOL UTXOs"))?;
+                taken.push(actor.spendable.remove(pos));
+            }
+            taken
+        };
+        self.execute_ring_operation(RingTransferOperation {
+            from,
+            recipients,
+            inputs: &inputs,
+            send_asset: SOL_MINT,
+            amount,
+            withdrawal: None,
+            rail,
+            tamper: ProofTamper::None,
+            compact_shape: Some(shape),
         })
     }
 
@@ -295,7 +348,7 @@ impl RingHarness {
         &mut self,
         operation: RingTransferOperation<'_>,
     ) -> Result<Signature> {
-        let (from, to) = (operation.from, operation.to);
+        let (from, recipients) = (operation.from, operation.recipients);
         let (inputs, send_asset, amount) =
             (operation.inputs, operation.send_asset, operation.amount);
         let output_ring = operation
@@ -329,7 +382,7 @@ impl RingHarness {
         let discovered = self.track_outputs(
             TrackedOutputs {
                 from,
-                to,
+                recipients,
                 inputs,
                 send_asset,
                 amount,
@@ -344,9 +397,9 @@ impl RingHarness {
         // sender's owner-pubkey view tag, the two tags `sync` scans for the default-ring
         // path (see `sdk-libs/transaction/src/wallet/sync.rs`). Sync each actor and
         // confirm its wallet now holds the new outputs by hash — no hand-asserted view tag.
-        if let (Some(to), Some(recipient_hash)) = (to, discovered.recipient) {
+        for (to, recipient_hash) in recipients.iter().zip(&discovered.recipients) {
             self.sync(to)?;
-            self.assert_wallet_holds(to, recipient_hash, "recipient ring-transfer output")?;
+            self.assert_wallet_holds(to, *recipient_hash, "recipient ring-transfer output")?;
         }
         self.sync(from)?;
         for change_hash in &discovered.change {
@@ -399,22 +452,26 @@ impl RingHarness {
     ) -> Result<SentRingTransfer> {
         let RingTransferOperation {
             from,
-            to,
+            recipients,
             inputs,
             send_asset,
             amount,
             withdrawal,
             rail,
             tamper,
+            compact_shape,
         } = operation;
         let from_keypair = self.actor(from).keypair.clone();
-        let to_keypair = to.map(|t| self.actor(t).keypair.clone());
-        let to_address = to_keypair
-            .as_ref()
+        let recipient_keypairs = recipients
+            .iter()
+            .map(|recipient| self.actor(recipient).keypair.clone())
+            .collect::<Vec<_>>();
+        let to_addresses = recipient_keypairs
+            .iter()
             .map(|k| k.shielded_address())
-            .transpose()?;
-        let to_view_tag = to_keypair
-            .as_ref()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let to_view_tag = recipient_keypairs
+            .first()
             .map(|k| k.signing_pubkey().confidential_view_tag())
             .transpose()?;
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
@@ -458,21 +515,32 @@ impl RingHarness {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        let shape = canonical_shape(notes.len(), 2 + usize::from(to_address.is_some()))?;
-        let mut transfer = match rail.output_ring(ring) {
-            Some(ring) => ConfidentialTransaction::new_with_ring(notes, payer_address, ring)?,
-            None => ConfidentialTransaction::new(notes, payer_address)?,
+        let shape = match compact_shape {
+            Some(shape) => shape,
+            None => canonical_shape(notes.len(), 2 + to_addresses.len())?,
+        };
+        let mut transfer = match (rail.output_ring(ring), compact_shape.is_some()) {
+            (Some(ring), false) => {
+                ConfidentialTransaction::new_with_ring(notes, payer_address, ring)?
+            }
+            (Some(ring), true) => {
+                ConfidentialTransaction::new_compact_with_ring(notes, payer_address, ring)?
+            }
+            (None, false) => ConfidentialTransaction::new(notes, payer_address)?,
+            (None, true) => ConfidentialTransaction::new_compact(notes, payer_address)?,
         }
         .with_output_tree_id(self.tree_id)?;
-        match (&to_address, withdrawal) {
-            (Some(addr), None) => {
-                if send_asset == SOL_MINT {
-                    transfer.transfer_sol(addr, amount)?;
-                } else {
-                    transfer.transfer(addr, send_asset, amount)?;
+        match (to_addresses.is_empty(), withdrawal) {
+            (false, None) => {
+                for addr in &to_addresses {
+                    if send_asset == SOL_MINT {
+                        transfer.transfer_sol(addr, amount)?;
+                    } else {
+                        transfer.transfer(addr, send_asset, amount)?;
+                    }
                 }
             }
-            (None, Some(withdrawal)) => match withdrawal {
+            (true, Some(withdrawal)) => match withdrawal {
                 RingWithdrawal::Sol { recipient } => {
                     transfer.withdraw_sol(amount, recipient)?;
                 }
@@ -482,10 +550,10 @@ impl RingHarness {
                     transfer.withdraw(send_asset, amount, recipient_token)?;
                 }
             },
-            (Some(_), Some(_)) => {
+            (false, Some(_)) => {
                 return Err(anyhow!("a ring transfer cannot both send and withdraw"));
             }
-            (None, None) => {
+            (true, None) => {
                 return Err(anyhow!("a ring transfer needs a recipient or a withdrawal"));
             }
         }
@@ -519,12 +587,18 @@ impl RingHarness {
         }
         .instruction();
         let instructions = [transfer_ix.clone()];
+        let budget = ComputeBudgetConfig::new(1_400_000);
+        self.last_transaction_size = Some(transaction_size(
+            &fee_payer.pubkey(),
+            &instructions,
+            budget,
+        )?);
         let signature = send_transaction_with_budget(
             &mut self.rpc,
             &instructions,
             &fee_payer.pubkey(),
             &[&fee_payer],
-            ComputeBudgetConfig::new(1_400_000),
+            budget,
         )?;
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
@@ -706,7 +780,7 @@ impl RingHarness {
     ) -> Result<DiscoveredOutputs> {
         let TrackedOutputs {
             from,
-            to,
+            recipients,
             inputs,
             send_asset,
             amount,
@@ -716,15 +790,19 @@ impl RingHarness {
         let mut discovered = DiscoveredOutputs::default();
 
         let mut expected = Vec::new();
-        if let Some(to) = to {
+        for to in recipients {
             expected.push((
-                to,
+                *to,
                 self.actor(to).keypair.signing_pubkey(),
                 send_asset,
                 amount,
                 true,
             ));
         }
+        // A withdrawal has no recipient and still moves `amount` out of the pool.
+        let sent_total = u64::try_from(recipients.len().max(1))?
+            .checked_mul(amount)
+            .ok_or_else(|| anyhow!("sent amount overflows"))?;
         let mut assets = Vec::new();
         for input in inputs {
             if !assets.contains(&input.asset.asset) {
@@ -738,7 +816,7 @@ impl RingHarness {
                 .map(|input| input.amount)
                 .sum();
             let change = total
-                .checked_sub(if asset == send_asset { amount } else { 0 })
+                .checked_sub(if asset == send_asset { sent_total } else { 0 })
                 .ok_or_else(|| anyhow!("change underflow"))?;
             if change > 0 {
                 expected.push((from, from_keypair.signing_pubkey(), asset, change, false));
@@ -767,7 +845,7 @@ impl RingHarness {
                 indexed,
             )?;
             if recipient {
-                discovered.recipient = Some(note.utxo_hash);
+                discovered.recipients.push(note.utxo_hash);
             } else {
                 discovered.change.push(note.utxo_hash);
             }
@@ -968,13 +1046,14 @@ impl RingHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match self.send_ring_transfer(RingTransferOperation {
             from,
-            to: Some(to),
+            recipients: &[to],
             inputs: &inputs,
             send_asset: asset,
             amount,
             withdrawal: None,
             rail,
             tamper,
+            compact_shape: None,
         }) {
             Ok(_) => Err(anyhow!(
                 "tampered ring transfer ({tamper:?}) unexpectedly succeeded"
@@ -1075,13 +1154,14 @@ impl RingHarness {
         let inputs = self.peek_spendable_input_utxos(from, asset, false)?;
         let sent = self.send_ring_transfer(RingTransferOperation {
             from,
-            to: Some(to),
+            recipients: &[to],
             inputs: &inputs,
             send_asset: asset,
             amount,
             withdrawal: None,
             rail: RingRail::P256,
             tamper: ProofTamper::None,
+            compact_shape: None,
         })?;
         let CircuitId::RingP256(_, _, _, proof_data) = &sent.data.circuit else {
             return Err(anyhow!("expected a RingP256 circuit selector"));
@@ -1123,13 +1203,14 @@ impl RingHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match self.send_ring_transfer(RingTransferOperation {
             from,
-            to: Some(to),
+            recipients: &[to],
             inputs: &inputs,
             send_asset: asset,
             amount,
             withdrawal: None,
             rail: RingRail::P256,
             tamper: ProofTamper::BadDefaultOwnerTag,
+            compact_shape: None,
         }) {
             Ok(_) => Err(anyhow!(
                 "P256 ring transfer with a wrong default_owner_tag unexpectedly succeeded"
@@ -1165,16 +1246,17 @@ fn assemble_ix_data(
     commitment: Option<Bsb22Commitment>,
     default_owner_tag: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
-    let n_inputs = proof_inputs.check_shape()?.n_inputs();
-    if inputs.len() != n_inputs {
+    let shape = proof_inputs.check_shape()?;
+    let n_inputs = shape.n_inputs();
+    if inputs.len() > n_inputs {
         return Err(anyhow!(
-            "witness input count {} does not match shape {n_inputs}",
+            "witness input count {} exceeds shape {n_inputs}",
             inputs.len()
         ));
     }
 
     let external = &proof_inputs.external_data;
-    let n_outputs = external.outputs.len() as u8;
+    let n_outputs = u8::try_from(shape.n_outputs())?;
     let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
     let circuit = match rail {
         RingRail::Eddsa => CircuitId::RingEddsa(n_inputs as u8, n_outputs, n_slots),

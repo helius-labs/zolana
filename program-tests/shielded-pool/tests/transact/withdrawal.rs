@@ -238,14 +238,14 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         utxo.owner,
         change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )
     .expect("change and dummy outputs");
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
 
-    let view_tags = [payer_bytes; 3];
+    let view_tags = [payer_bytes; 2];
     let mut transact_ix_data = new_transact_ix_data(
         vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
         utxo_root_index,
@@ -263,11 +263,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     // (their owner is unconstrained).
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(
-        &mut outputs,
-        &owner_pk_hashes,
-        &[change_nullifier_pk, zero, zero],
-    );
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[change_nullifier_pk, zero]);
     let resolved_transfers = [sol_leg(&recipient)];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
@@ -278,7 +274,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
-        &[change_output_hash, zero, zero],
+        &[change_output_hash, zero],
         &private_tx_blinding,
     )
     .hash()
@@ -434,11 +430,9 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         [23u8; 31],
     );
     let (dummy_output_a, _) = dummy_transfer_output(&[1u8; 31], tree_id).expect("dummy output");
-    let (dummy_output_b, _) = dummy_transfer_output(&[2u8; 31], tree_id).expect("dummy output");
     let mut outputs = vec![
         transfer_output(&shielded_output, tree_id).expect("real transfer output"),
         dummy_output_a,
-        dummy_output_b,
     ];
     let output_hashes = derive_test_transfer_output_blindings(&nullifiers[0], &mut outputs)
         .expect("derive output blindings");
@@ -451,7 +445,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         .expect("owner view tag");
     // Dummy slots share the real output's owner tag (the AssertDummyTags rule;
     // see `set_output_owner_tags`).
-    let view_tags = [owner_view_tag; 3];
+    let view_tags = [owner_view_tag; 2];
     let mut transact_ix_data = new_transact_ix_data(
         vec![input_utxo(nullifiers[0]), input_utxo(nullifiers[1])],
         0,
@@ -488,20 +482,17 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[nullifier_pk, zero, zero]);
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[nullifier_pk, zero]);
 
     let resolved_transfers = [sol_leg(&depositor.pubkey())];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx_blinding =
         test_private_tx_blinding(&nullifiers[0]).expect("private tx blinding");
-    let private_tx = PrivateTxHash::new(
-        &[zero, zero],
-        &[shielded_hash, zero, zero],
-        &private_tx_blinding,
-    )
-    .hash()
-    .expect("private tx hash");
+    let private_tx =
+        PrivateTxHash::new(&[zero, zero], &[shielded_hash, zero], &private_tx_blinding)
+            .hash()
+            .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(AMOUNT as i64));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     let payer_pubkey_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
@@ -648,11 +639,9 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     );
     let shielded_output = real_output(owner, nullifier_pk, asset, SPL_AMOUNT, [27u8; 31]);
     let (dummy_a, _) = dummy_transfer_output(&[1u8; 31], tree_id).expect("dummy output");
-    let (dummy_b, _) = dummy_transfer_output(&[2u8; 31], tree_id).expect("dummy output");
     let mut outputs = vec![
         transfer_output(&shielded_output, tree_id).expect("real output"),
         dummy_a,
-        dummy_b,
     ];
     let output_hashes = derive_test_transfer_output_blindings(&nullifiers[0], &mut outputs)
         .expect("derive output blindings");
@@ -660,7 +649,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
     // Dummy slots share the real output's owner tag (the AssertDummyTags rule;
     // see `set_output_owner_tags`).
-    let view_tags = [owner_view_tag; 3];
+    let view_tags = [owner_view_tag; 2];
     let mut data = new_transact_ix_data(
         vec![input_utxo(nullifiers[0]), input_utxo(nullifiers[1])],
         0,
@@ -689,22 +678,15 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     data.outputs[0].data =
         Some(borsh::to_vec(&OutputDataEncoding::Plaintext(plaintext)).expect("encode output data"));
     let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
-    set_output_owner_tags(
-        &mut outputs,
-        &output_owner_hashes,
-        &[nullifier_pk, zero, zero],
-    );
+    set_output_owner_tags(&mut outputs, &output_owner_hashes, &[nullifier_pk, zero]);
     let external_hash =
         external_data_hash(&data, &[spl_leg(&mint, &user_token)]).expect("external data hash");
     let private_tx_blinding =
         test_private_tx_blinding(&nullifiers[0]).expect("private tx blinding");
-    let private_tx = PrivateTxHash::new(
-        &[zero, zero],
-        &[shielded_hash, zero, zero],
-        &private_tx_blinding,
-    )
-    .hash()
-    .expect("private transaction hash");
+    let private_tx =
+        PrivateTxHash::new(&[zero, zero], &[shielded_hash, zero], &private_tx_blinding)
+            .hash()
+            .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(SPL_AMOUNT as i64));
     let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
     let mint_bytes = mint.to_bytes();
@@ -967,14 +949,9 @@ fn phase_transfer_to_recipient(
     let transfer_tree_slots = single_tree_slots(tree_id, shield_utxo_root, nullifier_root);
     let (transfer_dummy_input, transfer_dummy_nullifier) =
         dummy_input(&[20u8; 31], &nf_tree, tree_id).expect("transfer dummy input");
-    // The transfer's third output is a dummy (`owner_hash = 0`): a real `utxo_hash`
-    // the program appends and the proof commits, contributing `0` to private_tx_hash.
-    let (transfer_dummy_output, _) =
-        dummy_transfer_output(&[19u8; 31], tree_id).expect("transfer dummy output");
     let mut transfer_outputs = vec![
         transfer_output(&change_output, tree_id).expect("change transfer output"),
         transfer_output(&recipient_output, tree_id).expect("recipient transfer output"),
-        transfer_dummy_output,
     ];
     let transfer_output_hashes =
         derive_test_transfer_output_blindings(&payer_nullifier, &mut transfer_outputs)
@@ -984,8 +961,7 @@ fn phase_transfer_to_recipient(
     change_output.blinding = transfer_outputs[0].utxo.blinding;
     recipient_output.blinding = transfer_outputs[1].utxo.blinding;
 
-    // Real outputs tag by owner; the dummy slot reuses the sender's tag (both
-    // rules on `set_output_owner_tags`).
+    // Real outputs tag by owner (`set_output_owner_tags`).
     let change_view_tag = payer_utxo
         .owner
         .confidential_view_tag()
@@ -993,7 +969,7 @@ fn phase_transfer_to_recipient(
     let recipient_view_tag = recipient_public_key
         .confidential_view_tag()
         .expect("recipient view tag");
-    let transfer_view_tags = [change_view_tag, recipient_view_tag, payer_bytes];
+    let transfer_view_tags = [change_view_tag, recipient_view_tag];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             input_utxo(payer_nullifier),
@@ -1005,12 +981,11 @@ fn phase_transfer_to_recipient(
     );
     let transfer_owner_pk_hashes =
         output_owner_pk_hashes(&transfer_ix_data.outputs).expect("transfer output owner pk hashes");
-    // The real change/recipient outputs bind to their owner via `nullifier_pk`; the
-    // dummy's owner is unconstrained (nullifier_pk 0).
+    // The real change/recipient outputs bind to their owner via `nullifier_pk`.
     set_output_owner_tags(
         &mut transfer_outputs,
         &transfer_owner_pk_hashes,
-        &[payer_nullifier_pk, recipient_nullifier_pk, zero],
+        &[payer_nullifier_pk, recipient_nullifier_pk],
     );
     let transfer_external_hash =
         external_data_hash(&transfer_ix_data, &[]).expect("transfer external data hash");
@@ -1018,7 +993,7 @@ fn phase_transfer_to_recipient(
         test_private_tx_blinding(&payer_nullifier).expect("transfer private tx blinding");
     let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
-        &[change_hash, recipient_hash, zero],
+        &[change_hash, recipient_hash],
         &transfer_private_tx_blinding,
     )
     .hash()
@@ -1083,9 +1058,6 @@ fn phase_transfer_to_recipient(
     state_tree
         .append(&recipient_hash)
         .expect("append recipient leaf");
-    state_tree
-        .append(&transfer_output_hashes[2])
-        .expect("append dummy leaf");
     let (transfer_utxo_root_index, transfer_utxo_root, transfer_nullifier_root) =
         current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
@@ -1200,7 +1172,7 @@ fn phase_withdraw_recipient_utxo(
         recipient_utxo.owner,
         withdraw_change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )
     .expect("withdraw change and dummy outputs");
@@ -1208,7 +1180,7 @@ fn phase_withdraw_recipient_utxo(
         derive_test_transfer_output_blindings(&recipient_nullifier, &mut withdraw_outputs)
             .expect("derive withdraw output blindings");
 
-    let withdraw_view_tags = [recipient_bytes; 3];
+    let withdraw_view_tags = [recipient_bytes; 2];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             input_utxo(recipient_nullifier),
@@ -1225,7 +1197,7 @@ fn phase_withdraw_recipient_utxo(
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,
-        &[withdraw_change_nullifier_pk, zero, zero],
+        &[withdraw_change_nullifier_pk, zero],
     );
     let withdraw_resolved_transfers = [sol_leg(&public_recipient)];
     let withdraw_external_hash =
@@ -1238,7 +1210,7 @@ fn phase_withdraw_recipient_utxo(
         .expect("withdraw change output hash");
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
-        &[withdraw_change_output_hash, zero, zero],
+        &[withdraw_change_output_hash, zero],
         &withdraw_private_tx_blinding,
     )
     .hash()

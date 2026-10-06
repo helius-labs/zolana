@@ -41,3 +41,5 @@ sdk-libs/transaction/type-lifecycle.md
 
 # Local TLA+ models of the cache account flow.
 /tla_plus/
+
+__pycache__/

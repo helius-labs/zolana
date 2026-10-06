@@ -17,7 +17,7 @@ import {
 import { CACHE_CAPACITY } from "../../interface/state.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
-  RING_AUTHORITY_MAX_WIDTH,
+  RING_AUTHORITY_WIDTHS,
   selectSppShape,
   signerWidth,
   type Shape,
@@ -244,7 +244,7 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   if (
     plan.authority &&
     (shape.inputs !== shape.outputs ||
-      shape.inputs > RING_AUTHORITY_MAX_WIDTH ||
+      !RING_AUTHORITY_WIDTHS.includes(shape.inputs) ||
       proofInputs.externalData.interfaceTransfers.length !== 0 ||
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,

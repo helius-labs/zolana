@@ -12,7 +12,7 @@ import (
 // A proof is sent to the path of the proving key that proves it:
 // /prove/<key> and /prove/<key>/indexed, and a queued one is polled at
 // /prove/<key>/status, <key> being the key file name without ".key"
-// (transfer_p256_ring_2_3, merge_36_1, batch_address-append_40_250).
+// (transfer_p256_ring_2_2, merge_51_1, batch_address-append_40_250).
 //
 // The key is in the path because the Helius gateway routes and prices REST
 // calls on (method, path) alone and never reads the body. A proving key fixes

@@ -5,14 +5,14 @@
 A proof is sent to the path of the proving key that proves it,
 `POST /prove/<key>` or `POST /prove/<key>/indexed`, and a queued proof is
 polled at `GET /prove/<key>/status?jobId=<id>`, where `<key>` is the key file
-name without `.key`: `transfer_confidential_2_3`, `merge_36_1`,
+name without `.key`: `transfer_confidential_2_2`, `merge_51_1`,
 `batch_address-append_40_250`. Every path is also served under `/v1/zolana`.
 A gateway routes and prices on the path alone, so it can send each key to a
 pool of provers sized for it at a price that matches its cost, and send each
 poll to the pool whose queue holds the job.
 
 `--serve` (or `PROVER_SERVE_KEYS`) limits the keys a deployment proves, as
-patterns over key names such as `transfer_*` or `*_36_*`; the default is
+patterns over key names such as `transfer_*` or `*_51_*`; the default is
 every key. A key the deployment does not serve answers `404` with code
 `proving_key_not_served`, and a body that resolves to another key than its
 path names answers `400` with code `proving_key_mismatch`. `/health` lists the
@@ -100,9 +100,9 @@ Use `/health` for liveness and `/ready` for load balancer readiness.
 configured preloads succeed. Proof requests return the same response during
 preload. With `--preload-keys none`, keys load
 on demand and readiness does not guarantee a warm proof unless explicit
-preload circuits are set. `--preload-circuits transfer-confidential:2:3`
+preload circuits are set. `--preload-circuits transfer-confidential:2:2`
 selects one shape. A circuit name without a shape loads its supported shapes.
-`rpc` and `local-rpc` preload all transfer and merge shapes. The compose default preloads selected transfer 2×3 shapes and merge 8×1.
+`rpc` and `local-rpc` preload all transfer and merge shapes. The compose default preloads selected transfer 2×2 shapes and merge 24×1.
 Provision memory for the selected keys and workers. Mount the required
 proving keys at `/proving-keys`. `Dockerfile.light` contains the binary only.
 

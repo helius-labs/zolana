@@ -22,7 +22,7 @@ use zolana_program::instruction::{
 };
 use zolana_transaction::{
     instructions::{
-        merge::MergeTransaction,
+        merge::{MergeTransaction, MAX_MERGE_INPUTS},
         transact::{ConfidentialTransaction, Shape},
     },
     AssetRegistry, Data, Mint, Utxo, WalletUtxo,
@@ -30,7 +30,7 @@ use zolana_transaction::{
 use zolana_user_registry_interface::user_record_pda;
 
 /// One merge spends exactly `MAX_MERGE_INPUTS` inputs.
-const UTXO_COUNT: usize = 36;
+const UTXO_COUNT: usize = MAX_MERGE_INPUTS;
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const TRANSFER_AMOUNT: u64 = 500_000_000;
 /// Distinguishes this cache from any other the sponsor holds; the address is
@@ -42,15 +42,15 @@ const CACHE_EXPIRES_AT: i64 = 2_000_000_000;
 /// The slot this merge writes its output commitment into. With several merges
 /// each takes its own slot of the same cache.
 const CACHE_SLOT: u8 = 0;
-/// A 36-input merge costs about 250,000 compute units, most of it the 36
+/// A 51-input merge costs about 300,000 compute units, most of it the 51
 /// nullifier PDAs.
 const MERGE_CU_LIMIT: u32 = 400_000;
 
-/// Spends a balance spread over more UTXOs than one transaction can take,
-/// without the round trip that normally separates the merge from the transfer.
+/// Spends a balance spread over as many UTXOs as the widest transfer shape
+/// takes, without the round trip that normally separates the merge from the transfer.
 ///
-/// A wallet that has received many small payments holds more UTXOs than the
-/// widest transfer shape accepts, so spending the balance means merging first.
+/// A wallet that has received many small payments holds so many UTXOs that
+/// only the widest transfer shape can spend them, so it merges them first.
 /// Running the two in sequence is slow for a reason unrelated to proving: the
 /// transfer needs a Merkle inclusion proof for the merged output, so it cannot
 /// start until the merge has landed, been appended to the tree, and been
@@ -86,7 +86,7 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 /// The critical path is `max(merge proof + merge lands, transfer proof)`
 /// instead of `merge proof + merge lands + indexing + transfer proof`.
 fn main() -> Result<()> {
-    // A registered sender whose private balance sits in 36 separate UTXOs, plus
+    // A registered sender whose private balance sits in 51 separate UTXOs, plus
     // a rent sponsor for the cache account.
     let MergeScenario {
         rpc_url,
@@ -108,7 +108,8 @@ fn main() -> Result<()> {
     let sender_address = sender.shielded_address()?;
     let recipient_address = recipient.shielded_address()?;
 
-    // 1. The balance cannot be spent in one transfer, so it has to be merged.
+    // 1. Spending the balance directly needs the widest transfer shape, so it is
+    // merged first.
     assert_balance_needs_merging(&utxos, UTXO_COUNT);
     let total: u64 = utxos.iter().map(|utxo| utxo.utxo.amount).sum();
 
@@ -202,7 +203,7 @@ fn main() -> Result<()> {
     let mut transfer = ConfidentialTransaction::new(vec![transfer_input], sender.pubkey())?
         .with_output_tree_id(tree_id)?;
     transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
-    transfer.pad_utxos(Shape::IN2_OUT3, &sender_address)?;
+    transfer.pad_utxos(Shape::IN2_OUT4, &sender_address)?;
     let mut proof_inputs = transfer.encrypt(&sender)?.with_read_cache(cache);
     for input in proof_inputs
         .input_utxos

@@ -22,6 +22,7 @@ use dynamic_swap_sdk::{
     },
     pair_pda,
     prover::DynamicSwapProverClient,
+    shared::pad_spp_outputs,
     state::{EscrowTerms, EscrowUtxo, Reservation},
     SettleProof,
 };
@@ -548,9 +549,13 @@ fn bench_create_escrow(
     .expect("indexed input")
     .into();
 
-    // The maker funds the reservation from its own destination-asset UTXO.
+    // The maker funds the reservation with a destination-asset UTXO owned by
+    // the escrow authority, which signs the data-bearing outputs through CPI.
+    let escrow_address = escrow_owner
+        .shielded_address()
+        .expect("escrow authority shielded address");
     let maker_funding_utxo = Utxo {
-        owner: authority_keypair.signing_pubkey(),
+        owner: escrow_address.signing_pubkey,
         asset: zolana_transaction::Mint::SOL,
         amount: FUNDING_AMOUNT,
         blinding: random_blinding(),
@@ -559,7 +564,7 @@ fn bench_create_escrow(
     };
     let maker_funding: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
         maker_funding_utxo,
-        &authority_keypair.nullifier_key,
+        escrow_owner.as_ref(),
         BENCH_TREE_ID,
         1,
         None,
@@ -611,13 +616,10 @@ fn bench_create_escrow(
         .output_utxo(&escrow_owner, order_utxo_hash)
         .expect("reservation_out");
 
-    let authority_address = authority_keypair
-        .shielded_address()
-        .expect("authority shielded address");
     let mut maker_change = SppProofOutputUtxo::new(
         zolana_transaction::Mint::SOL,
         FUNDING_AMOUNT - reserved,
-        authority_address,
+        escrow_address,
     )
     .expect("maker_change");
     maker_change.blinding =
@@ -657,7 +659,12 @@ fn bench_create_escrow(
     );
     let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        output_utxos: encoded.output_utxos,
+        output_utxos: pad_spp_outputs(
+            encoded.output_utxos,
+            &first_nullifier,
+            &output_blinding_seed,
+        )
+        .expect("pad create_escrow outputs"),
         external_data,
         payer: authority_solana.pubkey(),
         blinding_seed,
@@ -689,15 +696,10 @@ fn bench_create_escrow(
         spp_proof_inputs,
         &spend_proofs,
         &prover,
-        &[
-            &user_keypair.nullifier_key,
-            &authority_keypair.nullifier_key,
-        ],
+        &[&user_keypair.nullifier_key, escrow_owner.as_ref()],
     );
 
-    let escrow_authority_owner_hash = escrow_owner
-        .shielded_address()
-        .expect("escrow authority shielded address")
+    let escrow_authority_owner_hash = escrow_address
         .owner_hash()
         .expect("escrow authority owner hash");
     let source_asset_field = asset_field(&source_asset).expect("source asset field");
@@ -937,7 +939,12 @@ fn bench_settle(
     );
     let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        output_utxos: encoded.output_utxos,
+        output_utxos: pad_spp_outputs(
+            encoded.output_utxos,
+            &settle_first_nullifier,
+            &output_blinding_seed,
+        )
+        .expect("pad settle outputs"),
         external_data,
         payer: authority_solana.pubkey(),
         blinding_seed,

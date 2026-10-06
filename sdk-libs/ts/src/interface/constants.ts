@@ -6,9 +6,9 @@
  */
 
 /** Input slots of the narrower merge proof, the width an automatic merge sweeps. */
-export const MERGE_INPUT_COUNT = 8;
+export const MERGE_INPUT_COUNT = 24;
 
-export const MAX_MERGE_INPUTS = 36;
+export const MAX_MERGE_INPUTS = 51;
 
 export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
   MERGE_INPUT_COUNT,

@@ -124,23 +124,26 @@ describe("UTXO selection", () => {
   });
 
   it("distinguishes a fragmented balance from a poor one", () => {
-    const fragmented = walletWith([[5n], [5n], [5n], [5n], [5n], [5n]]);
+    const count = MAX_SPEND_INPUTS + 1;
+    const fragmented = walletWith(Array.from({ length: count }, () => [5n] as const));
+    const total = 5n * BigInt(count);
+    expect(MAX_SPEND_INPUTS).toBe(40);
     expect(() =>
       selectUtxos({
         wallet: fragmented,
         asset: MINT,
-        target: { kind: "cover", amount: 30n },
+        target: { kind: "cover", amount: total },
         policy: policy(),
       }),
-    ).toThrow("tooMany 6 5");
+    ).toThrow(`tooMany ${String(count)} ${String(MAX_SPEND_INPUTS)}`);
     expect(() =>
       selectUtxos({
         wallet: fragmented,
         asset: MINT,
-        target: { kind: "cover", amount: 31n },
+        target: { kind: "cover", amount: total + 1n },
         policy: policy(),
       }),
-    ).toThrow("insufficient 31 30");
+    ).toThrow(`insufficient ${String(total + 1n)} ${String(total)}`);
   });
 
   it("filters to a fixed tree", () => {

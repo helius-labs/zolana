@@ -87,6 +87,10 @@ name = "proving_keys"
 [[test]]
 name = "transaction_size"
 
+# Hermetic: the wallet spend input cap against the v1 ceilings.
+[[test]]
+name = "spend_input_ceiling"
+
 [[test]]
 name = "indexer"
 required-features = ["indexer-api"]

@@ -9,6 +9,7 @@ import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
   RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
+  ringAuthorityWidth,
   selectSppShape,
   type Shape,
   validateSppShape,
@@ -1258,8 +1259,8 @@ export function prepareRingAuthorityTransfer(
       ringProgramId: input.ringProgramId,
     })),
   );
-  const width = Math.max(input.inputs.length, layouts.length);
-  if (width > RING_AUTHORITY_MAX_WIDTH)
+  const width = ringAuthorityWidth(Math.max(input.inputs.length, layouts.length));
+  if (width === undefined)
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
       inputs: input.inputs.length,
       outputs: layouts.length,

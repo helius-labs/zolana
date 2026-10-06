@@ -1,9 +1,12 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputDataEncoding;
-use zolana_interface::instruction::{
-    instruction_data::transact::{OwnerTag, TransactOutput},
-    tag::RING_AUTHORITY_TRANSACT,
+use zolana_interface::{
+    instruction::{
+        instruction_data::transact::{OwnerTag, TransactOutput},
+        tag::RING_AUTHORITY_TRANSACT,
+    },
+    shape::RING_AUTHORITY_WIDTHS,
 };
 use zolana_keypair::{constants::SALT_LEN, random_blinding, ViewingKey};
 
@@ -17,7 +20,13 @@ use zolana_transaction::{
 
 use crate::RingAuthorityProofInputs;
 
-const MAX_AUTHORITY_SLOTS: usize = 4;
+/// The smallest square ring authority circuit with at least `slots` inputs
+/// and outputs.
+pub fn ring_authority_width(slots: usize) -> Option<usize> {
+    RING_AUTHORITY_WIDTHS
+        .into_iter()
+        .find(|&width| width >= slots)
+}
 
 pub struct RingAuthorityMove {
     pub ring_program_id: Address,
@@ -61,13 +70,12 @@ impl RingAuthorityMove {
         if outputs.iter().any(SppProofOutputUtxo::is_dummy) {
             return Err(TransactionError::MissingOutput);
         }
-        let width = inputs.len().max(outputs.len());
-        if width > MAX_AUTHORITY_SLOTS {
-            return Err(TransactionError::UnsupportedShape {
+        let width = ring_authority_width(inputs.len().max(outputs.len())).ok_or(
+            TransactionError::UnsupportedShape {
                 n_in: inputs.len(),
                 n_out: outputs.len(),
-            });
-        }
+            },
+        )?;
         let shape = Shape::new(width, width);
         let padded_outputs = width - outputs.len();
         // A pad names a recipient, never a private input owner.

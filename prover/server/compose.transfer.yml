@@ -20,7 +20,7 @@ services:
       GOGC: ${GOGC:-100}
       GOMEMLIMIT: ${GOMEMLIMIT:-off}
       GOMAXPROCS: ${GOMAXPROCS:-}
-    command: [start, --require-optimized-build, --preload-circuits, "transfer-confidential:2:3,transfer-ring:2:3,transfer-p256-ring:2:3,merge:8:1", --keys-dir, /proving-keys, --redis-url, "redis://redis:6379"]
+    command: [start, --require-optimized-build, --preload-circuits, "transfer-confidential:2:2,transfer-ring:2:2,transfer-p256-ring:2:2,merge:24:1", --keys-dir, /proving-keys, --redis-url, "redis://redis:6379"]
     depends_on: [redis]
     restart: unless-stopped
   redis:

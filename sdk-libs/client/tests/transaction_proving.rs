@@ -1,4 +1,4 @@
-//! Transfer proof matrix for the fixed (2,3) circuit shape.
+//! Transfer proof matrix; declared cases pad to the (2,4) circuit shape.
 
 mod harness;
 mod prover;

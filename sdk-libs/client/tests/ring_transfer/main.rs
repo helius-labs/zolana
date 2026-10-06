@@ -22,17 +22,17 @@ fn eddsa_ring_transfer_proofs_cover_all_shapes() {
 
 fn run_shape_matrix(mode: Mode) {
     let shapes = [
-        (1, 1),
         (1, 2),
         (2, 2),
-        (2, 3),
-        (3, 3),
-        (4, 3),
+        (2, 4),
+        (3, 2),
         (4, 4),
-        (5, 3),
         (5, 4),
         (1, 8),
-        (36, 2),
+        (1, 16),
+        (16, 8),
+        (24, 4),
+        (51, 2),
     ];
     for (n_inputs, n_outputs) in shapes {
         RingTransferHarness {
@@ -52,7 +52,7 @@ fn ring_transfer_proofs_cover_real_multi_input_consolidation() {
     RingTransferHarness {
         plan: Plan {
             n_inputs: 3,
-            n_outputs: 3,
+            n_outputs: 4,
             mode: Mode::EddsaMultiReal,
         },
     }

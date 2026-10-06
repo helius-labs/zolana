@@ -5,7 +5,7 @@ use wincode::{
     ReadError, ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult,
 };
 
-use crate::state::cache::CACHE_CAPACITY;
+use crate::{shape::Shape, state::cache::CACHE_CAPACITY};
 
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
@@ -14,99 +14,71 @@ const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 /// verifying key and the proving-key sha256 generated next to it.
 #[cfg(feature = "verifying-keys")]
 macro_rules! circuit_key_item {
-    ($circuit:expr, $item:ident) => {{
+    ($circuit:expr, $item:ident) => {
+        circuit_key_item!(@select $circuit, $item;
+            transact {
+                (1, 2) => transfer_confidential_1_2, transfer_ring_1_2, transfer_p256_ring_1_2;
+                (1, 4) => transfer_confidential_1_4, transfer_ring_1_4, transfer_p256_ring_1_4;
+                (1, 8) => transfer_confidential_1_8, transfer_ring_1_8, transfer_p256_ring_1_8;
+                (2, 2) => transfer_confidential_2_2, transfer_ring_2_2, transfer_p256_ring_2_2;
+                (2, 4) => transfer_confidential_2_4, transfer_ring_2_4, transfer_p256_ring_2_4;
+                (1, 16) => transfer_confidential_1_16, transfer_ring_1_16, transfer_p256_ring_1_16;
+                (2, 8) => transfer_confidential_2_8, transfer_ring_2_8, transfer_p256_ring_2_8;
+                (3, 2) => transfer_confidential_3_2, transfer_ring_3_2, transfer_p256_ring_3_2;
+                (3, 4) => transfer_confidential_3_4, transfer_ring_3_4, transfer_p256_ring_3_4;
+                (2, 16) => transfer_confidential_2_16, transfer_ring_2_16, transfer_p256_ring_2_16;
+                (3, 8) => transfer_confidential_3_8, transfer_ring_3_8, transfer_p256_ring_3_8;
+                (4, 2) => transfer_confidential_4_2, transfer_ring_4_2, transfer_p256_ring_4_2;
+                (4, 4) => transfer_confidential_4_4, transfer_ring_4_4, transfer_p256_ring_4_4;
+                (4, 8) => transfer_confidential_4_8, transfer_ring_4_8, transfer_p256_ring_4_8;
+                (5, 2) => transfer_confidential_5_2, transfer_ring_5_2, transfer_p256_ring_5_2;
+                (5, 4) => transfer_confidential_5_4, transfer_ring_5_4, transfer_p256_ring_5_4;
+                (4, 16) => transfer_confidential_4_16, transfer_ring_4_16, transfer_p256_ring_4_16;
+                (5, 8) => transfer_confidential_5_8, transfer_ring_5_8, transfer_p256_ring_5_8;
+                (6, 2) => transfer_confidential_6_2, transfer_ring_6_2, transfer_p256_ring_6_2;
+                (6, 4) => transfer_confidential_6_4, transfer_ring_6_4, transfer_p256_ring_6_4;
+                (5, 16) => transfer_confidential_5_16, transfer_ring_5_16, transfer_p256_ring_5_16;
+                (6, 8) => transfer_confidential_6_8, transfer_ring_6_8, transfer_p256_ring_6_8;
+                (8, 2) => transfer_confidential_8_2, transfer_ring_8_2, transfer_p256_ring_8_2;
+                (8, 4) => transfer_confidential_8_4, transfer_ring_8_4, transfer_p256_ring_8_4;
+                (8, 8) => transfer_confidential_8_8, transfer_ring_8_8, transfer_p256_ring_8_8;
+                (8, 16) => transfer_confidential_8_16, transfer_ring_8_16, transfer_p256_ring_8_16;
+                (12, 2) => transfer_confidential_12_2, transfer_ring_12_2, transfer_p256_ring_12_2;
+                (12, 4) => transfer_confidential_12_4, transfer_ring_12_4, transfer_p256_ring_12_4;
+                (12, 8) => transfer_confidential_12_8, transfer_ring_12_8, transfer_p256_ring_12_8;
+                (16, 2) => transfer_confidential_16_2, transfer_ring_16_2, transfer_p256_ring_16_2;
+                (16, 4) => transfer_confidential_16_4, transfer_ring_16_4, transfer_p256_ring_16_4;
+                (16, 8) => transfer_confidential_16_8, transfer_ring_16_8, transfer_p256_ring_16_8;
+                (24, 2) => transfer_confidential_24_2, transfer_ring_24_2, transfer_p256_ring_24_2;
+                (24, 4) => transfer_confidential_24_4, transfer_ring_24_4, transfer_p256_ring_24_4;
+                (32, 2) => transfer_confidential_32_2, transfer_ring_32_2, transfer_p256_ring_32_2;
+                (40, 2) => transfer_confidential_40_2, transfer_ring_40_2, transfer_p256_ring_40_2;
+                (48, 2) => transfer_confidential_48_2, transfer_ring_48_2, transfer_p256_ring_48_2;
+                (51, 2) => transfer_confidential_51_2, transfer_ring_51_2, transfer_p256_ring_51_2;
+            }
+            authority {
+                (2, 2) => transfer_ring_authority_2_2;
+                (4, 4) => transfer_ring_authority_4_4;
+            }
+        )
+    };
+    (@select $circuit:expr, $item:ident;
+        transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $p256:ident;)* }
+        authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
+    ) => {{
         use super::*;
 
         match $circuit {
-            CircuitId::ConfidentialEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_1_1::$item
-            }
-            CircuitId::ConfidentialEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_1_2::$item
-            }
-            CircuitId::ConfidentialEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_1_8::$item
-            }
-            CircuitId::ConfidentialEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_2_2::$item
-            }
-            CircuitId::ConfidentialEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_2_3::$item
-            }
-            CircuitId::ConfidentialEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_3_3::$item
-            }
-            CircuitId::ConfidentialEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_4_3::$item
-            }
-            CircuitId::ConfidentialEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_4_4::$item
-            }
-            CircuitId::ConfidentialEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_5_3::$item
-            }
-            CircuitId::ConfidentialEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_5_4::$item
-            }
-            CircuitId::ConfidentialEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_36_2::$item
-            }
-            CircuitId::RingEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_1::$item,
-            CircuitId::RingEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_2::$item,
-            CircuitId::RingEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_8::$item,
-            CircuitId::RingEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_2::$item,
-            CircuitId::RingEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_3::$item,
-            CircuitId::RingEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_3_3::$item,
-            CircuitId::RingEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_3::$item,
-            CircuitId::RingEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_4::$item,
-            CircuitId::RingEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_3::$item,
-            CircuitId::RingEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_4::$item,
-            CircuitId::RingEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_36_2::$item,
-            CircuitId::RingP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_1_1::$item
-            }
-            CircuitId::RingP256(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_1_2::$item
-            }
-            CircuitId::RingP256(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_1_8::$item
-            }
-            CircuitId::RingP256(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_2_2::$item
-            }
-            CircuitId::RingP256(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_2_3::$item
-            }
-            CircuitId::RingP256(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_3_3::$item
-            }
-            CircuitId::RingP256(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_4_3::$item
-            }
-            CircuitId::RingP256(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_4_4::$item
-            }
-            CircuitId::RingP256(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_5_3::$item
-            }
-            CircuitId::RingP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_5_4::$item
-            }
-            CircuitId::RingP256(36, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_36_2::$item
-            }
-            CircuitId::RingAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_1_1::$item
-            }
-            CircuitId::RingAuthority(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_2_2::$item
-            }
-            CircuitId::RingAuthority(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_3_3::$item
-            }
-            CircuitId::RingAuthority(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_4_4::$item
-            }
+            $(
+                CircuitId::ConfidentialEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                    &$confidential::$item
+                }
+                CircuitId::RingEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => &$ring::$item,
+                CircuitId::RingP256($i, $o, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$p256::$item,
+            )*
+            $(
+                CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
+            )*
             _ => return None,
         }
     }};
@@ -144,7 +116,7 @@ pub struct CacheAccess {
     pub write_slots: [CacheWrite; MAX_CACHE_WRITES],
 }
 
-pub const MAX_CACHE_WRITES: usize = 8;
+pub const MAX_CACHE_WRITES: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CacheWrite {
@@ -431,29 +403,15 @@ impl CircuitId {
         if n_public_asset_slots != CURRENT_PUBLIC_ASSET_SLOTS {
             return false;
         }
+        let shape = Shape::new(n_inputs as usize, n_outputs as usize);
         match self {
             Self::ConfidentialEddsa(..)
             | Self::RingEddsa(..)
             | Self::RingP256(..)
             | Self::ConfidentialEddsaCached(..)
             | Self::RingEddsaCached(..)
-            | Self::RingP256Cached(..) => matches!(
-                (n_inputs, n_outputs),
-                (1, 1)
-                    | (1, 2)
-                    | (1, 8)
-                    | (2, 2)
-                    | (2, 3)
-                    | (3, 3)
-                    | (4, 3)
-                    | (4, 4)
-                    | (5, 3)
-                    | (5, 4)
-                    | (36, 2)
-            ),
-            Self::RingAuthority(..) => {
-                matches!((n_inputs, n_outputs), (1, 1) | (2, 2) | (3, 3) | (4, 4))
-            }
+            | Self::RingP256Cached(..) => shape.is_supported(),
+            Self::RingAuthority(..) => shape.is_ring_authority(),
         }
     }
 

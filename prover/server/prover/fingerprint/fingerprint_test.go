@@ -51,17 +51,17 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 		}
 	}
 
-	eddsa, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.ConfidentialVariant)
-	add("transfer_confidential_2_3", eddsa, err)
+	eddsa, err := eddsaprover.R1CSTransfer(2, 4, eddsaprover.ConfidentialVariant)
+	add("transfer_confidential_2_4", eddsa, err)
 
-	ring, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.RingVariant)
-	add("transfer_ring_2_3", ring, err)
+	ring, err := eddsaprover.R1CSTransfer(2, 4, eddsaprover.RingVariant)
+	add("transfer_ring_2_4", ring, err)
 
 	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
 	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 3)
-	add("transfer_p256_ring_2_3", p256Ring, err)
+	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 4)
+	add("transfer_p256_ring_2_4", p256Ring, err)
 
 	customRing, err := customring.R1CSPolicy()
 	add("custom_ring_policy", customRing, err)
@@ -81,11 +81,11 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	deposit, err := customring.R1CSDeposit()
 	add("custom_ring_deposit", deposit, err)
 
-	merged, err := mergeprover.R1CSMerge(8)
-	add("merge_8_1", merged, err)
+	merged, err := mergeprover.R1CSMerge(24)
+	add("merge_24_1", merged, err)
 
-	mergedRing, err := mergeprover.R1CSMergeRing(8)
-	add("merge_ring_8_1", mergedRing, err)
+	mergedRing, err := mergeprover.R1CSMergeRing(24)
+	add("merge_ring_24_1", mergedRing, err)
 
 	batch, err := nulltree.R1CSBatchAddressAppend(40, 10)
 	add("batch_address-append_40_10", batch, err)
@@ -97,18 +97,18 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_3":     {constraints: 55710, public: 2},
-	"transfer_ring_2_3":             {constraints: 55812, public: 2},
+	"transfer_confidential_2_4":     {constraints: 57554, public: 2},
+	"transfer_ring_2_4":             {constraints: 57680, public: 2},
 	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
-	"transfer_p256_ring_2_3":        {constraints: 200768, public: 2},
+	"transfer_p256_ring_2_4":        {constraints: 202642, public: 2},
 	"custom_ring_policy":            {constraints: 576177, public: 2},
 	"custom_ring_compressed_policy": {constraints: 1905759, public: 2},
 	"custom_ring_register_key":      {constraints: 240449, public: 2},
 	"custom_ring_deposit":           {constraints: 980538, public: 2},
 	"custom_ring_delegate_policy":   {constraints: 563841, public: 2},
 	"custom_ring_base":              {constraints: 237921, public: 2},
-	"merge_8_1":                     {constraints: 178623, public: 2},
-	"merge_ring_8_1":                {constraints: 178653, public: 2},
+	"merge_24_1":                    {constraints: 525759, public: 2},
+	"merge_ring_24_1":               {constraints: 525837, public: 2},
 	"batch_address-append_40_10":    {constraints: 421991, public: 2},
 }
 

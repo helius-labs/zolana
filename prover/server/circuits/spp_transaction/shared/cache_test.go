@@ -356,14 +356,14 @@ func TestCacheRejectsNonUtxos(t *testing.T) {
 }
 
 func TestCacheWidestShape(t *testing.T) {
-	shape := protocol.Shape{NInputs: 36, NOutputs: 2}
-	all := make([]int, 36)
+	shape := protocol.Shape{NInputs: 51, NOutputs: 2}
+	all := make([]int, 51)
 	for k := range all {
-		all[k] = 35 - k
+		all[k] = 50 - k
 	}
 	runCachedCases(t, shape, []cachedCase{
 		{"all cached in reverse", all, true, nil},
-		{"sparse selection", []int{35, 7, 20}, true, nil},
+		{"sparse selection", []int{50, 7, 20}, true, nil},
 	})
 }
 

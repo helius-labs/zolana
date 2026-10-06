@@ -7,6 +7,7 @@ use zolana_interface::{
     },
     pda,
     state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY, CACHE_SEED},
+    verifying_keys::MAX_CACHE_WRITES,
     MAX_TRANSACT_INPUTS, PROGRAM_ID_PUBKEY,
 };
 use zolana_program::instruction::{
@@ -36,7 +37,7 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     }
 }
 
-fn writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheWrite; 8] {
+fn writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheWrite; MAX_CACHE_WRITES] {
     use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
     let mut out = CacheAccess::NO_WRITES;
     for (entry, (output, slot)) in out.iter_mut().zip(pairs) {
@@ -81,9 +82,17 @@ fn cache_access_validates_read_and_write_masks_independently() {
                 (5, 5),
                 (6, 6),
                 (7, 7),
+                (8, 8),
+                (9, 9),
+                (10, 10),
+                (11, 11),
+                (12, 12),
+                (13, 13),
+                (14, 14),
+                (15, 15),
             ],
             1,
-            8,
+            16,
             true,
         ),
     ] {

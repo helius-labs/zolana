@@ -2958,6 +2958,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     )?;
 
     // 5. The delegate moves the enrolled member's note back to the member.
+    let moved_nullifier = moved.nullifier;
     let proven = DelegateTransfer::new(DelegateTransferInput {
         ring,
         delegate: delegate.pubkey(),
@@ -2983,7 +2984,17 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     }
     .send(rpc)?;
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
-    assert_eq!(indexed.nullifiers.len(), 1, "the delegate spent the note");
+    // The single note pads to the 2x2 ring-authority shape with a random dummy.
+    assert_eq!(
+        indexed.nullifiers.len(),
+        2,
+        "the delegate spent the note and a dummy"
+    );
+    assert_eq!(
+        indexed.nullifiers.first(),
+        Some(&moved_nullifier),
+        "the delegate spent the note"
+    );
     let member_authority = KeypairWalletAuthority::new(Address::default(), member);
     env.sender.wallet.sync(
         &member_authority,

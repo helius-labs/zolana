@@ -476,10 +476,47 @@ fn tx_size(args: Vec<String>) {
     // covering both change positions, so isolating this constant makes the size
     // delta below purely structural (owner tag vs the old 32-byte view_tag).
     const OPT_SENDER_DATA_LEN: usize = 58; // type_prefix(1) + 57 B plaintext
-    const OPT_RECIPIENT_DATA_LEN: usize = 48; // 48 B plaintext
+
+    // The confidential rail encrypts every output on its own, so each output
+    // carries one ciphertext the size the transaction builder emits: the borsh
+    // `OutputDataEncoding` wrapper around the scheme byte, the embedded
+    // recipient viewing key and the plaintext. A ring output names its ring
+    // program in the plaintext, which makes it longer.
+    let confidential_output_data_len = |ring_program_id: Option<solana_address::Address>| {
+        use zolana_transaction::{
+            serialization::{
+                confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+                UtxoSerialization,
+            },
+            Data, SOL_ASSET_ID,
+        };
+        let throwaway = zolana_keypair::ViewingKey::new();
+        Confidential::encode_plaintext(
+            &ConfidentialOutputPlaintext {
+                asset_id: SOL_ASSET_ID,
+                amount: 0,
+                blinding: [0u8; 32],
+                ring_program_id,
+                data: Data::default(),
+            },
+            [0u8; 32],
+            &ConfidentialEncode {
+                recipient_pubkey: throwaway.pubkey(),
+                tx: throwaway,
+                salt: [0u8; 16],
+                slot_index: 0,
+            },
+        )
+        .expect("encode a confidential output")
+        .data
+        .len()
+    };
+    let output_data_len = confidential_output_data_len(None);
+    let ring_output_data_len =
+        confidential_output_data_len(Some(solana_address::Address::new_from_array([1u8; 32])));
 
     let shapes: Vec<(usize, usize)> = if args.is_empty() {
-        vec![(2, 2), (1, 2), (3, 3), (5, 3), (1, 8)]
+        vec![(2, 2), (1, 2), (3, 4), (5, 4), (1, 8), (1, 16)]
     } else {
         args.iter()
             .map(|s| {
@@ -580,6 +617,22 @@ fn tx_size(args: Vec<String>) {
             })
             .collect()
     };
+
+    // Confidential layout: output 0 is the sender's change under the sender's
+    // tag, every other output a recipient under an Inline tag, and each output
+    // carries its own ciphertext of `data_len` bytes.
+    let confidential_layout =
+        |m: usize, sender_tag: OwnerTag, data_len: usize| -> Vec<(OwnerTag, Option<usize>)> {
+            (0..m)
+                .map(|position| {
+                    if position == 0 {
+                        (sender_tag, Some(data_len))
+                    } else {
+                        (OwnerTag::Inline([0u8; 32]), Some(data_len))
+                    }
+                })
+                .collect()
+        };
 
     // Split layout: one bundle at position 0 covers every output, so all M
     // positions share the Account(0) sender tag and only position 0 carries a
@@ -703,10 +756,13 @@ fn tx_size(args: Vec<String>) {
     // A cell is `bytes/addresses`. OVER means the row misses a v1 ceiling.
     let print_shape_header = || {
         println!(
-            "| {:<14} | N | M | {:>11} | {:>20} | {:>18} |",
+            "| {:<14} |  N |  M | {:>11} | {:>20} | {:>18} |",
             "Circuit", "ix data (B)", "transfer v1 (B/addr)", "shield v1 (B/addr)",
         );
-        println!("|{:-<16}|---|---|{:-<13}|{:-<22}|{:-<20}|", "", "", "", "");
+        println!(
+            "|{:-<16}|----|----|{:-<13}|{:-<22}|{:-<20}|",
+            "", "", "", ""
+        );
     };
     let print_shape_row = |n: usize, m: usize, sizes: &ShapeSizes, transfer_applies: bool| {
         // A shape with no recipient position is not a transfer at all, so its
@@ -717,7 +773,7 @@ fn tx_size(args: Vec<String>) {
             "—".to_string()
         };
         println!(
-            "| {:<14} | {} | {} | {:>11} | {:>20} | {:>18} |",
+            "| {:<14} | {:>2} | {:>2} | {:>11} | {:>20} | {:>18} |",
             format!("{n} in {m} out"),
             n,
             m,
@@ -749,25 +805,21 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 192 B proof with raw G2 b):");
+    println!(
+        "Confidential rail ({output_data_len} B ciphertext per output, 192 B proof with raw G2 b):"
+    );
     print_shape_header();
 
     for &(n, m) in &shapes {
-        let r = m.saturating_sub(HISTORICAL_SENDER_SLOT_COUNT);
-        let spec = transfer_layout(
-            m,
-            OwnerTag::Account(0),
-            OPT_SENDER_DATA_LEN,
-            OPT_RECIPIENT_DATA_LEN,
-        );
+        let spec = confidential_layout(m, OwnerTag::Account(0), output_data_len);
         let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed());
-        print_shape_row(n, m, &sizes, r > 0);
+        print_shape_row(n, m, &sizes, m > 1);
     }
 
     // Sender owner-tag sensitivity: Account(0) is compact when the owner is the
     // payer; Inline is the relayed-Ed25519 case.
     println!();
-    println!("Sender owner-tag sensitivity (3 in 3 out, eddsa rail, 2 change positions):");
+    println!("Sender owner-tag sensitivity (3 in 4 out, confidential rail, 1 change output):");
     println!(
         "| {:<16} | {:>9} | {:>11} | {:>20} |",
         "sender tag", "tag B/pos", "ix data (B)", "transfer v1 (B/addr)",
@@ -778,7 +830,7 @@ fn tx_size(args: Vec<String>) {
         ("Inline([u8;32])", OwnerTag::Inline([0u8; 32]), 33),
     ];
     for &(label, tag, tag_bytes) in &sender_tag_kinds {
-        let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
+        let spec = confidential_layout(4, tag, output_data_len);
         let sizes = make_tx_sizes(&spec, 3, TransactProof::zeroed());
         println!(
             "| {:<16} | {:>9} | {:>11} | {:>20} |",
@@ -801,18 +853,13 @@ fn tx_size(args: Vec<String>) {
     print_shape_row(n, m, &sizes, true);
 
     println!();
-    println!("Public-leg sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):");
+    println!("Public-leg sensitivity (3 in 4 out, repeated same-asset SPL withdrawals):");
     println!(
         "| {:>19} | {:>17} | {:>17} |",
         "interface transfers", "EdDSA ix data (B)", "EdDSA v1 (B/addr)",
     );
     println!("|{:-<21}|{:-<19}|{:-<19}|", "", "", "");
-    let spec = transfer_layout(
-        3,
-        OwnerTag::Account(0),
-        OPT_SENDER_DATA_LEN,
-        OPT_RECIPIENT_DATA_LEN,
-    );
+    let spec = confidential_layout(4, OwnerTag::Account(0), output_data_len);
     for leg_count in [0usize, 1, 5] {
         let interface_transfers = (0..leg_count)
             .map(|_| InterfaceTransfer::SplWithdrawal {
@@ -846,15 +893,15 @@ fn tx_size(args: Vec<String>) {
     // addr` the distinct message addresses the 64 cap applies to.
     println!("Builder layouts with nullifier PDAs (one writable PDA per input):");
     println!(
-        "| {:<42} | {:>8} | {:>11} | {:>18} |",
+        "| {:<46} | {:>8} | {:>11} | {:>18} |",
         "transaction", "accounts", "ix data (B)", "v1 tx (B/addr)",
     );
-    println!("|{:-<44}|{:-<10}|{:-<13}|{:-<20}|", "", "", "", "");
+    println!("|{:-<48}|{:-<10}|{:-<13}|{:-<20}|", "", "", "", "");
     let tree = Pubkey::new_unique();
     let ring_config = Pubkey::new_unique();
     let transact_row = |label: String, ix: Instruction| {
         println!(
-            "| {:<42} | {:>8} | {:>11} | {:>18} |",
+            "| {:<46} | {:>8} | {:>11} | {:>18} |",
             label,
             ix.accounts.len(),
             ix.data.len(),
@@ -864,12 +911,7 @@ fn tx_size(args: Vec<String>) {
     // `(circuit_n, circuit_m)` is the circuit shape. A circuit wider than the
     // sent `n` and `m` uses compact padding, which the instruction leaves out.
     let transact_ix = |n: usize, m: usize, (circuit_n, circuit_m): (usize, usize)| -> Instruction {
-        let spec = transfer_layout(
-            m,
-            OwnerTag::Account(0),
-            OPT_SENDER_DATA_LEN,
-            OPT_RECIPIENT_DATA_LEN,
-        );
+        let spec = confidential_layout(m, OwnerTag::Account(0), output_data_len);
         let mut data = build_ix_data(Vec::new(), n, TransactProof::zeroed(), &spec);
         for (index, input) in data.inputs.iter_mut().enumerate() {
             input.nullifier_hash = [index as u8 + 1; 32];
@@ -887,14 +929,10 @@ fn tx_size(args: Vec<String>) {
         .instruction()
     };
     // The ring rail has its own builder, so the accounts follow the loader's
-    // layout rather than an index patched into the transact metas.
+    // layout rather than an index patched into the transact metas. Every
+    // output joins the ring.
     let ring_transact_ix = |n: usize, m: usize, circuit: CircuitId| -> Instruction {
-        let spec = transfer_layout(
-            m,
-            OwnerTag::Account(0),
-            OPT_SENDER_DATA_LEN,
-            OPT_RECIPIENT_DATA_LEN,
-        );
+        let spec = confidential_layout(m, OwnerTag::Account(0), ring_output_data_len);
         let mut data = build_ix_data(Vec::new(), n, TransactProof::zeroed(), &spec);
         for (index, input) in data.inputs.iter_mut().enumerate() {
             input.nullifier_hash = [index as u8 + 1; 32];
@@ -911,13 +949,39 @@ fn tx_size(args: Vec<String>) {
         }
         .instruction()
     };
-    for (n, m) in [(2usize, 3usize), (3, 3), (5, 3), (36, 2)] {
+    let slots = N_PUBLIC_SLOTS as u8;
+    let ring_eddsa = |n: usize, m: usize| CircuitId::RingEddsa(n as u8, m as u8, slots);
+    let ring_p256 = |n: usize, m: usize| {
+        use zolana_interface::verifying_keys::{Bsb22Commitment, RingP256ProofData};
+        CircuitId::RingP256(
+            n as u8,
+            m as u8,
+            slots,
+            RingP256ProofData {
+                bsb22_commitment: Bsb22Commitment {
+                    commitment: [0u8; 32],
+                    commitment_pok: [0u8; 32],
+                },
+                default_owner_tag: None,
+            },
+        )
+    };
+    // The widest shape of every output count: 51x2, 24x4, 16x8 and 8x16.
+    for (n, m) in [
+        (2usize, 4usize),
+        (3, 4),
+        (5, 4),
+        (51, 2),
+        (24, 4),
+        (16, 8),
+        (8, 16),
+    ] {
         transact_row(
             format!("transact {n} in {m} out, transfer"),
             transact_ix(n, m, (n, m)),
         );
     }
-    for (n, m, circuit) in [(1usize, 3usize, (2usize, 3usize)), (9, 2, (36, 2))] {
+    for (n, m, circuit) in [(1usize, 3usize, (2usize, 4usize)), (9, 2, (51, 2))] {
         transact_row(
             format!(
                 "transact {n} in {m} out, {}x{} compact",
@@ -926,37 +990,41 @@ fn tx_size(args: Vec<String>) {
             transact_ix(n, m, circuit),
         );
     }
-    {
-        use zolana_interface::verifying_keys::{Bsb22Commitment, RingP256ProofData};
-        let slots = N_PUBLIC_SLOTS as u8;
+    for (n, m) in [(51usize, 2usize), (24, 4), (16, 8), (8, 16)] {
         transact_row(
-            "ring transact eddsa 36 in 2 out".to_string(),
-            ring_transact_ix(36, 2, CircuitId::RingEddsa(36, 2, slots)),
+            format!("ring transact eddsa {n} in {m} out"),
+            ring_transact_ix(n, m, ring_eddsa(n, m)),
         );
         transact_row(
-            "ring transact p256 36 in 2 out".to_string(),
-            ring_transact_ix(
-                36,
-                2,
-                CircuitId::RingP256(
-                    36,
-                    2,
-                    slots,
-                    RingP256ProofData {
-                        bsb22_commitment: Bsb22Commitment {
-                            commitment: [0u8; 32],
-                            commitment_pok: [0u8; 32],
-                        },
-                        default_owner_tag: Some([0u8; 32]),
-                    },
-                ),
-            ),
+            format!("ring transact p256 {n} in {m} out"),
+            ring_transact_ix(n, m, ring_p256(n, m)),
         );
     }
+    // Compact padding sends fewer real inputs than the 51x2 circuit has
+    // slots; each row is the most real inputs that still fit both ceilings.
+    let most_inputs_that_fit = |build: &dyn Fn(usize) -> Instruction| -> usize {
+        (1..=51)
+            .rev()
+            .find(|&n| v1_tx_size(&[build(n)]).fits())
+            .expect("one real input fits")
+    };
+    let widest: [(&str, &dyn Fn(usize) -> Instruction); 3] = [
+        ("transact", &|n| transact_ix(n, 2, (51, 2))),
+        ("ring transact eddsa", &|n| {
+            ring_transact_ix(n, 2, ring_eddsa(51, 2))
+        }),
+        ("ring transact p256", &|n| {
+            ring_transact_ix(n, 2, ring_p256(51, 2))
+        }),
+    ];
+    for (label, build) in widest {
+        let n = most_inputs_that_fit(build);
+        transact_row(format!("{label} {n} in 2 out, 51x2 compact"), build(n));
+    }
     // A count below its circuit width is a merge with compact padding.
-    for input_count in MERGE_SUPPORTED_INPUT_COUNTS.into_iter().chain([3, 9]) {
+    for input_count in MERGE_SUPPORTED_INPUT_COUNTS.into_iter().chain([3, 25]) {
         use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
-        use zolana_program::instruction::MergeTransact;
+        use zolana_program::instruction::{MergeRing, MergeTransact};
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
@@ -973,6 +1041,16 @@ fn tx_size(args: Vec<String>) {
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
+        let ring_merge_ix = MergeRing {
+            input_tree: tree,
+            output_tree: tree,
+            ring_program_id: ring_config,
+            payer: payer_pk,
+            data: data.clone(),
+            output_ring_data_hash: [0u8; 32],
+            cache: None,
+        }
+        .instruction();
         let merge_ix = MergeTransact {
             input_tree: tree,
             output_tree: tree,
@@ -997,18 +1075,25 @@ fn tx_size(args: Vec<String>) {
             std::slice::from_ref(&merge_ix),
         );
         println!(
-            "| {:<42} | {:>8} | {:>11} | {:>18} |",
+            "| {:<46} | {:>8} | {:>11} | {:>18} |",
             format!("{label}, direct"),
             merge_ix_accounts,
             merge_ix_data_len,
             v1_cell(v1_tx_size(std::slice::from_ref(&merge_ix))),
         );
         println!(
-            "| {:<42} | {:>8} | {:>11} | {:>18} |",
+            "| {:<46} | {:>8} | {:>11} | {:>18} |",
             format!("{label}, execute_sync"),
             sync_ix.accounts.len(),
             sync_ix.data.len(),
             v1_cell(v1_tx_size(std::slice::from_ref(&sync_ix))),
+        );
+        println!(
+            "| {:<46} | {:>8} | {:>11} | {:>18} |",
+            format!("ring {label}"),
+            ring_merge_ix.accounts.len(),
+            ring_merge_ix.data.len(),
+            v1_cell(v1_tx_size(std::slice::from_ref(&ring_merge_ix))),
         );
     }
 }

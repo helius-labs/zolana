@@ -22,4 +22,4 @@ COPY --chown=nonroot:nonroot ./proving-keys/*.key /proving-keys/
 WORKDIR /
 
 ENTRYPOINT [ "light-prover" ]
-CMD [ "start", "--require-optimized-build", "--preload-circuits", "transfer-confidential:2:3,transfer-ring:2:3,transfer-p256-ring:2:3,merge:8:1", "--keys-dir", "/proving-keys/" ]
+CMD [ "start", "--require-optimized-build", "--preload-circuits", "transfer-confidential:2:2,transfer-ring:2:2,transfer-p256-ring:2:2,merge:24:1", "--keys-dir", "/proving-keys/" ]

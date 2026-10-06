@@ -27,14 +27,13 @@ use crate::{
 
 impl LifecycleHarness {
     /// Withdraw `amount` lamports of SOL from `from` to a fresh external recipient
-    /// account, spending two of `from`'s spendable SOL UTXOs (the supported (2, 3)
-    /// shape). The chosen inputs must total more than `amount` so a SOL change UTXO
+    /// account, spending two of `from`'s spendable SOL UTXOs (the 2x2 shape). The chosen inputs must total more than `amount` so a SOL change UTXO
     /// is emitted back to the sender. Mirrors `execute_transfer`, but the public SOL
     /// leaves the pool to `recipient` and there is no recipient UTXO.
     pub fn withdraw_sol(&mut self, from: &str, amount: u64) -> Result<Signature> {
         self.ensure_fresh_actor(from)?;
 
-        // Pick two spendable SOL UTXOs (the (2, 3) shape); their total must exceed
+        // Pick two spendable SOL UTXOs (the 2x2 shape); their total must exceed
         // `amount` so there is SOL change to track.
         let inputs: Vec<Utxo> = {
             let actor = self.actor_mut(from);

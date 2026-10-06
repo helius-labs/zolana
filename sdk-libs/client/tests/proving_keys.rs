@@ -57,14 +57,14 @@ fn a_prover_on_the_same_key_set_passes() {
 #[test]
 fn every_mismatching_digest_is_named() {
     let mut prover = matching_prover();
-    status_mut(&mut prover, "merge_8_1.key").expected_sha256 = Some("ab".repeat(32));
+    status_mut(&mut prover, "merge_24_1.key").expected_sha256 = Some("ab".repeat(32));
     status_mut(&mut prover, "batch_address-append_40_10.key").loaded_sha256 = Some("cd".repeat(32));
 
     match prover.check() {
         Err(ClientError::ProverProvingKeysMismatch { mismatches }) => {
             let named: Vec<bool> = [
                 "batch_address-append_40_10.key loaded",
-                "merge_8_1.key expected",
+                "merge_24_1.key expected",
             ]
             .iter()
             .map(|prefix| mismatches.iter().any(|m| m.starts_with(prefix)))
@@ -80,8 +80,8 @@ fn every_mismatching_digest_is_named() {
 #[test]
 fn a_missing_or_unavailable_key_is_reported() {
     let mut prover = matching_prover();
-    prover.keys.retain(|status| status.name != "merge_36_1.key");
-    status_mut(&mut prover, "transfer_ring_36_2.key").available = false;
+    prover.keys.retain(|status| status.name != "merge_51_1.key");
+    status_mut(&mut prover, "transfer_ring_51_2.key").available = false;
 
     let report = prover.check().expect("subset is not a mismatch");
     let find = |name: &str| {
@@ -93,16 +93,16 @@ fn a_missing_or_unavailable_key_is_reported() {
             .expect("known key is reported")
     };
     assert_eq!(
-        (find("merge_36_1.key"), find("transfer_ring_36_2.key")),
+        (find("merge_51_1.key"), find("transfer_ring_51_2.key")),
         (
             ProvingKeyCheck {
-                name: "merge_36_1.key",
+                name: "merge_51_1.key",
                 served: false,
                 available: false,
                 loaded: false,
             },
             ProvingKeyCheck {
-                name: "transfer_ring_36_2.key",
+                name: "transfer_ring_51_2.key",
                 served: true,
                 available: false,
                 loaded: false,
@@ -115,7 +115,7 @@ fn a_missing_or_unavailable_key_is_reported() {
 fn a_malformed_digest_is_a_server_error() {
     for bad in ["zz".repeat(32), "AB".repeat(32), "ab".repeat(31)] {
         let mut prover = matching_prover();
-        status_mut(&mut prover, "merge_8_1.key").expected_sha256 = Some(bad.clone());
+        status_mut(&mut prover, "merge_24_1.key").expected_sha256 = Some(bad.clone());
         assert!(
             matches!(prover.check(), Err(ClientError::ProverServer(_))),
             "{bad} was accepted"

@@ -11,19 +11,46 @@ go build -o light-prover .
 # Set SKIP_AUTHORITY_KEYS=1 when rotating only the owner-authorized rails. This
 # preserves the existing authority keys when its circuit fingerprint is unchanged.
 
+# Keep in sync with SPP_SUPPORTED_SHAPES.
 shapes=(
-    "1 1"
     "1 2"
-    "2 2"
-    "2 3"
-    "3 3"
-    "4 3"
-    "4 4"
-    "5 3"
-    "5 4"
+    "1 4"
     "1 8"
-    # Consolidation shape; keep in sync with SPP_SUPPORTED_SHAPES.
-    "36 2"
+    "2 2"
+    "2 4"
+    "1 16"
+    "2 8"
+    "3 2"
+    "3 4"
+    "2 16"
+    "3 8"
+    "4 2"
+    "4 4"
+    "4 8"
+    "5 2"
+    "5 4"
+    "4 16"
+    "5 8"
+    "6 2"
+    "6 4"
+    "5 16"
+    "6 8"
+    "8 2"
+    "8 4"
+    "8 8"
+    "8 16"
+    "12 2"
+    "12 4"
+    "12 8"
+    "16 2"
+    "16 4"
+    "16 8"
+    "24 2"
+    "24 4"
+    "32 2"
+    "40 2"
+    "48 2"
+    "51 2"
 )
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix
@@ -55,9 +82,7 @@ done
 # on-chain verifier supports are generated.
 if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
     authority_shapes=(
-        "1 1"
         "2 2"
-        "3 3"
         "4 4"
     )
     for shape in "${authority_shapes[@]}"; do

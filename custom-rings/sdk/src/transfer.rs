@@ -2960,7 +2960,7 @@ mod tests {
             .unwrap();
         transfer
             .pad_utxos(
-                zolana_interface::shape::Shape::IN2_OUT3,
+                zolana_interface::shape::Shape::IN2_OUT4,
                 &sender.shielded_address().unwrap(),
             )
             .unwrap();
@@ -3568,7 +3568,7 @@ mod tests {
     #[test]
     fn output_framing_selects_ring_membership() {
         for binding in [None, Some(ring().program_id())] {
-            let tx = framed_fixture(&[binding, binding, binding]);
+            let tx = framed_fixture(&[binding; 4]);
             for slot in &tx.external_data.outputs {
                 let data = slot.data.as_deref().unwrap();
                 assert_eq!(
@@ -3665,7 +3665,7 @@ mod tests {
 
     #[test]
     fn a_record_carrier_frames_a_full_withdrawals_dummy_outputs() {
-        let mut proof = framed_fixture(&[Some(ring().program_id()); 3]);
+        let mut proof = framed_fixture(&[Some(ring().program_id()); 4]);
         let money_count = proof.output_utxos.len() - 1;
         for output in &mut proof.output_utxos[..money_count] {
             output.owner_address = None;
@@ -3685,7 +3685,7 @@ mod tests {
 
     #[test]
     fn dummy_framing_matches_ring_slot_lengths() {
-        let mut proof_inputs = framed_fixture(&[Some(ring().program_id()); 3]);
+        let mut proof_inputs = framed_fixture(&[Some(ring().program_id()); 4]);
         proof_inputs.output_utxos[1].owner_address = None;
         proof_inputs.output_utxos[2].owner_address = None;
         assert!(

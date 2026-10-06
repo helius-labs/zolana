@@ -339,10 +339,46 @@ fn repeated_updates_with_unchanged_data_never_repeat_a_utxo() {
     assert_eq!((hashes.len(), nullifiers.len()), (8, 8));
 }
 
+/// Each write takes one input and one output slot; the circuit is the
+/// smallest supported square shape holding them, and the instruction data
+/// carries only the writes, leaving the rest to compact padding.
+#[test]
+fn into_ix_data_proves_each_write_count_at_the_smallest_supported_square() {
+    let owners: Vec<PdaOwner> = (10..18).map(owner).collect();
+    let shapes: Vec<(usize, CircuitId, usize, usize)> = (1..=owners.len())
+        .map(|count| {
+            let ix = build(
+                owners
+                    .iter()
+                    .take(count)
+                    .map(|owner| update(owner, STATE_CONTEXT, 9, 11))
+                    .collect(),
+            )
+            .unwrap();
+            (count, ix.circuit, ix.inputs.len(), ix.outputs.len())
+        })
+        .collect();
+    let square = |width| CircuitId::ConfidentialEddsa(width, width, N_PUBLIC_SLOTS as u8);
+
+    assert_eq!(
+        shapes,
+        vec![
+            (1, square(2), 1, 1),
+            (2, square(2), 2, 2),
+            (3, square(4), 3, 3),
+            (4, square(4), 4, 4),
+            (5, square(8), 5, 5),
+            (6, square(8), 6, 6),
+            (7, square(8), 7, 7),
+            (8, square(8), 8, 8),
+        ]
+    );
+}
+
 #[test]
 fn into_ix_data_rejects_invalid_account_sets() {
     let (first, second) = (owner(4), owner(5));
-    let owners: Vec<PdaOwner> = (10..15).map(owner).collect();
+    let owners: Vec<PdaOwner> = (10..19).map(owner).collect();
     let other_context = TreeContext {
         utxo_tree_root_index: 1,
         ..STATE_CONTEXT

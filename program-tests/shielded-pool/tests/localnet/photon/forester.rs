@@ -343,7 +343,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     let mut transfer =
         ConfidentialTransaction::new(notes, ctx.payer_address)?.with_output_tree_id(env.tree_id)?;
     transfer.transfer_sol(&ctx.sender_address, TRANSFER_AMOUNT)?;
-    transfer.pad_utxos(Shape::IN2_OUT3, &ctx.sender_address)?;
+    transfer.pad_utxos(Shape::IN2_OUT4, &ctx.sender_address)?;
     let proof_inputs = transfer.encrypt(&ctx.sender)?;
     let commitments = proof_inputs.input_utxo_hashes()?;
     assert_eq!(commitments.len(), 2);

@@ -208,7 +208,7 @@ fn a_public_leg_on_the_delegate_rail_is_rejected_exactly() {
 fn the_member_circuit_on_the_delegate_rail_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     policy_delegate_transact_fixture(delegate_data(
-        CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
         vec![auditor_message(AUDITOR_MESSAGE_LEN)],
     ))
     .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));

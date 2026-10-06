@@ -37,7 +37,7 @@ mod workspace;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
-use custom_ring_sdk::{CustomRing, ReaderKey};
+use custom_ring_sdk::{CustomRing, ReaderKey, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
@@ -440,8 +440,8 @@ pub struct MergeArgs {
     /// Mint to merge; SOL when omitted.
     #[arg(long)]
     pub mint: Option<Address>,
-    /// Maximum number of notes to merge, from 2 through 8.
-    #[arg(long, default_value_t = 8, value_parser = parse_merge_count)]
+    /// Maximum number of notes to merge, from 2 through 51; 24 by default.
+    #[arg(long, default_value_t = MERGE_DEFAULT_INPUT_COUNT, value_parser = parse_merge_count)]
     pub count: usize,
     /// The co-signer keypair when the ring's co-signer scope covers transfers.
     #[arg(long)]
@@ -451,11 +451,11 @@ pub struct MergeArgs {
 fn parse_merge_count(value: &str) -> Result<usize, String> {
     let count = value
         .parse::<usize>()
-        .map_err(|_| "count must be an integer from 2 through 8".to_owned())?;
-    (2..=8)
+        .map_err(|_| format!("count must be an integer from 2 through {MAX_MERGE_INPUTS}"))?;
+    (2..=MAX_MERGE_INPUTS)
         .contains(&count)
         .then_some(count)
-        .ok_or_else(|| "count must be from 2 through 8".to_owned())
+        .ok_or_else(|| format!("count must be from 2 through {MAX_MERGE_INPUTS}"))
 }
 
 // The pipeline runs each step with the answers its command defaults to.
@@ -834,7 +834,8 @@ mod tests {
         };
         assert_eq!(args.mint, Some(mint));
         assert_eq!(args.count, 4);
-        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "9"]).is_err());
+        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "51"]).is_ok());
+        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "52"]).is_err());
     }
 
     #[test]

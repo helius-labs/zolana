@@ -1,11 +1,11 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [8, 36];
+pub const MERGE_DEFAULT_INPUT_COUNT: usize = 24;
 
-pub const MAX_MERGE_INPUTS: usize = 36;
+pub const MAX_MERGE_INPUTS: usize = 51;
 
-pub const MERGE_DEFAULT_INPUT_COUNT: usize = 8;
+pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [MERGE_DEFAULT_INPUT_COUNT, MAX_MERGE_INPUTS];
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the

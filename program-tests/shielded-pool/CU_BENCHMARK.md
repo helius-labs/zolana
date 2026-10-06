@@ -4,6 +4,8 @@ Compute unit profiling for feasible shielded-pool instruction families, replayed
 
 Regenerate with `just bench-shielded-pool`.
 
+This report predates the 2026-10-05 shape grid and has not been regenerated since: its 1x1, 2x3, 3x3, 4x3, 5x3 and 36x2 transact sections and its 8- and 36-input merge sections measure shapes that no longer have keys. `tests/bench/cu.rs` now benchmarks the current grid.
+
 ## Definitions
 
 - **Total CU**: Compute units consumed by the function including all children

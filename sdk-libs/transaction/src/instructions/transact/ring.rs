@@ -23,6 +23,18 @@ impl ConfidentialTransaction {
         Ok(transaction)
     }
 
+    /// Like [`new_with_ring`](Self::new_with_ring), but pads unused slots with
+    /// compact padding, as [`new_compact`](Self::new_compact) does.
+    pub fn new_compact_with_ring(
+        inputs: Vec<WalletUtxo>,
+        payer: Address,
+        ring_program_id: Address,
+    ) -> Result<Self, TransactionError> {
+        let mut transaction = Self::new_compact(inputs, payer)?;
+        transaction.ring_program_id = Some(ring_program_id);
+        Ok(transaction)
+    }
+
     pub fn requires_p256_owner(&self) -> Result<bool, TransactionError> {
         for input in &self.inputs {
             if input.utxo.owner.is_zero() {

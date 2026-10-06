@@ -16,7 +16,7 @@ import (
 // defaultTestNInputs is the merge shape these parameter tests build. Every
 // supported count shares one witness-assignment path, so one shape covers it;
 // TestValidateShapeAcceptsEverySupportedCount pins the set itself.
-const defaultTestNInputs = 8
+const defaultTestNInputs = 24
 
 // TestMergeParametersJSONRoundTrip checks the wire format the Rust client
 // produces decodes back to identical parameters (shape, paths, and all fields).

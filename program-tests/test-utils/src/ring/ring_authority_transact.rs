@@ -21,7 +21,7 @@ use zolana_program::instruction::RingAuthorityTransact;
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
@@ -146,7 +146,7 @@ impl RingHarness {
         Ok(())
     }
 
-    /// Assemble the `TransactIxData` for a 1x1 ring-authority transfer of one of
+    /// Assemble the `TransactIxData` for a 2x2 ring-authority transfer of one of
     /// `name`'s spendable ring UTXOs of `asset` to the tracked actor `recipient`,
     /// without mutating fixture state. The same `ExternalData` (the output hash and
     /// the recipient ciphertext) is fed to the prover and to the instruction, so they
@@ -201,6 +201,16 @@ impl RingHarness {
             }),
             nullifier_proof: None,
         };
+        let padding = SppProofInputUtxo::dummy(tree_id)?;
+        let padding_input = TransferInputUtxo {
+            nullifier_proof: Some(wait_for_non_inclusion_proof(
+                &self.indexer,
+                self.tree_address,
+                padding.nullifier(),
+            )),
+            utxo: padding,
+            proof: None,
+        };
 
         // Tracked recipient actor; the re-owned output is ring-owned (bound to the
         // ring program by the circuit) and carries the recipient's address so it is a
@@ -226,6 +236,13 @@ impl RingHarness {
             compact: false,
         };
         let output_hash = output.hash(tree_id)?;
+        let padding_output = SppProofOutputUtxo {
+            owner_tag: Some(recipient_view_tag),
+            ring_program_id: Some(ring),
+            blinding: derive_transact_output_blinding(&nullifier, &output_blinding_seed, 1)?,
+            ..Default::default()
+        };
+        let padding_output_hash = padding_output.hash(tree_id)?;
 
         // Encrypt the output to the recipient under an ephemeral transaction viewing
         // key, the same confidential-recipient encoding a transfer uses, so Photon
@@ -272,26 +289,33 @@ impl RingHarness {
             // Ring flows resolve owner tags inline (the tag is the recipient's
             // confidential view tag, not an account or the shared P256 key), so the
             // wire tag and its resolved form are the same 32 bytes.
-            outputs: vec![TransactOutput {
-                utxo_hash: output_hash,
-                owner_tag: OwnerTag::Inline(recipient_view_tag),
-                data: Some(ciphertext.data),
-            }],
-            resolved_owner_tags: vec![recipient_view_tag],
+            outputs: vec![
+                TransactOutput {
+                    utxo_hash: output_hash,
+                    owner_tag: OwnerTag::Inline(recipient_view_tag),
+                    data: Some(ciphertext.data),
+                },
+                TransactOutput {
+                    utxo_hash: padding_output_hash,
+                    owner_tag: OwnerTag::Inline(recipient_view_tag),
+                    data: None,
+                },
+            ],
+            resolved_owner_tags: vec![recipient_view_tag, recipient_view_tag],
             messages: vec![],
         };
 
         let mut result = RingAuthorityProver {
             blinding_seed,
             output_tree_id: tree_id,
-            inputs: vec![transfer_input],
-            outputs: vec![output],
+            inputs: vec![transfer_input, padding_input],
+            outputs: vec![output, padding_output],
             external_data: external_data.clone(),
             public_transfers: PublicTransfers::default(),
             payer: Address::new_from_array(self.payer.pubkey().to_bytes()),
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
-            shape: Shape::new(1, 1),
+            shape: Shape::IN2_OUT2,
         }
         .build()?;
         // The ring authority holds the owners' nullifier keys, so it is the

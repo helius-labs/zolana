@@ -93,13 +93,13 @@ fn merge_count_boundaries_are_explicit() {
     let owner = keypair(7);
     for (count, padded) in [
         (0, None),
-        (1, Some(8)),
-        (7, Some(8)),
-        (8, Some(8)),
-        (9, Some(36)),
-        (35, Some(36)),
-        (36, Some(36)),
-        (37, None),
+        (1, Some(24)),
+        (23, Some(24)),
+        (24, Some(24)),
+        (25, Some(51)),
+        (50, Some(51)),
+        (51, Some(51)),
+        (52, None),
         (usize::MAX, None),
     ] {
         assert_eq!(merge_circuit_width(count), padded);
@@ -109,8 +109,8 @@ fn merge_count_boundaries_are_explicit() {
         Some(TransactionError::NoInputs)
     );
     assert_eq!(
-        MergeTransaction::new(inputs(&owner, 37)).err(),
-        Some(TransactionError::TooManyInputs { got: 37, max: 36 })
+        MergeTransaction::new(inputs(&owner, 52)).err(),
+        Some(TransactionError::TooManyInputs { got: 52, max: 51 })
     );
     let ring = Address::new_from_array([8; 32]);
     assert_eq!(
@@ -118,8 +118,8 @@ fn merge_count_boundaries_are_explicit() {
         Some(TransactionError::NoInputs)
     );
     assert_eq!(
-        MergeTransaction::new_with_ring(inputs(&owner, 37), ring, None).err(),
-        Some(TransactionError::TooManyInputs { got: 37, max: 36 })
+        MergeTransaction::new_with_ring(inputs(&owner, 52), ring, None).err(),
+        Some(TransactionError::TooManyInputs { got: 52, max: 51 })
     );
 }
 
@@ -127,7 +127,7 @@ fn merge_count_boundaries_are_explicit() {
 fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
     let owner = keypair(7);
     let sender = owner.shielded_address().unwrap();
-    for (count, padded) in [(1, 8), (8, 8), (9, 36), (36, 36)] {
+    for (count, padded) in [(1, 24), (24, 24), (25, 51), (51, 51)] {
         let notes = inputs(&owner, count);
         let first_nullifier = notes.first().unwrap().nullifier;
         let tx = owner.get_transaction_viewing_key(&first_nullifier).unwrap();
@@ -193,7 +193,7 @@ fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
 #[test]
 fn compact_merge_pads_with_compact_slots() {
     let owner = keypair(7);
-    for (count, padded) in [(3, 8), (9, 36)] {
+    for (count, padded) in [(3, 24), (25, 51)] {
         let notes = inputs(&owner, count);
         let result = MergeTransaction::new_compact(notes.clone())
             .unwrap()
@@ -240,10 +240,10 @@ fn merge_padding_must_match_what_spp_fills_back_in() {
     let mut too_wide = compact;
     too_wide
         .input_utxos
-        .resize(36, SppProofInputUtxo::compact(tree_id).unwrap());
+        .resize(51, SppProofInputUtxo::compact(tree_id).unwrap());
     assert!(matches!(
         too_wide.check_padding(),
-        Err(TransactionError::CompactMergeWidthMismatch { sent: 3, width: 36 })
+        Err(TransactionError::CompactMergeWidthMismatch { sent: 3, width: 51 })
     ));
 
     MergeTransaction::new(inputs(&owner, 3))
@@ -428,7 +428,7 @@ fn merge_accessors_filter_dummies_and_recheck_data() {
         .unwrap();
     assert_eq!(result.input_utxo_hashes().unwrap().len(), 2);
     let first = result.input_utxos.first().unwrap().nullifier;
-    let expected = (2..8)
+    let expected = (2..24)
         .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first, slot).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(result.dummy_nullifiers(), expected);
@@ -505,7 +505,7 @@ fn merge_routes_key_requests_and_propagates_failures() {
         (Reply::Normal, None),
         (
             Reply::EmptyDerive,
-            Some(TransactionError::IncompleteDerivation { got: 0, want: 8 }),
+            Some(TransactionError::IncompleteDerivation { got: 0, want: 24 }),
         ),
         (
             Reply::EmptyKey,
@@ -540,10 +540,12 @@ fn merge_routes_key_requests_and_propagates_failures() {
             assert_eq!(
                 *keys.derived.borrow(),
                 std::iter::once(DeriveRequest::MergeOutputBlinding { first_nullifier })
-                    .chain((1..8).map(|slot_index| DeriveRequest::MergeDummyNullifier {
-                        first_nullifier,
-                        slot_index
-                    }))
+                    .chain(
+                        (1..24).map(|slot_index| DeriveRequest::MergeDummyNullifier {
+                            first_nullifier,
+                            slot_index
+                        })
+                    )
                     .collect::<Vec<_>>()
             );
             assert_eq!(
@@ -592,8 +594,8 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
         })
         .collect();
     let tx = ViewingKey::new();
-    let first_nullifier = notes[0].nullifier;
-    let dummy_nullifiers = (2..8)
+    let first_nullifier = notes.first().unwrap().nullifier;
+    let dummy_nullifiers = (2..24)
         .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, slot).unwrap())
         .collect::<Vec<_>>();
     let result = MergeTransaction::new_with_ring(notes, ring, None)

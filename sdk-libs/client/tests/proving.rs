@@ -142,7 +142,7 @@ impl TransferHarness {
             }
         }
         if self.plan.declared_shape {
-            tx.pad_utxos(Shape::IN2_OUT3, &sender.shielded_address().unwrap())
+            tx.pad_utxos(Shape::IN2_OUT4, &sender.shielded_address().unwrap())
                 .unwrap();
         }
         let tx = tx.encrypt(&sender).unwrap();

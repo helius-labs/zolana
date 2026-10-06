@@ -8,7 +8,8 @@ import (
 
 // Circuit binds create_escrow's 2-in/3-out real shape (taker's source UTXO +
 // maker's funding UTXO spent; order, reservation, and maker-change UTXOs
-// created), the exact supported IN2_OUT3 shape with no padding on either side.
+// created). SPP proves the transaction at IN2_OUT4 with a compact fourth output,
+// which publishes hash 0 and so leaves PrivateTxHash unchanged.
 // The taker signs SourceIn; the program signs the escrow-authority-owned
 // MakerFunding input, which authorizes the data-bearing program outputs. Requires
 // the source input to match OrderAmount exactly (no taker change output):
@@ -57,9 +58,8 @@ func (c *Circuit) Define(api frontend.API) error {
 	reservationOutHash := c.checkReservationOutputUtxo(api, orderOutHash)
 	makerChangeHash := c.checkMakerChangeOutputUtxo(api)
 
-	// The real shape is 2-in/3-out, exactly the supported IN2_OUT3 shape --
-	// no padding needed on either side. Output order (order, reservation,
-	// maker_change) must match the native program's output indices and the SDK.
+	// Output order (order, reservation, maker_change) must match the native
+	// program's output indices and the SDK.
 	privateTxHash := gnarksdk.PrivateTxHash(
 		api,
 		[]frontend.Variable{sourceInHash, makerFundingHash},

@@ -76,8 +76,10 @@ describe("velocity outflow and charge", () => {
   it("picks the smallest shape one slot beyond the money on each side", () => {
     const at = (inputs: number, outputs: number) => recordShape({ inputs, outputs });
     expect(at(1, 1)).toEqual({ inputs: 2, outputs: 2 });
-    expect(at(1, 2)).toEqual({ inputs: 2, outputs: 3 });
-    expect(at(2, 3)).toEqual({ inputs: 4, outputs: 4 });
+    expect(at(1, 2)).toEqual({ inputs: 2, outputs: 4 });
+    expect(at(2, 2)).toEqual({ inputs: 3, outputs: 4 });
+    expect(at(2, 3)).toEqual({ inputs: 3, outputs: 4 });
+    expect(at(3, 3)).toEqual({ inputs: 4, outputs: 4 });
     expect(at(4, 3)).toEqual({ inputs: 5, outputs: 4 });
     expect(() => at(4, 4)).toThrow();
   });

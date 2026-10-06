@@ -1,11 +1,16 @@
-import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Address } from "../interface/types.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
-/** @internal The cover cap, matches Rust `select_bounded_inputs`. */
-export const MAX_SPEND_INPUTS = Math.max(...SPP_SUPPORTED_SHAPES.map((shape) => shape.inputs));
+/**
+ * @internal Notes a wallet spend selects at most, Rust `MAX_SPEND_INPUTS`. Selection
+ * pads with random dummies, so the cheapest shape holding this many notes still
+ * fits one transaction with two encrypted outputs, inputs from every allowed
+ * tree, an owner signer other than the payer and an SPL withdrawal; the next
+ * wider shape does not. A wider balance merges first.
+ */
+export const MAX_SPEND_INPUTS = 40;
 
 /** @internal Rust `is_plain_utxo`, a UTXO the default rail can always prove. */
 export function isPlainUtxo(entry: WalletUtxo): boolean {

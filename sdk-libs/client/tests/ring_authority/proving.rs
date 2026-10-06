@@ -10,10 +10,8 @@ use zolana_interface::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         tag::RING_AUTHORITY_TRANSACT,
     },
-    verifying_keys::{
-        transfer_ring_authority_1_1, transfer_ring_authority_2_2, transfer_ring_authority_3_3,
-        transfer_ring_authority_4_4,
-    },
+    verifying_keys::CircuitId,
+    N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
@@ -41,8 +39,8 @@ impl RingAuthorityHarness {
         let (n_in, n_out, mode) = (self.plan.n_inputs, self.plan.n_outputs, self.plan.mode);
         match mode {
             Mode::ShapeSweep => prove_and_verify(shape_sweep(n_in), n_in, n_out),
-            Mode::MultiReal => prove_and_verify(multi_real(), 3, 3),
-            Mode::P256Input => prove_and_verify(p256_input(), 1, 1),
+            Mode::MultiReal => prove_and_verify(multi_real(), 4, 4),
+            Mode::P256Input => prove_and_verify(p256_input(), 2, 2),
             Mode::MixedOwners => prove_and_verify(mixed_owners(), 2, 2),
         }
     }
@@ -62,7 +60,7 @@ fn shape_sweep(n: usize) -> (RingAuthorityProver, Vec<NullifierKey>) {
 }
 
 /// #2: 2 real nonzero Solana-owned ring inputs consolidated into 1 real ring-owned
-/// output, with dummy input/output padding (shape 3x3).
+/// output, with dummy input/output padding (shape 4x4).
 fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (mut inputs, keys) = build_real_inputs(
@@ -70,17 +68,27 @@ fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
         &[(eddsa_keypair(), 100), (eddsa_keypair(), 150)],
     );
     inputs.push(dummy_input());
+    inputs.push(dummy_input());
     let recipient = eddsa_keypair();
-    let outputs = vec![real_output(&recipient, 250), dummy_output(), dummy_output()];
-    (assemble_prover(inputs, outputs, 3, 3), keys)
+    let outputs = vec![
+        real_output(&recipient, 250),
+        dummy_output(),
+        dummy_output(),
+        dummy_output(),
+    ];
+    (assemble_prover(inputs, outputs, 4, 4), keys)
 }
 
-/// #3: one real P256-owned ring input + dummy output (shape 1x1). Exercises the
-/// pubkey-agnostic owner mode (no signature).
+/// #3: one real P256-owned ring input + dummy input and outputs (shape 2x2).
+/// Exercises the pubkey-agnostic owner mode (no signature).
 fn p256_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
-    let (inputs, keys) = build_real_inputs(&mut indexer, &[(p256_keypair(), 0)]);
-    (assemble_prover(inputs, vec![dummy_output()], 1, 1), keys)
+    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(p256_keypair(), 0)]);
+    inputs.push(dummy_input());
+    (
+        assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
+        keys,
+    )
 }
 
 /// #4: one Solana-owned and one P256-owned real input, dummy outputs (shape 2x2).
@@ -127,7 +135,11 @@ fn assemble_prover(
     n_out: usize,
 ) -> RingAuthorityProver {
     let blinding_seed = [46u8; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
     RingAuthorityProver {
         blinding_seed,
         output_tree_id: TEST_TREE_ID,
@@ -269,11 +281,16 @@ fn p256_keypair() -> ShieldedKeypair {
 }
 
 fn ring_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
-    match (n_in, n_out) {
-        (1, 1) => &transfer_ring_authority_1_1::VERIFYINGKEY,
-        (2, 2) => &transfer_ring_authority_2_2::VERIFYINGKEY,
-        (3, 3) => &transfer_ring_authority_3_3::VERIFYINGKEY,
-        (4, 4) => &transfer_ring_authority_4_4::VERIFYINGKEY,
-        _ => panic!("unsupported ring-authority shape {n_in}x{n_out}"),
-    }
+    let circuit = CircuitId::RingAuthority(
+        u8::try_from(n_in).expect("input count"),
+        u8::try_from(n_out).expect("output count"),
+        N_PUBLIC_SLOTS as u8,
+    );
+    assert!(
+        circuit.is_supported(),
+        "unsupported ring-authority shape {n_in}x{n_out}"
+    );
+    circuit
+        .verifying_key()
+        .expect("ring-authority verifying key")
 }

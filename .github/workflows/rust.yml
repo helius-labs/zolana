@@ -350,6 +350,9 @@ jobs:
           - name: ring lifecycle
             recipe: test-ring-validator
             runner: ubuntu-latest
+          - name: max transaction shapes
+            recipe: test-max-shapes-validator
+            runner: ubuntu-latest
           - name: swap and escrow lifecycle
             recipe: test-swap-and-escrow-validator
             runner: ubuntu-latest

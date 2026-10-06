@@ -21,7 +21,7 @@ func padFixtureCompact(fixture *mergeWitnessFixture) {
 
 func TestMergeCompactPaddingSolves(t *testing.T) {
 	assert := test.NewAssert(t)
-	for _, width := range []int{defaultFixtureInputs, 36} {
+	for _, width := range []int{defaultFixtureInputs, 51} {
 		fixture := buildMergeFixture(t, mergeFixtureOptions{inputCount: width})
 		padFixtureCompact(fixture)
 		refreshDefaultPublicInputHash(t, fixture)

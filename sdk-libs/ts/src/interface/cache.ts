@@ -1,5 +1,6 @@
 import { addressBytes, copyBytes, fail, sha256, unsigned, unsignedBigint } from "./internal.js";
 import { poseidon } from "./merge-utils.js";
+import { MAX_TRANSACT_INPUTS } from "./shape.js";
 import { CACHE_CAPACITY } from "./state.js";
 import { treeIdField } from "./tree-slot.js";
 import type { Address, Bytes32, CacheAccess, CacheWrite } from "./types.js";
@@ -7,7 +8,7 @@ import type { Address, Bytes32, CacheAccess, CacheWrite } from "./types.js";
 const U64_MAX = (1n << 64n) - 1n;
 const CACHE_WRITE_DOMAIN = new TextEncoder().encode("cache_write");
 
-export const MAX_CACHE_WRITES = 8;
+export const MAX_CACHE_WRITES = 16;
 export const CACHE_WRITE_NONE: CacheWrite = Object.freeze({ output: 0xff, slot: 0xff });
 export const NO_CACHE_WRITES: readonly CacheWrite[] = Object.freeze(
   Array.from({ length: MAX_CACHE_WRITES }, () => CACHE_WRITE_NONE),
@@ -43,7 +44,7 @@ function isU64(value: unknown): value is bigint {
 }
 
 export function emptyCachedInputFields(inputCount: number): CachedInputFields {
-  const count = unsigned(inputCount, CACHE_CAPACITY, "inputCount");
+  const count = unsigned(inputCount, MAX_TRANSACT_INPUTS, "inputCount");
   return Object.freeze([zero(), rightHashChain4(Array.from({ length: count }, zero))] as const);
 }
 
@@ -55,7 +56,7 @@ export function cachedInputFields(
 ): CachedInputFields {
   const bitmap = unsignedBigint(readBitmap, U64_MAX, "readBitmap");
   const treeIdElement = treeIdField(treeId);
-  const count = unsigned(inputCount, CACHE_CAPACITY, "inputCount");
+  const count = unsigned(inputCount, MAX_TRANSACT_INPUTS, "inputCount");
   if (slots.length !== CACHE_CAPACITY) {
     fail("INTERFACE_INVALID_LENGTH", {
       name: "slots",

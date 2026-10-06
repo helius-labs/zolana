@@ -10,11 +10,8 @@ use zolana_interface::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         tag::RING_TRANSACT,
     },
-    verifying_keys::{
-        transfer_ring_1_1, transfer_ring_1_2, transfer_ring_1_8, transfer_ring_2_2,
-        transfer_ring_2_3, transfer_ring_36_2, transfer_ring_3_3, transfer_ring_4_3,
-        transfer_ring_4_4, transfer_ring_5_3, transfer_ring_5_4,
-    },
+    verifying_keys::CircuitId,
+    N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
@@ -62,7 +59,11 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
     }
     let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(&signer)).collect();
     let blinding_seed = [44u8; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
     // The authorized signer vector must contain every real input's owner
     // pk-field (payer-first on-chain; any placement satisfies Contains).
     let shape = Shape::new(n_in, n_out);
@@ -102,16 +103,21 @@ fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
         real_output(&recipient, 250),
         dummy_output(&first_signer),
         dummy_output(&first_signer),
+        dummy_output(&first_signer),
     ];
     let blinding_seed = [45u8; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
     (
         RingTransferProver {
             inputs,
             outputs,
             blinding_seed,
             output_tree_id: TEST_TREE_ID,
-            external_data: ring_external_data(3),
+            external_data: ring_external_data(4),
             public_transfers: PublicTransfers::default(),
             signer_pk_hashes: vec![
                 owner_pk_hash(&first_signer),
@@ -121,7 +127,7 @@ fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
             ],
             allow_dummy_inputs: true,
             ring_program_id: Some(ring_program()),
-            shape: Shape::new(3, 3),
+            shape: Shape::new(3, 4),
         },
         keys,
     )
@@ -292,18 +298,16 @@ fn eddsa_keypair() -> ShieldedKeypair {
 }
 
 fn eddsa_ring_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
-    match (n_in, n_out) {
-        (1, 1) => &transfer_ring_1_1::VERIFYINGKEY,
-        (1, 2) => &transfer_ring_1_2::VERIFYINGKEY,
-        (2, 2) => &transfer_ring_2_2::VERIFYINGKEY,
-        (2, 3) => &transfer_ring_2_3::VERIFYINGKEY,
-        (3, 3) => &transfer_ring_3_3::VERIFYINGKEY,
-        (4, 3) => &transfer_ring_4_3::VERIFYINGKEY,
-        (4, 4) => &transfer_ring_4_4::VERIFYINGKEY,
-        (5, 3) => &transfer_ring_5_3::VERIFYINGKEY,
-        (5, 4) => &transfer_ring_5_4::VERIFYINGKEY,
-        (1, 8) => &transfer_ring_1_8::VERIFYINGKEY,
-        (36, 2) => &transfer_ring_36_2::VERIFYINGKEY,
-        _ => panic!("unsupported ring-transfer shape {n_in}x{n_out}"),
-    }
+    let circuit = CircuitId::RingEddsa(
+        u8::try_from(n_in).expect("input count"),
+        u8::try_from(n_out).expect("output count"),
+        N_PUBLIC_SLOTS as u8,
+    );
+    assert!(
+        circuit.is_supported(),
+        "unsupported ring-transfer shape {n_in}x{n_out}"
+    );
+    circuit
+        .verifying_key()
+        .expect("ring-transfer verifying key")
 }

@@ -136,7 +136,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
-    let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
+    let max_parts = Shape::IN1_OUT16.n_outputs() as u8;
     if !(2..=max_parts).contains(&opts.parts) {
         bail!("--parts must be between 2 and {max_parts}");
     }

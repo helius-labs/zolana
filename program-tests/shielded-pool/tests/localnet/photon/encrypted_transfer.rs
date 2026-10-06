@@ -5,10 +5,9 @@ use super::*;
 /// encryption), then recover the recipient UTXO purely by DECRYPTING the
 /// ciphertext the Photon indexer returns -- no plaintext reconstruction.
 ///
-/// Two real inputs are used so the proof shape is exactly (2, 3), matching the
-/// available `transfer_confidential_2_3` key without padding the instruction
-/// with dummy nullifiers. The P256-rail twin of this test was removed with the
-/// P256 transact rail (PR164).
+/// Two real inputs are used so no input slot of the 2x4 shape is padded with a
+/// dummy nullifier. The P256-rail twin of this test was removed with the P256
+/// transact rail (PR164).
 #[test]
 #[serial]
 fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
@@ -91,7 +90,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let mut transfer =
         ConfidentialTransaction::new(input_utxos, payer_address)?.with_output_tree_id(tree_id)?;
     transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
-    transfer.pad_utxos(Shape::IN2_OUT3, &sender.shielded_address()?)?;
+    transfer.pad_utxos(Shape::IN2_OUT4, &sender.shielded_address()?)?;
     let proof_inputs = transfer.encrypt(&sender)?;
 
     let commitments = proof_inputs.input_utxo_hashes()?;

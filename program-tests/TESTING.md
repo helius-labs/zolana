@@ -115,17 +115,20 @@ creation/pause, SPL registration, and SOL/SPL deposits to per-family CU
 ceilings chosen strictly below the enforced transaction budget, so a
 consumption regression fails the ceiling assert rather than aborting at the
 budget. `bench_cu` asserts transact ceilings and retains internal profiler
-breakdowns for every supported EdDSA transact shape (`1x1`, `1x2`, `2x2`,
-`2x3`, `3x3`, `4x3`, `4x4`, `5x3`, `5x4`, and `1x8`) plus SOL/SPL withdrawals,
-but only under the manual `just bench-shielded-pool` run (it needs the
-profiling SBF build); CI does not execute those transact ceilings. There is no
-separate split instruction: `1x8` is the widest split-shaped transact.
+breakdowns for a spread of EdDSA transact shapes (`1x2`, `2x2`, `2x4`, `4x4`,
+`5x4`, `24x4`, `1x8`, `16x8`, `1x16`, `8x16`, and `51x2`, the widest of each
+output count among them) plus SOL/SPL withdrawals, but only under the manual
+`just bench-shielded-pool` run (it needs the profiling SBF build); CI does not
+execute those transact ceilings. There is no separate split instruction: `1x16`
+is the widest split-shaped transact.
 
 P256 commitment verification and policy-ring CPI behavior require the real
 validator; Mollusk's pairing stubs are not treated as authoritative CU data. The
 focused `proof_cu` binaries therefore pin P256 transact, ring EdDSA/P256
-transact, P256 and ring withdrawals, ring-authority transact, maximal `8x1`
-merge, and maximal `8x1` merge-ring using confirmed transaction metadata. This is an orthogonal matrix:
+transact, P256 and ring withdrawals, ring-authority transact, an 8-input merge
+and an 8-input merge-ring (both on the `24x1` circuit) using confirmed
+transaction metadata. The `max_shapes` binaries confirm the widest transact
+shape of each output count and the 51-input merges on surfpool. This is an orthogonal matrix:
 the EdDSA profiler covers shape-dependent input/output work, while validator
 tests cover each extra proof rail and CPI boundary. The Photon forester lifecycle
 also pins every submitted batch nullifier-tree update when the in-test

@@ -5,7 +5,7 @@ use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
 use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_36_1, merge_8_1},
+    verifying_keys::{merge_24_1, merge_51_1},
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
@@ -105,8 +105,8 @@ impl MergeHarness {
         );
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
         let vk = match result.nullifiers.len() {
-            8 => &merge_8_1::VERIFYINGKEY,
-            36 => &merge_36_1::VERIFYINGKEY,
+            24 => &merge_24_1::VERIFYINGKEY,
+            51 => &merge_51_1::VERIFYINGKEY,
             other => panic!("no committed verifying key for a {other}-input merge"),
         };
         let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
@@ -123,7 +123,7 @@ impl MergeHarness {
         // The owner reconstructs the ciphertext-free merge output from the
         // first real input and its published nullifier.
         assert_eq!(
-            merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
+            merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
                 .expect("derive merge output blinding"),
             expected_output.blinding,
             "owner reconstructs the merged output blinding",

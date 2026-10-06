@@ -18,7 +18,7 @@ use zolana_program::instruction::{
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
 use zolana_transaction::{
-    instructions::transact::{auto_shapes, ConfidentialTransaction},
+    instructions::transact::{ConfidentialTransaction, MAX_SPEND_INPUTS},
     Address, SpendableDecryptionResult, WalletUtxo, SOL_MINT,
 };
 
@@ -61,17 +61,13 @@ pub(super) fn spend_tree(
 }
 
 /// Largest notes first, so a fragmented balance is covered with the fewest
-/// inputs, bounded by the widest supported shape.
+/// inputs, at most [`MAX_SPEND_INPUTS`] of them.
 pub(super) fn select_notes(
     spendable: &SpendableDecryptionResult,
     asset: Address,
     amount: u64,
 ) -> Result<Vec<WalletUtxo>> {
     let tree = spend_tree(spendable, asset, is_default_ring_spendable)?;
-    let max_inputs = auto_shapes()
-        .map(|shape| shape.n_inputs())
-        .max()
-        .unwrap_or(0);
     let mut candidates: Vec<&WalletUtxo> = spendable
         .utxos()
         .filter(|entry| {
@@ -84,7 +80,7 @@ pub(super) fn select_notes(
     let total: u64 = candidates.iter().map(|entry| entry.utxo.amount).sum();
     let mut selected = Vec::new();
     let mut covered = 0u64;
-    for entry in candidates.into_iter().take(max_inputs) {
+    for entry in candidates.into_iter().take(MAX_SPEND_INPUTS) {
         covered += entry.utxo.amount;
         selected.push(entry.clone());
         if covered >= amount {
@@ -92,7 +88,7 @@ pub(super) fn select_notes(
         }
     }
     if total >= amount {
-        bail!("{amount} needs more than {max_inputs} notes; merge first");
+        bail!("{amount} needs more than {MAX_SPEND_INPUTS} notes; merge first");
     }
     bail!("insufficient balance: requested {amount}, available {total}")
 }

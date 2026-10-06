@@ -937,7 +937,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     };
     let source_output_blinding = random_blinding();
 
-    let mut source_output = order_utxo.source_output(maker_address, source_output_blinding);
+    let source_output = order_utxo.source_output(maker_address, source_output_blinding);
 
     let order_input_utxo = order_utxo
         .to_input_utxo(BENCH_TREE_ID, 0)
@@ -945,9 +945,18 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let input_utxos = vec![order_input_utxo];
-    let blinding_seed =
-        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
-            .expect("derive cancel output blinding");
+    let mut cancel_outputs = vec![
+        source_output,
+        SppProofOutputUtxo {
+            compact: true,
+            ..Default::default()
+        },
+    ];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut cancel_outputs)
+        .expect("derive cancel output blinding");
+    let [source_output, compact_output]: [_; 2] = cancel_outputs
+        .try_into()
+        .expect("cancel transaction has two output slots");
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
 
@@ -968,7 +977,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
     let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        output_utxos: encoded.output_utxos,
+        output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
         external_data,
         payer: payer_address,
         blinding_seed,

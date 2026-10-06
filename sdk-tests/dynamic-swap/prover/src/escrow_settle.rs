@@ -5,8 +5,9 @@ use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 use crate::{CircuitId, OrderProof, ProofInputUtxo, PROVER};
 
 /// Proof inputs for the `escrow_settle` circuit -- the single circuit `settle`
-/// uses for both outcomes (settle and price-refund). Exact 2-in (order,
-/// reservation) / 3-out (recipient, maker_counter, maker_source), no padding.
+/// uses for both outcomes (settle and price-refund). 2-in (order, reservation)
+/// / 3-out (recipient, maker_counter, maker_source); SPP proves the transaction
+/// at IN2_OUT4 with a compact fourth output.
 /// `max_price` and `created_at` are PRIVATE witnesses (bound to the order UTXO's
 /// data hash), not public inputs -- keeping `max_price` private is what hides the
 /// settle-vs-refund outcome. `execution_price` stays public (it is the public

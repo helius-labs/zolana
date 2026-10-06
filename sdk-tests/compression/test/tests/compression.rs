@@ -7,7 +7,7 @@ use compression_example_sdk::{
     account_pda,
     discovery::{discover_account, DiscoveredAccount},
     instructions::{
-        create::{address_input, Create, CreateProofInputParams},
+        create::{address_input, padding_input, Create, CreateProofInputParams},
         read::{Read, ReadProofInputParams},
         update::{Update, UpdateCompressedAccount, UpdateProofInputParams},
     },
@@ -203,19 +203,28 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
     wait_for_merkle_proof(&env.localnet.client, env.localnet.tree, input_utxo.hash());
 
     let input_utxos = vec![input_utxo];
-    let mut poison_outputs = vec![SppProofOutputUtxo {
-        asset: zolana_transaction::Mint::SOL,
-        amount: POISON_AMOUNT,
-        owner_address: Some(pda_shielded_address(&pda)?),
-        owner_tag: Some(pda.to_bytes()),
-        data: Data::default(),
-        ..SppProofOutputUtxo::default()
-    }];
-    // The circuit recomputes every output blinding, so even a hand-built
-    // attacker transfer has to take the derived value.
+    // SPP has no 1x1 circuit, so the transfer is proved at 1x2 with compact
+    // padding in the second output slot.
+    let mut poison_outputs = vec![
+        SppProofOutputUtxo {
+            asset: zolana_transaction::Mint::SOL,
+            amount: POISON_AMOUNT,
+            owner_address: Some(pda_shielded_address(&pda)?),
+            owner_tag: Some(pda.to_bytes()),
+            data: Data::default(),
+            ..SppProofOutputUtxo::default()
+        },
+        SppProofOutputUtxo {
+            compact: true,
+            ..SppProofOutputUtxo::default()
+        },
+    ];
+    // The circuit recomputes every output blinding, padding included, so even
+    // a hand-built attacker transfer has to take the derived values.
     let blinding_seed = prepare_output_blindings(&input_utxos, &mut poison_outputs)?;
     let poison_output = poison_outputs
-        .pop()
+        .first()
+        .cloned()
         .ok_or_else(|| anyhow!("poison output"))?;
     let output_hash = poison_output.hash(DEFAULT_TREE_ID)?;
     let external = ExternalData::new(
@@ -232,7 +241,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
     let transact = env.localnet.client.prove_transact(
         SppProofInputs {
             input_utxos,
-            output_utxos: vec![poison_output],
+            output_utxos: poison_outputs,
             external_data: external,
             payer: attacker.pubkey(),
             blinding_seed,
@@ -272,11 +281,17 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let (_, address) = address_input(&pda, DEFAULT_TREE_ID)?;
     let non_inclusion =
         wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, address);
+    let padding_non_inclusion = wait_for_non_inclusion_proof(
+        &env.localnet.client,
+        env.localnet.tree,
+        padding_input(DEFAULT_TREE_ID)?.nullifier(),
+    );
     let (utxo_root_index, utxo_root) = tree_root(&env.localnet.client, env.localnet.tree)?;
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
         new_value: 1,
         non_inclusion,
+        padding_non_inclusion,
         utxo_root,
         utxo_root_index,
     }
@@ -577,11 +592,17 @@ fn create_account(env: &Environment, value: u64) -> Result<DiscoveredAccount> {
     let (_, address) = address_input(&pda, DEFAULT_TREE_ID)?;
     let non_inclusion =
         wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, address);
+    let padding_non_inclusion = wait_for_non_inclusion_proof(
+        &env.localnet.client,
+        env.localnet.tree,
+        padding_input(DEFAULT_TREE_ID)?.nullifier(),
+    );
     let (utxo_root_index, utxo_root) = tree_root(&env.localnet.client, env.localnet.tree)?;
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
         new_value: value,
         non_inclusion,
+        padding_non_inclusion,
         utxo_root,
         utxo_root_index,
     }

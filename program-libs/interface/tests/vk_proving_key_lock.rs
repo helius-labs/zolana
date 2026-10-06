@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use zolana_interface::{
     verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData, PROVING_KEY_SHA256S},
-    N_PUBLIC_SLOTS,
+    MAX_OUTPUTS, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
 const LOCK: &str = include_str!("../../../prover/server/prover/provingkeys/proving-keys.lock");
@@ -57,8 +57,10 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
         default_owner_tag: None,
     };
     let mut checked = 0;
-    for n_inputs in 1..=36u8 {
-        for n_outputs in 1..=8u8 {
+    let max_inputs = u8::try_from(MAX_TRANSACT_INPUTS).expect("fits u8");
+    let max_outputs = u8::try_from(MAX_OUTPUTS).expect("fits u8");
+    for n_inputs in 1..=max_inputs {
+        for n_outputs in 1..=max_outputs {
             for (rail, circuit) in [
                 (
                     "transfer_confidential",

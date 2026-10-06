@@ -23,8 +23,9 @@ const blindingSeedDomain = 0x44535458 // DSTX; matches the SDK's settle_blinding
 // never be proven. An order with an acceptable price settles; one whose price
 // moved past MaxPrice refunds; settle and refund are indistinguishable on-chain.
 //
-// 2-in (order, reservation) / 3-out (recipient, maker_counter, maker_source), the
-// exact IN2_OUT3 shape. There is no shared pool: the reservation input alone funds
+// 2-in (order, reservation) / 3-out (recipient, maker_counter, maker_source),
+// proved by SPP at IN2_OUT4 with a compact fourth output that PrivateTxHash does
+// not see. There is no shared pool: the reservation input alone funds
 // the recipient's payout and the maker's counter-asset change. On refund,
 // MakerSource is a zero-amount output rather than an omitted one, so the shape
 // does not differ between outcomes.

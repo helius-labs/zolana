@@ -303,8 +303,6 @@ fn phase_shielded_transfer(
         wait_for_non_inclusion_proof(&env.indexer, env.tree_address, transfer_dummy_nullifier);
     let transfer_tree_slots =
         single_tree_slots(tree_id, payer_state_proof.root, payer_nullifier_proof.root);
-    let (transfer_dummy_output, _) = dummy_transfer_output(&[19u8; 31], tree_id)
-        .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
     // Real outputs tag by owner (`confidential_view_tag`; see
     // `set_output_owner_tags`).
@@ -327,13 +325,12 @@ fn phase_shielded_transfer(
         root_index: payer_state_proof.root_index,
         tree_slots: transfer_tree_slots,
         output_tree_id: tree_id,
-        view_tags: vec![change_view_tag, recipient_view_tag, change_view_tag],
+        view_tags: vec![change_view_tag, recipient_view_tag],
         outputs: vec![
             transfer_output(&change_output, tree_id)?,
             transfer_output(&recipient_output, tree_id)?,
-            transfer_dummy_output,
         ],
-        output_nullifier_pks: [payer_nullifier_pk, recipient_nullifier_pk, zero],
+        output_nullifier_pks: [payer_nullifier_pk, recipient_nullifier_pk],
         interface_transfers: Vec::new(),
         resolved_transfers: Vec::new(),
         private_tx_inputs: [payer_utxo_hash, zero],
@@ -514,14 +511,14 @@ fn phase_unshield(
     // A full withdrawal moves all of its value out through the public SOL slot,
     // so it has no real recipient output. `AssertDummyTags` refuses a dummy tag
     // that names only the payer, so slot 0 is a real zero-amount change output
-    // owned by the withdrawing owner and the two dummies name it.
+    // owned by the withdrawing owner and the dummy names it.
     let withdraw_change_nullifier_key = NullifierKey::from_secret([23u8; 31]);
     let withdraw_change_nullifier_pk = withdraw_change_nullifier_key.pubkey()?;
     let withdraw_outputs = change_and_dummy_outputs(
         recipient_utxo.owner,
         withdraw_change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &[[2u8; 31]],
         tree_id,
     )?;
 
@@ -539,9 +536,9 @@ fn phase_unshield(
         root_index: recipient_state_proof.root_index,
         tree_slots: withdraw_tree_slots,
         output_tree_id: tree_id,
-        view_tags: vec![recipient_view_tag; 3],
+        view_tags: vec![recipient_view_tag; 2],
         outputs: withdraw_outputs,
-        output_nullifier_pks: [withdraw_change_nullifier_pk, zero, zero],
+        output_nullifier_pks: [withdraw_change_nullifier_pk, zero],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],

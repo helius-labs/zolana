@@ -23,7 +23,7 @@ fn eddsa_merge_ring_proofs_cover_padding() {
 }
 
 fn run_owner_rail(eddsa: bool) {
-    for real_inputs in [1, 4, 8] {
+    for real_inputs in [1, 12, 24] {
         MergeRingHarness {
             plan: MergeRingPlan { real_inputs, eddsa },
         }
@@ -35,7 +35,7 @@ fn run_owner_rail(eddsa: bool) {
 #[serial_test::serial]
 fn merge_ring_proofs_cover_the_wide_shape() {
     for eddsa in [false, true] {
-        for real_inputs in [9, 36] {
+        for real_inputs in [25, 51] {
             MergeRingHarness {
                 plan: MergeRingPlan { real_inputs, eddsa },
             }

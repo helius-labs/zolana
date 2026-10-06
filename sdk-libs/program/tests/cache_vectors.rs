@@ -293,10 +293,10 @@ fn circuit_json(circuit: CircuitId) -> Value {
 fn transact_circuit_vectors() -> Value {
     Value::Array(
         [
-            CircuitId::ConfidentialEddsa(2, 3, 3),
+            CircuitId::ConfidentialEddsa(2, 4, 3),
             CircuitId::ConfidentialEddsaCached(
                 2,
-                3,
+                4,
                 3,
                 CacheAccess {
                     read_bitmap: 1 << 20,
@@ -370,7 +370,7 @@ fn cache_account_vector() -> Value {
 
 fn compute_cache_vectors() -> Value {
     json!({
-        "description": "Cache encodings the TypeScript SDK must reproduce: the create and close cache instructions, the cache PDA, the cache account layout, the cached input fields every owner-signed transfer publishes, the write binding of the transact external data hash, and the cached circuit selectors in transact instruction data. Regenerate with `cargo test -p zolana-interface --features solana --test cache_vectors print_cache_vectors -- --ignored --nocapture`.",
+        "description": "Cache encodings the TypeScript SDK must reproduce: the create and close cache instructions, the cache PDA, the cache account layout, the cached input fields every owner-signed transfer publishes, the write binding of the transact external data hash, and the cached circuit selectors in transact instruction data. Regenerate with `cargo test -p zolana-program --test cache_vectors print_cache_vectors -- --ignored --nocapture`.",
         "createCache": create_cache_vector(),
         "closeCache": close_cache_vectors(),
         "cachePdas": cache_pda_vectors(),

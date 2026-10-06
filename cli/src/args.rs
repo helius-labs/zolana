@@ -68,7 +68,7 @@ pub(crate) enum CliCommand {
 
     #[command(
         name = "merge",
-        about = "Consolidate several private utxos into one (auto-sweep up to 8 in, named inputs up to 36 in, 1 out)"
+        about = "Consolidate several private utxos into one (auto-sweep up to 24 in, named inputs up to 51 in, 1 out)"
     )]
     Merge(MergeOptions),
 
@@ -764,8 +764,8 @@ pub(crate) struct SplitOptions {
 
     #[arg(
         long,
-        value_parser = clap::value_parser!(u8).range(2..=8),
-        help = "Number of equal output utxos to produce (2-8)"
+        value_parser = clap::value_parser!(u8).range(2..=16),
+        help = "Number of equal output utxos to produce (2-16)"
     )]
     pub(crate) parts: u8,
 
@@ -1614,7 +1614,7 @@ mod tests {
 
     #[test]
     fn split_part_count_is_range_limited() {
-        for parts in ["1", "9"] {
+        for parts in ["1", "17"] {
             assert!(Cli::try_parse_from([
                 "zolana",
                 "split",

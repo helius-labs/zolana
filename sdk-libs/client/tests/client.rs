@@ -1110,7 +1110,7 @@ fn default_transfer_routes_skip_client_indexer_reads() {
     ));
     assert_eq!(
         server.requests(),
-        ["/prove/transfer_confidential_1_1/indexed"; 3]
+        ["/prove/transfer_confidential_1_2/indexed"; 3]
     );
 }
 
@@ -1149,7 +1149,7 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
     ));
     assert_eq!(
         server.requests(),
-        ["/prove/transfer_confidential_1_1/indexed"; 2]
+        ["/prove/transfer_confidential_1_2/indexed"; 2]
     );
 }
 
@@ -1209,14 +1209,17 @@ fn client_proof_data_server(input: &WalletUtxo) -> MockIndexerServer {
             "/getNonInclusionProofs",
             nullifier_response(tree, input.nullifier),
         ),
-        ("/prove/transfer_confidential_1_1", json!({})),
+        ("/prove/transfer_confidential_1_2", json!({})),
     ])
 }
 
 fn assert_client_proof_data_requests(requests: Vec<String>) {
     assert_eq!(requests.len(), 3);
-    assert_eq!(requests[2], "/prove/transfer_confidential_1_1");
-    let mut reads = requests[..2].to_vec();
+    assert_eq!(
+        requests.get(2).map(String::as_str),
+        Some("/prove/transfer_confidential_1_2")
+    );
+    let mut reads = requests.get(..2).unwrap().to_vec();
     reads.sort();
     assert_eq!(reads, ["/getMerkleProofs", "/getNonInclusionProofs"]);
 }

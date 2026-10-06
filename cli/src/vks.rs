@@ -350,7 +350,7 @@ mod tests {
 
     fn known() -> KeyNames {
         keys(&[
-            ([1; 32], "merge_8_1.key"),
+            ([1; 32], "merge_24_1.key"),
             ([2; 32], "transfer_ring_2_2.key"),
         ])
     }
@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(
             check_markers(&markers, &known, &Required::ShieldedPool(&known)),
             vec![
-                format!("merge_8_1.key (proving key {ones}) is an insecure test setup"),
+                format!("merge_24_1.key (proving key {ones}) is an insecure test setup"),
                 format!("verifying key for proving key {nines} is not one of this build's"),
                 "transfer_ring_2_2.key is missing from the program".to_string(),
             ]
@@ -464,14 +464,14 @@ mod tests {
         let take = hex::encode([8u8; 32]);
         let merge = hex::encode([1u8; 32]);
         let manifest = format!(
-            "{make}  make_pk.bin\n{make_vk}  make_vk.bin\n\n{take} *build/gnark/take/pk.bin\n{merge}  merge_8_1.key\n"
+            "{make}  make_pk.bin\n{make_vk}  make_vk.bin\n\n{take} *build/gnark/take/pk.bin\n{merge}  merge_24_1.key\n"
         );
         assert_eq!(
             parse_key_manifest(&manifest).expect("manifest"),
             keys(&[
                 ([7; 32], "make_pk.bin"),
                 ([8; 32], "build/gnark/take/pk.bin"),
-                ([1; 32], "merge_8_1.key"),
+                ([1; 32], "merge_24_1.key"),
             ])
         );
     }
@@ -601,7 +601,7 @@ mod tests {
             [
                 format!(
                     "{:<34} insecure_test_setup=false proving_key_sha256={}",
-                    "merge_8_1.key",
+                    "merge_24_1.key",
                     hex::encode([1u8; 32])
                 ),
                 format!(

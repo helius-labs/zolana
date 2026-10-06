@@ -135,7 +135,7 @@ fn main() -> Result<()> {
             ConfidentialTransaction::new(vec![transfer_utxo.clone()], sender.pubkey())?
                 .with_output_tree_id(tree_id)?;
         transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
-        transfer.pad_utxos(Shape::IN2_OUT3, &sender_shielded_address)?;
+        transfer.pad_utxos(Shape::IN2_OUT4, &sender_shielded_address)?;
         // 4. Encrypt each output for its owner.
         let proof_inputs = transfer.encrypt(&sender)?;
 

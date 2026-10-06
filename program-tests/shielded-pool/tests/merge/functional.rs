@@ -18,14 +18,14 @@ use zolana_test_utils::nullifier_pda::{
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
-const MERGE_8_CU_CEILING: u64 = 420_000;
+const MERGE_24_CU_CEILING: u64 = 300_000;
 
-const MERGE_36_CU_CEILING: u64 = 1_000_000;
+const MERGE_51_CU_CEILING: u64 = 450_000;
 
 fn merge_cu_ceiling(input_count: usize) -> u64 {
     match input_count {
-        8 => MERGE_8_CU_CEILING,
-        36 => MERGE_36_CU_CEILING,
+        24 => MERGE_24_CU_CEILING,
+        51 => MERGE_51_CU_CEILING,
         other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
     }
 }
@@ -35,7 +35,10 @@ fn merge_cu_ceiling(input_count: usize) -> u64 {
 /// inputs, and the width follows from their count.
 #[test]
 fn merge_with_compact_padding_spends_only_the_real_inputs() {
-    for (input_count, real_input_count) in [(MERGE_DEFAULT_INPUT_COUNT, 3), (MAX_MERGE_INPUTS, 9)] {
+    for (input_count, real_input_count) in [
+        (MERGE_DEFAULT_INPUT_COUNT, 3),
+        (MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT + 1),
+    ] {
         let mut pool = proof_env();
         let tree = pool.tree;
         let merge = RealMergeProof {
