@@ -138,3 +138,38 @@ applies to every subscribing ring as soon as the entry is added.
 - The ring authority points each list at its own entries or at a curator, and
   can switch later without changing the policy.
 - A subscribing ring trusts every entry its curator adds or removes.
+
+## 5. Frozen list
+
+A frozen list holds identities whose funds the ring freezes. A frozen identity
+keeps its balance but can't send or withdraw until the ring authority removes
+the entry. A freeze takes effect as soon as the entry is added.
+
+### What can be checked
+
+- **Sender:** the sender is not on the frozen list. This is the usual use, and
+  the `allowlist` example combines it with an allowlist: an approved sender is
+  still refused while frozen.
+- **Recipients or tokens:** the frozen list can be checked like any other
+  list, though a blocklist usually covers those cases.
+
+### Configuration
+
+- The ring authority adds and removes entries.
+- The list is the ring's own, or one shared by a curator ring.
+- Which checks apply is part of the policy, and only the upgrade authority can
+  change it.
+
+## 6. Asset allowlist
+
+An asset allowlist limits which tokens can move through the ring. A transfer
+or withdrawal of any other token is refused.
+
+### What can be checked
+
+- **Tokens:** every token moved must be on the asset allowlist.
+
+### Configuration
+
+- Approved tokens are entries on a configured allowlist, next to approved
+  identities.
