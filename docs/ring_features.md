@@ -16,9 +16,8 @@ control you can configure and who can change it.
 8. Token volume limits
 9. Permanent delegate
 10. Auditor
-11. Deposit audit
-12. Readers
-13. Pause
+11. Readers
+12. Pause
 
 ## Policy
 
@@ -31,8 +30,8 @@ amounts, recipients or which list entries it used.
 - **Policy:** allowlist, blocklist, frozen list, asset allowlist and sender
   limits. The proof checks these, and only the
   upgrade authority can change them.
-- **Ring settings:** co-signer, token volume limits, deposit audit, readers
-  and pause. The ring program checks these, and the ring authority changes them.
+- **Ring settings:** co-signer, token volume limits, readers and pause. The
+  ring program checks these, and the ring authority changes them.
 
 ### Rules and entries
 
@@ -243,8 +242,8 @@ can't move funds.
 
 - **Transfers and withdrawals:** each one encrypts its details to the auditor,
   and the ring program accepts it only with a proof that it did.
-- **Deposits:** token and amount are public. Recipients are visible only with
-  deposit audit.
+- **Deposits:** token and amount are public, and each deposit proves that its
+  recipient is encrypted to the auditor.
 
 ### Configuration
 
