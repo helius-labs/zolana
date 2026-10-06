@@ -89,14 +89,17 @@ type TestResult<T = ()> = anyhow::Result<T>;
 
 // `#[path]` is required here: this file is the `localnet_photon` test-crate
 // root, so an ordinary `mod cycle;` would resolve against `tests/localnet/`
-// rather than this binary's `photon/` submodule directory. These three modules
-// form one intentional execution suite (the Photon-backed SOL cycle).
+// rather than this binary's `photon/` submodule directory. These modules form
+// one intentional execution suite (the Photon-backed SOL cycle and the reads
+// Photon answers from the validator).
 #[path = "photon/cycle.rs"]
 mod cycle;
 #[path = "photon/encrypted_transfer.rs"]
 mod encrypted_transfer;
 #[path = "photon/forester.rs"]
 mod forester;
+#[path = "photon/user_records.rs"]
+mod user_records;
 
 struct IndexedSpendInputArgs<'a> {
     utxo: &'a Utxo,

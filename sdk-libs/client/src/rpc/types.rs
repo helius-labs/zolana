@@ -6,6 +6,7 @@ use solana_signature::Signature;
 pub use zolana_indexer_api::{
     GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
     GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    MAX_USER_RECORD_OWNERS,
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};

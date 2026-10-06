@@ -64,8 +64,8 @@ pub use rpc::{
     GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
     NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
     RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, Rpc, ShieldedTransaction,
-    ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use spendable::SpendableUtxos;

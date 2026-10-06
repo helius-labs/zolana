@@ -22,5 +22,5 @@ pub use types::{
     GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
     MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult,
     RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    ShieldedTransaction, ShieldedTransactionStream, UserRecord,
+    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
 };
