@@ -6,6 +6,9 @@ The TEE prover is the Go prover in an Intel TDX confidential VM on Phala Cloud. 
 `prover/server/tee` serves the attestation and decrypts encrypted requests. The Rust and TypeScript SDKs verify the attestation and encrypt every call. `testdata` holds the vectors the three implementations share.
 A client that requires a TEE sends a request only after an Intel-signed quote proves which image runs. Only the process that quote measures can read the request.
 
+The same server also runs on the CPU in an AWS Nitro Enclave, deployed with `tools/nitro`, whose guide covers that platform. A policy names its platform, and both SDKs accept either.
+This guide covers the Phala dstack deployment.
+
 ## Threat
 
 A prover request carries the secret inputs of a proof, and the host operator and the Phala gateway handle every request byte outside the CVM.
