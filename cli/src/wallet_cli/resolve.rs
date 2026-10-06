@@ -69,10 +69,7 @@ pub(crate) fn get_network_with_config(
         sync,
         tree,
         prover_url: resolve_prover_url(opts.prover_url.as_deref(), config),
-        prover_tee: opts
-            .prover_tee
-            .then(TeePolicy::default_deployment)
-            .transpose()?,
+        prover_tee: opts.tee.policy()?,
         airdrop_lamports: opts.airdrop_lamports,
     })
 }
@@ -85,7 +82,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::{args::WalletKeypairOptions, cli_config::CONFIG_ENV_LOCK};
+    use crate::{
+        args::{ProverTeeOptions, WalletKeypairOptions},
+        cli_config::CONFIG_ENV_LOCK,
+    };
 
     fn temp_config(tree: Option<&str>) -> String {
         let stamp = SystemTime::now()
@@ -121,7 +121,7 @@ mod tests {
             },
             tree: None,
             prover_url: None,
-            prover_tee: false,
+            tee: ProverTeeOptions::default(),
             airdrop_lamports: None,
         })
         .expect("resolve network");
@@ -141,7 +141,7 @@ mod tests {
             },
             tree: None,
             prover_url: None,
-            prover_tee: false,
+            tee: ProverTeeOptions::default(),
             airdrop_lamports: None,
         })
         .expect("resolve network");
@@ -164,7 +164,7 @@ mod tests {
             },
             tree: Some("So11111111111111111111111111111111111111112".to_string()),
             prover_url: None,
-            prover_tee: false,
+            tee: ProverTeeOptions::default(),
             airdrop_lamports: None,
         })
         .expect("resolve network");

@@ -145,8 +145,9 @@ Added
   VM on Phala dstack under a `DstackTdxPolicy` or an AWS Nitro Enclave under an
   `AwsNitroPolicy` that pins its PCR0 to PCR2.
   Concurrent calls share one attestation. It takes up to three attempts after a
-  transport failure, a 503, or a 429, waiting out its `Retry-After`, and
-  re-attests and resends once when a Nitro enclave lost its key.
+  transport failure, a 503, or a 429. It waits out the `Retry-After` of a 429,
+  in seconds or as an IMF-fixdate. It re-attests and resends once when a Nitro
+  enclave lost its key.
 - `teePolicyFromJson` parses a policy that names its `platform` and refuses
   unknown fields, and `ZolanaClient.attestProver` returns the verified
   `AttestedProver` with its `platform`, HPKE key, `imageId` (the dstack compose

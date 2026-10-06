@@ -456,13 +456,31 @@ it("keeps a concurrent attestation report out of an encrypted request", async ()
 
 describe("attestation retries", () => {
   it("waits only on busy and unavailable answers", () => {
-    expect(attestationRetryDelayMs(429, "3")).toBe(3_000n);
-    expect(attestationRetryDelayMs(429, "86400")).toBe(30_000n);
-    expect(attestationRetryDelayMs(429, "Wed, 21 Oct 2026 07:28:00 GMT")).toBe(2_000n);
-    expect(attestationRetryDelayMs(429, null)).toBe(2_000n);
-    expect(attestationRetryDelayMs(503, null)).toBe(2_000n);
+    const now = Date.parse("Wed, 21 Oct 2026 07:28:00 GMT");
+    const delay = (status: number, retryAfter: string | null) =>
+      attestationRetryDelayMs(status, retryAfter, now);
+    expect(delay(429, "3")).toBe(3_000n);
+    expect(delay(429, "86400")).toBe(30_000n);
+    expect(delay(429, "99999999999999999999999")).toBe(30_000n);
+    expect(delay(429, "Wed, 21 Oct 2026 07:28:10 GMT")).toBe(10_000n);
+    expect(delay(429, "Wed, 21 Oct 2026 07:27:00 GMT")).toBe(0n);
+    expect(delay(429, "Wed, 21 Oct 2026 08:28:00 GMT")).toBe(30_000n);
+    for (const garbage of [
+      "soon",
+      "+3",
+      "-3",
+      "Thu, 21 Oct 2026 07:28:10 GMT",
+      "Wed, 31 Feb 2026 07:28:10 GMT",
+      "Wed, 31 Dec 1969 23:59:59 GMT",
+      "Wednesday, 21-Oct-26 07:28:10 GMT",
+      "Wed Oct 21 07:28:10 2026",
+    ]) {
+      expect(delay(429, garbage)).toBe(2_000n);
+    }
+    expect(delay(429, null)).toBe(2_000n);
+    expect(delay(503, null)).toBe(2_000n);
     for (const status of [400, 401, 404, 500]) {
-      expect(attestationRetryDelayMs(status, null)).toBeUndefined();
+      expect(delay(status, null)).toBeUndefined();
     }
   });
 

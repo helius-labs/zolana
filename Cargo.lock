@@ -11683,6 +11683,7 @@ dependencies = [
  "groth16-solana",
  "hex",
  "hpke",
+ "httpdate",
  "num-bigint 0.4.8",
  "num-traits",
  "p256 0.13.2",

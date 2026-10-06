@@ -6,10 +6,10 @@ use std::{
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
-use reqwest::header::{HeaderValue, RETRY_AFTER};
+use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::redirect::Policy;
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
@@ -451,7 +451,7 @@ impl ProverClient {
             };
             let status = response.status();
             if let Some(delay) =
-                attestation_retry_delay(status, response.headers().get(RETRY_AFTER))
+                attestation_retry_delay(status, retry_after(response.headers(), SystemTime::now()))
                     .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
             {
                 drop(response);
@@ -851,22 +851,30 @@ fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKey
 const INITIAL_POLL_MS: u64 = 25;
 
 /// The wait before retrying an attestation answer, `None` for a final one.
-fn attestation_retry_delay(
-    status: StatusCode,
-    retry_after: Option<&HeaderValue>,
-) -> Option<Duration> {
+fn attestation_retry_delay(status: StatusCode, retry_after: Option<Duration>) -> Option<Duration> {
     let backoff = Duration::from_secs(PROVE_RETRY_BACKOFF_SECS);
     match status {
-        StatusCode::TOO_MANY_REQUESTS => Some(
-            retry_after
-                .and_then(|value| value.to_str().ok()?.trim().parse::<u64>().ok())
-                .map_or(backoff, |secs| {
-                    Duration::from_secs(secs.min(ATTESTATION_RETRY_AFTER_CAP_SECS))
-                }),
-        ),
+        StatusCode::TOO_MANY_REQUESTS => Some(retry_after.unwrap_or(backoff)),
         StatusCode::SERVICE_UNAVAILABLE => Some(backoff),
         _ => None,
     }
+}
+
+/// `Retry-After` as delay seconds or an IMF-fixdate, capped, `None` for any other value.
+fn retry_after(headers: &HeaderMap, now: SystemTime) -> Option<Duration> {
+    let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
+    let delay = if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        // All digits, so only an overflow fails to parse.
+        Duration::from_secs(value.parse().unwrap_or(u64::MAX))
+    } else {
+        let date = httpdate::parse_http_date(value).ok()?;
+        // Refuses the obsolete date forms, as the TS SDK does.
+        if httpdate::fmt_http_date(date) != value {
+            return None;
+        }
+        date.duration_since(now).unwrap_or_default()
+    };
+    Some(delay.min(Duration::from_secs(ATTESTATION_RETRY_AFTER_CAP_SECS)))
 }
 
 fn attestation_unreachable(attempts: usize, error: reqwest::Error) -> ClientError {
@@ -1161,7 +1169,7 @@ impl AsyncProverClient {
             };
             let status = response.status();
             if let Some(delay) =
-                attestation_retry_delay(status, response.headers().get(RETRY_AFTER))
+                attestation_retry_delay(status, retry_after(response.headers(), SystemTime::now()))
                     .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
             {
                 drop(response);
@@ -1555,6 +1563,7 @@ mod tests {
         thread,
     };
 
+    use reqwest::header::HeaderValue;
     use serde_json::{json, Value};
 
     use super::super::indexed::IndexedProofRequest;
@@ -1762,24 +1771,51 @@ mod tests {
     #[test]
     fn attestation_retries_only_busy_and_unavailable_answers() {
         let backoff = Some(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
-        let header = HeaderValue::from_static;
-        let delay = |status, value: Option<HeaderValue>| {
-            attestation_retry_delay(StatusCode::from_u16(status).unwrap(), value.as_ref())
+        let delay = |status, retry_after| {
+            attestation_retry_delay(StatusCode::from_u16(status).unwrap(), retry_after)
         };
-        assert_eq!(delay(429, Some(header("3"))), Some(Duration::from_secs(3)));
         assert_eq!(
-            delay(429, Some(header("86400"))),
-            Some(Duration::from_secs(ATTESTATION_RETRY_AFTER_CAP_SECS))
-        );
-        assert_eq!(
-            delay(429, Some(header("Wed, 21 Oct 2026 07:28:00 GMT"))),
-            backoff
+            delay(429, Some(Duration::from_secs(3))),
+            Some(Duration::from_secs(3))
         );
         assert_eq!(delay(429, None), backoff);
-        assert_eq!(delay(503, None), backoff);
+        assert_eq!(delay(503, Some(Duration::from_secs(3))), backoff);
         for status in [200, 400, 401, 404, 500] {
             assert_eq!(delay(status, None), None, "{status}");
         }
+    }
+
+    #[test]
+    fn retry_after_takes_delay_seconds_or_an_imf_fixdate() {
+        let now = httpdate::parse_http_date("Wed, 21 Oct 2026 07:28:00 GMT").unwrap();
+        let cap = Some(Duration::from_secs(ATTESTATION_RETRY_AFTER_CAP_SECS));
+        let parse = |value: &'static str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(RETRY_AFTER, HeaderValue::from_static(value));
+            retry_after(&headers, now)
+        };
+        assert_eq!(parse("3"), Some(Duration::from_secs(3)));
+        assert_eq!(parse("86400"), cap);
+        assert_eq!(parse("99999999999999999999999"), cap);
+        assert_eq!(
+            parse("Wed, 21 Oct 2026 07:28:10 GMT"),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(parse("Wed, 21 Oct 2026 07:27:00 GMT"), Some(Duration::ZERO));
+        assert_eq!(parse("Wed, 21 Oct 2026 08:28:00 GMT"), cap);
+        for garbage in [
+            "soon",
+            "+3",
+            "-3",
+            "Thu, 21 Oct 2026 07:28:10 GMT",
+            "Wed, 31 Feb 2026 07:28:10 GMT",
+            "Wed, 31 Dec 1969 23:59:59 GMT",
+            "Wednesday, 21-Oct-26 07:28:10 GMT",
+            "Wed Oct 21 07:28:10 2026",
+        ] {
+            assert_eq!(parse(garbage), None, "{garbage}");
+        }
+        assert_eq!(retry_after(&HeaderMap::new(), now), None);
     }
 
     #[test]

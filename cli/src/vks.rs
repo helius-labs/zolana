@@ -16,7 +16,7 @@ use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoa
 use solana_loader_v4_interface::state::LoaderV4State;
 use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4};
 use zolana_client::{
-    prover::{known_proving_keys, redact_api_key, tee::TeePolicy},
+    prover::{known_proving_keys, redact_api_key},
     ProverClient, Rpc, SolanaRpc,
 };
 use zolana_interface::PROGRAM_ID_PUBKEY;
@@ -107,8 +107,8 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
         // proves with exactly the keys the program verifies against.
         let shown = redact_api_key(&prover_url);
         let mut prover = ProverClient::new(prover_url);
-        if opts.prover_tee {
-            prover = prover.with_tee(TeePolicy::default_deployment()?);
+        if let Some(policy) = opts.tee.policy()? {
+            prover = prover.with_tee(policy);
             let attested = prover
                 .attest()
                 .with_context(|| format!("prover {shown} failed TEE attestation"))?;
@@ -340,6 +340,7 @@ fn check_markers(markers: &[SetupTxt], names: &KeyNames, required: &Required) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::args::ProverTeeOptions;
 
     fn marker(sha256: [u8; 32], insecure_test_setup: bool) -> SetupTxt {
         SetupTxt {
@@ -379,7 +380,7 @@ mod tests {
             shielded_pool,
             expect: expect.map(std::path::PathBuf::from),
             prover_url: prover_url.map(str::to_string),
-            prover_tee: false,
+            tee: ProverTeeOptions::default(),
         }
     }
 

@@ -1,5 +1,6 @@
-use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
-use zolana_client::prover::PROVER_INDEXER_URL_ENV;
+use anyhow::{Context, Result};
+use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use zolana_client::prover::{tee::TeePolicy, PROVER_INDEXER_URL_ENV};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -139,6 +140,12 @@ pub(crate) struct VksSourceOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
+#[command(group(
+    ArgGroup::new("vks_prover_tee")
+        .args(["prover_tee", "prover_tee_policy"])
+        .multiple(true)
+        .requires("prover_url")
+))]
 pub(crate) struct VksCheckOptions {
     #[command(flatten)]
     pub(crate) source: VksSourceOptions,
@@ -163,13 +170,42 @@ pub(crate) struct VksCheckOptions {
     )]
     pub(crate) prover_url: Option<String>,
 
+    #[command(flatten)]
+    pub(crate) tee: ProverTeeOptions,
+}
+
+#[derive(Args, Debug, Clone, Default, PartialEq)]
+pub(crate) struct ProverTeeOptions {
     #[arg(
         long = "prover-tee",
-        requires = "prover_url",
         env = "ZOLANA_PROVER_TEE",
-        help = "Also require that prover to attest to the TEE deployment this release pins"
+        help = "Require the prover to attest to the TEE deployment this release pins"
     )]
     pub(crate) prover_tee: bool,
+
+    #[arg(
+        long = "prover-tee-policy",
+        value_name = "FILE",
+        env = "ZOLANA_PROVER_TEE_POLICY",
+        help = "Require the prover to attest to the TEE policy in FILE, bare or as a {\"deployment\": ...} pin file (implies --prover-tee, wins over the release pin)"
+    )]
+    pub(crate) prover_tee_policy: Option<std::path::PathBuf>,
+}
+
+impl ProverTeeOptions {
+    pub(crate) fn policy(&self) -> Result<Option<TeePolicy>> {
+        match &self.prover_tee_policy {
+            Some(path) => {
+                let json = std::fs::read_to_string(path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                TeePolicy::from_file_json(&json)
+                    .map(Some)
+                    .with_context(|| format!("policy {}", path.display()))
+            }
+            None if self.prover_tee => Ok(Some(TeePolicy::default_deployment()?)),
+            None => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -624,12 +660,8 @@ pub(crate) struct NetworkWalletOptions {
     )]
     pub(crate) prover_url: Option<String>,
 
-    #[arg(
-        long = "prover-tee",
-        env = "ZOLANA_PROVER_TEE",
-        help = "Prove only on a prover that attests to the TEE deployment this release pins"
-    )]
-    pub(crate) prover_tee: bool,
+    #[command(flatten)]
+    pub(crate) tee: ProverTeeOptions,
 
     #[arg(
         long = "airdrop-lamports",
@@ -976,6 +1008,7 @@ pub(crate) fn parse_wallet(values: &[&str]) -> WalletCommand {
 #[cfg(test)]
 mod tests {
     use clap::CommandFactory;
+    use zolana_client::prover::tee::TeeError;
 
     use super::*;
 
@@ -1512,7 +1545,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
-                prover_tee: false,
+                tee: ProverTeeOptions::default(),
                 airdrop_lamports: None,
             },
             mint: "SOL".to_string(),
@@ -1617,7 +1650,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
-                prover_tee: false,
+                tee: ProverTeeOptions::default(),
                 airdrop_lamports: None,
             },
             mint: "SOL".to_string(),
@@ -1680,7 +1713,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
-                prover_tee: false,
+                tee: ProverTeeOptions::default(),
                 airdrop_lamports: Some(2_000_000_000),
             },
             to: Some("Recipient1111111111111111111111111111111111".to_string()),
@@ -1713,7 +1746,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
-                prover_tee: false,
+                tee: ProverTeeOptions::default(),
                 airdrop_lamports: None,
             },
             to: None,
@@ -1752,7 +1785,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: Some("http://127.0.0.1:3002".to_string()),
-                prover_tee: false,
+                tee: ProverTeeOptions::default(),
                 airdrop_lamports: None,
             },
             to: "Recipient1111111111111111111111111111111111".to_string(),
@@ -1789,7 +1822,7 @@ mod tests {
                 },
                 tree: Some("Tree111111111111111111111111111111111111111".to_string()),
                 prover_url: None,
-                prover_tee: false,
+                tee: ProverTeeOptions::default(),
                 airdrop_lamports: None,
             },
             to: "Dest1111111111111111111111111111111111111111".to_string(),
@@ -1797,5 +1830,119 @@ mod tests {
             amount: 200_000_000,
         };
         assert_eq!(withdraw, expected);
+    }
+
+    const PROBE_POLICY: &str = include_str!("../../prover/tee/testdata/probe_policy.json");
+
+    fn policy_file(name: &str, json: &str) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("zolana-cli-tee-{}-{name}.json", std::process::id()));
+        std::fs::write(&path, json).expect("write policy");
+        path
+    }
+
+    #[test]
+    fn prover_tee_flags_parse_on_wallet_and_vks_commands() {
+        let Some(CliCommand::Merge(opts)) = parse_cli(&[
+            "merge",
+            "--mint",
+            "SOL",
+            "--prover-tee",
+            "--prover-tee-policy",
+            "/tmp/policy.json",
+        ])
+        .command
+        else {
+            panic!("expected merge command");
+        };
+        assert_eq!(
+            opts.network.tee,
+            ProverTeeOptions {
+                prover_tee: true,
+                prover_tee_policy: Some("/tmp/policy.json".into()),
+            }
+        );
+
+        let Some(CliCommand::Vks {
+            command: VksCommand::Check(opts),
+        }) = parse_cli(&[
+            "vks",
+            "check",
+            "--so",
+            "/tmp/program.so",
+            "--prover-url",
+            "http://127.0.0.1:3001",
+            "--prover-tee-policy",
+            "/tmp/policy.json",
+        ])
+        .command
+        else {
+            panic!("expected vks check command");
+        };
+        assert_eq!(opts.tee.prover_tee_policy, Some("/tmp/policy.json".into()));
+
+        for flag in ["--prover-tee", "--prover-tee-policy=/tmp/policy.json"] {
+            let error =
+                Cli::try_parse_from(["zolana", "vks", "check", "--so", "/tmp/program.so", flag])
+                    .expect_err(flag);
+            assert_eq!(
+                error.kind(),
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "{flag}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_policy_file_implies_tee_and_wins_over_the_release_pin() {
+        let bare = TeePolicy::from_json(PROBE_POLICY).expect("probe policy");
+        let pinned = format!(r#"{{"deployment":{PROBE_POLICY}}}"#);
+        for (name, json) in [("bare", PROBE_POLICY), ("pinned", pinned.as_str())] {
+            let path = policy_file(name, json);
+            for prover_tee in [false, true] {
+                let tee = ProverTeeOptions {
+                    prover_tee,
+                    prover_tee_policy: Some(path.clone()),
+                };
+                assert_eq!(tee.policy().expect(name), Some(bare.clone()), "{name}");
+            }
+            std::fs::remove_file(path).expect("remove policy");
+        }
+
+        let path = policy_file("unpinned", r#"{"deployment":null}"#);
+        let error = ProverTeeOptions {
+            prover_tee: false,
+            prover_tee_policy: Some(path.clone()),
+        }
+        .policy()
+        .expect_err("unpinned file");
+        std::fs::remove_file(path).expect("remove policy");
+        assert!(
+            format!("{error:#}").contains("pins no deployment"),
+            "{error:#}"
+        );
+
+        assert_eq!(ProverTeeOptions::default().policy().expect("no tee"), None);
+    }
+
+    #[test]
+    fn prover_tee_alone_takes_only_the_release_pin() {
+        let tee = ProverTeeOptions {
+            prover_tee: true,
+            prover_tee_policy: None,
+        };
+        match TeePolicy::default_deployment() {
+            Err(TeeError::NoDefaultDeployment) => {
+                let error = tee.policy().expect_err("unpinned release");
+                assert!(
+                    matches!(
+                        error.downcast_ref::<TeeError>(),
+                        Some(TeeError::NoDefaultDeployment)
+                    ),
+                    "{error:#}"
+                );
+            }
+            pinned => assert_eq!(tee.policy().expect("pinned release"), pinned.ok()),
+        }
     }
 }

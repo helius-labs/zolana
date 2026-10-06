@@ -74,6 +74,19 @@ impl TeePolicy {
         serde_json::from_str(json).map_err(|e| TeeError::Policy(e.to_string()))
     }
 
+    /// A [`TeePolicyFile`] pin or a bare policy.
+    pub fn from_file_json(json: &str) -> Result<Self, TeeError> {
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| TeeError::Policy(e.to_string()))?;
+        if value.get("deployment").is_none() {
+            return serde_json::from_value(value).map_err(|e| TeeError::Policy(e.to_string()));
+        }
+        serde_json::from_value::<TeePolicyFile>(value)
+            .map_err(|e| TeeError::Policy(format!("pin file {e}")))?
+            .deployment
+            .ok_or_else(|| TeeError::Policy("the pin file pins no deployment".to_string()))
+    }
+
     pub fn platform(&self) -> Platform {
         self.pins.platform()
     }

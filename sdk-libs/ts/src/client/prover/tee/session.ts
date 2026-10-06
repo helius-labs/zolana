@@ -131,7 +131,11 @@ export class TeeSession {
         if (!response.ok) {
           delay =
             attempt < MAX_ATTEMPTS
-              ? attestationRetryDelayMs(response.status, response.headers.get("retry-after"))
+              ? attestationRetryDelayMs(
+                  response.status,
+                  response.headers.get("retry-after"),
+                  Date.now(),
+                )
               : undefined;
           await response.body?.cancel();
           if (delay === undefined) throw refused("unavailable");

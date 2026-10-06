@@ -245,7 +245,31 @@ fn every_parse_path_refuses_a_gpu_the_platform_cannot_attest() {
     ));
     assert!(serde_json::from_value::<TeePolicy>(policy.clone()).is_err());
     let file = serde_json::json!({ "deployment": policy });
-    assert!(serde_json::from_value::<TeePolicyFile>(file).is_err());
+    assert!(serde_json::from_value::<TeePolicyFile>(file.clone()).is_err());
+    for json in [policy.to_string(), file.to_string()] {
+        assert!(matches!(
+            TeePolicy::from_file_json(&json),
+            Err(TeeError::Policy(_))
+        ));
+    }
+}
+
+#[test]
+fn a_policy_file_is_a_pin_file_or_a_bare_policy() {
+    let bare = TeePolicy::from_file_json(PROBE_POLICY).unwrap();
+    let pinned = TeePolicy::from_file_json(&format!(r#"{{"deployment":{PROBE_POLICY}}}"#)).unwrap();
+    assert_eq!(bare, pinned);
+    assert_eq!(bare, TeePolicy::from_json(PROBE_POLICY).unwrap());
+
+    let refusal = |json: &str| match TeePolicy::from_file_json(json) {
+        Err(TeeError::Policy(reason)) => reason,
+        other => panic!("{json} gave {other:?}"),
+    };
+    assert!(refusal(r#"{"deployment":null}"#).contains("pins no deployment"));
+    let typo = r#"{"deployment":{"platform":"aws-nitro","measurements":7}}"#;
+    assert!(refusal(typo).starts_with("pin file"));
+    assert!(refusal(&PROBE_POLICY.replacen("\"gpu\"", "\"gpus\"", 1)).contains("`gpu"));
+    refusal("not json");
 }
 
 #[derive(Deserialize)]

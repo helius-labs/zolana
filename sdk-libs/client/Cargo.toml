@@ -41,6 +41,7 @@ coset = { workspace = true }
 dcap-qvl = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 hpke = { workspace = true }
+httpdate = { workspace = true }
 p384 = { workspace = true }
 rand_core = { workspace = true }
 sha2 = { workspace = true }
