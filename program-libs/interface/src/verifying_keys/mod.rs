@@ -61,6 +61,8 @@ pub mod transfer_confidential_40_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_48_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_49_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_16;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_2;
@@ -68,8 +70,6 @@ pub mod transfer_confidential_4_2;
 pub mod transfer_confidential_4_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_8;
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_51_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_5_16;
 #[cfg(feature = "verifying-keys")]
@@ -137,6 +137,8 @@ pub mod transfer_p256_ring_40_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_48_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_49_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_16;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_2;
@@ -144,8 +146,6 @@ pub mod transfer_p256_ring_4_2;
 pub mod transfer_p256_ring_4_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_8;
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_p256_ring_51_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_5_16;
 #[cfg(feature = "verifying-keys")]
@@ -213,6 +213,8 @@ pub mod transfer_ring_40_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_48_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_49_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_16;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_2;
@@ -220,8 +222,6 @@ pub mod transfer_ring_4_2;
 pub mod transfer_ring_4_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_8;
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_ring_51_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_5_16;
 #[cfg(feature = "verifying-keys")]
@@ -358,6 +358,10 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         transfer_confidential_48_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "transfer_confidential_49_2.key",
+        transfer_confidential_49_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "transfer_confidential_4_16.key",
         transfer_confidential_4_16::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
@@ -372,10 +376,6 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "transfer_confidential_4_8.key",
         transfer_confidential_4_8::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "transfer_confidential_51_2.key",
-        transfer_confidential_51_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_confidential_5_16.key",
@@ -510,6 +510,10 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         transfer_p256_ring_48_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "transfer_p256_ring_49_2.key",
+        transfer_p256_ring_49_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "transfer_p256_ring_4_16.key",
         transfer_p256_ring_4_16::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
@@ -524,10 +528,6 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "transfer_p256_ring_4_8.key",
         transfer_p256_ring_4_8::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "transfer_p256_ring_51_2.key",
-        transfer_p256_ring_51_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_p256_ring_5_16.key",
@@ -662,6 +662,10 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         transfer_ring_48_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "transfer_ring_49_2.key",
+        transfer_ring_49_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "transfer_ring_4_16.key",
         transfer_ring_4_16::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
@@ -676,10 +680,6 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "transfer_ring_4_8.key",
         transfer_ring_4_8::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "transfer_ring_51_2.key",
-        transfer_ring_51_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_ring_5_16.key",

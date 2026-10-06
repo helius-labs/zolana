@@ -1082,7 +1082,7 @@ input_flags = allow_dummy_inputs                  (bit 0)
 ```
 
 The element is `1 + 3 * n_inputs` bits wide, so the widest supported shape
-(51 inputs) uses 154 of the 254 available bits. The circuit decomposes it to exactly that width,
+(49 inputs) uses 148 of the 254 available bits. The circuit decomposes it to exactly that width,
 which range-checks the element, reads bit 0 as the dummy policy, and asserts
 each input's private `tree_slot` equals its three-bit group. `allow_dummy_inputs`
 is the conjunction over every input tree of that tree's remaining-capacity gate
@@ -1276,7 +1276,7 @@ its nullifier PDA. Owner signers are ordinary accounts, so at most
 `64 - 4 - n_inputs` of them can exist; the transaction signature cap does not
 bound them because PDA owners sign through CPI. The width is that bound capped
 by the input count: `n_inputs + 1` for every shape up to 24 inputs, then 29
-for `32x2`, 21 for `40x2`, 13 for `48x2` and 10 for `51x2`. `MAX_SIGNERS` is
+for `32x2`, 21 for `40x2`, 13 for `48x2` and 12 for `49x2`. `MAX_SIGNERS` is
 reached at `32x2`, not at the widest shape.
 
 Declaring more than one `tree_contexts` entry spends one further address per
@@ -1331,20 +1331,20 @@ this grid are rejected.
 
 | Outputs | Input counts |
 | --- | --- |
-| 2 | 1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 51 |
+| 2 | 1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 49 |
 | 4 | 1, 2, 3, 4, 5, 6, 8, 12, 16, 24 |
 | 8 | 1, 2, 3, 4, 5, 6, 8, 12, 16 |
 | 16 | 1, 2, 4, 5, 8 |
 
 ```
-MAX_TRANSACT_INPUTS = 51   // widest input count, 51x2
+MAX_TRANSACT_INPUTS = 49   // widest input count, 49x2
 MAX_OUTPUTS         = 16   // widest output count, 1x16 .. 8x16
 ```
 
 `SPP_SUPPORTED_SHAPES` (`program-libs/interface/src/shape.rs`) lists the grid
 in proving-cost order: 1x2, 1x4, 1x8, 2x2, 2x4, 1x16, 2x8, 3x2, 3x4, 2x16, 3x8,
 4x2, 4x4, 4x8, 5x2, 5x4, 4x16, 5x8, 6x2, 6x4, 5x16, 6x8, 8x2, 8x4, 8x8, 8x16,
-12x2, 12x4, 12x8, 16x2, 16x4, 16x8, 24x2, 24x4, 32x2, 40x2, 48x2, 51x2. A
+12x2, 12x4, 12x8, 16x2, 16x4, 16x8, 24x2, 24x4, 32x2, 40x2, 48x2, 49x2. A
 client that does not declare a shape takes the first entry with at least as
 many inputs and outputs as the transaction has, so automatic selection can
 reach every shape. A transaction smaller than its shape fills the remaining
@@ -1803,8 +1803,8 @@ maximum. Every transaction has to fit the 4,096-byte transaction v1 limit.
 Complete builder layouts, with one writable nullifier PDA per input, one input
 tree also used for outputs, no extra owner signers, and no public legs. A
 compact row sends fewer slots than its circuit has and fills the rest with
-[compact padding](#compact-padding). The `51x2 compact` rows carry the most
-real inputs that fit. Ring rows are the bare SPP instruction with every output
+[compact padding](#compact-padding). The ring `49x2 compact` rows carry the
+most real inputs that fit. Ring rows are the bare SPP instruction with every output
 in the ring (a 121-byte ciphertext, the plaintext names the ring program); a
 ring program's own wrapper around the CPI adds to them. OVER marks a layout
 that misses the 4,096-byte limit:
@@ -1817,9 +1817,8 @@ that misses the 4,096-byte limit:
 | Transact 24 in 4 out | 1687 | 2730 | 28 |
 | Transact 16 in 8 out | 2051 | 2830 | 20 |
 | Transact 8 in 16 out | 3043 | 3558 | 12 |
-| Transact 51 in 2 out | 2264 | 4198 OVER | 55 |
-| Transact 49 in 2 out, 51x2 compact | 2198 | 4066 | 53 |
-| Transact 9 in 2 out, 51x2 compact | 878 | 1426 | 13 |
+| Transact 49 in 2 out | 2198 | 4066 | 53 |
+| Transact 9 in 2 out, 49x2 compact | 878 | 1426 | 13 |
 | Transact 1 in 3 out, 2x4 compact | 771 | 1055 | 5 |
 | Ring transact EdDSA 24 in 4 out | 1815 | 2923 | 30 |
 | Ring transact P256 24 in 4 out | 1912 | 3020 | 30 |
@@ -1827,10 +1826,10 @@ that misses the 4,096-byte limit:
 | Ring transact P256 16 in 8 out | 2404 | 3248 | 22 |
 | Ring transact EdDSA 8 in 16 out | 3555 | 4135 OVER | 14 |
 | Ring transact P256 8 in 16 out | 3652 | 4232 OVER | 14 |
-| Ring transact EdDSA 51 in 2 out | 2328 | 4327 OVER | 57 |
-| Ring transact P256 51 in 2 out | 2425 | 4424 OVER | 57 |
-| Ring transact EdDSA 47 in 2 out, 51x2 compact | 2196 | 4063 | 53 |
-| Ring transact P256 46 in 2 out, 51x2 compact | 2260 | 4094 | 52 |
+| Ring transact EdDSA 49 in 2 out | 2262 | 4195 OVER | 55 |
+| Ring transact P256 49 in 2 out | 2359 | 4292 OVER | 55 |
+| Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
+| Ring transact P256 46 in 2 out, 49x2 compact | 2260 | 4094 | 52 |
 | Merge 24 in 1 out, direct | 1040 | 2212 | 30 |
 | Merge 24 in 1 out, execute_sync | 1090 | 2264 | 32 |
 | Ring merge 24 in 1 out | 1072 | 2180 | 30 |
@@ -1855,11 +1854,11 @@ inputs and outputs that fit 4,096 bytes:
 
 | Transaction | real inputs | compute units |
 | --- | --- | --- |
-| Confidential EdDSA 51x2 | 49 | 309,168 |
-| Ring EdDSA 51x2 | 48 | 310,233 |
-| Ring P256 51x2 | 45 | 361,490 |
-| Merge 51x1, direct | 51 | 296,612 |
-| Ring merge 51x1 | 51 | 301,037 |
+| Confidential EdDSA 49x2 | 49 | 305,340 |
+| Ring EdDSA 49x2 | 48 | 314,442 |
+| Ring P256 49x2 | 45 | 356,230 |
+| Merge 51x1, direct | 51 | 289,051 |
+| Ring merge 51x1 | 51 | 300,275 |
 
 24x4, 16x8 and 8x16 confirm with every slot real on every rail, except ring
 P256 8x16, which fits 15 real outputs. The 51-input merges take 3,871 bytes

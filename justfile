@@ -1157,7 +1157,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --no-capture
 
-# Confirm the widest transact shape of every output count (51x2, 24x4, 16x8,
+# Confirm the widest transact shape of every output count (49x2, 24x4, 16x8,
 # 8x16) on the confidential, ring EdDSA and ring P256 rails, and the 51-input
 # plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
 # Prints each transaction's bytes and compute units.

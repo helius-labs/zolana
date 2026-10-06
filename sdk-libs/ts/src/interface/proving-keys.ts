@@ -71,6 +71,8 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "530779155340a05cbd90dedc5e94c5960cf5105f2866bdb041e3a56d06c9bb8b",
   "transfer_confidential_48_2.key":
     "4738674f40f19233f1963954ae4f96a763d11f1adcd82b4828ca8c420cc5b049",
+  "transfer_confidential_49_2.key":
+    "e39b30ba966198a03158276989d91f1b2fb05f695e56550fec6452d8a3110b6b",
   "transfer_confidential_4_16.key":
     "917cf5f0976d245b08756b1147e04a1f0924c5f5b800d57bd57d305b43e8f432",
   "transfer_confidential_4_2.key":
@@ -79,8 +81,6 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "6d83eef0b16f03b8f2b2a469441d67264bc34932d8b261f344f5bb39f29a1fbe",
   "transfer_confidential_4_8.key":
     "27fe418512ee0be5cb2f82290eab4ab20ed2d32549e1d8d7bfa1fa5b45df62e9",
-  "transfer_confidential_51_2.key":
-    "14722ac88cff250d9ad531968270e6d49e2d3b86b0342f1aaec7c5c5dad6dd0e",
   "transfer_confidential_5_16.key":
     "1faf95183f53bd29610ebda52703244ef63f45a2d26706e88bfd3197132bc20e",
   "transfer_confidential_5_2.key":
@@ -125,11 +125,11 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "transfer_p256_ring_3_8.key": "3ba521af6d506dea9793fc1378699d61175b7ab14b868a6af4344d0a4abff750",
   "transfer_p256_ring_40_2.key": "7594d32e4bf024e4a18cf938caa88b8b5f60dea7fe6d99a2682ecfc1e14e3a70",
   "transfer_p256_ring_48_2.key": "e6fa77512731608b79327f1ad81fe2f8ee0e4a615aa33b1374771bd6c73528d6",
+  "transfer_p256_ring_49_2.key": "e74a25733f466566d66a883c863adbe6d431c7f42bd1f9ff1d68fec2deda0d8b",
   "transfer_p256_ring_4_16.key": "63a7718617ffdf1bf7af2e91faed6b4cef2b745cc0dcfc777739fecf37443fc8",
   "transfer_p256_ring_4_2.key": "6601adc669292e0da044f485b025e353d5e3b27d1214dd5422f450183c5b831c",
   "transfer_p256_ring_4_4.key": "65898e81ff7e3968e8adfa67d5e80422461f7b584faa52a835624460cde29b19",
   "transfer_p256_ring_4_8.key": "14ad082bfe16d49e9b72d6f7f64444bd4e58aad358e063455aa0ce9a05997568",
-  "transfer_p256_ring_51_2.key": "091ecb70d0c1bf6ecdb2a31eca9fb582d56b1be28b70e9a4070d716ba4fe7164",
   "transfer_p256_ring_5_16.key": "679de04d7dacc86773559760508dbb1b80de08935215f744f9c2ba2abf338391",
   "transfer_p256_ring_5_2.key": "47b5abb4821233fc164d9864cb668d58397fff0b732c79a725a88bdffd4a05c2",
   "transfer_p256_ring_5_4.key": "386e49050c087dc6de40e997d66063ebbeda7d6dbb3924ed6e46210f378959ff",
@@ -163,11 +163,11 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "transfer_ring_3_8.key": "2a2f4941c7eb9ede177d6f1a25da21ec70f34ed51998f1a1764f43e99f201902",
   "transfer_ring_40_2.key": "a06dc5d1ecfd428173f125caf8410a5fbb26a81861a578b54b681f503442bec8",
   "transfer_ring_48_2.key": "a87040178e05042c7d70b981f3b044b3c22e5c83d23649376ea079e7dd5a8b86",
+  "transfer_ring_49_2.key": "599262efda105b0760acbbc7ff0c7d8f5fd430cb2db643630ffd3f368a7b5ff6",
   "transfer_ring_4_16.key": "b5e68935c95866d90632fdbd60dfbd84a61a5abb420ea0b6e433ae821db51398",
   "transfer_ring_4_2.key": "c49484d014c46fc07aa89ca23945818914d018ffbda5f588b20d907015388d11",
   "transfer_ring_4_4.key": "3a8f3b9782d25a1433c49b9ba0d716fadfa1aaf5bcfadc18ca21cb0c5ee34b49",
   "transfer_ring_4_8.key": "3a136dda18b50e2297c73a69fb588a65c3dd457ac112b1fd3d046a8af15ed8f4",
-  "transfer_ring_51_2.key": "1158ca1deb4c6a0c7b9b84f5e426cc8d0d574a94ea1b5f531208972be8cc7860",
   "transfer_ring_5_16.key": "f17510859f68664f08027ba59466a5a9e9079dc9cdf1ff5cf808a6e0e7842fd6",
   "transfer_ring_5_2.key": "d855517552582ddaf32fc72029321313aa55b626140f00756e623829e68b4240",
   "transfer_ring_5_4.key": "01c10ca4131e0d0f41526d05b91a4ee951582a6a73142d2d50a5de928260fc16",

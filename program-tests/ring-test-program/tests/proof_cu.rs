@@ -11,7 +11,7 @@ use zolana_transaction::SOL_MINT;
 // withdrawal = 150,162; ring-authority 2x2 = 142,468; merge-ring 8 inputs at
 // 24x1 = 202,894. The ceilings date from the wider-costing shapes these
 // replaced (2x3, 1x1 authority, 8x1 merge) and sit 18% to 85% above the
-// current baselines. The 51-input ring merge measures 301,037
+// current baselines. The 51-input ring merge measures 300,275
 // (`max_shapes`).
 const RING_EDDSA_TRANSACTION_CU_LIMIT: u64 = 196_000;
 const RING_WITHDRAWAL_CU_LIMIT: u64 = 199_000;

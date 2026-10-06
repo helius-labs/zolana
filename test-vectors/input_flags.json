@@ -258,7 +258,7 @@
       "input_flags_decimal": "510423550381407695195061911147652317185"
     },
     {
-      "name": "fifty_one_inputs_every_slot",
+      "name": "forty_nine_inputs_every_slot",
       "allow_dummy_inputs": true,
       "tree_indexes": [
         0,
@@ -309,15 +309,13 @@
         0,
         1,
         2,
-        3,
-        4,
-        0
+        3
       ],
-      "input_flags": "0000000000000000000000000046888d111a2234446888d111a2234446888d11",
-      "input_flags_decimal": "1572947437330168255402594773057044232461126929"
+      "input_flags": "0000000000000000000000000006888d111a2234446888d111a2234446888d11",
+      "input_flags_decimal": "145699744624208374344308803607549096078380305"
     },
     {
-      "name": "fifty_one_inputs_last_slot",
+      "name": "forty_nine_inputs_last_slot",
       "allow_dummy_inputs": false,
       "tree_indexes": [
         0,
@@ -368,12 +366,10 @@
         0,
         0,
         0,
-        0,
-        0,
         4
       ],
-      "input_flags": "0000000000000000000000000200000000000000000000000000000000000000",
-      "input_flags_decimal": "11417981541647679048466287755595961091061972992"
+      "input_flags": "0000000000000000000000000008000000000000000000000000000000000000",
+      "input_flags_decimal": "178405961588244985132285746181186892047843328"
     }
   ]
 }

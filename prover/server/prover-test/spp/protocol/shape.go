@@ -75,7 +75,7 @@ var SupportedShapes = []Shape{
 	{NInputs: 32, NOutputs: 2},
 	{NInputs: 40, NOutputs: 2},
 	{NInputs: 48, NOutputs: 2},
-	{NInputs: 51, NOutputs: 2},
+	{NInputs: 49, NOutputs: 2},
 }
 
 // AutoShapes is the smallest-fit search order. Every supported shape is

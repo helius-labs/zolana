@@ -1309,7 +1309,7 @@ const maxSyncProofTimeout = 5 * time.Minute
 
 // Every transfer, merge and custom-ring key loads lazily on its first request,
 // downloading it first when it is not on disk, so the sync bound covers that
-// load. A cold 51-input key is ~400 MB and its load alone outlasts a bound
+// load. A cold 49-input key is ~400 MB and its load alone outlasts a bound
 // sized for the proof.
 func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
 	if circuitType.IsRing() || isTransferCircuit(circuitType) {

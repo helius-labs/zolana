@@ -308,7 +308,7 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
         .map(|t| SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 1, t as u16, t as u8)))
         .collect();
     error(
-        pad_input_utxos(&mut many, Shape::IN51_OUT2),
+        pad_input_utxos(&mut many, Shape::IN49_OUT2),
         E::TooManyInputTrees {
             got: MAX_INPUT_TREES + 1,
             max: MAX_INPUT_TREES,
@@ -357,7 +357,7 @@ fn shape_selection_boundaries_and_explicit_declaration() {
         Shape::IN32_OUT2,
         Shape::IN40_OUT2,
         Shape::IN48_OUT2,
-        Shape::IN51_OUT2,
+        Shape::IN49_OUT2,
     ];
     for n_in in 0..=52 {
         for n_out in 0..=17 {
@@ -382,8 +382,8 @@ fn shape_selection_boundaries_and_explicit_declaration() {
         E::TooManyOutputsForShape { got: 3, max: 2 },
     );
     assert_eq!(
-        resolve_shape(Some(Shape::IN51_OUT2), 6, 1).unwrap(),
-        Shape::IN51_OUT2
+        resolve_shape(Some(Shape::IN49_OUT2), 6, 1).unwrap(),
+        Shape::IN49_OUT2
     );
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
@@ -396,10 +396,10 @@ fn shape_selection_boundaries_and_explicit_declaration() {
         .unwrap();
     assert_eq!(automatic.check_shape().unwrap(), Shape::IN6_OUT2);
     let mut tx = ConfidentialTransaction::new(notes, payer(&owner)).unwrap();
-    tx.pad_utxos(Shape::IN51_OUT2, &sender).unwrap();
+    tx.pad_utxos(Shape::IN49_OUT2, &sender).unwrap();
     let mut proof = tx.encrypt(&owner).unwrap();
-    assert_eq!(proof.check_shape().unwrap(), Shape::IN51_OUT2);
-    assert_eq!(proof.input_utxos.len(), 51);
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN49_OUT2);
+    assert_eq!(proof.input_utxos.len(), Shape::IN49_OUT2.n_inputs());
     assert_eq!(
         proof
             .output_utxos
@@ -409,13 +409,16 @@ fn shape_selection_boundaries_and_explicit_declaration() {
         [6, 0]
     );
     proof.input_utxos.get_mut(1).unwrap().tree_id = 9;
-    assert_eq!(proof.check_shape().unwrap(), Shape::IN51_OUT2);
+    assert_eq!(proof.check_shape().unwrap(), Shape::IN49_OUT2);
     assert!(proof.message_hash().is_ok());
     assert!(proof.input_utxo_hashes().is_ok());
     proof.output_utxos.pop();
     error(
         proof.check_shape(),
-        E::UnsupportedShape { n_in: 51, n_out: 1 },
+        E::UnsupportedShape {
+            n_in: Shape::IN49_OUT2.n_inputs(),
+            n_out: 1,
+        },
     );
 }
 

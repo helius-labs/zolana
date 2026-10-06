@@ -4,7 +4,7 @@
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
-available. Transfers prove on a grid of up to 51 inputs and 16 outputs, merges
+available. Transfers prove on a grid of up to 49 inputs and 16 outputs, merges
 take up to 51 notes in one transaction, wallet sync recovers the output of
 such a merge, and transfers and merges can leave their unused slots out of the
 transaction at the cost of revealing the real counts.
@@ -44,7 +44,7 @@ Breaking
 - `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
   `MERGE_INPUT_COUNT`, the 24-input default, or `MAX_MERGE_INPUTS` from
   `@heliuslabs/zolana/interface`.
-- `SPP_SUPPORTED_SHAPES` lists 38 shapes of 1 to 51 inputs and 2, 4, 8 or 16
+- `SPP_SUPPORTED_SHAPES` lists 38 shapes of 1 to 49 inputs and 2, 4, 8 or 16
   outputs in proving-cost order, `selectSppShape` and transfers take the
   cheapest one that fits, and the 1x1, 2x3, 3x3, 4x3 and 5x3 transfer shapes,
   the 8 and 36 input merges and the 1x1 and 3x3 ring authority shapes are
@@ -160,7 +160,7 @@ Changed
   UTXOs where they stopped at 5, the most that always fit one transaction, and
   still refuse a wider cover with `WALLET_TOO_MANY_INPUTS`, merge first.
 - `buildMergeTransaction` without named inputs sweeps up to 24, and
-  `emptyCachedInputFields` and `cachedInputFields` accept up to 51 inputs where
+  `emptyCachedInputFields` and `cachedInputFields` accept up to 49 inputs where
   they stopped at the 36 cache slots.
 - `getMergeTransactInstructionAsync` accepts from one to `MAX_MERGE_INPUTS`
   nullifiers, the counts a compact merge sends, where it took only 8 or 36.

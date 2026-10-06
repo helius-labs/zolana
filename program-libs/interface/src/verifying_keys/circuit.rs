@@ -54,7 +54,7 @@ macro_rules! circuit_key_item {
                 (32, 2) => transfer_confidential_32_2, transfer_ring_32_2, transfer_p256_ring_32_2;
                 (40, 2) => transfer_confidential_40_2, transfer_ring_40_2, transfer_p256_ring_40_2;
                 (48, 2) => transfer_confidential_48_2, transfer_ring_48_2, transfer_p256_ring_48_2;
-                (51, 2) => transfer_confidential_51_2, transfer_ring_51_2, transfer_p256_ring_51_2;
+                (49, 2) => transfer_confidential_49_2, transfer_ring_49_2, transfer_p256_ring_49_2;
             }
             authority {
                 (2, 2) => transfer_ring_authority_2_2;

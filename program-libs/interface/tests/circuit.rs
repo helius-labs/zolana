@@ -116,12 +116,13 @@ fn supported_shapes_are_fail_closed() {
     assert!(CircuitId::RingEddsa(1, 8, 3).is_supported());
     assert!(CircuitId::RingP256(2, 4, 3, P256_PROOF_DATA).is_supported());
     assert!(CircuitId::RingAuthority(4, 4, 3).is_supported());
-    assert!(CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
-    assert!(CircuitId::RingEddsa(51, 2, 3).is_supported());
-    assert!(CircuitId::RingP256(51, 2, 3, P256_PROOF_DATA).is_supported());
+    assert!(CircuitId::ConfidentialEddsa(49, 2, 3).is_supported());
+    assert!(CircuitId::RingEddsa(49, 2, 3).is_supported());
+    assert!(CircuitId::RingP256(49, 2, 3, P256_PROOF_DATA).is_supported());
     assert!(CircuitId::ConfidentialEddsa(8, 16, 3).is_supported());
-    assert!(!CircuitId::RingAuthority(51, 2, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(51, 4, 3).is_supported());
+    assert!(!CircuitId::RingAuthority(49, 2, 3).is_supported());
+    assert!(!CircuitId::ConfidentialEddsa(49, 4, 3).is_supported());
+    assert!(!CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
     assert!(!CircuitId::RingEddsa(2, 4, 2).is_supported());
     assert!(!CircuitId::RingAuthority(2, 4, 3).is_supported());
@@ -192,7 +193,7 @@ fn every_supported_shape_resolves_exactly_one_key() {
     assert!(CircuitId::ConfidentialEddsa(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()
         .is_none());
-    assert!(CircuitId::RingAuthority(51, 2, PUBLIC_ASSET_SLOTS)
+    assert!(CircuitId::RingAuthority(49, 2, PUBLIC_ASSET_SLOTS)
         .verifying_key()
         .is_none());
 }

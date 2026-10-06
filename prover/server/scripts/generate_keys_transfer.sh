@@ -50,7 +50,7 @@ shapes=(
     "32 2"
     "40 2"
     "48 2"
-    "51 2"
+    "49 2"
 )
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix

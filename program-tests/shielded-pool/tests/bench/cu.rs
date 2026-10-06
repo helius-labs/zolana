@@ -200,10 +200,10 @@ fn bench_cu_deposit() {
              under mollusk from litesvm-built account state: protocol creation, tree pause, \
              proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the \
              narrowest and widest shape of every output count (up to the 1x16 split shape \
-             and the 51x2 widest input shape), the 51x2 shape on both `ring_transact` rails \
+             and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails \
              (EdDSA, and P256 whose BSB22 commitment adds a Pedersen proof-of-knowledge \
              pairing to verification), both supported `merge_transact` shapes, compact \
-             padding on the 2x4 and 51x2 transact shapes and both merge shapes, and SOL/SPL \
+             padding on the 2x4 and 49x2 transact shapes and both merge shapes, and SOL/SPL \
              withdrawals. This target is a pure \
              benchmark: no \
              CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
@@ -242,7 +242,7 @@ fn bench_cu_deposit() {
         (16, 8),
         (1, 16),
         (8, 16),
-        (51, 2),
+        (49, 2),
     ] {
         bench_transfer_shape(
             &mollusk,
@@ -254,7 +254,7 @@ fn bench_cu_deposit() {
         );
     }
     // The same spend with compact padding: one input and one output sent.
-    for (n_inputs, n_outputs) in [(2, 4), (51, 2)] {
+    for (n_inputs, n_outputs) in [(2, 4), (49, 2)] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, true, &mut bench);
     }
     for rail in [RingRail::Eddsa, RingRail::P256] {
@@ -262,7 +262,7 @@ fn bench_cu_deposit() {
             &mut mollusk,
             &program_id,
             rail,
-            Shape::IN51_OUT2,
+            Shape::IN49_OUT2,
             &mut bench,
         );
     }

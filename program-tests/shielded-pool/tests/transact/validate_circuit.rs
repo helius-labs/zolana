@@ -147,7 +147,7 @@ fn selector_dimensions_are_fail_closed() {
         ),
         invalid_shape
     );
-    for (inputs, outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2)] {
+    for (inputs, outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2), (51, 2)] {
         assert_eq!(
             validate(
                 CircuitId::ConfidentialEddsa(inputs, outputs, 3),
@@ -161,36 +161,36 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(51, 2, 3),
+            CircuitId::ConfidentialEddsa(49, 2, 3),
             InstructionTag::Transact,
-            51,
+            49,
             2,
         ),
         Ok(())
     );
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(51, 2, 3),
+            CircuitId::RingEddsa(49, 2, 3),
             InstructionTag::RingTransact,
-            51,
+            49,
             2,
         ),
         Ok(())
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(51, 4, 3),
+            CircuitId::ConfidentialEddsa(49, 4, 3),
             InstructionTag::Transact,
-            51,
+            49,
             4,
         ),
         invalid_shape
     );
     assert_eq!(
         validate(
-            CircuitId::RingAuthority(51, 2, 3),
+            CircuitId::RingAuthority(49, 2, 3),
             InstructionTag::RingAuthorityTransact,
-            51,
+            49,
             2,
         ),
         invalid_shape

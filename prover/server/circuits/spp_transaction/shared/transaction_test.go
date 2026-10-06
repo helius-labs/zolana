@@ -65,6 +65,7 @@ func TestShapeSignerWidth(t *testing.T) {
 		{24, 25},
 		{30, 31},
 		{32, 29},
+		{49, 12},
 		{51, 10},
 	}
 	for _, tc := range cases {

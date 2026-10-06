@@ -47,16 +47,16 @@ const fn max_shape(
 }
 
 const EDDSA_SHAPES: [MaxShape; 4] = [
-    max_shape((51, 2), 48, 2),
+    max_shape((49, 2), 48, 2),
     max_shape((24, 4), 24, 4),
     max_shape((16, 8), 16, 8),
     max_shape((8, 16), 8, 16),
 ];
 /// A P256 proof carries its BSB22 commitment and every output joins the
-/// ring, so the P256 rail fits fewer real inputs at 51x2 and fewer real
+/// ring, so the P256 rail fits fewer real inputs at 49x2 and fewer real
 /// outputs at 8x16.
 const P256_SHAPES: [MaxShape; 4] = [
-    max_shape((51, 2), 45, 2),
+    max_shape((49, 2), 45, 2),
     max_shape((24, 4), 24, 4),
     max_shape((16, 8), 16, 8),
     max_shape((8, 16), 8, 15),

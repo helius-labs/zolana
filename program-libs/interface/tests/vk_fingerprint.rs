@@ -80,7 +80,7 @@ fn verifying_key_fingerprint_is_pinned() {
         transfer_p256_ring_32_2,
         transfer_p256_ring_40_2,
         transfer_p256_ring_48_2,
-        transfer_p256_ring_51_2,
+        transfer_p256_ring_49_2,
         transfer_confidential_1_2,
         transfer_confidential_1_4,
         transfer_confidential_1_8,
@@ -118,7 +118,7 @@ fn verifying_key_fingerprint_is_pinned() {
         transfer_confidential_32_2,
         transfer_confidential_40_2,
         transfer_confidential_48_2,
-        transfer_confidential_51_2,
+        transfer_confidential_49_2,
         transfer_ring_1_2,
         transfer_ring_1_4,
         transfer_ring_1_8,
@@ -156,7 +156,7 @@ fn verifying_key_fingerprint_is_pinned() {
         transfer_ring_32_2,
         transfer_ring_40_2,
         transfer_ring_48_2,
-        transfer_ring_51_2,
+        transfer_ring_49_2,
         transfer_ring_authority_2_2,
         transfer_ring_authority_4_4,
     ];
@@ -171,7 +171,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "001c1c79f1690aeaf3bcd905721fb3f2ee7ca092cefb3c995af958e73ff5b7b9",
+        fingerprint, "006fcf597ce1fbe4ce4f0befb014f12d2321b0dfeb3edb779265967fc32da94b",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

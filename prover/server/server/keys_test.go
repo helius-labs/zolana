@@ -32,9 +32,9 @@ func TestServedKeysDefaultToEveryKey(t *testing.T) {
 }
 
 func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
-	served := servedKeys(t, "*_51_*", "batch_address-append_40_250")
+	served := servedKeys(t, "*_49_*", "*_51_*", "batch_address-append_40_250")
 	for file, want := range map[string]bool{
-		"transfer_p256_ring_51_2.key":     true,
+		"transfer_p256_ring_49_2.key":     true,
 		"merge_51_1.key":                  true,
 		"batch_address-append_40_250.key": true,
 		"transfer_confidential_1_2.key":   false,

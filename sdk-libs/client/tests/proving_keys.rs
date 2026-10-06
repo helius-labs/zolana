@@ -81,7 +81,7 @@ fn every_mismatching_digest_is_named() {
 fn a_missing_or_unavailable_key_is_reported() {
     let mut prover = matching_prover();
     prover.keys.retain(|status| status.name != "merge_51_1.key");
-    status_mut(&mut prover, "transfer_ring_51_2.key").available = false;
+    status_mut(&mut prover, "transfer_ring_49_2.key").available = false;
 
     let report = prover.check().expect("subset is not a mismatch");
     let find = |name: &str| {
@@ -93,7 +93,7 @@ fn a_missing_or_unavailable_key_is_reported() {
             .expect("known key is reported")
     };
     assert_eq!(
-        (find("merge_51_1.key"), find("transfer_ring_51_2.key")),
+        (find("merge_51_1.key"), find("transfer_ring_49_2.key")),
         (
             ProvingKeyCheck {
                 name: "merge_51_1.key",
@@ -102,7 +102,7 @@ fn a_missing_or_unavailable_key_is_reported() {
                 loaded: false,
             },
             ProvingKeyCheck {
-                name: "transfer_ring_51_2.key",
+                name: "transfer_ring_49_2.key",
                 served: true,
                 available: false,
                 loaded: false,

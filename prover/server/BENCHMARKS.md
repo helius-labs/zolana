@@ -3,12 +3,12 @@
 Results appended by `scripts/bench_spp.sh` (`just prover bench-spp`), which
 runs `BenchmarkProveByShape` over every supported shape of the custom-ring
 EdDSA-only transact circuit (`NewCustomRingEddsaOnlyCircuit`), up to the
-51x2 shape. The 2026-06-12 sections below predate that circuit
+49x2 shape. The 2026-06-12 sections below predate that circuit
 and cover the solana and p256 ownership rails. Times are proving only; circuit
 compilation and Groth16 setup are excluded.
 
 The sections are a record of the shapes and circuits supported on their date.
-The 2026-10-05 shape grid (2, 4, 8 and 16 outputs; up to 51 inputs; see
+The 2026-10-05 shape grid (2, 4, 8 and 16 outputs; up to 49 inputs; see
 [Supported shapes](../../docs/spec.md#supported-shapes)) removed 3x3 and 5x3,
 so their rows below no longer correspond to a key. No run over the current grid
 is recorded yet.

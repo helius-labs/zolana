@@ -188,7 +188,10 @@ describe("transaction core", () => {
     expect(canonicalShape(1, 1)).toEqual({ inputs: 1, outputs: 2 });
     expect(canonicalShape(6, 9)).toEqual({ inputs: 8, outputs: 16 });
     expect(canonicalShape(25, 2)).toEqual({ inputs: 32, outputs: 2 });
-    expect(canonicalShape(51, 2)).toEqual({ inputs: 51, outputs: 2 });
+    expect(canonicalShape(49, 2)).toEqual({ inputs: 49, outputs: 2 });
+    expect(() => canonicalShape(50, 2)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
+    );
     expect(() => canonicalShape(25, 3)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
     );

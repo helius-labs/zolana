@@ -16,13 +16,13 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
 
 	tests := map[string]string{
-		"transfer ring eddsa": manager.determineTransferKeyPath(TransferRingCircuitType, 51, 2),
+		"transfer ring eddsa": manager.determineTransferKeyPath(TransferRingCircuitType, 49, 2),
 		"transfer ring p256":  manager.determineTransferKeyPath(TransferP256RingCircuitType, 8, 16),
 	}
 
 	expected := map[string]string{
 		// Key filenames mirror the verifying-key modules.
-		"transfer ring eddsa": filepath.Join(keysDir, "transfer_ring_51_2.key"),
+		"transfer ring eddsa": filepath.Join(keysDir, "transfer_ring_49_2.key"),
 		"transfer ring p256":  filepath.Join(keysDir, "transfer_p256_ring_8_16.key"),
 	}
 

@@ -643,12 +643,13 @@ mod tests {
         *data.witness = wire.to_string();
         assert!(IndexedProofRequest::new(data).is_err());
         let mut data = request_data();
-        wire["nInputs"] = json!(51);
+        let n_inputs = zolana_interface::MAX_TRANSACT_INPUTS;
+        wire["nInputs"] = json!(n_inputs);
         wire["nOutputs"] = json!(2);
-        wire["inputs"] = json!(vec![json!({"treeSlot":"0x0", "isDummy":"0x0"}); 51]);
+        wire["inputs"] = json!(vec![json!({"treeSlot":"0x0", "isDummy":"0x0"}); n_inputs]);
         wire["outputs"] = json!([{}, {}]);
         *data.witness = wire.to_string();
-        data.inputs = vec![data.inputs.first().unwrap().clone(); 51];
+        data.inputs = vec![data.inputs.first().unwrap().clone(); n_inputs];
         assert!(IndexedProofRequest::new(data).is_ok());
     }
 

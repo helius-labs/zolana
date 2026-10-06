@@ -264,7 +264,7 @@ fn eddsa_transfer_all_shapes_proofs_verify() {
         (12, 4),
         (16, 8),
         (24, 4),
-        (51, 2),
+        (49, 2),
     ] {
         prove_and_verify_eddsa_shape(n_in, n_out);
     }

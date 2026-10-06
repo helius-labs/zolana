@@ -324,7 +324,7 @@ var transferSupportedShapes = [][2]uint32{
 	{32, 2},
 	{40, 2},
 	{48, 2},
-	{51, 2},
+	{49, 2},
 }
 
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here

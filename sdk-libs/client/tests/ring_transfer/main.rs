@@ -32,7 +32,7 @@ fn run_shape_matrix(mode: Mode) {
         (1, 16),
         (16, 8),
         (24, 4),
-        (51, 2),
+        (49, 2),
     ];
     for (n_inputs, n_outputs) in shapes {
         RingTransferHarness {

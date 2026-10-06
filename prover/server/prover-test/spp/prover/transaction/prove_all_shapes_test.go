@@ -9,11 +9,11 @@ import (
 )
 
 // sweepShapes are the narrowest and widest shape of every output column. Each
-// shape runs an independent groth16 setup, and the 51-input shape alone is over
+// shape runs an independent groth16 setup, and the 49-input shape alone is over
 // a million constraints, so the full sweep is opt-in with SPP_PROVE_ALL_SHAPES=1.
 var sweepShapes = []protocol.Shape{
 	{NInputs: 1, NOutputs: 2},
-	{NInputs: 51, NOutputs: 2},
+	{NInputs: 49, NOutputs: 2},
 	{NInputs: 1, NOutputs: 4},
 	{NInputs: 24, NOutputs: 4},
 	{NInputs: 1, NOutputs: 8},

@@ -129,6 +129,7 @@ fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
     }
     vectors.push(right_hash_chain_4_vector("trailing_zeros_51", &widest));
     vectors.push(right_hash_chain_4_vector("all_zero_51", &[zero; 51]));
+    vectors.push(right_hash_chain_4_vector("all_zero_49", &[zero; 49]));
     HashChain4Vectors {
         description: "Known-answer vectors for right_hash_chain_4, the right-folding 4-input \
                       Poseidon chain over 32-byte big-endian BN254 field elements: L == 0 -> 0, \
@@ -160,7 +161,7 @@ fn committed_right_hash_chain_4_vectors_match() {
 fn right_hash_chain_4_matches_every_committed_vector() {
     let committed: HashChain4Vectors =
         serde_json::from_str(RIGHT_HASH_CHAIN_4_VECTORS_JSON).unwrap();
-    assert_eq!(committed.vectors.len(), 20);
+    assert_eq!(committed.vectors.len(), 21);
     for vector in &committed.vectors {
         let inputs: Vec<[u8; 32]> = vector
             .inputs

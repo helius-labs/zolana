@@ -9,7 +9,7 @@ use zolana_transaction::SOL_MINT;
 
 // Local-validator baselines (surfpool, 2026-10-06): transact 2x4 = 142,432;
 // withdrawal = 146,029; merge 8 inputs at 24x1 = 242,412. The widest shapes
-// measure up to 309,168 (`max_shapes`).
+// measure up to 305,340 (`max_shapes`).
 const TRANSACT_CU_LIMIT: u64 = 350_000;
 const WITHDRAWAL_CU_LIMIT: u64 = 350_000;
 const MERGE_TRANSACTION_CU_LIMIT: u64 = 400_000;

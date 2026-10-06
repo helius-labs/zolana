@@ -1706,7 +1706,7 @@ fn transact_accepts_the_widest_input_shape() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let shape = Shape::IN51_OUT2;
+    let shape = Shape::IN49_OUT2;
     let transact_ix_data = build_valid_transact_ix_for_owner_with_discriminator(
         &mut env,
         payer,
@@ -1717,7 +1717,7 @@ fn transact_accepts_the_widest_input_shape() {
     );
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::ConfidentialEddsa(51, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialEddsa(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -1751,7 +1751,7 @@ fn transact_accepts_the_widest_input_shape() {
             utxo_next_before + shape.n_outputs() as u64,
             nullifier_next_before + shape.n_inputs() as u64
         ),
-        "two outputs appended and 51 nullifiers queued"
+        "two outputs appended and 49 nullifiers queued"
     );
     let forester_fee = fees.fee_per_nullifier * shape.n_inputs() as u64;
     assert_eq!(
@@ -1764,7 +1764,7 @@ fn transact_accepts_the_widest_input_shape() {
         .last_transaction_trace()
         .expect("widest-input-shape transact trace");
     println!(
-        "transact confidential eddsa 51x2: {} CU",
+        "transact confidential eddsa 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
@@ -1777,12 +1777,12 @@ fn ring_transact_accepts_the_widest_input_shape() {
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
     let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
-    let shape = Shape::IN51_OUT2;
+    let shape = Shape::IN49_OUT2;
     let transact_ix_data =
         build_valid_ring_ix::<false>(&mut env, ring, shape.n_inputs(), shape.n_outputs());
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::RingEddsa(51, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::RingEddsa(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -1818,14 +1818,14 @@ fn ring_transact_accepts_the_widest_input_shape() {
             utxo_next_before + shape.n_outputs() as u64,
             nullifier_next_before + shape.n_inputs() as u64
         ),
-        "two outputs appended and 51 nullifiers queued"
+        "two outputs appended and 49 nullifiers queued"
     );
     let trace = env
         .rpc
         .last_transaction_trace()
         .expect("widest-input-shape ring transact trace");
     println!(
-        "transact ring eddsa 51x2: {} CU",
+        "transact ring eddsa 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
@@ -1837,7 +1837,7 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let shape = Shape::IN51_OUT2;
+    let shape = Shape::IN49_OUT2;
     let ring_config = Keypair::new();
     let proof = RealRingTransact {
         rail: RingRail::P256,
@@ -1849,7 +1849,7 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
     assert!(matches!(
         proof.data.circuit,
         CircuitId::RingP256(
-            51,
+            49,
             2,
             _,
             RingP256ProofData {
@@ -1874,14 +1874,14 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
             utxo_next_before + shape.n_outputs() as u64,
             nullifier_next_before + shape.n_inputs() as u64
         ),
-        "two outputs appended and 51 nullifiers queued"
+        "two outputs appended and 49 nullifiers queued"
     );
     let trace = env
         .rpc
         .last_transaction_trace()
         .expect("widest-input-shape P256 ring transact trace");
     println!(
-        "transact ring p256 51x2: {} CU",
+        "transact ring p256 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");

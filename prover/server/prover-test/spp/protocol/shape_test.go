@@ -4,7 +4,7 @@ import "testing"
 
 func TestSupportedShapes(t *testing.T) {
 	grid := map[int][]int{
-		2:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 51},
+		2:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 49},
 		4:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24},
 		8:  {1, 2, 3, 4, 5, 6, 8, 12, 16},
 		16: {1, 2, 4, 5, 8},
@@ -39,7 +39,8 @@ func TestUnsupportedShapes(t *testing.T) {
 		{NInputs: 5, NOutputs: 3},
 		{NInputs: 36, NOutputs: 2},
 		{NInputs: 7, NOutputs: 2},
-		{NInputs: 52, NOutputs: 2},
+		{NInputs: 50, NOutputs: 2},
+		{NInputs: 51, NOutputs: 2},
 		{NInputs: 32, NOutputs: 4},
 		{NInputs: 24, NOutputs: 8},
 		{NInputs: 6, NOutputs: 16},
@@ -71,7 +72,7 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 		{8, 16, Shape{NInputs: 8, NOutputs: 16}},
 		{16, 8, Shape{NInputs: 16, NOutputs: 8}},
 		{24, 4, Shape{NInputs: 24, NOutputs: 4}},
-		{51, 2, Shape{NInputs: 51, NOutputs: 2}},
+		{49, 2, Shape{NInputs: 49, NOutputs: 2}},
 		// Smaller arities map to the cheapest shape with capacity; the unused
 		// slots are dummy-padded (shield: 0 inputs, full unshield: 0 outputs).
 		{0, 1, Shape{NInputs: 1, NOutputs: 2}},
@@ -95,7 +96,8 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 		{17, 3, Shape{NInputs: 24, NOutputs: 4}},
 		{25, 2, Shape{NInputs: 32, NOutputs: 2}},
 		{36, 2, Shape{NInputs: 40, NOutputs: 2}},
-		{49, 1, Shape{NInputs: 51, NOutputs: 2}},
+		{41, 1, Shape{NInputs: 48, NOutputs: 2}},
+		{49, 1, Shape{NInputs: 49, NOutputs: 2}},
 	}
 	for _, tc := range cases {
 		got, err := CanonicalShape(tc.nInputs, tc.nOutputs)
@@ -112,7 +114,7 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ nInputs, nOutputs int }{
-		{52, 1}, {1, 17}, {9, 16}, {17, 8}, {25, 3}, {33, 3}, {-1, 1}, {1, -1},
+		{50, 1}, {1, 17}, {9, 16}, {17, 8}, {25, 3}, {33, 3}, {-1, 1}, {1, -1},
 	} {
 		if _, err := CanonicalShape(tc.nInputs, tc.nOutputs); err == nil {
 			t.Fatalf("CanonicalShape(%d, %d) should be rejected", tc.nInputs, tc.nOutputs)
@@ -193,7 +195,7 @@ func TestShapeSignerWidth(t *testing.T) {
 		{NInputs: 5, NOutputs: 4}:  6,
 		{NInputs: 24, NOutputs: 2}: 25,
 		{NInputs: 32, NOutputs: 2}: 29,
-		{NInputs: 51, NOutputs: 2}: 10,
+		{NInputs: 49, NOutputs: 2}: 12,
 	}
 	for shape, want := range cases {
 		if got := shape.SignerWidth(); got != want {

@@ -5,7 +5,6 @@
 
 use anyhow::{anyhow, Result};
 use serial_test::serial;
-use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_signature::Signature;
 use zolana_client::{Shape, DEFAULT_TRANSACT_CU_LIMIT};
 use zolana_test_utils::{
@@ -15,24 +14,26 @@ use zolana_test_utils::{
 use zolana_transaction::SOL_MINT;
 
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
-/// A real input's nullifier (32) and tree index (1) in the instruction data,
-/// plus its nullifier PDA address (32) and account index (1).
-const BYTES_PER_INPUT: usize = 66;
 const SENT_AMOUNT: u64 = 1_000_000;
 const MERGE_INPUTS: usize = 51;
 const MERGE_CU_LIMIT: u64 = 1_400_000;
 
-/// `(shape, real inputs)`: 51x2 cannot carry 51 real inputs under 4,096
-/// bytes, so its last slots are compact padding.
-const SHAPES: [((usize, usize), usize); 4] =
-    [((51, 2), 49), ((24, 4), 24), ((16, 8), 16), ((8, 16), 8)];
+/// Every slot of each widest shape is a real input.
+const SHAPES: [Shape; 4] = [
+    Shape::IN49_OUT2,
+    Shape::IN24_OUT4,
+    Shape::IN16_OUT8,
+    Shape::IN8_OUT16,
+];
 
 #[test]
 #[serial]
 fn widest_transact_shapes_confirm() -> Result<()> {
     let mut harness = LifecycleHarness::new()?;
 
-    for ((n_inputs, n_outputs), real_inputs) in SHAPES {
+    for shape in SHAPES {
+        let (n_inputs, n_outputs) = (shape.n_inputs(), shape.n_outputs());
+        let real_inputs = n_inputs;
         let label = format!("confidential eddsa {n_inputs}x{n_outputs}, {real_inputs} real inputs");
         let sender = format!("sender-{n_inputs}x{n_outputs}");
         let recipients = (1..n_outputs)
@@ -43,20 +44,14 @@ fn widest_transact_shapes_confirm() -> Result<()> {
             harness.deposit_sol(&sender, DEPOSIT_AMOUNT)?;
         }
 
-        let signature = harness.transfer_to_many(
-            &sender,
-            &recipients,
-            real_inputs,
-            SENT_AMOUNT,
-            Shape::new(n_inputs, n_outputs),
-        )?;
-        let bytes = assert_landed(
+        let signature =
+            harness.transfer_to_many(&sender, &recipients, real_inputs, SENT_AMOUNT, shape)?;
+        assert_landed(
             &harness,
             &signature,
             &label,
             DEFAULT_TRANSACT_CU_LIMIT.into(),
         )?;
-        assert_no_room_for_another_input(&label, bytes, real_inputs, n_inputs);
 
         let indexed = harness
             .indexed
@@ -95,31 +90,13 @@ fn widest_merge_confirms() -> Result<()> {
     Ok(())
 }
 
-/// A compact-padded shape carries the most real inputs that fit: one more
-/// would add its nullifier and tree index to the instruction data and its
-/// nullifier PDA to the accounts, and overflow 4,096 bytes.
-fn assert_no_room_for_another_input(
-    label: &str,
-    bytes: usize,
-    real_inputs: usize,
-    n_inputs: usize,
-) {
-    if real_inputs < n_inputs {
-        assert!(
-            bytes + BYTES_PER_INPUT > MAX_TRANSACTION_SIZE,
-            "{label}: {bytes} bytes leave room for another real input"
-        );
-    }
-}
-
 /// The transaction fits both v1 ceilings and landed within `cu_limit`.
-/// Returns its size in bytes.
 fn assert_landed(
     harness: &LifecycleHarness,
     signature: &Signature,
     label: &str,
     cu_limit: u64,
-) -> Result<usize> {
+) -> Result<()> {
     let size = harness
         .last_transaction_size
         .ok_or_else(|| anyhow!("{label} recorded no transaction size"))?;
@@ -134,5 +111,5 @@ fn assert_landed(
         "{label}: {} bytes, {} addresses, {consumed} CU",
         size.bytes, size.addresses
     );
-    Ok(size.bytes)
+    Ok(())
 }

@@ -116,7 +116,7 @@ ceilings chosen strictly below the enforced transaction budget, so a
 consumption regression fails the ceiling assert rather than aborting at the
 budget. `bench_cu` asserts transact ceilings and retains internal profiler
 breakdowns for a spread of EdDSA transact shapes (`1x2`, `2x2`, `2x4`, `4x4`,
-`5x4`, `24x4`, `1x8`, `16x8`, `1x16`, `8x16`, and `51x2`, the widest of each
+`5x4`, `24x4`, `1x8`, `16x8`, `1x16`, `8x16`, and `49x2`, the widest of each
 output count among them) plus SOL/SPL withdrawals, but only under the manual
 `just bench-shielded-pool` run (it needs the profiling SBF build); CI does not
 execute those transact ceilings. There is no separate split instruction: `1x16`

@@ -29,7 +29,7 @@ describe("expectedProvingKey", () => {
   it("names the key file the prover proves each circuit with", () => {
     const names = [
       expectedProvingKey({ circuit: "transfer-confidential", nInputs: 1, nOutputs: 2 }),
-      expectedProvingKey({ circuit: "transfer-ring", nInputs: 51, nOutputs: 2 }),
+      expectedProvingKey({ circuit: "transfer-ring", nInputs: 49, nOutputs: 2 }),
       expectedProvingKey({ circuit: "transfer-ring-authority", nInputs: 2, nOutputs: 2 }),
       expectedProvingKey({ circuit: "merge", nInputs: 24 }),
       expectedProvingKey({ circuit: "merge-ring", nInputs: 51 }),
@@ -39,7 +39,7 @@ describe("expectedProvingKey", () => {
     expect(names).toEqual(
       [
         "transfer_confidential_1_2.key",
-        "transfer_ring_51_2.key",
+        "transfer_ring_49_2.key",
         "transfer_ring_authority_2_2.key",
         "merge_24_1.key",
         "merge_ring_51_1.key",

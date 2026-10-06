@@ -118,9 +118,9 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-09: an input count with no circuit is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports` (seven inputs); positive side at the widest shape by `program-tests/shielded-pool/tests/transact/functional.rs` `transact_accepts_the_widest_input_shape`, `ring_transact_accepts_the_widest_input_shape` and `ring_p256_transact_accepts_the_widest_input_shape` (51 inputs, real proofs)
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports` (seven inputs); positive side at the widest shape by `program-tests/shielded-pool/tests/transact/functional.rs` `transact_accepts_the_widest_input_shape`, `ring_transact_accepts_the_widest_input_shape` and `ring_p256_transact_accepts_the_widest_input_shape` (49 inputs, real proofs)
   - Kind: precondition
-  - Statement: every instruction whose input count matches no circuit returns Err before proof verification, before any tree write. The supported counts are 1 to 6, 8, 12, 16, 24, 32, 40, 48 and 51 (`SPP_SUPPORTED_SHAPES`), so seven inputs is rejected while fifty-one is accepted; `MAX_INPUTS` (`MAX_TRANSACT_INPUTS`, 51) sizes the program's buffers and is not itself the check.
+  - Statement: every instruction whose input count matches no circuit returns Err before proof verification, before any tree write. The supported counts are 1 to 6, 8, 12, 16, 24, 32, 40, 48 and 49 (`SPP_SUPPORTED_SHAPES`), so seven inputs is rejected while forty-nine is accepted; `MAX_INPUTS` (`MAX_TRANSACT_INPUTS`, 49) sizes the program's buffers and is not itself the check.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:53-56` (`fn check_input_signers`), `transact/tree.rs:25-29` (`fn apply_input_tree`), `verify.rs:20` (`MAX_INPUTS`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Medium

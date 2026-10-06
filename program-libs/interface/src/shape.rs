@@ -153,8 +153,8 @@ impl Shape {
         n_inputs: 48,
         n_outputs: 2,
     };
-    pub const IN51_OUT2: Self = Self {
-        n_inputs: 51,
+    pub const IN49_OUT2: Self = Self {
+        n_inputs: 49,
         n_outputs: 2,
     };
 
@@ -292,5 +292,5 @@ pub const SPP_SUPPORTED_SHAPES: [Shape; 38] = [
     Shape::IN32_OUT2,
     Shape::IN40_OUT2,
     Shape::IN48_OUT2,
-    Shape::IN51_OUT2,
+    Shape::IN49_OUT2,
 ];

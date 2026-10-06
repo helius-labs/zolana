@@ -51,7 +51,7 @@ export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
   shape(32, 2),
   shape(40, 2),
   shape(48, 2),
-  shape(51, 2),
+  shape(49, 2),
 ]);
 
 function count(value: number, name: string): number {

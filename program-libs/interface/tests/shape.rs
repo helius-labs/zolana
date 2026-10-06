@@ -54,7 +54,7 @@ fn signer_width_is_one_payer_plus_the_owner_slots_for_every_supported_shape() {
         (Shape::IN32_OUT2, 29),
         (Shape::IN40_OUT2, 21),
         (Shape::IN48_OUT2, 13),
-        (Shape::IN51_OUT2, 10),
+        (Shape::IN49_OUT2, 12),
     ];
     assert_eq!(
         expected.map(|(shape, _)| shape),

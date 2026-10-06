@@ -16,6 +16,7 @@ describe("rightHashChain4 known-answer vectors", () => {
     "all_zero_36",
     "trailing_zeros_51",
     "all_zero_51",
+    "all_zero_49",
   ];
 
   it("covers every length and shape the contract pins", () => {

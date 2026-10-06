@@ -460,7 +460,7 @@ fn tx_size(args: Vec<String>) {
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
             TransactProof, TreeContext,
         },
-        N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+        MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
     const HISTORICAL_SENDER_SLOT_COUNT: usize = 2;
 
@@ -966,12 +966,12 @@ fn tx_size(args: Vec<String>) {
             },
         )
     };
-    // The widest shape of every output count: 51x2, 24x4, 16x8 and 8x16.
+    // The widest shape of every output count: 49x2, 24x4, 16x8 and 8x16.
     for (n, m) in [
         (2usize, 4usize),
         (3, 4),
         (5, 4),
-        (51, 2),
+        (49, 2),
         (24, 4),
         (16, 8),
         (8, 16),
@@ -981,7 +981,7 @@ fn tx_size(args: Vec<String>) {
             transact_ix(n, m, (n, m)),
         );
     }
-    for (n, m, circuit) in [(1usize, 3usize, (2usize, 4usize)), (9, 2, (51, 2))] {
+    for (n, m, circuit) in [(1usize, 3usize, (2usize, 4usize)), (9, 2, (49, 2))] {
         transact_row(
             format!(
                 "transact {n} in {m} out, {}x{} compact",
@@ -990,7 +990,7 @@ fn tx_size(args: Vec<String>) {
             transact_ix(n, m, circuit),
         );
     }
-    for (n, m) in [(51usize, 2usize), (24, 4), (16, 8), (8, 16)] {
+    for (n, m) in [(49usize, 2usize), (24, 4), (16, 8), (8, 16)] {
         transact_row(
             format!("ring transact eddsa {n} in {m} out"),
             ring_transact_ix(n, m, ring_eddsa(n, m)),
@@ -1000,26 +1000,26 @@ fn tx_size(args: Vec<String>) {
             ring_transact_ix(n, m, ring_p256(n, m)),
         );
     }
-    // Compact padding sends fewer real inputs than the 51x2 circuit has
-    // slots; each row is the most real inputs that still fit both ceilings.
+    // Every 49x2 slot fits as a real input on the confidential rail; the ring
+    // rails send fewer with compact padding, each row the most real inputs
+    // that still fit both ceilings.
     let most_inputs_that_fit = |build: &dyn Fn(usize) -> Instruction| -> usize {
-        (1..=51)
+        (1..=MAX_TRANSACT_INPUTS)
             .rev()
             .find(|&n| v1_tx_size(&[build(n)]).fits())
             .expect("one real input fits")
     };
-    let widest: [(&str, &dyn Fn(usize) -> Instruction); 3] = [
-        ("transact", &|n| transact_ix(n, 2, (51, 2))),
+    let widest: [(&str, &dyn Fn(usize) -> Instruction); 2] = [
         ("ring transact eddsa", &|n| {
-            ring_transact_ix(n, 2, ring_eddsa(51, 2))
+            ring_transact_ix(n, 2, ring_eddsa(MAX_TRANSACT_INPUTS, 2))
         }),
         ("ring transact p256", &|n| {
-            ring_transact_ix(n, 2, ring_p256(51, 2))
+            ring_transact_ix(n, 2, ring_p256(MAX_TRANSACT_INPUTS, 2))
         }),
     ];
     for (label, build) in widest {
         let n = most_inputs_that_fit(build);
-        transact_row(format!("{label} {n} in 2 out, 51x2 compact"), build(n));
+        transact_row(format!("{label} {n} in 2 out, 49x2 compact"), build(n));
     }
     // A count below its circuit width is a merge with compact padding.
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS.into_iter().chain([3, 25]) {

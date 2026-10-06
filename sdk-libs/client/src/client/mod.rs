@@ -33,11 +33,11 @@ use validation::check_service_url;
 ///
 /// Sized from the widest shape this client can send on the rail it sends it on:
 /// `submit` proves through `TransferInputs`, and the widest confidential
-/// transaction, 51x2 with the 49 real inputs that fit 4,096 bytes, consumes
-/// 309,168 CU on a validator (`program-tests/spp-test-validator/tests/max_shapes.rs`).
+/// transaction, 49x2 with every input real, consumes
+/// 305,340 CU on a validator (`program-tests/spp-test-validator/tests/max_shapes.rs`).
 /// The remaining headroom absorbs the per-input `create_nullifier_pdas` cost,
 /// which moves with tree state rather than with the shape. The ring P256 rail
-/// is more expensive again (361,490 CU at 51x2), but it carries its own
+/// is more expensive again (356,230 CU at 49x2), but it carries its own
 /// ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 

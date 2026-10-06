@@ -85,10 +85,10 @@ func TestPackInputFlagsLayoutIsRecoverable(t *testing.T) {
 	}
 }
 
-// The widest shape has 51 inputs: 1+3*51 = 154 bits, past any fixed 128-bit
+// The widest transact shape has 49 inputs: 1+3*49 = 148 bits, past any fixed 128-bit
 // integer, so every field must still land at its offset.
 func TestPackInputFlagsAtTheWidestShape(t *testing.T) {
-	const nInputs = 51
+	const nInputs = 49
 	indexes := make([]*big.Int, nInputs)
 	for i := range indexes {
 		indexes[i] = big.NewInt(int64((i*5 + 3) % txcircuit.InputTrees))
@@ -100,7 +100,7 @@ func TestPackInputFlagsAtTheWidestShape(t *testing.T) {
 	if flags.Bit(0) != 0 {
 		t.Fatal("dummy policy bit is set")
 	}
-	if width := 1 + txcircuit.TreeIndexBits*nInputs; flags.BitLen() > width || width != 154 {
+	if width := 1 + txcircuit.TreeIndexBits*nInputs; flags.BitLen() > width || width != 148 {
 		t.Fatalf("input flags 0x%s exceed the %d-bit width", flags.Text(16), width)
 	}
 	if flags.BitLen() <= 128 {

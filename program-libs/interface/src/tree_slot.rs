@@ -96,7 +96,7 @@ const _: () = assert!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS) <= 253);
 /// ```
 ///
 /// The value is built directly as a big-endian 32-byte field element (bit
-/// `b` is bit `b % 8` of byte `31 - b / 8`); at 51 inputs it spans 154 bits,
+/// `b` is bit `b % 8` of byte `31 - b / 8`); at 49 inputs it spans 148 bits,
 /// wider than one `u128`. `tree_indexes` is the inputs' `tree_index` in
 /// input order; the circuit decodes exactly `1 + 3 * n_inputs` bits, so an
 /// index outside `0..INPUT_TREES` or an input count above
