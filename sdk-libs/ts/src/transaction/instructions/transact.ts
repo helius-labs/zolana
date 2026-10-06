@@ -1160,6 +1160,7 @@ export class ConfidentialTransfer {
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
       senderOutputCount,
+      ...ring,
       ...(this.#compactPadding ? { compactPadding: true } : {}),
     });
   }
@@ -1193,7 +1194,7 @@ type PreparedTransferFields = Omit<
   PreparedTransfer,
   "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
 > &
-  Readonly<{ recordPadding?: RecordPadding }>;
+  Readonly<{ recordPadding?: RecordPadding; ringProgramId?: Address }>;
 
 export function prepareRingAuthorityTransfer(
   input: Readonly<{
@@ -1335,7 +1336,7 @@ function appendRecordSlot(
       : fields.outputs.findLastIndex((output) => output.ownerAddress !== undefined);
   const template = fields.outputs[templateIndex];
   const outputs = [...fields.outputs];
-  while (outputs.length + 1 < extension.shape.outputs) {
+  while (outputs.length < fields.shape.outputs) {
     outputs.push(
       createProofOutput({
         ownerAddress: template?.ownerAddress ?? fields.owner,
@@ -1345,11 +1346,7 @@ function appendRecordSlot(
       }),
     );
   }
-  const expected = transactOutputBlinding(
-    fields.firstNullifier,
-    outputSeed,
-    extension.shape.outputs - 1,
-  );
+  const expected = transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length);
   if (!equal(extension.output.blinding, expected)) {
     throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
       reason: "recordBlinding",
@@ -1361,6 +1358,17 @@ function appendRecordSlot(
     ...(template === undefined ? {} : { template: templateIndex }),
   };
   outputs.push(extension.output);
+  // Compact padding trails the record, so the record stays the last output SPP carries.
+  while (outputs.length < extension.shape.outputs) {
+    outputs.push(
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
+        compact: true,
+      }),
+    );
+  }
   return preparedTransfer({
     ...fields,
     inputs,
@@ -1552,6 +1560,7 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
           outputSeed,
           prepared.outputs.length + offset,
         ),
+        ...(prepared.ringProgramId === undefined ? {} : { ringProgramId: prepared.ringProgramId }),
         ...(prepared.compactPadding ? { compact: true } : { ownerTag: padTag }),
       }),
     ),

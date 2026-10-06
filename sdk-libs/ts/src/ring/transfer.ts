@@ -765,7 +765,7 @@ async function proveRingTransferStatement(
   const approvalRequired = velocity?.approvalRequired ?? false;
 
   // 3. Bind audit and record messages to the SPP transaction hash.
-  const outputs = prepared.proofOutputs();
+  const outputs = prepared.proofOutputs().filter((output) => !output.isCompact());
   const seal = (tx: ViewingKey): EncryptedCustomRingTransfer =>
     encryptCustomRingTransfer(tx, {
       outputs,
@@ -812,8 +812,8 @@ async function proveRingTransferStatement(
       recordInput === undefined
         ? proofInputs.inputUtxos
         : proofInputs.inputUtxos.slice(0, Math.max(recordInput, 0));
-    const subjectOutputs =
-      plan === undefined ? proofInputs.outputs : proofInputs.outputs.slice(0, -1);
+    const activeOutputs = proofInputs.outputs.filter((output) => !output.isCompact());
+    const subjectOutputs = plan === undefined ? activeOutputs : activeOutputs.slice(0, -1);
     const policyRound =
       policy === undefined
         ? undefined

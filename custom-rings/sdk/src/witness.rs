@@ -332,11 +332,21 @@ impl<'a> CustomRingWitnessInput<'a> {
         }
     }
 
+    /// Compact padding trails the record, so the record is the last active output.
+    fn active_output_count(&self) -> usize {
+        self.outputs
+            .iter()
+            .filter(|output| !output.is_compact())
+            .count()
+    }
+
     fn rule_outputs(&self) -> &[SppProofOutputUtxo] {
-        match self.has_record() {
-            true => &self.outputs[..self.outputs.len().saturating_sub(1)],
-            false => self.outputs,
-        }
+        let active = self.active_output_count();
+        let subjects = match self.has_record() {
+            true => active.saturating_sub(1),
+            false => active,
+        };
+        self.outputs.get(..subjects).unwrap_or_default()
     }
 
     /// The total the subject value receives across live outputs, aggregated per
@@ -660,7 +670,7 @@ impl ResolvedWitness<'_> {
             inputs,
             outputs,
             n_in: input.active_input_count() as u8,
-            n_out: input.outputs.len() as u8,
+            n_out: input.active_output_count() as u8,
             rules: table.rules,
             policy_len: table.rule_count,
             inline_assets: table.inline_assets,

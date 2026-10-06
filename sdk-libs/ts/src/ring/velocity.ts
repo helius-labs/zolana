@@ -265,7 +265,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     blinding: transactOutputBlinding(
       input.firstNullifier,
       input.outputBlindingSeed,
-      shape.outputs - 1,
+      input.moneyShape.outputs,
     ),
   });
 

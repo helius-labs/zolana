@@ -1305,34 +1305,20 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	}
 }
 
-func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitType) int {
-	if circuitType.IsRing() {
-		return 10
-	}
-	switch circuitType {
-	case common.BatchAddressAppendCircuitType:
-		return 30
-	case common.TransferP256RingCircuitType:
-		return 180
-	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
-		return 30
-	case common.MergeCircuitType, common.MergeRingCircuitType:
-		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
-		return 60
-	default:
-		return 1
-	}
-}
-
 const maxSyncProofTimeout = 5 * time.Minute
 
+// Every transfer, merge and custom-ring key loads lazily on its first request,
+// downloading it first when it is not on disk, so the sync bound covers that
+// load. A cold 51-input key is ~400 MB and its load alone outlasts a bound
+// sized for the proof.
 func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
-	if circuitType.IsRing() {
-		// Includes lazy key download and loading.
+	if circuitType.IsRing() || isTransferCircuit(circuitType) {
 		return maxSyncProofTimeout
 	}
-	estimate := time.Duration(handler.getEstimatedTimeSeconds(circuitType)) * time.Second
-	return min(maxSyncProofTimeout, max(10*time.Second, 2*estimate))
+	if circuitType == common.BatchAddressAppendCircuitType {
+		return time.Minute
+	}
+	return 10 * time.Second
 }
 
 func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

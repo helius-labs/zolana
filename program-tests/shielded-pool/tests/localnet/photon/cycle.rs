@@ -371,7 +371,7 @@ fn phase_shielded_transfer(
     let indexed_transfer =
         wait_for_indexed_transaction(&env.indexer, recipient_view_tag, transfer_sig);
     assert_eq!(indexed_transfer.nullifiers.len(), 2);
-    assert_eq!(indexed_transfer.output_slots.len(), 3);
+    assert_eq!(indexed_transfer.output_slots.len(), 2);
     assert!(!indexed_transfer.proofless);
     assert_eq!(
         indexed_transfer

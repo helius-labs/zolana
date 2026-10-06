@@ -220,6 +220,9 @@ pub(crate) struct VelocityPlan {
     pub counters_message: MessageData,
     pub proof_input: VelocityProofInput,
     pub shape: Shape,
+    /// The record's output slot: right after the money slots, ahead of the
+    /// compact padding that fills the rest of `shape`.
+    pub record_slot: usize,
 }
 
 pub(crate) struct VelocityPlanInput<'a> {
@@ -237,6 +240,7 @@ impl VelocityPlanInput<'_> {
     pub(crate) fn plan(self) -> Result<VelocityPlan, TransferError> {
         let facts = self.facts;
         let shape = record_shape(self.money_shape)?;
+        let record_slot = self.money_shape.n_outputs();
         let same_window = facts.live.record.window == facts.window_index;
         let previous = facts.counters.as_ref().filter(|_| same_window);
         let charges = ChargeRows {
@@ -266,7 +270,7 @@ impl VelocityPlanInput<'_> {
             blinding: derive_transact_output_blinding(
                 &self.first_nullifier,
                 &self.output_blinding_seed,
-                shape.n_outputs() as u32 - 1,
+                u32::try_from(record_slot).map_err(|_| TransferError::PolicyShapeUnsupported)?,
             )?,
         };
         let address = facts
@@ -365,6 +369,7 @@ impl VelocityPlanInput<'_> {
             },
             proof_input,
             shape,
+            record_slot,
         })
     }
 }

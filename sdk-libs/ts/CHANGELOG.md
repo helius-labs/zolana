@@ -182,6 +182,14 @@ Fixed
 - `buildWithdrawalTransaction` failed with `WALLET_BUILD_WITHDRAWAL` when an
   owner who also pays the fee withdrew the whole balance of an SPL mint, and
   now builds that withdrawal with a zero-amount SOL change output.
+- A custom-ring transfer that padded an output slot, such as a
+  `buildRingWithdrawalTransaction` that keeps change and is paid for by its
+  owner, built a proof the prover refuses, and its padding now stays in the
+  ring as Rust's does.
+- A custom-ring transfer on a ring with a spend window could exceed the
+  4,096-byte transaction limit, and the spend record now follows the money
+  slots with compact padding after it, which the transaction leaves out
+  without revealing more than the proof shape already does.
 
 ## 0.3.1-alpha — 2026-09-29
 

@@ -417,7 +417,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         vec![first_utxo.nullifier, second_utxo.nullifier]
     );
     assert_eq!(indexed.nullifiers.len(), 2);
-    assert_eq!(indexed.output_slots.len(), 3);
+    assert_eq!(indexed.output_slots.len(), 4);
     assert!(!indexed.proofless);
     assert!(indexed.tx_viewing_pk.is_some());
     assert!(indexed.salt.is_some());

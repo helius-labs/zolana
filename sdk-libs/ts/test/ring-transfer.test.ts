@@ -744,7 +744,7 @@ describe("frameDummyOutputs", () => {
       expect(framed.externalData.messages).toEqual(unframed.externalData.messages);
     });
   }
-  it("frames dummy slots as confidential bodies of the real length like Rust `frame_dummy_outputs`", async () => {
+  it("frames ring padding as ring-confidential bodies of the real length like Rust `frame_dummy_outputs`", async () => {
     // Five real outputs pad to the (1, 8) shape.
     const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
     expect(proofInputs.outputs).toHaveLength(8);
@@ -758,7 +758,7 @@ describe("frameDummyOutputs", () => {
     const keys = dummies.map((index) => {
       const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
       expect(frame.encoding).toBe("encrypted");
-      expect(frame.scheme).toBe(EncryptedScheme.confidential);
+      expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
       expect([2, 3]).toContain(frame.body[0]);
       return Buffer.from(frame.body.subarray(0, 33)).toString("hex");
     });
@@ -774,7 +774,7 @@ describe("frameDummyOutputs", () => {
 });
 
 describe("frameDummyOutputs with an exit", () => {
-  it("frames a dummy after the default-ring slot, 32 bytes shorter than a ring slot", async () => {
+  it("frames ring padding after a default-ring slot at the ring slot length", async () => {
     const { proofInputs } = await paddedProofInputs(3n, [1n, 1n], [1n]);
     expect(proofInputs.outputs).toHaveLength(8);
     const external = proofInputs.externalData;
@@ -788,9 +788,10 @@ describe("frameDummyOutputs with an exit", () => {
     expect(lengthOf(ringSlot) - lengthOf(exitSlot)).toBe(32);
     for (const [index, output] of proofInputs.outputs.entries()) {
       if (!output.isDummy()) continue;
-      expect(lengthOf(index)).toBe(lengthOf(exitSlot));
+      expect(output.ringProgramId).toBe(RING);
+      expect(lengthOf(index)).toBe(lengthOf(ringSlot));
       const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
-      expect(frame.scheme).toBe(EncryptedScheme.confidential);
+      expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
     }
   });
 });
@@ -823,7 +824,7 @@ function spendProofFor(input: ProofInputUtxo): SpendProof {
 
 describe("ring witness", () => {
   it("publishes owner hashes only for `Confidential` slots like Rust `confidential_marked_output_owner_pk_hashes`", async () => {
-    const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
+    const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n], [1n]);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
     const spendProof = spendProofFor(input);
@@ -837,7 +838,7 @@ describe("ring witness", () => {
       // A published tag is a Solana signer, so it enters as its tagged identity
       // (`0x53 || pk`), not the bare hash of the tag bytes.
       expect(published[index]).toBe(
-        output.isDummy() ? bytesToBigInt(solanaOwnerIdentity(tag)) : 0n,
+        output.ringProgramId === undefined ? bytesToBigInt(solanaOwnerIdentity(tag)) : 0n,
       );
     });
     expect(assembled.proverInputs.circuit).toBe("transferRing");
@@ -1640,7 +1641,7 @@ describe("record slot trees", () => {
         blinding: transactOutputBlinding(
           prepared.firstNullifier,
           prepared.outputBlindingSeed(),
-          shape.outputs - 1,
+          prepared.shape.outputs,
         ),
       }),
     });
@@ -1712,12 +1713,13 @@ describe("record slot trees", () => {
       [false, 1],
       [true, 1],
     ]);
-    expect(proofInputs.outputs.map((output) => output.isDummy())).toEqual([
-      false,
-      false,
-      false,
-      false,
+    expect(proofInputs.outputs.map((output) => [output.isDummy(), output.isCompact()])).toEqual([
+      [false, false],
+      [false, false],
+      [false, false],
+      [true, true],
     ]);
+    expect(proofInputs.externalData.outputs).toHaveLength(3);
     return { sender, recipient, prepared, proofInputs };
   }
 
@@ -1799,7 +1801,7 @@ describe("record slot trees", () => {
       throw new Error(vector.name);
     }
     expect(padded.proofInputs.externalData.outputs[copied]?.ownerTag).toEqual(ownerTag);
-    expectPadding(padded, vector.keeps_change ? [2] : [1, 2], owner, ownerTag);
+    expectPadding(padded, vector.keeps_change ? [] : [1], owner, ownerTag);
   }
 
   it("keeps every dummy after the real slots and pads outputs with zero copies of the sender change", async () => {

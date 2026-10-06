@@ -725,6 +725,7 @@ impl<'a> CustomRingTransfer<'a> {
             outputs: proof_inputs
                 .output_utxos
                 .iter()
+                .filter(|output| !output.is_compact())
                 .map(|output| ProofInputUtxo::try_from((output, proof_inputs.output_tree_id)))
                 .collect::<Result<Vec<_>, _>>()?,
         }
@@ -954,7 +955,7 @@ impl RecordSlots<'_> {
 
         let blindings = OutputBlindings::of(proof_inputs)?;
         RecordPadding {
-            slots: plan.shape.n_outputs() - 1,
+            slots: plan.record_slot,
             sender,
             sender_tag,
             tx_viewing_key,
@@ -987,6 +988,15 @@ impl RecordSlots<'_> {
             .resolved_owner_tags
             .push(encoded.view_tag);
         proof_inputs.output_utxos.push(output);
+        while proof_inputs.output_utxos.len() < plan.shape.n_outputs() {
+            let slot_index = u32::try_from(proof_inputs.output_utxos.len())
+                .map_err(|_| TransferError::PolicyShapeUnsupported)?;
+            proof_inputs.output_utxos.push(SppProofOutputUtxo {
+                blinding: blindings.at(slot_index)?,
+                compact: true,
+                ..Default::default()
+            });
+        }
         Ok(())
     }
 }
@@ -3486,7 +3496,7 @@ mod tests {
         let plan = VelocityPlan {
             input: spend(9, 0),
             output: SppProofOutputUtxo {
-                blinding: blindings.at(3).unwrap(),
+                blinding: blindings.at(2).unwrap(),
                 ..SppProofOutputUtxo::new(Mint::SOL, 0, record_owner).unwrap()
             },
             record_message: MessageData {
@@ -3502,6 +3512,7 @@ mod tests {
                 namespace_owner_hash: [2; 32],
             }),
             shape,
+            record_slot: 2,
         };
         RecordSlots {
             plan: &plan,
@@ -3538,6 +3549,7 @@ mod tests {
         assert!(proof_inputs
             .output_utxos
             .iter()
+            .take(3)
             .all(|output| !output.is_dummy()));
         assert_eq!(
             proof_inputs.output_utxos.get(..money_outputs.len()),
@@ -3548,7 +3560,7 @@ mod tests {
         } else {
             address
         };
-        for slot in money_outputs.len()..3 {
+        for slot in money_outputs.len()..2 {
             assert_eq!(
                 proof_inputs.output_utxos.get(slot),
                 Some(&SppProofOutputUtxo {
@@ -3557,12 +3569,13 @@ mod tests {
                 })
             );
         }
-        assert_eq!(proof_inputs.output_utxos.last(), Some(&plan.output));
-        assert_eq!(proof_inputs.external_data.outputs.len(), shape.n_outputs());
-        assert_eq!(
-            proof_inputs.external_data.resolved_owner_tags.len(),
-            shape.n_outputs()
-        );
+        assert_eq!(proof_inputs.output_utxos.get(2), Some(&plan.output));
+        assert!(proof_inputs
+            .output_utxos
+            .get(3)
+            .is_some_and(SppProofOutputUtxo::is_compact));
+        assert_eq!(proof_inputs.external_data.outputs.len(), 3);
+        assert_eq!(proof_inputs.external_data.resolved_owner_tags.len(), 3);
     }
 
     #[test]
