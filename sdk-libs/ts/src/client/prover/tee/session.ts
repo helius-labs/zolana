@@ -2,8 +2,13 @@ import { bytesToHex, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { TransportFailure, readBoundedBody, readBoundedJson } from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
-import { requestError, sleep, type ComposedSignal } from "../../internal.js";
-import { MAX_ATTEMPTS, RETRY_DELAY_MS, attestationRetryDelayMs } from "../retry.js";
+import { composeSignal, requestError, sleep, type ComposedSignal } from "../../internal.js";
+import {
+  ATTESTATION_TIMEOUT_MS,
+  MAX_ATTEMPTS,
+  RETRY_DELAY_MS,
+  attestationRetryDelayMs,
+} from "../retry.js";
 import {
   HEADER_ENC,
   HEADER_CIPHERTEXT,
@@ -39,7 +44,6 @@ export type PreparedCall = Readonly<{
   finish(response: Response): Promise<Response>;
 }>;
 
-/** An attestation in progress, and the signal of the call that started it. */
 type Flight = Readonly<{ prover: Promise<AttestedProver>; signal: ComposedSignal }>;
 
 /** Attestation state one prover client shares across its calls. */
@@ -53,11 +57,7 @@ export class TeeSession {
     this.#policy = checkedTeePolicy(policy);
   }
 
-  /**
-   * Attests the prover now against the policy and caches its key. A call
-   * joins an attestation already in flight, and starts its own when the
-   * caller that started that one cancelled it.
-   */
+  /** Attests the prover now against the policy and caches its key. */
   async attest(
     fetch: typeof globalThis.fetch,
     attestationUrl: URL,
@@ -66,8 +66,9 @@ export class TeeSession {
     for (;;) {
       const flight = this.#flight ?? this.#launch(fetch, attestationUrl, signal);
       try {
-        return await flight.prover;
+        return await untilAborted(flight.prover, signal);
       } catch (error) {
+        // A flight its own caller cancelled restarts under this caller's signal.
         const cancelledByOther =
           flight.signal !== signal && flight.signal.signal.aborted && !signal.signal.aborted;
         if (!cancelledByOther) throw error;
@@ -94,30 +95,48 @@ export class TeeSession {
     attestationUrl: URL,
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
+    let delay: bigint | undefined;
     for (let attempt = 1; ; attempt++) {
+      if (delay !== undefined) {
+        try {
+          await sleep(delay, { signal: signal.signal });
+        } catch (error) {
+          if (signal.signal.aborted) throw requestError("attest", signal);
+          throw error;
+        }
+      }
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
       url.searchParams.set("nonce", bytesToHex(nonce));
-      let response: Response;
+      const request = composeSignal(
+        { signal: signal.signal, timeoutMs: ATTESTATION_TIMEOUT_MS },
+        "attest",
+      );
       try {
-        response = await fetch(url, { redirect: "error", signal: signal.signal });
-      } catch {
-        if (signal.signal.aborted) throw requestError("attest", signal);
-        if (attempt >= MAX_ATTEMPTS) throw refused("unavailable");
-        await sleep(RETRY_DELAY_MS, { signal: signal.signal });
-        continue;
+        let response: Response;
+        try {
+          response = await fetch(url, { redirect: "error", signal: request.signal });
+        } catch {
+          if (signal.signal.aborted) throw requestError("attest", signal);
+          if (attempt >= MAX_ATTEMPTS) {
+            throw request.timedOut() ? requestError("attest", request) : refused("unavailable");
+          }
+          delay = RETRY_DELAY_MS;
+          continue;
+        }
+        if (!response.ok) {
+          delay =
+            attempt < MAX_ATTEMPTS
+              ? attestationRetryDelayMs(response.status, response.headers.get("retry-after"))
+              : undefined;
+          await response.body?.cancel();
+          if (delay === undefined) throw refused("unavailable");
+          continue;
+        }
+        return await this.#accept(response, nonce);
+      } finally {
+        request.cleanup();
       }
-      if (!response.ok) {
-        const delay =
-          attempt < MAX_ATTEMPTS
-            ? attestationRetryDelayMs(response.status, response.headers.get("retry-after"))
-            : undefined;
-        await response.body?.cancel();
-        if (delay === undefined) throw refused("unavailable");
-        await sleep(delay, { signal: signal.signal });
-        continue;
-      }
-      return this.#accept(response, nonce);
     }
   }
 
@@ -247,3 +266,23 @@ const refused = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ATTESTATION", { details: { check } });
 const encryptionError = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check } });
+
+/** Settles with `promise`, or rejects as soon as this caller's own signal aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: ComposedSignal): Promise<T> {
+  if (signal.signal.aborted) return Promise.reject(requestError("attest", signal));
+  return new Promise((resolve, reject) => {
+    const abort = (): void => reject(requestError("attest", signal));
+    signal.signal.addEventListener("abort", abort, { once: true });
+    const settle = (): void => signal.signal.removeEventListener("abort", abort);
+    promise.then(
+      (value) => {
+        settle();
+        resolve(value);
+      },
+      (error: unknown) => {
+        settle();
+        reject(error);
+      },
+    );
+  });
+}

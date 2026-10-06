@@ -3,7 +3,7 @@
 No audit report is checked in.
 
 The TEE prover is the Go prover in an Intel TDX confidential VM on Phala Cloud. Proof requests are encrypted to a key that only the measured prover holds.
-`prover/server/tee` serves the attestation and opens encrypted requests. The Rust and TypeScript SDKs verify the attestation and encrypt every call. `testdata` holds the vectors the three implementations share.
+`prover/server/tee` serves the attestation and decrypts encrypted requests. The Rust and TypeScript SDKs verify the attestation and encrypt every call. `testdata` holds the vectors the three implementations share.
 A client that requires a TEE sends a request only after an Intel-signed quote proves which image runs. Only the process that quote measures can read the request.
 
 ## Threat
@@ -41,7 +41,7 @@ Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 Every instance of the app derives the same key.
 [The wire contract](WIRE_CONTRACT.md) gives the attestation endpoint, report_data, the client checks and encryption.
 A passed attestation caches the key for `max_age_secs`, and the next call after that attests again.
-An encrypted body opens only on its own route, and an unencrypted failure still lets retries work.
+An encrypted body decrypts only on its own route, and an unencrypted failure still lets retries work.
 TEE servers reject queue mode because job IDs do not authorize clients.
 
 The GPU build, tag `aeglos` with `PROVER_BACKEND=aeglos`, collects GPU evidence through NVML for every attestation.

@@ -70,7 +70,7 @@ pub enum TeeError {
     HpkeKeyMismatch,
     #[error("quote report_data does not match the session nonce and key")]
     ReportDataMismatch,
-    #[error("policy requires GPU attestation and the prover sent none")]
+    #[error("policy requires GPU evidence and the prover sent none")]
     GpuEvidenceMissing,
     #[error("encrypted exchange failed, {0}")]
     Encryption(&'static str),

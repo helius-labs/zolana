@@ -203,7 +203,7 @@ fn report_data_matches_the_go_prover() {
     );
 }
 
-/// Opens what the Go prover's own client half encrypted, so suite, info, AAD,
+/// Decrypts what the Go prover's own client half encrypted, so suite, info, AAD,
 /// exporter label and response framing agree across the two implementations.
 #[test]
 fn encryption_interoperates_with_the_go_prover() {

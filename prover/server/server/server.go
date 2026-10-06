@@ -277,7 +277,7 @@ type EnhancedConfig struct {
 	Queue             *QueueConfig
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
-	// TEE, when set, serves attestation and opens encrypted requests.
+	// TEE, when set, serves attestation and decrypts encrypted requests.
 	TEE *tee.Server
 }
 

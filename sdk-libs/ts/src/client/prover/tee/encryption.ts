@@ -23,7 +23,7 @@ const suite = new CipherSuite({
 
 export type DecryptedResponse = Readonly<{ status: number; body: Uint8Array }>;
 
-/** One request encrypted to the attested key, and the only key its answer opens with. */
+/** One request encrypted to the attested key, and the only key that decrypts its answer. */
 export type EncryptedRequest = Readonly<{
   enc: string;
   body: Uint8Array;
@@ -31,8 +31,8 @@ export type EncryptedRequest = Readonly<{
 }>;
 
 /**
- * Binds `method` and the raw request target as AAD, so the encrypted body opens
- * only on the route and job it was sent to.
+ * Binds `method` and the request target without its `api-key` pairs as AAD,
+ * so the encrypted body decrypts only on the route it was sent to.
  */
 export async function encryptRequest(
   hpkePublicKey: Uint8Array,

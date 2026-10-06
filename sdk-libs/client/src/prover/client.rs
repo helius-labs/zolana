@@ -114,7 +114,6 @@ pub trait ProveRequest {
 
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
-/// Longest `Retry-After` an attestation retry waits, a larger one is cut to it.
 const ATTESTATION_RETRY_AFTER_CAP_SECS: u64 = 30;
 // Generous bound so a slow cold prove never hangs the client forever; the server
 // caps sync work at 120–180s depending on circuit, so a clean timeout returns
@@ -443,6 +442,7 @@ impl ProverClient {
                 attestation_retry_delay(status, response.headers().get(RETRY_AFTER))
                     .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
             {
+                drop(response);
                 sleep(delay);
                 continue;
             }
@@ -1136,6 +1136,7 @@ impl AsyncProverClient {
                 attestation_retry_delay(status, response.headers().get(RETRY_AFTER))
                     .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
             {
+                drop(response);
                 async_sleep(delay).await;
                 continue;
             }
@@ -1749,8 +1750,9 @@ mod tests {
     }
 
     #[test]
-    fn an_unavailable_attestation_is_retried() {
+    fn a_dropped_or_unavailable_attestation_is_retried() {
         let server = MockServer::respond_with(vec![
+            MockResponse::disconnect(),
             MockResponse::text(503, "busy"),
             MockResponse::json(200, json!({ "quote": "00" })),
         ]);
@@ -1763,7 +1765,7 @@ mod tests {
             "{error}"
         );
         let requests = server.requests();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
         assert!(requests
             .iter()
             .all(|request| request.path.starts_with("/tee/v1/attestation?nonce=")));

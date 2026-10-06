@@ -62,7 +62,7 @@ impl TeePolicyOptions {
         }
 
         let mut policy = match (self.replace, TeePolicy::default_deployment()) {
-            (false, Ok(pinned)) => pinned,
+            (false, Ok(current)) => current,
             (true, _) | (false, Err(TeeError::NoDefaultDeployment)) => TeePolicy {
                 app_id: identity.app_id,
                 hpke_public_key: identity.hpke_public_key,

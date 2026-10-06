@@ -8,7 +8,7 @@ use zeroize::Zeroizing;
 
 use super::{TeeError, API_KEY_PARAM, HPKE_INFO, RESPONSE_EXPORT};
 
-/// One request encrypted to the attested key, holding the key its answer opens with.
+/// One request encrypted to the attested key, holding the key that decrypts its answer.
 pub struct EncryptedRequest {
     pub enc: String,
     pub body: Vec<u8>,
@@ -16,8 +16,8 @@ pub struct EncryptedRequest {
 }
 
 impl EncryptedRequest {
-    /// Binds `method` and the raw `request_uri` as AAD, so the encrypted body
-    /// opens only on the route and job it was sent to.
+    /// Binds `method` and the request target without its `api-key` pairs as AAD,
+    /// so the encrypted body decrypts only on the route it was sent to.
     pub fn encrypt(
         hpke_public_key: &[u8; 32],
         method: &str,
@@ -62,7 +62,7 @@ pub fn decrypt_response(key: &[u8; 32], encrypted: &[u8]) -> Result<(u16, Vec<u8
         Aes256Gcm::new_from_slice(key).map_err(|_| TeeError::Encryption("bad response key"))?;
     let plaintext = cipher
         .decrypt(Nonce::from_slice(nonce), ciphertext)
-        .map_err(|_| TeeError::Encryption("response does not open"))?;
+        .map_err(|_| TeeError::Encryption("response does not decrypt"))?;
     let (status, body) = plaintext
         .split_first_chunk::<2>()
         .ok_or(TeeError::Encryption("response too short"))?;

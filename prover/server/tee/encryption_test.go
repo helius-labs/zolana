@@ -223,8 +223,8 @@ func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
 					_, _ = io.WriteString(w, body)
 				})).ServeHTTP(recorder, replay)
 				responses[i] = recorder.Body.Bytes()
-				status, opened, err := decryptResponse(responseKey, responses[i])
-				if err != nil || status != http.StatusOK || string(opened) != body {
+				status, decrypted, err := decryptResponse(responseKey, responses[i])
+				if err != nil || status != http.StatusOK || string(decrypted) != body {
 					t.Fatalf("response %d did not open", i)
 				}
 				if len(responses[i]) != 12+2+len(body)+16 {

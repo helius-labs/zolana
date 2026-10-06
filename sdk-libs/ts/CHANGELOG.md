@@ -142,8 +142,8 @@ Added
   `createRingMergeSubmission` take `maxInputs`, eight by default and at most 36.
 - `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
   call, encrypted, only to a prover whose Intel TDX attestation matches it.
-  Concurrent calls share one attestation, and a busy or unavailable prover is
-  asked again up to three times, after its `Retry-After` when it sends one.
+  Concurrent calls share one attestation. It takes up to three attempts after a
+  transport failure, a 503, or a 429, waiting out its `Retry-After`.
 - `teePolicyFromJson` parses an explicit TEE policy, and
   `ZolanaClient.attestProver` returns the verified `AttestedProver`.
   `defaultTeePolicy()` rejects with `CLIENT_PROVER_TEE_ATTESTATION` and

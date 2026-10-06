@@ -31,7 +31,7 @@ pub(crate) enum CallError {
     Refused(ClientError),
 }
 
-/// A call as sent, keeping the key an encrypted answer opens with.
+/// A call as sent, keeping the key that decrypts its answer.
 pub(crate) struct Prepared {
     pub headers: Vec<(&'static str, String)>,
     pub body: Option<Vec<u8>>,

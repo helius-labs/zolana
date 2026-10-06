@@ -345,8 +345,9 @@ describe("attestation retries", () => {
   });
 
   it("retries a busy prover after its Retry-After", async () => {
+    vi.useFakeTimers();
     const answers = [
-      () => new Response("busy", { status: 429, headers: { "Retry-After": "0" } }),
+      () => new Response("busy", { status: 429, headers: { "Retry-After": "5" } }),
       () => Response.json({ quote: "00" }),
     ];
     const requested: string[] = [];
@@ -360,11 +361,69 @@ describe("attestation retries", () => {
         return Promise.resolve(answer());
       },
     });
-    const error = await prover.attest().catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(ClientError);
-    if (!(error instanceof ClientError)) return;
-    expect(error.details).toEqual({ check: "malformed_attestation" });
-    expect(requested).toEqual(["/tee/v1/attestation", "/tee/v1/attestation"]);
+    try {
+      const attempt = prover.attest().catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(requested).toEqual(["/tee/v1/attestation"]);
+      await vi.advanceTimersByTimeAsync(1);
+      const error = await attempt;
+      expect(error).toBeInstanceOf(ClientError);
+      if (!(error instanceof ClientError)) return;
+      expect(error.details).toEqual({ check: "malformed_attestation" });
+      expect(requested).toEqual(["/tee/v1/attestation", "/tee/v1/attestation"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets a joining call time out while the shared attestation hangs", async () => {
+    const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
+    const session = new TeeSession(livePolicy);
+    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const owner = composeSignal(undefined, "attest");
+    const joiner = composeSignal({ timeoutMs: 20 }, "attest");
+    try {
+      void session.attest(hung, attestationUrl, owner).catch(() => undefined);
+      const error = await session
+        .attest(hung, attestationUrl, joiner)
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ClientError);
+      if (!(error instanceof ClientError)) return;
+      expect(error.code).toBe("CLIENT_TIMEOUT");
+      expect(hung).toHaveBeenCalledTimes(1);
+    } finally {
+      owner.cleanup();
+      joiner.cleanup();
+    }
+  });
+
+  it("restarts the attestation when the call that started it cancels", async () => {
+    const urls: string[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+      urls.push(String(input));
+      if (urls.length > 1) return Promise.resolve(Response.json({ quote: "00" }));
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    });
+    const session = new TeeSession(livePolicy);
+    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const controller = new AbortController();
+    const owner = composeSignal({ signal: controller.signal }, "attest");
+    const joiner = composeSignal(undefined, "attest");
+    try {
+      const first = session.attest(fetch, attestationUrl, owner).catch((caught: unknown) => caught);
+      const second = session
+        .attest(fetch, attestationUrl, joiner)
+        .catch((caught: unknown) => caught);
+      controller.abort();
+      expect(await first).toMatchObject({ code: "CLIENT_ABORTED" });
+      expect(await second).toMatchObject({ details: { check: "malformed_attestation" } });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      owner.cleanup();
+      joiner.cleanup();
+    }
   });
 
   it("shares one attestation between concurrent calls", async () => {

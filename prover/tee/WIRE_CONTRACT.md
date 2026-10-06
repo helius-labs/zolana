@@ -84,7 +84,7 @@ The AAD never covers it, so a proxy can move or strip it.
 A proxy keeps the path and the non-credential query pairs as sent.
 It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
 For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
-An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to open it.
+An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to decrypt it.
 
 ## Errors
 
@@ -95,7 +95,7 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 | 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
 | 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
 | 400 | `tee_version_unsupported` | `Zolana-Tee` names another version |
-| 400 | `tee_decryption_failed` | the encrypted request does not open |
+| 400 | `tee_decryption_failed` | the encrypted request does not decrypt |
 
 ## Test vectors
 
