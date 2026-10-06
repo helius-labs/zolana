@@ -218,6 +218,8 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_PROVER_RESPONSE_TOO_LARGE: NoDetails;
   readonly CLIENT_PROVER_TEXT: NoDetails;
   readonly CLIENT_PROVER_JSON: NoDetails;
+  readonly CLIENT_PROVER_TEE_ATTESTATION: Readonly<{ check: string }>;
+  readonly CLIENT_PROVER_TEE_SEAL: Readonly<{ check: string }>;
   readonly CLIENT_INVALID_RPC_RESPONSE: Readonly<{
     path?: string;
     method?: string;
@@ -288,6 +290,8 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_PROVER_RESPONSE_TOO_LARGE",
   "CLIENT_PROVER_TEXT",
   "CLIENT_PROVER_JSON",
+  "CLIENT_PROVER_TEE_ATTESTATION",
+  "CLIENT_PROVER_TEE_SEAL",
   "CLIENT_INVALID_RPC_RESPONSE",
 ] as const satisfies readonly ClientErrorCode[]);
 
@@ -440,6 +444,8 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number", reason: "string" },
   CLIENT_PROVER_JOB: { method: "string" },
   CLIENT_PROVER_TIMEOUT: { method: "string", jobId: "string", timeoutMs: "number" },
+  CLIENT_PROVER_TEE_ATTESTATION: { check: "string" },
+  CLIENT_PROVER_TEE_SEAL: { check: "string" },
   CLIENT_INVALID_RPC_RESPONSE: {
     path: "string",
     method: "string",
@@ -472,6 +478,8 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_CACHED_OUTPUT_WITHOUT_WRITE_CACHE: ["index"],
   CLIENT_CACHED_DUMMY_OUTPUT: ["index"],
   CLIENT_PROVER_HTTP: ["method"],
+  CLIENT_PROVER_TEE_ATTESTATION: ["check"],
+  CLIENT_PROVER_TEE_SEAL: ["check"],
   CLIENT_INVALID_RPC_RESPONSE: [],
 };
 

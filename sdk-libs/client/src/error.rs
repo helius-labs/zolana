@@ -6,6 +6,8 @@ use zolana_keypair::KeypairError;
 use zolana_program::instruction::DepositBuildError;
 use zolana_transaction::TransactionError;
 
+use crate::prover::tee::TeeError;
+
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error("the ring key-registry indexer is catching up or recovering")]
@@ -303,6 +305,9 @@ pub enum ClientError {
 
     #[error("prover proving keys differ from the verifying keys: {}", mismatches.join("; "))]
     ProverProvingKeysMismatch { mismatches: Vec<String> },
+
+    #[error("TEE prover check failed, {0}")]
+    Tee(#[from] TeeError),
 
     #[error("no committed verifying key for address append at tree height {tree_height}, batch size {batch_size}")]
     UnsupportedAddressAppendShape { tree_height: u32, batch_size: u32 },

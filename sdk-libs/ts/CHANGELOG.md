@@ -40,6 +40,9 @@ Breaking
   JSON, and their `ClientErrorDetailsMap` types drop `value` → read
   `details.field` to name the rejected input and drop `value` when
   constructing either error.
+- `ClientErrorCode` gains `CLIENT_PROVER_TEE_ATTESTATION` and
+  `CLIENT_PROVER_TEE_SEAL`, each naming the failed check in
+  `details.check` → handle both in exhaustive switches.
 - `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
   `MERGE_INPUT_COUNT`, the eight-input default, or `MAX_MERGE_INPUTS` from
   `@heliuslabs/zolana/interface`.
