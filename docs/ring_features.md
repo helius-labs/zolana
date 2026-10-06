@@ -14,7 +14,7 @@ control you can configure and who can change it.
 6. Asset allowlist
 7. Sender limits
 8. Token volume limits
-9. Permanent delegate and key escrow
+9. Permanent delegate
 10. Auditor
 11. Deposit audit
 12. Readers
@@ -206,3 +206,29 @@ count.
 - The ring authority sets, per token, the window length and a deposit cap
   and/or a withdrawal cap.
 - A token without a limit is uncapped.
+
+## 9. Permanent delegate
+
+A permanent delegate is a key that can move any user's funds to another user
+within the custom ring.
+
+### What the delegate can do
+
+- **Move funds within the ring:** the delegate signs each move. Moves pass the
+  policy's list checks and transfer-scoped co-signer approval. Sender limits
+  don't apply.
+
+### Key registration
+
+- Setting a delegate requires every user of the ring to register their
+  spending key, encrypted to the ring's auditor, once, before they receive
+  funds.
+- The auditor's key recovers a user's UTXOs, and the delegate's signature
+  authorizes moving them.
+
+### Configuration
+
+- The upgrade authority sets the delegate once. It can't be replaced or
+  removed, and registration stays required.
+- The Solana Privacy Program's governance must enable delegate moves for the
+  ring.
