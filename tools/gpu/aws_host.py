@@ -1,4 +1,5 @@
 import fcntl
+import functools
 import json
 import os
 import subprocess
@@ -17,11 +18,12 @@ GPUS = ("L4", "L40S")
 MIGRATION_SECONDS = 900
 
 
-def run(*args, data=None, timeout=300):
+def run(*args, data=None, timeout=300, env=None, show_errors=False):
     try:
         result = subprocess.run(
             args,
             input=data,
+            env=env,
             text=True,
             capture_output=True,
             timeout=timeout,
@@ -32,7 +34,10 @@ def run(*args, data=None, timeout=300):
             f"{args[0]} {args[1]} timed out, inspect the host service logs"
         ) from None
     if result.returncode:
-        raise RuntimeError(f"{args[0]} {args[1]} failed, inspect the host service logs")
+        detail = f"\n{result.stderr[-2000:]}" if show_errors else ""
+        raise RuntimeError(
+            f"{args[0]} {args[1]} failed, inspect the host service logs{detail}"
+        )
     return result.stdout.strip()
 
 
@@ -81,7 +86,7 @@ def healthy(url, timeout=300, key=None):
     raise RuntimeError(f"Readiness timed out for {url}")
 
 
-def gateway(with_indexer):
+def gateway(with_indexer, authorizer="http://127.0.0.1:3003/auth"):
     indexer = (
         """
         location = /indexer { proxy_pass http://127.0.0.1:8784/; }
@@ -114,16 +119,19 @@ http {
         proxy_hide_header Access-Control-Expose-Headers;
         auth_request /_authorize;
         add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Headers "Content-Type,Authorization,X-API-Key,X-Prover-Timing,X-Request-ID,X-Sync,X-Async" always;
+        add_header Access-Control-Allow-Headers "Content-Type,Authorization,X-API-Key,X-Prover-Timing,X-Request-ID,X-Sync,X-Async,Zolana-Tee,Zolana-Tee-Enc,Zolana-Tee-Ciphertext" always;
         add_header Access-Control-Allow-Methods "GET,POST,OPTIONS" always;
-        add_header Access-Control-Expose-Headers "Server-Timing,X-Prover-Timing,X-Request-ID" always;
+        add_header Access-Control-Expose-Headers "Server-Timing,X-Prover-Timing,X-Request-ID,Zolana-Tee" always;
         if ($request_method = OPTIONS) { return 204; }
         location = /_authorize {
             internal;
             auth_request off;
-            proxy_pass http://127.0.0.1:3003/auth?$request_query;
+            proxy_pass """
+        + authorizer
+        + """?$request_query;
             proxy_pass_request_body off;
             proxy_set_header Content-Length "";
+            proxy_set_header Zolana-Tee "";
         }
         location ~ ^/(v1/zolana/)?proving-keys$ {
             auth_request off;
@@ -136,17 +144,42 @@ http {
     )
 
 
-def install(config):
-    outputs = config["outputs"]
-    gpu = run(
-        "nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"
-    ).splitlines()
-    if not gpu or any(
-        "sm_" + value.strip().replace(".", "") != CUDA_ARCH for value in gpu
-    ):
-        raise RuntimeError(f"The published image requires an {' or '.join(GPUS)} GPU")
-    run("nvidia-ctk", "runtime", "configure", "--runtime=docker")
-    run("systemctl", "restart", "docker")
+def start_container(
+    config, name, image, command=(), env=None, options=(), restart="unless-stopped"
+):
+    result = subprocess.run(
+        ["docker", "inspect", name], capture_output=True, check=False, timeout=30
+    )
+    if result.returncode == 0:
+        run("docker", "rm", "-f", name)
+    with environment(name + ".env", env or {}) as env_file:
+        run(
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            name,
+            "--restart",
+            restart,
+            "--network",
+            "host",
+            "--log-driver",
+            "awslogs",
+            "--log-opt",
+            f"awslogs-region={config['region']}",
+            "--log-opt",
+            f"awslogs-group={config['outputs']['LogGroup']}",
+            "--log-opt",
+            f"awslogs-stream={name}",
+            "--env-file",
+            env_file,
+            *options,
+            image,
+            *command,
+        )
+
+
+def pull(config, images):
     registry = config["prover_image"].split("/")[0]
     password = run(
         "aws", "--region", config["image_region"], "ecr", "get-login-password"
@@ -160,47 +193,28 @@ def install(config):
         registry,
         data=password,
     )
-    images = [config["prover_image"], NGINX]
-    if config["with_indexer"]:
-        images += [config["photon_image"], POSTGRES]
     for image in images:
         print(f"Pulling {image}", flush=True)
         run("docker", "pull", image, timeout=600)
     run("docker", "logout", registry)
 
-    def container(
-        name, image, command=(), env=None, options=(), restart="unless-stopped"
+
+def install(config):
+    outputs = config["outputs"]
+    gpu = run(
+        "nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"
+    ).splitlines()
+    if not gpu or any(
+        "sm_" + value.strip().replace(".", "") != CUDA_ARCH for value in gpu
     ):
-        result = subprocess.run(
-            ["docker", "inspect", name], capture_output=True, check=False, timeout=30
-        )
-        if result.returncode == 0:
-            run("docker", "rm", "-f", name)
-        with environment(name + ".env", env or {}) as env_file:
-            run(
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                name,
-                "--restart",
-                restart,
-                "--network",
-                "host",
-                "--log-driver",
-                "awslogs",
-                "--log-opt",
-                f"awslogs-region={config['region']}",
-                "--log-opt",
-                f"awslogs-group={outputs['LogGroup']}",
-                "--log-opt",
-                f"awslogs-stream={name}",
-                "--env-file",
-                env_file,
-                *options,
-                image,
-                *command,
-            )
+        raise RuntimeError(f"The published image requires an {' or '.join(GPUS)} GPU")
+    run("nvidia-ctk", "runtime", "configure", "--runtime=docker")
+    run("systemctl", "restart", "docker")
+    images = [config["prover_image"], NGINX]
+    if config["with_indexer"]:
+        images += [config["photon_image"], POSTGRES]
+    pull(config, images)
+    container = functools.partial(start_container, config)
 
     if config["with_indexer"]:
         db_password = secret(outputs["DatabaseSecret"], config["region"])

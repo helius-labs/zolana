@@ -1,0 +1,282 @@
+package tee
+
+import (
+	"bytes"
+	"crypto/hpke"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// encryptRequest is the client half of the encryption, as the SDKs implement it.
+func encryptRequest(t *testing.T, publicKey []byte, method, uri string, body []byte) (enc, ciphertext, responseKey []byte) {
+	t.Helper()
+	kem, kdf, aead := suite()
+	pk, err := kem.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, sender, err := hpke.NewSender(pk, kdf, aead, []byte(hpkeInfo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err = sender.Seal(requestAAD(method, uri), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseKey, err = sender.Export(responseExport, responseKeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return enc, ciphertext, responseKey
+}
+
+func decryptResponse(key, encrypted []byte) (int, []byte, error) {
+	gcm, err := responseAEAD(key)
+	if err != nil {
+		return 0, nil, err
+	}
+	plaintext, err := gcm.Open(nil, nil, encrypted, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(plaintext) < 2 {
+		return 0, nil, errors.New("encrypted response too short")
+	}
+	return int(binary.BigEndian.Uint16(plaintext)), plaintext[2:], nil
+}
+
+func testServer(t *testing.T) *Server {
+	t.Helper()
+	key, err := deriveKey(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Server{key: key, publicKey: key.PublicKey().Bytes(), permits: make(chan struct{}, attestationConcurrency)}
+}
+
+func echo(status int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Retry-After", "3")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(r.Method + ":" + r.Header.Get("Content-Type") + ":" + string(body)))
+	})
+}
+
+func encryptedRequest(t *testing.T, s *Server, method, uri string, body []byte) (*http.Request, []byte) {
+	t.Helper()
+	enc, ciphertext, responseKey := encryptRequest(t, s.publicKey, method, uri, body)
+	request := httptest.NewRequest(method, uri, bytes.NewReader(ciphertext))
+	if bodiless(method) {
+		request = httptest.NewRequest(method, uri, nil)
+		request.Header.Set(HeaderCiphertext, hex.EncodeToString(ciphertext))
+	}
+	request.Header.Set(HeaderVersion, Version)
+	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
+	request.Header.Set("Content-Type", "application/octet-stream")
+	return request, responseKey
+}
+
+func TestWrapDecryptsAndEncrypts(t *testing.T) {
+	s := testServer(t)
+	request, responseKey := encryptedRequest(t, s, http.MethodPost, "/prove/transfer_2_2?api-key=k", []byte(`{"secret":1}`))
+	recorder := httptest.NewRecorder()
+	s.Wrap(echo(http.StatusTooManyRequests)).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("outer status %d", recorder.Code)
+	}
+	if recorder.Header().Get(HeaderVersion) != Version || recorder.Header().Get("Retry-After") != "3" {
+		t.Fatalf("headers %v", recorder.Header())
+	}
+	if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
+		t.Fatal("response body is not encrypted")
+	}
+	status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusTooManyRequests || string(body) != `POST:application/json:{"secret":1}` {
+		t.Fatalf("status %d body %q", status, body)
+	}
+}
+
+func TestWrapEncryptsBodilessPoll(t *testing.T) {
+	s := testServer(t)
+	request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
+	recorder := httptest.NewRecorder()
+	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+	status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
+	if err != nil || status != http.StatusOK || string(body) != "GET:application/json:" {
+		t.Fatalf("status %d body %q err %v", status, body, err)
+	}
+}
+
+func TestWrapRefusesAnEncryptedHead(t *testing.T) {
+	s := testServer(t)
+	for name, inHeader := range map[string]bool{"body": false, "header": true} {
+		t.Run(name, func(t *testing.T) {
+			request, _ := encryptedRequest(t, s, http.MethodHead, "/health", nil)
+			if inHeader {
+				encrypted, _ := io.ReadAll(request.Body)
+				request.Header.Set(HeaderCiphertext, hex.EncodeToString(encrypted))
+				request.Body = http.NoBody
+			}
+			recorder := httptest.NewRecorder()
+			reached := false
+			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+			assertRejected(t, recorder, reached, codeRequestMalformed)
+		})
+	}
+}
+
+func TestWrapRejectsRebinding(t *testing.T) {
+	s := testServer(t)
+	type rejection struct {
+		mutate func(*http.Request)
+		code   string
+	}
+	cases := map[string]rejection{
+		"other job":    {func(r *http.Request) { r.RequestURI = "/prove/transfer_2_2/status?jobId=other" }, codeDecryptionFailed},
+		"other method": {func(r *http.Request) { r.Method = http.MethodPut }, codeDecryptionFailed},
+		"bad enc":      {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) }, codeDecryptionFailed},
+		"version":      {func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") }, codeVersionUnsupported},
+		"ciphertext in body": {func(r *http.Request) {
+			r.Body = io.NopCloser(strings.NewReader(r.Header.Get(HeaderCiphertext)))
+			r.Header.Del(HeaderCiphertext)
+		}, codeRequestMalformed},
+		"missing enc":        {func(r *http.Request) { r.Header.Del(HeaderEnc) }, codeRequestMalformed},
+		"non-hex enc":        {func(r *http.Request) { r.Header.Set(HeaderEnc, "zz") }, codeRequestMalformed},
+		"short enc":          {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", encSize-1)) }, codeRequestMalformed},
+		"long enc":           {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", encSize+1)) }, codeRequestMalformed},
+		"non-hex ciphertext": {func(r *http.Request) { r.Header.Set(HeaderCiphertext, "zz") }, codeRequestMalformed},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			request, _ := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
+			c.mutate(request)
+			recorder := httptest.NewRecorder()
+			reached := false
+			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+			assertRejected(t, recorder, reached, c.code)
+		})
+	}
+}
+
+func TestWrapRejectsABodyOverTheCap(t *testing.T) {
+	s := testServer(t)
+	request, _ := encryptedRequest(t, s, http.MethodPost, "/prove/merge", nil)
+	request.Body = io.NopCloser(io.LimitReader(zeros{}, maxEncryptedBody+1))
+	request.ContentLength = -1
+	recorder := httptest.NewRecorder()
+	reached := false
+	s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+	assertRejected(t, recorder, reached, codeRequestMalformed)
+}
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+func assertRejected(t *testing.T, recorder *httptest.ResponseRecorder, reached bool, code string) {
+	t.Helper()
+	var body struct{ Code string }
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if reached || recorder.Code != http.StatusBadRequest || recorder.Header().Get(HeaderVersion) != "" || body.Code != code {
+		t.Fatalf("reached %v status %d code %q, want %q", reached, recorder.Code, body.Code, code)
+	}
+}
+
+func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
+	s := testServer(t)
+	for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
+		request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?api-key=k&jobId=a", nil)
+		request.RequestURI = target
+		recorder := httptest.NewRecorder()
+		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+		if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+	}
+}
+
+func TestWrapRejectsTamperedBody(t *testing.T) {
+	s := testServer(t)
+	enc, ciphertext, _ := encryptRequest(t, s.publicKey, http.MethodPost, "/prove/merge", []byte(`{}`))
+	ciphertext[0] ^= 1
+	request := httptest.NewRequest(http.MethodPost, "/prove/merge", bytes.NewReader(ciphertext))
+	request.Header.Set(HeaderVersion, Version)
+	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
+	recorder := httptest.NewRecorder()
+	reached := false
+	s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+	assertRejected(t, recorder, reached, codeDecryptionFailed)
+}
+
+func TestWrapPassesPlainRequests(t *testing.T) {
+	s := testServer(t)
+	request := httptest.NewRequest(http.MethodPost, "/prove/merge", strings.NewReader("plain"))
+	request.Header.Set("Content-Type", "text/plain")
+	recorder := httptest.NewRecorder()
+	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+	if recorder.Body.String() != "POST:text/plain:plain" || recorder.Header().Get(HeaderVersion) != "" {
+		t.Fatalf("body %q", recorder.Body.String())
+	}
+}
+
+func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			s := testServer(t)
+			request, responseKey := encryptedRequest(t, s, method, "/prove/merge/status?jobId=abc", nil)
+			ciphertext, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bodies := []string{"known status response", "known status response", "secret proof response"}
+			servers := []*Server{s, s, testServer(t)}
+			responses := make([][]byte, len(bodies))
+			for i, body := range bodies {
+				replay := request.Clone(request.Context())
+				replay.Body = io.NopCloser(bytes.NewReader(ciphertext))
+				recorder := httptest.NewRecorder()
+				servers[i].Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = io.WriteString(w, body)
+				})).ServeHTTP(recorder, replay)
+				responses[i] = recorder.Body.Bytes()
+				status, decrypted, err := decryptResponse(responseKey, responses[i])
+				if err != nil || status != http.StatusOK || string(decrypted) != body {
+					t.Fatalf("response %d did not open", i)
+				}
+				if len(responses[i]) != 12+2+len(body)+16 {
+					t.Fatalf("response %d has invalid framing", i)
+				}
+				for _, previous := range responses[:i] {
+					if bytes.Equal(previous[:12], responses[i][:12]) {
+						t.Fatal("replayed request reused a response nonce")
+					}
+				}
+			}
+			leaked := make([]byte, len(bodies[2]))
+			for i := range leaked {
+				leaked[i] = responses[0][14+i] ^ responses[2][14+i] ^ bodies[0][i]
+			}
+			if string(leaked) == bodies[2] {
+				t.Fatal("replayed request exposed the response plaintext")
+			}
+		})
+	}
+}

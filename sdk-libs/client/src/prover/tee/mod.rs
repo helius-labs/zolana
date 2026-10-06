@@ -1,5 +1,45 @@
+//! Encrypts every prover call to the HPKE key verified TEE evidence binds.
+
+mod attestation;
+mod dstack;
+mod encryption;
+mod nitro;
+mod platform;
+mod policy;
+mod session;
+#[cfg(test)]
+mod tests;
+mod verify;
+
+pub use attestation::Attestation;
+pub use dstack::{DstackIdentity, DstackPolicy, KeyProvider, TdxMeasurement};
+pub(crate) use encryption::EncryptedRequest;
+#[cfg(test)]
+pub(crate) use nitro::tests::Fixture as NitroFixture;
+pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
+pub use platform::{Platform, PlatformIdentity, PlatformPolicy};
+pub use policy::{GpuRequirement, TeePolicy, TeePolicyFile};
+pub(crate) use session::TeeSession;
+pub use verify::{inspect, verify, AttestedIdentity, AttestedProver};
+
 use thiserror::Error;
 
+pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
+pub const HEADER_VERSION: &str = "Zolana-Tee";
+pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
+/// Carries the encrypted bytes of a GET, fetch refuses a GET body.
+pub const HEADER_CIPHERTEXT: &str = "Zolana-Tee-Ciphertext";
+pub const VERSION: &str = "v1";
+pub const NONCE_SIZE: usize = 32;
+pub const MAX_ATTESTATION_BYTES: usize = 1 << 20;
+
+// Domain separation for every hash and HPKE context the protocol binds.
+const REPORT_DOMAIN: &[u8] = b"zolana/prover-tee/v1/report";
+const HPKE_INFO: &[u8] = b"zolana/prover-tee/v1";
+const RESPONSE_EXPORT: &[u8] = b"zolana/prover-tee/v1/response";
+const API_KEY_PARAM: &str = "api-key";
+
+/// Why the prover was not trusted with a request.
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum TeeError {

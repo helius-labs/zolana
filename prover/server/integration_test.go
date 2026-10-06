@@ -87,7 +87,11 @@ func StartServerWithPreload(isLightweight bool, preload bool) {
 		MetricsAddress:    MetricsAddress,
 	}
 	logging.Logger().Info().Msg("Starting the server")
-	instance = server.Run(&serverCfg, keyManager)
+	var err error
+	instance, err = server.Run(&serverCfg, keyManager)
+	if err != nil {
+		panic(err)
+	}
 	serverStopped = false
 
 	// sleep for 1 sec to ensure that the server is up and running before running the tests

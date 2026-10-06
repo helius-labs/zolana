@@ -106,7 +106,15 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
         // The markers matched the same verifying keys, so a matching prover
         // proves with exactly the keys the program verifies against.
         let shown = redact_api_key(&prover_url);
-        let report = ProverClient::new(prover_url)
+        let mut prover = ProverClient::new(prover_url);
+        if let Some(policy) = opts.tee.policy()? {
+            prover = prover.with_tee(policy);
+            let attested = prover
+                .attest()
+                .with_context(|| format!("prover {shown} failed TEE attestation"))?;
+            println!("ok: prover {shown} attests, {attested}");
+        }
+        let report = prover
             .check_proving_keys()
             .with_context(|| format!("prover {shown} failed the proving key check"))?;
         println!(
@@ -332,6 +340,7 @@ fn check_markers(markers: &[SetupTxt], names: &KeyNames, required: &Required) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::args::ProverTeeOptions;
 
     fn marker(sha256: [u8; 32], insecure_test_setup: bool) -> SetupTxt {
         SetupTxt {
@@ -371,6 +380,7 @@ mod tests {
             shielded_pool,
             expect: expect.map(std::path::PathBuf::from),
             prover_url: prover_url.map(str::to_string),
+            tee: ProverTeeOptions::default(),
         }
     }
 
