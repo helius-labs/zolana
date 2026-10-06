@@ -852,15 +852,6 @@ paths:
                         description: |-
                           Restrict the match to one ring. Its config account is derived from this
                           program id, so the filter needs no indexed registration.
-                    sinceSlot:
-                      type:
-                      - integer
-                      - 'null'
-                      format: u-int64
-                      description: |-
-                        Only transactions after this slot, so a wallet that stored its last
-                        synced slot does not refetch older history. Ignored when `cursor` is set.
-                      minimum: 0
                     tags:
                       type: array
                       items:
