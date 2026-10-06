@@ -34,8 +34,8 @@ use super::{
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
 
 /// A `merge_transact` verifies a Groth16 proof on chain, above the default
-/// per-instruction budget. The widest shape, "Merge 36x1" in
-/// program-tests/shielded-pool/CU_BENCHMARK.md, measures 242,057 CU.
+/// per-instruction budget. The widest shape, "Merge 54x1" in
+/// program-tests/shielded-pool/CU_BENCHMARK.md, measures 296,879 CU.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
 pub(super) fn client(

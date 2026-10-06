@@ -2966,10 +2966,7 @@ mod tests {
         assert_eq!(created.num_inputs, 3);
         assert_eq!(created.merged_amount, 60);
         assert_eq!(created.tree, test_tree());
-        assert_eq!(
-            created.prepared.input_utxos.len(),
-            MERGE_DEFAULT_INPUT_COUNT
-        );
+        assert_eq!(created.prepared.input_utxos.len(), 8);
         assert_eq!(created.prepared.output_utxo.amount, 60);
     }
 }

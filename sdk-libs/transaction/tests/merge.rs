@@ -93,7 +93,9 @@ fn merge_count_boundaries_are_explicit() {
     let owner = keypair(7);
     for (count, padded) in [
         (0, None),
-        (1, Some(24)),
+        (1, Some(8)),
+        (8, Some(8)),
+        (9, Some(24)),
         (23, Some(24)),
         (24, Some(24)),
         (25, Some(54)),
@@ -124,10 +126,10 @@ fn merge_count_boundaries_are_explicit() {
 }
 
 #[test]
-fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
+fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
     let owner = keypair(7);
     let sender = owner.shielded_address().unwrap();
-    for (count, padded) in [(1, 24), (24, 24), (25, 54), (54, 54)] {
+    for (count, padded) in [(1, 8), (8, 8), (9, 24), (24, 24), (25, 54), (54, 54)] {
         let notes = inputs(&owner, count);
         let first_nullifier = notes.first().unwrap().nullifier;
         let tx = owner.get_transaction_viewing_key(&first_nullifier).unwrap();
@@ -193,7 +195,7 @@ fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
 #[test]
 fn merge_pads_with_compact_slots() {
     let owner = keypair(7);
-    for (count, padded) in [(3, 24), (25, 54)] {
+    for (count, padded) in [(3, 8), (9, 24), (25, 54)] {
         let notes = inputs(&owner, count);
         let result = MergeTransaction::new(notes.clone())
             .unwrap()
@@ -467,7 +469,7 @@ fn merge_accessors_filter_dummies_and_recheck_data() {
         .unwrap();
     assert_eq!(result.input_utxo_hashes().unwrap().len(), 2);
     let first = result.input_utxos.first().unwrap().nullifier;
-    let expected = (2..24)
+    let expected = (2..8)
         .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first, slot).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(result.dummy_nullifiers(), expected);
@@ -544,7 +546,7 @@ fn merge_routes_key_requests_and_propagates_failures() {
         (Reply::Normal, None),
         (
             Reply::EmptyDerive,
-            Some(TransactionError::IncompleteDerivation { got: 0, want: 24 }),
+            Some(TransactionError::IncompleteDerivation { got: 0, want: 8 }),
         ),
         (
             Reply::EmptyKey,
@@ -579,12 +581,10 @@ fn merge_routes_key_requests_and_propagates_failures() {
             assert_eq!(
                 *keys.derived.borrow(),
                 std::iter::once(DeriveRequest::MergeOutputBlinding { first_nullifier })
-                    .chain(
-                        (1..24).map(|slot_index| DeriveRequest::MergeDummyNullifier {
-                            first_nullifier,
-                            slot_index
-                        })
-                    )
+                    .chain((1..8).map(|slot_index| DeriveRequest::MergeDummyNullifier {
+                        first_nullifier,
+                        slot_index
+                    }))
                     .collect::<Vec<_>>()
             );
             assert_eq!(
@@ -634,7 +634,7 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
         .collect();
     let tx = ViewingKey::new();
     let first_nullifier = notes.first().unwrap().nullifier;
-    let dummy_nullifiers = (2..24)
+    let dummy_nullifiers = (2..8)
         .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, slot).unwrap())
         .collect::<Vec<_>>();
     let result = MergeTransaction::new_with_ring(notes, ring, None)

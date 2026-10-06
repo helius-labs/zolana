@@ -145,9 +145,10 @@ Added
 - Wallet sync recovers the output of a compact merge, which publishes only the
   nullifiers it sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
-  `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 24-input
-  proof or above 24 to the 54-input proof, and `buildRingMergeTransaction` and
-  `createRingMergeSubmission` take `maxInputs`, 24 by default and at most 54.
+  `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 8-input
+  proof, above 8 to the 24-input proof or above 24 to the 54-input proof, and
+  `buildRingMergeTransaction` and `createRingMergeSubmission` take
+  `maxInputs`, 24 by default and at most 54.
 
 Changed
 

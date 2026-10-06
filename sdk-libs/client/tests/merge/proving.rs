@@ -5,7 +5,7 @@ use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
 use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_24_1, merge_54_1},
+    verifying_keys::{merge_24_1, merge_54_1, merge_8_1},
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
@@ -101,6 +101,7 @@ impl MergeHarness {
         );
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
         let vk = match result.nullifiers.len() {
+            8 => &merge_8_1::VERIFYINGKEY,
             24 => &merge_24_1::VERIFYINGKEY,
             54 => &merge_54_1::VERIFYINGKEY,
             other => panic!("no committed verifying key for a {other}-input merge"),

@@ -4,7 +4,7 @@ import { prepareMerge } from "../src/client/prover/merge.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
 import { Merge, ProofInputUtxo, SOL_MINT, Utxo } from "../src/transaction/index.js";
-import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
+import { MERGE_INPUT_COUNT, mergePaddedInputCount } from "../src/interface/constants.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { decodeIndexedInputs, proveThroughAuthority } from "../src/client/prover/indexed.js";
 import { readFileSync } from "node:fs";
@@ -19,11 +19,12 @@ import {
 } from "../src/client/internal.js";
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 
-const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(MERGE_INPUT_COUNT) });
+const ONE_INPUT_MERGE_WIDTH = 8;
+const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(ONE_INPUT_MERGE_WIDTH) });
 
 const decode = wireDecoder(() => new Error("invalid shared vector"));
 
-it.each([1, 8, MERGE_INPUT_COUNT])(
+it.each([1, 8, 9, MERGE_INPUT_COUNT])(
   "hashes each real merge input once with %i real inputs",
   (count) => {
     const owner = ShieldedKeypair.generate();
@@ -48,7 +49,7 @@ it.each([1, 8, MERGE_INPUT_COUNT])(
         hashes.forEach((hash) => expect(hash).toHaveBeenCalledTimes(1));
         expect(first.inputs.lookups.map((lookup) => lookup.commitment)).toEqual([
           ...expected,
-          ...Array.from({ length: MERGE_INPUT_COUNT - count }, () => null),
+          ...Array.from({ length: (mergePaddedInputCount(count) ?? 0) - count }, () => null),
         ]);
         const input = inputs[0];
         if (input === undefined) throw new Error("missing test input");
@@ -163,7 +164,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(envelope["circuitType"]).toBe("merge");
     expect(payload).not.toHaveProperty("treeSlots");
     expect(typeof payload["userNullifierSecret"]).toBe("string");
-    expect(decode.list(payload["inputs"], "inputs")).toHaveLength(MERGE_INPUT_COUNT);
+    expect(decode.list(payload["inputs"], "inputs")).toHaveLength(ONE_INPUT_MERGE_WIDTH);
     expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
     expect(publicInputs).toHaveLength(8);

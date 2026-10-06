@@ -168,7 +168,7 @@ describe("ring merge", () => {
       );
       const fetch = vi.fn<typeof globalThis.fetch>(async () =>
         Response.json({
-          ...proofFor({ circuitType: "merge-ring", inputs: Array(MERGE_INPUT_COUNT) }),
+          ...proofFor({ circuitType: "merge-ring", inputs: Array(prepared.inputs.length) }),
           resolution: {
             publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
             trees: [
@@ -324,7 +324,9 @@ describe("ring merge", () => {
   });
 
   it.each([
-    [2, 24],
+    [2, 8],
+    [8, 8],
+    [9, 24],
     [24, 24],
     [25, 54],
     [54, 54],

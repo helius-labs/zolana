@@ -25,8 +25,10 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "926bc02fe4d70f3d8163e190a572be82f8a0506e4ce734525fd3f92cf40c3357",
   "merge_24_1.key": "a0dfaa1e73d2d9e1159d2ebab82baa6d0602482d75f24dcbff596322dc389c88",
   "merge_54_1.key": "951ec83dc53d112a46a1eb9cd308e6abd933291eb3109647a479e2321fce7423",
+  "merge_8_1.key": "f59571876452541eaf20cfc583a082b9b6cc788bf85719bd337398b2d962ad23",
   "merge_ring_24_1.key": "7c06a947e2fbd84264d3b2e0afedb44922ad871a64289c9fbcada04d91fce588",
   "merge_ring_54_1.key": "554e5ffdfb7abb903bfc06610c7ef470c89340cca2bd4ab8eb104680dd8855ea",
+  "merge_ring_8_1.key": "9a191ebe9f60c8006b03f9c45850b252246d1767e100f4510b0d271767d41ad4",
   "transfer_confidential_12_2.key":
     "3415363ec3ae33b730c7445aeb7850aa1bc044443e6ef8a7731e2c56fd1df6e7",
   "transfer_confidential_12_4.key":

@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -19,17 +20,16 @@ pub struct TreeWrite {
 pub(crate) fn resolve_outputs<'a>(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'a>,
-) -> Result<Vec<ResolvedOutput<'a>>, ProgramError> {
-    if ix.outputs.len() > MAX_OUTPUTS {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
+) -> Result<ArrayVec<ResolvedOutput<'a>, MAX_OUTPUTS>, ProgramError> {
+    let mut outputs = ArrayVec::new();
+    for output in &ix.outputs {
+        let resolved = output
+            .into_resolved(|i| accounts.get(usize::from(i)).map(|a| a.address().to_bytes()))?;
+        outputs
+            .try_push(resolved)
+            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
     }
-    ix.outputs
-        .iter()
-        .map(|output| {
-            output.into_resolved(|i| accounts.get(usize::from(i)).map(|a| a.address().to_bytes()))
-        })
-        .collect::<Result<_, _>>()
-        .map_err(Into::into)
+    Ok(outputs)
 }
 
 /// Build the emitted [`TransactEvent`]: the trees and the values assigned while

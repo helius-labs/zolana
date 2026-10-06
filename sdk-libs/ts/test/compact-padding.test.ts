@@ -316,7 +316,7 @@ describe("compact padding", () => {
         details: { side: "input", index: 4 },
       }),
     );
-    // Three sent nullifiers select the 24-input circuit, not the 54-input one.
+    // Three sent nullifiers select the 8-input circuit, not the 54-input one.
     const tooWide = [...inputs, ...Array.from({ length: 51 }, compact)];
     expect(() => rebuilt(tooWide, prepared.dummyNullifiers())).toThrow(
       expect.objectContaining({
@@ -328,7 +328,7 @@ describe("compact padding", () => {
     expect(() => rebuilt(prepared.inputs, [])).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_INVALID_LENGTH",
-        details: { field: "dummyNullifiers", expected: 21, actual: 0 },
+        details: { field: "dummyNullifiers", expected: 5, actual: 0 },
       }),
     );
   });
@@ -345,7 +345,7 @@ describe("compact padding", () => {
     );
     key.destroy();
 
-    expect(prepared.inputs).toHaveLength(24);
+    expect(prepared.inputs).toHaveLength(8);
     expect(prepared.inputs.slice(inputs.length).every((input) => input.isCompact())).toBe(true);
     expect(prepared.dummyNullifiers()).toEqual(derived);
     expect(prepared.output.amount).toBe(9n);
@@ -379,7 +379,7 @@ describe("compact padding", () => {
     expect(() => assembleMergeWithProofs(prepared, inputs.map(spendProof), tree, [])).toThrow(
       expect.objectContaining({
         code: "CLIENT_INCOMPLETE_INPUT_PROOFS",
-        details: { expected: 21, state: 0, nullifier: 0 },
+        details: { expected: 5, state: 0, nullifier: 0 },
       }),
     );
 

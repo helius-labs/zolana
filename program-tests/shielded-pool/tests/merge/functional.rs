@@ -18,12 +18,15 @@ use zolana_test_utils::nullifier_pda::{
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
+const MERGE_8_CU_CEILING: u64 = 225_000;
+
 const MERGE_24_CU_CEILING: u64 = 300_000;
 
 const MERGE_54_CU_CEILING: u64 = 450_000;
 
 fn merge_cu_ceiling(input_count: usize) -> u64 {
     match input_count {
+        8 => MERGE_8_CU_CEILING,
         24 => MERGE_24_CU_CEILING,
         54 => MERGE_54_CU_CEILING,
         other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
@@ -36,7 +39,8 @@ fn merge_cu_ceiling(input_count: usize) -> u64 {
 #[test]
 fn merge_with_compact_padding_spends_only_the_real_inputs() {
     for (input_count, real_input_count) in [
-        (MERGE_DEFAULT_INPUT_COUNT, 3),
+        (8, 3),
+        (MERGE_DEFAULT_INPUT_COUNT, 9),
         (MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT + 1),
     ] {
         let mut pool = proof_env();
@@ -216,6 +220,11 @@ fn merge_at_input_count(input_count: usize, real_input_count: usize) {
 #[test]
 fn merge_collects_the_exact_forester_fee_from_the_payer() {
     merge_at_input_count(MERGE_DEFAULT_INPUT_COUNT, 1);
+}
+
+#[test]
+fn merge_verifies_several_real_inputs_padded_to_the_narrow_shape() {
+    merge_at_input_count(8, 3);
 }
 
 #[test]

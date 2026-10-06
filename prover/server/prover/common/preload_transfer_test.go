@@ -28,7 +28,7 @@ func TestTransferPreloadSelection(t *testing.T) {
 		t.Fatalf("selection %v %v", paths, err)
 	}
 	paths, matched, err = manager.selectedTransferPaths("merge")
-	if err != nil || !matched || len(paths) != 2 {
+	if err != nil || !matched || len(paths) != len(mergeSupportedInputCounts) {
 		t.Fatalf("merge selection %v %v", paths, err)
 	}
 	if err := manager.PreloadForRunMode(Rpc); err == nil {

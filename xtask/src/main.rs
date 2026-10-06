@@ -462,20 +462,6 @@ fn tx_size(args: Vec<String>) {
         },
         MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
-    const HISTORICAL_SENDER_SLOT_COUNT: usize = 2;
-
-    // Pre-spec sender: owner_pk(34)+amounts(24)+blinding(31)+viewing_pks(1+33R)+data(2) = 92+33R
-    // sender_slot_data(R) = type_prefix(1) + plaintext + GCM-tag(16) = 109 + 33R
-    let current_sender_data_len = |r: usize| -> usize { 109 + 33 * r };
-    // Pre-spec recipient: owner_pk(34)+sender_pk(33)+asset(8)+amount(8)+blinding(31)+data(1) = 115 B + 16 B GCM tag
-    let current_recipient_data_len = 131_usize;
-
-    // Spec-target ciphertext lengths (the per-output `data` slot). AES-256-CTR (no
-    // tag), owner_pubkey and sender_pubkey dropped from ciphertexts. Unchanged by
-    // the TransactOutput regrouping: the sender bundle is still one ciphertext
-    // covering both change positions, so isolating this constant makes the size
-    // delta below purely structural (owner tag vs the old 32-byte view_tag).
-    const OPT_SENDER_DATA_LEN: usize = 58; // type_prefix(1) + 57 B plaintext
 
     // The confidential rail encrypts every output on its own, so each output
     // carries one ciphertext the size the transaction builder emits: the borsh
@@ -548,14 +534,11 @@ fn tx_size(args: Vec<String>) {
     let user_token_pk = Pubkey::from([5u8; 32]);
     let token_program_pk = Pubkey::from([6u8; 32]);
 
-    // Each output is described by its owner tag and its optional ciphertext
-    // length (`None` = a covered position carrying `data: None`). Since outputs
-    // now fold the utxo hash, owner tag, and ciphertext into one `TransactOutput`,
-    // this descriptor is all a shape needs.
+    // Each output is described by its owner tag and its ciphertext length.
     let build_ix_data = |interface_transfers: Vec<InterfaceTransfer>,
                          n: usize,
                          proof: TransactProof,
-                         outputs_spec: &[(OwnerTag, Option<usize>)]|
+                         outputs_spec: &[(OwnerTag, usize)]|
      -> TransactIxData {
         let inputs = (0..n)
             .map(|_| InputUtxo {
@@ -568,7 +551,7 @@ fn tx_size(args: Vec<String>) {
             .map(|(owner_tag, data_len)| TransactOutput {
                 utxo_hash: [0u8; 32],
                 owner_tag: *owner_tag,
-                data: data_len.map(|len| vec![0u8; len]),
+                data: Some(vec![0u8; *data_len]),
             })
             .collect();
         TransactIxData {
@@ -595,61 +578,23 @@ fn tx_size(args: Vec<String>) {
         }
     };
 
-    // Transfer layout: the sender bundle covers the leading HISTORICAL_SENDER_SLOT_COUNT
-    // change positions (position 0 carries the ciphertext under the sender's tag,
-    // the rest carry `None`), then R recipient positions each carry their own
-    // Inline-tagged ciphertext. The sender tag is Account(0) when the owner is
-    // the payer and Inline(..) for a relayed Ed25519 transfer.
-    let transfer_layout = |m: usize,
-                           sender_tag: OwnerTag,
-                           sender_len: usize,
-                           recipient_len: usize|
-     -> Vec<(OwnerTag, Option<usize>)> {
-        (0..m)
-            .map(|position| {
-                if position == 0 {
-                    (sender_tag, Some(sender_len))
-                } else if position < HISTORICAL_SENDER_SLOT_COUNT {
-                    (sender_tag, None)
-                } else {
-                    (OwnerTag::Inline([0u8; 32]), Some(recipient_len))
-                }
-            })
-            .collect()
-    };
-
-    // Confidential layout: output 0 is the sender's change under the sender's
-    // tag, every other output a recipient under an Inline tag, and each output
-    // carries its own ciphertext of `data_len` bytes.
+    // Output 0 is the sender's change under the sender's tag, every other output
+    // a recipient under an Inline tag, and each output carries its own
+    // ciphertext of `data_len` bytes. The sender tag is Account(0) when the
+    // owner is the payer and Inline(..) for a relayed Ed25519 transfer.
     let confidential_layout =
-        |m: usize, sender_tag: OwnerTag, data_len: usize| -> Vec<(OwnerTag, Option<usize>)> {
+        |m: usize, sender_tag: OwnerTag, data_len: usize| -> Vec<(OwnerTag, usize)> {
             (0..m)
                 .map(|position| {
-                    if position == 0 {
-                        (sender_tag, Some(data_len))
+                    let owner_tag = if position == 0 {
+                        sender_tag
                     } else {
-                        (OwnerTag::Inline([0u8; 32]), Some(data_len))
-                    }
+                        OwnerTag::Inline([0u8; 32])
+                    };
+                    (owner_tag, data_len)
                 })
                 .collect()
         };
-
-    // Split layout: one bundle at position 0 covers every output, so all M
-    // positions share the Account(0) sender tag and only position 0 carries a
-    // ciphertext. Expressible only now that coverage is data-placement, not a
-    // vec-length convention.
-    let split_layout = |m: usize, sender_len: usize| -> Vec<(OwnerTag, Option<usize>)> {
-        (0..m)
-            .map(|position| {
-                let data = if position == 0 {
-                    Some(sender_len)
-                } else {
-                    None
-                };
-                (OwnerTag::Account(0), data)
-            })
-            .collect()
-    };
 
     let repeated_spl_withdraw_accounts = |leg_count: usize| {
         use solana_instruction::AccountMeta;
@@ -705,53 +650,51 @@ fn tx_size(args: Vec<String>) {
         shield_v1: TransactionSize,
     }
 
-    let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
-                         n: usize,
-                         proof: TransactProof|
-     -> ShapeSizes {
-        let transfer_data = build_ix_data(Vec::new(), n, proof, outputs_spec);
-        let shield_data = build_ix_data(
-            vec![InterfaceTransfer::SplDeposit {
-                amount: 1000,
-                spl_interface_bump: 0,
-            }],
-            n,
-            proof,
-            outputs_spec,
-        );
+    let make_tx_sizes =
+        |outputs_spec: &[(OwnerTag, usize)], n: usize, proof: TransactProof| -> ShapeSizes {
+            let transfer_data = build_ix_data(Vec::new(), n, proof, outputs_spec);
+            let shield_data = build_ix_data(
+                vec![InterfaceTransfer::SplDeposit {
+                    amount: 1000,
+                    spl_interface_bump: 0,
+                }],
+                n,
+                proof,
+                outputs_spec,
+            );
 
-        // Measure the serialized proof itself (32-byte a, 128-byte b, 32-byte c)
-        // along with the rest of the instruction, with no simulated adjustment.
-        let ix_len = make_ix_bytes(&transfer_data).len();
+            // Measure the serialized proof itself (32-byte a, 128-byte b, 32-byte c)
+            // along with the rest of the instruction, with no simulated adjustment.
+            let ix_len = make_ix_bytes(&transfer_data).len();
 
-        let ta = transfer_accounts(payer_pk, tree_pk, spp_pk);
-        let sa = shield_accounts(
-            payer_pk,
-            tree_pk,
-            vault_pk,
-            recipient_pk,
-            user_token_pk,
-            token_program_pk,
-            spp_pk,
-        );
+            let ta = transfer_accounts(payer_pk, tree_pk, spp_pk);
+            let sa = shield_accounts(
+                payer_pk,
+                tree_pk,
+                vault_pk,
+                recipient_pk,
+                user_token_pk,
+                token_program_pk,
+                spp_pk,
+            );
 
-        let transfer_ix = Instruction {
-            program_id: spp_pk,
-            accounts: ta,
-            data: make_ix_bytes(&transfer_data),
+            let transfer_ix = Instruction {
+                program_id: spp_pk,
+                accounts: ta,
+                data: make_ix_bytes(&transfer_data),
+            };
+            let shield_ix = Instruction {
+                program_id: spp_pk,
+                accounts: sa,
+                data: make_ix_bytes(&shield_data),
+            };
+
+            ShapeSizes {
+                ix_len,
+                transfer_v1: v1_tx_size(std::slice::from_ref(&transfer_ix)),
+                shield_v1: v1_tx_size(std::slice::from_ref(&shield_ix)),
+            }
         };
-        let shield_ix = Instruction {
-            program_id: spp_pk,
-            accounts: sa,
-            data: make_ix_bytes(&shield_data),
-        };
-
-        ShapeSizes {
-            ix_len,
-            transfer_v1: v1_tx_size(std::slice::from_ref(&transfer_ix)),
-            shield_v1: v1_tx_size(std::slice::from_ref(&shield_ix)),
-        }
-    };
 
     // A cell is `bytes/addresses`. OVER means the row misses a v1 ceiling.
     let print_shape_header = || {
@@ -789,22 +732,6 @@ fn tx_size(args: Vec<String>) {
         solana_message::v1::MAX_ADDRESSES,
     );
     println!();
-    println!("Legacy baseline (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
-    print_shape_header();
-
-    for &(n, m) in &shapes {
-        let r = m.saturating_sub(HISTORICAL_SENDER_SLOT_COUNT);
-        let spec = transfer_layout(
-            m,
-            OwnerTag::Account(0),
-            current_sender_data_len(r),
-            current_recipient_data_len,
-        );
-        let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed());
-        print_shape_row(n, m, &sizes, r > 0);
-    }
-
-    println!();
     println!(
         "Confidential rail ({output_data_len} B ciphertext per output, 192 B proof with raw G2 b):"
     );
@@ -840,17 +767,6 @@ fn tx_size(args: Vec<String>) {
             v1_cell(sizes.transfer_v1),
         );
     }
-
-    // UTXO Split: a single bundle at position 0 covers all M outputs, so every
-    // position shares the Account(0) sender tag and only position 0 carries a
-    // ciphertext. This layout is expressible only after the regrouping.
-    println!();
-    println!("UTXO Split (single bundle covering every output, Account(0), eddsa rail):");
-    print_shape_header();
-    let (n, m) = (1usize, 8usize);
-    let spec = split_layout(m, OPT_SENDER_DATA_LEN);
-    let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed());
-    print_shape_row(n, m, &sizes, true);
 
     println!();
     println!("Public-leg sensitivity (3 in 4 out, repeated same-asset SPL withdrawals):");
@@ -1023,9 +939,10 @@ fn tx_size(args: Vec<String>) {
     }
     // A count below its circuit width is a merge with compact padding. A ring
     // merge of every widest slot misses the limit; one input fewer fits.
-    for input_count in MERGE_SUPPORTED_INPUT_COUNTS
-        .into_iter()
-        .chain([3, 25, MAX_MERGE_INPUTS - 1])
+    for input_count in
+        MERGE_SUPPORTED_INPUT_COUNTS
+            .into_iter()
+            .chain([3, 9, 25, MAX_MERGE_INPUTS - 1])
     {
         use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
         use zolana_program::instruction::{MergeRing, MergeTransact};

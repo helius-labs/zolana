@@ -16,7 +16,7 @@ use zolana_interface::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRingIxData,
         MergeTransactIxData,
     },
-    verifying_keys::{merge_24_1, merge_54_1},
+    verifying_keys::{merge_24_1, merge_54_1, merge_8_1},
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
@@ -39,6 +39,7 @@ use super::transact::{current_tree_roots, tree_progress};
 
 pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'static> {
     match input_count {
+        8 => &merge_8_1::VERIFYINGKEY,
         24 => &merge_24_1::VERIFYINGKEY,
         54 => &merge_54_1::VERIFYINGKEY,
         other => panic!("no committed verifying key for a {other}-input merge"),

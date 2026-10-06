@@ -16,7 +16,7 @@ use zolana_interface::{
         tag::InstructionTag,
         validate_input_tree_contexts,
     },
-    N_PUBLIC_SLOTS,
+    MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 
 use super::{
@@ -62,16 +62,37 @@ pub fn process_transact_ix(
 
     // 4. Resolve output tags from accounts.
     let resolved_outputs = resolve_outputs(accounts, &ix)?;
+    process_resolved_transact(
+        accounts,
+        &ix,
+        external_data_prefix,
+        instruction,
+        &clock,
+        tree_input_counts,
+        &resolved_outputs,
+    )
+}
+
+#[inline(never)]
+fn process_resolved_transact(
+    accounts: &mut [AccountView],
+    ix: &TransactIxDataRef<'_>,
+    external_data_prefix: &[u8],
+    instruction: InstructionTag,
+    clock: &Clock,
+    tree_input_counts: [usize; MAX_INPUT_TREES],
+    resolved_outputs: &[ResolvedOutput<'_>],
+) -> ProgramResult {
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
     // 5. Check accounts.
     let mut transact_accounts = if ix.circuit.is_ring() {
         let (transact_accounts, ring_program_id) =
-            RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
+            RingTransactAccounts::validate_and_parse(accounts, ix, ix.circuit.is_authority())?;
         proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
         transact_accounts
     } else {
-        TransactAccounts::validate_and_parse(accounts, &ix)?
+        TransactAccounts::validate_and_parse(accounts, ix)?
     };
     // 6. Load the cache once, checking its writer and expiry before the proof.
     let cache = TransactCache::load(transact_accounts.cache.take(), clock.unix_timestamp)?;
@@ -84,7 +105,7 @@ pub fn process_transact_ix(
     // 8. Derive the circuit-specific fixed-width output-owner commitment.
     proof_inputs.fill_output_owner_pk_hashes(
         ix.circuit.output_owner_mode(),
-        &resolved_outputs,
+        resolved_outputs,
         &mut owner_hashes,
     )?;
 
@@ -97,13 +118,13 @@ pub fn process_transact_ix(
     // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
     let input_tree_sequences = apply_input_trees(
         &mut transact_accounts,
-        &ix,
+        ix,
         tree_input_counts,
         &mut proof_inputs,
     )?;
-    bind_cached_inputs(cache.as_ref(), &ix, &mut proof_inputs)?;
+    bind_cached_inputs(cache.as_ref(), ix, &mut proof_inputs)?;
     // 11. Append new utxo hashes.
-    let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
+    let tree_write = apply_output_tree(transact_accounts.output_tree, ix, clock.slot)?;
     check_cache_output_tree(cache.as_ref(), tree_write.output_tree_id)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
@@ -111,17 +132,17 @@ pub fn process_transact_ix(
     let external_data_hash = hash_external_data(
         &tag,
         external_data_prefix,
-        &ix,
+        ix,
         &transact_accounts.settlements,
-        &resolved_outputs,
+        resolved_outputs,
     )?;
-    let external_data_hash = bind_cache_write(cache.as_ref(), &ix, external_data_hash)?;
+    let external_data_hash = bind_cache_write(cache.as_ref(), ix, external_data_hash)?;
     proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 
-    TransactProof::new(&ix, &proof_inputs).verify()?;
+    TransactProof::new(ix, &proof_inputs).verify()?;
 
-    write_cached_outputs(cache, &ix)?;
+    write_cached_outputs(cache, ix)?;
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 

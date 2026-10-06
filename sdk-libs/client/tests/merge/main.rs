@@ -13,8 +13,8 @@ use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_IN
 
 #[test]
 #[serial_test::serial]
-fn p256_merge_proofs_cover_the_narrow_shape_padding_boundaries() {
-    for real_inputs in [1, 2, 12, 23, 24] {
+fn p256_merge_proofs_cover_the_narrow_shapes_padding_boundaries() {
+    for real_inputs in [1, 2, 8, 9, 23, 24] {
         MergeHarness {
             plan: MergePlan {
                 real_inputs,
@@ -28,7 +28,7 @@ fn p256_merge_proofs_cover_the_narrow_shape_padding_boundaries() {
 #[test]
 #[serial_test::serial]
 fn eddsa_merge_proofs_cover_minimum_middle_and_full_shapes() {
-    for real_inputs in [1, 12, 24] {
+    for real_inputs in [1, 8, 9, 24] {
         MergeHarness {
             plan: MergePlan {
                 real_inputs,

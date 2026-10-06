@@ -25,8 +25,8 @@ use zolana_client::user_registry::fetch_user_record_checked;
 
 /// Compute-unit ceiling for a `merge_transact`: it verifies a Groth16 proof
 /// on-chain, which does not fit the default per-instruction budget. The widest
-/// shape, "Merge 36x1" in program-tests/shielded-pool/CU_BENCHMARK.md, measures
-/// 242,057 CU; the ceiling is the transaction-wide maximum.
+/// shape, "Merge 54x1" in program-tests/shielded-pool/CU_BENCHMARK.md, measures
+/// 296,879 CU; the ceiling is the transaction-wide maximum.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
 /// The minimal owner material the merge submit boundary needs: the public

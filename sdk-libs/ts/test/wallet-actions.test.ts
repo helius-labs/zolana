@@ -369,7 +369,8 @@ describe("private transaction construction", () => {
     const hashes = wallet.utxos().map((entry) => entry.outputContext.hash);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
     for (const [count, width] of [
-      [8, 24],
+      [8, 8],
+      [9, 24],
       [24, 24],
       [25, 54],
       [54, 54],
@@ -402,9 +403,9 @@ describe("private transaction construction", () => {
       false,
       false,
       false,
-      ...Array.from({ length: 21 }, () => true),
+      ...Array.from({ length: 5 }, () => true),
     ]);
-    expect(merge.prepared.dummyNullifiers()).toHaveLength(21);
+    expect(merge.prepared.dummyNullifiers()).toHaveLength(5);
   });
 });
 

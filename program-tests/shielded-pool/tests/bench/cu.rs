@@ -202,8 +202,8 @@ fn bench_cu_deposit() {
              narrowest and widest shape of every output count (up to the 1x16 split shape \
              and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails \
              (EdDSA, and P256 whose BSB22 commitment adds a Pedersen proof-of-knowledge \
-             pairing to verification), both supported `merge_transact` shapes, compact \
-             padding on the 2x4 and 49x2 transact shapes and both merge shapes, and SOL/SPL \
+             pairing to verification), every supported `merge_transact` shape, compact \
+             padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL \
              withdrawals. This target is a pure \
              benchmark: no \
              CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
@@ -271,7 +271,7 @@ fn bench_cu_deposit() {
     }
     // Compact merges send only the real inputs, and their count picks the
     // width: the fewest that select each circuit.
-    for (input_count, real_input_count) in [(24, 1), (54, 25)] {
+    for (input_count, real_input_count) in [(8, 1), (24, 9), (54, 25)] {
         bench_merge_shape(
             &mut mollusk,
             &program_id,

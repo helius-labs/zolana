@@ -125,12 +125,13 @@ import {
  * budget a legacy transaction received per instruction.
  *
  * Sized from the widest shape this client can send on the rail it sends it on:
- * proving goes through the EdDSA rail, and
- * `program-tests/shielded-pool/CU_BENCHMARK.md` measures "Transfer eddsa 36x2"
- * at 292,473 CU for `process_instruction`. The remaining headroom absorbs the
- * per-input `create_nullifier_pdas` cost, which moves with tree state rather
- * than with the shape. The ring P256 rail is more expensive again, but it
- * carries its own ceiling and does not come through here.
+ * proving goes through the EdDSA rail, and the widest confidential transaction,
+ * 49x2 with every input real, consumes 305,340 CU on a validator
+ * (`program-tests/spp-test-validator/tests/max_shapes.rs`). The remaining
+ * headroom absorbs the per-input `create_nullifier_pdas` cost, which moves with
+ * tree state rather than with the shape. The ring P256 rail is more expensive
+ * again (356,230 CU at 49x2), but it carries its own ceiling and does not come
+ * through here.
  *
  * Under transaction version 1 this rides in the message header, and requested
  * units rather than consumed ones set the priority fee, so a caller sending

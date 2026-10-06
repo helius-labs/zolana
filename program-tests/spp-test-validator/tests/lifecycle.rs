@@ -211,18 +211,20 @@ fn eddsa_transfers_cover_spl_mixed_single_input_and_change_only() -> Result<()> 
     Ok(())
 }
 
-/// One and two inputs, a full default-width merge, and the fewest inputs
-/// that select the wide circuit.
-const MERGE_COVERED_INPUT_COUNTS: [usize; 4] = [
+/// One and two inputs, then a full merge of each narrower width and the
+/// fewest inputs that select the next one.
+const MERGE_COVERED_INPUT_COUNTS: [usize; 6] = [
     1,
     2,
+    8,
+    9,
     MERGE_DEFAULT_INPUT_COUNT,
     MERGE_DEFAULT_INPUT_COUNT + 1,
 ];
 
 #[test]
 #[serial]
-fn actor_owned_merge_covers_both_merge_widths() -> Result<()> {
+fn actor_owned_merge_covers_every_merge_width() -> Result<()> {
     let mut harness = LifecycleHarness::new()?;
 
     for count in MERGE_COVERED_INPUT_COUNTS {
@@ -248,7 +250,7 @@ fn actor_owned_merge_covers_both_merge_widths() -> Result<()> {
 
 #[test]
 #[serial]
-fn eddsa_merge_covers_both_merge_widths() -> Result<()> {
+fn eddsa_merge_covers_every_merge_width() -> Result<()> {
     let mut harness = LifecycleHarness::new()?;
     let name = "eddsa-owner";
     harness
