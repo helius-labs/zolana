@@ -232,3 +232,20 @@ within the custom ring.
   removed, and registration stays required.
 - The Solana Privacy Program's governance must enable delegate moves for the
   ring.
+
+## 10. Auditor
+
+The auditor holds the ring's viewing key and can read every transfer and
+withdrawal through the ring: tokens, amounts and recipients. The auditor
+can't move funds.
+
+### What the auditor sees
+
+- **Transfers and withdrawals:** each one encrypts its details to the auditor,
+  and the ring program accepts it only with a proof that it did.
+- **Deposits:** token and amount are public. Recipients are visible only with
+  deposit audit.
+
+### Configuration
+
+- The auditor key is configured when the ring is created.
