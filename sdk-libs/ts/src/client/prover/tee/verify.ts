@@ -10,7 +10,7 @@ import type { TeePolicy } from "./policy.js";
 const RUNTIME_EVENT_TYPE = 0x0800_0001;
 const REPORT_DOMAIN = utf8ToBytes("zolana/prover-tee/v1/report");
 
-/** A prover that passed {@link verifyAttestation} for one session nonce. */
+/** Attestation verified for one session nonce. */
 export type AttestedProver = Readonly<{
   hpkePublicKey: Uint8Array;
   tcbStatus: string;
