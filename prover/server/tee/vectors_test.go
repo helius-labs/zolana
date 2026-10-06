@@ -10,26 +10,26 @@ import (
 	"testing"
 )
 
-// Sealed vectors carry a random HPKE ephemeral, so only
+// Encrypted vectors carry a random HPKE ephemeral, so only
 // ZOLANA_TEE_WRITE_VECTORS=1 regenerates them.
 type vectors struct {
-	IKM             string    `json:"ikm"`
-	HPKEPublicKey   string    `json:"hpke_public_key"`
-	Nonce           string    `json:"nonce"`
-	GPUToken        string    `json:"gpu_token"`
-	ReportData      string    `json:"report_data"`
-	ReportDataNoGPU string    `json:"report_data_no_gpu"`
-	GPUNonce        string    `json:"gpu_nonce"`
-	Method          string    `json:"method"`
-	RequestURI      string    `json:"request_uri"`
-	Enc             string    `json:"enc"`
-	Ciphertext      string    `json:"ciphertext"`
-	Plaintext       string    `json:"plaintext"`
-	ResponseKey     string    `json:"response_key"`
-	ResponseStatus  int       `json:"response_status"`
-	ResponseBody    string    `json:"response_body"`
-	SealedResponse  string    `json:"sealed_response"`
-	AADCases        []aadCase `json:"aad_cases"`
+	IKM               string    `json:"ikm"`
+	HPKEPublicKey     string    `json:"hpke_public_key"`
+	Nonce             string    `json:"nonce"`
+	GPUToken          string    `json:"gpu_token"`
+	ReportData        string    `json:"report_data"`
+	ReportDataNoGPU   string    `json:"report_data_no_gpu"`
+	GPUNonce          string    `json:"gpu_nonce"`
+	Method            string    `json:"method"`
+	RequestURI        string    `json:"request_uri"`
+	Enc               string    `json:"enc"`
+	Ciphertext        string    `json:"ciphertext"`
+	Plaintext         string    `json:"plaintext"`
+	ResponseKey       string    `json:"response_key"`
+	ResponseStatus    int       `json:"response_status"`
+	ResponseBody      string    `json:"response_body"`
+	EncryptedResponse string    `json:"encrypted_response"`
+	AADCases          []aadCase `json:"aad_cases"`
 }
 
 type aadCase struct {
@@ -74,30 +74,30 @@ func TestVectors(t *testing.T) {
 	if os.Getenv("ZOLANA_TEE_WRITE_VECTORS") != "" {
 		method, uri := "POST", "/v1/zolana/prove/transfer_2_2?api-key=k"
 		plaintext := []byte(`{"inputs":["secret"]}`)
-		enc, ciphertext, responseKey := sealRequest(t, publicKey, method, uri, plaintext)
+		enc, ciphertext, responseKey := encryptRequest(t, publicKey, method, uri, plaintext)
 		responseBody := []byte(`{"proof":"ok"}`)
-		sealed, err := sealResponse(responseKey, 200, responseBody)
+		encrypted, err := encryptResponse(responseKey, 200, responseBody)
 		if err != nil {
 			t.Fatal(err)
 		}
 		out, err := json.MarshalIndent(vectors{
-			IKM:             hex.EncodeToString(ikm),
-			HPKEPublicKey:   hex.EncodeToString(publicKey),
-			Nonce:           hex.EncodeToString(nonce),
-			GPUToken:        string(gpuToken),
-			ReportData:      hex.EncodeToString(reportData[:]),
-			ReportDataNoGPU: hex.EncodeToString(reportDataNoGPU[:]),
-			GPUNonce:        hex.EncodeToString(gpuNonce[:]),
-			Method:          method,
-			RequestURI:      uri,
-			Enc:             hex.EncodeToString(enc),
-			Ciphertext:      hex.EncodeToString(ciphertext),
-			Plaintext:       string(plaintext),
-			ResponseKey:     hex.EncodeToString(responseKey),
-			ResponseStatus:  200,
-			ResponseBody:    string(responseBody),
-			SealedResponse:  hex.EncodeToString(sealed),
-			AADCases:        aadCases(),
+			IKM:               hex.EncodeToString(ikm),
+			HPKEPublicKey:     hex.EncodeToString(publicKey),
+			Nonce:             hex.EncodeToString(nonce),
+			GPUToken:          string(gpuToken),
+			ReportData:        hex.EncodeToString(reportData[:]),
+			ReportDataNoGPU:   hex.EncodeToString(reportDataNoGPU[:]),
+			GPUNonce:          hex.EncodeToString(gpuNonce[:]),
+			Method:            method,
+			RequestURI:        uri,
+			Enc:               hex.EncodeToString(enc),
+			Ciphertext:        hex.EncodeToString(ciphertext),
+			Plaintext:         string(plaintext),
+			ResponseKey:       hex.EncodeToString(responseKey),
+			ResponseStatus:    200,
+			ResponseBody:      string(responseBody),
+			EncryptedResponse: hex.EncodeToString(encrypted),
+			AADCases:          aadCases(),
 		}, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -146,9 +146,9 @@ func TestVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("response_key", hex.EncodeToString(responseKey), v.ResponseKey)
-	status, body, err := openResponse(responseKey, mustHex(t, v.SealedResponse))
+	status, body, err := decryptResponse(responseKey, mustHex(t, v.EncryptedResponse))
 	if err != nil || status != v.ResponseStatus || string(body) != v.ResponseBody {
-		t.Fatalf("sealed response: status %d body %q err %v", status, body, err)
+		t.Fatalf("encrypted response: status %d body %q err %v", status, body, err)
 	}
 }
 

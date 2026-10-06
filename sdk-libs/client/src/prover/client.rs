@@ -303,7 +303,7 @@ impl ProverClient {
     }
 
     /// Send every call, health and key checks included, only to a prover
-    /// that attests to `policy`, sealed to the key its quote binds.
+    /// that attests to `policy`, encrypted to the key its quote binds.
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.tee = Some(TeeSession::new(policy));
@@ -394,9 +394,9 @@ impl ProverClient {
         }
         let response = request.send().map_err(CallError::Connect)?;
         let status = response.status();
-        let is_sealed = TeeSession::is_sealed(response.headers());
+        let is_encrypted = TeeSession::is_encrypted(response.headers());
         let body = response.bytes().map_err(CallError::Read)?;
-        prepared.finish(status, is_sealed, &body)
+        prepared.finish(status, is_encrypted, &body)
     }
 
     /// `None` without a TEE requirement, attesting first when no key is cached.
@@ -1044,9 +1044,9 @@ impl AsyncProverClient {
         }
         let response = request.send().await.map_err(CallError::Connect)?;
         let status = response.status();
-        let is_sealed = TeeSession::is_sealed(response.headers());
+        let is_encrypted = TeeSession::is_encrypted(response.headers());
         let body = response.bytes().await.map_err(CallError::Read)?;
-        prepared.finish(status, is_sealed, &body)
+        prepared.finish(status, is_encrypted, &body)
     }
 
     async fn attested_key(&self) -> Result<Option<[u8; 32]>, ClientError> {

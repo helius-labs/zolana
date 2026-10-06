@@ -69,7 +69,10 @@ pub(crate) fn get_network_with_config(
         sync,
         tree,
         prover_url: resolve_prover_url(opts.prover_url.as_deref(), config),
-        prover_tee: opts.prover_tee.then(TeePolicy::pinned).transpose()?,
+        prover_tee: opts
+            .prover_tee
+            .then(TeePolicy::default_deployment)
+            .transpose()?,
         airdrop_lamports: opts.airdrop_lamports,
     })
 }

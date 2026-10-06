@@ -8,24 +8,24 @@ use zeroize::Zeroizing;
 
 use super::{TeeError, API_KEY_PARAM, HPKE_INFO, RESPONSE_EXPORT};
 
-/// One request sealed to the attested key, holding the key its answer opens with.
-pub struct SealedRequest {
+/// One request encrypted to the attested key, holding the key its answer opens with.
+pub struct EncryptedRequest {
     pub enc: String,
     pub body: Vec<u8>,
     response_key: Zeroizing<[u8; 32]>,
 }
 
-impl SealedRequest {
-    /// Binds `method` and the raw `request_uri` as AAD, so the sealed body
+impl EncryptedRequest {
+    /// Binds `method` and the raw `request_uri` as AAD, so the encrypted body
     /// opens only on the route and job it was sent to.
-    pub fn seal(
+    pub fn encrypt(
         hpke_public_key: &[u8; 32],
         method: &str,
         request_uri: &str,
         plaintext: &[u8],
     ) -> Result<Self, TeeError> {
         let public_key = <X25519HkdfSha256 as Kem>::PublicKey::from_bytes(hpke_public_key)
-            .map_err(|_| TeeError::Sealing("malformed HPKE public key"))?;
+            .map_err(|_| TeeError::Encryption("malformed HPKE public key"))?;
         let (encapped, mut context) =
             hpke::setup_sender::<AesGcm256, HkdfSha256, X25519HkdfSha256, _>(
                 &OpModeS::Base,
@@ -33,14 +33,14 @@ impl SealedRequest {
                 HPKE_INFO,
                 &mut UnwrapErr(OsRng),
             )
-            .map_err(|_| TeeError::Sealing("HPKE setup failed"))?;
+            .map_err(|_| TeeError::Encryption("HPKE setup failed"))?;
         let body = context
             .seal(plaintext, request_aad(method, request_uri).as_bytes())
-            .map_err(|_| TeeError::Sealing("HPKE seal failed"))?;
+            .map_err(|_| TeeError::Encryption("HPKE encryption failed"))?;
         let mut response_key = Zeroizing::new([0u8; 32]);
         context
             .export(RESPONSE_EXPORT, response_key.as_mut())
-            .map_err(|_| TeeError::Sealing("HPKE export failed"))?;
+            .map_err(|_| TeeError::Encryption("HPKE export failed"))?;
         Ok(Self {
             enc: hex::encode(encapped.to_bytes()),
             body,
@@ -48,24 +48,24 @@ impl SealedRequest {
         })
     }
 
-    /// Returns the status and body the prover sealed inside its answer.
-    pub fn open(&self, sealed: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
-        open_response(&self.response_key, sealed)
+    /// Returns the status and body the prover encrypted inside its answer.
+    pub fn decrypt(&self, encrypted: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
+        decrypt_response(&self.response_key, encrypted)
     }
 }
 
-pub fn open_response(key: &[u8; 32], sealed: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
-    let (nonce, ciphertext) = sealed
+pub fn decrypt_response(key: &[u8; 32], encrypted: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
+    let (nonce, ciphertext) = encrypted
         .split_first_chunk::<12>()
-        .ok_or(TeeError::Sealing("response too short"))?;
+        .ok_or(TeeError::Encryption("response too short"))?;
     let cipher =
-        Aes256Gcm::new_from_slice(key).map_err(|_| TeeError::Sealing("bad response key"))?;
+        Aes256Gcm::new_from_slice(key).map_err(|_| TeeError::Encryption("bad response key"))?;
     let plaintext = cipher
         .decrypt(Nonce::from_slice(nonce), ciphertext)
-        .map_err(|_| TeeError::Sealing("response does not open"))?;
+        .map_err(|_| TeeError::Encryption("response does not open"))?;
     let (status, body) = plaintext
         .split_first_chunk::<2>()
-        .ok_or(TeeError::Sealing("response too short"))?;
+        .ok_or(TeeError::Encryption("response too short"))?;
     Ok((u16::from_be_bytes(*status), body.to_vec()))
 }
 

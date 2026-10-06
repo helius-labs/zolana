@@ -31,8 +31,8 @@ type gpuAttester interface {
 	attest(ctx context.Context, nonce [32]byte) ([]byte, error)
 }
 
-// maxSealedBody caps a sealed request above the largest forester batch.
-const maxSealedBody = 64<<20 + gcmTagSize
+// maxEncryptedBody caps an encrypted request above the largest forester batch.
+const maxEncryptedBody = 64<<20 + gcmTagSize
 
 // attestationConcurrency bounds concurrent quote requests to the guest agent.
 const attestationConcurrency = 4

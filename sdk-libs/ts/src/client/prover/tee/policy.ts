@@ -1,6 +1,6 @@
 import { wireDecoder } from "../../../interface/decode.js";
 import { ClientError } from "../../error.js";
-import { PINNED_TEE_POLICY_FILE } from "./pinned.js";
+import { DEFAULT_TEE_POLICY_FILE } from "./default.js";
 
 export type GpuRequirement = "optional" | "required";
 
@@ -27,11 +27,11 @@ export type TeePolicy = Readonly<{
 }>;
 
 /** The deployment pinned in the SDK release, mirroring the Rust SDK `policy.json`. */
-export function pinnedTeePolicy(): TeePolicy {
-  const deployment = PINNED_TEE_POLICY_FILE.deployment;
+export function defaultTeePolicy(): TeePolicy {
+  const deployment = DEFAULT_TEE_POLICY_FILE.deployment;
   if (deployment === null) {
     throw new ClientError("CLIENT_PROVER_TEE_ATTESTATION", {
-      details: { check: "no_pinned_deployment" },
+      details: { check: "no_default_deployment" },
     });
   }
   return teePolicyFromJson(deployment);

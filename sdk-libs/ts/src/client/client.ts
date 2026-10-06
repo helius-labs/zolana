@@ -172,8 +172,8 @@ export interface ZolanaClientConfig {
   readonly indexerConfig?: IndexerRpcConfig;
   readonly proverAsyncPoll?: AsyncPollConfig;
   /**
-   * Seals every prover call to a prover that attests to the policy, usually
-   * `pinnedTeePolicy()`.
+   * Encrypts every prover call to a prover that attests to the policy, usually
+   * `defaultTeePolicy()`.
    */
   readonly proverTee?: TeePolicy;
   readonly fetch?: typeof globalThis.fetch;

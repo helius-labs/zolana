@@ -6,12 +6,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
 import { ProverClient } from "../src/client/prover/client.js";
-import { openResponse, requestAad, sealRequest } from "../src/client/prover/tee/seal.js";
-import { TeeSession, sealedInit, type ProverCall } from "../src/client/prover/tee/session.js";
-import { composeSignal } from "../src/client/internal.js";
-import { PINNED_TEE_POLICY_FILE } from "../src/client/prover/tee/pinned.js";
 import {
-  pinnedTeePolicy,
+  decryptResponse,
+  requestAad,
+  encryptRequest,
+} from "../src/client/prover/tee/encryption.js";
+import { TeeSession, encryptedInit, type ProverCall } from "../src/client/prover/tee/session.js";
+import { composeSignal } from "../src/client/internal.js";
+import { DEFAULT_TEE_POLICY_FILE } from "../src/client/prover/tee/default.js";
+import {
+  defaultTeePolicy,
   teePolicyFromJson,
   type TeePolicy,
 } from "../src/client/prover/tee/policy.js";
@@ -55,7 +59,7 @@ function check(run: () => unknown): string | undefined {
 
 describe("TEE policy", () => {
   it("mirrors the Rust SDK's pinned policy file", () => {
-    expect(PINNED_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
+    expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
   });
 
   it("accepts the archived deployment attestation", () => {
@@ -70,10 +74,10 @@ describe("TEE policy", () => {
   });
 
   it("loads the release pin or refuses its absence", () => {
-    if (PINNED_TEE_POLICY_FILE.deployment === null) {
-      expect(check(pinnedTeePolicy)).toBe("no_pinned_deployment");
+    if (DEFAULT_TEE_POLICY_FILE.deployment === null) {
+      expect(check(defaultTeePolicy)).toBe("no_default_deployment");
     } else {
-      expect(pinnedTeePolicy()).toEqual(teePolicyFromJson(PINNED_TEE_POLICY_FILE.deployment));
+      expect(defaultTeePolicy()).toEqual(teePolicyFromJson(DEFAULT_TEE_POLICY_FILE.deployment));
     }
   });
 
@@ -144,26 +148,26 @@ describe("attestation verification", () => {
   });
 });
 
-describe("sealing", () => {
+describe("encryption", () => {
   it("rejects tampered and truncated responses", () => {
     const key = hexToBytes(vector("response_key"));
-    const sealed = hexToBytes(vector("sealed_response"));
-    expect(sealed.length).toBe(12 + 2 + utf8ToBytes(vector("response_body")).length + 16);
+    const encrypted = hexToBytes(vector("encrypted_response"));
+    expect(encrypted.length).toBe(12 + 2 + utf8ToBytes(vector("response_body")).length + 16);
     const reject = (body: Uint8Array, responseKey = key): void => {
-      expect(() => openResponse(responseKey, body)).toThrow(
-        expect.objectContaining({ code: "CLIENT_PROVER_TEE_SEAL" }),
+      expect(() => decryptResponse(responseKey, body)).toThrow(
+        expect.objectContaining({ code: "CLIENT_PROVER_TEE_ENCRYPTION" }),
       );
     };
-    for (const offset of [0, 12, sealed.length - 1]) {
-      const tampered = sealed.slice();
+    for (const offset of [0, 12, encrypted.length - 1]) {
+      const tampered = encrypted.slice();
       tampered.set([tampered[offset]! ^ 1], offset);
       reject(tampered);
     }
-    for (let end = 0; end < sealed.length; end++) reject(sealed.subarray(0, end));
-    reject(sealed.subarray(12));
+    for (let end = 0; end < encrypted.length; end++) reject(encrypted.subarray(0, end));
+    reject(encrypted.subarray(12));
     const wrongKey = key.slice();
     wrongKey.set([wrongKey[0]! ^ 1]);
-    reject(sealed, wrongKey);
+    reject(encrypted, wrongKey);
   });
 
   async function recipient(enc: Uint8Array) {
@@ -187,7 +191,7 @@ describe("sealing", () => {
       await context.export(utf8ToBytes("zolana/prover-tee/v1/response"), 32),
     );
     expect(bytesToHex(responseKey)).toBe(vector("response_key"));
-    const opened = openResponse(responseKey, hexToBytes(vector("sealed_response")));
+    const opened = decryptResponse(responseKey, hexToBytes(vector("encrypted_response")));
     expect(opened.status).toBe(Number(decode.integer(vectors["response_status"], "status")));
     expect(new TextDecoder().decode(opened.body)).toBe(vector("response_body"));
   });
@@ -206,16 +210,16 @@ describe("sealing", () => {
     }
   });
 
-  it("opens only on the route it was sealed for", async () => {
-    const sealed = await sealRequest(
+  it("opens only on the route it was encrypted for", async () => {
+    const encrypted = await encryptRequest(
       hexToBytes(vector("hpke_public_key")),
       "GET",
       "/prove/merge/status?jobId=a",
       new Uint8Array(),
     );
     const opensOn = async (uri: string): Promise<boolean> => {
-      const context = await recipient(hexToBytes(sealed.enc));
-      return context.open(sealed.body, utf8ToBytes(`GET ${uri}`)).then(
+      const context = await recipient(hexToBytes(encrypted.enc));
+      return context.open(encrypted.body, utf8ToBytes(`GET ${uri}`)).then(
         () => true,
         () => false,
       );
@@ -225,7 +229,7 @@ describe("sealing", () => {
   });
 });
 
-describe("sealed request shape", () => {
+describe("encrypted request shape", () => {
   const call = (method: "GET" | "POST"): ProverCall => ({
     fetch: globalThis.fetch,
     attestationUrl: new URL("https://prover.example/tee/v1/attestation"),
@@ -235,33 +239,33 @@ describe("sealed request shape", () => {
     signal: composeSignal(undefined, "test"),
     maxResponseBytes: 1024,
   });
-  const sealed = {
+  const encrypted = {
     enc: "ab",
     body: new Uint8Array([1, 2]),
-    open: () => ({ status: 200, body: new Uint8Array() }),
+    decrypt: () => ({ status: 200, body: new Uint8Array() }),
   };
 
-  it("puts a GET's sealed bytes in a header, fetch refuses a GET body", () => {
-    const init = sealedInit(call("GET"), sealed);
+  it("puts a GET's encrypted bytes in a header, fetch refuses a GET body", () => {
+    const init = encryptedInit(call("GET"), encrypted);
     expect(init.body).toBeUndefined();
     expect(init.headers).toMatchObject({
       "Zolana-Tee": "v1",
       "Zolana-Tee-Enc": "ab",
-      "Zolana-Tee-Seal": "0102",
+      "Zolana-Tee-Ciphertext": "0102",
     });
   });
 
-  it("keeps a POST's sealed bytes in the body", () => {
-    const init = sealedInit(call("POST"), sealed);
+  it("keeps a POST's encrypted bytes in the body", () => {
+    const init = encryptedInit(call("POST"), encrypted);
     expect(init.body).toEqual(new Uint8Array([1, 2]));
-    expect(init.headers).not.toHaveProperty("Zolana-Tee-Seal");
+    expect(init.headers).not.toHaveProperty("Zolana-Tee-Ciphertext");
   });
 });
 
 describe("a TEE prover client", () => {
   it.each([
     ["no endpoint", () => new Response("404 page not found", { status: 404 })],
-    ["junk evidence", () => Response.json({ quote: "00" })],
+    ["junk attestation", () => Response.json({ quote: "00" })],
   ])("sends nothing but the attestation request to a prover with %s", async (_name, answer) => {
     const requested: string[] = [];
     const prover = new ProverClient({
@@ -299,7 +303,7 @@ it("keeps the cached key independent of the attestation report", async () => {
     report.hpkePublicKey.set(
       new Uint8Array(await suite.kem.serializePublicKey(substituted.publicKey)),
     );
-    const prepared = await session.seal({
+    const prepared = await session.encrypt({
       fetch,
       attestationUrl,
       url,
@@ -317,7 +321,7 @@ it("keeps the cached key independent of the attestation report", async () => {
       info: utf8ToBytes("zolana/prover-tee/v1"),
     });
     const body = prepared.init.body;
-    if (!(body instanceof Uint8Array)) throw new Error("unexpected sealed body");
+    if (!(body instanceof Uint8Array)) throw new Error("unexpected encrypted body");
     await expect(receiver.open(body, utf8ToBytes("POST /prove/merge"))).rejects.toThrow();
     expect(fetch).toHaveBeenCalledTimes(1);
   } finally {

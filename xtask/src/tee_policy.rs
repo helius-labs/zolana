@@ -10,12 +10,12 @@ use anyhow::{bail, Context, Result};
 use rand_core::{OsRng, TryRngCore};
 use reqwest::Url;
 use zolana_client::{
-    prover::tee::{inspect, Evidence, GpuRequirement, TeeError, TeePolicy, ATTESTATION_PATH},
+    prover::tee::{inspect, Attestation, GpuRequirement, TeeError, TeePolicy, ATTESTATION_PATH},
     ProverClient,
 };
 
 const RUST_POLICY: &str = "sdk-libs/client/src/prover/tee/policy.json";
-const TS_POLICY: &str = "sdk-libs/ts/src/client/prover/tee/pinned.ts";
+const TS_POLICY: &str = "sdk-libs/ts/src/client/prover/tee/default.ts";
 const DEFAULT_MAX_AGE_SECS: u64 = 600;
 
 pub struct TeePolicyOptions {
@@ -51,9 +51,9 @@ impl TeePolicyOptions {
         if let Ok(key) = std::env::var("PROVER_API_KEY") {
             prover_url.query_pairs_mut().append_pair("api-key", &key);
         }
-        let evidence = fetch_evidence(&prover_url)?;
+        let attestation = fetch_attestation(&prover_url)?;
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let identity = inspect(evidence, now)?;
+        let identity = inspect(attestation, now)?;
         if identity.key_provider.name != "kms" {
             bail!(
                 "prover keys come from {:?}, not a KMS",
@@ -61,9 +61,9 @@ impl TeePolicyOptions {
             );
         }
 
-        let mut policy = match (self.replace, TeePolicy::pinned()) {
+        let mut policy = match (self.replace, TeePolicy::default_deployment()) {
             (false, Ok(pinned)) => pinned,
-            (true, _) | (false, Err(TeeError::NoPinnedDeployment)) => TeePolicy {
+            (true, _) | (false, Err(TeeError::NoDefaultDeployment)) => TeePolicy {
                 app_id: identity.app_id,
                 hpke_public_key: identity.hpke_public_key,
                 key_provider_id: identity.key_provider.id.clone(),
@@ -103,7 +103,7 @@ impl TeePolicyOptions {
             .context("prover fails the candidate policy")?;
         prover
             .check_proving_keys()
-            .context("sealed proving key check failed")?;
+            .context("encrypted proving key check failed")?;
         write_pins(root, &policy)?;
         println!(
             "pinned compose {} TCB {} GPU {}",
@@ -119,7 +119,7 @@ impl TeePolicyOptions {
     }
 }
 
-fn fetch_evidence(prover_url: &Url) -> Result<Evidence> {
+fn fetch_attestation(prover_url: &Url) -> Result<Attestation> {
     let mut nonce = [0u8; 32];
     OsRng.try_fill_bytes(&mut nonce)?;
     let mut url = prover_url.clone();
@@ -155,7 +155,7 @@ fn write_pins(root: &Path, policy: &TeePolicy) -> Result<()> {
         format!("{}\n", serde_json::to_string_pretty(&file)?),
     )?;
     let ts = format!(
-        "/** Mirrors `{RUST_POLICY}`, kept equal by a test. */\nexport const PINNED_TEE_POLICY_FILE: Readonly<{{ deployment: unknown }}> = Object.freeze({});\n",
+        "/** Mirrors `{RUST_POLICY}`, kept equal by a test. */\nexport const DEFAULT_TEE_POLICY_FILE: Readonly<{{ deployment: unknown }}> = Object.freeze({});\n",
         serde_json::to_string_pretty(&file)?
     );
     fs::write(root.join(TS_POLICY), ts)?;

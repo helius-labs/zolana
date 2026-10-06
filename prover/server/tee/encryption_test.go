@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// sealRequest is the client half of the sealing, as the SDKs implement it.
-func sealRequest(t *testing.T, publicKey []byte, method, uri string, body []byte) (enc, ciphertext, responseKey []byte) {
+// encryptRequest is the client half of the encryption, as the SDKs implement it.
+func encryptRequest(t *testing.T, publicKey []byte, method, uri string, body []byte) (enc, ciphertext, responseKey []byte) {
 	t.Helper()
 	kem, kdf, aead := suite()
 	pk, err := kem.NewPublicKey(publicKey)
@@ -36,17 +36,17 @@ func sealRequest(t *testing.T, publicKey []byte, method, uri string, body []byte
 	return enc, ciphertext, responseKey
 }
 
-func openResponse(key, sealed []byte) (int, []byte, error) {
+func decryptResponse(key, encrypted []byte) (int, []byte, error) {
 	gcm, err := responseAEAD(key)
 	if err != nil {
 		return 0, nil, err
 	}
-	plaintext, err := gcm.Open(nil, nil, sealed, nil)
+	plaintext, err := gcm.Open(nil, nil, encrypted, nil)
 	if err != nil {
 		return 0, nil, err
 	}
 	if len(plaintext) < 2 {
-		return 0, nil, errors.New("sealed response too short")
+		return 0, nil, errors.New("encrypted response too short")
 	}
 	return int(binary.BigEndian.Uint16(plaintext)), plaintext[2:], nil
 }
@@ -70,13 +70,13 @@ func echo(status int) http.Handler {
 	})
 }
 
-func sealedRequest(t *testing.T, s *Server, method, uri string, body []byte) (*http.Request, []byte) {
+func encryptedRequest(t *testing.T, s *Server, method, uri string, body []byte) (*http.Request, []byte) {
 	t.Helper()
-	enc, ciphertext, responseKey := sealRequest(t, s.publicKey, method, uri, body)
+	enc, ciphertext, responseKey := encryptRequest(t, s.publicKey, method, uri, body)
 	request := httptest.NewRequest(method, uri, bytes.NewReader(ciphertext))
 	if bodiless(method) {
 		request = httptest.NewRequest(method, uri, nil)
-		request.Header.Set(HeaderSeal, hex.EncodeToString(ciphertext))
+		request.Header.Set(HeaderCiphertext, hex.EncodeToString(ciphertext))
 	}
 	request.Header.Set(HeaderVersion, Version)
 	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
@@ -84,9 +84,9 @@ func sealedRequest(t *testing.T, s *Server, method, uri string, body []byte) (*h
 	return request, responseKey
 }
 
-func TestWrapOpensAndSeals(t *testing.T) {
+func TestWrapDecryptsAndEncrypts(t *testing.T) {
 	s := testServer(t)
-	request, responseKey := sealedRequest(t, s, http.MethodPost, "/prove/transfer_2_2?api-key=k", []byte(`{"secret":1}`))
+	request, responseKey := encryptedRequest(t, s, http.MethodPost, "/prove/transfer_2_2?api-key=k", []byte(`{"secret":1}`))
 	recorder := httptest.NewRecorder()
 	s.Wrap(echo(http.StatusTooManyRequests)).ServeHTTP(recorder, request)
 
@@ -97,9 +97,9 @@ func TestWrapOpensAndSeals(t *testing.T) {
 		t.Fatalf("headers %v", recorder.Header())
 	}
 	if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
-		t.Fatal("response body is not sealed")
+		t.Fatal("response body is not encrypted")
 	}
-	status, body, err := openResponse(responseKey, recorder.Body.Bytes())
+	status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,25 +108,25 @@ func TestWrapOpensAndSeals(t *testing.T) {
 	}
 }
 
-func TestWrapSealsBodilessPoll(t *testing.T) {
+func TestWrapEncryptsBodilessPoll(t *testing.T) {
 	s := testServer(t)
-	request, responseKey := sealedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
+	request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
 	recorder := httptest.NewRecorder()
 	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-	status, body, err := openResponse(responseKey, recorder.Body.Bytes())
+	status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
 	if err != nil || status != http.StatusOK || string(body) != "GET:application/json:" {
 		t.Fatalf("status %d body %q err %v", status, body, err)
 	}
 }
 
-func TestWrapRefusesASealedHead(t *testing.T) {
+func TestWrapRefusesAnEncryptedHead(t *testing.T) {
 	s := testServer(t)
 	for name, inHeader := range map[string]bool{"body": false, "header": true} {
 		t.Run(name, func(t *testing.T) {
-			request, _ := sealedRequest(t, s, http.MethodHead, "/health", nil)
+			request, _ := encryptedRequest(t, s, http.MethodHead, "/health", nil)
 			if inHeader {
-				sealed, _ := io.ReadAll(request.Body)
-				request.Header.Set(HeaderSeal, hex.EncodeToString(sealed))
+				encrypted, _ := io.ReadAll(request.Body)
+				request.Header.Set(HeaderCiphertext, hex.EncodeToString(encrypted))
 				request.Body = http.NoBody
 			}
 			recorder := httptest.NewRecorder()
@@ -146,14 +146,14 @@ func TestWrapRejectsRebinding(t *testing.T) {
 		"other method": func(r *http.Request) { r.Method = http.MethodPut },
 		"bad enc":      func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) },
 		"version":      func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") },
-		"seal in body": func(r *http.Request) {
-			r.Body = io.NopCloser(strings.NewReader(r.Header.Get(HeaderSeal)))
-			r.Header.Del(HeaderSeal)
+		"ciphertext in body": func(r *http.Request) {
+			r.Body = io.NopCloser(strings.NewReader(r.Header.Get(HeaderCiphertext)))
+			r.Header.Del(HeaderCiphertext)
 		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
-			request, _ := sealedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
+			request, _ := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
 			mutate(request)
 			recorder := httptest.NewRecorder()
 			reached := false
@@ -168,11 +168,11 @@ func TestWrapRejectsRebinding(t *testing.T) {
 func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
 	s := testServer(t)
 	for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
-		request, responseKey := sealedRequest(t, s, http.MethodGet, "/prove/merge/status?api-key=k&jobId=a", nil)
+		request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?api-key=k&jobId=a", nil)
 		request.RequestURI = target
 		recorder := httptest.NewRecorder()
 		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-		if _, _, err := openResponse(responseKey, recorder.Body.Bytes()); err != nil {
+		if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
 			t.Fatalf("%s: %v", target, err)
 		}
 	}
@@ -180,7 +180,7 @@ func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
 
 func TestWrapRejectsTamperedBody(t *testing.T) {
 	s := testServer(t)
-	enc, ciphertext, _ := sealRequest(t, s.publicKey, http.MethodPost, "/prove/merge", []byte(`{}`))
+	enc, ciphertext, _ := encryptRequest(t, s.publicKey, http.MethodPost, "/prove/merge", []byte(`{}`))
 	ciphertext[0] ^= 1
 	request := httptest.NewRequest(http.MethodPost, "/prove/merge", bytes.NewReader(ciphertext))
 	request.Header.Set(HeaderVersion, Version)
@@ -207,7 +207,7 @@ func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
 			s := testServer(t)
-			request, responseKey := sealedRequest(t, s, method, "/prove/merge/status?jobId=abc", nil)
+			request, responseKey := encryptedRequest(t, s, method, "/prove/merge/status?jobId=abc", nil)
 			ciphertext, err := io.ReadAll(request.Body)
 			if err != nil {
 				t.Fatal(err)
@@ -223,7 +223,7 @@ func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
 					_, _ = io.WriteString(w, body)
 				})).ServeHTTP(recorder, replay)
 				responses[i] = recorder.Body.Bytes()
-				status, opened, err := openResponse(responseKey, responses[i])
+				status, opened, err := decryptResponse(responseKey, responses[i])
 				if err != nil || status != http.StatusOK || string(opened) != body {
 					t.Fatalf("response %d did not open", i)
 				}

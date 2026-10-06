@@ -1,20 +1,20 @@
-# Sealed prover wire contract, v1
+# Encrypted prover wire contract, v1
 
-This contract lets a client seal a prover request to a key that only a measured Intel TDX confidential VM holds.
+This contract lets a client encrypt a prover request to a key that only a measured Intel TDX confidential VM holds.
 The key derives from the app's KMS key, so any compose deployed under the app can read the traffic.
-JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana-Tee-Seal` values are lowercase hex.
+JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext` values are lowercase hex.
 
 | Method | Request | Result |
 |--------|---------|--------|
 | `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `quote`, `event_log`, `vm_config`, `collateral`, `hpke_public_key` and `gpu` |
-| any prover route, sealed | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the sealed bytes in the body or, for GET, in `Zolana-Tee-Seal` | the inner status, `Zolana-Tee: v1`, and the sealed status and body |
+| any prover route, encrypted | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
 
 The prover serves a request without `Zolana-Tee` in plaintext, so the TEE requirement is the client's choice.
 The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/zolana` gateway prefix.
 
 ## Attestation
 
-The quote's 64-byte report_data binds the client's nonce, the key that requests are sealed to, and the GPU verdict:
+The quote's 64-byte report_data binds the client's nonce, the key that requests are encrypted to, and the GPU verdict:
 
 ```
 report_data = SHA-512("zolana/prover-tee/v1/report" || nonce || hpke_public_key || gpu_digest)
@@ -49,12 +49,12 @@ A client accepts the prover only when all of these hold:
 - report_data matches
 - a policy that requires a GPU sees a non-null `gpu`
 
-## Sealing
+## Encryption
 
-The client seals a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
+The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
 The recipient is `hpke_public_key`, and the info is `zolana/prover-tee/v1`.
 `Zolana-Tee-Enc` carries the encapsulated key.
-A GET carries its sealed bytes in `Zolana-Tee-Seal`, because fetch refuses a GET body.
+A GET carries its encrypted bytes in `Zolana-Tee-Ciphertext`, because fetch refuses a GET body.
 Every other method carries them as an `application/octet-stream` body.
 The AAD is the method and the request target without its `api-key` parameters:
 
@@ -70,7 +70,7 @@ Its wire bytes are the nonce, ciphertext and 16-byte tag.
 Its plaintext is the status as a big-endian `u16`, then the body.
 A replayed request derives the same response key, but each answer gets an independent nonce.
 A client refuses a 2xx answer without `Zolana-Tee: v1`.
-An unsealed failure reaches the caller as unauthenticated, so load shedding and retries still work.
+An unencrypted failure reaches the caller as unauthenticated, so load shedding and retries still work.
 
 ## Authorization
 
@@ -82,7 +82,7 @@ The AAD never covers it, so a proxy can move or strip it.
 ## Proxies
 
 A proxy keeps the path and the non-credential query pairs as sent.
-It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Seal`, and passes octet-stream bodies through unchanged.
+It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
 For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
 An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to open it.
 
@@ -95,10 +95,10 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 | 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
 | 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
 | 400 | `tee_version_unsupported` | `Zolana-Tee` names another version |
-| 400 | `tee_seal_invalid` | the sealed request does not open |
+| 400 | `tee_decryption_failed` | the encrypted request does not open |
 
 ## Test vectors
 
-`testdata/vectors.json` pins report_data with and without a GPU verdict, the GPU nonce, and a sealed request with its sealed answer.
+`testdata/vectors.json` pins report_data with and without a GPU verdict, the GPU nonce, and an encrypted request with its encrypted answer.
 `aad_cases` pins the AAD of each request target.
 `ikm` derives the prover key with RFC 9180 `DeriveKeyPair`.

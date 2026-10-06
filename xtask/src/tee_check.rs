@@ -1,4 +1,4 @@
-//! Proves a live TEE prover end to end through the SDK, sealed to its attested key.
+//! Proves a live TEE prover end to end through the SDK, encrypted to its attested key.
 
 use std::{fs, path::PathBuf};
 
@@ -54,7 +54,7 @@ impl TeeCheckOptions {
         if let Ok(key) = std::env::var("PROVER_API_KEY") {
             url.query_pairs_mut().append_pair("api-key", &key);
         }
-        let prover = ProverClient::new(url.into()).with_tee(TeePolicy::pinned()?);
+        let prover = ProverClient::new(url.into()).with_tee(TeePolicy::default_deployment()?);
 
         let attested = prover.attest().context("attestation")?;
         println!(
@@ -69,9 +69,9 @@ impl TeeCheckOptions {
         );
         let report = prover
             .check_proving_keys()
-            .context("sealed proving key check")?;
+            .context("encrypted proving key check")?;
         println!(
-            "sealed proving key check passed, {} keys",
+            "encrypted proving key check passed, {} keys",
             report.keys.len()
         );
 
@@ -84,8 +84,8 @@ impl TeeCheckOptions {
                 body: fs::read_to_string(&path)?,
                 key: ExpectedProvingKey { name, sha256 },
             };
-            prover.prove(&request).context("sealed proof")?;
-            println!("sealed proof returned from {}", request.key.name);
+            prover.prove(&request).context("encrypted proof")?;
+            println!("encrypted proof returned from {}", request.key.name);
         }
         Ok(())
     }

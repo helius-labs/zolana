@@ -5,10 +5,10 @@ use hpke::{
 use serde::Deserialize;
 
 use super::{
-    seal::{open_response, request_aad},
+    encryption::{decrypt_response, request_aad},
     verify,
     verify::report_data,
-    Evidence, SealedRequest, TeeError, TeePolicy, HPKE_INFO, RESPONSE_EXPORT,
+    Attestation, EncryptedRequest, TeeError, TeePolicy, HPKE_INFO, RESPONSE_EXPORT,
 };
 
 const PROBE_ATTESTATION: &str =
@@ -26,11 +26,11 @@ struct ProbeFixture {
 
 /// A real dstack-nvidia-0.5.9 attestation whose report_data binds a dstack
 /// app certificate, not a prover session.
-fn probe() -> (Evidence, TeePolicy, u64) {
+fn probe() -> (Attestation, TeePolicy, u64) {
     let fixture: ProbeFixture = serde_json::from_str(PROBE_ATTESTATION).unwrap();
-    let evidence = serde_json::from_value(fixture.attestation).unwrap();
+    let attestation = serde_json::from_value(fixture.attestation).unwrap();
     (
-        evidence,
+        attestation,
         TeePolicy::from_json(PROBE_POLICY).unwrap(),
         fixture.captured_at,
     )
@@ -38,16 +38,16 @@ fn probe() -> (Evidence, TeePolicy, u64) {
 
 #[test]
 fn a_real_quote_passes_every_check_before_report_data() {
-    let (evidence, policy, now) = probe();
+    let (attestation, policy, now) = probe();
     assert!(matches!(
-        verify(evidence, &policy, &[0x22; 32], now),
+        verify(attestation, &policy, &[0x22; 32], now),
         Err(TeeError::ReportDataMismatch)
     ));
 }
 
 #[test]
 fn each_policy_check_refuses_with_its_own_error() {
-    type Edit = fn(&mut Evidence, &mut TeePolicy, &mut u64);
+    type Edit = fn(&mut Attestation, &mut TeePolicy, &mut u64);
     type Expected = fn(&TeeError) -> bool;
     let cases: [(&str, Edit, Expected); 10] = [
         (
@@ -85,7 +85,7 @@ fn each_policy_check_refuses_with_its_own_error() {
         (
             "app id",
             |_, p, _| p.app_id[0] ^= 1,
-            |e| matches!(e, TeeError::AppIdNotPinned(_)),
+            |e| matches!(e, TeeError::AppIdMismatch(_)),
         ),
         (
             "compose hash",
@@ -100,18 +100,18 @@ fn each_policy_check_refuses_with_its_own_error() {
         (
             "key provider",
             |_, p, _| p.key_provider_id.clear(),
-            |e| matches!(e, TeeError::KeyProviderNotPinned),
+            |e| matches!(e, TeeError::KeyProviderMismatch),
         ),
         (
             "hpke key",
             |_, p, _| p.hpke_public_key[0] ^= 1,
-            |e| matches!(e, TeeError::HpkeKeyNotPinned),
+            |e| matches!(e, TeeError::HpkeKeyMismatch),
         ),
     ];
     for (name, edit, expected) in cases {
-        let (mut evidence, mut policy, mut now) = probe();
-        edit(&mut evidence, &mut policy, &mut now);
-        let error = verify(evidence, &policy, &[0x22; 32], now).unwrap_err();
+        let (mut attestation, mut policy, mut now) = probe();
+        edit(&mut attestation, &mut policy, &mut now);
+        let error = verify(attestation, &policy, &[0x22; 32], now).unwrap_err();
         assert!(expected(&error), "{name}: {error}");
     }
 }
@@ -128,16 +128,17 @@ struct LiveFixture {
 fn the_archived_deployment_accepts_its_attestation() {
     let fixture: LiveFixture = serde_json::from_str(LIVE_ATTESTATION).unwrap();
     let nonce = bytes::<32>(&fixture.nonce);
-    let evidence = || serde_json::from_value::<Evidence>(fixture.attestation.clone()).unwrap();
+    let attestation =
+        || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
     let file: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../prover/tee/testdata/live_policy.json"
     ))
     .unwrap();
     let policy: TeePolicy = serde_json::from_value(file["deployment"].clone()).unwrap();
-    let prover = verify(evidence(), &policy, &nonce, fixture.captured_at).unwrap();
+    let prover = verify(attestation(), &policy, &nonce, fixture.captured_at).unwrap();
     assert!(prover.gpu_verified);
     assert!(matches!(
-        verify(evidence(), &policy, &[0; 32], fixture.captured_at),
+        verify(attestation(), &policy, &[0; 32], fixture.captured_at),
         Err(TeeError::ReportDataMismatch)
     ));
 }
@@ -158,7 +159,7 @@ struct Vectors {
     response_key: String,
     response_status: u16,
     response_body: String,
-    sealed_response: String,
+    encrypted_response: String,
     aad_cases: Vec<AadCase>,
 }
 
@@ -202,10 +203,10 @@ fn report_data_matches_the_go_prover() {
     );
 }
 
-/// Opens what the Go prover's own client half sealed, so suite, info, AAD,
+/// Opens what the Go prover's own client half encrypted, so suite, info, AAD,
 /// exporter label and response framing agree across the two implementations.
 #[test]
-fn sealing_interoperates_with_the_go_prover() {
+fn encryption_interoperates_with_the_go_prover() {
     let v: Vectors = serde_json::from_str(VECTORS).unwrap();
     let (private_key, public_key) = X25519HkdfSha256::derive_keypair(&hex::decode(&v.ikm).unwrap());
     assert_eq!(hex::encode(public_key.to_bytes()), v.hpke_public_key);
@@ -229,7 +230,7 @@ fn sealing_interoperates_with_the_go_prover() {
     assert_eq!(hex::encode(response_key), v.response_key);
 
     let (status, body) =
-        open_response(&response_key, &hex::decode(&v.sealed_response).unwrap()).unwrap();
+        decrypt_response(&response_key, &hex::decode(&v.encrypted_response).unwrap()).unwrap();
     assert_eq!(
         (status, body.as_slice()),
         (v.response_status, v.response_body.as_bytes())
@@ -237,10 +238,10 @@ fn sealing_interoperates_with_the_go_prover() {
 }
 
 #[test]
-fn a_sealed_request_opens_only_on_its_route() {
+fn an_encrypted_request_decrypts_only_on_its_route() {
     let v: Vectors = serde_json::from_str(VECTORS).unwrap();
     let (private_key, public_key) = X25519HkdfSha256::derive_keypair(&hex::decode(&v.ikm).unwrap());
-    let sealed = SealedRequest::seal(
+    let encrypted = EncryptedRequest::encrypt(
         &public_key.to_bytes().into(),
         "GET",
         "/prove/merge/status?jobId=a",
@@ -248,9 +249,10 @@ fn a_sealed_request_opens_only_on_its_route() {
     )
     .unwrap();
     let open_on = |uri: &str| {
-        let encapped =
-            <X25519HkdfSha256 as Kem>::EncappedKey::from_bytes(&hex::decode(&sealed.enc).unwrap())
-                .unwrap();
+        let encapped = <X25519HkdfSha256 as Kem>::EncappedKey::from_bytes(
+            &hex::decode(&encrypted.enc).unwrap(),
+        )
+        .unwrap();
         let mut receiver = hpke::setup_receiver::<AesGcm256, HkdfSha256, X25519HkdfSha256>(
             &OpModeR::Base,
             &private_key,
@@ -259,7 +261,7 @@ fn a_sealed_request_opens_only_on_its_route() {
         )
         .unwrap();
         receiver
-            .open(&sealed.body, format!("GET {uri}").as_bytes())
+            .open(&encrypted.body, format!("GET {uri}").as_bytes())
             .is_ok()
     };
     assert!(open_on("/prove/merge/status?jobId=a"));
@@ -267,23 +269,23 @@ fn a_sealed_request_opens_only_on_its_route() {
 }
 
 #[test]
-fn sealed_responses_reject_tampering_and_truncation() {
+fn encrypted_responses_reject_tampering_and_truncation() {
     let v: Vectors = serde_json::from_str(VECTORS).unwrap();
     let key = bytes::<32>(&v.response_key);
-    let sealed = hex::decode(&v.sealed_response).unwrap();
-    assert_eq!(sealed.len(), 12 + 2 + v.response_body.len() + 16);
-    for offset in [0, 12, sealed.len() - 1] {
-        let mut tampered = sealed.clone();
+    let encrypted = hex::decode(&v.encrypted_response).unwrap();
+    assert_eq!(encrypted.len(), 12 + 2 + v.response_body.len() + 16);
+    for offset in [0, 12, encrypted.len() - 1] {
+        let mut tampered = encrypted.clone();
         tampered[offset] ^= 1;
-        assert!(open_response(&key, &tampered).is_err());
+        assert!(decrypt_response(&key, &tampered).is_err());
     }
-    for end in 0..sealed.len() {
-        assert!(open_response(&key, &sealed[..end]).is_err());
+    for end in 0..encrypted.len() {
+        assert!(decrypt_response(&key, &encrypted[..end]).is_err());
     }
-    assert!(open_response(&key, &sealed[12..]).is_err());
+    assert!(decrypt_response(&key, &encrypted[12..]).is_err());
     let mut wrong_key = key;
     wrong_key[0] ^= 1;
-    assert!(open_response(&wrong_key, &sealed).is_err());
+    assert!(decrypt_response(&wrong_key, &encrypted).is_err());
 }
 
 #[test]
@@ -291,11 +293,11 @@ fn the_release_policy_matches_its_pin_file() {
     let file: serde_json::Value = serde_json::from_str(include_str!("policy.json")).unwrap();
     if file["deployment"].is_null() {
         assert!(matches!(
-            TeePolicy::pinned(),
-            Err(TeeError::NoPinnedDeployment)
+            TeePolicy::default_deployment(),
+            Err(TeeError::NoDefaultDeployment)
         ));
     } else {
         let expected: TeePolicy = serde_json::from_value(file["deployment"].clone()).unwrap();
-        assert_eq!(TeePolicy::pinned().unwrap(), expected);
+        assert_eq!(TeePolicy::default_deployment().unwrap(), expected);
     }
 }

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::TeeError;
 
 /// Pinned per SDK release by `cargo xtask tee-policy`.
-const PINNED: &str = include_str!("policy.json");
+const DEFAULT_POLICY: &str = include_str!("policy.json");
 
 /// What a prover must prove before it sees a request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,16 +52,16 @@ pub enum GpuRequirement {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PinnedFile {
+struct PolicyFile {
     deployment: Option<TeePolicy>,
 }
 
 impl TeePolicy {
     /// The deployment pinned in the SDK release.
-    pub fn pinned() -> Result<Self, TeeError> {
-        let file: PinnedFile =
-            serde_json::from_str(PINNED).map_err(|e| TeeError::Policy(e.to_string()))?;
-        file.deployment.ok_or(TeeError::NoPinnedDeployment)
+    pub fn default_deployment() -> Result<Self, TeeError> {
+        let file: PolicyFile =
+            serde_json::from_str(DEFAULT_POLICY).map_err(|e| TeeError::Policy(e.to_string()))?;
+        file.deployment.ok_or(TeeError::NoDefaultDeployment)
     }
 
     pub fn from_json(json: &str) -> Result<Self, TeeError> {

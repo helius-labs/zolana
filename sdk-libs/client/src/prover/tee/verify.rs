@@ -2,7 +2,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256, Sha384, Sha512};
 
 use super::{
-    EventLogEntry, Evidence, GpuRequirement, Measurement, TeeError, TeePolicy, REPORT_DOMAIN,
+    Attestation, EventLogEntry, GpuRequirement, Measurement, TeeError, TeePolicy, REPORT_DOMAIN,
 };
 
 /// TCG event type of every dstack runtime event in RTMR3.
@@ -17,7 +17,7 @@ pub struct AttestedProver {
     pub gpu_verified: bool,
 }
 
-/// Binds the session nonce, the sealing key and the NRAS digest into the quote, zeros without a GPU.
+/// Binds the session nonce, the encryption key and the NRAS digest into the quote, zeros without a GPU.
 pub fn report_data(
     nonce: &[u8; 32],
     hpke_public_key: &[u8; 32],
@@ -58,14 +58,15 @@ pub struct KeyProvider {
 
 /// Checks only what Intel and the event log prove, the quote signature at
 /// `now_secs`, the RTMR3 replay and the identity events it carries.
-pub fn inspect(evidence: Evidence, now_secs: u64) -> Result<AttestedIdentity, TeeError> {
-    let verified = dcap_qvl::verify::verify(&evidence.quote, &evidence.collateral.into(), now_secs)
-        .map_err(|e| TeeError::Quote(format!("{e:#}")))?;
+pub fn inspect(attestation: Attestation, now_secs: u64) -> Result<AttestedIdentity, TeeError> {
+    let verified =
+        dcap_qvl::verify::verify(&attestation.quote, &attestation.collateral.into(), now_secs)
+            .map_err(|e| TeeError::Quote(format!("{e:#}")))?;
     let report = verified
         .report
         .as_td10()
         .ok_or_else(|| TeeError::Quote("not a TDX quote".into()))?;
-    let events = runtime_events(&evidence.event_log, &report.rt_mr3)?;
+    let events = runtime_events(&attestation.event_log, &report.rt_mr3)?;
     let key_provider = serde_json::from_slice(single(&events, "key-provider")?)
         .map_err(|_| TeeError::RuntimeEvent("key-provider"))?;
     Ok(AttestedIdentity {
@@ -80,21 +81,21 @@ pub fn inspect(evidence: Evidence, now_secs: u64) -> Result<AttestedIdentity, Te
         compose_hash: fixed(&events, "compose-hash")?,
         os_image_hash: fixed(&events, "os-image-hash")?,
         key_provider,
-        hpke_public_key: evidence.hpke_public_key,
+        hpke_public_key: attestation.hpke_public_key,
         report_data: report.report_data,
-        gpu: evidence.gpu,
+        gpu: attestation.gpu,
     })
 }
 
-/// Accepts the evidence only if Intel signed a TDX quote whose measurements,
+/// Accepts the attestation only if Intel signed a TDX quote whose measurements,
 /// app identity and report_data all match `policy` and `nonce` at `now_secs`.
 pub fn verify(
-    evidence: Evidence,
+    attestation: Attestation,
     policy: &TeePolicy,
     nonce: &[u8; 32],
     now_secs: u64,
 ) -> Result<AttestedProver, TeeError> {
-    let identity = inspect(evidence, now_secs)?;
+    let identity = inspect(attestation, now_secs)?;
     if !policy.tcb_statuses.contains(&identity.tcb_status) {
         return Err(TeeError::TcbStatus {
             status: identity.tcb_status,
@@ -104,7 +105,7 @@ pub fn verify(
         return Err(TeeError::MeasurementNotAllowed);
     }
     if identity.app_id != policy.app_id {
-        return Err(TeeError::AppIdNotPinned(hex::encode(identity.app_id)));
+        return Err(TeeError::AppIdMismatch(hex::encode(identity.app_id)));
     }
     if !policy.compose_hashes.contains(&identity.compose_hash) {
         return Err(TeeError::ComposeHashNotAllowed(hex::encode(
@@ -117,10 +118,10 @@ pub fn verify(
         )));
     }
     if identity.key_provider.name != "kms" || identity.key_provider.id != policy.key_provider_id {
-        return Err(TeeError::KeyProviderNotPinned);
+        return Err(TeeError::KeyProviderMismatch);
     }
     if identity.hpke_public_key != policy.hpke_public_key {
-        return Err(TeeError::HpkeKeyNotPinned);
+        return Err(TeeError::HpkeKeyMismatch);
     }
     let gpu_token = identity.gpu.as_deref().map(str::as_bytes);
     if identity.report_data != report_data(nonce, &identity.hpke_public_key, gpu_token) {

@@ -513,7 +513,7 @@ func runCli() {
 						Usage: "Maximum number of retries for downloading keys",
 						Value: common.DefaultMaxRetries,
 					},
-					&cli.StringFlag{Name: "tee", Usage: "Serve TEE attestation and sealed requests: dstack", EnvVars: []string{"PROVER_TEE"}},
+					&cli.StringFlag{Name: "tee", Usage: "Serve TEE attestation and encrypted requests: dstack", EnvVars: []string{"PROVER_TEE"}},
 					&cli.StringFlag{Name: "tee-socket", Usage: "dstack guest agent socket", Value: tee.DefaultSocket},
 					&cli.StringFlag{Name: "tee-pccs-url", Usage: "PCCS the attestation collateral is fetched from", Value: tee.DefaultPCCSURL, EnvVars: []string{"PROVER_TEE_PCCS_URL"}},
 				},

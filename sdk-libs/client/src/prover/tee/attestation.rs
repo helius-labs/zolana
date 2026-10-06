@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 /// The body of `GET /tee/v1/attestation`.
 #[derive(Clone, Debug, Deserialize)]
-pub struct Evidence {
+pub struct Attestation {
     #[serde(with = "hex")]
     pub quote: Vec<u8>,
     pub event_log: Vec<EventLogEntry>,

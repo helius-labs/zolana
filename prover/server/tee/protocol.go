@@ -1,4 +1,4 @@
-// Package tee serves dstack TDX attestation and seals prover traffic to the
+// Package tee serves dstack TDX attestation and encrypts prover traffic to the
 // attested HPKE key, in the byte layouts prover/tee/testdata pins for the Rust
 // and TypeScript clients.
 package tee
@@ -15,9 +15,9 @@ const (
 	Version       = "v1"
 	HeaderVersion = "Zolana-Tee"
 	HeaderEnc     = "Zolana-Tee-Enc"
-	// HeaderSeal carries the sealed bytes of a GET, fetch refuses a GET body.
-	HeaderSeal = "Zolana-Tee-Seal"
-	NonceSize  = 32
+	// HeaderCiphertext carries the encrypted bytes of a GET, fetch refuses a GET body.
+	HeaderCiphertext = "Zolana-Tee-Ciphertext"
+	NonceSize        = 32
 
 	// Domain separation for every hash and HPKE context the protocol binds.
 	reportDomain   = "zolana/prover-tee/v1/report"
@@ -35,7 +35,7 @@ func suite() (hpke.KEM, hpke.KDF, hpke.AEAD) {
 	return hpke.DHKEM(ecdh.X25519()), hpke.HKDFSHA256(), hpke.AES256GCM()
 }
 
-// ReportData binds the client nonce, the sealing key and the NRAS digest into the quote, zeros without a GPU.
+// ReportData binds the client nonce, the encryption key and the NRAS digest into the quote, zeros without a GPU.
 func ReportData(nonce, hpkePublicKey, gpuToken []byte) [64]byte {
 	var gpuDigest [32]byte
 	if gpuToken != nil {

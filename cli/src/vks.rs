@@ -108,7 +108,7 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
         let shown = redact_api_key(&prover_url);
         let mut prover = ProverClient::new(prover_url);
         if opts.prover_tee {
-            prover = prover.with_tee(TeePolicy::pinned()?);
+            prover = prover.with_tee(TeePolicy::default_deployment()?);
             let attested = prover
                 .attest()
                 .with_context(|| format!("prover {shown} failed TEE attestation"))?;

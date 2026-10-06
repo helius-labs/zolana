@@ -6,8 +6,8 @@ import { ClientError } from "../../error.js";
 
 export const HEADER_VERSION = "Zolana-Tee";
 export const HEADER_ENC = "Zolana-Tee-Enc";
-/** Carries the sealed bytes of a GET, fetch refuses a GET body. */
-export const HEADER_SEAL = "Zolana-Tee-Seal";
+/** Carries the encrypted bytes of a GET, fetch refuses a GET body. */
+export const HEADER_CIPHERTEXT = "Zolana-Tee-Ciphertext";
 export const VERSION = "v1";
 export const RESPONSE_NONCE_SIZE = 12;
 
@@ -21,25 +21,25 @@ const suite = new CipherSuite({
   aead: new Aes256Gcm(),
 });
 
-export type OpenedResponse = Readonly<{ status: number; body: Uint8Array }>;
+export type DecryptedResponse = Readonly<{ status: number; body: Uint8Array }>;
 
-/** One request sealed to the attested key, and the only key its answer opens with. */
-export type SealedRequest = Readonly<{
+/** One request encrypted to the attested key, and the only key its answer opens with. */
+export type EncryptedRequest = Readonly<{
   enc: string;
   body: Uint8Array;
-  open(sealed: Uint8Array): OpenedResponse;
+  decrypt(encrypted: Uint8Array): DecryptedResponse;
 }>;
 
 /**
- * Binds `method` and the raw request target as AAD, so the sealed body opens
+ * Binds `method` and the raw request target as AAD, so the encrypted body opens
  * only on the route and job it was sent to.
  */
-export async function sealRequest(
+export async function encryptRequest(
   hpkePublicKey: Uint8Array,
   method: string,
   requestUri: string,
   plaintext: Uint8Array,
-): Promise<SealedRequest> {
+): Promise<EncryptedRequest> {
   const recipientPublicKey = await suite.kem.deserializePublicKey(hpkePublicKey);
   const sender = await suite.createSenderContext({ recipientPublicKey, info: HPKE_INFO });
   const body = new Uint8Array(
@@ -49,7 +49,7 @@ export async function sealRequest(
   return Object.freeze({
     enc: bytesToHex(new Uint8Array(sender.enc)),
     body,
-    open: (sealed: Uint8Array) => openResponse(responseKey, sealed),
+    decrypt: (encrypted: Uint8Array) => decryptResponse(responseKey, encrypted),
   });
 }
 
@@ -65,17 +65,17 @@ export function requestAad(method: string, requestUri: string): string {
   return kept.length === 0 ? `${method} ${path}` : `${method} ${path}?${kept.join("&")}`;
 }
 
-export function openResponse(key: Uint8Array, sealed: Uint8Array): OpenedResponse {
+export function decryptResponse(key: Uint8Array, encrypted: Uint8Array): DecryptedResponse {
   let plaintext: Uint8Array;
   try {
-    plaintext = gcm(key, sealed.subarray(0, RESPONSE_NONCE_SIZE)).decrypt(
-      sealed.subarray(RESPONSE_NONCE_SIZE),
+    plaintext = gcm(key, encrypted.subarray(0, RESPONSE_NONCE_SIZE)).decrypt(
+      encrypted.subarray(RESPONSE_NONCE_SIZE),
     );
   } catch {
-    throw new ClientError("CLIENT_PROVER_TEE_SEAL", { details: { check: "response" } });
+    throw new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check: "response" } });
   }
   if (plaintext.length < 2) {
-    throw new ClientError("CLIENT_PROVER_TEE_SEAL", { details: { check: "response" } });
+    throw new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check: "response" } });
   }
   return Object.freeze({
     status: new DataView(plaintext.buffer, plaintext.byteOffset).getUint16(0, false),

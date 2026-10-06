@@ -114,7 +114,7 @@ http {
         proxy_hide_header Access-Control-Expose-Headers;
         auth_request /_authorize;
         add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Headers "Content-Type,Authorization,X-API-Key,X-Prover-Timing,X-Request-ID,X-Sync,X-Async,Zolana-Tee,Zolana-Tee-Enc,Zolana-Tee-Seal" always;
+        add_header Access-Control-Allow-Headers "Content-Type,Authorization,X-API-Key,X-Prover-Timing,X-Request-ID,X-Sync,X-Async,Zolana-Tee,Zolana-Tee-Enc,Zolana-Tee-Ciphertext" always;
         add_header Access-Control-Allow-Methods "GET,POST,OPTIONS" always;
         add_header Access-Control-Expose-Headers "Server-Timing,X-Prover-Timing,X-Request-ID,Zolana-Tee" always;
         if ($request_method = OPTIONS) { return 204; }

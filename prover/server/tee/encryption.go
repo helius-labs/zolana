@@ -15,7 +15,7 @@ import (
 	"zolana/prover/logging"
 )
 
-// Wrap passes a request without HeaderVersion through unsealed, so TEE use
+// Wrap passes a request without HeaderVersion through unencrypted, so TEE use
 // stays a client choice.
 func (s *Server) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,17 +25,17 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		if version != Version {
-			rejectSealed(w, "tee_version_unsupported")
+			rejectEncrypted(w, "tee_version_unsupported")
 			return
 		}
-		// net/http drops a HEAD answer body, so its sealed answer never arrives.
+		// net/http drops a HEAD answer body, so its encrypted answer never arrives.
 		if r.Method == http.MethodHead {
-			rejectSealed(w, "tee_seal_invalid")
+			rejectEncrypted(w, "tee_decryption_failed")
 			return
 		}
-		plaintext, responseKey, err := s.open(w, r)
+		plaintext, responseKey, err := s.decrypt(w, r)
 		if err != nil {
-			rejectSealed(w, "tee_seal_invalid")
+			rejectEncrypted(w, "tee_decryption_failed")
 			return
 		}
 		inner := r.Clone(r.Context())
@@ -43,15 +43,15 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 		inner.ContentLength = int64(len(plaintext))
 		inner.Header.Del(HeaderVersion)
 		inner.Header.Del(HeaderEnc)
-		inner.Header.Del(HeaderSeal)
+		inner.Header.Del(HeaderCiphertext)
 		inner.Header.Set("Content-Type", "application/json")
 
 		recorder := newRecorder()
 		next.ServeHTTP(recorder, inner)
 
-		sealed, err := sealResponse(responseKey, recorder.status, recorder.body.Bytes())
+		encrypted, err := encryptResponse(responseKey, recorder.status, recorder.body.Bytes())
 		if err != nil {
-			logging.Logger().Error().Err(err).Msg("sealing prover response failed")
+			logging.Logger().Error().Err(err).Msg("encrypting prover response failed")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -63,15 +63,15 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 		}
 		w.Header().Set(HeaderVersion, Version)
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", strconv.Itoa(len(sealed)))
+		w.Header().Set("Content-Length", strconv.Itoa(len(encrypted)))
 		w.WriteHeader(recorder.status)
-		if _, err := w.Write(sealed); err != nil {
-			logging.Logger().Error().Err(err).Msg("error writing sealed response")
+		if _, err := w.Write(encrypted); err != nil {
+			logging.Logger().Error().Err(err).Msg("error writing encrypted response")
 		}
 	})
 }
 
-func (s *Server) open(w http.ResponseWriter, r *http.Request) ([]byte, []byte, error) {
+func (s *Server) decrypt(w http.ResponseWriter, r *http.Request) ([]byte, []byte, error) {
 	enc, err := hex.DecodeString(r.Header.Get(HeaderEnc))
 	if err != nil {
 		return nil, nil, err
@@ -83,9 +83,9 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) ([]byte, []byte, e
 	}
 	var ciphertext []byte
 	if bodiless(r.Method) {
-		ciphertext, err = hex.DecodeString(r.Header.Get(HeaderSeal))
+		ciphertext, err = hex.DecodeString(r.Header.Get(HeaderCiphertext))
 	} else {
-		ciphertext, err = io.ReadAll(http.MaxBytesReader(w, r.Body, maxSealedBody))
+		ciphertext, err = io.ReadAll(http.MaxBytesReader(w, r.Body, maxEncryptedBody))
 	}
 	if err != nil {
 		return nil, nil, err
@@ -102,7 +102,7 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) ([]byte, []byte, e
 }
 
 // Replayed requests share a response key and require independent nonces.
-func sealResponse(key []byte, status int, body []byte) ([]byte, error) {
+func encryptResponse(key []byte, status int, body []byte) ([]byte, error) {
 	gcm, err := responseAEAD(key)
 	if err != nil {
 		return nil, err
@@ -125,10 +125,10 @@ func bodiless(method string) bool {
 	return method == http.MethodGet
 }
 
-func rejectSealed(w http.ResponseWriter, code string) {
+func rejectEncrypted(w http.ResponseWriter, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
-	body, _ := json.Marshal(map[string]string{"code": code, "message": "sealed request rejected"})
+	body, _ := json.Marshal(map[string]string{"code": code, "message": "encrypted request rejected"})
 	_, _ = w.Write(body)
 }
 

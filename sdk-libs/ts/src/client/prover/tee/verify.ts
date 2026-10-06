@@ -26,7 +26,7 @@ type EventLogEntry = Readonly<{
   eventPayload: Uint8Array;
 }>;
 
-/** Binds the session nonce, the sealing key and the NRAS digest into the quote, zeros without a GPU. */
+/** Binds the session nonce, the encryption key and the NRAS digest into the quote, zeros without a GPU. */
 export function reportData(
   nonce: Uint8Array,
   hpkePublicKey: Uint8Array,
@@ -37,7 +37,7 @@ export function reportData(
 }
 
 /**
- * Accepts the evidence only if Intel signed a TDX quote whose measurements,
+ * Accepts the attestation only if Intel signed a TDX quote whose measurements,
  * app identity and report_data all match `policy` and `nonce` at `nowSecs`.
  */
 export function verifyAttestation(
@@ -46,13 +46,13 @@ export function verifyAttestation(
   nonce: Uint8Array,
   nowSecs: number,
 ): AttestedProver {
-  const evidence = decode.record(json, "evidence");
-  const quote = bytesOf(evidence["quote"], "quote");
-  const collateral = collateralOf(evidence["collateral"]);
-  const hpkePublicKey = bytesOf(evidence["hpke_public_key"], "hpke_public_key", 32);
-  const gpu = evidence["gpu"];
-  if (gpu !== null && typeof gpu !== "string") throw refused("evidence");
-  const events = decode.list(evidence["event_log"], "event_log").map(eventOf);
+  const attestation = decode.record(json, "attestation");
+  const quote = bytesOf(attestation["quote"], "quote");
+  const collateral = collateralOf(attestation["collateral"]);
+  const hpkePublicKey = bytesOf(attestation["hpke_public_key"], "hpke_public_key", 32);
+  const gpu = attestation["gpu"];
+  if (gpu !== null && typeof gpu !== "string") throw refused("malformed_attestation");
+  const events = decode.list(attestation["event_log"], "event_log").map(eventOf);
 
   let verified;
   try {
@@ -144,7 +144,8 @@ function eventOf(value: unknown): EventLogEntry {
   const entry = decode.record(value, "event_log");
   const imr = entry["imr"];
   const eventType = entry["event_type"];
-  if (!Number.isSafeInteger(imr) || !Number.isSafeInteger(eventType)) throw refused("evidence");
+  if (!Number.isSafeInteger(imr) || !Number.isSafeInteger(eventType))
+    throw refused("malformed_attestation");
   return Object.freeze({
     imr: Number(imr),
     eventType: Number(eventType),
@@ -174,12 +175,12 @@ function collateralOf(value: unknown): Collateral {
 
 function bytesOf(value: unknown, path: string, length?: number): Uint8Array {
   const hex = decode.string(value, path);
-  if (!/^(?:[0-9a-fA-F]{2})*$/u.test(hex)) throw refused("evidence");
+  if (!/^(?:[0-9a-fA-F]{2})*$/u.test(hex)) throw refused("malformed_attestation");
   const bytes = hexToBytes(hex);
-  if (length !== undefined && bytes.length !== length) throw refused("evidence");
+  if (length !== undefined && bytes.length !== length) throw refused("malformed_attestation");
   return bytes;
 }
 
 const refused = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ATTESTATION", { details: { check } });
-const decode = wireDecoder(() => refused("evidence"));
+const decode = wireDecoder(() => refused("malformed_attestation"));

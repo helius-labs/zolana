@@ -68,7 +68,7 @@ export {
   type ProvingKeyReport,
 } from "./prover/client.js";
 export {
-  pinnedTeePolicy,
+  defaultTeePolicy,
   teePolicyFromJson,
   type GpuRequirement,
   type TeeMeasurement,

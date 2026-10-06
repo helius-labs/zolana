@@ -1,5 +1,5 @@
 //! One prover HTTP exchange, shared by the blocking and async clients and
-//! sealed to the attested key when the client requires a TEE.
+//! encrypted to the attested key when the client requires a TEE.
 
 use std::time::Duration;
 
@@ -10,7 +10,9 @@ use crate::{
     prover::{
         client::Delivery,
         endpoint::scrub,
-        tee::{SealedRequest, TeeSession, HEADER_ENC, HEADER_SEAL, HEADER_VERSION, VERSION},
+        tee::{
+            EncryptedRequest, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, VERSION,
+        },
     },
 };
 
@@ -29,11 +31,11 @@ pub(crate) enum CallError {
     Refused(ClientError),
 }
 
-/// A call as sent, keeping the key a sealed answer opens with.
+/// A call as sent, keeping the key an encrypted answer opens with.
 pub(crate) struct Prepared {
     pub headers: Vec<(&'static str, String)>,
     pub body: Option<Vec<u8>>,
-    pub sealed: Option<SealedRequest>,
+    pub encrypted: Option<EncryptedRequest>,
 }
 
 impl<'a> Call<'a> {
@@ -72,10 +74,10 @@ impl<'a> Call<'a> {
             return Ok(Prepared {
                 headers,
                 body: self.body.map(|body| body.as_bytes().to_vec()),
-                sealed: None,
+                encrypted: None,
             });
         };
-        let sealed = TeeSession::seal(
+        let encrypted = TeeSession::encrypt(
             key,
             self.method.as_str(),
             self.url,
@@ -83,18 +85,18 @@ impl<'a> Call<'a> {
         )
         .map_err(CallError::Refused)?;
         headers.push((HEADER_VERSION, VERSION.to_string()));
-        headers.push((HEADER_ENC, sealed.enc.clone()));
+        headers.push((HEADER_ENC, encrypted.enc.clone()));
         let body = if self.method == Method::GET {
-            headers.push((HEADER_SEAL, hex::encode(&sealed.body)));
+            headers.push((HEADER_CIPHERTEXT, hex::encode(&encrypted.body)));
             None
         } else {
             headers.push(("Content-Type", "application/octet-stream".to_string()));
-            Some(sealed.body.clone())
+            Some(encrypted.body.clone())
         };
         Ok(Prepared {
             headers,
             body,
-            sealed: Some(sealed),
+            encrypted: Some(encrypted),
         })
     }
 }
@@ -103,13 +105,12 @@ impl Prepared {
     pub fn finish(
         &self,
         status: StatusCode,
-        is_sealed: bool,
+        is_encrypted: bool,
         body: &[u8],
     ) -> Result<(StatusCode, String), CallError> {
-        match &self.sealed {
-            Some(sealed) => {
-                TeeSession::open(sealed, status, is_sealed, body).map_err(CallError::Refused)
-            }
+        match &self.encrypted {
+            Some(encrypted) => TeeSession::decrypt(encrypted, status, is_encrypted, body)
+                .map_err(CallError::Refused),
             None => Ok((status, String::from_utf8_lossy(body).into_owned())),
         }
     }
@@ -132,29 +133,29 @@ impl CallError {
 mod tests {
     use super::*;
 
-    fn sealed(call: &Call<'_>) -> Prepared {
+    fn encrypted(call: &Call<'_>) -> Prepared {
         call.prepare(Some(&[9; 32])).ok().unwrap()
     }
 
     #[test]
-    fn a_sealed_get_carries_its_bytes_in_a_header() {
+    fn an_encrypted_get_carries_its_bytes_in_a_header() {
         let url = Url::parse("https://prover.example/prove/merge/status?jobId=a").unwrap();
-        let prepared = sealed(&Call::get(&url, Duration::from_secs(1)));
+        let prepared = encrypted(&Call::get(&url, Duration::from_secs(1)));
         assert!(prepared.body.is_none());
         assert!(prepared
             .headers
             .iter()
-            .any(|(name, _)| *name == HEADER_SEAL));
+            .any(|(name, _)| *name == HEADER_CIPHERTEXT));
     }
 
     #[test]
-    fn a_sealed_post_keeps_its_bytes_in_the_body() {
+    fn an_encrypted_post_keeps_its_bytes_in_the_body() {
         let url = Url::parse("https://prover.example/prove/merge").unwrap();
-        let prepared = sealed(&Call::post(&url, "{}", Delivery::Queued));
+        let prepared = encrypted(&Call::post(&url, "{}", Delivery::Queued));
         assert!(prepared.body.is_some());
         assert!(!prepared
             .headers
             .iter()
-            .any(|(name, _)| *name == HEADER_SEAL));
+            .any(|(name, _)| *name == HEADER_CIPHERTEXT));
     }
 }

@@ -2,8 +2,8 @@
 
 No audit report is checked in.
 
-The TEE prover is the Go prover in an Intel TDX confidential VM on Phala Cloud. Proof requests are sealed to a key that only the measured prover holds.
-`prover/server/tee` serves the attestation and opens sealed requests. The Rust and TypeScript SDKs verify the attestation and seal every call. `testdata` holds the vectors the three implementations share.
+The TEE prover is the Go prover in an Intel TDX confidential VM on Phala Cloud. Proof requests are encrypted to a key that only the measured prover holds.
+`prover/server/tee` serves the attestation and opens encrypted requests. The Rust and TypeScript SDKs verify the attestation and encrypt every call. `testdata` holds the vectors the three implementations share.
 A client that requires a TEE sends a request only after an Intel-signed quote proves which image runs. Only the process that quote measures can read the request.
 
 ## Threat
@@ -22,26 +22,26 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-In Rust, `ProverClient::with_tee(TeePolicy::pinned()?)` and `AsyncProverClient::with_tee` make every call attested and sealed, and `ZolanaClient::with_prover_tee` does the same for both of its prover clients.
+In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncProverClient::with_tee` make every call attested and encrypted, and `ZolanaClient::with_prover_tee` does the same for both of its prover clients.
 `ProverClient::attest` returns the verified `AttestedProver` on demand.
 The `zolana` commands that prove take `--prover-tee`, or `ZOLANA_PROVER_TEE`, and `zolana vks check --prover-url <url> --prover-tee` attests a prover before it checks its proving keys.
-In TypeScript, `ZolanaClientConfig.proverTee` takes `pinnedTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.
+In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.
 Without a policy the clients send plaintext requests, which the server still accepts.
 
 ## Roles
 
 The prover operator holds the Phala API key and the prover API key, and runs `prover/server/scripts/release_tee.sh`.
-The SDK release pins the deployment the operator released, in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `pinned.ts`.
-The client verifies the attestation against that pin and seals each call.
+The SDK release pins the deployment the operator released, in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The client verifies the attestation against that pin and encrypts each call.
 Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 
 ## How it works
 
 `light-prover start --tee dstack` asks the dstack guest agent for a KMS-derived secret, and RFC 9180 `DeriveKeyPair` turns it into an X25519 HPKE key.
 Every instance of the app derives the same key.
-[The wire contract](WIRE_CONTRACT.md) gives the attestation endpoint, report_data, the client checks and sealing.
+[The wire contract](WIRE_CONTRACT.md) gives the attestation endpoint, report_data, the client checks and encryption.
 A passed attestation caches the key for `max_age_secs`, and the next call after that attests again.
-A sealed body opens only on its own route, and an unsealed failure still lets retries work.
+An encrypted body opens only on its own route, and an unencrypted failure still lets retries work.
 TEE servers reject queue mode because job IDs do not authorize clients.
 
 The GPU build, tag `aeglos` with `PROVER_BACKEND=aeglos`, collects GPU evidence through NVML for every attestation.
@@ -70,9 +70,9 @@ Each snapshot digest uses separate database and restore volumes. A changed diges
 ## Steps
 
 1. For a snapshot, export the trusted database first. Set `PHOTON_DUMP_URL` to its download URL and pass its digest with `--photon-dump-sha256`. Run `prover/server/scripts/release_tee.sh <prover-image@sha256:digest> <cvm-name> --photon <photon-image@sha256:digest>`, with `--gpu` for an H200 prover. The compose it deploys pins both images and every command in the measured compose hash, and `--plan` prints it without deploying.
-2. Let the script finish its `tee-policy` xtask run. The live prover's app id, HPKE key, KMS root, OS image, measurements and compose hash land in both pin files. A second attestation and a sealed proving key check must pass before the files are written.
-3. Run `cargo run -p xtask -- tee-check <prover-url> --prove <request.json> <key name>` with `PROVER_API_KEY` set. It attests under the new pin, runs a sealed proving key check and returns one sealed proof through the gateway.
-4. Commit `policy.json` and `pinned.ts` with the SDK release that ships them. Clients of that release then talk only to this deployment.
+2. Let the script finish its `tee-policy` xtask run. The live prover's app id, HPKE key, KMS root, OS image, measurements and compose hash land in both pin files. A second attestation and an encrypted proving key check must pass before the files are written.
+3. Run `cargo run -p xtask -- tee-check <prover-url> --prove <request.json> <key name>` with `PROVER_API_KEY` set. It attests under the new pin, runs an encrypted proving key check and returns one encrypted proof through the gateway.
+4. Commit `policy.json` and `default.ts` with the SDK release that ships them. Clients of that release then talk only to this deployment.
 5. To refresh an expired download link, run `prover/server/scripts/ship_photon_db.sh <cvm-name> --dump-url <https-url>`. The CVM accepts only the snapshot already pinned in its compose. To import another snapshot, release a new compose with its digest and publish the matching SDK pin.
 6. For a new image, rerun the release with `--update` on the same CVM name. The new compose hash joins the pin, the app id and key stay, and `--replace` starts a new pin for a new app.
 
@@ -80,7 +80,7 @@ The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prov
 
 ## Limits
 
-- An SDK with no deployment pin refuses `TeePolicy::pinned()` and `pinnedTeePolicy()`. An explicit verified policy is required.
+- An SDK with no deployment pin refuses `TeePolicy::default_deployment()` and `defaultTeePolicy()`. An explicit verified policy is required.
 - Old SDK releases refuse an updated prover, because the update changes the compose hash they pin. Ship the SDK release that carries the new hash together with the update.
 - The HPKE key has no forward secrecy, because it derives from the app key. Rotate by releasing a new app with `--replace` and a matching SDK release.
 - The verifiers accept only dstack runtime events of the version 1 digest format, which the 0.5 OS images emit. An OS image that emits the version 2 format fails attestation.
@@ -90,7 +90,7 @@ The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prov
 ## Pitfalls
 
 - A setting in the CVM environment is not measured. An indexer URL in the environment lets the API key holder redirect the leaves a proof spends. The indexer URL lives in the compose, and the env holds only keys, the RPC URL and the dump link.
-- `ship_photon_db.sh` replaces the whole sealed env, so a variable left out of the ship is gone after the restart. Pass the release's `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL`, `TEE_REGISTRY_HOST` and pull credentials.
+- `ship_photon_db.sh` replaces the whole encrypted env, so a variable left out of the ship is gone after the restart. Pass the release's `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL`, `TEE_REGISTRY_HOST` and pull credentials.
 - Phala's `deploy` defaults to public logs. A log line holding a request body is then readable by anyone, so the script passes `--no-public-logs`.
 - With public logs off, Phala serves no container logs to the owner either. Reading a fault takes a redeploy with `--public-logs`, and a release with logs off afterwards.
 - A prover URL without `api-key` fails attestation, because the attestation route sits behind the prover API key like the proof routes.

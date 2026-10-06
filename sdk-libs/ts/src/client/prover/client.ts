@@ -174,7 +174,7 @@ export class ProverClient {
       /** See `ZolanaClientConfig.allowInsecureHttp`. */
       allowInsecureHttp?: boolean;
       /**
-       * Seals every call, health and key checks included, to a prover that
+       * Encrypts every call, health and key checks included, to a prover that
        * attests to the policy.
        */
       tee?: TeePolicy;
@@ -378,7 +378,7 @@ export class ProverClient {
           details: { method: "health", attempts: 1 },
         });
       }
-      response = await prepared.open(response);
+      response = await prepared.finish(response);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: { method: "health", status: response.status, ...(await proverReason(response)) },
@@ -422,7 +422,7 @@ export class ProverClient {
           details: { method: "provingKeys", attempts: 1 },
         });
       }
-      response = await prepared.open(response);
+      response = await prepared.finish(response);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: {
@@ -475,7 +475,7 @@ export class ProverClient {
                 details: { method: "prove", attempts: attempt },
               });
             }
-            response = await prepared.open(response);
+            response = await prepared.finish(response);
             if (response.status === 429 && delivery === "inResponse") {
               await response.body?.cancel();
               delivery = "queued";
@@ -585,7 +585,7 @@ export class ProverClient {
           await waitOrTimeout();
           continue;
         }
-        response = await prepared.open(response);
+        response = await prepared.finish(response);
         if (response.status >= 400 && response.status < 500) {
           throw new ClientError("CLIENT_PROVER_HTTP", {
             details: {

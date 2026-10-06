@@ -277,7 +277,7 @@ type EnhancedConfig struct {
 	Queue             *QueueConfig
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
-	// TEE, when set, serves attestation and opens sealed requests.
+	// TEE, when set, serves attestation and opens encrypted requests.
 	TEE *tee.Server
 }
 
@@ -741,7 +741,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			"X-Request-ID",
 			tee.HeaderVersion,
 			tee.HeaderEnc,
-			tee.HeaderSeal,
+			tee.HeaderCiphertext,
 		}),
 		handlers.AllowedOrigins([]string{"*"}),
 		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID", tee.HeaderVersion}),

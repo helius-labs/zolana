@@ -14,7 +14,7 @@
   "response_key": "6cdd0d870824d20a0d49e35e4fd5efc7aa1d1d02cde58c455d34d45fa3fcf93e",
   "response_status": 200,
   "response_body": "{\"proof\":\"ok\"}",
-  "sealed_response": "458aeb3721728301508e11bda7408dfe9cf0fef050cd35727f3bb94ed23fb45538256f50928b6e8c4018acdf",
+  "encrypted_response": "458aeb3721728301508e11bda7408dfe9cf0fef050cd35727f3bb94ed23fb45538256f50928b6e8c4018acdf",
   "aad_cases": [
     {
       "method": "GET",

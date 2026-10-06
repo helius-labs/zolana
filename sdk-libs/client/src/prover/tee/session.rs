@@ -7,7 +7,7 @@ use rand_core::{OsRng, TryRngCore};
 use reqwest::{StatusCode, Url};
 
 use super::{
-    verify, AttestedProver, Evidence, SealedRequest, TeeError, TeePolicy, HEADER_VERSION,
+    verify, Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy, HEADER_VERSION,
     NONCE_SIZE, VERSION,
 };
 use crate::error::ClientError;
@@ -55,57 +55,57 @@ impl TeeSession {
                 "attestation failed with status {status}: {body}"
             )));
         }
-        let evidence: Evidence =
-            serde_json::from_str(body).map_err(|e| TeeError::Evidence(e.to_string()))?;
+        let attestation: Attestation = serde_json::from_str(body)
+            .map_err(|e| TeeError::MalformedAttestation(e.to_string()))?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| ClientError::Prover("system clock is before 1970".into()))?
             .as_secs();
-        let prover = verify(evidence, &self.policy, nonce, now)?;
+        let prover = verify(attestation, &self.policy, nonce, now)?;
         *self.attested.lock().unwrap_or_else(|e| e.into_inner()) =
             Some((prover.clone(), Instant::now()));
         Ok(prover)
     }
 
-    pub fn seal(
+    pub fn encrypt(
         key: &[u8; 32],
         method: &str,
         url: &Url,
         body: &[u8],
-    ) -> Result<SealedRequest, ClientError> {
+    ) -> Result<EncryptedRequest, ClientError> {
         let request_uri = match url.query() {
             Some(query) => format!("{}?{query}", url.path()),
             None => url.path().to_string(),
         };
-        Ok(SealedRequest::seal(key, method, &request_uri, body)?)
+        Ok(EncryptedRequest::encrypt(key, method, &request_uri, body)?)
     }
 
-    /// Refuses an unsealed success and passes an unsealed failure through
+    /// Refuses an unencrypted success and passes an unencrypted failure through
     /// unauthenticated, so retries and shedding still work.
-    pub fn open(
-        sealed: &SealedRequest,
+    pub fn decrypt(
+        encrypted: &EncryptedRequest,
         status: StatusCode,
-        is_sealed: bool,
+        is_encrypted: bool,
         body: &[u8],
     ) -> Result<(StatusCode, String), ClientError> {
-        if !is_sealed {
+        if !is_encrypted {
             if status.is_success() {
-                return Err(TeeError::UnsealedResponse {
+                return Err(TeeError::UnencryptedResponse {
                     status: status.as_u16(),
                 }
                 .into());
             }
             return Ok((status, String::from_utf8_lossy(body).into_owned()));
         }
-        let (inner, body) = sealed.open(body)?;
-        let inner =
-            StatusCode::from_u16(inner).map_err(|_| TeeError::Sealing("bad sealed status"))?;
-        let text =
-            String::from_utf8(body).map_err(|_| TeeError::Sealing("sealed body is not UTF-8"))?;
+        let (inner, body) = encrypted.decrypt(body)?;
+        let inner = StatusCode::from_u16(inner)
+            .map_err(|_| TeeError::Encryption("bad encrypted status"))?;
+        let text = String::from_utf8(body)
+            .map_err(|_| TeeError::Encryption("encrypted body is not UTF-8"))?;
         Ok((inner, text))
     }
 
-    pub fn is_sealed(headers: &reqwest::header::HeaderMap) -> bool {
+    pub fn is_encrypted(headers: &reqwest::header::HeaderMap) -> bool {
         headers
             .get(HEADER_VERSION)
             .is_some_and(|value| value.as_bytes() == VERSION.as_bytes())

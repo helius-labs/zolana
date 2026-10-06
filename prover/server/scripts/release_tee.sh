@@ -238,5 +238,5 @@ done
 $healthy || { echo "prover $prover never became healthy" >&2; exit 1; }
 
 (cd "$root" && cargo run -q -p xtask -- tee-policy "$prover" ${gpu_flag[@]+"${gpu_flag[@]}"} ${replace[@]+"${replace[@]}"})
-(cd "$root/sdk-libs/ts" && npx oxfmt --write src/client/prover/tee/pinned.ts > /dev/null)
+(cd "$root/sdk-libs/ts" && npx oxfmt --write src/client/prover/tee/default.ts > /dev/null)
 echo "prover $prover pinned, commit the policy files with the release"

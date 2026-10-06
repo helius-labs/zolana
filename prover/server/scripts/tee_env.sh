@@ -1,4 +1,4 @@
-# `phala envs update` replaces the whole sealed env, so release and ship both build it here.
+# `phala envs update` replaces the whole encrypted env, so release and ship both build it here.
 
 # tee_env fills TEE_ENV with -e arguments for the phala CLI, logging in to TEE_REGISTRY_HOST.
 tee_env() {
@@ -9,7 +9,7 @@ tee_env() {
         -e "PHOTON_RPC_URL=${PHOTON_RPC_URL:-}"
         -e "PHOTON_DUMP_URL=${PHOTON_DUMP_URL:-}"
     )
-    # Phala's pre-launch script tries Docker credentials before ECR, so only one set is sealed.
+    # Phala's pre-launch script tries Docker credentials before ECR, so only one set is encrypted.
     if [[ -n ${TEE_AWS_ACCESS_KEY_ID:-} ]]; then
         [[ ${TEE_REGISTRY_HOST:-} =~ ^[0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$ ]] \
             || { echo "TEE_REGISTRY_HOST must be an ECR registry host" >&2; exit 1; }

@@ -1,16 +1,16 @@
-//! Seals every prover call to the HPKE key a verified dstack TDX quote binds, matching `prover/server/tee` byte for byte.
+//! Encrypts every prover call to the HPKE key a verified dstack TDX quote binds, matching `prover/server/tee` byte for byte.
 
-mod evidence;
+mod attestation;
+mod encryption;
 mod policy;
-mod seal;
 mod session;
 #[cfg(test)]
 mod tests;
 mod verify;
 
-pub use evidence::{Collateral, EventLogEntry, Evidence};
+pub use attestation::{Attestation, Collateral, EventLogEntry};
+pub(crate) use encryption::EncryptedRequest;
 pub use policy::{GpuRequirement, Measurement, TeePolicy};
-pub(crate) use seal::SealedRequest;
 pub(crate) use session::TeeSession;
 pub use verify::{inspect, verify, AttestedIdentity, AttestedProver, KeyProvider};
 
@@ -19,8 +19,8 @@ use thiserror::Error;
 pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
 pub const HEADER_VERSION: &str = "Zolana-Tee";
 pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
-/// Carries the sealed bytes of a GET, fetch refuses a GET body.
-pub const HEADER_SEAL: &str = "Zolana-Tee-Seal";
+/// Carries the encrypted bytes of a GET, fetch refuses a GET body.
+pub const HEADER_CIPHERTEXT: &str = "Zolana-Tee-Ciphertext";
 pub const VERSION: &str = "v1";
 pub const NONCE_SIZE: usize = 32;
 
@@ -63,7 +63,7 @@ pub enum TeeError {
     HpkeKeyMismatch,
     #[error("quote report_data does not match the session nonce and key")]
     ReportDataMismatch,
-    #[error("policy requires GPU evidence and the prover sent none")]
+    #[error("policy requires GPU attestation and the prover sent none")]
     GpuEvidenceMissing,
     #[error("encrypted exchange failed, {0}")]
     Encryption(&'static str),
