@@ -12,14 +12,13 @@ control you can configure and who can change it.
 4. Curated lists
 5. Frozen list
 6. Asset allowlist
-7. Amount thresholds
-8. Velocity limits
-9. Spend window
-10. Permanent delegate and key escrow
-11. Auditor
-12. Deposit audit
-13. Readers
-14. Pause
+7. Sender limits
+8. Spend window
+9. Permanent delegate and key escrow
+10. Auditor
+11. Deposit audit
+12. Readers
+13. Pause
 
 ## Policy
 
@@ -29,8 +28,8 @@ amounts, recipients or which list entries it used.
 
 ### Policy and ring settings
 
-- **Policy:** allowlist, blocklist, frozen list, asset allowlist, amount
-  thresholds and velocity limits. The proof checks these, and only the
+- **Policy:** allowlist, blocklist, frozen list, asset allowlist and sender
+  limits. The proof checks these, and only the
   upgrade authority can change them.
 - **Ring settings:** co-signer, spend window, deposit audit, readers and
   pause. The ring program checks these, and the ring authority changes them.
@@ -82,7 +81,9 @@ entries it used.
 - **Sender:** the sender must be on the allowlist.
 - **Recipients:** every recipient must be on the allowlist.
 - **Recipients above a threshold:** a recipient must be on the allowlist only
-  when it receives more than a threshold per token in one transaction.
+  when it receives more than a threshold of a token in one transaction,
+  summed across outputs. Thresholds are set per token, and a token without a
+  threshold is refused.
 - **Combined with other lists:** for example, on the allowlist and not frozen,
   or on the allowlist or on the approval list.
 
@@ -173,3 +174,16 @@ or withdrawal of any other token is refused.
 
 - Approved tokens are entries on a configured allowlist, next to approved
   identities.
+
+## 7. Sender limits
+
+A sender limit caps how much of a token one sender can transfer or withdraw,
+without revealing the amount.
+
+### What can be checked
+
+- **Outflow:** the total a sender moves out over a window of slots.
+
+### Configuration
+
+- Limits are set per token.
