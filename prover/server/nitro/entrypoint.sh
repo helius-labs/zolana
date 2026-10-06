@@ -4,7 +4,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin
 
 parent_cid=3
 # Holds every served key plus the largest partial download.
-keys_mib=6144
+keys_mib=14336
 
 # Any child exit ends the enclave for the parent to restart.
 trap 'exit 1' USR1
