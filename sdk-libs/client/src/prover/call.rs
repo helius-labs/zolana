@@ -41,10 +41,10 @@ pub(crate) struct Recipient<'s> {
 pub(crate) struct Prepared<'s> {
     pub headers: Vec<(&'static str, String)>,
     pub body: Option<Vec<u8>>,
-    sealed: Option<Sealed<'s>>,
+    encrypted: Option<Encrypted<'s>>,
 }
 
-struct Sealed<'s> {
+struct Encrypted<'s> {
     recipient: Recipient<'s>,
     request: EncryptedRequest,
 }
@@ -94,7 +94,7 @@ impl<'a> Call<'a> {
             return Ok(Prepared {
                 headers,
                 body: self.body.map(|body| body.as_bytes().to_vec()),
-                sealed: None,
+                encrypted: None,
             });
         };
         let encrypted = TeeSession::encrypt(
@@ -116,7 +116,7 @@ impl<'a> Call<'a> {
         Ok(Prepared {
             headers,
             body,
-            sealed: Some(Sealed {
+            encrypted: Some(Encrypted {
                 recipient,
                 request: encrypted,
             }),
@@ -132,7 +132,7 @@ impl<'s> Prepared<'s> {
         body: &[u8],
     ) -> Result<Answer<'s>, CallError> {
         let plain = || String::from_utf8_lossy(body).into_owned();
-        let Some(Sealed { recipient, request }) = &self.sealed else {
+        let Some(Encrypted { recipient, request }) = &self.encrypted else {
             return Ok(Answer::Done(status, plain()));
         };
         if !is_encrypted && recipient.session.lost_key(status, body) {
