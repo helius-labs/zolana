@@ -9,8 +9,11 @@ import {
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
   decodeRingSpendRecordResponse,
+  decodeUserRecordsResponse,
   encodeRingMemberProofRequest,
+  encodeUserRecordsRequest,
 } from "../src/indexer/codec.js";
+import { MAX_USER_RECORD_OWNERS } from "../src/interface/indexer-limits.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
 import { ZolanaApi } from "../src/api/index.js";
@@ -176,6 +179,134 @@ describe("key registry wire", () => {
       await expect(
         indexerFor({ result: { ...entry, ...changed } }).getRingKeyRegistryEntry(request),
       ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
+  });
+});
+
+describe("user records wire", () => {
+  const OTHER = treeAddress(7);
+  // A compressed P-256 point, the same one the key registry entry carries.
+  const P256 = Buffer.from(
+    "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5",
+    "hex",
+  ).toString("base64");
+  const record = {
+    owner: RING,
+    ownerP256: null,
+    nullifierPubkey: TAG,
+    viewingPubkey: P256,
+    mergingEnabled: true,
+  };
+  const page = { context: { slot: 77, blockTime: 2 }, records: [record, null] };
+
+  it("reads an unregistered owner as null and refuses a record it cannot fully decode", () => {
+    expect(decodeUserRecordsResponse(page)).toEqual({
+      context: { slot: 77n, blockTime: 2n },
+      records: [
+        { owner: RING, nullifierPubkey: TAG, viewingPubkey: P256, mergingEnabled: true },
+        null,
+      ],
+    });
+    expect(
+      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }).records[0],
+    ).toMatchObject({ ownerP256: P256 });
+    for (const changed of [
+      { records: [{ ...record, bump: 1 }] },
+      { records: [{ ...record, mergingEnabled: "yes" }] },
+      { records: [{ ...record, nullifierPubkey: P256 }] },
+      { records: [{ owner: RING }] },
+      { records: [undefined] },
+      { records: null },
+      { extra: true },
+    ])
+      expect(() => decodeUserRecordsResponse({ ...page, ...changed })).toThrow();
+  });
+
+  it("names between one and one hundred canonical owners", () => {
+    const owners = (count: number) => Array.from({ length: count }, () => RING);
+    expect(encodeUserRecordsRequest({ owners: [RING, OTHER] })).toEqual({ owners: [RING, OTHER] });
+    expect(encodeUserRecordsRequest({ owners: owners(MAX_USER_RECORD_OWNERS) })).toMatchObject({
+      owners: expect.any(Array),
+    });
+    expect(() => encodeUserRecordsRequest({ owners: [] })).toThrow();
+    expect(() =>
+      encodeUserRecordsRequest({ owners: owners(MAX_USER_RECORD_OWNERS + 1) }),
+    ).toThrow();
+    expect(() =>
+      encodeUserRecordsRequest({ owners: ["not-an-address" as ReturnType<typeof address>] }),
+    ).toThrow();
+  });
+
+  it("keeps request order through the client and correlates every record with its owner", async () => {
+    const requests: unknown[] = [];
+    const indexerFor = (result: unknown) =>
+      new ZolanaIndexer(
+        new ZolanaApi({
+          url: "https://indexer.example",
+          fetch: async (_url, init) => {
+            requests.push(JSON.parse(String(init?.body)).params);
+            return Response.json({ jsonrpc: "2.0", id: "test-account", result });
+          },
+        }),
+      );
+
+    const lookup = await indexerFor(page).getUserRecords([RING, OTHER]);
+    expect(requests).toEqual([{ owners: [RING, OTHER] }]);
+    expect(lookup.context).toEqual({ slot: 77n, blockTime: 2n });
+    expect(lookup.records[0]).toMatchObject({ owner: RING, mergingEnabled: true });
+    expect(lookup.records[0]?.ownerP256).toBeUndefined();
+    expect(lookup.records[0]?.nullifierPublicKey).toEqual(new Uint8Array(32));
+    expect(lookup.records[0]?.viewingPublicKey.toBytes()[0]).toBe(0x02);
+    expect(lookup.records[1]).toBeNull();
+
+    // The second record answers for an owner that was not asked second.
+    await expect(indexerFor(page).getUserRecords([OTHER, RING])).rejects.toMatchObject({
+      code: "CLIENT_INVALID_RPC_RESPONSE",
+      details: { path: "$.records[0].owner" },
+    });
+    // Fewer records than owners.
+    await expect(indexerFor(page).getUserRecords([RING, OTHER, RING])).rejects.toMatchObject({
+      code: "CLIENT_INVALID_RPC_RESPONSE",
+      details: { path: "$.records" },
+    });
+    // A viewing key that is not a point on the curve.
+    await expect(
+      indexerFor({
+        ...page,
+        records: [{ ...record, viewingPubkey: Buffer.alloc(33, 9).toString("base64") }, null],
+      }).getUserRecords([RING, OTHER]),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
+
+    // The client boundary refuses an empty, oversized, or malformed owner list
+    // before any request is sent, synchronously like every other input check.
+    const sent = requests.length;
+    const thrown = (run: () => unknown): unknown => {
+      try {
+        run();
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected the owner list to be refused");
+    };
+    expect(thrown(() => indexerFor(page).getUserRecords([]))).toMatchObject({
+      code: "CLIENT_INVALID_LENGTH",
+      details: { field: "owners", expected: 1, actual: 0 },
+    });
+    expect(
+      thrown(() =>
+        indexerFor(page).getUserRecords(
+          Array.from({ length: MAX_USER_RECORD_OWNERS + 1 }, () => RING),
+        ),
+      ),
+    ).toMatchObject({
+      code: "CLIENT_INVALID_LENGTH",
+      details: { field: "owners", expected: MAX_USER_RECORD_OWNERS },
+    });
+    expect(
+      thrown(() =>
+        indexerFor(page).getUserRecords(["not-an-address" as ReturnType<typeof address>]),
+      ),
+    ).toMatchObject({ code: "CLIENT_INVALID_FIELD", details: { field: "owners[0]" } });
+    expect(requests).toHaveLength(sent);
   });
 });
 

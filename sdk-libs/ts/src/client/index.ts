@@ -46,6 +46,9 @@ export type {
   RingSubmissionPending,
   RingSubmissionStatus,
   RingSubmissionTransport,
+  RegistryRecord,
+  UserRecordReader,
+  UserRecordsLookup,
   WalletKeys,
 } from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";

@@ -66,6 +66,8 @@ import {
   type RingMemberProofRequest,
   type RingMemberRequest,
   type RingSpendRecordLookup,
+  type UserRecordReader,
+  type UserRecordsLookup,
   type RingKeyRegistryEntry,
   type RingKeyRegistryRegisterProof,
 } from "./ports.js";
@@ -200,7 +202,8 @@ export class ZolanaClient
     KitRpcAccess,
     TreeContext,
     TransactionAssembler,
-    MergeAssembler
+    MergeAssembler,
+    UserRecordReader
 {
   readonly tree: Address;
   readonly treeId: number;
@@ -574,6 +577,14 @@ export class ZolanaClient
     context?: RequestContext,
   ): Promise<RingKeyRegistryRegisterProof> {
     return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
+  }
+
+  getUserRecords(
+    owners: readonly Address[],
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<UserRecordsLookup> {
+    return this.#indexer.getUserRecords(owners, this.#configOr(config), context);
   }
 
   /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes

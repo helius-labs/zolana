@@ -20,11 +20,15 @@ import type {
   RingsOutputSlot,
   SignatureIndexedShieldedTransaction,
   GetRingSpendRecordResponse,
+  GetUserRecordsRequest,
+  GetUserRecordsResponse,
   RingMemberProofRequest,
   RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
+  UserRecord,
 } from "./types.js";
+import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../interface/key-registry.js";
 import {
   checkedAddress,
@@ -146,6 +150,49 @@ export function decodeRingSpendRecordResponse(value: unknown): GetRingSpendRecor
       outputIndex,
     );
   return { context: indexed, record: { transaction, outputIndex } };
+}
+
+export function encodeUserRecordsRequest(value: GetUserRecordsRequest): WireObject {
+  const owners: unknown = value.owners;
+  if (!Array.isArray(owners) || owners.length < 1 || owners.length > MAX_USER_RECORD_OWNERS) {
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_TYPE",
+      "$.owners",
+      `1 to ${String(MAX_USER_RECORD_OWNERS)} owners`,
+      owners,
+    );
+  }
+  return {
+    owners: owners.map((owner, index) => checkedAddress(owner, `$.owners[${String(index)}]`)),
+  };
+}
+
+export function decodeUserRecordsResponse(value: unknown): GetUserRecordsResponse {
+  const row = object(value, "$", ["context", "records"]);
+  return {
+    context: context(row["context"], "$.context"),
+    records: array(row["records"], "$.records", (item, path) =>
+      item === null ? null : userRecord(item, path),
+    ),
+  };
+}
+
+function userRecord(value: unknown, path: string): UserRecord {
+  const record = object(value, path, [
+    "owner",
+    "ownerP256",
+    "nullifierPubkey",
+    "viewingPubkey",
+    "mergingEnabled",
+  ]);
+  const ownerP256 = optional(record["ownerP256"], `${path}.ownerP256`, checkedBase64);
+  return {
+    owner: checkedAddress(record["owner"], `${path}.owner`),
+    ...(ownerP256 === undefined ? {} : { ownerP256 }),
+    nullifierPubkey: checkedHash(record["nullifierPubkey"], `${path}.nullifierPubkey`),
+    viewingPubkey: checkedBase64(record["viewingPubkey"], `${path}.viewingPubkey`),
+    mergingEnabled: boolean(record["mergingEnabled"], `${path}.mergingEnabled`),
+  };
 }
 
 const I64_MIN = -(1n << 63n);

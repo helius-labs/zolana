@@ -7,3 +7,4 @@ export const GET_RING_SPEND_RECORD = "getRingSpendRecord";
 export const GET_RING_KEY_REGISTRY_ENTRY = "getRingKeyRegistryEntry";
 export const GET_RING_KEY_REGISTRY_REGISTER_PROOF = "getRingKeyRegistryRegisterProof";
 export const GET_NON_INCLUSION_PROOFS = "getNonInclusionProofs";
+export const GET_USER_RECORDS = "getUserRecords";
