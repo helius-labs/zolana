@@ -5,6 +5,7 @@ mod get_non_inclusion_proofs;
 mod get_nullifier_queue_elements;
 mod get_shielded_transactions_by_signature;
 mod get_shielded_transactions_by_tags;
+mod get_user_records;
 
 pub use get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
 pub use get_merkle_proofs::get_merkle_proofs;
@@ -15,6 +16,7 @@ pub use get_shielded_transactions_by_signature::get_shielded_transactions_by_sig
 pub(crate) use get_shielded_transactions_by_signature::shielded_transaction_at;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_nullifiers;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
+pub use get_user_records::get_user_records;
 
 #[cfg(test)]
 mod tests {

@@ -8,6 +8,7 @@ Photon indexes Rings shielded-pool transactions and exposes the Rings JSON-RPC A
 - `getMerkleProofs`
 - `getNonInclusionProofs`
 - `getNullifierQueueElements`
+- `getUserRecords`
 
 Photon is built from the Zolana Cargo workspace so its event parser, tree
 layout, SDK contract, and localnet tests always use the same source revision.

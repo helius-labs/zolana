@@ -17,13 +17,14 @@ use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByTags, GetUserRecords,
     },
     GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, RpcMethod,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    GetUserRecordsRequest, GetUserRecordsResponse, RpcMethod,
 };
 
 use super::{
@@ -35,6 +36,7 @@ use super::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
             get_nullifier_queue_elements, get_shielded_transactions_by_nullifiers,
             get_shielded_transactions_by_signature, get_shielded_transactions_by_tags,
+            get_user_records,
         },
     },
 };
@@ -179,6 +181,13 @@ impl PhotonApi {
         get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
     }
 
+    pub async fn get_user_records(
+        &self,
+        request: GetUserRecordsRequest,
+    ) -> Result<GetUserRecordsResponse, PhotonApiError> {
+        get_user_records(&self.rpc_client, request).await
+    }
+
     #[cfg(feature = "ring-projection")]
     pub async fn get_ring_spend_record(
         &self,
@@ -212,6 +221,7 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
+            method_api_spec::<GetUserRecords>(),
             #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingKeyRegistryEntry>(),
             #[cfg(feature = "ring-projection")]

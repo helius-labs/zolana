@@ -91,6 +91,25 @@ struct ContextValue<T> {
     value: T,
 }
 
+/// A `ContextValue` that also reads the slot the node answered at.
+#[derive(Debug, Deserialize)]
+struct ValueAtSlot<T> {
+    context: RpcContext,
+    value: T,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcContext {
+    slot: u64,
+}
+
+/// Accounts read from one bank, with the slot that bank was at.
+#[derive(Debug)]
+pub struct AccountsAtSlot {
+    pub slot: u64,
+    pub accounts: Vec<Option<Account>>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EncodedAccount {
@@ -182,15 +201,23 @@ impl RpcClient {
         &self,
         pubkeys: &[Pubkey],
     ) -> Result<Vec<Option<Account>>, RpcError> {
-        let addresses = pubkeys.iter().map(ToString::to_string).collect::<Vec<_>>();
         let response: ContextValue<Vec<Option<EncodedAccount>>> = self
-            .call("getMultipleAccounts", json!([addresses, account_config()]))
+            .call("getMultipleAccounts", multiple_accounts_params(pubkeys))
             .await?;
-        response
-            .value
-            .into_iter()
-            .map(|account| account.map(EncodedAccount::decode).transpose())
-            .collect()
+        decode_accounts(response.value)
+    }
+
+    pub async fn get_multiple_accounts_at_slot(
+        &self,
+        pubkeys: &[Pubkey],
+    ) -> Result<AccountsAtSlot, RpcError> {
+        let response: ValueAtSlot<Vec<Option<EncodedAccount>>> = self
+            .call("getMultipleAccounts", multiple_accounts_params(pubkeys))
+            .await?;
+        Ok(AccountsAtSlot {
+            slot: response.context.slot,
+            accounts: decode_accounts(response.value)?,
+        })
     }
 
     pub async fn get_program_accounts(
@@ -301,6 +328,20 @@ fn account_config() -> Value {
     })
 }
 
+fn multiple_accounts_params(pubkeys: &[Pubkey]) -> Value {
+    let addresses = pubkeys.iter().map(ToString::to_string).collect::<Vec<_>>();
+    json!([addresses, account_config()])
+}
+
+fn decode_accounts(
+    accounts: Vec<Option<EncodedAccount>>,
+) -> Result<Vec<Option<Account>>, RpcError> {
+    accounts
+        .into_iter()
+        .map(|account| account.map(EncodedAccount::decode).transpose())
+        .collect()
+}
+
 fn block_params(slot: u64, transaction_details: TransactionDetails) -> Value {
     json!([slot, {
         "commitment": "confirmed",
@@ -312,31 +353,76 @@ fn block_params(slot: u64, transaction_details: TransactionDetails) -> Value {
     }])
 }
 
+/// A fake JSON-RPC node for tests: answers each request with the next canned
+/// response and hands back the request bodies it saw.
 #[cfg(test)]
-mod tests {
+pub(crate) mod fake_node {
     use std::{
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         thread::JoinHandle,
     };
 
-    use super::*;
-
-    fn serve_once(status: &str, body: &str) -> (String, JoinHandle<()>) {
+    pub(crate) fn serve_in_order(responses: &[(&str, &str)]) -> (String, JoinHandle<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
+        let responses = responses
+            .iter()
+            .map(|(status, body)| {
+                format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            })
+            .collect::<Vec<_>>();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0; 4096];
-            let _ = stream.read(&mut request).unwrap();
-            stream.write_all(response.as_bytes()).unwrap();
+            responses
+                .iter()
+                .map(|response| {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    let request = read_request_body(&mut stream);
+                    stream.write_all(response.as_bytes()).unwrap();
+                    request
+                })
+                .collect()
         });
         (format!("http://{address}"), handle)
     }
+
+    pub(crate) fn serve_once(status: &str, body: &str) -> (String, JoinHandle<Vec<String>>) {
+        serve_in_order(&[(status, body)])
+    }
+
+    fn read_request_body(stream: &mut TcpStream) -> String {
+        let mut raw = Vec::new();
+        let mut chunk = [0; 4096];
+        let header_end = loop {
+            let read = stream.read(&mut chunk).unwrap();
+            assert!(read > 0, "request ended before its headers did");
+            raw.extend_from_slice(&chunk[..read]);
+            if let Some(end) = raw.windows(4).position(|window| window == b"\r\n\r\n") {
+                break end + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&raw[..header_end]).to_ascii_lowercase();
+        let content_length = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .map(|value| value.trim().parse::<usize>().unwrap())
+            .unwrap_or(0);
+        while raw.len() < header_end + content_length {
+            let read = stream.read(&mut chunk).unwrap();
+            assert!(read > 0, "request ended before its body did");
+            raw.extend_from_slice(&chunk[..read]);
+        }
+        String::from_utf8(raw[header_end..header_end + content_length].to_vec()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fake_node::{serve_in_order, serve_once};
+    use super::*;
 
     #[cfg(feature = "surfpool-fixture")]
     fn surfpool_block(hash: &str, parent_slot: u64) -> UiConfirmedBlock {
@@ -434,6 +520,32 @@ mod tests {
         server.join().unwrap();
 
         assert!(matches!(error, RpcError::MissingResult("getSlot")));
+    }
+
+    #[tokio::test]
+    async fn multiple_accounts_keep_the_slot_they_were_read_at() {
+        let owner = Pubkey::from([7; 32]);
+        let (url, server) = serve_in_order(&[(
+            "200 OK",
+            &format!(
+                r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":4242}},"value":[null,{{"lamports":1,"data":["{}","base64"],"owner":"{owner}","executable":false,"rentEpoch":0}}]}}}}"#,
+                BASE64.encode([9, 8, 7])
+            ),
+        )]);
+        let fetched = RpcClient::new(url)
+            .get_multiple_accounts_at_slot(&[Pubkey::from([1; 32]), Pubkey::from([2; 32])])
+            .await
+            .unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(fetched.slot, 4242);
+        assert_eq!(fetched.accounts.len(), 2);
+        assert!(fetched.accounts[0].is_none());
+        assert_eq!(fetched.accounts[1].as_ref().unwrap().data, [9, 8, 7]);
+        assert_eq!(fetched.accounts[1].as_ref().unwrap().owner, owner);
+        let request: Value = serde_json::from_str(&requests[0]).unwrap();
+        assert_eq!(request["method"], "getMultipleAccounts");
+        assert_eq!(request["params"][0].as_array().unwrap().len(), 2);
     }
 
     #[test]

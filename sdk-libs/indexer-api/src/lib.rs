@@ -23,6 +23,10 @@ pub const GET_RING_KEY_REGISTRY_REGISTER_PROOF: &str = "getRingKeyRegistryRegist
 pub const GET_RING_SPEND_RECORD: &str = "getRingSpendRecord";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
+pub const GET_USER_RECORDS: &str = "getUserRecords";
+/// The most owners one `getUserRecords` request names: the Solana RPC answers
+/// `getMultipleAccounts` for at most this many accounts in one call.
+pub const MAX_USER_RECORD_OWNERS: usize = 100;
 
 const MAX_BASE58_32_LEN: usize = 44;
 const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
@@ -56,6 +60,7 @@ pub mod method {
     pub struct GetRingSpendRecord;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
+    pub struct GetUserRecords;
 
     impl RpcMethod for GetEncryptedUtxosByTags {
         const NAME: &'static str = GET_ENCRYPTED_UTXOS_BY_TAGS;
@@ -115,6 +120,12 @@ pub mod method {
         const NAME: &'static str = GET_NULLIFIER_QUEUE_ELEMENTS;
         type Request = GetNullifierQueueElementsRequest;
         type Response = GetNullifierQueueElementsResponse;
+    }
+
+    impl RpcMethod for GetUserRecords {
+        const NAME: &'static str = GET_USER_RECORDS;
+        type Request = GetUserRecordsRequest;
+        type Response = GetUserRecordsResponse;
     }
 }
 
@@ -893,6 +904,42 @@ pub struct NonInclusionProof {
     pub root_index: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetUserRecordsRequest {
+    /// Solana pubkeys to look up in the user registry. At most 100.
+    #[cfg_attr(feature = "openapi", schema(min_items = 1, max_items = 100))]
+    pub owners: Vec<SerializablePubkey>,
+}
+
+/// A user registry record, the shielded address a Solana pubkey publishes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UserRecord {
+    pub owner: SerializablePubkey,
+    /// SEC1-compressed P256 signing pubkey (33 bytes). `null` for Solana-only
+    /// owners, whose signing key is the Ed25519 key `owner` encodes.
+    pub owner_p256: Option<Base64String>,
+    /// Wallet-wide nullifier pubkey. Never rotates.
+    pub nullifier_pubkey: Hash,
+    /// SEC1-compressed P256 ECDH viewing pubkey (33 bytes).
+    pub viewing_pubkey: Base64String,
+    /// Opt-in for `merge_transact`. When true, any caller may merge this owner's UTXOs.
+    pub merging_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetUserRecordsResponse {
+    pub context: Context,
+    /// One entry per requested owner, in request order. `null` when the owner
+    /// has no registry record at `context.slot`.
+    pub records: Vec<Option<UserRecord>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,6 +963,36 @@ mod tests {
             method::GetShieldedTransactionsBySignature::NAME,
             "getShieldedTransactionsBySignature"
         );
+        assert_eq!(method::GetUserRecords::NAME, "getUserRecords");
+    }
+
+    #[test]
+    fn an_unregistered_owner_is_a_null_record_slot() {
+        let page = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "records": [
+                null,
+                {
+                    "owner": SerializablePubkey::from([5; 32]).to_string(),
+                    "ownerP256": null,
+                    "nullifierPubkey": Hash::from([6; 32]).to_base58(),
+                    "viewingPubkey": "AQID",
+                    "mergingEnabled": true,
+                },
+            ],
+        });
+        let response: GetUserRecordsResponse = serde_json::from_value(page).unwrap();
+        assert_eq!(response.records[0], None);
+        let record = response.records[1].as_ref().unwrap();
+        assert_eq!(record.owner, SerializablePubkey::from([5; 32]));
+        assert_eq!(record.owner_p256, None);
+        assert_eq!(record.viewing_pubkey, Base64String(vec![1, 2, 3]));
+        assert!(record.merging_enabled);
+
+        // A Solana-only owner is sent as an explicit null, as the spec allows.
+        let value = serde_json::to_value(&response).unwrap();
+        assert!(value["records"][0].is_null());
+        assert!(value["records"][1]["ownerP256"].is_null());
     }
 
     #[test]

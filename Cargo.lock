@@ -4861,6 +4861,7 @@ dependencies = [
  "zolana-ring-key-registry",
  "zolana-ring-policy",
  "zolana-tree",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
