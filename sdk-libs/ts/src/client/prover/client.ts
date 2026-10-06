@@ -48,6 +48,7 @@ import {
 } from "../internal.js";
 import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
+import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
 import type { TeePolicy } from "./tee/policy.js";
 import { TeeSession, prepareCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
@@ -87,8 +88,6 @@ import type {
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** An error body is a code and a message; anything larger is not read. */
 const MAX_REASON_BYTES = 4096;
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 2_000n;
 /// Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
 /// Generous enough for a cold prove that first loads a 63MB proving key, so a
 /// clean server-side timeout still returns before it.

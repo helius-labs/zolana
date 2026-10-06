@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use reqwest::header::{HeaderValue, RETRY_AFTER};
 use reqwest::redirect::Policy;
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
@@ -113,6 +114,8 @@ pub trait ProveRequest {
 
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
+/// Longest `Retry-After` an attestation retry waits, a larger one is cut to it.
+const ATTESTATION_RETRY_AFTER_CAP_SECS: u64 = 30;
 // Generous bound so a slow cold prove never hangs the client forever; the server
 // caps sync work at 120–180s depending on circuit, so a clean timeout returns
 // well before this.
@@ -404,35 +407,50 @@ impl ProverClient {
         let Some(tee) = &self.tee else {
             return Ok(None);
         };
-        if let Some(key) = tee.attested_key() {
-            return Ok(Some(key));
-        }
-        self.attest_with(tee)
-            .map(|prover| Some(prover.hpke_public_key))
+        tee.key_or_attest(|| self.attest_with(tee)).map(Some)
     }
 
     /// Attest the prover now against the [`Self::with_tee`] policy.
     pub fn attest(&self) -> Result<AttestedProver, ClientError> {
-        self.attest_with(
-            self.tee
-                .as_ref()
-                .ok_or(ClientError::Tee(TeeError::NoPolicy))?,
-        )
+        let tee = self
+            .tee
+            .as_ref()
+            .ok_or(ClientError::Tee(TeeError::NoPolicy))?;
+        tee.attest_exclusive(|| self.attest_with(tee))
     }
 
+    /// Retries a transport failure and a busy or unavailable answer, each try with a fresh nonce.
     fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
-        let nonce = TeeSession::nonce()?;
-        let response = self
-            .http
-            .get(self.endpoint.attestation_url(&nonce)?)
-            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-            .send()
-            .map_err(|e| ClientError::ProverServer(format!("attestation failed: {}", scrub(e))))?;
-        let status = response.status();
-        let text = response.text().map_err(|e| {
-            ClientError::ProverServer(format!("failed to read attestation: {}", scrub(e)))
-        })?;
-        tee.accept(&nonce, status, &text)
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let nonce = TeeSession::nonce()?;
+            let response = match self
+                .http
+                .get(self.endpoint.attestation_url(&nonce)?)
+                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .send()
+            {
+                Ok(response) => response,
+                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                    sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+                    continue;
+                }
+                Err(e) => return Err(attestation_unreachable(attempt, e)),
+            };
+            let status = response.status();
+            if let Some(delay) =
+                attestation_retry_delay(status, response.headers().get(RETRY_AFTER))
+                    .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
+            {
+                sleep(delay);
+                continue;
+            }
+            let text = response.text().map_err(|e| {
+                ClientError::ProverServer(format!("failed to read attestation: {}", scrub(e)))
+            })?;
+            return tee.accept(&nonce, status, &text);
+        }
     }
 
     /// One POST to a proof path, retried for transport failures and for a queued
@@ -815,6 +833,32 @@ fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKey
 /// early is one cheap GET.
 const INITIAL_POLL_MS: u64 = 25;
 
+/// The wait before retrying an attestation answer, `None` for a final one.
+fn attestation_retry_delay(
+    status: StatusCode,
+    retry_after: Option<&HeaderValue>,
+) -> Option<Duration> {
+    let backoff = Duration::from_secs(PROVE_RETRY_BACKOFF_SECS);
+    match status {
+        StatusCode::TOO_MANY_REQUESTS => Some(
+            retry_after
+                .and_then(|value| value.to_str().ok()?.trim().parse::<u64>().ok())
+                .map_or(backoff, |secs| {
+                    Duration::from_secs(secs.min(ATTESTATION_RETRY_AFTER_CAP_SECS))
+                }),
+        ),
+        StatusCode::SERVICE_UNAVAILABLE => Some(backoff),
+        _ => None,
+    }
+}
+
+fn attestation_unreachable(attempts: usize, error: reqwest::Error) -> ClientError {
+    ClientError::ProverServer(format!(
+        "attestation failed after {attempts} attempt(s): {}",
+        scrub(error)
+    ))
+}
+
 /// Next gap in the backoff, doubling up to `cap_ms`.
 ///
 /// The configured poll interval is the CEILING, not a fixed period: a proof that
@@ -1053,38 +1097,53 @@ impl AsyncProverClient {
         let Some(tee) = &self.tee else {
             return Ok(None);
         };
-        if let Some(key) = tee.attested_key() {
-            return Ok(Some(key));
-        }
-        self.attest_with(tee)
+        tee.key_or_attest_async(|| self.attest_with(tee))
             .await
-            .map(|prover| Some(prover.hpke_public_key))
+            .map(Some)
     }
 
     /// Async counterpart of [`ProverClient::attest`].
     pub async fn attest(&self) -> Result<AttestedProver, ClientError> {
-        self.attest_with(
-            self.tee
-                .as_ref()
-                .ok_or(ClientError::Tee(TeeError::NoPolicy))?,
-        )
-        .await
+        let tee = self
+            .tee
+            .as_ref()
+            .ok_or(ClientError::Tee(TeeError::NoPolicy))?;
+        tee.attest_exclusive_async(|| self.attest_with(tee)).await
     }
 
+    /// Async counterpart of [`ProverClient::attest_with`].
     async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
-        let nonce = TeeSession::nonce()?;
-        let response = self
-            .http
-            .get(self.endpoint.attestation_url(&nonce)?)
-            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
-            .send()
-            .await
-            .map_err(|e| ClientError::ProverServer(format!("attestation failed: {}", scrub(e))))?;
-        let status = response.status();
-        let text = response.text().await.map_err(|e| {
-            ClientError::ProverServer(format!("failed to read attestation: {}", scrub(e)))
-        })?;
-        tee.accept(&nonce, status, &text)
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let nonce = TeeSession::nonce()?;
+            let response = match self
+                .http
+                .get(self.endpoint.attestation_url(&nonce)?)
+                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                    async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
+                    continue;
+                }
+                Err(e) => return Err(attestation_unreachable(attempt, e)),
+            };
+            let status = response.status();
+            if let Some(delay) =
+                attestation_retry_delay(status, response.headers().get(RETRY_AFTER))
+                    .filter(|_| attempt < PROVE_MAX_ATTEMPTS)
+            {
+                async_sleep(delay).await;
+                continue;
+            }
+            let text = response.text().await.map_err(|e| {
+                ClientError::ProverServer(format!("failed to read attestation: {}", scrub(e)))
+            })?;
+            return tee.accept(&nonce, status, &text);
+        }
     }
 
     async fn send(
@@ -1664,6 +1723,50 @@ mod tests {
             MockResponse::text(404, "404 page not found"),
             MockResponse::json(200, json!({ "quote": "00" })),
         ]
+    }
+
+    #[test]
+    fn attestation_retries_only_busy_and_unavailable_answers() {
+        let backoff = Some(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+        let header = HeaderValue::from_static;
+        let delay = |status, value: Option<HeaderValue>| {
+            attestation_retry_delay(StatusCode::from_u16(status).unwrap(), value.as_ref())
+        };
+        assert_eq!(delay(429, Some(header("3"))), Some(Duration::from_secs(3)));
+        assert_eq!(
+            delay(429, Some(header("86400"))),
+            Some(Duration::from_secs(ATTESTATION_RETRY_AFTER_CAP_SECS))
+        );
+        assert_eq!(
+            delay(429, Some(header("Wed, 21 Oct 2026 07:28:00 GMT"))),
+            backoff
+        );
+        assert_eq!(delay(429, None), backoff);
+        assert_eq!(delay(503, None), backoff);
+        for status in [200, 400, 401, 404, 500] {
+            assert_eq!(delay(status, None), None, "{status}");
+        }
+    }
+
+    #[test]
+    fn an_unavailable_attestation_is_retried() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::text(503, "busy"),
+            MockResponse::json(200, json!({ "quote": "00" })),
+        ]);
+        let error = ProverClient::new(server.url().to_string())
+            .with_tee(probe_policy())
+            .attest()
+            .unwrap_err();
+        assert!(
+            matches!(error, ClientError::Tee(TeeError::MalformedAttestation(_))),
+            "{error}"
+        );
+        let requests = server.requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests
+            .iter()
+            .all(|request| request.path.starts_with("/tee/v1/attestation?nonce=")));
     }
 
     #[test]

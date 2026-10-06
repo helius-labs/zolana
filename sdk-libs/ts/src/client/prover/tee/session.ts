@@ -2,7 +2,8 @@ import { bytesToHex, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { TransportFailure, readBoundedBody, readBoundedJson } from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
-import { requestError, type ComposedSignal } from "../../internal.js";
+import { requestError, sleep, type ComposedSignal } from "../../internal.js";
+import { MAX_ATTEMPTS, RETRY_DELAY_MS, attestationRetryDelayMs } from "../retry.js";
 import {
   HEADER_ENC,
   HEADER_CIPHERTEXT,
@@ -38,35 +39,89 @@ export type PreparedCall = Readonly<{
   finish(response: Response): Promise<Response>;
 }>;
 
+/** An attestation in progress, and the signal of the call that started it. */
+type Flight = Readonly<{ prover: Promise<AttestedProver>; signal: ComposedSignal }>;
+
 /** Attestation state one prover client shares across its calls. */
 export class TeeSession {
   readonly #policy: TeePolicy;
   #attested: Readonly<{ key: Uint8Array; at: number }> | undefined;
+  // One attestation at a time, the server answers only a few quotes at once.
+  #flight: Flight | undefined;
 
   constructor(policy: TeePolicy) {
     this.#policy = checkedTeePolicy(policy);
   }
 
-  /** Attests the prover now against the policy and caches its key. */
+  /**
+   * Attests the prover now against the policy and caches its key. A call
+   * joins an attestation already in flight, and starts its own when the
+   * caller that started that one cancelled it.
+   */
   async attest(
     fetch: typeof globalThis.fetch,
     attestationUrl: URL,
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
-    const nonce = randomBytes(NONCE_SIZE);
-    const url = new URL(attestationUrl);
-    url.searchParams.set("nonce", bytesToHex(nonce));
-    let response: Response;
-    try {
-      response = await fetch(url, { redirect: "error", signal: signal.signal });
-    } catch {
-      if (signal.signal.aborted) throw requestError("attest", signal);
-      throw refused("unavailable");
+    for (;;) {
+      const flight = this.#flight ?? this.#launch(fetch, attestationUrl, signal);
+      try {
+        return await flight.prover;
+      } catch (error) {
+        const cancelledByOther =
+          flight.signal !== signal && flight.signal.signal.aborted && !signal.signal.aborted;
+        if (!cancelledByOther) throw error;
+      }
     }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw refused("unavailable");
+  }
+
+  #launch(fetch: typeof globalThis.fetch, attestationUrl: URL, signal: ComposedSignal): Flight {
+    const flight: Flight = {
+      prover: this.#attestWithRetries(fetch, attestationUrl, signal),
+      signal,
+    };
+    this.#flight = flight;
+    const land = (): void => {
+      if (this.#flight === flight) this.#flight = undefined;
+    };
+    void flight.prover.then(land, land);
+    return flight;
+  }
+
+  /** Retries a transport failure and a busy or unavailable answer, each try with a fresh nonce. */
+  async #attestWithRetries(
+    fetch: typeof globalThis.fetch,
+    attestationUrl: URL,
+    signal: ComposedSignal,
+  ): Promise<AttestedProver> {
+    for (let attempt = 1; ; attempt++) {
+      const nonce = randomBytes(NONCE_SIZE);
+      const url = new URL(attestationUrl);
+      url.searchParams.set("nonce", bytesToHex(nonce));
+      let response: Response;
+      try {
+        response = await fetch(url, { redirect: "error", signal: signal.signal });
+      } catch {
+        if (signal.signal.aborted) throw requestError("attest", signal);
+        if (attempt >= MAX_ATTEMPTS) throw refused("unavailable");
+        await sleep(RETRY_DELAY_MS, { signal: signal.signal });
+        continue;
+      }
+      if (!response.ok) {
+        const delay =
+          attempt < MAX_ATTEMPTS
+            ? attestationRetryDelayMs(response.status, response.headers.get("retry-after"))
+            : undefined;
+        await response.body?.cancel();
+        if (delay === undefined) throw refused("unavailable");
+        await sleep(delay, { signal: signal.signal });
+        continue;
+      }
+      return this.#accept(response, nonce);
     }
+  }
+
+  async #accept(response: Response, nonce: Uint8Array): Promise<AttestedProver> {
     let attestation: unknown;
     try {
       attestation = await readBoundedJson(response, MAX_ATTESTATION_BYTES);

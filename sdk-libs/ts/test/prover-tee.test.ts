@@ -13,6 +13,7 @@ import {
 } from "../src/client/prover/tee/encryption.js";
 import { TeeSession, encryptedInit, type ProverCall } from "../src/client/prover/tee/session.js";
 import { composeSignal } from "../src/client/internal.js";
+import { attestationRetryDelayMs } from "../src/client/prover/retry.js";
 import { DEFAULT_TEE_POLICY_FILE } from "../src/client/prover/tee/default.js";
 import {
   defaultTeePolicy,
@@ -329,4 +330,68 @@ it("keeps the cached key independent of the attestation report", async () => {
     random.mockRestore();
     now.mockRestore();
   }
+});
+
+describe("attestation retries", () => {
+  it("waits only on busy and unavailable answers", () => {
+    expect(attestationRetryDelayMs(429, "3")).toBe(3_000n);
+    expect(attestationRetryDelayMs(429, "86400")).toBe(30_000n);
+    expect(attestationRetryDelayMs(429, "Wed, 21 Oct 2026 07:28:00 GMT")).toBe(2_000n);
+    expect(attestationRetryDelayMs(429, null)).toBe(2_000n);
+    expect(attestationRetryDelayMs(503, null)).toBe(2_000n);
+    for (const status of [400, 401, 404, 500]) {
+      expect(attestationRetryDelayMs(status, null)).toBeUndefined();
+    }
+  });
+
+  it("retries a busy prover after its Retry-After", async () => {
+    const answers = [
+      () => new Response("busy", { status: 429, headers: { "Retry-After": "0" } }),
+      () => Response.json({ quote: "00" }),
+    ];
+    const requested: string[] = [];
+    const prover = new ProverClient({
+      url: "https://prover.example",
+      tee: teePolicyFromJson(probePolicyJson),
+      fetch: (input) => {
+        requested.push(new URL(String(input)).pathname);
+        const answer = answers.shift();
+        if (answer === undefined) throw new Error("unexpected request");
+        return Promise.resolve(answer());
+      },
+    });
+    const error = await prover.attest().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ClientError);
+    if (!(error instanceof ClientError)) return;
+    expect(error.details).toEqual({ check: "malformed_attestation" });
+    expect(requested).toEqual(["/tee/v1/attestation", "/tee/v1/attestation"]);
+  });
+
+  it("shares one attestation between concurrent calls", async () => {
+    const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
+    const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+    const at = Number(decode.integer(live["captured_at"], "captured_at"));
+    const random = vi.spyOn(globalThis.crypto, "getRandomValues");
+    random.mockImplementationOnce((bytes) => {
+      if (!(bytes instanceof Uint8Array)) throw new Error("unexpected nonce buffer");
+      bytes.set(nonce);
+      return bytes;
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(at * 1000);
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(live["attestation"]));
+    const signal = composeSignal(undefined, "attest");
+    try {
+      const session = new TeeSession(livePolicy);
+      const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+      const provers = await Promise.all(
+        [0, 1, 2, 3].map(() => session.attest(fetch, attestationUrl, signal)),
+      );
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(new Set(provers.map((prover) => bytesToHex(prover.hpkePublicKey))).size).toBe(1);
+    } finally {
+      signal.cleanup();
+      random.mockRestore();
+      now.mockRestore();
+    }
+  });
 });
