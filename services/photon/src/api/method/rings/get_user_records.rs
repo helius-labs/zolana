@@ -1,6 +1,8 @@
+use std::iter;
+
 use solana_account::Account;
+use solana_clock::Clock;
 use solana_pubkey::Pubkey;
-use solana_transaction_status_client_types::TransactionDetails;
 use zolana_indexer_api::{
     Base64String, Context, GetUserRecordsRequest, GetUserRecordsResponse, Hash, SerializablePubkey,
     UserRecord, MAX_USER_RECORD_OWNERS,
@@ -12,9 +14,17 @@ use zolana_user_registry_interface::{
 use crate::api::error::PhotonApiError;
 use crate::rpc::RpcClient;
 
+/// `getMultipleAccounts` answers at most 100 keys, and the Clock sysvar takes
+/// one of them.
+const OWNERS_PER_READ: usize = 99;
+/// A request too wide for one call is read again until every call answers at
+/// the same slot.
+const SAME_SLOT_ATTEMPTS: usize = 3;
+
 /// Reads the records straight from the chain: Photon does not index the user
-/// registry, and one `getMultipleAccounts` call answers every owner at a single
-/// slot. `context` is that slot, not the indexer's.
+/// registry. The Clock sysvar rides along in the same `getMultipleAccounts`
+/// call, so `context` is the slot the accounts were read at and that bank's
+/// timestamp, with no second call that could miss a block still being built.
 pub async fn get_user_records(
     rpc_client: &RpcClient,
     request: GetUserRecordsRequest,
@@ -30,33 +40,94 @@ pub async fn get_user_records(
         .iter()
         .map(|(address, _)| *address)
         .collect::<Vec<_>>();
-    let fetched = rpc_client
-        .get_multiple_accounts_at_slot(&addresses)
-        .await
-        .map_err(|error| {
-            PhotonApiError::UnexpectedError(format!("Failed to fetch user records: {error}"))
-        })?;
-    let block = rpc_client
-        .get_block(fetched.slot, TransactionDetails::None)
-        .await
-        .map_err(|error| {
-            PhotonApiError::UnexpectedError(format!(
-                "Failed to fetch block {}: {error}",
-                fetched.slot
-            ))
-        })?;
-    let block_time = block.block_time.ok_or_else(|| {
-        PhotonApiError::UnexpectedError(format!("Block {} has no block time", fetched.slot))
-    })?;
-
-    let records = user_records(&request.owners, &derived, fetched.accounts)?;
+    let read = read_at_one_slot(rpc_client, &addresses).await?;
+    let records = user_records(&request.owners, &derived, read.accounts)?;
     Ok(GetUserRecordsResponse {
         context: Context {
-            block_time,
-            slot: fetched.slot,
+            block_time: read.unix_timestamp,
+            slot: read.slot,
         },
         records,
     })
+}
+
+struct RegistryRead {
+    slot: u64,
+    unix_timestamp: i64,
+    accounts: Vec<Option<Account>>,
+}
+
+async fn read_at_one_slot(
+    rpc_client: &RpcClient,
+    addresses: &[Pubkey],
+) -> Result<RegistryRead, PhotonApiError> {
+    for _ in 0..SAME_SLOT_ATTEMPTS {
+        if let Some(read) = read_once(rpc_client, addresses).await? {
+            return Ok(read);
+        }
+    }
+    Err(PhotonApiError::UnexpectedError(format!(
+        "Reading {} user records crossed a slot boundary {SAME_SLOT_ATTEMPTS} times",
+        addresses.len()
+    )))
+}
+
+/// `None` when the calls did not all answer at one slot.
+async fn read_once(
+    rpc_client: &RpcClient,
+    addresses: &[Pubkey],
+) -> Result<Option<RegistryRead>, PhotonApiError> {
+    let mut read: Option<RegistryRead> = None;
+    for chunk in addresses.chunks(OWNERS_PER_READ) {
+        let keys = iter::once(solana_clock::sysvar::ID)
+            .chain(chunk.iter().copied())
+            .collect::<Vec<_>>();
+        let fetched = rpc_client
+            .get_multiple_accounts_at_slot(&keys)
+            .await
+            .map_err(|error| {
+                PhotonApiError::UnexpectedError(format!("Failed to fetch user records: {error}"))
+            })?;
+        if fetched.accounts.len() != keys.len() {
+            return Err(PhotonApiError::UnexpectedError(format!(
+                "RPC returned {} accounts for {} keys",
+                fetched.accounts.len(),
+                keys.len()
+            )));
+        }
+        let mut accounts = fetched.accounts.into_iter();
+        let clock = clock_at(fetched.slot, accounts.next().flatten())?;
+        match &mut read {
+            None => {
+                read = Some(RegistryRead {
+                    slot: fetched.slot,
+                    unix_timestamp: clock.unix_timestamp,
+                    accounts: accounts.collect(),
+                })
+            }
+            Some(read) if read.slot == fetched.slot => read.accounts.extend(accounts),
+            Some(_) => return Ok(None),
+        }
+    }
+    Ok(read)
+}
+
+/// The clock is read in the same call as the records, so its slot is that
+/// call's slot; anything else is a node answering from two banks.
+fn clock_at(slot: u64, account: Option<Account>) -> Result<Clock, PhotonApiError> {
+    let account = account
+        .ok_or_else(|| PhotonApiError::UnexpectedError("Clock sysvar is missing".to_string()))?;
+    let (clock, _): (Clock, usize) =
+        bincode::serde::decode_from_slice(&account.data, bincode::config::legacy()).map_err(
+            |error| PhotonApiError::UnexpectedError(format!("Clock sysvar is malformed: {error}")),
+        )?;
+    if clock.slot != slot {
+        return Err(PhotonApiError::UnexpectedError(format!(
+            "Clock sysvar at slot {} in a read at slot {slot}",
+            clock.slot
+        )));
+    }
+    Ok(clock)
 }
 
 fn validate_owners(owners: &[SerializablePubkey]) -> Result<(), PhotonApiError> {
@@ -257,36 +328,70 @@ mod tests {
         ));
     }
 
+    fn clock_account(slot: u64, unix_timestamp: i64) -> Account {
+        let clock = Clock {
+            slot,
+            unix_timestamp,
+            ..Clock::default()
+        };
+        Account {
+            lamports: 1,
+            data: bincode::serde::encode_to_vec(clock, bincode::config::legacy()).unwrap(),
+            owner: Pubkey::default(),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    /// A `getMultipleAccounts` answer: the clock first, then one entry per owner.
+    fn read_answer(slot: u64, unix_timestamp: i64, accounts: &[Option<Account>]) -> String {
+        let mut value = vec![encoded_account(&clock_account(slot, unix_timestamp))];
+        value.extend(accounts.iter().map(|account| match account {
+            Some(account) => encoded_account(account),
+            None => Value::Null,
+        }));
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "context": { "slot": slot }, "value": value } })
+            .to_string()
+    }
+
+    fn requested_keys(request: &str) -> Vec<String> {
+        let request: Value = serde_json::from_str(request).unwrap();
+        assert_eq!(request["method"], "getMultipleAccounts");
+        request["params"][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|key| key.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn pda_strings(owners: &[SerializablePubkey]) -> Vec<String> {
+        iter::once(solana_clock::sysvar::ID.to_string())
+            .chain(
+                owners
+                    .iter()
+                    .map(|owner| user_record_pda(&owner.0).0.to_string()),
+            )
+            .collect()
+    }
+
     #[tokio::test]
     async fn reads_every_owner_at_one_slot_in_request_order() {
         let owners = vec![owner(1), owner(2), owner(3)];
         let p256_owner = registered(&owners[0], Some([7; 33]));
         let solana_owner = registered(&owners[2], None);
-        let accounts = json!({
-            "context": { "slot": 77 },
-            "value": [
-                encoded_account(&record_account(&p256_owner)),
-                null,
-                encoded_account(&record_account(&solana_owner)),
-            ],
-        });
-        let block = json!({
-            "blockhash": "11111111111111111111111111111111",
-            "previousBlockhash": "11111111111111111111111111111111",
-            "parentSlot": 76,
-            "blockTime": 1_700_000_000,
-            "blockHeight": 70,
-        });
-        let (url, node) = serve_in_order(&[
-            (
-                "200 OK",
-                &json!({ "jsonrpc": "2.0", "id": 1, "result": accounts }).to_string(),
+        let (url, node) = serve_in_order(&[(
+            "200 OK",
+            &read_answer(
+                77,
+                1_700_000_000,
+                &[
+                    Some(record_account(&p256_owner)),
+                    None,
+                    Some(record_account(&solana_owner)),
+                ],
             ),
-            (
-                "200 OK",
-                &json!({ "jsonrpc": "2.0", "id": 2, "result": block }).to_string(),
-            ),
-        ]);
+        )]);
 
         let response = get_user_records(
             &RpcClient::new(url),
@@ -325,23 +430,126 @@ mod tests {
                 }),
             ]
         );
+        // One call: the clock, then the canonical PDAs in request order.
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requested_keys(&requests[0]), pda_strings(&owners));
+    }
 
-        // One account read for the canonical PDAs, then the block of the slot
-        // that read reported.
-        let accounts_request: Value = serde_json::from_str(&requests[0]).unwrap();
-        assert_eq!(accounts_request["method"], "getMultipleAccounts");
-        let expected_addresses = owners
-            .iter()
-            .map(|owner| Value::from(user_record_pda(&owner.0).0.to_string()))
+    #[tokio::test]
+    async fn a_full_batch_takes_two_reads_that_agree_on_the_slot() {
+        let owners = (1..=MAX_USER_RECORD_OWNERS as u8)
+            .map(owner)
             .collect::<Vec<_>>();
+        let (url, node) = serve_in_order(&[
+            ("200 OK", &read_answer(77, 5, &vec![None; OWNERS_PER_READ])),
+            ("200 OK", &read_answer(77, 5, &[None])),
+        ]);
+
+        let response = get_user_records(
+            &RpcClient::new(url),
+            GetUserRecordsRequest {
+                owners: owners.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let requests = node.join().unwrap();
+
+        assert_eq!(response.context.slot, 77);
+        assert_eq!(response.records, vec![None; MAX_USER_RECORD_OWNERS]);
         assert_eq!(
-            accounts_request["params"][0],
-            Value::Array(expected_addresses)
+            requested_keys(&requests[0]),
+            pda_strings(&owners[..OWNERS_PER_READ])
         );
-        let block_request: Value = serde_json::from_str(&requests[1]).unwrap();
-        assert_eq!(block_request["method"], "getBlock");
-        assert_eq!(block_request["params"][0], 77);
-        assert_eq!(block_request["params"][1]["transactionDetails"], "none");
+        assert_eq!(
+            requested_keys(&requests[1]),
+            pda_strings(&owners[OWNERS_PER_READ..])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_that_crosses_a_slot_is_taken_again() {
+        let owners = (1..=MAX_USER_RECORD_OWNERS as u8)
+            .map(owner)
+            .collect::<Vec<_>>();
+        let (url, node) = serve_in_order(&[
+            ("200 OK", &read_answer(77, 5, &vec![None; OWNERS_PER_READ])),
+            ("200 OK", &read_answer(78, 6, &[None])),
+            ("200 OK", &read_answer(78, 6, &vec![None; OWNERS_PER_READ])),
+            ("200 OK", &read_answer(78, 6, &[None])),
+        ]);
+
+        let response = get_user_records(&RpcClient::new(url), GetUserRecordsRequest { owners })
+            .await
+            .unwrap();
+        let requests = node.join().unwrap();
+
+        assert_eq!(
+            response.context,
+            Context {
+                block_time: 6,
+                slot: 78
+            }
+        );
+        assert_eq!(requests.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_read_that_keeps_crossing_slots_is_an_error() {
+        let owners = (1..=MAX_USER_RECORD_OWNERS as u8)
+            .map(owner)
+            .collect::<Vec<_>>();
+        let answers = (0..SAME_SLOT_ATTEMPTS as u64)
+            .flat_map(|attempt| {
+                [
+                    read_answer(77 + attempt, 5, &vec![None; OWNERS_PER_READ]),
+                    read_answer(78 + attempt, 6, &[None]),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let (url, node) = serve_in_order(
+            &answers
+                .iter()
+                .map(|answer| ("200 OK", answer.as_str()))
+                .collect::<Vec<_>>(),
+        );
+
+        let error = get_user_records(&RpcClient::new(url), GetUserRecordsRequest { owners })
+            .await
+            .unwrap_err();
+        node.join().unwrap();
+
+        assert!(matches!(
+            error,
+            PhotonApiError::UnexpectedError(message) if message.contains("crossed a slot boundary")
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_clock_from_another_bank_is_an_error() {
+        let (url, node) = serve_in_order(&[(
+            "200 OK",
+            &json!({ "jsonrpc": "2.0", "id": 1, "result": { "context": { "slot": 77 }, "value": [
+                encoded_account(&clock_account(76, 5)),
+                null,
+            ] } })
+            .to_string(),
+        )]);
+
+        let error = get_user_records(
+            &RpcClient::new(url),
+            GetUserRecordsRequest {
+                owners: vec![owner(1)],
+            },
+        )
+        .await
+        .unwrap_err();
+        node.join().unwrap();
+
+        assert!(matches!(
+            error,
+            PhotonApiError::UnexpectedError(message) if message.contains("Clock sysvar at slot 76")
+        ));
     }
 
     #[tokio::test]

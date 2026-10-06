@@ -2539,7 +2539,7 @@ struct NonInclusionProof {
 
 ### `getUserRecords`
 
-Returns the [registry](#registry) records of up to 100 Solana pubkeys in one request, read from the chain at `context.slot`. The indexer does not index the registry; it reads the owners' record accounts in one call and answers in request order.
+Returns the [registry](#registry) records of up to 100 Solana pubkeys in one request, read from the chain at `context.slot`. The indexer does not index the registry; it reads the owners' record accounts at one slot and answers in request order.
 
 ```rust
 struct GetUserRecordsRequest {
