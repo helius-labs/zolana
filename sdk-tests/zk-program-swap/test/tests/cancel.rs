@@ -22,7 +22,9 @@ use zolana_client::user_registry::ensure_registered;
 use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{
+        ConfidentialTransaction, ExternalData, SppProofInputs, SppProofOutputUtxo,
+    },
     SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -199,50 +201,28 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             .to_input_utxo(localnet.tree_id, order_state.leaf_index)
             .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
 
-        let input_utxos = vec![order_input_utxo];
-        // SPP has no 1x1 circuit: the cancel is proved at 1x2, and the second
-        // output slot is compact padding the instruction leaves out.
-        let mut cancel_outputs = vec![
-            source_output,
-            SppProofOutputUtxo {
-                compact: true,
-                ..Default::default()
-            },
-        ];
-        let blinding_seed = prepare_output_blindings(&input_utxos, &mut cancel_outputs)?;
-        let [source_output, compact_output]: [_; 2] = cancel_outputs
-            .try_into()
-            .map_err(|_| anyhow!("cancel transaction must have two output slots"))?;
+        let mut cancel = ConfidentialTransaction::from_proof_inputs(
+            vec![order_input_utxo],
+            maker_address.solana_address()?,
+        )
+        .and_then(|cancel| cancel.with_output_tree_id(localnet.tree_id))
+        .map_err(|e| anyhow!("cancel transaction: {e:?}"))?;
+        cancel
+            .add_output_utxo(source_output)
+            .map_err(|e| anyhow!("cancel source output: {e:?}"))?;
+        let mut cancel_spp_proof_inputs = cancel
+            .encrypt(&maker.keypair)
+            .map_err(|e| anyhow!("encrypt cancel: {e:?}"))?;
+        cancel_spp_proof_inputs.external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
+        // Declared outputs keep their slots, so slot 0 is the blinded source output.
+        let source_output = cancel_spp_proof_inputs
+            .output_utxos
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow!("cancel transaction has no source output"))?;
         let source_output_hash = source_output
             .hash(localnet.tree_id)
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
-        let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
-            .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
-
-        let encoded = encrypt_transaction_data(
-            std::slice::from_ref(&source_output),
-            &transaction_viewing_key,
-            localnet.tree_id,
-        )
-        .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
-
-        let mut external_data = ExternalData::new(
-            *transaction_viewing_key.pubkey().as_bytes(),
-            encoded.salt,
-            encoded.outputs,
-            encoded.resolved_owner_tags,
-            vec![],
-        );
-        external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-        let cancel_spp_proof_inputs = SppProofInputs {
-            input_utxos,
-            output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
-            external_data,
-            payer: maker_address.solana_address()?,
-            blinding_seed,
-            output_tree_id: localnet.tree_id,
-            cache_accounts: Default::default(),
-        };
 
         let cancel_proof_inputs = CancelProofInputParams {
             order_utxo: order_utxo.clone(),

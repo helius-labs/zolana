@@ -46,7 +46,10 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC},
+    instructions::transact::{
+        ConfidentialTransaction, ExternalData, SppProofInputs, SppProofOutputUtxo,
+        BN254_MODULUS_DEC,
+    },
     Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
@@ -944,46 +947,21 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         .expect("order input_utxo");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
-    let input_utxos = vec![order_input_utxo];
-    let mut cancel_outputs = vec![
-        source_output,
-        SppProofOutputUtxo {
-            compact: true,
-            ..Default::default()
-        },
-    ];
-    let blinding_seed = prepare_output_blindings(&input_utxos, &mut cancel_outputs)
-        .expect("derive cancel output blinding");
-    let [source_output, compact_output]: [_; 2] = cancel_outputs
-        .try_into()
-        .expect("cancel transaction has two output slots");
-    let transaction_viewing_key =
-        get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
-
-    let encoded = encrypt_transaction_data(
-        std::slice::from_ref(&source_output),
-        &transaction_viewing_key,
-        BENCH_TREE_ID,
-    )
-    .expect("encode cancel slots");
-
-    let mut external_data = ExternalData::new(
-        *transaction_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![],
-    );
-    external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-    let spp_proof_inputs = SppProofInputs {
-        input_utxos,
-        output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
-        external_data,
-        payer: payer_address,
-        blinding_seed,
-        output_tree_id: BENCH_TREE_ID,
-        cache_accounts: Default::default(),
-    };
+    let mut cancel =
+        ConfidentialTransaction::from_proof_inputs(vec![order_input_utxo], payer_address)
+            .and_then(|cancel| cancel.with_output_tree_id(BENCH_TREE_ID))
+            .expect("cancel transaction");
+    cancel
+        .add_output_utxo(source_output)
+        .expect("cancel source output");
+    let mut spp_proof_inputs = cancel.encrypt(&maker).expect("encrypt cancel");
+    spp_proof_inputs.external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
+    // Declared outputs keep their slots, so slot 0 is the blinded source output.
+    let source_output = spp_proof_inputs
+        .output_utxos
+        .first()
+        .cloned()
+        .expect("cancel source output slot");
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
