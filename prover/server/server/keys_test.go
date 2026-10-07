@@ -222,24 +222,24 @@ func TestThereIsNoPathWithoutAKey(t *testing.T) {
 }
 
 // The key-less paths resolve each proof's key from its body and admit it as a
-// key path would; the gateway prefix stays key paths only.
+// key path would, bare and under the gateway prefix.
 func TestLegacyPathsResolveTheKeyFromTheBody(t *testing.T) {
 	mux := legacyProofMux(t, nil)
-	response := post(mux, "/prove", transferRequest(t))
-	if errorCode(t, response) != "proving_error" || !strings.Contains(response.Body.String(), "transfer_confidential_2_2.key") {
-		t.Fatalf("/prove: got %d %q", response.Code, response.Body.String())
+	for _, prefix := range []string{"", gatewayPrefix} {
+		response := post(mux, prefix+"/prove", transferRequest(t))
+		if errorCode(t, response) != "proving_error" || !strings.Contains(response.Body.String(), "transfer_confidential_2_2.key") {
+			t.Fatalf("%s/prove: got %d %q", prefix, response.Code, response.Body.String())
+		}
+		response = post(mux, prefix+"/prove/indexed", indexedTransferRequest(t))
+		if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
+			t.Fatalf("%s/prove/indexed: got %d %q", prefix, response.Code, response.Body.String())
+		}
+		response = serve(mux, http.MethodGet, prefix+"/prove/status?jobId=x", nil)
+		if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
+			t.Fatalf("%s/prove/status: got %d %q", prefix, response.Code, response.Body.String())
+		}
 	}
-	response = post(mux, "/prove/indexed", indexedTransferRequest(t))
-	if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
-		t.Fatalf("/prove/indexed: got %d %q", response.Code, response.Body.String())
-	}
-	response = serve(mux, http.MethodGet, "/prove/status?jobId=x", nil)
-	if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
-		t.Fatalf("/prove/status: got %d %q", response.Code, response.Body.String())
-	}
-	if response := post(mux, gatewayPrefix+"/prove", transferRequest(t)); response.Code != http.StatusNotFound {
-		t.Fatalf("%s/prove: got %d", gatewayPrefix, response.Code)
-	}
+	var response *httptest.ResponseRecorder
 	// Key paths still hold the body to their key.
 	response = post(mux, "/prove/transfer_confidential_1_2", transferRequest(t))
 	if response.Code != http.StatusBadRequest || errorCode(t, response) != "proving_key_mismatch" {

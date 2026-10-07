@@ -187,17 +187,17 @@ func statusPath(file string) string {
 }
 
 // registerLegacyProofPaths serves the key-less paths of provers before key
-// paths: /prove, /prove/indexed and, with a queue, /prove/status. The key is
-// resolved from the body and admitted if served. They are bare only: the
-// gateway prices on the path, which here names no key.
+// paths, bare and under the gateway prefix: /prove, /prove/indexed and, with a
+// queue, /prove/status. The key is resolved from the body and admitted if
+// served.
 func registerLegacyProofPaths(mux *http.ServeMux, prove proveHandler) {
 	complete := prove
 	complete.indexed = false
 	indexedProve := prove
 	indexedProve.indexed = true
-	mux.Handle("/prove", observeProofHTTP("complete", complete))
-	mux.Handle("/prove/indexed", observeProofHTTP("indexed", indexedProve))
+	handleBoth(mux, "/prove", observeProofHTTP("complete", complete))
+	handleBoth(mux, "/prove/indexed", observeProofHTTP("indexed", indexedProve))
 	if prove.redisQueue != nil {
-		mux.Handle("/prove/status", proofStatusHandler{redisQueue: prove.redisQueue})
+		handleBoth(mux, "/prove/status", proofStatusHandler{redisQueue: prove.redisQueue})
 	}
 }
