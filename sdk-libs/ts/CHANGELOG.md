@@ -38,7 +38,8 @@ Breaking
   for a merge whose envelope does not match its kind,
   `CLIENT_PROVER_TEE_ATTESTATION` and `CLIENT_PROVER_TEE_ENCRYPTION`, which
   name the failed check in `details.check`, `WalletErrorCode` gains
-  `WALLET_BUILD_KEY_UPDATE` and `WALLET_USER_RECORD_KEYS_MISMATCH`,
+  `WALLET_BUILD_KEY_UPDATE`, `WALLET_USER_RECORD_KEYS_MISMATCH` and
+  `WALLET_UNDECRYPTED_MERGE`,
   `TransactionErrorCode` gains `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
   `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` and `TRANSACTION_UNUSED_WRITE_CACHE`
   for a cache write the program would reject,
@@ -159,8 +160,9 @@ Added
   viewing key the wallet holds, retired ones included, without holding its
   inputs, asks the key holder only about merges addressed to the wallet, holds
   one in an unregistered mint back until the registry knows it, and counts one
-  the key holder fails to decrypt in `SyncReport.undecryptableMerges` without
-  failing the sync, while `MergeOutputEnvelope` from
+  the key holder fails to decrypt in `SyncReport.undecryptableMerges`, on which
+  `syncWallet` commits nothing and rejects with `WALLET_UNDECRYPTED_MERGE` so
+  the next sync retries it, while `MergeOutputEnvelope` from
   `@heliuslabs/zolana/transaction` builds an envelope for a hand-built
   `PreparedMerge`, lends its ephemeral secret only inside
   `withEphemeralSecret(use)` and wipes it on `destroy()`, and

@@ -118,7 +118,8 @@ export interface SyncReport {
   readonly undecryptableCandidates: number;
   /**
    * Merges tagged for this wallet whose envelope the key holder failed to
-   * decrypt. Each is left out of this sync; the rest of the sync stands.
+   * decrypt. Each is left out of the decrypted state, and `syncWallet` commits
+   * no cursor while any remains, so the next sync retries it.
    */
   readonly undecryptableMerges: number;
   /**

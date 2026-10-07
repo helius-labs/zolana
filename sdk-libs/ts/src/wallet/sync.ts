@@ -680,6 +680,13 @@ async function runWalletSync(
         details: { unknownAssetIds: report.unknownAssetIds.map(String) },
       });
     }
+    // A merge the key holder failed to decrypt is owned data this sync could
+    // not store; committing would advance the cursors past it for good.
+    if (report.undecryptableMerges > 0) {
+      throw new WalletError("WALLET_UNDECRYPTED_MERGE", {
+        details: { merges: report.undecryptableMerges },
+      });
+    }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
     return report;
   } catch (cause) {

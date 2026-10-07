@@ -1230,6 +1230,64 @@ describe("wallet sync", () => {
     expect(unspent(wallet)).toEqual([working.utxo]);
   });
 
+  it("holds the cursors until the key holder decrypts every merge addressed to the wallet", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    const failing = encryptedMerge(keypair, 11n);
+    const working = encryptedMerge(keypair, 13n);
+    const transactions = [
+      envelopeMergeTransaction(keypair, failing, { leafIndex: 5n }),
+      envelopeMergeTransaction(keypair, working, {
+        leafIndex: 6n,
+        txSignature: "2".repeat(64) as Signature,
+      }),
+    ];
+    const requestCursors: (Uint8Array | undefined)[] = [];
+    const client = syncReads({
+      getShieldedTransactionsByTags: vi.fn(async (request: RequestWithCursor) => {
+        requestCursors.push(request.cursor);
+        return {
+          context: { blockTime: 1n, slot: 0n },
+          transactions: request.cursor === undefined ? transactions : [],
+          scannedThrough: Uint8Array.of(6, 6),
+        };
+      }),
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n, slot: 0n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers: vi.fn(async () => ({
+        context: { blockTime: 1n, slot: 0n },
+        transactions: [],
+      })),
+    });
+    const flaky: ShieldedKeys = {
+      ...remoteOver(keys),
+      decrypt: async (requests) => {
+        if (requests.some((request) => equalBytes(request.ciphertext, failing.payload))) {
+          throw new Error("key holder unavailable");
+        }
+        return keys.decrypt(requests);
+      },
+    };
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const before = serializeWallet(wallet);
+
+    await expect(syncWallet({ wallet, keys: flaky, client })).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "WALLET_UNDECRYPTED_MERGE",
+    });
+    expect(serializeWallet(wallet)).toBe(before);
+    expect(requestCursors.every((cursor) => cursor === undefined)).toBe(true);
+
+    const report = await syncWallet({ wallet, keys, client });
+    expect(report).toMatchObject({ storedUtxos: 2, undecryptableMerges: 0 });
+    expect(unspent(wallet)).toEqual([failing.utxo, working.utxo]);
+    requestCursors.length = 0;
+    await syncWallet({ wallet, keys, client });
+    expect(requestCursors.some((cursor) => cursor !== undefined)).toBe(true);
+  });
+
   it("fails closed on a merge envelope answer of the wrong length", async () => {
     const keypair = ShieldedKeypair.generate();
     const keys = LocalShieldedKeys.fromKeypair(keypair);
