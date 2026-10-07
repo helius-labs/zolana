@@ -70,10 +70,6 @@ func chunkParity(chunk int) int {
 	return parity
 }
 
-func tableWord(v frontend.Variable) uint64 {
-	return uint64(v.(int))
-}
-
 type spreadTables struct {
 	api          frontend.API
 	byteWeights  [wordBytes]*big.Int
@@ -90,11 +86,11 @@ func newSpreadTables(api frontend.API) *spreadTables {
 	t.substitution = logderivlookup.New(api)
 	for region := 0; region < sboxRegion; region++ {
 		for a := 0; a < tableRegionSize; a++ {
-			t.substitution.Insert(spreadValue(tableWord(T[region][a]), byteLanes*wordBytes, chunkLaneBase))
+			t.substitution.Insert(spreadValue(uint64(substitutionWords[region][a]), byteLanes*wordBytes, chunkLaneBase))
 		}
 	}
 	for a := 0; a < tableRegionSize; a++ {
-		t.substitution.Insert(spreadValue(tableWord(sbox0[a]), byteLanes, chunkLaneBase))
+		t.substitution.Insert(spreadValue(uint64(sbox0[a]), byteLanes, chunkLaneBase))
 	}
 	t.bytes = logderivlookup.New(api)
 	for a := 0; a < tableRegionSize; a++ {

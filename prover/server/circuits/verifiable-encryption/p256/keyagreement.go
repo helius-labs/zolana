@@ -7,6 +7,8 @@ import (
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
 	"github.com/consensys/gnark/std/rangecheck"
+
+	"zolana/prover/circuits/gadget"
 )
 
 type KeyAgreement struct {
@@ -29,7 +31,6 @@ const uncompressedPrefix = 0x04
 func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [65]frontend.Variable) KeyAgreement {
 	c := newP256Curve(api)
 	fp := newAgreementField(api)
-	fr := newScalarField(api)
 
 	api.AssertIsEqual(recipientPk[0], uncompressedPrefix)
 	rc := rangecheck.New(api)
@@ -41,27 +42,22 @@ func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [
 		X: *fp.NewElement(agreementLimbs(api, recipientPk[1:33])),
 		Y: *fp.NewElement(agreementLimbs(api, recipientPk[33:65])),
 	}
-	scalar := fr.NewElement(agreementLimbs(api, ephemeralSk[:]))
-
 	fp.AssertIsInRange(&recipient.X)
 	fp.AssertIsInRange(&recipient.Y)
 	c.AssertIsOnCurve(recipient)
-	fr.AssertIsDifferent(scalar, fr.Zero())
 
 	// gnark >= v0.16.4 (GHSA-7fx8-hmgc-82jp) constrains the hinted ScalarMul
 	// output to the curve, and P-256 has prime order, so with an on-curve
 	// recipient and a nonzero scalar both products are the honest finite points.
-	shared := c.ScalarMul(recipient, scalar)
-	ephemeral := c.ScalarMulBase(scalar)
+	ephemeral := DerivePublicKey(api, ephemeralSk)
+	shared := c.ScalarMul(recipient, ephemeral.scalar)
 
 	sharedX, _ := canonicalFpBytes(api, fp, &shared.X)
-	ephemeralX, _ := canonicalFpBytes(api, fp, &ephemeral.X)
-	_, ephemeralParity := canonicalFpBytes(api, fp, &ephemeral.Y)
 	recipientParity := api.ToBinary(recipientPk[64], 8)[0]
 
 	var result KeyAgreement
 	result.RecipientLo, result.RecipientHi = packCompressedPoint(api, recipientParity, recipientPk[1:33])
-	result.EphemeralLo, result.EphemeralHi = packCompressedPoint(api, ephemeralParity, ephemeralX[:])
+	result.EphemeralLo, result.EphemeralHi = ephemeral.Packed(api)
 	result.SharedLo, result.SharedHi = packSharedX(api, sharedX[:])
 	return result
 }
@@ -70,7 +66,7 @@ func agreementLimbs(api frontend.API, bytes []frontend.Variable) []frontend.Vari
 	limbs := make([]frontend.Variable, 4)
 	for i := range limbs {
 		end := len(bytes) - 8*i
-		limbs[i] = bigEndianSum(api, bytes[end-8:end])
+		limbs[i] = gadget.BytesToField(api, bytes[end-8:end])
 	}
 	return limbs
 }
@@ -78,10 +74,7 @@ func agreementLimbs(api frontend.API, bytes []frontend.Variable) []frontend.Vari
 func limbBytesAndLsb(api frontend.API, limb frontend.Variable) ([8]frontend.Variable, frontend.Variable) {
 	bits := api.ToBinary(limb, 64)
 	var bytes [8]frontend.Variable
-	for i := range bytes {
-		start := (7 - i) * 8
-		bytes[i] = api.FromBinary(bits[start : start+8]...)
-	}
+	copy(bytes[:], gadget.BitsToBytesBE(api, bits))
 	return bytes, bits[0]
 }
 
@@ -99,19 +92,11 @@ func canonicalFpBytes(api frontend.API, fp *agreementField, e *agreementElement)
 	return bytes, lsb
 }
 
-func bigEndianSum(api frontend.API, bytes []frontend.Variable) frontend.Variable {
-	sum := frontend.Variable(0)
-	for _, b := range bytes {
-		sum = api.Add(api.Mul(sum, 256), b)
-	}
-	return sum
-}
-
 func packCompressedPoint(api frontend.API, parity frontend.Variable, x []frontend.Variable) (lo, hi frontend.Variable) {
 	prefix := api.Mul(api.Add(2, parity), new(big.Int).Lsh(big.NewInt(1), 240))
-	return api.Add(prefix, bigEndianSum(api, x[0:30])), bigEndianSum(api, x[30:32])
+	return api.Add(prefix, gadget.BytesToField(api, x[0:30])), gadget.BytesToField(api, x[30:32])
 }
 
 func packSharedX(api frontend.API, x []frontend.Variable) (lo, hi frontend.Variable) {
-	return bigEndianSum(api, x[0:31]), x[31]
+	return gadget.BytesToField(api, x[0:31]), x[31]
 }

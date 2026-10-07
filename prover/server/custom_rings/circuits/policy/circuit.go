@@ -9,6 +9,7 @@ import (
 
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/circuits/verifiable-encryption/p256"
 	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/custom_rings/circuits/registry"
 )
@@ -92,15 +93,15 @@ const (
 )
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
-	chain, _ := c.constrainPolicyRail(api, memberRail)
+	chain, _, _ := c.constrainPolicyRail(api, memberRail)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }
 
 // The rail is fixed in the compiled circuit, never selected by a witness.
-func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, successorCounters) {
+func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, successorCounters, p256.PublicKey) {
 	// 1. Prove the audit encryption statement.
-	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
+	elements, txViewingKey := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash:       c.PrivateTxHash,
 		TxViewingSk:         c.TxViewingSk,
 		EphSk:               c.EphSk,
@@ -149,5 +150,5 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	for _, fact := range listFacts {
 		chain = append(chain, fact.revocationTarget)
 	}
-	return chain, counters
+	return chain, counters, txViewingKey
 }

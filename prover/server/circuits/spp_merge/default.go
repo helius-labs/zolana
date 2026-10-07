@@ -50,7 +50,6 @@ func NewMergeCircuit(n int) *Circuit {
 }
 
 func (c *Circuit) Define(api frontend.API) error {
-	var encrypted ve.Encrypted
 	tx := mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
@@ -60,20 +59,21 @@ func (c *Circuit) Define(api frontend.API) error {
 		UserNullifierSecret: c.UserNullifierSecret,
 		Public:              c.CommonPublicInputs,
 		RingProgramID:       frontend.Variable(0),
-		OutputBlinding: func(amount frontend.Variable) frontend.Variable {
-			encrypted = ve.Envelope{
-				SecretTag:   mergeshared.MergeSecretTag,
-				KdfInfo:     mergeshared.MergeKdfInfo,
-				EphemeralSk: c.EphemeralSk,
-				RecipientPk: c.ViewingPk,
-				Plaintext:   mergeshared.MergePlaintext(api, amount, c.MintChunks),
-			}.Encrypt(api)
-			return mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret)
-		},
 	}
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
+
+	amount, amountBytes := mergeshared.AmountBytes(api, c.Inputs)
+	encrypted := ve.Envelope{
+		SecretTag:   mergeshared.MergeSecretTag,
+		KdfInfo:     mergeshared.MergeKdfInfo,
+		EphemeralSk: c.EphemeralSk,
+		RecipientPk: c.ViewingPk,
+		Plaintext:   mergeshared.MergePlaintext(api, amountBytes, c.MintChunks),
+	}.Encrypt(api)
+	tx.OutputAmount = amount
+	tx.OutputBlinding = mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret)
 
 	assertDefaultRing(api, tx.Inputs, tx.Output)
 	tx.Constrain(api)

@@ -48,9 +48,9 @@ func MergeDerivedBlinding(api frontend.API, sharedSecret frontend.Variable) fron
 	return gadget.PoseidonHash(api, []frontend.Variable{MergeDerivedBlindingDomain, sharedSecret})
 }
 
-func MergePlaintext(api frontend.API, amount frontend.Variable, mintChunks [MintChunkCount]frontend.Variable) []frontend.Variable {
+func MergePlaintext(api frontend.API, amountBytes []frontend.Variable, mintChunks [MintChunkCount]frontend.Variable) []frontend.Variable {
 	plaintext := make([]frontend.Variable, 0, MergeCiphertextBytes)
-	plaintext = append(plaintext, ve.BytesBigEndian(api, amount, MergeAmountBytes)...)
+	plaintext = append(plaintext, amountBytes...)
 	plaintext = append(plaintext, ve.BytesBigEndian(api, mintChunks[0], MintHeadChunkBytes)...)
 	plaintext = append(plaintext, ve.BytesBigEndian(api, mintChunks[1], MintTailChunkBytes)...)
 	return plaintext
@@ -65,12 +65,12 @@ func EnvelopePublicElements(api frontend.API, encrypted ve.Encrypted) [4]fronten
 	packed := api.Add(
 		api.Mul(encrypted.RecipientHi, recipientShift),
 		api.Mul(encrypted.EphemeralHi, ephemeralShift),
-		ve.BytesToField(api, head),
+		gadget.BytesToField(api, head),
 	)
 	return [4]frontend.Variable{
 		encrypted.RecipientLo,
 		encrypted.EphemeralLo,
 		packed,
-		ve.BytesToField(api, tail),
+		gadget.BytesToField(api, tail),
 	}
 }

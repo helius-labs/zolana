@@ -54,6 +54,7 @@ func (c *RingCircuit) Define(api frontend.API) error {
 		return err
 	}
 	api.AssertIsDifferent(c.RingProgramID, 0)
+	tx.OutputAmount = mergeshared.RangeCheckedAmount(api, c.Inputs)
 	tx.Constrain(api)
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 

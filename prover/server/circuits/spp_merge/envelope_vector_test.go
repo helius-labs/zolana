@@ -61,7 +61,7 @@ func (c *mergeEnvelopeVectorCircuit) Define(api frontend.API) error {
 		KdfInfo:     mergeshared.MergeKdfInfo,
 		EphemeralSk: c.EphemeralSk,
 		RecipientPk: c.RecipientPk,
-		Plaintext:   mergeshared.MergePlaintext(api, c.Amount, c.MintChunks),
+		Plaintext:   mergeshared.MergePlaintext(api, ve.BytesBigEndian(api, c.Amount, mergeshared.MergeAmountBytes), c.MintChunks),
 	}.Encrypt(api)
 	api.AssertIsEqual(encrypted.RecipientLo, c.RecipientLo)
 	api.AssertIsEqual(encrypted.RecipientHi, c.RecipientHi)

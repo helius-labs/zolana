@@ -35,7 +35,7 @@ type AuditBlockWires struct {
 }
 
 func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
-	elements := DefineAuditBlock(api, AuditBlockWires{
+	elements, _ := DefineAuditBlock(api, AuditBlockWires{
 		PrivateTxHash:       c.PrivateTxHash,
 		TxViewingSk:         c.TxViewingSk,
 		EphSk:               c.EphSk,
@@ -48,15 +48,11 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable {
-	rangeChecker := rangecheck.New(api)
-	for _, b := range w.TxViewingSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range w.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	txLo, txHi := p256.PublicKeyPacked(api, w.TxViewingSk)
+// DefineAuditBlock also returns the transaction viewing key it derived, so a
+// later block can agree a key with it without a second base multiplication.
+func DefineAuditBlock(api frontend.API, w AuditBlockWires) ([11]frontend.Variable, p256.PublicKey) {
+	txViewingKey := p256.DerivePublicKey(api, w.TxViewingSk)
+	txLo, txHi := txViewingKey.Packed(api)
 
 	encrypted := ve.Envelope{
 		SecretTag:   SharedSecretTag,
@@ -67,7 +63,7 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 	}.Encrypt(api)
 	ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext)
 	outputHashChain, disclosureHash := disclosureElements(
-		api, rangeChecker, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
+		api, rangecheck.New(api), w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
 	)
 	saltField := gadget.PackBytesBE(api, w.Salt[:])[0]
 
@@ -80,5 +76,5 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 		outputHashChain,
 		saltField,
 		disclosureHash,
-	}
+	}, txViewingKey
 }

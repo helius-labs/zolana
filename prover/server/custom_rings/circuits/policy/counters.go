@@ -19,8 +19,8 @@ type successorCounters struct {
 	spent  [NVelocityAssets]frontend.Variable
 }
 
-func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, salt [16]frontend.Variable) (frontend.Variable, error) {
-	agreement := p256.SelfAgreeKey(api, secret)
+func (s successorCounters) encrypt(api frontend.API, txViewingKey p256.PublicKey, salt [16]frontend.Variable) (frontend.Variable, error) {
+	agreement := p256.SelfAgreeKey(api, txViewingKey)
 	compressed := agreement.PublicKey
 	ikm := append(append(append([]frontend.Variable{}, agreement.SharedX[:]...), compressed[:]...), compressed[:]...)
 	zeros := make([]frontend.Variable, 32)

@@ -56,7 +56,7 @@ type publicKeyCircuit struct {
 }
 
 func (c *publicKeyCircuit) Define(api frontend.API) error {
-	lo, hi := PublicKeyPacked(api, c.Scalar)
+	lo, hi := DerivePublicKey(api, c.Scalar).Packed(api)
 	api.AssertIsEqual(lo, c.Packed[0])
 	api.AssertIsEqual(hi, c.Packed[1])
 	return nil
@@ -69,7 +69,7 @@ type selfAgreementCircuit struct {
 }
 
 func (c *selfAgreementCircuit) Define(api frontend.API) error {
-	got := SelfAgreeKey(api, c.Scalar)
+	got := SelfAgreeKey(api, DerivePublicKey(api, c.Scalar))
 	assertBytesEqual(api, got.SharedX[:], c.SharedX[:])
 	assertBytesEqual(api, got.PublicKey[:], c.PublicKey[:])
 	return nil

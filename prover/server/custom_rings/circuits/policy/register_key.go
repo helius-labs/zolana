@@ -37,12 +37,9 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	for _, b := range c.NullifierSecret {
 		rangeChecker.Check(b, 8)
 	}
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
 
-	secretFE := ve.BytesToField(api, c.NullifierSecret[:])
+	secretFE := gadget.BytesToField(api, c.NullifierSecret[:])
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{secretFE})
 
 	encrypted := ve.Envelope{

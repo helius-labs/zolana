@@ -2,7 +2,6 @@ package deposit
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 
 	"zolana/prover/circuits/gadget"
 	ve "zolana/prover/circuits/verifiable-encryption"
@@ -56,10 +55,6 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		copy(plaintext[i*DepositPlaintextBytes+32:], ve.FieldToBytesBE(api, c.Blindings[i], 32))
 	}
 
-	rangeChecker := rangecheck.New(api)
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
 	encrypted := ve.Envelope{
 		SecretTag:   base.SharedSecretTag,
 		KdfInfo:     []byte(EncryptionInfo),
