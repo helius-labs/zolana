@@ -89,6 +89,7 @@ export const ShieldedPoolError = Object.freeze({
   ZeroInputNullifier: 7078,
   ZeroOutputUtxoHash: 7079,
   InvalidViewingKeyEncoding: 7080,
+  InvalidEphemeralKeyEncoding: 7081,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

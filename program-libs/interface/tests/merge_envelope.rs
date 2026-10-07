@@ -73,7 +73,7 @@ fn rejects_a_recipient_or_ephemeral_without_a_compressed_prefix() {
         );
         assert_eq!(
             merge_envelope_public_elements(&point(0x03, 1), &point(prefix, 1), &ciphertext),
-            Err(ShieldedPoolError::InvalidViewingKeyEncoding),
+            Err(ShieldedPoolError::InvalidEphemeralKeyEncoding),
             "ephemeral prefix {prefix:#04x}"
         );
     }

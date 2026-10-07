@@ -4,6 +4,7 @@ use shielded_pool_tests::support::{
 };
 
 use solana_account::Account;
+use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -37,7 +38,7 @@ fn dummy_envelope() -> MergeEnvelope {
     }
 }
 
-/// Wire-valid merge body with a zeroed proof: eight distinct nullifiers
+/// Well-formed merge body with a zeroed proof: eight distinct nullifiers
 /// against root-history slot 0, so every parse and tree step succeeds and only
 /// the checks under test can fail.
 fn merge_body(eddsa_owner: bool) -> MergeBody {
@@ -87,7 +88,7 @@ fn ring_merge_ix_data_at_input_count(input_count: usize) -> MergeBody {
 
 fn set_registry_viewing_key(
     rpc: &mut ZolanaProgramTest,
-    record: Pubkey,
+    record: Address,
     viewing_pubkey: [u8; P256_PUBKEY_LEN],
 ) {
     let mut account = rpc.svm.get_account(&record).expect("user record");
@@ -593,7 +594,7 @@ fn default_rail_merge_rejects_an_ephemeral_key_without_a_compressed_prefix() {
             ComputeBudgetConfig::new(1_400_000),
         )
         .expect_err("an uncompressed envelope ephemeral key must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidViewingKeyEncoding)
+    Rejection::pool(ShieldedPoolError::InvalidEphemeralKeyEncoding)
         .at(0)
         .assert_litesvm(error);
     assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);

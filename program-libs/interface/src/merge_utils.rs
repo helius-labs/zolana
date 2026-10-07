@@ -47,9 +47,8 @@ pub fn merge_envelope_public_elements(
     ephemeral: &[u8; P256_PUBKEY_LEN],
     ciphertext: &[u8; MERGE_CIPHERTEXT_LEN],
 ) -> Result<[[u8; 32]; 4], ShieldedPoolError> {
-    for point in [recipient, ephemeral] {
-        parse_compressed(point).map_err(|_| ShieldedPoolError::InvalidViewingKeyEncoding)?;
-    }
+    parse_compressed(recipient).map_err(|_| ShieldedPoolError::InvalidViewingKeyEncoding)?;
+    parse_compressed(ephemeral).map_err(|_| ShieldedPoolError::InvalidEphemeralKeyEncoding)?;
     let (recipient_lo, recipient_hi) = recipient.split_at(PACK_BE_CHUNK_BYTES);
     let (ephemeral_lo, ephemeral_hi) = ephemeral.split_at(PACK_BE_CHUNK_BYTES);
     let mut packed = [0u8; 2 * P256_PUBKEY_LEN + MERGE_CIPHERTEXT_LEN];

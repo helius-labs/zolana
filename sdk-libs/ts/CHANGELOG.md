@@ -93,8 +93,8 @@ Breaking
   `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
   and `TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH`, which `Merge` throws for a
   `blinding` of the other merge kind, and `ShieldedPoolError` gains
-  `ZeroInputNullifier`, `ZeroOutputUtxoHash` and `InvalidViewingKeyEncoding`
-  → handle them in exhaustive switches.
+  `ZeroInputNullifier`, `ZeroOutputUtxoHash`, `InvalidViewingKeyEncoding`
+  and `InvalidEphemeralKeyEncoding` → handle them in exhaustive switches.
 - `Merge` takes `blinding`, a `MergeBlindingSource`, in place of
   `outputBlinding`, and a default merge encrypts its amount and mint to the
   owner's viewing key in a `MergeOutputEnvelope` kept in
