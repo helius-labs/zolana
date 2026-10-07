@@ -62,32 +62,6 @@ pub struct DecryptedMergeEnvelope {
     pub output_blinding: [u8; 32],
 }
 
-impl DecryptedMergeEnvelope {
-    pub const LEN: usize = MERGE_AMOUNT_LEN + MERGE_MINT_LEN + 32;
-
-    pub fn to_bytes(&self) -> [u8; Self::LEN] {
-        let mut bytes = [0u8; Self::LEN];
-        let (amount, rest) = bytes.split_at_mut(MERGE_AMOUNT_LEN);
-        let (mint, output_blinding) = rest.split_at_mut(MERGE_MINT_LEN);
-        amount.copy_from_slice(&self.amount.to_be_bytes());
-        mint.copy_from_slice(&self.mint);
-        output_blinding.copy_from_slice(&self.output_blinding);
-        bytes
-    }
-
-    pub fn from_bytes(bytes: &[u8; Self::LEN]) -> Self {
-        let (plaintext, blinding) = bytes.split_at(MERGE_ENVELOPE_CIPHERTEXT_LEN);
-        let (amount, mint) = split_plaintext(plaintext);
-        let mut output_blinding = [0u8; 32];
-        output_blinding.copy_from_slice(blinding);
-        Self {
-            amount,
-            mint,
-            output_blinding,
-        }
-    }
-}
-
 impl MergeEnvelopeDecryption<'_> {
     pub fn decrypt(&self) -> Result<DecryptedMergeEnvelope, KeypairError> {
         let recipient = self.viewing_key.pubkey();

@@ -2,7 +2,10 @@
 //! protocol needs of them and nothing more.
 //!
 //! No method returns a long-lived secret, and every method takes a batch, so a
-//! remote holder answers a sync or a spend in one round trip per method.
+//! remote holder answers a sync or a spend in one round trip per method. Merge
+//! envelopes are the exception: a sync only decrypts the merges tagged with the
+//! wallet's own signing key, which are few, and decrypts each one on its own so
+//! a key holder that fails one leaves the rest of the sync intact.
 //!
 //! `decrypt` returns the transfer cipher's output rather than the ECDH shared
 //! point. The view root is itself an ECDH with a fixed point and ECDH is
@@ -19,7 +22,8 @@
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
-    MergeEnvelopeDecryption, NullifierKey, P256Pubkey, ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
+    DecryptedMergeEnvelope, MergeEnvelopeDecryption, NullifierKey, P256Pubkey, ViewingKey,
+    MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 
 use crate::{
@@ -35,7 +39,6 @@ use crate::{
 pub enum DecryptLabel {
     Utxo,
     RingDeposit,
-    MergeEnvelope,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -85,6 +88,17 @@ pub trait ShieldedKeys {
     fn viewing_public_keys(&self) -> Vec<P256Pubkey>;
 
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError>;
+
+    /// Decrypts a default merge's envelope under one held viewing key. The
+    /// envelope cipher is unauthenticated, so a key the merge was not sent to
+    /// returns noise rather than an error; the caller detects that by the
+    /// output commitment. An error leaves this one merge unread, not the sync.
+    fn decrypt_merge_envelope(
+        &self,
+        viewing_pubkey: &P256Pubkey,
+        ephemeral_pk: &P256Pubkey,
+        ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    ) -> Result<DecryptedMergeEnvelope, TransactionError>;
 
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError>;
 
@@ -169,25 +183,24 @@ impl ShieldedKeys for LocalShieldedKeys {
                         &request.tx_viewing_pubkey,
                         request.salt,
                     ),
-                    DecryptLabel::MergeEnvelope => {
-                        let ciphertext = request.ciphertext.try_into().map_err(|_| {
-                            TransactionError::InvalidLength {
-                                expected: MERGE_ENVELOPE_CIPHERTEXT_LEN,
-                                actual: request.ciphertext.len(),
-                            }
-                        })?;
-                        MergeEnvelopeDecryption {
-                            viewing_key: viewing,
-                            ephemeral_pk: &request.tx_viewing_pubkey,
-                            ciphertext,
-                        }
-                        .decrypt()
-                        .map(|decrypted| decrypted.to_bytes().to_vec())
-                    }
                 }?;
                 Ok(plaintext)
             })
             .collect()
+    }
+
+    fn decrypt_merge_envelope(
+        &self,
+        viewing_pubkey: &P256Pubkey,
+        ephemeral_pk: &P256Pubkey,
+        ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    ) -> Result<DecryptedMergeEnvelope, TransactionError> {
+        Ok(MergeEnvelopeDecryption {
+            viewing_key: self.viewing_key(viewing_pubkey)?,
+            ephemeral_pk,
+            ciphertext,
+        }
+        .decrypt()?)
     }
 
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
@@ -239,6 +252,19 @@ impl ShieldedKeys for ShieldedKeypair {
 
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {
         LocalShieldedKeys::from_keypair(self)?.decrypt(requests)
+    }
+
+    fn decrypt_merge_envelope(
+        &self,
+        viewing_pubkey: &P256Pubkey,
+        ephemeral_pk: &P256Pubkey,
+        ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    ) -> Result<DecryptedMergeEnvelope, TransactionError> {
+        LocalShieldedKeys::from_keypair(self)?.decrypt_merge_envelope(
+            viewing_pubkey,
+            ephemeral_pk,
+            ciphertext,
+        )
     }
 
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {

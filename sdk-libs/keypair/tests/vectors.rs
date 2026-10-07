@@ -396,10 +396,6 @@ fn shared_vectors_match() {
                 .unwrap(),
         }
     );
-    assert_eq!(
-        DecryptedMergeEnvelope::from_bytes(&decrypted.to_bytes()),
-        decrypted
-    );
 }
 
 #[test]

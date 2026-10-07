@@ -9,7 +9,8 @@ use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{
-    MergeEnvelopeEncryption, P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+    DecryptedMergeEnvelope, MergeEnvelopeEncryption, P256Pubkey, ShieldedAddress, ShieldedKeypair,
+    ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 use zolana_transaction::{
     decrypt, decrypt_spendable,
@@ -389,23 +390,36 @@ struct RecordedDecrypt {
     label: DecryptLabel,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RecordedMergeDecrypt {
+    viewing_pubkey: P256Pubkey,
+    ephemeral_pk: P256Pubkey,
+}
+
 struct RecordingKeys {
     local: LocalShieldedKeys,
     plaintexts: Option<Vec<Vec<u8>>>,
     derivations: Option<Vec<[u8; 32]>>,
     fail: Option<&'static str>,
+    failing_ephemeral: Option<P256Pubkey>,
     decrypt_calls: RefCell<Vec<Vec<RecordedDecrypt>>>,
+    merge_calls: RefCell<Vec<RecordedMergeDecrypt>>,
     derive_calls: RefCell<Vec<Vec<DeriveRequest>>>,
 }
 
 impl RecordingKeys {
     fn new(owner: &ShieldedKeypair) -> Self {
+        Self::with_local(LocalShieldedKeys::from_keypair(owner).unwrap())
+    }
+    fn with_local(local: LocalShieldedKeys) -> Self {
         Self {
-            local: LocalShieldedKeys::from_keypair(owner).unwrap(),
+            local,
             plaintexts: None,
             derivations: None,
             fail: None,
+            failing_ephemeral: None,
             decrypt_calls: RefCell::new(vec![]),
+            merge_calls: RefCell::new(vec![]),
             derive_calls: RefCell::new(vec![]),
         }
     }
@@ -445,6 +459,22 @@ impl ShieldedKeys for RecordingKeys {
             Some(values) => Ok(values.clone()),
             None => self.local.decrypt(requests),
         }
+    }
+    fn decrypt_merge_envelope(
+        &self,
+        viewing_pubkey: &P256Pubkey,
+        ephemeral_pk: &P256Pubkey,
+        ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    ) -> Result<DecryptedMergeEnvelope, TransactionError> {
+        self.merge_calls.borrow_mut().push(RecordedMergeDecrypt {
+            viewing_pubkey: *viewing_pubkey,
+            ephemeral_pk: *ephemeral_pk,
+        });
+        if self.failing_ephemeral.as_ref() == Some(ephemeral_pk) {
+            return Err(TransactionError::Authority("merge envelope".into()));
+        }
+        self.local
+            .decrypt_merge_envelope(viewing_pubkey, ephemeral_pk, ciphertext)
     }
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
         self.derive_calls.borrow_mut().push(requests.to_vec());
@@ -1059,7 +1089,7 @@ fn merge_publication_to(
     }));
     let amount = inputs.iter().map(|input| input.utxo.amount).sum();
     let ring_program_id = first.utxo.ring_program_id;
-    let (blinding, tx_viewing_pk, payload, ring_data_hash) = match ring_program_id {
+    let (blinding, tx_viewing_pk, payload, ring_data_hash, view_tag) = match ring_program_id {
         Some(_) => {
             let ring_data_hash = ring_data_hash.unwrap_or_default();
             (
@@ -1067,6 +1097,7 @@ fn merge_publication_to(
                 None,
                 ring_data_hash.to_vec(),
                 Some(ring_data_hash),
+                first_nullifier,
             )
         }
         None => {
@@ -1083,6 +1114,7 @@ fn merge_publication_to(
                 Some(P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap()),
                 encrypted.ciphertext.to_vec(),
                 None,
+                owner.signing_pubkey().confidential_view_tag().unwrap(),
             )
         }
     };
@@ -1117,7 +1149,13 @@ fn merge_publication_to(
         tx_signature: Signature::from([tx_slot; 64]),
         slot_index: 0,
     };
-    let mut tx = publication(&output, vec![slot(&output, payload)]);
+    let mut tx = publication(
+        &output,
+        vec![OutputSlot {
+            view_tag,
+            ..slot(&output, payload)
+        }],
+    );
     tx.nullifiers = nullifiers;
     tx.tx_viewing_pk = tx_viewing_pk;
     (tx, output)
@@ -1279,6 +1317,90 @@ fn a_default_merge_decrypts_under_a_retired_viewing_key() {
     );
 }
 
+#[test]
+fn only_merges_tagged_for_the_wallet_reach_the_key_holder() {
+    let owner = keypair(56);
+    let other = keypair(57);
+    let assets = AssetRegistry::default();
+    let note = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let (ours, merged) = merge_publication(&owner, &[&note], 10, None);
+    let (theirs, _) = merge_publication(
+        &other,
+        &[&wallet_utxo(&other, Mint::SOL, 9, 3, 2)],
+        11,
+        None,
+    );
+    let mut address = owner.shielded_address().unwrap();
+    let rotated = ViewingKey::new();
+    address.viewing_pubkey = rotated.pubkey();
+    let keys = RecordingKeys::with_local(
+        LocalShieldedKeys::new(
+            address,
+            vec![rotated.clone(), owner.viewing_key.clone()],
+            owner.nullifier_key.clone(),
+        )
+        .unwrap(),
+    );
+
+    let decrypted = decrypt(&keys, &[theirs.clone(), ours.clone()], &assets).unwrap();
+
+    assert_eq!(decrypted.utxos, vec![merged]);
+    assert_eq!(decrypted.undecryptable_merges, 0);
+    let ephemeral_pk = ours.tx_viewing_pk.unwrap();
+    assert_eq!(
+        *keys.merge_calls.borrow(),
+        vec![
+            RecordedMergeDecrypt {
+                viewing_pubkey: rotated.pubkey(),
+                ephemeral_pk,
+            },
+            RecordedMergeDecrypt {
+                viewing_pubkey: owner.viewing_pubkey(),
+                ephemeral_pk,
+            },
+        ]
+    );
+    keys.merge_calls.borrow_mut().clear();
+    assert_eq!(
+        rebuild_merge(&keys, &theirs, &[], &assets).unwrap(),
+        MergeRebuild::NotOurs
+    );
+    assert_eq!(*keys.merge_calls.borrow(), vec![]);
+}
+
+#[test]
+fn a_merge_the_key_holder_fails_to_decrypt_is_skipped_and_counted() {
+    let owner = keypair(58);
+    let assets = AssetRegistry::default();
+    let first = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 12, 3, 2);
+    let (failing, _) = merge_publication(&owner, &[&first], 10, None);
+    let (readable, merged) = merge_publication(&owner, &[&second], 11, None);
+    let mut keys = RecordingKeys::new(&owner);
+    keys.failing_ephemeral = failing.tx_viewing_pk;
+    let txs = [
+        received(&owner, &first),
+        failing.clone(),
+        received(&owner, &second),
+        readable,
+    ];
+
+    let decrypted = decrypt(&keys, &txs, &assets).unwrap();
+    assert_eq!(decrypted.utxos, vec![first, second, merged]);
+    assert_eq!(decrypted.undecryptable_merges, 1);
+    assert_eq!(decrypted.pending_merges, vec![]);
+    assert_eq!(
+        decrypt_spendable(&keys, &txs, &assets)
+            .unwrap()
+            .undecryptable_merges,
+        1
+    );
+    assert_eq!(
+        rebuild_merge(&keys, &failing, &[], &assets).unwrap(),
+        MergeRebuild::Undecryptable
+    );
+}
+
 fn variant(
     tx: &ShieldedTransaction,
     edit: impl FnOnce(&mut ShieldedTransaction),
@@ -1408,13 +1530,14 @@ fn extending_a_result_decrypts_only_the_new_transactions() {
         .extend(&keys, std::slice::from_ref(&merge), &assets)
         .unwrap();
 
-    let calls = keys.decrypt_calls.borrow();
-    let new_calls = calls.get(earlier_decrypts..).unwrap();
-    assert_eq!(new_calls.len(), 1);
-    assert!(new_calls
-        .iter()
-        .flatten()
-        .all(|call| call.label == DecryptLabel::MergeEnvelope));
+    assert_eq!(keys.decrypt_calls.borrow().len(), earlier_decrypts);
+    assert_eq!(
+        *keys.merge_calls.borrow(),
+        vec![RecordedMergeDecrypt {
+            viewing_pubkey: owner.viewing_pubkey(),
+            ephemeral_pk: merge.tx_viewing_pk.unwrap(),
+        }]
+    );
     assert_eq!(decrypted.utxos.last(), Some(&merged));
     let all: Vec<_> = earlier.into_iter().chain([merge]).collect();
     assert_eq!(decrypted, decrypt(&owner, &all, &assets).unwrap());

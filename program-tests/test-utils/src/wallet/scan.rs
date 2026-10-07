@@ -874,7 +874,7 @@ impl SyncCtx<'_> {
         let rebuilt = match rebuild_merge(&self.keys, tx, self.utxos.as_slice(), self.assets) {
             Ok(MergeRebuild::Rebuilt(rebuilt)) => rebuilt,
             Ok(MergeRebuild::Pending) => return Ok(MergeResolution::Pending),
-            Ok(MergeRebuild::NotOurs) => {
+            Ok(MergeRebuild::NotOurs | MergeRebuild::Undecryptable) => {
                 self.report.undecryptable_candidates += 1;
                 return Ok(MergeResolution::Complete);
             }

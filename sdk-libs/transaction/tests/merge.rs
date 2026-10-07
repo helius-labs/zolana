@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use common::{keypair, wallet_utxo};
 use zolana_keypair::{
     DecryptedMergeEnvelope, MergeEnvelopeDecryption, P256Pubkey, ShieldedAddress, ShieldedKeypair,
-    SigningKey, ViewingKey,
+    SigningKey, ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 use zolana_transaction::{
     instructions::merge::{
@@ -520,6 +520,15 @@ impl ShieldedKeys for RecordingKeys {
     }
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {
         self.owner.decrypt(requests)
+    }
+    fn decrypt_merge_envelope(
+        &self,
+        viewing_pubkey: &P256Pubkey,
+        ephemeral_pk: &P256Pubkey,
+        ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    ) -> Result<DecryptedMergeEnvelope, TransactionError> {
+        self.owner
+            .decrypt_merge_envelope(viewing_pubkey, ephemeral_pk, ciphertext)
     }
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
         self.derived.borrow_mut().extend_from_slice(requests);

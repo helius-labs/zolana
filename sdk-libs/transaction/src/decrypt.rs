@@ -5,9 +5,8 @@ use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_hasher::p256::is_reserved_derivation_point;
 use zolana_keypair::{
-    constants::{P256_PUBKEY_LEN, SALT_LEN},
-    shielded::ShieldedAddress,
-    DecryptedMergeEnvelope, P256Pubkey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
+    constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey,
+    MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 
 use crate::{
@@ -42,6 +41,10 @@ pub struct DecryptionResult {
     /// every batch: the missing input can be another merge's output that a
     /// later batch brings.
     pub pending_merges: Vec<ShieldedTransaction>,
+    /// Merges tagged for this wallet whose envelope the key holder failed to
+    /// decrypt under every viewing key. Each is left out; the rest of the sync
+    /// stands.
+    pub undecryptable_merges: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -52,6 +55,8 @@ pub struct SpendableDecryptionResult {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
     pub unknown_mints: BTreeSet<Address>,
+    /// As on [`DecryptionResult`].
+    pub undecryptable_merges: usize,
 }
 
 impl SpendableDecryptionResult {
@@ -150,13 +155,17 @@ impl DecryptionResult {
             .iter()
             .chain(transactions.iter().filter(|tx| tx.may_be_merge()))
             .collect();
+        let mut undecryptable_merges = 0;
         let pending_merges = rebuild_merges(
             shielded_keys,
             &address,
             merges,
             &mut utxos,
             assets,
-            &mut unknown_mints,
+            MergeSkips {
+                unknown_mints: &mut unknown_mints,
+                undecryptable: &mut undecryptable_merges,
+            },
         )?;
         utxos.sort_by_key(|utxo| {
             (
@@ -174,6 +183,9 @@ impl DecryptionResult {
         self.unknown_asset_ids.extend(unknown_asset_ids);
         self.unknown_mints.extend(unknown_mints);
         self.pending_merges = pending_merges;
+        self.undecryptable_merges = self
+            .undecryptable_merges
+            .saturating_add(undecryptable_merges);
         Ok(())
     }
 }
@@ -256,6 +268,7 @@ pub fn verify_spendable<K: ShieldedKeys + ?Sized>(
         utxos_with_data,
         unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
         unknown_mints: decrypted.unknown_mints.clone(),
+        undecryptable_merges: decrypted.undecryptable_merges,
     })
 }
 
@@ -460,6 +473,14 @@ pub enum MergeRebuild {
     Pending,
     /// Not a merge of this wallet's UTXOs.
     NotOurs,
+    /// Tagged for this wallet, but the key holder failed to decrypt its
+    /// envelope under every viewing key.
+    Undecryptable,
+}
+
+struct MergeSkips<'a> {
+    unknown_mints: &'a mut BTreeSet<Address>,
+    undecryptable: &'a mut usize,
 }
 
 fn rebuild_merges<K: ShieldedKeys + ?Sized>(
@@ -468,7 +489,7 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     mut pending: Vec<&ShieldedTransaction>,
     utxos: &mut Vec<WalletUtxo>,
     assets: &AssetRegistry,
-    unknown_mints: &mut BTreeSet<Address>,
+    skips: MergeSkips<'_>,
 ) -> Result<Vec<ShieldedTransaction>, TransactionError> {
     while !pending.is_empty() {
         let mut unresolved = Vec::new();
@@ -477,8 +498,11 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
                 Ok(MergeRebuild::Rebuilt(rebuilt)) => utxos.extend(rebuilt),
                 Ok(MergeRebuild::Pending) => unresolved.push(*tx),
                 Ok(MergeRebuild::NotOurs) => {}
+                Ok(MergeRebuild::Undecryptable) => {
+                    *skips.undecryptable = skips.undecryptable.saturating_add(1);
+                }
                 Err(TransactionError::UnknownMint(mint)) => {
-                    unknown_mints.insert(mint);
+                    skips.unknown_mints.insert(mint);
                 }
                 Err(error) => return Err(error),
             }
@@ -526,7 +550,7 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
             shielded_keys,
             address,
             tx,
-            context,
+            slot,
             &ephemeral_pk,
             ciphertext,
             assets,
@@ -541,31 +565,27 @@ fn decrypt_merge_envelope<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
     tx: &ShieldedTransaction,
-    context: &OutputContext,
+    slot: &OutputSlot,
     ephemeral_pk: &P256Pubkey,
     ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
     assets: &AssetRegistry,
 ) -> Result<MergeRebuild, TransactionError> {
-    if is_reserved_derivation_point(ephemeral_pk.as_bytes()) {
+    // The program tags a default merge's output with the owner's signing key,
+    // so a merge tagged for anyone else is dropped before any key agreement.
+    if slot.view_tag != address.confidential_view_tag()?
+        || is_reserved_derivation_point(ephemeral_pk.as_bytes())
+    {
         return Ok(MergeRebuild::NotOurs);
     }
-    let decrypted = decrypt_each(
-        shielded_keys,
-        shielded_keys.viewing_public_keys(),
-        |viewing_pubkey| DecryptRequest {
-            ciphertext,
-            viewing_pubkey,
-            tx_viewing_pubkey: *ephemeral_pk,
-            salt: [0; SALT_LEN],
-            slot_index: 0,
-            label: DecryptLabel::MergeEnvelope,
-        },
-    )?;
-    for bytes in decrypted {
-        let Ok(bytes) = <&[u8; DecryptedMergeEnvelope::LEN]>::try_from(bytes.as_slice()) else {
+    let context = &slot.output_context;
+    let mut failed = false;
+    for viewing_pubkey in shielded_keys.viewing_public_keys() {
+        let Ok(envelope) =
+            shielded_keys.decrypt_merge_envelope(&viewing_pubkey, ephemeral_pk, ciphertext)
+        else {
+            failed = true;
             continue;
         };
-        let envelope = DecryptedMergeEnvelope::from_bytes(bytes);
         let mint = Address::new_from_array(envelope.mint);
         let utxo = Utxo {
             owner: address.signing_pubkey,
@@ -582,6 +602,9 @@ fn decrypt_merge_envelope<K: ShieldedKeys + ?Sized>(
         let mut rebuilt = vec![rebuilt];
         assign_nullifiers(shielded_keys, &mut rebuilt)?;
         return Ok(MergeRebuild::Rebuilt(rebuilt));
+    }
+    if failed {
+        return Ok(MergeRebuild::Undecryptable);
     }
     Ok(MergeRebuild::NotOurs)
 }
