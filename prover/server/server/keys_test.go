@@ -202,7 +202,7 @@ func TestKeyPathsReachTheirHandlers(t *testing.T) {
 	}
 }
 
-// Every proof names its key: there is no path that takes any key.
+// The key paths take no key-less path; those are registerLegacyProofPaths.
 func TestThereIsNoPathWithoutAKey(t *testing.T) {
 	mux := proofMux(t, nil)
 	for _, prefix := range []string{"", gatewayPrefix} {

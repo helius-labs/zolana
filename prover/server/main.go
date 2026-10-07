@@ -483,6 +483,7 @@ func runCli() {
 						Name:    "legacy-prove-paths",
 						Usage:   "Also serve the key-less /prove, /prove/indexed and /prove/status, resolving each proof's key from its body",
 						EnvVars: []string{"PROVER_LEGACY_PROVE_PATHS"},
+						Value:   true,
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
