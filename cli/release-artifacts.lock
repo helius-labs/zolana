@@ -1,64 +1,64 @@
 {
+  "release_tag": "v0.4.0-alpha",
+  "surfpool_tag": "v1.6.0-light",
+  "surfpool_version": "1.6.0",
+  "programs": [
+    {
+      "asset": "shielded_pool_program-v0.4.0-alpha.so",
+      "size": 598184,
+      "sha256": "3641ffe2b2e635a0ed5978416559944d8c1618fe49372f9082eefeb2ac322cab",
+      "role": "shielded_pool"
+    },
+    {
+      "asset": "zolana_user_registry-v0.4.0-alpha.so",
+      "size": 51024,
+      "sha256": "2010baa24753dd576159ff35532b516581a5de2f521ad223675136e8cff72c8c",
+      "role": "user_registry"
+    },
+    {
+      "asset": "squads_smart_account_program-v0.4.0-alpha.so",
+      "size": 1651997,
+      "sha256": "1c95bd7be140589d2aec38a85d7ecfe70ec69639277f622c898f821ab1d636fa",
+      "role": "smart_account"
+    }
+  ],
   "accounts": {
-    "asset": "accounts-v0.3.0-alpha.tar.gz",
-    "sha256": "8c72598efc7e3be11e8b3bb963733247d269cf75237c5128cc7a675452650769",
-    "size": 2048
+    "asset": "accounts-v0.4.0-alpha.tar.gz",
+    "size": 2048,
+    "sha256": "8c72598efc7e3be11e8b3bb963733247d269cf75237c5128cc7a675452650769"
   },
   "binaries": [
     {
-      "arch": "arm64",
-      "asset": "prover-darwin-arm64-v0.3.0-alpha",
-      "os": "darwin",
       "role": "prover",
-      "sha256": "232b32c59f72dce89329318b17b20c6440f58889b4d24e377c9d7b2c5787fb5b",
-      "size": 42068802
-    },
-    {
-      "arch": "arm64",
-      "asset": "photon-darwin-arm64-v0.3.0-alpha",
       "os": "darwin",
-      "role": "photon",
-      "sha256": "fecfc859676f986fb858275dab3cc7035d86003b0d8ce97e5a0231c7eb91ab55",
-      "size": 27609376
+      "arch": "arm64",
+      "asset": "prover-darwin-arm64-v0.4.0-alpha",
+      "size": 29528402,
+      "sha256": "a1b46a83f4f966cc568c7feb5b375cd5654ecfbedcdeb026d17bbf74e2cd18d2"
     },
     {
-      "arch": "x64",
-      "asset": "prover-linux-x64-v0.3.0-alpha",
-      "os": "linux",
+      "role": "photon",
+      "os": "darwin",
+      "arch": "arm64",
+      "asset": "photon-darwin-arm64-v0.4.0-alpha",
+      "size": 27738528,
+      "sha256": "5faa0fefffb86953d09287dc823f9c6343bf46fa498db84445bff56de78afdeb"
+    },
+    {
       "role": "prover",
-      "sha256": "7aab75733a6060d03facbc4d3736bf85cc0b8b4d6d6530b8685eb494b2acd815",
-      "size": 44398319
-    },
-    {
-      "arch": "x64",
-      "asset": "photon-linux-x64-v0.3.0-alpha",
       "os": "linux",
+      "arch": "x64",
+      "asset": "prover-linux-x64-v0.4.0-alpha",
+      "size": 31899772,
+      "sha256": "98a44be4d67573e60a1136696b5fef4adfb8fa5a9685e694966739f0f1b96500"
+    },
+    {
       "role": "photon",
-      "sha256": "729587d8b7024c4284156aeafa7e491ecfc02a5ebfb34f6b409a8aa1e385e928",
-      "size": 32787896
+      "os": "linux",
+      "arch": "x64",
+      "asset": "photon-linux-x64-v0.4.0-alpha",
+      "size": 32911832,
+      "sha256": "08b06cd5b800f8298bb978312d6175d2195cc00ae2b3cc41bccb1620af3a3d43"
     }
-  ],
-  "programs": [
-    {
-      "asset": "shielded_pool_program-v0.3.0-alpha.so",
-      "role": "shielded_pool",
-      "sha256": "8eb77ce68c9f6407845f262d57a3ed010ddbf47e09fa87d4fa6983281866c0d6",
-      "size": 486936
-    },
-    {
-      "asset": "zolana_user_registry-v0.3.0-alpha.so",
-      "role": "user_registry",
-      "sha256": "2010baa24753dd576159ff35532b516581a5de2f521ad223675136e8cff72c8c",
-      "size": 51024
-    },
-    {
-      "asset": "squads_smart_account_program-v0.3.0-alpha.so",
-      "role": "smart_account",
-      "sha256": "1c95bd7be140589d2aec38a85d7ecfe70ec69639277f622c898f821ab1d636fa",
-      "size": 1651997
-    }
-  ],
-  "release_tag": "v0.3.0-alpha",
-  "surfpool_tag": "v1.6.0-light",
-  "surfpool_version": "1.6.0"
+  ]
 }
