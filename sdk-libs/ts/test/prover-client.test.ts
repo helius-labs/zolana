@@ -1047,6 +1047,34 @@ describe("prover request routing", () => {
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
   });
+  it("sends a proof and its poll to the Helius gateway's key-less paths", async () => {
+    const urls: URL[] = [];
+    const fetch = vi.fn(async (input: URL | string) => {
+      const url = new URL(String(input));
+      urls.push(url);
+      return urls.length === 1
+        ? new Response(JSON.stringify({ jobId: "job-123" }), {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response(JSON.stringify({ status: "completed", result: TRANSFER_PROOF }), {
+            headers: { "content-type": "application/json" },
+          });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({
+      url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+      fetch,
+    });
+
+    await prover.prove(transferInputs());
+
+    expect(urls.map((url) => url.pathname)).toEqual([
+      "/v1/zolana/prove",
+      "/v1/zolana/prove/status",
+    ]);
+    expect(urls.map((url) => url.searchParams.get("api-key"))).toEqual(["k", "k"]);
+    expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
+  });
 });
 
 describe("proving key check", () => {

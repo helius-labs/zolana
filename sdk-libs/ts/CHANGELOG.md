@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1-alpha — unreleased
+
+A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
+prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
+proofs fetch their Merkle data on the client and go to the prover's key-less
+path.
+
+Changed
+
+- `ZolanaClient` given only a Helius RPC URL such as
+  `https://devnet.helius-rpc.com/?api-key=…` now sends indexer and prover
+  calls to that host's `/v1/zolana` path instead of its root.
+- `ZolanaClient` with its prover on a `/v1/zolana` URL defaults to
+  `proofDataSource: "client"` and refuses `"prover"`, and `ProverClient` on such
+  a URL posts every proof to `/v1/zolana/prove` and polls
+  `/v1/zolana/prove/status`.
+
 ## 0.4.0-alpha — 2026-10-07
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
