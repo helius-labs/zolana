@@ -286,7 +286,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         output_tree: tree,
         payer: ctx.material.funding.pubkey(),
         user_record: user_record_pda(&owner).0,
-        data: result.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?),
+        data: result.instruction_data(ProofCompressed::try_from(proof)?)?,
         cache: None,
     }
     .instruction();

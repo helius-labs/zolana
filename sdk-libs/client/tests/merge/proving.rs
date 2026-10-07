@@ -2,14 +2,11 @@
 
 use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
-use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
-use zolana_interface::{
-    instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_24_1, merge_54_1, merge_8_1},
-};
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
+use zolana_client::{MergeProver, ProofCompressed, ProverClient, ProverExt, Rpc};
+use zolana_interface::verifying_keys::{merge_24_1, merge_54_1, merge_8_1};
+use zolana_keypair::{random_blinding, MergeEnvelopeOpen, P256Pubkey, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
-use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
+use zolana_transaction::{Data, Mint, Utxo};
 
 use crate::{harness::MergeHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
@@ -95,10 +92,9 @@ impl MergeHarness {
         let proof = ProverClient::local()
             .prove_merge(&result.inputs)
             .expect("prove merge");
-        assert!(
-            proof.commitment.is_none(),
-            "merge proof must use vanilla Groth16"
-        );
+        let commitment = proof
+            .commitment
+            .expect("the envelope's key agreement commits private inputs");
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
         let vk = match result.nullifiers.len() {
             8 => &merge_8_1::VERIFYINGKEY,
@@ -106,29 +102,49 @@ impl MergeHarness {
             54 => &merge_54_1::VERIFYINGKEY,
             other => panic!("no committed verifying key for a {other}-input merge"),
         };
-        let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
-            .expect("construct verifier");
+        let mut verifier = Groth16Verifier::new_with_commitment(
+            &proof.a,
+            &proof.b,
+            &proof.c,
+            &commitment.commitment,
+            &commitment.commitment_pok,
+            &public_inputs,
+            vk,
+        )
+        .expect("construct verifier");
         verifier.verify().expect("merge groth16 proof verifies");
-        let sent = result
-            .instruction_data(MergeProof::zeroed())
-            .nullifiers
-            .len();
-        assert_eq!(sent, n, "compact padding is left out of the instruction");
-
-        // The owner reconstructs the ciphertext-free merge output from the
-        // first real input and its published nullifier.
+        let data = result
+            .instruction_data(ProofCompressed::try_from(proof).expect("compress merge proof"))
+            .expect("merge instruction data");
         assert_eq!(
-            merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
-                .expect("derive merge output blinding"),
-            expected_output.blinding,
-            "owner reconstructs the merged output blinding",
+            data.nullifiers.len(),
+            n,
+            "compact padding is left out of the instruction"
+        );
+
+        let envelope = data.envelope.expect("default merge envelope");
+        let opened = MergeEnvelopeOpen {
+            viewing_key: &sender.viewing_key,
+            ephemeral_pk: &P256Pubkey::from_bytes(envelope.ephemeral_pk).expect("ephemeral key"),
+            ciphertext: &envelope.ciphertext,
+        }
+        .open()
+        .expect("owner opens the merge envelope");
+        assert_eq!(
+            (opened.amount, opened.mint, opened.output_blinding),
+            (
+                expected_output.amount,
+                expected_output.asset.asset.to_bytes(),
+                expected_output.blinding
+            ),
+            "owner reconstructs the merged output from the envelope",
         );
         assert_eq!(
             expected_output
                 .hash(TEST_TREE_ID)
                 .expect("reconstructed utxo hash"),
             result.output_hash,
-            "owner reconstructs the merged output from the first nullifier",
+            "the reconstructed output is the committed one",
         );
     }
 }

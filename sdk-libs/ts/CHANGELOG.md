@@ -5,10 +5,10 @@
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Transfers prove on a grid of up to 49 inputs and 16 outputs, merges
-take up to 54 notes in one transaction, wallet sync recovers the output of
-such a merge, and transfers can leave their unused slots out of the
-transaction at the cost of revealing the real counts, which every merge now
-does.
+prove up to 54 notes and seal their output to the owner's viewing key, so
+wallet sync opens a merge without holding its inputs, and
+transfers can leave their unused slots out of the transaction at the cost of
+revealing the real counts, which every merge now does.
 Registration never replaces an owner's published keys, and replacing them is
 its own transaction. The private transaction hash ignores padding and no longer
 covers the external data, which P-256 owners now sign alongside it.
@@ -28,8 +28,11 @@ Breaking
   `indexer` from `proveMerge` calls, and implement `proveMerge` in a custom
   `RingMergeClient` and `IndexedProofAuthority.proveIndexed` in remote key
   holders.
-- `ClientErrorCode` gains `CLIENT_PROVER_INDEXER_UNCONFIGURED` and
-  `CLIENT_INDEXER_PROOF_DATA_NOT_READY` → handle both in exhaustive switches.
+- `ClientErrorCode` gains `CLIENT_PROVER_INDEXER_UNCONFIGURED`,
+  `CLIENT_INDEXER_PROOF_DATA_NOT_READY` and
+  `CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH`, which `ZolanaClient.proveMerge` and
+  `ProverClient.proveMerge` throw for a default merge without an envelope or a
+  ring merge with one → handle them in exhaustive switches.
 - `buildRegistrationTransaction` rejects with `WALLET_BUILD_REGISTRATION` and
   `causeCode` `WALLET_USER_RECORD_KEYS_MISMATCH` when the owner's record holds
   other keys, where it used to replace the viewing key and send the owner's
@@ -88,9 +91,32 @@ Breaking
   would reject → handle them in exhaustive switches.
 - `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
   `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
-  and `ShieldedPoolError` gains
-  `ZeroInputNullifier` and `ZeroOutputUtxoHash` → handle them in exhaustive
-  switches.
+  and `TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH`, which `Merge` throws for a
+  `blinding` of the other merge kind, and `ShieldedPoolError` gains
+  `ZeroInputNullifier`, `ZeroOutputUtxoHash`, `MergeEnvelopeMissing`,
+  `MergeEnvelopeUnexpected` and `InvalidViewingKeyEncoding` → handle them in
+  exhaustive switches.
+- `Merge` takes `blinding`, a `MergeBlindingSource`, in place of
+  `outputBlinding`, and a default merge seals its amount and mint to the
+  owner's viewing key in a `MergeOutputEnvelope` kept in
+  `PreparedMerge.envelope`, takes the output blinding the seal derives, and
+  carries the sealed envelope in `MergeTransactInstructionData.envelope`, a
+  `MergeEnvelope` that `ZolanaClient.proveMerge` fills from the proof,
+  `getMergeTransactInstructionAsync` and the shielded-pool program of this
+  release require on a merge, and `ringMergeInstruction` and the program refuse
+  on a ring merge → pass `{ kind: "envelope" }` for a default merge and
+  `{ kind: "derived", outputBlinding }` for a ring merge, and set `envelope`
+  only on hand-built default merge data.
+- `MergeInputs` requires `mint` and, on a default merge, `envelope`, a
+  `MergeEnvelopeInputs` with the uncompressed viewing key and the ephemeral
+  secret, which the merge prover request sends as `mint` in place of `asset`
+  and as `viewingPk` and `ephemeralSk`, and a default merge proof carries a
+  commitment and four more public inputs → set both fields on hand-built merge
+  inputs and prove against the prover of this release.
+- `DecryptLabel` gains `"mergeEnvelope"`, which wallet sync sends to
+  `ShieldedKeys.decrypt` with a merge's ephemeral key as `txViewingPublicKey`,
+  a zero salt and slot 0 → answer it in custom `ShieldedKeys` implementations
+  with `encodeOpenedMergeEnvelope(openMergeEnvelope(...))`.
 - `ProofOutputUtxo` requires `isCompact()`, which the outputs
   `createProofOutput` returns provide → add it to custom `ProofOutputUtxo`
   implementations, returning `true` only for compact padding.
@@ -153,8 +179,14 @@ Added
 - `IndexedProofLookup` names an `IndexedProofInputs` lookup entry, whose
   `nullifier` carries the derived nullifier of a compact slot for the prover to
   fetch and is `null` for every other slot.
-- Wallet sync recovers the output of a compact merge, which publishes only the
-  nullifiers it sends.
+- Wallet sync recovers the output of a default merge, compact ones included,
+  from its envelope under every viewing key the wallet holds, retired ones
+  included, without holding the merge's inputs, and leaves one it cannot open
+  or match to its output unrecovered without failing the sync, while
+  `openMergeEnvelope` and `encodeOpenedMergeEnvelope` from
+  `@heliuslabs/zolana/keypair` open an envelope with a viewing key into an
+  `OpenedMergeEnvelope` and encode it as the `ShieldedKeys.decrypt` answer,
+  and the `SealedMergeEnvelope` type there describes a sealed one.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 8-input
   proof, above 8 to the 24-input proof or above 24 to the 54-input proof, and

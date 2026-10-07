@@ -172,17 +172,22 @@ pub fn merge_general_event(
     event: &MergeEvent,
 ) -> Result<GeneralEvent, EventDecodeError> {
     let (source_tag, ix_bytes) = source_tag_and_data(source)?;
-    let (merge, output_data) = match source_tag {
+    let (merge, output_data, tx_viewing_pk) = match source_tag {
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (merge, Vec::new())
+            let envelope = merge
+                .envelope_for_default_rail()
+                .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
+            let output_data = envelope.ciphertext.to_vec();
+            let tx_viewing_pk = *envelope.ephemeral_pk;
+            (merge, output_data, tx_viewing_pk)
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
             let output_data = ring.output_ring_data_hash.to_vec();
-            (ring.merge, output_data)
+            (ring.merge, output_data, [0u8; 33])
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };
@@ -198,7 +203,7 @@ pub fn merge_general_event(
             data: output_data,
         }],
         messages: Vec::new(),
-        tx_viewing_pk: [0u8; 33],
+        tx_viewing_pk,
         salt: [0u8; 16],
         first_output_leaf_index: event.output_leaf_index,
         output_tree: event.output_tree,

@@ -1,6 +1,7 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import { solInput } from "./helpers/utxos.js";
 import { bytesToBigInt } from "../src/client/internal.js";
 import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merge.js";
@@ -17,7 +18,6 @@ import {
   ProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
-  Utxo,
   createProofOutput,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
@@ -37,18 +37,6 @@ function field(value: number): Bytes32 {
 
 const UTXO_ROOT = field(1);
 const NULLIFIER_ROOT = field(2);
-
-function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
-  return ProofInputUtxo.fromKeypair(
-    new Utxo({
-      owner: keypair.signingPublicKey(),
-      asset: SOL_MINT,
-      amount,
-      blinding: randomBlinding(),
-    }),
-    keypair,
-  );
-}
 
 function nonInclusionProof(leaf: Bytes32, treeId: number): NonInclusionProof {
   return {
@@ -372,7 +360,13 @@ describe("compact padding", () => {
     ).toEqual(
       dummyNullifiers.map(() => ({ isDummy: 1n, nullifier: 0n, nullifierLowPathIndex: 3n })),
     );
-    const proof = { a: field(1), b: new Uint8Array(128) as never, c: field(2) };
+    const proof = {
+      a: field(1),
+      b: new Uint8Array(128) as never,
+      c: field(2),
+      commitment: field(3),
+      commitmentPok: field(4),
+    };
     expect(assembly.instructionData(proof).nullifiers).toEqual(
       inputs.map((input) => input.nullifier()),
     );

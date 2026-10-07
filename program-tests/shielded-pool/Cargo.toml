@@ -189,6 +189,10 @@ required-features = ["proofs"]
 name = "merge_contract"
 path = "tests/merge/contract.rs"
 
+[[test]]
+name = "merge_public_input"
+path = "tests/merge/public_input.rs"
+
 # Proof-backed (spawns the local prover and proves every real merge circuit,
 # 8-in/1-out, 24-in/1-out and 54-in/1-out), so it sits in the proofs tier with the other
 # Groth16-backed binaries.

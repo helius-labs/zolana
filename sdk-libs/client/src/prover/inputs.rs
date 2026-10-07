@@ -1,9 +1,13 @@
 use num_bigint::BigUint;
+use serde::{ser::SerializeStruct, Serialize, Serializer};
+use zeroize::Zeroizing;
 use zolana_interface::{tree_slot::TreeSlot, INPUT_TREES, N_PUBLIC_SLOTS};
+use zolana_keypair::{constants::P256_UNCOMPRESSED_PUBKEY_LEN, KeypairError};
+use zolana_transaction::instructions::merge::MergeOutputEnvelope;
 
 use super::ProofInputUtxo;
 
-use crate::prover::field::be;
+use crate::prover::{field::be, proving_key::hex};
 
 /// One public tree slot of a proof request: the raw `u16` id of a tree inputs
 /// may be spent from and the two roots SPP resolved for it. An unused slot is
@@ -106,6 +110,33 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
+    pub mint: [u8; 32],
+    pub envelope: Option<MergeEnvelopeInputs>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MergeEnvelopeInputs {
+    pub viewing_pk: [u8; P256_UNCOMPRESSED_PUBKEY_LEN],
+    pub ephemeral_sk: Zeroizing<[u8; 32]>,
+}
+
+impl MergeEnvelopeInputs {
+    pub fn new(envelope: &MergeOutputEnvelope) -> Result<Self, KeypairError> {
+        Ok(Self {
+            viewing_pk: envelope.recipient.to_uncompressed()?,
+            ephemeral_sk: envelope.ephemeral.secret_bytes(),
+        })
+    }
+}
+
+impl Serialize for MergeEnvelopeInputs {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let ephemeral_sk = Zeroizing::new(hex(self.ephemeral_sk.as_slice()));
+        let mut fields = serializer.serialize_struct("MergeEnvelopeInputs", 2)?;
+        fields.serialize_field("viewingPk", &hex(&self.viewing_pk))?;
+        fields.serialize_field("ephemeralSk", ephemeral_sk.as_str())?;
+        fields.end()
+    }
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree

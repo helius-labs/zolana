@@ -28,8 +28,8 @@ pub use client::{
 };
 pub use endpoint::redact_api_key;
 pub use inputs::{
-    BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
-    TransferOutput, TransferP256Inputs, TreeSlotFields,
+    BatchAddressAppendInputs, CacheReadInputs, MergeEnvelopeInputs, MergeInputs, TransferInput,
+    TransferInputs, TransferOutput, TransferP256Inputs, TreeSlotFields,
 };
 pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};

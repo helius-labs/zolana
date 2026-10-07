@@ -11,7 +11,8 @@ pub use blinding::{
     merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
     DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
 };
-pub use transaction::MergeProofInputs;
+pub use encryption::MergeBlindingSource;
+pub use transaction::{MergeOutputEnvelope, MergeProofInputs};
 pub use zolana_interface::instruction::instruction_data::merge_transact::{
     merge_circuit_width, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };

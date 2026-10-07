@@ -73,7 +73,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	case common.TransferP256RingCircuitType:
 		expected = 19
 	case common.MergeCircuitType:
-		expected = 8
+		expected = 12
 	case common.MergeRingCircuitType:
 		expected = 8
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
@@ -140,7 +140,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// 1. Fetch one nullifier snapshot per tree for real and dummy inputs together.
 	tasks, taskContext := errgroup.WithContext(ctx)
 	if prepared.registry != nil {
 		tasks.Go(recovered(func() error { return r.resolvePolicyRegistry(taskContext, request, prepared.registry) }))
@@ -192,7 +191,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	finishFetch()
 	finishValidate := trace.Start("indexer_validate")
 	defer finishValidate()
-	// 2. Bind every returned path to its requested leaf before completing the inputs.
 	resolution := &common.ProofResolution{Trees: make([]common.ResolvedTree, len(request.Trees))}
 	slots := make([]common.TreeSlotParams, 5)
 	for index := range slots {
@@ -262,7 +260,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		slots[treeIndex] = common.TreeSlotParams{ID: new(big.Int).SetUint64(uint64(tree.ID)), UtxoRoot: new(big.Int).SetBytes(stateRoot.Root[:]), NullifierRoot: new(big.Int).SetBytes(nullifierRoot.Root[:])}
 		resolution.Trees[treeIndex] = common.ResolvedTree{Tree: tree.Address, ID: tree.ID, UtxoRoot: stateRoot.Root.hex(), NullifierRoot: nullifierRoot.Root.hex(), UtxoRootIndex: stateRoot.RootIndex, NullifierRootIndex: nullifierRoot.RootIndex}
 	}
-	// 3. Insert the resolved tree commitment into the circuit's public transcript.
 	hashes := make([]*big.Int, len(slots))
 	for index, slot := range slots {
 		hashes[index], err = prooftranscript.HashFields([]*big.Int{slot.ID, slot.UtxoRoot, slot.NullifierRoot})
@@ -359,7 +356,6 @@ func verifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {
 	return nil
 }
 
-// errgroup does not recover task panics.
 func recovered(task func() error) func() error {
 	return func() (err error) {
 		defer func() {

@@ -1,6 +1,5 @@
 //! Behavior of the host mirror of the custom-ring circuit crypto.
 
-use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{KeypairError, ViewingKey};
 use zolana_ring_client::{
@@ -18,11 +17,6 @@ fn tx_viewing_sk() -> [u8; 32] {
 
 fn tx_viewing_key() -> ViewingKey {
     ViewingKey::from_bytes(&tx_viewing_sk()).expect("valid viewing key")
-}
-
-fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
-    let decoded = hex::decode(hex_str).expect("valid hex");
-    <[u8; N]>::try_from(decoded.as_slice()).expect("expected byte length")
 }
 
 #[test]
@@ -159,46 +153,5 @@ fn parse_rejects_an_invalid_ephemeral_key() {
         Err(AuditEncryptionError::Keypair(
             KeypairError::InvalidPublicKey
         ))
-    );
-}
-
-/// `lo = 0x00 || bytes[0..31]`, `hi = bytes[31]` right-aligned; hand-computed for
-/// the ascending input 0x01..0x20 so a change on either side of the language
-/// boundary shows up here.
-#[test]
-fn pack32_layout() {
-    let mut input = [0u8; 32];
-    for (index, byte) in input.iter_mut().enumerate() {
-        *byte = (index as u8) + 1;
-    }
-
-    let FieldPair { lo, hi } = pack32_to_2fe(&input);
-    assert_eq!(
-        lo,
-        hex_bytes::<32>("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-    );
-    assert_eq!(
-        hi,
-        hex_bytes::<32>("0000000000000000000000000000000000000000000000000000000000000020")
-    );
-}
-
-/// `lo = 0x00 || key[0..31]`, `hi = key[31] * 256 + key[32]`; hand-computed for
-/// the ascending input 0x01..0x21.
-#[test]
-fn pack33_layout() {
-    let mut input = [0u8; 33];
-    for (index, byte) in input.iter_mut().enumerate() {
-        *byte = (index as u8) + 1;
-    }
-
-    let FieldPair { lo, hi } = pack33_to_2fe(&input);
-    assert_eq!(
-        lo,
-        hex_bytes::<32>("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-    );
-    assert_eq!(
-        hi,
-        hex_bytes::<32>("0000000000000000000000000000000000000000000000000000000000002021")
     );
 }

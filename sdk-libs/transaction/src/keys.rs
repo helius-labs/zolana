@@ -19,7 +19,7 @@
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
-    NullifierKey, P256Pubkey, ViewingKey,
+    MergeEnvelopeOpen, NullifierKey, P256Pubkey, ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 
 use crate::{
@@ -35,6 +35,7 @@ use crate::{
 pub enum DecryptLabel {
     Utxo,
     RingDeposit,
+    MergeEnvelope,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -168,6 +169,21 @@ impl ShieldedKeys for LocalShieldedKeys {
                         &request.tx_viewing_pubkey,
                         request.salt,
                     ),
+                    DecryptLabel::MergeEnvelope => {
+                        let ciphertext = request.ciphertext.try_into().map_err(|_| {
+                            TransactionError::InvalidLength {
+                                expected: MERGE_ENVELOPE_CIPHERTEXT_LEN,
+                                actual: request.ciphertext.len(),
+                            }
+                        })?;
+                        MergeEnvelopeOpen {
+                            viewing_key: viewing,
+                            ephemeral_pk: &request.tx_viewing_pubkey,
+                            ciphertext,
+                        }
+                        .open()
+                        .map(|opened| opened.to_bytes().to_vec())
+                    }
                 }?;
                 Ok(plaintext)
             })

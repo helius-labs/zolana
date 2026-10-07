@@ -2,6 +2,7 @@ package p256
 
 import (
 	"crypto/ecdh"
+	"crypto/elliptic"
 	"math/big"
 	"testing"
 
@@ -20,10 +21,8 @@ type fpBytesCircuit struct {
 
 func (c *fpBytesCircuit) Define(api frontend.API) error {
 	elem := emulated.Element[emulated.P256Fp]{Limbs: c.Limbs[:]}
-	got := emulatedFpToBytes(api, &elem)
-	for i := range got {
-		api.AssertIsEqual(got[i], c.Bytes[i])
-	}
+	got, _ := canonicalFpBytes(api, newAgreementField(api), &elem)
+	assertBytesEqual(api, got[:], c.Bytes[:])
 	return nil
 }
 
@@ -34,14 +33,10 @@ func fpBytesWitness(value *big.Int, bytes *big.Int) *fpBytesCircuit {
 		limb := new(big.Int).Rsh(value, uint(64*i))
 		w.Limbs[i] = limb.And(limb, mask)
 	}
-	raw := bytes.FillBytes(make([]byte, 32))
-	for i := range w.Bytes {
-		w.Bytes[i] = raw[i]
-	}
+	setBytes(w.Bytes[:], bytes.FillBytes(make([]byte, 32)))
 	return &w
 }
 
-// x + p fits 256 bits for small x, the bytes must still spell x.
 func TestFpBytesAreCanonical(t *testing.T) {
 	assert := test.NewAssert(t)
 	p := emulated.P256Fp{}.Modulus()
@@ -55,26 +50,28 @@ func TestFpBytesAreCanonical(t *testing.T) {
 	assert.ProverFailed(&fpBytesCircuit{}, fpBytesWitness(shifted, shifted), test.WithCurves(ecc.BN254))
 }
 
-type generatorCircuit struct {
+type publicKeyCircuit struct {
 	Scalar [32]frontend.Variable
-	Point  [65]frontend.Variable `gnark:",public"`
+	Packed [2]frontend.Variable `gnark:",public"`
 }
 
-func (c *generatorCircuit) Define(api frontend.API) error {
-	got := ScalarMulGenerator(api, c.Scalar)
-	assertBytesEqual(api, got[:], c.Point[:])
+func (c *publicKeyCircuit) Define(api frontend.API) error {
+	lo, hi := PublicKeyPacked(api, c.Scalar)
+	api.AssertIsEqual(lo, c.Packed[0])
+	api.AssertIsEqual(hi, c.Packed[1])
 	return nil
 }
 
-type ecdhCircuit struct {
+type selfAgreementCircuit struct {
 	Scalar    [32]frontend.Variable
-	PublicKey [65]frontend.Variable
-	Shared    [32]frontend.Variable `gnark:",public"`
+	SharedX   [32]frontend.Variable `gnark:",public"`
+	PublicKey [33]frontend.Variable `gnark:",public"`
 }
 
-func (c *ecdhCircuit) Define(api frontend.API) error {
-	got := ECDH(api, c.Scalar, c.PublicKey)
-	assertBytesEqual(api, got[:], c.Shared[:])
+func (c *selfAgreementCircuit) Define(api frontend.API) error {
+	got := SelfAgreeKey(api, c.Scalar)
+	assertBytesEqual(api, got.SharedX[:], c.SharedX[:])
+	assertBytesEqual(api, got.PublicKey[:], c.PublicKey[:])
 	return nil
 }
 
@@ -84,7 +81,6 @@ func assertBytesEqual(api frontend.API, got, want []frontend.Variable) {
 	}
 }
 
-// A nil reduced means the scalar maps to infinity.
 type scalarRow struct {
 	name    string
 	scalar  *big.Int
@@ -93,7 +89,7 @@ type scalarRow struct {
 
 func scalarRows(t *testing.T) []scalarRow {
 	t.Helper()
-	n := GroupOrder()
+	n := elliptic.P256().Params().N
 	s := big.NewInt(0x1234_5678)
 	shifted := new(big.Int).Add(s, n)
 	if shifted.BitLen() > 256 {
@@ -116,39 +112,48 @@ func (r scalarRow) privateKey(t *testing.T) *ecdh.PrivateKey {
 	return key
 }
 
-func (r scalarRow) generatorWitness(t *testing.T) *generatorCircuit {
+func (r scalarRow) publicKeyWitness(t *testing.T) *publicKeyCircuit {
 	t.Helper()
-	var w generatorCircuit
+	var w publicKeyCircuit
 	setBytes(w.Scalar[:], r.scalar.FillBytes(make([]byte, 32)))
-	point := infinityPoint()
+	w.Packed[0], w.Packed[1] = 0, 0
 	if r.reduced != nil {
-		point = r.privateKey(t).PublicKey().Bytes()
+		w.Packed[0], w.Packed[1] = packAgreementBytes(compressedKey(r.privateKey(t).PublicKey().Bytes()))
 	}
-	setBytes(w.Point[:], point)
 	return &w
 }
 
-func (r scalarRow) ecdhWitness(t *testing.T, peer *ecdh.PublicKey) *ecdhCircuit {
+func (r scalarRow) agreementWitness(t *testing.T, peer *ecdh.PublicKey) *agreeKeyCircuit {
 	t.Helper()
-	var w ecdhCircuit
+	if r.reduced != nil {
+		return agreeKeyWitness(t, r.scalar, peer)
+	}
+	var w agreeKeyCircuit
 	setBytes(w.Scalar[:], r.scalar.FillBytes(make([]byte, 32)))
 	setBytes(w.PublicKey[:], peer.Bytes())
-	shared := make([]byte, 32)
-	if r.reduced != nil {
-		var err error
-		if shared, err = r.privateKey(t).ECDH(peer); err != nil {
-			t.Fatalf("ecdh: %v", err)
-		}
+	for i := range w.Expected {
+		w.Expected[i] = 0
 	}
-	setBytes(w.Shared[:], shared)
 	return &w
 }
 
-// gnark encodes infinity as (0,0).
-func infinityPoint() []byte {
-	point := make([]byte, 65)
-	point[0] = 0x04
-	return point
+func (r scalarRow) selfAgreementWitness(t *testing.T) *selfAgreementCircuit {
+	t.Helper()
+	var w selfAgreementCircuit
+	setBytes(w.Scalar[:], r.scalar.FillBytes(make([]byte, 32)))
+	shared := make([]byte, 32)
+	public := make([]byte, 33)
+	if r.reduced != nil {
+		key := r.privateKey(t)
+		var err error
+		if shared, err = key.ECDH(key.PublicKey()); err != nil {
+			t.Fatalf("ecdh: %v", err)
+		}
+		public = compressedKey(key.PublicKey().Bytes())
+	}
+	setBytes(w.SharedX[:], shared)
+	setBytes(w.PublicKey[:], public)
+	return &w
 }
 
 func setBytes(dst []frontend.Variable, src []byte) {
@@ -181,22 +186,47 @@ func (r scalarRow) check(t *testing.T, cs constraint.ConstraintSystem, assignmen
 	}
 }
 
-func TestGeneratorRefusesInfinityAndReducesScalars(t *testing.T) {
-	cs := compile(t, &generatorCircuit{})
+func TestPublicKeyRefusesInfinityAndReducesScalars(t *testing.T) {
+	cs := compile(t, &publicKeyCircuit{})
 	for _, row := range scalarRows(t) {
 		t.Run(row.name, func(t *testing.T) {
-			row.check(t, cs, row.generatorWitness(t))
+			row.check(t, cs, row.publicKeyWitness(t))
 		})
 	}
 }
 
-func TestECDHRefusesInfinityAndReducesScalars(t *testing.T) {
-	cs := compile(t, &ecdhCircuit{})
+func TestAgreeKeyRefusesInfinityAndReducesScalars(t *testing.T) {
+	cs := compile(t, &agreeKeyCircuit{})
 	peer := peerKey(t).PublicKey()
 	for _, row := range scalarRows(t) {
 		t.Run(row.name, func(t *testing.T) {
-			row.check(t, cs, row.ecdhWitness(t, peer))
+			row.check(t, cs, row.agreementWitness(t, peer))
 		})
+	}
+}
+
+func TestSelfAgreeKeyRefusesInfinityAndReducesScalars(t *testing.T) {
+	cs := compile(t, &selfAgreementCircuit{})
+	for _, row := range scalarRows(t) {
+		t.Run(row.name, func(t *testing.T) {
+			row.check(t, cs, row.selfAgreementWitness(t))
+		})
+	}
+}
+
+func TestSelfAgreeKeyMatchesHost(t *testing.T) {
+	cs := compile(t, &selfAgreementCircuit{})
+	seed := new(big.Int).SetBytes([]byte("a counters disclosure secret key"))
+	row := scalarRow{name: "random", scalar: seed, reduced: new(big.Int).Mod(seed, elliptic.P256().Params().N)}
+	row.check(t, cs, row.selfAgreementWitness(t))
+	tampered := row.selfAgreementWitness(t)
+	tampered.SharedX[31] = (int(tampered.SharedX[31].(int)) + 1) % 256
+	witness, err := frontend.NewWitness(tampered, ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.IsSolved(witness) == nil {
+		t.Fatal("tampered shared x accepted")
 	}
 }
 

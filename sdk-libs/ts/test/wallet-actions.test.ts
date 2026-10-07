@@ -478,6 +478,8 @@ describe("prover indexer lag", () => {
                     a: filled(0),
                     b: new Uint8Array(128) as Bytes128,
                     c: filled(0),
+                    commitment: filled(0),
+                    commitmentPok: filled(0),
                   }),
                   outputHash: complete.outputHash,
                 };

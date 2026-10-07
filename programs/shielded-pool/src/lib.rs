@@ -7,6 +7,7 @@ pub mod instructions;
 pub mod testing {
     pub use crate::instructions::hash::solana_owner_identity;
     pub use crate::instructions::merge::account::MergeTransactAccounts;
+    pub use crate::instructions::merge::verify::{MergeOwnerBinding, MergeProof, MergeProofInputs};
     pub use crate::instructions::ring_config::{
         loader::load_ring_config, update_owner::process_update_ring_config_owner,
     };

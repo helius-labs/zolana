@@ -11,7 +11,7 @@ use zolana_client::{
     OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
+use zolana_keypair::{MergeEnvelopeSeal, P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
@@ -223,27 +223,48 @@ fn merge(
     view_tag: [u8; 32],
     nonce: u8,
 ) -> (ShieldedTransaction, Note) {
-    let first = inputs[0].nullifier;
+    let first_input = inputs.first().expect("a merge has a first input");
+    let first = first_input.nullifier;
     let mut nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
     nullifiers
         .extend((inputs.len()..MERGE_DEFAULT_INPUT_COUNT).map(|index| {
             merge_dummy_nullifier(&owner.nullifier_key, &first, index as u8).unwrap()
         }));
-    let mut utxo = inputs[0].utxo.clone();
+    let mut utxo = first_input.utxo.clone();
     utxo.amount = inputs.iter().map(|input| input.utxo.amount).sum();
-    utxo.blinding = merge_output_blinding(&owner.nullifier_key, &first).unwrap();
+    let (tx_viewing_pk, payload) = match utxo.ring_program_id {
+        Some(_) => {
+            utxo.blinding = merge_output_blinding(&owner.nullifier_key, &first).unwrap();
+            (None, vec![0; 32])
+        }
+        None => {
+            let sealed = MergeEnvelopeSeal {
+                recipient: &owner.viewing_pubkey(),
+                ephemeral: &ViewingKey::from_bytes(&[nonce; 32]).unwrap(),
+                amount: utxo.amount,
+                mint: utxo.asset.asset.to_bytes(),
+            }
+            .seal()
+            .unwrap();
+            utxo.blinding = sealed.output_blinding;
+            (
+                Some(P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap()),
+                sealed.ciphertext.to_vec(),
+            )
+        }
+    };
     let merged = note(owner, utxo, [0; 32]);
     let tx = ShieldedTransaction {
         slot: u64::from(nonce),
         tx_signature: Signature::from([nonce; 64]),
         event_index: Some(0),
-        tx_viewing_pk: None,
+        tx_viewing_pk,
         salt: None,
         output_slots: vec![output_slot(
             view_tag,
             merged.hash,
             u64::from(nonce),
-            Vec::new(),
+            payload,
         )],
         messages: Vec::new(),
         nullifiers,
@@ -321,11 +342,62 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
 }
 
+fn ring_deposit(
+    owner: &ShieldedKeypair,
+    amount: u64,
+    nonce: u8,
+    ring: Address,
+) -> (EncryptedUtxoMatch, Note) {
+    let address = owner.shielded_address().unwrap();
+    let plaintext = RingDepositPlaintext {
+        blinding: [nonce; 32],
+        utxo_data: None,
+        memo: None,
+        ring_data: Vec::new(),
+    };
+    let deposited = note(
+        owner,
+        plaintext
+            .clone()
+            .into_utxo(address.signing_pubkey, Mint::SOL, amount, ring),
+        [0; 32],
+    );
+    let output = EncryptedRingDepositOutput {
+        owner_utxo_hash: owner_utxo_hash(&address.owner_hash().unwrap(), &plaintext.blinding)
+            .unwrap(),
+        asset: *Mint::SOL.asset.as_array(),
+        amount,
+        data_hash: None,
+        ring_program_id: *ring.as_array(),
+        ring_data_hash: [0; 32],
+        encrypted: plaintext.encrypt(&address.viewing_pubkey).unwrap(),
+    };
+    let blob = [
+        &[EncryptedScheme::RingDeposit.as_byte()][..],
+        &borsh::to_vec(&output).unwrap(),
+    ]
+    .concat();
+    let matched = EncryptedUtxoMatch {
+        slot: u64::from(nonce),
+        tx_signature: Signature::from([nonce; 64]),
+        output_slot: output_slot(
+            address.viewing_pubkey.x(),
+            deposited.hash,
+            u64::from(nonce),
+            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
+        ),
+        tx_viewing_pk: None,
+        salt: None,
+    };
+    (matched, deposited)
+}
+
 #[test]
 fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
     let owner = keypair(8);
-    let (first_deposit, first) = deposit(&owner, 30, 1);
-    let (second_deposit, second) = deposit(&owner, 12, 2);
+    let ring = Address::new_from_array([4; 32]);
+    let (first_deposit, first) = ring_deposit(&owner, 30, 1, ring);
+    let (second_deposit, second) = ring_deposit(&owner, 12, 2, ring);
     // Ring merges, tagged only by their first nullifier. M1 spends `first` and
     // Y, and the query for `first` finds it in the same round as M0, a round
     // before M0' produces Y.
@@ -343,16 +415,11 @@ fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
         .fetch(&indexer)
         .unwrap();
 
-    let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
-    assert_eq!(utxos, vec![merged.hash]);
-    assert_eq!(
-        spendable
-            .balances
-            .get_balance(Mint::SOL.asset)
-            .unwrap()
-            .amount,
-        42
-    );
+    let utxos: Vec<_> = spendable
+        .utxos()
+        .map(|utxo| (utxo.utxo_hash, utxo.utxo.amount, utxo.utxo.ring_program_id))
+        .collect();
+    assert_eq!(utxos, vec![(merged.hash, 42, Some(ring))]);
 }
 
 /// A framing that marks framed ciphertexts with `frame`.

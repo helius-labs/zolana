@@ -1,4 +1,3 @@
-use crate::instructions::shared::caused_by;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -24,8 +23,7 @@ use crate::instructions::{
 /// `protocol_config.merge_authorities`.
 #[inline(never)]
 pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let ix = MergeRingIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
+    let ix = MergeRingIxDataRef::from_bytes(data)?;
     let merge = &ix.merge;
     validate_field_elements(merge)?;
     check_field_element(

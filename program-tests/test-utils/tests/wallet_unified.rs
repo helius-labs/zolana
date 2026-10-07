@@ -3,6 +3,7 @@ mod wallet_common;
 use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
+use zolana_keypair::{MergeEnvelopeSeal, P256Pubkey, ShieldedKeypair, ViewingKey};
 #[cfg(feature = "parallel")]
 use zolana_test_utils::wallet::PrivateTransactionDirection;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
@@ -15,6 +16,59 @@ use zolana_transaction::{
 };
 
 const WINDOW: u64 = 8;
+
+fn sealed_merge(
+    owner: &ShieldedKeypair,
+    amount: u64,
+    slot: u8,
+    nullifiers: Vec<[u8; 32]>,
+) -> (ShieldedTransaction, Utxo) {
+    let sealed = MergeEnvelopeSeal {
+        recipient: &owner.viewing_pubkey(),
+        ephemeral: &ViewingKey::from_bytes(&[slot; 32]).unwrap(),
+        amount,
+        mint: SOL_MINT.to_bytes(),
+    }
+    .seal()
+    .unwrap();
+    let output = Utxo {
+        owner: owner.signing_pubkey(),
+        asset: zolana_transaction::Mint::SOL,
+        amount,
+        blinding: sealed.output_blinding,
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let merge = ShieldedTransaction {
+        slot: u64::from(slot),
+        tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
+        tx_viewing_pk: Some(P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap()),
+        salt: None,
+        output_slots: vec![OutputSlot {
+            view_tag: owner.signing_pubkey().confidential_view_tag().unwrap(),
+            output_context: OutputContext {
+                hash: output
+                    .hash(
+                        &owner.nullifier_key.pubkey().unwrap(),
+                        &[0; 32],
+                        &[0; 32],
+                        wallet_common::TEST_TREE_ID,
+                    )
+                    .unwrap(),
+                tree_id: 0,
+                leaf_index: u64::from(slot),
+            },
+            payload: sealed.ciphertext.to_vec(),
+        }],
+        messages: Vec::new(),
+        nullifiers,
+        proofless: false,
+        ring_config: None,
+        ring_program_id: None,
+    };
+    (merge, output)
+}
 
 #[test]
 fn sync_stores_unified_change_and_recipient_utxos() {
@@ -87,96 +141,25 @@ fn fresh_sync_resolves_merge_dependencies() {
     funding.slot = 1;
     let input_context = &funding.output_slots[SENDER_SLOT_COUNT].output_context;
     let nullifier_key = &alice.nullifier_key;
-    let nullifier_pk = nullifier_key.pubkey().unwrap();
     let first_nullifier = input.nullifier(&input_context.hash, nullifier_key).unwrap();
-    let output = Utxo {
-        owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: input.amount,
-        blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
-        ring_program_id: None,
-        data: Data::default(),
-    };
     let mut nullifiers = vec![first_nullifier];
     nullifiers.extend(
         (1..MERGE_DEFAULT_INPUT_COUNT).map(|slot| {
             merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).unwrap()
         }),
     );
-    let merge = ShieldedTransaction {
-        slot: 2,
-        tx_signature: solana_signature::Signature::default(),
-        event_index: Some(0),
-        tx_viewing_pk: None,
-        salt: None,
-        output_slots: vec![OutputSlot {
-            view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
-            output_context: OutputContext {
-                hash: output
-                    .hash(
-                        &nullifier_pk,
-                        &[0; 32],
-                        &[0; 32],
-                        wallet_common::TEST_TREE_ID,
-                    )
-                    .unwrap(),
-                tree_id: 0,
-                leaf_index: 2,
-            },
-            payload: Vec::new(),
-        }],
-        messages: Vec::new(),
-        nullifiers,
-        proofless: false,
-        ring_config: None,
-        ring_program_id: None,
-    };
-    let merge_context = &merge.output_slots[0].output_context;
+    let (merge, output) = sealed_merge(&alice, input.amount, 2, nullifiers);
+    let merge_context = &merge.output_slots.first().unwrap().output_context;
     let chained_nullifier = output
         .nullifier(&merge_context.hash, nullifier_key)
         .unwrap();
-    let chained_output = Utxo {
-        owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: output.amount,
-        blinding: merge_output_blinding(nullifier_key, &chained_nullifier).unwrap(),
-        ring_program_id: None,
-        data: Data::default(),
-    };
     let mut chained_nullifiers = vec![chained_nullifier];
     chained_nullifiers.extend(
         (1..MERGE_DEFAULT_INPUT_COUNT).map(|slot| {
             merge_dummy_nullifier(nullifier_key, &chained_nullifier, slot as u8).unwrap()
         }),
     );
-    let chained_merge = ShieldedTransaction {
-        slot: 3,
-        tx_signature: solana_signature::Signature::default(),
-        event_index: Some(0),
-        tx_viewing_pk: None,
-        salt: None,
-        output_slots: vec![OutputSlot {
-            view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
-            output_context: OutputContext {
-                hash: chained_output
-                    .hash(
-                        &nullifier_pk,
-                        &[0; 32],
-                        &[0; 32],
-                        wallet_common::TEST_TREE_ID,
-                    )
-                    .unwrap(),
-                tree_id: 0,
-                leaf_index: 3,
-            },
-            payload: Vec::new(),
-        }],
-        messages: Vec::new(),
-        nullifiers: chained_nullifiers,
-        proofless: false,
-        ring_config: None,
-        ring_program_id: None,
-    };
+    let (chained_merge, _) = sealed_merge(&alice, output.amount, 3, chained_nullifiers);
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
 
     let mut fresh = Wallet::new(alice.shielded_address().unwrap(), assets.clone()).unwrap();
@@ -203,7 +186,12 @@ fn fresh_sync_resolves_merge_dependencies() {
         .sync(&authority, std::slice::from_ref(&chained_merge), 1, WINDOW)
         .unwrap();
     assert_eq!(incremental.balance(SOL_MINT, None).unwrap().amount, 42);
-    assert_eq!(fresh.utxos, incremental.utxos);
+    let by_position = |wallet: &Wallet| {
+        let mut utxos = wallet.utxos.clone();
+        utxos.sort_by_key(|utxo| (utxo.slot, utxo.leaf_index));
+        utxos
+    };
+    assert_eq!(by_position(&fresh), by_position(&incremental));
 }
 
 /// A compact merge publishes only its sent nullifiers: the padding slots are
@@ -231,45 +219,10 @@ fn sync_recovers_a_compact_merge() {
     );
     funding.slot = 1;
     let input_context = &funding.output_slots[SENDER_SLOT_COUNT].output_context;
-    let nullifier_key = &alice.nullifier_key;
-    let nullifier_pk = nullifier_key.pubkey().unwrap();
-    let first_nullifier = input.nullifier(&input_context.hash, nullifier_key).unwrap();
-    let output = Utxo {
-        owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: input.amount,
-        blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let merge = ShieldedTransaction {
-        slot: 2,
-        tx_signature: solana_signature::Signature::default(),
-        event_index: Some(0),
-        tx_viewing_pk: None,
-        salt: None,
-        output_slots: vec![OutputSlot {
-            view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
-            output_context: OutputContext {
-                hash: output
-                    .hash(
-                        &nullifier_pk,
-                        &[0; 32],
-                        &[0; 32],
-                        wallet_common::TEST_TREE_ID,
-                    )
-                    .unwrap(),
-                tree_id: 0,
-                leaf_index: 2,
-            },
-            payload: Vec::new(),
-        }],
-        messages: Vec::new(),
-        nullifiers: vec![first_nullifier],
-        proofless: false,
-        ring_config: None,
-        ring_program_id: None,
-    };
+    let first_nullifier = input
+        .nullifier(&input_context.hash, &alice.nullifier_key)
+        .unwrap();
+    let (merge, output) = sealed_merge(&alice, input.amount, 2, vec![first_nullifier]);
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
     let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
     let report = wallet

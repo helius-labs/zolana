@@ -3,8 +3,8 @@ module zolana/gnarkffiprover
 go 1.27.1
 
 require (
-	github.com/consensys/gnark v0.16.3
-	github.com/consensys/gnark-crypto v0.21.0
+	github.com/consensys/gnark v0.16.4
+	github.com/consensys/gnark-crypto v0.21.1-0.20260913224755-1409fe592052
 )
 
 require (

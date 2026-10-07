@@ -64,6 +64,7 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
+    ix.envelope_for_default_rail()?;
     validate_field_elements(&ix)?;
 
     let clock = Clock::get()?;
@@ -100,6 +101,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         MergeOwnerBinding::Default {
             signing_pk_field,
             nullifier_pk: pk_fields.nullifier_pk,
+            viewing_pk: pk_fields.viewing_pk,
         },
         cache,
         output_view_tag,

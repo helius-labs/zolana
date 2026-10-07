@@ -17,8 +17,8 @@ use zolana_interface::instruction::instruction_data::{
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
-        merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef,
-        MERGE_DEFAULT_INPUT_COUNT,
+        merge_circuit_width, MergeEnvelope, MergeProof, MergeTransactIxData,
+        MergeTransactIxDataRef, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
     },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
@@ -151,6 +151,23 @@ mod strategies {
             )
     }
 
+    pub fn merge_envelope() -> impl Strategy<Value = MergeEnvelope> {
+        (
+            any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
+            any::<[u8; 33]>(),
+            any::<[u8; MERGE_CIPHERTEXT_LEN]>(),
+        )
+            .prop_map(|(commitment, commitment_pok, ephemeral_pk, ciphertext)| {
+                MergeEnvelope {
+                    commitment,
+                    commitment_pok,
+                    ephemeral_pk,
+                    ciphertext,
+                }
+            })
+    }
+
     pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
         (
             any::<u64>(),
@@ -161,6 +178,7 @@ mod strategies {
             any::<u16>(),
             any::<[u8; 32]>(),
             any::<bool>(),
+            prop::option::of(merge_envelope()),
         )
             .prop_map(
                 |(
@@ -172,8 +190,10 @@ mod strategies {
                     nullifier_tree_root_index,
                     private_tx_hash,
                     eddsa_owner,
+                    envelope,
                 )| {
                     MergeTransactIxData {
+                        envelope,
                         cache_slot: None,
                         expiry_unix_ts,
                         proof: MergeProof { a, b, c },
@@ -338,6 +358,7 @@ proptest! {
         if let Ok(view) = view {
             prop_assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
             prop_assert_eq!(view.nullifier_tree_root_index, owned.nullifier_tree_root_index);
+            prop_assert_eq!(view.envelope.is_some(), owned.envelope.is_some());
         }
 
         let mut resized = owned.clone();
@@ -367,7 +388,7 @@ proptest! {
         let bytes = owned.serialize().expect("serialize merge_ring ix");
         prop_assert_eq!(
             MergeRingIxDataRef::from_bytes(&bytes).is_ok(),
-            !clear_nullifiers
+            !clear_nullifiers && owned.merge.envelope.is_none()
         );
     }
 

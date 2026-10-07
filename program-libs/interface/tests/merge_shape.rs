@@ -1,10 +1,35 @@
-use zolana_interface::instruction::instruction_data::merge_transact::{
-    merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
-    MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{
+        instruction_data::{
+            merge_ring::MergeRingIxDataRef,
+            merge_transact::{
+                merge_circuit_width, MergeEnvelope, MergeProof, MergeTransactIxData,
+                MergeTransactIxDataRef, MAX_MERGE_INPUTS, MERGE_CIPHERTEXT_LEN,
+                MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
+            },
+        },
+        MergeRingIxData,
+    },
+};
+
+const DEFAULT_RAIL_FIXED_LEN: usize = 409;
+const NO_ENVELOPE_FIXED_LEN: usize = 272;
+
+const VECTOR_ENVELOPE: MergeEnvelope = MergeEnvelope {
+    commitment: [0x41; 32],
+    commitment_pok: [0x42; 32],
+    ephemeral_pk: {
+        let mut point = [0x43; 33];
+        point[0] = 0x02;
+        point
+    },
+    ciphertext: [0x44; MERGE_CIPHERTEXT_LEN],
 };
 
 fn data_with(input_count: usize) -> MergeTransactIxData {
     MergeTransactIxData {
+        envelope: Some(VECTOR_ENVELOPE),
         cache_slot: None,
         expiry_unix_ts: 42,
         proof: MergeProof {
@@ -21,15 +46,58 @@ fn data_with(input_count: usize) -> MergeTransactIxData {
     }
 }
 
+fn ring_data_with(input_count: usize) -> MergeRingIxData {
+    let mut merge = data_with(input_count);
+    merge.envelope = None;
+    MergeRingIxData {
+        output_ring_data_hash: [7; 32],
+        merge,
+    }
+}
+
 #[test]
 fn every_supported_shape_has_the_contracted_encoded_length() {
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
-        let bytes = data_with(input_count)
-            .serialize()
-            .expect("serialize merge instruction");
-        assert_eq!(bytes.len(), 271 + 32 * input_count);
+        let mut data = data_with(input_count);
+        let bytes = data.serialize().expect("serialize merge instruction");
+        assert_eq!(bytes.len(), DEFAULT_RAIL_FIXED_LEN + 32 * input_count);
         MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
+
+        data.envelope = None;
+        let bytes = data.serialize().expect("serialize merge instruction");
+        assert_eq!(bytes.len(), NO_ENVELOPE_FIXED_LEN + 32 * input_count);
+        MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
+
+        let bytes = ring_data_with(input_count)
+            .serialize()
+            .expect("serialize merge_ring instruction");
+        assert_eq!(bytes.len(), 32 + NO_ENVELOPE_FIXED_LEN + 32 * input_count);
+        MergeRingIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
     }
+}
+
+#[test]
+fn default_rail_without_an_envelope_is_rejected() {
+    let mut owned = data_with(MERGE_DEFAULT_INPUT_COUNT);
+    owned.envelope = None;
+    let bytes = owned.serialize().unwrap();
+    let view = MergeTransactIxDataRef::from_bytes(&bytes).unwrap();
+    assert_eq!(view.envelope, None);
+    assert_eq!(
+        view.envelope_for_default_rail(),
+        Err(ShieldedPoolError::MergeEnvelopeMissing)
+    );
+}
+
+#[test]
+fn ring_rail_rejects_an_envelope() {
+    let mut owned = ring_data_with(MERGE_DEFAULT_INPUT_COUNT);
+    owned.merge.envelope = Some(VECTOR_ENVELOPE);
+    let bytes = owned.serialize().unwrap();
+    assert_eq!(
+        MergeRingIxDataRef::from_bytes(&bytes),
+        Err(ShieldedPoolError::MergeEnvelopeUnexpected)
+    );
 }
 
 #[test]
@@ -51,6 +119,12 @@ fn rejects_unsupported_input_counts() {
             .expect("serialize merge instruction");
         assert!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_err(),
+            "{input_count} nullifiers"
+        );
+        let bytes = ring_data_with(input_count).serialize().unwrap();
+        assert_eq!(
+            MergeRingIxDataRef::from_bytes(&bytes),
+            Err(ShieldedPoolError::InvalidMergeShape),
             "{input_count} nullifiers"
         );
     }
@@ -76,10 +150,7 @@ fn every_count_up_to_the_widest_shape_selects_the_narrowest_circuit() {
 
 #[test]
 fn cache_slot_round_trips_in_both_merge_rails() {
-    use zolana_interface::instruction::{
-        instruction_data::merge_ring::MergeRingIxDataRef, MergeRingIxData,
-    };
-    for (cache_slot, encoded_len) in [(None, 527), (Some(0), 528), (Some(35), 528)] {
+    for (cache_slot, encoded_len) in [(None, 665), (Some(0), 666), (Some(35), 666)] {
         let mut data = data_with(8);
         data.cache_slot = cache_slot;
         let bytes = data.serialize().unwrap();
@@ -90,11 +161,13 @@ fn cache_slot_round_trips_in_both_merge_rails() {
                 .cache_slot,
             cache_slot
         );
-        let ring = MergeRingIxData {
-            output_ring_data_hash: [7; 32],
-            merge: data,
-        };
+        let mut ring = ring_data_with(8);
+        ring.merge.cache_slot = cache_slot;
         let bytes = ring.serialize().unwrap();
+        assert_eq!(
+            bytes.len(),
+            32 + encoded_len - (DEFAULT_RAIL_FIXED_LEN - NO_ENVELOPE_FIXED_LEN)
+        );
         assert_eq!(
             MergeRingIxDataRef::from_bytes(&bytes)
                 .unwrap()
@@ -103,6 +176,25 @@ fn cache_slot_round_trips_in_both_merge_rails() {
             cache_slot
         );
     }
+}
+
+#[test]
+fn external_data_hash_is_injective() {
+    use zolana_interface::instruction::{tag, MergeExternalDataHash};
+    let hash_of = |discriminator: u8, expiry: u64, output: &[u8; 32]| {
+        MergeExternalDataHash {
+            cache: None,
+            spp_instruction_discriminator: discriminator,
+            expiry_unix_ts: expiry,
+            output_utxo_hash: output,
+        }
+        .hash()
+        .unwrap()
+    };
+    let base = hash_of(tag::MERGE_TRANSACT, 1, &[1u8; 32]);
+    assert_ne!(base, hash_of(tag::MERGE_TRANSACT, 2, &[1u8; 32]));
+    assert_ne!(base, hash_of(tag::MERGE_TRANSACT, 1, &[2u8; 32]));
+    assert_ne!(base, hash_of(tag::RING_MERGE_TRANSACT, 1, &[1u8; 32]));
 }
 
 #[test]
@@ -140,11 +232,16 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn merge_encoding(input_count: usize, cache: Option<(&[u8; 32], u8)>) -> ([u8; 32], [u8; 32]) {
+fn merge_encoding(
+    input_count: usize,
+    cache: Option<(&[u8; 32], u8)>,
+    envelope: Option<MergeEnvelope>,
+) -> ([u8; 32], [u8; 32]) {
     use zolana_hasher::{sha256::Sha256, Hasher};
     use zolana_interface::instruction::{tag, MergeExternalDataHash};
     let mut data = data_with(input_count);
     data.cache_slot = cache.map(|(_, slot)| slot);
+    data.envelope = envelope;
     let instruction_sha256 = Sha256::hash(&data.serialize().unwrap()).unwrap();
     let external_data_hash = MergeExternalDataHash {
         spp_instruction_discriminator: tag::MERGE_TRANSACT,
@@ -158,15 +255,28 @@ fn merge_encoding(input_count: usize, cache: Option<(&[u8; 32], u8)>) -> ([u8; 3
 }
 
 fn compute_merge_encoding_vector() -> serde_json::Value {
-    let (instruction_sha256, external_data_hash) = merge_encoding(MERGE_DEFAULT_INPUT_COUNT, None);
+    let (instruction_sha256, external_data_hash) =
+        merge_encoding(MERGE_DEFAULT_INPUT_COUNT, None, Some(VECTOR_ENVELOPE));
     let (cached_instruction_sha256, cached_external_data_hash) = merge_encoding(
         MERGE_DEFAULT_INPUT_COUNT,
         Some((&VECTOR_CACHE_ADDRESS, VECTOR_CACHE_SLOT)),
+        Some(VECTOR_ENVELOPE),
     );
-    let (wide_instruction_sha256, _) = merge_encoding(MAX_MERGE_INPUTS, None);
+    let (wide_instruction_sha256, _) =
+        merge_encoding(MAX_MERGE_INPUTS, None, Some(VECTOR_ENVELOPE));
+    let (no_envelope_instruction_sha256, _) = merge_encoding(MERGE_DEFAULT_INPUT_COUNT, None, None);
     serde_json::json!({
+        "envelope": {
+            "commitment": hex(&VECTOR_ENVELOPE.commitment),
+            "commitment_pok": hex(&VECTOR_ENVELOPE.commitment_pok),
+            "ephemeral_pk": hex(&VECTOR_ENVELOPE.ephemeral_pk),
+            "ciphertext": hex(&VECTOR_ENVELOPE.ciphertext),
+        },
         "instruction_sha256": hex(&instruction_sha256),
         "external_data_hash": hex(&external_data_hash),
+        "no_envelope": {
+            "instruction_sha256": hex(&no_envelope_instruction_sha256),
+        },
         "cached": {
             "cache_address": hex(&VECTOR_CACHE_ADDRESS),
             "cache_slot": VECTOR_CACHE_SLOT,
@@ -211,6 +321,18 @@ fn wide_merge_matches_the_shared_encoding_vector() {
     assert_eq!(
         committed_merge_encoding_vector()["wide"],
         compute_merge_encoding_vector()["wide"]
+    );
+}
+
+#[test]
+fn envelope_and_no_envelope_merges_match_the_shared_encoding_vector() {
+    let vector = committed_merge_encoding_vector();
+    let computed = compute_merge_encoding_vector();
+    assert_eq!(vector["envelope"], computed["envelope"]);
+    assert_eq!(vector["no_envelope"], computed["no_envelope"]);
+    assert_ne!(
+        vector["no_envelope"]["instruction_sha256"],
+        vector["instruction_sha256"]
     );
 }
 

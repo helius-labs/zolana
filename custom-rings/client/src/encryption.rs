@@ -16,21 +16,20 @@
 //! ```
 //!
 //! `pack.go` is the source of truth for the packing of `dh` and of the 33-byte
-//! compressed keys into pairs of field elements; [`pack32_to_2fe`] and
-//! [`pack33_to_2fe`] mirror it. The key schedule and the CTR keystream come from
+//! compressed keys into pairs of field elements; [`pack_be`] mirrors it. The
+//! key schedule and the CTR keystream come from
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
 
 use custom_ring_interface::{
-    pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
-    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS,
-    COMPRESSED_P256_KEY_LEN,
+    AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT,
+    AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS, COMPRESSED_P256_KEY_LEN,
 };
 use num_bigint::BigUint;
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use zolana_hasher::primitives::{pack_be, BN254_SCALAR_MODULUS_BE};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
@@ -286,7 +285,7 @@ fn apply_disclosure_stream(
     encrypt: bool,
 ) -> Result<[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]> {
     const DOMAIN: u64 = 0x4352_5f4f44;
-    let FieldPair { lo, hi } = pack32_to_2fe(&tx_viewing_key.secret_bytes());
+    let [lo, hi] = pack_be::<32, 2>(&tx_viewing_key.secret_bytes());
     let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
     let mut out = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
     for (index, (field, result)) in fields.into_iter().zip(out.iter_mut()).enumerate() {
@@ -425,18 +424,9 @@ struct AuditDecryption<'a> {
 
 impl AuditSharedSecret<'_> {
     pub fn derive(self) -> Result<Zeroizing<[u8; 32]>> {
-        let FieldPair {
-            lo: dh_lo,
-            hi: dh_hi,
-        } = pack32_to_2fe(self.diffie_hellman_x);
-        let FieldPair {
-            lo: eph_lo,
-            hi: eph_hi,
-        } = pack33_to_2fe(self.ephemeral_key.as_bytes());
-        let FieldPair {
-            lo: auditor_lo,
-            hi: auditor_hi,
-        } = pack33_to_2fe(self.auditor_key.as_bytes());
+        let [dh_lo, dh_hi] = pack_be::<32, 2>(self.diffie_hellman_x);
+        let [eph_lo, eph_hi] = pack_be::<33, 2>(self.ephemeral_key.as_bytes());
+        let [auditor_lo, auditor_hi] = pack_be::<33, 2>(self.auditor_key.as_bytes());
         Ok(Zeroizing::new(poseidon(&[
             &right_align(&DOM_SEP_CR_SHARED.to_be_bytes()),
             &dh_lo,

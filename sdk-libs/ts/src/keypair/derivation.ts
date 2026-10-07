@@ -77,6 +77,11 @@ export const DOM_SEP_NONCE = 0x544d_534e;
 
 export const DOMAIN_MERGE_OUTPUT_BLINDING_V1 = 0x544d_4f42;
 export const DOMAIN_MERGE_DUMMY_NULLIFIER = 0x544d_444e;
+export const DOMAIN_MERGE_DERIVED_BLINDING = 0x544d_4542;
+
+export const MERGE_SECRET_TAG = encoder.encode("TMES");
+
+export const MERGE_ENVELOPE_INFO = Uint8Array.of(0, 0, 0, 0, 0, 0, ...encoder.encode("TMEC"));
 
 /** `"TXOS"`: the seed every transact output blinding derives from. */
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1 = 0x5458_4f53;

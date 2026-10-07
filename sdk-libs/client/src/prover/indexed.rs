@@ -413,7 +413,7 @@ impl IndexedCircuit {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
             Self::TransferP256Ring => 19,
-            Self::Merge => 8,
+            Self::Merge => 12,
             Self::MergeRing => 8,
         }
     }

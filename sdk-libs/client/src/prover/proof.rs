@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use zolana_interface::instruction::{
     instruction_data::{
-        merge_transact::MergeProof,
+        merge_transact::{MergeEnvelope, MergeProof},
         transact::{Bsb22Commitment, TransactProof},
     },
     NullifierTreeProof,
 };
+use zolana_keypair::SealedMergeEnvelope;
 
 use crate::error::ClientError;
 
@@ -111,20 +112,38 @@ impl ProofCompressed {
         ))
     }
 
-    /// The merge proof: a vanilla Groth16 triple ([`MergeProof`]). The merge
-    /// circuit carries no P256 gadget, so it has no BSB22 commitment; one is
-    /// rejected (wrong rail?).
-    pub fn to_merge_proof(&self) -> Result<MergeProof, ClientError> {
-        if self.commitment.is_some() {
-            return Err(ClientError::ProofParse(
-                "merge proof carries an unexpected BSB22 commitment (wrong rail?)".to_string(),
-            ));
-        }
-        Ok(MergeProof {
-            a: self.a,
-            b: self.b,
-            c: self.c,
-        })
+    pub(crate) fn into_merge_parts(
+        self,
+        sealed: Option<&SealedMergeEnvelope>,
+    ) -> Result<(MergeProof, Option<MergeEnvelope>), ClientError> {
+        let envelope = match (self.commitment, sealed) {
+            (Some(commitment), Some(sealed)) => Some(MergeEnvelope {
+                commitment: commitment.commitment,
+                commitment_pok: commitment.commitment_pok,
+                ephemeral_pk: sealed.ephemeral_pk,
+                ciphertext: sealed.ciphertext,
+            }),
+            (None, None) => None,
+            (None, Some(_)) => {
+                return Err(ClientError::ProofParse(
+                    "default merge proof is missing its BSB22 commitment (wrong rail?)".to_string(),
+                ))
+            }
+            (Some(_), None) => {
+                return Err(ClientError::ProofParse(
+                    "ring merge proof carries an unexpected BSB22 commitment (wrong rail?)"
+                        .to_string(),
+                ))
+            }
+        };
+        Ok((
+            MergeProof {
+                a: self.a,
+                b: self.b,
+                c: self.c,
+            },
+            envelope,
+        ))
     }
 
     /// `b` in the 64-byte compressed G2 encoding, for the one format that
@@ -281,25 +300,24 @@ mod tests {
     }
 
     #[test]
-    fn to_merge_proof_maps_points() {
+    fn ring_merge_parts_map_points() {
         let vanilla = ProofCompressed {
             commitment: None,
             ..proof_with_commitment()
         };
-        let proof = vanilla.to_merge_proof().expect("merge proof maps");
+        let (proof, envelope) = vanilla.into_merge_parts(None).expect("merge proof maps");
 
         assert_eq!(proof.a, [1u8; 32]);
         assert_eq!(proof.b, [2u8; 128]);
         assert_eq!(proof.c, [3u8; 32]);
+        assert!(envelope.is_none());
     }
 
-    /// The merge circuit has no P256 gadget: a BSB22-committed proof is not a
-    /// merge proof.
     #[test]
-    fn to_merge_proof_rejects_a_proof_with_a_commitment() {
+    fn ring_merge_parts_reject_a_proof_with_a_commitment() {
         let error = proof_with_commitment()
-            .to_merge_proof()
-            .expect_err("a committed proof is not a merge proof");
+            .into_merge_parts(None)
+            .expect_err("a committed proof is not a ring merge proof");
 
         assert!(matches!(error, ClientError::ProofParse(_)));
     }

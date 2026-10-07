@@ -2,25 +2,44 @@ mod common;
 
 use std::cell::RefCell;
 
-use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
-use zolana_event::OutputDataEncoding;
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{
+    MergeEnvelopeOpen, OpenedMergeEnvelope, P256Pubkey, ShieldedAddress, ShieldedKeypair,
+    SigningKey, ViewingKey,
+};
 use zolana_transaction::{
     instructions::merge::{
-        merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
-        MergeTransaction, MAX_MERGE_INPUTS,
+        merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeBlindingSource,
+        MergeProofInputs, MergeTransaction, MAX_MERGE_INPUTS,
     },
-    serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::SppProofInputUtxo,
-    Address, Data, DataRecord, DecodeCx, DecryptRequest, DeriveRequest, EncryptedScheme, Mint,
-    ShieldedKeys, TransactionError, TransactionKeyRequest, UtxoSerialization, WalletUtxo,
+    Address, Data, DataRecord, DecryptRequest, DeriveRequest, Mint, ShieldedKeys, TransactionError,
+    TransactionKeyRequest, Utxo, WalletUtxo,
 };
 
 fn inputs(owner: &ShieldedKeypair, count: u8) -> Vec<WalletUtxo> {
     (1..=count)
         .map(|nonce| wallet_utxo(owner, Mint::SOL, 2, 0, nonce))
         .collect()
+}
+
+fn ring_input(
+    owner: &ShieldedKeypair,
+    ring: Address,
+    mint: Mint,
+    amount: u64,
+    nonce: u8,
+) -> WalletUtxo {
+    let mut note = wallet_utxo(owner, mint, amount, 0, nonce);
+    note.utxo.ring_program_id = Some(ring);
+    note.utxo_hash = note
+        .utxo
+        .hash(&note.nullifier_pubkey, &[0; 32], &[0; 32], 0)
+        .unwrap();
+    note.nullifier = owner
+        .nullifier(&note.utxo_hash, &note.utxo.blinding)
+        .unwrap();
+    note
 }
 
 fn assert_preserved(actual: &SppProofInputUtxo, expected: &WalletUtxo) {
@@ -48,44 +67,21 @@ fn assert_preserved(actual: &SppProofInputUtxo, expected: &WalletUtxo) {
     );
 }
 
-fn recover(
-    result: &MergeProofInputs,
-    tx: &ViewingKey,
-    recipient: &ViewingKey,
-) -> ConfidentialOutputPlaintext {
-    let OutputDataEncoding::Encrypted(blob) =
-        OutputDataEncoding::try_from_slice(&result.output_data.data).expect("envelope")
-    else {
-        panic!("encrypted merge output");
-    };
-    let (scheme, body) = blob.split_first().expect("scheme");
-    assert_eq!(
-        *scheme,
-        if result.ring_program_id.is_some() {
-            EncryptedScheme::RingConfidential.as_byte()
-        } else {
-            EncryptedScheme::Confidential.as_byte()
-        }
-    );
-    assert_eq!(
-        Confidential::embedded_viewing_pk(body).unwrap(),
-        recipient.pubkey()
-    );
-    let recipient_plaintext = Confidential::decode(
-        body,
-        &DecodeCx {
-            viewing_key: recipient,
-            tx_viewing_pk: Some(P256Pubkey::from_bytes(result.tx_viewing_pk).unwrap()),
-            salt: Some(result.salt),
-            slot_index: 0,
-            first_nullifier: None,
-        },
-    )
-    .expect("recipient recovers merge");
-    let tx_plaintext = Confidential::decrypt_with_tx_key(tx, body, result.salt, 0)
-        .expect("transaction key recovers merge");
-    assert_eq!(recipient_plaintext, tx_plaintext);
-    recipient_plaintext
+fn open(result: &MergeProofInputs, recipient: &ViewingKey) -> OpenedMergeEnvelope {
+    let sealed = result
+        .sealed_envelope()
+        .unwrap()
+        .expect("default merge envelope");
+    let ephemeral_pk = P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap();
+    let opened = MergeEnvelopeOpen {
+        viewing_key: recipient,
+        ephemeral_pk: &ephemeral_pk,
+        ciphertext: &sealed.ciphertext,
+    }
+    .open()
+    .unwrap();
+    assert_eq!(opened.output_blinding, sealed.output_blinding);
+    opened
 }
 
 #[test]
@@ -131,8 +127,6 @@ fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
     let sender = owner.shielded_address().unwrap();
     for (count, padded) in [(1, 8), (8, 8), (9, 24), (24, 24), (25, 54), (54, 54)] {
         let notes = inputs(&owner, count);
-        let first_nullifier = notes.first().unwrap().nullifier;
-        let tx = owner.get_transaction_viewing_key(&first_nullifier).unwrap();
         let result = MergeTransaction::new(notes.clone())
             .unwrap()
             .with_expiry(12345)
@@ -148,16 +142,19 @@ fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
             .iter()
             .skip(notes.len())
             .all(|input| input.is_compact() && input.utxo.amount == 0));
-        let expected_blinding =
-            merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap();
-        let expected = ConfidentialOutputPlaintext {
-            asset_id: Mint::SOL.asset_id,
-            amount: u64::from(count) * 2,
-            blinding: expected_blinding,
-            ring_program_id: None,
-            data: Data::default(),
-        };
-        assert_eq!(recover(&result, &tx, &owner.viewing_key), expected);
+        let opened = open(&result, &owner.viewing_key);
+        assert_eq!(
+            opened,
+            OpenedMergeEnvelope {
+                amount: u64::from(count) * 2,
+                mint: Mint::SOL.asset.to_bytes(),
+                output_blinding: result.output_utxo.blinding,
+            }
+        );
+        assert_eq!(
+            result.envelope.as_ref().map(|envelope| envelope.recipient),
+            Some(sender.viewing_pubkey)
+        );
         assert_eq!(
             (
                 result.expiry_unix_ts,
@@ -168,14 +165,14 @@ fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
             (12345, 17, sender.signing_pubkey, None)
         );
         assert_eq!(result.output_utxo.owner_address, Some(sender));
-        assert_eq!(result.tx_viewing_pk, *tx.pubkey().as_bytes());
-        assert_eq!(
-            result.output_data.view_tag,
-            sender.signing_pubkey.confidential_view_tag().unwrap()
-        );
-        let recovered = expected
-            .into_utxo(sender.signing_pubkey, &Default::default())
-            .unwrap();
+        let recovered = Utxo {
+            owner: sender.signing_pubkey,
+            asset: Mint::SOL,
+            amount: opened.amount,
+            blinding: opened.output_blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
         assert_eq!(
             recovered
                 .hash(&sender.nullifier_pubkey, &[0; 32], &[0; 32], 17)
@@ -393,9 +390,7 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
     ring_note.nullifier = owner
         .nullifier(&ring_note.utxo_hash, &ring_note.utxo.blinding)
         .unwrap();
-    let tx = owner
-        .get_transaction_viewing_key(&ring_note.nullifier)
-        .unwrap();
+    let first_nullifier = ring_note.nullifier;
     let result = MergeTransaction::new_with_ring(vec![ring_note], ring, Some([4; 32]))
         .unwrap()
         .encrypt(&owner)
@@ -403,10 +398,13 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
     assert_eq!(result.output_utxo.ring_data_hash, Some([4; 32]));
     assert_eq!(result.output_utxo.ring_program_id, Some(ring));
     assert_eq!(result.input_utxo_hashes().unwrap().len(), 1);
-    let plaintext = recover(&result, &tx, &owner.viewing_key);
+    assert!(result.envelope.is_none());
     assert_eq!(
-        (plaintext.amount, plaintext.ring_program_id, plaintext.data),
-        (2, Some(ring), Data::default())
+        (result.output_utxo.amount, result.output_utxo.blinding),
+        (
+            2,
+            merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap()
+        )
     );
 }
 
@@ -447,7 +445,11 @@ fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
         assert_eq!(
             MergeTransaction::new(notes)
                 .unwrap()
-                .encrypt_with_viewing_key(&sender, &tx, [0; 32], &[])
+                .encrypt_with(
+                    &sender,
+                    MergeBlindingSource::Envelope { ephemeral: &tx },
+                    &[]
+                )
                 .err(),
             Some(error)
         );
@@ -546,20 +548,14 @@ fn merge_routes_key_requests_and_propagates_failures() {
         (Reply::Normal, None),
         (
             Reply::EmptyDerive,
-            Some(TransactionError::IncompleteDerivation { got: 0, want: 8 }),
+            Some(TransactionError::IncompleteDerivation { got: 0, want: 7 }),
         ),
-        (
-            Reply::EmptyKey,
-            Some(TransactionError::IncompleteDerivation { got: 0, want: 1 }),
-        ),
+        (Reply::EmptyKey, None),
         (
             Reply::DeriveError,
             Some(TransactionError::Authority("derive".into())),
         ),
-        (
-            Reply::KeyError,
-            Some(TransactionError::Authority("key".into())),
-        ),
+        (Reply::KeyError, None),
         (
             Reply::AddressError,
             Some(TransactionError::Authority("address".into())),
@@ -574,41 +570,126 @@ fn merge_routes_key_requests_and_propagates_failures() {
         let notes = inputs(&keys.owner, 1);
         let first_nullifier = notes.first().unwrap().nullifier;
         let result = MergeTransaction::new(notes).unwrap().encrypt(&keys);
+        assert!(keys.keys.borrow().is_empty(), "a merge needs no tx key");
         if let Some(error) = expected_error {
             assert_eq!(result.err(), Some(error));
-        } else {
-            let output = result.unwrap();
-            assert_eq!(
-                *keys.derived.borrow(),
-                std::iter::once(DeriveRequest::MergeOutputBlinding { first_nullifier })
-                    .chain((1..8).map(|slot_index| DeriveRequest::MergeDummyNullifier {
-                        first_nullifier,
-                        slot_index
-                    }))
-                    .collect::<Vec<_>>()
-            );
-            assert_eq!(
-                *keys.keys.borrow(),
-                vec![TransactionKeyRequest {
-                    viewing_pubkey: keys.owner.viewing_pubkey(),
-                    first_nullifier
-                }]
-            );
-            assert_eq!(
-                output.output_utxo.blinding,
-                merge_output_blinding(&keys.owner.nullifier_key, &first_nullifier).unwrap()
-            );
+            continue;
         }
-        if matches!(
-            reply,
-            Reply::EmptyDerive | Reply::DeriveError | Reply::AddressError
-        ) {
-            assert!(
-                keys.keys.borrow().is_empty(),
-                "no later key call after failure"
-            );
-        }
+        let output = result.unwrap();
+        assert_eq!(
+            *keys.derived.borrow(),
+            (1..8)
+                .map(|slot_index| DeriveRequest::MergeDummyNullifier {
+                    first_nullifier,
+                    slot_index
+                })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            output.output_utxo.blinding,
+            open(&output, &keys.owner.viewing_key).output_blinding
+        );
     }
+}
+
+#[test]
+fn ring_merge_derives_its_output_blinding_from_the_nullifier_secret() {
+    let keys = RecordingKeys {
+        owner: keypair(7),
+        reply: Reply::Normal,
+        derived: RefCell::new(vec![]),
+        keys: RefCell::new(vec![]),
+    };
+    let ring = Address::new_from_array([8; 32]);
+    let note = ring_input(&keys.owner, ring, Mint::SOL, 2, 1);
+    let first_nullifier = note.nullifier;
+    let output = MergeTransaction::new_with_ring(vec![note], ring, None)
+        .unwrap()
+        .encrypt(&keys)
+        .unwrap();
+    assert_eq!(
+        *keys.derived.borrow(),
+        std::iter::once(DeriveRequest::MergeOutputBlinding { first_nullifier })
+            .chain((1..8).map(|slot_index| DeriveRequest::MergeDummyNullifier {
+                first_nullifier,
+                slot_index
+            }))
+            .collect::<Vec<_>>()
+    );
+    assert!(output.envelope.is_none());
+    assert_eq!(
+        output.output_utxo.blinding,
+        merge_output_blinding(&keys.owner.nullifier_key, &first_nullifier).unwrap()
+    );
+}
+
+#[test]
+fn merge_blinding_source_must_match_the_rail() {
+    let owner = keypair(7);
+    let sender = owner.shielded_address().unwrap();
+    let ring = Address::new_from_array([8; 32]);
+    let ephemeral = ViewingKey::new();
+    assert_eq!(
+        MergeTransaction::new_with_ring(
+            vec![ring_input(&owner, ring, Mint::SOL, 2, 1)],
+            ring,
+            None
+        )
+        .unwrap()
+        .encrypt_with(
+            &sender,
+            MergeBlindingSource::Envelope {
+                ephemeral: &ephemeral
+            },
+            &[[0; 32]; 7]
+        )
+        .err(),
+        Some(TransactionError::MergeBlindingRailMismatch)
+    );
+    assert_eq!(
+        MergeTransaction::new(inputs(&owner, 1))
+            .unwrap()
+            .encrypt_with(
+                &sender,
+                MergeBlindingSource::Derived {
+                    output_blinding: [6; 32]
+                },
+                &[[0; 32]; 7]
+            )
+            .err(),
+        Some(TransactionError::MergeBlindingRailMismatch)
+    );
+}
+
+#[test]
+fn default_merge_envelope_seals_to_the_owner_with_the_given_ephemeral_key() {
+    let owner = keypair(7);
+    let notes = inputs(&owner, 1);
+    let first_nullifier = notes.first().unwrap().nullifier;
+    let dummy_nullifiers = (1..8)
+        .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, slot).unwrap())
+        .collect::<Vec<_>>();
+    let ephemeral = ViewingKey::from_bytes(&[3; 32]).unwrap();
+    let result = MergeTransaction::new(notes)
+        .unwrap()
+        .encrypt_with(
+            &owner.shielded_address().unwrap(),
+            MergeBlindingSource::Envelope {
+                ephemeral: &ephemeral,
+            },
+            &dummy_nullifiers,
+        )
+        .unwrap();
+    let sealed = result.sealed_envelope().unwrap().unwrap();
+    assert_eq!(sealed.ephemeral_pk, *ephemeral.pubkey().as_bytes());
+    let foreign = MergeEnvelopeOpen {
+        viewing_key: &keypair(9).viewing_key,
+        ephemeral_pk: &ephemeral.pubkey(),
+        ciphertext: &sealed.ciphertext,
+    }
+    .open()
+    .unwrap();
+    assert_ne!(foreign.output_blinding, result.output_utxo.blinding);
 }
 
 #[test]
@@ -619,20 +700,8 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
     let ring = Address::new_from_array([8; 32]);
     let notes: Vec<_> = [(5, 1), (9, 2)]
         .into_iter()
-        .map(|(amount, nonce)| {
-            let mut note = wallet_utxo(&owner, mint, amount, 0, nonce);
-            note.utxo.ring_program_id = Some(ring);
-            note.utxo_hash = note
-                .utxo
-                .hash(&note.nullifier_pubkey, &[0; 32], &[0; 32], 0)
-                .unwrap();
-            note.nullifier = owner
-                .nullifier(&note.utxo_hash, &note.utxo.blinding)
-                .unwrap();
-            note
-        })
+        .map(|(amount, nonce)| ring_input(&owner, ring, mint, amount, nonce))
         .collect();
-    let tx = ViewingKey::new();
     let first_nullifier = notes.first().unwrap().nullifier;
     let dummy_nullifiers = (2..8)
         .map(|slot| merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, slot).unwrap())
@@ -641,28 +710,34 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
         .unwrap()
         .with_expiry(500)
         .with_output_tree_id(12)
-        .encrypt_with_viewing_key(&sender, &tx, [6; 32], &dummy_nullifiers)
+        .encrypt_with(
+            &sender,
+            MergeBlindingSource::Derived {
+                output_blinding: [6; 32],
+            },
+            &dummy_nullifiers,
+        )
         .unwrap();
-    let expected = ConfidentialOutputPlaintext {
-        asset_id: 77,
+    assert!(result.envelope.is_none());
+    assert_eq!(
+        (
+            result.output_utxo.asset,
+            result.output_utxo.amount,
+            result.output_utxo.blinding,
+            result.output_utxo.ring_data_hash,
+            result.output_tree_id,
+            result.expiry_unix_ts
+        ),
+        (mint, 14, [6; 32], None, 12, 500)
+    );
+    let recovered = Utxo {
+        owner: sender.signing_pubkey,
+        asset: mint,
         amount: 14,
         blinding: [6; 32],
         ring_program_id: Some(ring),
         data: Data::default(),
     };
-    assert_eq!(recover(&result, &tx, &owner.viewing_key), expected);
-    assert_eq!(
-        (
-            result.output_utxo.asset,
-            result.output_utxo.amount,
-            result.output_utxo.ring_data_hash,
-            result.output_tree_id,
-            result.expiry_unix_ts
-        ),
-        (mint, 14, None, 12, 500)
-    );
-    let assets = zolana_transaction::AssetRegistry::new([(77, mint.asset)]).unwrap();
-    let recovered = expected.into_utxo(sender.signing_pubkey, &assets).unwrap();
     assert_eq!(
         recovered
             .hash(&sender.nullifier_pubkey, &[0; 32], &[0; 32], 12)

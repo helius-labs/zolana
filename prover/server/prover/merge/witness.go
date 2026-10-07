@@ -2,20 +2,16 @@ package merge
 
 import (
 	"fmt"
+	"math/big"
 
 	mergecircuit "zolana/prover/circuits/spp_merge"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
 )
 
-// CreateWitness assigns the pre-computed parameters onto the merge circuit. It
-// performs no hashing — every signal is taken verbatim from the client params.
-// The merge-ring rail (CircuitType == MergeRingCircuitType) is assigned onto the
-// policy-ring circuit, which additionally carries the top-level
-// OutputRingDataHash and RingProgramID; every other rail uses the default merge
-// circuit.
 func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 	if p.CircuitType == common.MergeRingCircuitType {
 		return p.createRingWitness()
@@ -29,7 +25,13 @@ func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) 
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
-	circuit.Asset = p.Asset
+	circuit.MintChunks = p.mintChunks()
+	for i, b := range p.ViewingPk {
+		circuit.ViewingPk[i] = b
+	}
+	for i, b := range p.EphemeralSk {
+		circuit.EphemeralSk[i] = b
+	}
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
@@ -59,7 +61,7 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
-	circuit.Asset = p.Asset
+	circuit.MintChunks = p.mintChunks()
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
@@ -84,9 +86,13 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	return circuit, nil
 }
 
-// assignTreeSlots fills the circuit's pre-allocated slots. The count is fixed
-// by the compiled skeleton, so a request with any other count is rejected here
-// as well as in ValidateShape: CreateWitness is reachable without it.
+func (p *MergeParameters) mintChunks() [mergeshared.MintChunkCount]frontend.Variable {
+	return [mergeshared.MintChunkCount]frontend.Variable{
+		new(big.Int).SetBytes(p.Mint[:mergeshared.MintHeadChunkBytes]),
+		new(big.Int).SetBytes(p.Mint[mergeshared.MintHeadChunkBytes:]),
+	}
+}
+
 func (p *MergeParameters) assignTreeSlots(slots []transaction.TreeSlot) error {
 	if len(p.TreeSlots) != len(slots) {
 		return fmt.Errorf("merge: tree slot count mismatch: got %d want %d", len(p.TreeSlots), len(slots))

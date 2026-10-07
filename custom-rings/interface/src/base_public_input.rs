@@ -1,5 +1,6 @@
 use zolana_hasher::{
     hash_chain::{create_hash_chain_4_from_slice, create_hash_chain_from_slice},
+    primitives::{pack_be, right_align},
     HasherError,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
@@ -28,12 +29,6 @@ pub struct CustomRingBasePublicInput<'a> {
     pub disclosure: &'a [[u8; 32]],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FieldPair {
-    pub lo: [u8; 32],
-    pub hi: [u8; 32],
-}
-
 impl CustomRingBasePublicInput<'_> {
     /// Input order binds the audit statement.
     /// `HashChain([private_tx_hash, tx_pk_lo, tx_pk_hi, auditor_lo, auditor_hi,
@@ -50,9 +45,9 @@ impl CustomRingBasePublicInput<'_> {
 
     /// The chain elements, in the order the circuit assembles them.
     pub fn elements(&self) -> Result<[[u8; 32]; 11], HasherError> {
-        let tx = pack33_to_2fe(self.tx_viewing_pk);
-        let auditor = pack33_to_2fe(self.auditor_pk);
-        let eph = pack33_to_2fe(self.eph_pk);
+        let [tx_lo, tx_hi] = pack_be::<33, 2>(self.tx_viewing_pk);
+        let [auditor_lo, auditor_hi] = pack_be::<33, 2>(self.auditor_pk);
+        let [eph_lo, eph_hi] = pack_be::<33, 2>(self.eph_pk);
         let ct_hash = ciphertext_hash(self.ciphertext)?;
         let output_hash_chain = create_hash_chain_4_from_slice(self.output_hashes)?;
         if self.disclosure.len() != AUDIT_DISCLOSURE_FIELD_COUNT {
@@ -64,57 +59,16 @@ impl CustomRingBasePublicInput<'_> {
         let disclosure_hash = create_hash_chain_from_slice(self.disclosure)?;
         Ok([
             *self.private_tx_hash,
-            tx.lo,
-            tx.hi,
-            auditor.lo,
-            auditor.hi,
-            eph.lo,
-            eph.hi,
+            tx_lo,
+            tx_hi,
+            auditor_lo,
+            auditor_hi,
+            eph_lo,
+            eph_hi,
             ct_hash,
             output_hash_chain,
             right_align(self.salt),
             disclosure_hash,
         ])
     }
-}
-
-/// Mirrors `Pack32To2FECircuit`: `lo = 0x00 || bytes[0..31]` (byte 0 is the most
-/// significant data byte) and `hi = bytes[31]`, both as 32-byte big-endian field
-/// elements.
-pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
-    let mut lo = [0u8; 32];
-    lo[1..].copy_from_slice(&bytes[..31]);
-    FieldPair {
-        lo,
-        hi: right_align(&bytes[31..]),
-    }
-}
-
-/// Split a 33-byte SEC1-compressed P256 key into the two BN254 field elements
-/// the auditor circuit hashes.
-///
-/// Mirrors `Pack33To2FECircuit` in
-/// `prover/server/custom_rings/circuits/base/pack.go`.
-///
-/// ```text
-/// lo = 0x00 || key[0..31]        (the SEC1 prefix is the most significant data byte)
-/// hi = key[31] * 256 + key[32]
-/// ```
-///
-/// A 33-byte key does not fit one field element, and the split is injective
-/// because every input byte is 8 bits wide, so the pair binds the key uniquely.
-pub fn pack33_to_2fe(bytes: &[u8; 33]) -> FieldPair {
-    // Constant ranges over a fixed-size array: the compiler proves both fit.
-    let mut lo = [0u8; 32];
-    lo[1..].copy_from_slice(&bytes[..31]);
-    FieldPair {
-        lo,
-        hi: right_align(&bytes[31..]),
-    }
-}
-
-fn right_align(bytes: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[32 - bytes.len()..].copy_from_slice(bytes);
-    out
 }

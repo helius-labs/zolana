@@ -1,8 +1,11 @@
 package merge
 
 import (
+	"crypto/ecdh"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"zolana/prover/prover/common"
 )
@@ -18,10 +21,8 @@ type InputParamsJSON struct {
 	NullifierNextValue       string   `json:"nullifierNextValue"`
 	NullifierLowPathElements []string `json:"nullifierLowPathElements"`
 	NullifierLowPathIndex    string   `json:"nullifierLowPathIndex"`
-	// TreeSlot indexes the request's treeSlots and stays private; it replaces
-	// the per-input roots, which are now published once per tree slot.
-	TreeSlot  string `json:"treeSlot"`
-	Nullifier string `json:"nullifier"`
+	TreeSlot                 string   `json:"treeSlot"`
+	Nullifier                string   `json:"nullifier"`
 }
 
 type OutputParamsJSON struct {
@@ -30,31 +31,23 @@ type OutputParamsJSON struct {
 }
 
 type MergeParametersJSON struct {
-	CircuitType common.CircuitType `json:"circuitType"`
-	Inputs      []InputParamsJSON  `json:"inputs"`
-	Output      OutputParamsJSON   `json:"output"`
-	// TreeSlots are the InputTrees public tree slots; each input selects one by
-	// index.
-	TreeSlots []common.TreeSlotParamsJSON `json:"treeSlots"`
-	// OutputTreeID is the raw u16 id of the tree the merged output is inserted
-	// into.
-	OutputTreeID        string `json:"outputTreeId"`
-	Asset               string `json:"asset"`
-	OwnerPkHash         string `json:"ownerPkHash"`
-	UserNullifierPk     string `json:"userNullifierPk"`
-	UserNullifierSecret string `json:"userNullifierSecret"`
-	ExternalDataHash    string `json:"externalDataHash"`
-	PrivateTxHash       string `json:"privateTxHash"`
-	PublicInputHash     string `json:"publicInputHash"`
-	AllowDummyInputs    string `json:"allowDummyInputs"`
-	// OutputRingDataHash is the ring-data hash the calling ring program carries
-	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
-	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
-	OutputRingDataHash string `json:"outputRingDataHash"`
-	// RingProgramID is the policy-ring merge circuit's top-level public input
-	// (the ring program's pk_field). Emitted/consumed only on the merge-ring rail;
-	// the default merge rail leaves it zero.
-	RingProgramID string `json:"ringProgramId"`
+	CircuitType         common.CircuitType          `json:"circuitType"`
+	Inputs              []InputParamsJSON           `json:"inputs"`
+	Output              OutputParamsJSON            `json:"output"`
+	TreeSlots           []common.TreeSlotParamsJSON `json:"treeSlots"`
+	OutputTreeID        string                      `json:"outputTreeId"`
+	Mint                string                      `json:"mint"`
+	ViewingPk           string                      `json:"viewingPk,omitempty"`
+	EphemeralSk         string                      `json:"ephemeralSk,omitempty"`
+	OwnerPkHash         string                      `json:"ownerPkHash"`
+	UserNullifierPk     string                      `json:"userNullifierPk"`
+	UserNullifierSecret string                      `json:"userNullifierSecret"`
+	ExternalDataHash    string                      `json:"externalDataHash"`
+	PrivateTxHash       string                      `json:"privateTxHash"`
+	PublicInputHash     string                      `json:"publicInputHash"`
+	AllowDummyInputs    string                      `json:"allowDummyInputs"`
+	OutputRingDataHash  string                      `json:"outputRingDataHash"`
+	RingProgramID       string                      `json:"ringProgramId"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -78,7 +71,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		CircuitType:         circuitType,
 		TreeSlots:           common.TreeSlotsToJSON(p.TreeSlots),
 		OutputTreeID:        common.FeHex(p.OutputTreeID),
-		Asset:               common.FeHex(p.Asset),
+		Mint:                hex.EncodeToString(p.Mint[:]),
 		RingProgramID:       common.FeHex(p.RingProgramID),
 		OutputRingDataHash:  common.FeHex(p.OutputRingDataHash),
 		OwnerPkHash:         common.FeHex(p.OwnerPkHash),
@@ -88,6 +81,10 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
+	}
+	if circuitType == common.MergeCircuitType {
+		paramsJson.ViewingPk = hex.EncodeToString(p.ViewingPk[:])
+		paramsJson.EphemeralSk = hex.EncodeToString(p.EphemeralSk[:])
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -122,6 +119,9 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.CircuitType == "" {
 		p.CircuitType = common.MergeCircuitType
 	}
+	if err := p.updateEnvelopeKeys(params); err != nil {
+		return err
+	}
 	if p.TreeSlots, err = common.TreeSlotsFromJSON(params.TreeSlots); err != nil {
 		return err
 	}
@@ -140,10 +140,6 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.UserNullifierPk, err = common.FeFromHex(params.UserNullifierPk); err != nil {
 		return err
 	}
-	// Required, not defaulted: the secret seeds both the private tx blinding and
-	// the merged output's blinding, which the circuit derives from it. A zero
-	// secret makes both computable by an observer, so an omitted field must fail
-	// here rather than silently degrade to a known blinding.
 	if params.UserNullifierSecret == "" {
 		return fmt.Errorf("merge: userNullifierSecret is required")
 	}
@@ -165,7 +161,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.AllowDummyInputs, err = common.FeFromHex(params.AllowDummyInputs); err != nil {
 		return err
 	}
-	if p.Asset, err = common.FeFromHex(params.Asset); err != nil {
+	if err := decodeFixedHex("mint", params.Mint, p.Mint[:]); err != nil {
 		return err
 	}
 
@@ -220,5 +216,47 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	}
 	p.Output = output
 
+	return nil
+}
+
+func (p *MergeParameters) updateEnvelopeKeys(params MergeParametersJSON) error {
+	clear(p.ViewingPk[:])
+	clear(p.EphemeralSk[:])
+	if p.CircuitType == common.MergeRingCircuitType {
+		if params.ViewingPk != "" || params.EphemeralSk != "" {
+			return fmt.Errorf("merge-ring: viewingPk and ephemeralSk must be absent on the ring rail")
+		}
+		return nil
+	}
+	if p.CircuitType != common.MergeCircuitType {
+		return fmt.Errorf("merge: unsupported circuit type %q", p.CircuitType)
+	}
+	if err := decodeFixedHex("viewingPk", params.ViewingPk, p.ViewingPk[:]); err != nil {
+		return err
+	}
+	if _, err := ecdh.P256().NewPublicKey(p.ViewingPk[:]); err != nil {
+		return fmt.Errorf("merge: viewingPk is not an uncompressed P-256 point: %w", err)
+	}
+	if err := decodeFixedHex("ephemeralSk", params.EphemeralSk, p.EphemeralSk[:]); err != nil {
+		return err
+	}
+	if p.EphemeralSk == ([32]byte{}) {
+		return fmt.Errorf("merge: ephemeralSk must be non-zero")
+	}
+	return nil
+}
+
+func decodeFixedHex(name, value string, dst []byte) error {
+	if value == "" {
+		return fmt.Errorf("merge: %s is required", name)
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(value, "0x"))
+	if err != nil {
+		return fmt.Errorf("merge: %s: %w", name, err)
+	}
+	if len(decoded) != len(dst) {
+		return fmt.Errorf("merge: %s must be %d bytes, got %d", name, len(dst), len(decoded))
+	}
+	copy(dst, decoded)
 	return nil
 }

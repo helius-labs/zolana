@@ -1,4 +1,5 @@
 import { proofFor } from "./helpers/proofs.js";
+import { solInput } from "./helpers/utxos.js";
 import { LocalKeys, ZolanaClient, type IndexedProofInputs } from "../src/client/index.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
@@ -111,15 +112,7 @@ it.each([
 
 it("binds merge resolution and keeps preparation free of indexer calls", async () => {
   const owner = ShieldedKeypair.generate();
-  const input = ProofInputUtxo.fromKeypair(
-    new Utxo({
-      owner: owner.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 5n,
-      blinding: randomBlinding(),
-    }),
-    owner,
-  );
+  const input = solInput(owner, 5n);
   const prepared = Merge.fromKeypair(owner, [input]).prepare();
   const tree = treeAddress(prepared.inputTreeId);
   const local = prepareMerge(prepared, tree);
@@ -156,7 +149,10 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(result.outputHash).toEqual(complete.outputHash);
     expect(result.data).toEqual(
-      complete.instructionData(compressProof(parseProof(STANDARD_PROOF)).toTransactProof()),
+      complete.instructionData(compressProof(parseProof(STANDARD_PROOF))),
+    );
+    expect(result.data.envelope?.ephemeralPk).toEqual(
+      prepared.sealedEnvelope()?.ephemeralPublicKey.toBytes(),
     );
     const request: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
     const envelope = decode.record(request, "request");
@@ -166,8 +162,14 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(typeof payload["userNullifierSecret"]).toBe("string");
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(ONE_INPUT_MERGE_WIDTH);
     expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
+    expect(payload).not.toHaveProperty("asset");
+    expect(payload["mint"]).toBe("00".repeat(32));
+    expect(payload["viewingPk"]).toBe(
+      Buffer.from(owner.viewingPublicKey().toUncompressed()).toString("hex"),
+    );
+    expect(String(payload["ephemeralSk"])).toMatch(/^[0-9a-f]{64}$/u);
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
-    expect(publicInputs).toHaveLength(8);
+    expect(publicInputs).toHaveLength(12);
     expect(publicInputs[7]).toBe(payload["userNullifierPk"]);
     for (const provingKeySha256 of [undefined, "00".repeat(32)]) {
       fetch.mockResolvedValueOnce(Response.json({ ...STANDARD_PROOF, provingKeySha256 }));
@@ -189,7 +191,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
           {
             proveIndexed: () => ({
               ...valid,
-              proof: { ...valid.proof, [part]: checkedBytes(new Uint8Array(64), 64, "point") },
+              proof: { ...valid.proof, [part]: undefined },
             }),
           },
           local.inputs,
@@ -233,18 +235,39 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
   }
 });
 
+it("refuses an indexed merge whose envelope does not match its rail", () => {
+  const owner = ShieldedKeypair.generate();
+  try {
+    const input = solInput(owner, 5n);
+    const prepared = Merge.fromKeypair(owner, [input]).prepare();
+    const request = prepareMerge(prepared, treeAddress(prepared.inputTreeId)).inputs;
+    expect(decodeIndexedInputs(request).publicInputs).toHaveLength(12);
+    const { envelope, ...withoutEnvelope } = request.payload;
+    if (envelope === undefined) throw new Error("a default merge carries an envelope");
+    for (const payload of [
+      withoutEnvelope,
+      { ...request.payload, ringProgramId: asField(7n) },
+      {
+        ...request.payload,
+        envelope: { ...envelope, viewingPublicKey: owner.viewingPublicKey().toBytes() },
+      },
+    ]) {
+      expect(() => decodeIndexedInputs({ ...request, payload })).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      );
+    }
+    expect(() =>
+      decodeIndexedInputs({ ...request, publicInputs: request.publicInputs.slice(0, 8) }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
+  } finally {
+    owner.destroy();
+  }
+});
+
 it("refuses a key holder's merge root at the field modulus as unparsable", async () => {
   const owner = ShieldedKeypair.generate();
   try {
-    const input = ProofInputUtxo.fromKeypair(
-      new Utxo({
-        owner: owner.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 5n,
-        blinding: randomBlinding(),
-      }),
-      owner,
-    );
+    const input = solInput(owner, 5n);
     const prepared = Merge.fromKeypair(owner, [input]).prepare();
     const modulus = checkedBytes(bigintToBytes(BN254_MODULUS, "root"), 32, "root");
     const keys = {

@@ -13,9 +13,12 @@ use zolana_client::{PublicInputs, PublicTransfers};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
+    instruction::instruction_data::merge_transact::MERGE_CIPHERTEXT_LEN,
+    merge_utils::merge_envelope_public_elements,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS,
 };
+use zolana_keypair::ViewingKey;
 
 const PUBLIC_INPUT_HASH_VECTORS_JSON: &str =
     include_str!("../../../test-vectors/public_input_hash.json");
@@ -63,6 +66,9 @@ struct MergeVector {
     external_data_hash: String,
     owner_pk_hash: String,
     nullifier_pk: String,
+    viewing_pk: String,
+    ephemeral_pk: String,
+    ciphertext: String,
     tree_slots: Vec<TreeSlotVector>,
     public_input_hash: String,
 }
@@ -86,12 +92,12 @@ fn padded(sent: &[u32], width: usize) -> Vec<[u8; 32]> {
     values
 }
 
-fn hex(value: &[u8; 32]) -> String {
+fn hex(value: &[u8]) -> String {
     value.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn hexes(values: &[[u8; 32]]) -> Vec<String> {
-    values.iter().map(hex).collect()
+    values.iter().map(|value| hex(value)).collect()
 }
 
 fn array<const N: usize>(values: &[u32]) -> [[u8; 32]; N] {
@@ -193,9 +199,22 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let external_data_hash = field(83);
     let owner_pk_hash = field(84);
     let nullifier_pk = field(85);
+    let viewing_pk = *ViewingKey::from_bytes(&field(86))
+        .unwrap()
+        .pubkey()
+        .as_bytes();
+    let ephemeral_pk = *ViewingKey::from_bytes(&field(87))
+        .unwrap()
+        .pubkey()
+        .as_bytes();
+    let mut ciphertext = [0u8; MERGE_CIPHERTEXT_LEN];
+    for (byte, value) in ciphertext.iter_mut().zip(0x90u8..) {
+        *byte = value;
+    }
+    let envelope = merge_envelope_public_elements(&viewing_pk, &ephemeral_pk, &ciphertext).unwrap();
     // The element order `MergeProver::build` hashes; the 1 is the dummy-input
     // policy merge always publishes.
-    let public_input_hash = create_hash_chain_4_from_slice(&[
+    let mut elements = vec![
         create_padded_right_hash_chain_4(&nullifiers, nullifiers.len()).unwrap(),
         output_hash,
         tree_slots_hash_chain(&tree_slots()).unwrap(),
@@ -205,8 +224,9 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         field(1),
         owner_pk_hash,
         nullifier_pk,
-    ])
-    .unwrap();
+    ];
+    elements.extend(envelope);
+    let public_input_hash = create_hash_chain_4_from_slice(&elements).unwrap();
     MergeVector {
         name: name.to_string(),
         nullifiers: hexes(&nullifiers),
@@ -216,6 +236,9 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         external_data_hash: hex(&external_data_hash),
         owner_pk_hash: hex(&owner_pk_hash),
         nullifier_pk: hex(&nullifier_pk),
+        viewing_pk: hex(&viewing_pk),
+        ephemeral_pk: hex(&ephemeral_pk),
+        ciphertext: hex(&ciphertext),
         tree_slots: tree_slot_vectors(),
         public_input_hash: hex(&public_input_hash),
     }
@@ -275,11 +298,13 @@ fn compute_vectors() -> PublicInputHashVectors {
     ];
     PublicInputHashVectors {
         description: "Known-answer vectors for the transfer and merge public input hashes. \
-                      Every value is a 32-byte big-endian hex string; nullifier, output hash and \
+                      Every value is a 32-byte big-endian hex string except a merge's \
+                      viewing_pk and ephemeral_pk (33-byte SEC1-compressed P-256 keys) and its \
+                      40-byte envelope ciphertext; nullifier, output hash and \
                       owner lists span the circuit width, with 0 for compact padding, and a \
                       published owner list shorter than the outputs is padded with 0. Transfers \
                       are zolana_client::PublicInputs::hash; merges hash the MergeProver::build \
-                      element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
+                      element order, ending in the four merge_envelope_public_elements. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
                       print_public_input_hash_vectors: cargo test -p zolana-client --test \
                       public_input_hash_vectors print_public_input_hash_vectors -- --ignored \
                       --nocapture"

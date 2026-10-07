@@ -26,6 +26,7 @@ fn create_data(nonce: u64) -> CreateCacheData {
 fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot,
+        envelope: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [1u8; 32],

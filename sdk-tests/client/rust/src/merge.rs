@@ -27,7 +27,7 @@ pub fn merge_instruction_data(
     merge: &MergeProofResult,
     proof: Proof,
 ) -> Result<MergeTransactIxData> {
-    Ok(merge.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?))
+    Ok(merge.instruction_data(ProofCompressed::try_from(proof)?)?)
 }
 
 pub fn landed_slot<R: Rpc>(client: &ZolanaClient<R>, signature: Signature) -> Result<u64> {

@@ -48,21 +48,12 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable, ctHash f
 
 func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable {
 	sharedSecret := gnarksdk.Poseidon(api, c.Core.OrderUtxo.Blinding, orderterms.TakeEncKdfDomain)
-	aesGadget := aes.NewAESGadget(api)
-	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfoVars(), len(mergeKdfInfo))
+	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfo)
 
 	var plaintext [72]frontend.Variable
 	copy(plaintext[0:8], ve.FieldToBytesBE(api, c.Core.Order.DestinationAmount, 8))
 	copy(plaintext[8:40], ve.FieldToBytesBE(api, c.Core.Order.DestinationAsset, 32))
 	copy(plaintext[40:72], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 32))
-	ciphertext := aes.CTREncrypt(api, aesGadget, key, nonce, plaintext[:])
+	ciphertext := aes.CTREncrypt(api, key, nonce, plaintext[:])
 	return gnarksdk.HashBytes(api, ciphertext)
-}
-
-func mergeKdfInfoVars() []frontend.Variable {
-	out := make([]frontend.Variable, len(mergeKdfInfo))
-	for i, b := range mergeKdfInfo {
-		out[i] = frontend.Variable(b)
-	}
-	return out
 }

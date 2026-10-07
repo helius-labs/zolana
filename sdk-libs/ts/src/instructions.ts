@@ -31,6 +31,7 @@ export {
   type CreateCacheData,
   type DepositInstructionData,
   type DepositSplAccounts,
+  type MergeEnvelope,
   type MergeTransactInstructionData,
   type TransactInstructionData,
   type TreeFeeSchedule,

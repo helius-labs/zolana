@@ -3,11 +3,8 @@
 use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
-use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
-use zolana_interface::{
-    instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_ring_24_1, merge_ring_54_1, merge_ring_8_1},
-};
+use zolana_client::{MergeProver, ProofCompressed, ProverClient, ProverExt, Rpc};
+use zolana_interface::verifying_keys::{merge_ring_24_1, merge_ring_54_1, merge_ring_8_1};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
 use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
@@ -124,7 +121,13 @@ impl MergeRingHarness {
             .verify()
             .expect("merge-ring groth16 proof verifies");
         let sent = result
-            .ring_instruction_data(MergeProof::zeroed())
+            .ring_instruction_data(ProofCompressed {
+                a: [0; 32],
+                b: [0; 128],
+                c: [0; 32],
+                commitment: None,
+            })
+            .expect("merge-ring instruction data")
             .merge
             .nullifiers
             .len();

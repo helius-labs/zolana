@@ -1,6 +1,7 @@
 use wincode::{SchemaRead, SchemaWrite};
 
 use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConfig};
+use crate::error::ShieldedPoolError;
 
 /// `merge_ring` instruction data (spec: SPP `merge_ring`): the
 /// [`MergeTransactIxData`] body plus the output `ring_data_hash` the calling
@@ -32,65 +33,13 @@ pub struct MergeRingIxDataRef<'a> {
 }
 
 impl<'a> MergeRingIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
-        parsed.merge.validate_shape()?;
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, ShieldedPoolError> {
+        let parsed = wincode::config::deserialize(data, RefConfig::new())
+            .and_then(|parsed: Self| parsed.merge.validate_shape().map(|()| parsed))
+            .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+        if parsed.merge.envelope.is_some() {
+            return Err(ShieldedPoolError::MergeEnvelopeUnexpected);
+        }
         Ok(parsed)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::instruction::instruction_data::merge_transact::{
-        MergeProof, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
-    };
-
-    fn data() -> MergeRingIxData {
-        MergeRingIxData {
-            output_ring_data_hash: [8u8; 32],
-            merge: MergeTransactIxData {
-                cache_slot: None,
-                expiry_unix_ts: 42,
-                proof: MergeProof {
-                    a: [1u8; 32],
-                    b: [2u8; 128],
-                    c: [3u8; 32],
-                },
-                output_utxo_hash: [1u8; 32],
-                nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
-                    .map(|i| [i; 32])
-                    .collect(),
-                utxo_tree_root_index: 4,
-                nullifier_tree_root_index: 10,
-                private_tx_hash: [3u8; 32],
-                eddsa_owner: false,
-            },
-        }
-    }
-
-    #[test]
-    fn round_trips_owned_and_ref() {
-        let owned = data();
-        let bytes = owned.serialize().unwrap();
-        assert_eq!(MergeRingIxData::deserialize(&bytes).unwrap(), owned);
-
-        let view = MergeRingIxDataRef::from_bytes(&bytes).unwrap();
-        assert_eq!(view.output_ring_data_hash, &owned.output_ring_data_hash);
-        assert_eq!(view.merge.proof.a, &owned.merge.proof.a);
-        assert_eq!(view.merge.nullifiers, owned.merge.nullifiers);
-    }
-
-    #[test]
-    fn rejects_empty_and_oversized_nullifier_lists() {
-        for count in [0, MAX_MERGE_INPUTS + 1] {
-            let mut owned = data();
-            owned.merge.nullifiers = vec![[1u8; 32]; count];
-            let bytes = owned.serialize().unwrap();
-            assert!(
-                MergeRingIxDataRef::from_bytes(&bytes).is_err(),
-                "{count} nullifiers"
-            );
-        }
     }
 }

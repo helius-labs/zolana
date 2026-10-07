@@ -43,6 +43,7 @@ pub mod derivation;
 pub(crate) mod encryption;
 pub mod error;
 pub mod hash;
+pub mod merge_envelope;
 pub mod nullifier_key;
 pub mod pda;
 pub mod pubkey;
@@ -53,6 +54,10 @@ pub mod viewing_key;
 
 pub use encryption::symmetric_apply;
 pub use error::KeypairError;
+pub use merge_envelope::{
+    MergeEnvelopeOpen, MergeEnvelopeSeal, OpenedMergeEnvelope, SealedMergeEnvelope,
+    MERGE_ENVELOPE_CIPHERTEXT_LEN,
+};
 pub use nullifier_key::NullifierKey;
 pub use pda::ShieldedPda;
 pub use pubkey::{Curve, P256Pubkey, PublicKey};

@@ -1,7 +1,9 @@
 //! Real-validator confirmation of the widest default-ring transactions: the
-//! widest transact shape of every output count and the widest merge, each at
-//! every real input it supports. LiteSVM does not enforce the 4,096-byte v1
-//! ceiling, so only a validator shows that these transactions land.
+//! widest transact shape of every output count at every real input it
+//! supports, and the widest merge at the most real inputs that fit, two short
+//! of its slots because of the merge envelope. LiteSVM does not enforce the
+//! 4,096-byte v1 ceiling, so only a validator shows that these transactions
+//! land.
 
 use anyhow::{anyhow, Result};
 use serial_test::serial;
@@ -15,7 +17,7 @@ use zolana_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
 
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const SENT_AMOUNT: u64 = 1_000_000;
-const MERGE_INPUTS: usize = MAX_MERGE_INPUTS;
+const MERGE_INPUTS: usize = MAX_MERGE_INPUTS - 2;
 const MERGE_CU_LIMIT: u64 = 1_400_000;
 
 /// Every slot of each widest shape is a real input.

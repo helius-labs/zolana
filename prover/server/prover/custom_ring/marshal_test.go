@@ -13,7 +13,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/circuits/verifiable-encryption/p256"
 	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/custom_rings/circuits/registry"
 	"zolana/prover/prover-test/spp/spptest"
@@ -394,7 +393,7 @@ func TestBaseParametersRejectBadInput(t *testing.T) {
 const zeroScalarHex = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 func orderScalarHex() string {
-	return "0x" + p256.GroupOrder().Text(16)
+	return "0x" + elliptic.P256().Params().N.Text(16)
 }
 
 func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[string]interface{})) {

@@ -955,20 +955,33 @@ fn tx_size(args: Vec<String>) {
         let n = most_inputs_that_fit(build);
         transact_row(format!("{label} {n} in 2 out, 49x2 compact"), build(n));
     }
-    // A count below its circuit width is a merge with compact padding. A ring
-    // merge of every widest slot misses the limit; one input fewer fits.
+    // A count below its circuit width is a merge with compact padding. A merge
+    // of every widest slot misses the limit on both rails; one input fewer
+    // fits a ring merge, while the default merge's envelope needs two fewer.
     for input_count in
         MERGE_SUPPORTED_INPUT_COUNTS
             .into_iter()
             .chain([3, 9, 25, MAX_MERGE_INPUTS - 1])
     {
-        use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
+        use zolana_interface::instruction::{
+            instruction_data::{
+                merge_transact::{MergeEnvelope, MERGE_CIPHERTEXT_LEN},
+                MergeProof,
+            },
+            MergeTransactIxData,
+        };
         use zolana_program::instruction::{MergeRing, MergeTransact};
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
             cache_slot: None,
+            envelope: Some(MergeEnvelope {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+                ephemeral_pk: [0u8; 33],
+                ciphertext: [0u8; MERGE_CIPHERTEXT_LEN],
+            }),
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
@@ -985,7 +998,10 @@ fn tx_size(args: Vec<String>) {
             output_tree: tree,
             ring_program_id: ring_config,
             payer: payer_pk,
-            data: data.clone(),
+            data: MergeTransactIxData {
+                envelope: None,
+                ..data.clone()
+            },
             output_ring_data_hash: [0u8; 32],
             cache: None,
         }

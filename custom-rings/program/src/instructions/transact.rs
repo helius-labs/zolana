@@ -505,7 +505,7 @@ fn is_valid_confidential_output(data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use custom_ring_interface::{pack33_to_2fe, AUDITOR_MESSAGE_LEN};
+    use custom_ring_interface::AUDITOR_MESSAGE_LEN;
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
@@ -527,8 +527,6 @@ mod tests {
     const PRIVATE_TX_HASH: &str =
         "0000000000000000000000000000000000000000000000000000000000abcdef";
 
-    const TX_PK_LO: &str = "000268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955";
-    const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000c5d5";
     const CT_HASH: &str = "1384dccfd224d268a2028165de1523e911e276a676568086166a3b782afdbada";
     const PUBLIC_INPUT_HASH: &str =
         "25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093";
@@ -536,17 +534,6 @@ mod tests {
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");
         <[u8; N]>::try_from(decoded.as_slice()).expect("expected byte length")
-    }
-
-    #[test]
-    fn pack33_to_2fe_matches_go() {
-        assert_eq!(
-            pack33_to_2fe(&bytes::<33>(TX_PK)),
-            custom_ring_interface::FieldPair {
-                lo: bytes::<32>(TX_PK_LO),
-                hi: bytes::<32>(TX_PK_HI),
-            }
-        );
     }
 
     /// Chain element 8: `ciphertext_hash` must equal the circuit's

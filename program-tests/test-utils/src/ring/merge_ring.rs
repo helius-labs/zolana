@@ -3,9 +3,11 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
+use zolana_client::{
+    transaction_size, ComputeBudgetConfig, MergeProver, ProofCompressed, ProverClient, ProverExt,
+};
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
+    error::ShieldedPoolError, instruction::instruction_data::merge_ring::MergeRingIxData,
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program::instruction::MergeRing;
@@ -14,7 +16,7 @@ use zolana_transaction::Utxo;
 
 use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
-    localnet::{pack_merge_proof, send_transaction_with_budget, ZERO},
+    localnet::{send_transaction_with_budget, ZERO},
     nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
@@ -250,7 +252,17 @@ impl RingHarness {
         } else {
             ProverClient::local().prove_merge_ring(&result.inputs)?
         };
-        let data = result.ring_instruction_data(pack_merge_proof(&proof)?);
+        let proof = ProofCompressed::try_from(proof)?;
+        let data = if prove_for_default_merge {
+            let mut merge = result.instruction_data(proof)?;
+            merge.envelope = None;
+            MergeRingIxData {
+                output_ring_data_hash: result.output_ring_data_hash,
+                merge,
+            }
+        } else {
+            result.ring_instruction_data(proof)?
+        };
         let output_hash = result.output_hash;
         let input_nullifiers = data.merge.nullifiers.clone();
 
@@ -413,7 +425,12 @@ impl RingHarness {
 
         // Assemble the instruction data exactly as the happy path does, then
         // zero the proof so verification is the only thing that fails.
-        let data = result.ring_instruction_data(MergeProof::zeroed());
+        let data = result.ring_instruction_data(ProofCompressed {
+            a: [0; 32],
+            b: [0; 128],
+            c: [0; 32],
+            commitment: None,
+        })?;
 
         let payer = self.payer.insecure_clone();
         let tree_before = fetch_account(&self.rpc, &self.tree)?;

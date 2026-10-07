@@ -36,15 +36,15 @@ export function compressProof(proof: Proof): CompressedProof {
   });
 }
 
-export function compressedProof(
-  input: Readonly<{
-    a: Uint8Array;
-    b: Uint8Array;
-    c: Uint8Array;
-    commitment?: Uint8Array;
-    commitmentPok?: Uint8Array;
-  }>,
-): CompressedProof {
+export type CompressedProofParts = Readonly<{
+  a: Uint8Array;
+  b: Uint8Array;
+  c: Uint8Array;
+  commitment?: Uint8Array;
+  commitmentPok?: Uint8Array;
+}>;
+
+export function compressedProof(input: CompressedProofParts): CompressedProof {
   const a = checkedBytes(input.a, 32, "proof.a");
   const b = checkedBytes(input.b, 128, "proof.b");
   const c = checkedBytes(input.c, 32, "proof.c");

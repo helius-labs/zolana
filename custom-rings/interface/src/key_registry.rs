@@ -1,11 +1,11 @@
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice,
-    primitives::{is_canonical_bn254_scalar_be, right_align},
+    primitives::{is_canonical_bn254_scalar_be, pack_be, right_align},
     Hasher, HasherError, Poseidon,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{base_public_input::pack33_to_2fe, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use crate::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
 /// Matches the circuit height and the on-chain tree.
 pub const KEY_REGISTRY_HEIGHT: usize = 40;
@@ -26,18 +26,18 @@ pub struct RegisterKeyPublicInput<'a> {
 
 impl RegisterKeyPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let auditor = pack33_to_2fe(self.auditor_pk);
-        let eph = pack33_to_2fe(self.eph_pk);
+        let [auditor_lo, auditor_hi] = pack_be::<33, 2>(self.auditor_pk);
+        let [eph_lo, eph_hi] = pack_be::<33, 2>(self.eph_pk);
         let ct_hash = ciphertext_hash(self.ciphertext)?;
         create_hash_chain_from_slice(&[
             *self.registry_old_root,
             *self.registry_new_root,
             *self.member,
             *self.nullifier_pk,
-            auditor.lo,
-            auditor.hi,
-            eph.lo,
-            eph.hi,
+            auditor_lo,
+            auditor_hi,
+            eph_lo,
+            eph_hi,
             ct_hash,
             right_align(&self.new_index.to_be_bytes()),
         ])

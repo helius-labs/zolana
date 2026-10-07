@@ -261,7 +261,7 @@ fn lookup(table: &[(&str, [u8; 32])], name: &str) -> Option<[u8; 32]> {
         .map(|(_, sha256)| *sha256)
 }
 
-pub(crate) fn hex(bytes: &[u8; 32]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 

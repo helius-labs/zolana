@@ -1007,7 +1007,7 @@ export class ZolanaClient
         const complete = prepared.finish(tree);
         const compressed = compressProof(proof);
         return Object.freeze({
-          data: complete.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c }),
+          data: complete.instructionData(compressed),
           outputHash: new Uint8Array(complete.outputHash) as Bytes32,
         });
       }
@@ -1016,11 +1016,7 @@ export class ZolanaClient
         await input.keys.proveMerge(assembled.proverInputs, context),
       );
       return Object.freeze({
-        data: assembled.instructionData({
-          a: compressed.a,
-          b: compressed.b,
-          c: compressed.c,
-        }),
+        data: assembled.instructionData(compressed),
         outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
       });
     });

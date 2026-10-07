@@ -1,23 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { solInput } from "./helpers/utxos.js";
 import { ClientError } from "../src/client/error.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { DEFAULT_TREE_ID } from "../src/interface/tree-slot.js";
-import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
-import { Merge, PreparedMerge, ProofInputUtxo, SOL_MINT, Utxo } from "../src/transaction/index.js";
-
-function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
-  return ProofInputUtxo.fromKeypair(
-    new Utxo({
-      owner: keypair.signingPublicKey(),
-      asset: SOL_MINT,
-      amount,
-      blinding: randomBlinding(),
-    }),
-    keypair,
-  );
-}
+import { ShieldedKeypair } from "../src/keypair/index.js";
+import { Merge, PreparedMerge } from "../src/transaction/index.js";
 
 function rejectedWith(run: () => unknown, code: ClientError["code"]): unknown {
   try {

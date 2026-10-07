@@ -1,3 +1,4 @@
+use borsh::BorshSerialize;
 use shielded_pool_tests::support::{
     fixtures::Pool, merge::write_user_record, transact::write_ring_config_account,
 };
@@ -10,7 +11,8 @@ use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{
-        MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
+        MergeEnvelope, MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_CIPHERTEXT_LEN,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };
@@ -18,15 +20,31 @@ use zolana_program::instruction::{MergeRing, MergeTransact};
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
 use zolana_tree::TreeAccount;
-use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
+use zolana_user_registry_interface::{
+    state::{UserRecord, P256_PUBKEY_LEN},
+    USER_REGISTRY_PROGRAM_ID,
+};
 
-/// Wire-valid default-rail merge data with a zeroed proof: eight distinct
-/// nullifiers against root-history slot 0, so every parse and tree step
-/// succeeds and only the checks under test can fail. The merge output is
-/// ciphertext-free (recovered from the first input and its nullifier).
+fn sec1_key(prefix: u8) -> [u8; P256_PUBKEY_LEN] {
+    core::array::from_fn(|index| if index == 0 { prefix } else { 7 })
+}
+
+fn dummy_envelope() -> MergeEnvelope {
+    MergeEnvelope {
+        commitment: [0u8; 32],
+        commitment_pok: [0u8; 32],
+        ephemeral_pk: sec1_key(0x02),
+        ciphertext: [9u8; MERGE_CIPHERTEXT_LEN],
+    }
+}
+
+/// Wire-valid default-rail merge data with a zeroed proof and a dummy
+/// envelope: eight distinct nullifiers against root-history slot 0, so every
+/// parse and tree step succeeds and only the checks under test can fail.
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        envelope: Some(dummy_envelope()),
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
@@ -46,6 +64,39 @@ fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
     let mut data = merge_ix_data(true);
     data.nullifiers = (1..=input_count as u64).map(fe).collect();
     data
+}
+
+fn ring_merge_ix_data() -> MergeTransactIxData {
+    MergeTransactIxData {
+        envelope: None,
+        ..merge_ix_data(true)
+    }
+}
+
+fn ring_merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
+    MergeTransactIxData {
+        envelope: None,
+        ..merge_ix_data_at_input_count(input_count)
+    }
+}
+
+fn set_registry_viewing_key(
+    rpc: &mut ZolanaProgramTest,
+    record: Pubkey,
+    viewing_pubkey: [u8; P256_PUBKEY_LEN],
+) {
+    let mut account = rpc.svm.get_account(&record).expect("user record");
+    let mut user_record =
+        UserRecord::try_from_account_data(&account.data).expect("decode user record");
+    user_record.viewing_pubkey = viewing_pubkey;
+    account.data = vec![UserRecord::DISCRIMINATOR];
+    user_record
+        .serialize(&mut account.data)
+        .expect("encode user record");
+    account.data.resize(UserRecord::SIZE, 0);
+    rpc.svm
+        .set_account(record, account)
+        .expect("replace registry viewing key");
 }
 
 fn merge_env() -> (ZolanaProgramTest, Pubkey) {
@@ -292,7 +343,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data: merge_ix_data(true),
+        data: ring_merge_ix_data(),
         output_ring_data_hash: fe(99),
         cache: None,
     }
@@ -473,6 +524,82 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     );
 }
 
+#[test]
+fn default_rail_merge_rejects_a_missing_envelope_exactly() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    let data = MergeTransactIxData {
+        envelope: None,
+        ..merge_ix_data(true)
+    };
+    let ix = merge_instruction(&rpc, &tree, record, data);
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a default-rail merge without an envelope must be rejected");
+    Rejection::pool(ShieldedPoolError::MergeEnvelopeMissing).assert_litesvm(error);
+    assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}
+
+#[test]
+fn default_rail_merge_rejects_a_registry_viewing_key_without_a_compressed_prefix() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+    set_registry_viewing_key(&mut rpc, record, sec1_key(0x04));
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let error = rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
+        .expect_err("an uncompressed registry viewing key must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidViewingKeyEncoding)
+        .at(0)
+        .assert_litesvm(error);
+    assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}
+
+#[test]
+fn default_rail_merge_rejects_an_ephemeral_key_without_a_compressed_prefix() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    let mut data = merge_ix_data(true);
+    data.envelope = Some(MergeEnvelope {
+        ephemeral_pk: sec1_key(0x04),
+        ..dummy_envelope()
+    });
+    let ix = merge_instruction(&rpc, &tree, record, data);
+    let error = rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
+        .expect_err("an uncompressed envelope ephemeral key must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidViewingKeyEncoding)
+        .at(0)
+        .assert_litesvm(error);
+    assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}
+
 /// SPP-shaped ring merge instruction (as a ring program would CPI it, the
 /// canonical `ring_auth` PDA marked signer).
 fn merge_ring_cpi_instruction(
@@ -529,7 +656,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_owner() {
     rpc.airdrop(&impostor.pubkey(), 1_000_000)
         .expect("fund impostor");
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(90));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(90));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = impostor.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&impostor])
@@ -547,7 +674,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_discriminator() {
     let fake = Keypair::new();
     write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1, true, false);
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(91));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = fake.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&fake])
@@ -578,7 +705,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: outsider,
-        data: merge_ix_data(true),
+        data: ring_merge_ix_data(),
         output_ring_data_hash: fe(92),
         cache: None,
     }
@@ -603,7 +730,7 @@ fn merge_ring_rejects_a_paused_ring_config() {
     let ring_config = Keypair::new();
     write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, true, true);
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(94));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(94));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -623,7 +750,7 @@ fn merge_ring_rejects_an_inactive_ring_config() {
         let ring_config = Keypair::new();
         write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, false, paused);
 
-        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(93));
+        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(93));
         ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
         let error = rpc
             .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -639,7 +766,7 @@ fn merge_ring_rejects_an_inactive_ring_config() {
 fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
     let (mut rpc, tree) = merge_env();
     for input_count in UNSUPPORTED_MERGE_INPUT_COUNTS {
-        let data = merge_ix_data_at_input_count(input_count);
+        let data = ring_merge_ix_data_at_input_count(input_count);
         let mut ix = merge_ring_cpi_instruction(&rpc, &tree, data, fe(93));
         ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
         let error = rpc
@@ -651,6 +778,20 @@ fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
             .expect("rejected transaction trace")
             .assert_rolled_back_except(&[rpc.payer.pubkey()]);
     }
+}
+
+#[test]
+fn merge_ring_rejects_an_envelope_exactly() {
+    let (mut rpc, tree) = merge_env();
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(96));
+    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a ring merge carrying an envelope must be rejected");
+    Rejection::pool(ShieldedPoolError::MergeEnvelopeUnexpected).assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -674,7 +815,7 @@ fn merge_ring_rejects_a_paused_tree() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data: merge_ix_data(true),
+        data: ring_merge_ix_data(),
         output_ring_data_hash: fe(95),
         cache: None,
     }

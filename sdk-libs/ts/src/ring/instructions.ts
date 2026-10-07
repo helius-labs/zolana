@@ -710,6 +710,9 @@ export async function ringMergeInstruction(
     cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
+  if (input.data.envelope !== undefined) {
+    throw new RingError("RING_BUILD_MERGE", { details: { field: "envelope" } });
+  }
   const [config, cosigner, auth, nullifiers] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),

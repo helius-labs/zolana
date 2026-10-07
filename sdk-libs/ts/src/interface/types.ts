@@ -281,6 +281,13 @@ export interface RingConfigAccount {
   readonly bump: number;
 }
 
+export interface MergeEnvelope {
+  readonly commitment: Bytes32;
+  readonly commitmentPok: Bytes32;
+  readonly ephemeralPk: Bytes33;
+  readonly ciphertext: Uint8Array;
+}
+
 export interface MergeTransactInstructionData {
   readonly expiryUnixTs: bigint;
   readonly proof: Readonly<{
@@ -295,6 +302,7 @@ export interface MergeTransactInstructionData {
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
   readonly cacheSlot?: number;
+  readonly envelope?: MergeEnvelope;
 }
 
 export interface CreateCacheData {

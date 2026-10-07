@@ -926,7 +926,13 @@ function mergeFixture() {
 }
 
 describe("a merge writing its output to a cache slot", () => {
-  const PROOF = { a: bytes(0), b: new Uint8Array(128) as Bytes128, c: bytes(0) };
+  const PROOF = {
+    a: bytes(0),
+    b: new Uint8Array(128) as Bytes128,
+    c: bytes(0),
+    commitment: bytes(0),
+    commitmentPok: bytes(0),
+  };
 
   it("names the slot in its data and commits its external data hash to the cache", () => {
     const { prepared, proofs, dummyProofs } = mergeFixture();
@@ -940,7 +946,7 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(304);
+    expect(encodeMergeTransactInstructionData(data)).toHaveLength(442);
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,

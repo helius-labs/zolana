@@ -7,7 +7,7 @@ import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merg
 import { mergeProverRequestBody } from "../src/client/prover/client.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
-import type { Address, Bytes32, Bytes128 } from "../src/interface/types.js";
+import type { Address, Bytes32, Bytes33, Bytes128 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import {
   mergeDummyNullifier,
@@ -61,7 +61,7 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
       inputs,
       outputTreeId,
       ring: { programId: RING },
-      outputBlinding: mergeOutputBlinding(key, first.nullifier()),
+      blinding: { kind: "derived", outputBlinding: mergeOutputBlinding(key, first.nullifier()) },
       privateTxBlinding: mergePrivateTxBlinding(key, first.nullifier()),
       dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
         mergeDummyNullifier(key, first.nullifier(), slot),
@@ -436,6 +436,92 @@ describe("ring merge", () => {
       role: AccountRole.READONLY,
     });
     expect(instruction.accounts).toHaveLength(9 + inputs.length);
+  });
+
+  it("writes the None envelope tag and refuses an envelope", async () => {
+    const inputs = [input(3n), input(5n)];
+    const prepared = merge(inputs).prepare();
+    const assembly = assembleMergeWithProofs(
+      prepared,
+      inputs.map(spendProof),
+      treeAddress(7),
+      prepared.dummyNullifiers().map(nonInclusion),
+    );
+    const data = assembly.instructionData({
+      a: field(0),
+      b: new Uint8Array(128) as Bytes128,
+      c: field(0),
+    });
+    const request = {
+      ringProgramId: RING,
+      inputTree: treeAddress(7),
+      outputTree: treeAddress(7),
+      payer: owner.shieldedAddress().solanaAddress(),
+      outputRingDataHash: field(0),
+    };
+    const instruction = await ringMergeInstruction({ ...request, data });
+    expect(instruction.data).toHaveLength(1 + 32 + 272 + 32 * data.nullifiers.length);
+    expect(Array.from(instruction.data?.slice(-2) ?? [])).toEqual([0, 0]);
+    await expect(
+      ringMergeInstruction({
+        ...request,
+        data: {
+          ...data,
+          envelope: {
+            commitment: field(1),
+            commitmentPok: field(2),
+            ephemeralPk: Uint8Array.of(2, ...field(3)) as Bytes33,
+            ciphertext: new Uint8Array(40),
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: "RING_BUILD_MERGE", details: { field: "envelope" } });
+  });
+
+  it("refuses an envelope on the ring rail and a committed proof for its data", () => {
+    const inputs = [input(3n), input(5n)];
+    const first = inputs[0]!;
+    const key = owner.nullifierKey();
+    try {
+      expect(
+        () =>
+          new Merge({
+            address: owner.shieldedAddress(),
+            inputs,
+            outputTreeId: 7,
+            ring: { programId: RING },
+            blinding: { kind: "envelope" },
+            privateTxBlinding: mergePrivateTxBlinding(key, first.nullifier()),
+            dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
+              mergeDummyNullifier(key, first.nullifier(), slot),
+            ),
+          }),
+      ).toThrow(expect.objectContaining({ code: "TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH" }));
+    } finally {
+      key.destroy();
+    }
+    const prepared = merge(inputs).prepare();
+    expect(prepared.envelope).toBeUndefined();
+    const complete = prepareMerge(prepared, treeAddress(7)).finish({
+      slot: { id: 7, utxoRoot: field(1), nullifierRoot: field(2) },
+      utxoRootIndex: 0,
+      nullifierRootIndex: 0,
+    });
+    expect(() =>
+      complete.instructionData({
+        a: field(0),
+        b: new Uint8Array(128) as Bytes128,
+        c: field(0),
+        commitment: field(1),
+        commitmentPok: field(2),
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "CLIENT_PROOF_PARSE",
+        details: { path: "$.proof.proofCommitment", reason: "unexpected commitment" },
+      }),
+    );
+    expect(prepareMerge(prepared, treeAddress(7)).inputs.publicInputs).toHaveLength(8);
   });
 
   it("binds ring identity and destination into approval", () => {

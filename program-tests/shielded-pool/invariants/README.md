@@ -92,16 +92,16 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 106
-- High: 108
+- Critical (funds/double-spend/authority takeover): 108
+- High: 109
 - Medium: 76
-- Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
+- Not applicable post-PR164: 2 (the both-amounts gate (INV-TRANSACT-12) and the `merge_view_tag` entry; the merge ciphertext entries returned with the merge envelope and the P256 entries returned with PR172, both re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
   after an audit found the first resolution had not actually landed):
   1. Deposit/RingDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
-  3. Merge fixed 8-in/1-out shape (since replaced by 8-in, 24-in and 54-in, 1-out shapes) and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
+  3. Merge fixed 8-in/1-out shape (since replaced by 8-in, 24-in and 54-in, 1-out shapes) and a 192-byte Groth16 `a||b||c` proof; the default merge adds a BSB22 commitment and a merge envelope, the ring merge is ciphertext-free.
   4. UTXO tree height 32.
   5. Duplicate `ring_deposit` row removed from the instruction table.
   6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.
@@ -158,19 +158,19 @@ INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 268 / 295
+- Covered: 272 / 295
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
-- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Partial: 18 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(268 + 2 + 19 + 1 + 5 = 295. The per-file partial+untested column sums to 20
+(272 + 2 + 18 + 1 + 2 = 295. The per-file partial+untested column sums to 19
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 32/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 36/5/0/1, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
@@ -244,15 +244,14 @@ Status of the audit findings against the current (post-PR164) tree:
   `records_event_root_not_instruction_root` (INV-BATCH-NULL-07).
 - F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
   PR164 (bound in the `external_data_hash` preimage, now `ExternalDataPreimage` -- INV-XC-16).
-- F-06 merge viewing-key canonicality: MOOT (the vulnerable flow is gone.
-  PR164 merge outputs are ciphertext-free: `prover/server/circuits/spp_merge`
-  contains no encryption or KDF over a recipient key, and the merge output is
-  derived deterministically from the inputs so the owner needs no decryption.
-  The surviving `verifiable-encryption` consumer
-  (`sdk-tests/zk-program-swap/prover/circuits/take_verifiable_encryption/take.go`)
-  derives its AES key from the order-UTXO blinding via Poseidon KDF, never from
-  a recipient P-256 pubkey; `p256.CompressPubkey`/`ECDH` have no callers in the
-  current tree).
+- F-06 merge viewing-key canonicality: FIXED. The default-rail merge seals its
+  output to the registry `viewing_pk` again (merge envelope). The key agreement
+  in `prover/server/circuits/verifiable-encryption/p256/keyagreement.go` asserts
+  the `0x04` prefix, 8-bit coordinate bytes, canonical coordinates below the
+  field modulus and an on-curve point, and the published recipient packing is
+  derived from those canonical bytes, so two encodings of one key cannot both
+  verify. SPP binds the registry's compressed `viewing_pk` and rejects a prefix
+  other than `0x02`/`0x03` (INV-MERGE-09).
 - F-07 `create_protocol_config` front-runnable initializer: FIXED. The program
   now reads its own loader-v3 `ProgramData` and binds one-time initialization
   to its real, nonzero deploy upgrade authority

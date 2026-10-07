@@ -8,10 +8,13 @@ import {
   ed25519DerivationMessage,
   roleExpansion,
 } from "../../keypair/derivation.js";
+import { MERGE_CIPHERTEXT_LENGTH } from "../../interface/constants.js";
 import {
+  encodeOpenedMergeEnvelope,
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
+  openMergeEnvelope,
 } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -27,7 +30,7 @@ import { equal } from "../internal.js";
  * viewing key and the transaction's viewing key; only the ring-deposit
  * envelope uses its own label.
  */
-export type DecryptLabel = "transfer" | "ringDeposit";
+export type DecryptLabel = "transfer" | "ringDeposit" | "mergeEnvelope";
 
 export interface DecryptRequest {
   readonly ciphertext: Uint8Array;
@@ -228,14 +231,31 @@ export class LocalShieldedKeys implements ShieldedKeys {
   decryptOne(request: DecryptRequest): Uint8Array {
     checkDecryptRequest(request);
     const viewing = this.#viewingKey(request.viewingPublicKey);
-    return request.label === "ringDeposit"
-      ? viewing.decryptRingDeposit(request.ciphertext, request.txViewingPublicKey, request.salt)
-      : viewing.decryptUtxo(
+    switch (request.label) {
+      case "ringDeposit":
+        return viewing.decryptRingDeposit(
+          request.ciphertext,
+          request.txViewingPublicKey,
+          request.salt,
+        );
+      case "mergeEnvelope":
+        return encodeOpenedMergeEnvelope(
+          openMergeEnvelope({
+            viewingKey: viewing,
+            ephemeralPublicKey: request.txViewingPublicKey,
+            ciphertext: request.ciphertext,
+          }),
+        );
+      case "transfer":
+        return viewing.decryptUtxo(
           request.ciphertext,
           request.txViewingPublicKey,
           request.salt,
           request.slotIndex,
         );
+      default:
+        throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "label" });
+    }
   }
 
   deriveOne(request: DeriveRequest): Bytes32 {
@@ -339,7 +359,14 @@ function checkDecryptRequest(request: DecryptRequest): void {
     throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "txViewingPublicKey" });
   }
   checkedBytes<Bytes16>(request.salt, 16, "salt");
-  checkSlotIndex(request.slotIndex, request.label === "ringDeposit" ? 0 : 0xffff_ffff);
+  checkSlotIndex(request.slotIndex, request.label === "transfer" ? 0xffff_ffff : 0);
+  if (request.label === "mergeEnvelope" && request.ciphertext.length !== MERGE_CIPHERTEXT_LENGTH) {
+    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+      field: "ciphertext",
+      expected: MERGE_CIPHERTEXT_LENGTH,
+      actual: request.ciphertext.length,
+    });
+  }
 }
 
 function checkSlotIndex(slotIndex: number, max: number): void {

@@ -6,6 +6,7 @@ import type {
   CreateCacheData,
   DepositInstructionData,
   InputUtxo,
+  MergeEnvelope,
   MergeTransactInstructionData,
   OwnerTag,
   ProtocolConfigAccount,
@@ -23,7 +24,7 @@ import type {
   TreeHeadRoots,
 } from "../types.js";
 import { validCacheAccess } from "../cache.js";
-import { mergePaddedInputCount } from "../constants.js";
+import { MERGE_CIPHERTEXT_LENGTH, mergePaddedInputCount } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   CACHE_ACCOUNT_SIZE,
@@ -332,10 +333,21 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .option(value.cacheSlot, (output, slot) => {
       output.u8(unsigned(slot, CACHE_CAPACITY - 1, "cacheSlot"), "cacheSlot");
-    });
+    })
+    .option(value.envelope, writeMergeEnvelope);
 }
 
-const MERGE_FIXED_DATA_LENGTH = 271;
+function writeMergeEnvelope(writer: Writer, value: MergeEnvelope): void {
+  writer
+    .bytes(value.commitment, 32, "envelope.commitment")
+    .bytes(value.commitmentPok, 32, "envelope.commitmentPok")
+    .bytes(value.ephemeralPk, 33, "envelope.ephemeralPk")
+    .bytes(value.ciphertext, MERGE_CIPHERTEXT_LENGTH, "envelope.ciphertext");
+}
+
+const MERGE_FIXED_DATA_LENGTH = 272;
+
+const MERGE_ENVELOPE_LENGTH = 32 + 32 + 33 + MERGE_CIPHERTEXT_LENGTH;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
@@ -345,7 +357,8 @@ export function encodeMergeTransactInstructionData(
     writeMergeData,
     MERGE_FIXED_DATA_LENGTH +
       32 * value.nullifiers.length +
-      (value.cacheSlot === undefined ? 0 : 1),
+      (value.cacheSlot === undefined ? 0 : 1) +
+      (value.envelope === undefined ? 0 : MERGE_ENVELOPE_LENGTH),
   );
 }
 

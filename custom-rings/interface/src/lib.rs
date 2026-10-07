@@ -53,7 +53,7 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     ),
 ];
 
-pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
+pub use base_public_input::CustomRingBasePublicInput;
 pub use deposit::{DepositContext, DepositPublicInput};
 pub use instruction::{
     accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,

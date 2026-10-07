@@ -6,7 +6,9 @@ use solana_pubkey::Pubkey;
 use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
 use zolana_event_parser::ParsedInstruction;
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
+    instruction_data::merge_transact::{
+        MergeEnvelope, MergeProof, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
+    },
     CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
     TransactIxData, TransactOutput, TransactProof, TreeContext,
 };
@@ -15,6 +17,8 @@ pub const INPUT_TREE: [u8; 32] = [1u8; 32];
 pub const OUTPUT_TREE: [u8; 32] = [2u8; 32];
 pub const TX_VIEWING_PK: [u8; 33] = [5u8; 33];
 pub const SALT: [u8; 16] = [6u8; 16];
+pub const MERGE_EPHEMERAL_PK: [u8; 33] = [3u8; 33];
+pub const MERGE_CIPHERTEXT: [u8; MERGE_CIPHERTEXT_LEN] = [9u8; MERGE_CIPHERTEXT_LEN];
 
 /// One context per tree the inputs name, so any grouping a test writes
 /// serializes. Reconstruction reads the trees from the event, never the root
@@ -65,6 +69,12 @@ pub fn transact_ix(
 pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        envelope: Some(MergeEnvelope {
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+            ephemeral_pk: MERGE_EPHEMERAL_PK,
+            ciphertext: MERGE_CIPHERTEXT,
+        }),
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash,
@@ -84,7 +94,10 @@ pub fn merge_ring_ix(
 ) -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash,
-        merge: merge_ix(output_utxo_hash),
+        merge: MergeTransactIxData {
+            envelope: None,
+            ..merge_ix(output_utxo_hash)
+        },
     }
 }
 

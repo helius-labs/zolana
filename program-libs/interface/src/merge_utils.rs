@@ -2,8 +2,12 @@
 //! merge program, SDK, and circuits.
 
 use zolana_hasher::{
-    primitives::{hash_bytes, p256_owner_identity},
+    primitives::{hash_bytes, p256_owner_identity, pack_be, PACK_BE_CHUNK_BYTES},
     HasherError,
+};
+
+use crate::{
+    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_CIPHERTEXT_LEN,
 };
 
 const P256_PUBKEY_LEN: usize = 33;
@@ -36,6 +40,30 @@ pub fn owner_proof_input_hash_compressed(
 /// Fixed-length ciphertext proof-input hash.
 pub fn ciphertext_hash<const N: usize>(ciphertext: &[u8; N]) -> Result<[u8; 32], HasherError> {
     hash_bytes(ciphertext)
+}
+
+pub fn merge_envelope_public_elements(
+    recipient: &[u8; P256_PUBKEY_LEN],
+    ephemeral: &[u8; P256_PUBKEY_LEN],
+    ciphertext: &[u8; MERGE_CIPHERTEXT_LEN],
+) -> Result<[[u8; 32]; 4], ShieldedPoolError> {
+    for point in [recipient, ephemeral] {
+        parse_compressed(point).map_err(|_| ShieldedPoolError::InvalidViewingKeyEncoding)?;
+    }
+    let (recipient_lo, recipient_hi) = recipient.split_at(PACK_BE_CHUNK_BYTES);
+    let (ephemeral_lo, ephemeral_hi) = ephemeral.split_at(PACK_BE_CHUNK_BYTES);
+    let mut packed = [0u8; 2 * P256_PUBKEY_LEN + MERGE_CIPHERTEXT_LEN];
+    for (slot, byte) in packed.iter_mut().zip(
+        recipient_lo
+            .iter()
+            .chain(ephemeral_lo)
+            .chain(recipient_hi)
+            .chain(ephemeral_hi)
+            .chain(ciphertext),
+    ) {
+        *slot = *byte;
+    }
+    Ok(pack_be::<106, 4>(&packed))
 }
 
 #[cfg(test)]

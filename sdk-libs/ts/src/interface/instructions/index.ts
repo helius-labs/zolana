@@ -689,6 +689,9 @@ export async function mergeTransactInstruction(
       actual: input.cache === undefined ? "none" : "write",
     });
   }
+  if (input.data.envelope === undefined) {
+    fail("INTERFACE_INVALID_SHAPE", { name: "envelope", expected: "present", actual: "none" });
+  }
   return instruction(
     tagged(InstructionTag.mergeTransact, encodeMergeTransactInstructionData(input.data)),
     [

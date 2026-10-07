@@ -7,7 +7,7 @@ use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::{
-        merge_transact::{MergeProof, MergeTransactIxData},
+        merge_transact::{MergeEnvelope, MergeProof, MergeTransactIxData, MERGE_CIPHERTEXT_LEN},
         CreateCacheData,
     },
     pda,
@@ -379,6 +379,12 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
         store(&mut rpc, cache, cache_state);
         let data = MergeTransactIxData {
             cache_slot: Some(if case == "slot" { 36 } else { 0 }),
+            envelope: Some(MergeEnvelope {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+                ephemeral_pk: core::array::from_fn(|index| if index == 0 { 0x02 } else { 7 }),
+                ciphertext: [9; MERGE_CIPHERTEXT_LEN],
+            }),
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),

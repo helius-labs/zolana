@@ -111,6 +111,13 @@ export interface MergeInputs {
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
   readonly ringProgramId: Field;
+  readonly mint: Bytes32;
+  readonly envelope?: MergeEnvelopeInputs;
+}
+
+export interface MergeEnvelopeInputs {
+  readonly viewingPublicKey: Uint8Array;
+  readonly ephemeralSecret: Bytes32;
 }
 
 export type ProverInputs = Readonly<{

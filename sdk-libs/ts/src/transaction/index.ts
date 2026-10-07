@@ -41,6 +41,8 @@ export type {
   IndexedShieldedTransaction,
   InputUtxo,
   InputUtxoContext,
+  MergeBlindingSource,
+  MergeOutputEnvelope,
   OutputContext,
   OutputSlot,
   PreparedTransfer,

@@ -128,9 +128,6 @@ pub struct ProvenCustomRingMerge {
     pub output_hash: [u8; 32],
     pub input_count: usize,
     pub merged_amount: u64,
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    pub output_data: zolana_event::MessageData,
 }
 
 impl PreparedCustomRingMerge {
@@ -283,9 +280,6 @@ impl PreparedCustomRingMerge {
                 .filter(|input| !input.is_dummy())
                 .count(),
             merged_amount: self.inner.output_utxo.amount,
-            tx_viewing_pk: self.inner.tx_viewing_pk,
-            salt: self.inner.salt,
-            output_data: self.inner.output_data,
             data,
         })
     }
@@ -343,19 +337,16 @@ struct StagedMerge {
 
 impl StagedMerge {
     fn finish(self, proof: Proof) -> Result<ProvenCustomRingMerge, MergeError> {
-        let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
+        let proof = ProofCompressed::try_from(proof)?;
         Ok(ProvenCustomRingMerge {
             ring: self.ring,
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             cosigner: None,
-            data: self.result.ring_instruction_data(proof),
+            data: self.result.ring_instruction_data(proof)?,
             output_hash: self.result.output_hash,
             input_count: self.input_count,
             merged_amount: self.merged_amount,
-            tx_viewing_pk: self.result.tx_viewing_pk,
-            salt: self.result.salt,
-            output_data: self.result.output_data.clone(),
         })
     }
 }
@@ -526,6 +517,7 @@ mod tests {
             output_ring_data_hash: [7; 32],
             merge: zolana_interface::instruction::MergeTransactIxData {
                 cache_slot: None,
+                envelope: None,
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [0; 32],

@@ -135,8 +135,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     .build()?;
 
     let proof = ProverClient::new(prover_url.to_string()).prove_merge(&result.inputs)?;
-    let packed = ProofCompressed::try_from(proof)?.to_merge_proof()?;
-    let data = result.instruction_data(packed);
+    let data = result.instruction_data(ProofCompressed::try_from(proof)?)?;
 
     let merge_ix = MergeTransact {
         input_tree,

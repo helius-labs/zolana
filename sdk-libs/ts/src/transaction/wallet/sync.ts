@@ -1,5 +1,10 @@
-import { mergePaddedInputCount } from "../../interface/constants.js";
+import { MERGE_CIPHERTEXT_LENGTH, mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
+import { isDerivationPoint } from "../../keypair/derivation.js";
+import {
+  OPENED_MERGE_ENVELOPE_LENGTH,
+  decodeOpenedMergeEnvelope,
+} from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
@@ -7,9 +12,13 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, equal } from "../internal.js";
+import { copy, decodeAddress, encodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
-import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
+import type {
+  IndexedShieldedTransaction,
+  OutputContext,
+  OutputSlot,
+} from "../instructions/transact.js";
 import {
   EncryptedScheme,
   anonymousRecipientUtxo,
@@ -115,7 +124,7 @@ interface Site {
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
-  readonly mergeSites: readonly Site[];
+  readonly mergeSites: readonly MergeSite[];
   readonly unparsedTransactions: number;
 }
 
@@ -125,21 +134,31 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
   else existing.push(value);
 }
 
+interface MergeSite extends Site {
+  readonly tx: IndexedShieldedTransaction;
+  readonly output: OutputSlot;
+}
+
+function mergeSite(transaction: number, tx: IndexedShieldedTransaction): MergeSite | undefined {
+  if (tx.proofless || tx.salt !== undefined || tx.messages.length !== 0) return undefined;
+  const [output, ...rest] = tx.outputSlots;
+  const payloadLength = tx.txViewingPublicKey === undefined ? 32 : MERGE_CIPHERTEXT_LENGTH;
+  if (output?.payload.length !== payloadLength || rest.length !== 0) return undefined;
+  return { transaction, slot: 0, tx, output };
+}
+
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
-  const mergeSites: Site[] = [];
+  const mergeSites: MergeSite[] = [];
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
-    let classified = false;
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const slotIndex of tx.outputSlots.keys()) {
-        mergeSites.push({ transaction, slot: slotIndex });
-        classified = true;
-      }
-      if (!classified) unparsedTransactions++;
+    const merge = mergeSite(transaction, tx);
+    if (merge !== undefined) {
+      mergeSites.push(merge);
       continue;
     }
+    let classified = false;
     for (const [index, slot] of tx.outputSlots.entries()) {
       let scheme: EncryptedScheme;
       try {
@@ -916,19 +935,19 @@ class SyncPass {
     this.undecryptableCandidates++;
   }
 
-  resolveMergeSites(sites: readonly Site[]): void {
+  resolveMergeSites(sites: readonly MergeSite[]): void {
     let pending = [...sites];
     while (pending.length > 0) {
-      const unresolved: Site[] = [];
+      const unresolved: MergeSite[] = [];
       for (const site of pending) {
         const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
         if (this.#processedSlots.has(siteKey)) continue;
-        const tx = this.#transactions[site.transaction];
-        if (tx === undefined || tx.outputSlots[site.slot] === undefined) {
-          this.undecryptableCandidates++;
-          continue;
-        }
-        if (!this.#reconstructMerge(tx, site, siteKey)) unresolved.push(site);
+        const ephemeralPublicKey = site.tx.txViewingPublicKey;
+        const resolved =
+          ephemeralPublicKey === undefined
+            ? this.#reconstructRingMerge(site, siteKey)
+            : this.#openMergeEnvelope(site, ephemeralPublicKey, siteKey);
+        if (!resolved) unresolved.push(site);
       }
       if (unresolved.length === pending.length) {
         this.undecryptableCandidates += unresolved.length;
@@ -938,12 +957,54 @@ class SyncPass {
     }
   }
 
+  #openMergeEnvelope(site: MergeSite, ephemeralPublicKey: P256PublicKey, siteKey: string): boolean {
+    const { tx, output } = site;
+    if (isDerivationPoint(ephemeralPublicKey)) {
+      this.undecryptableCandidates++;
+      return true;
+    }
+    const requested = this.#viewingPublicKeys.map((viewingPublicKey) =>
+      this.#keys.decrypt({
+        ciphertext: output.payload,
+        viewingPublicKey,
+        txViewingPublicKey: ephemeralPublicKey,
+        salt: new Uint8Array(16) as Bytes16,
+        slotIndex: 0,
+        label: "mergeEnvelope",
+      }),
+    );
+    const opened = requested.filter((plaintext) => plaintext !== undefined);
+    if (opened.length !== requested.length) return false;
+    try {
+      for (const plaintext of opened) {
+        if (plaintext.length !== OPENED_MERGE_ENVELOPE_LENGTH) continue;
+        const { amount, mint, outputBlinding } = decodeOpenedMergeEnvelope(plaintext);
+        const utxo = new Utxo({
+          owner: this.#owner,
+          asset: encodeAddress(mint),
+          amount,
+          blinding: outputBlinding,
+        });
+        if (!equal(utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID), output.outputContext.hash)) {
+          continue;
+        }
+        if (this.#store(utxo, output.outputContext, undefined, undefined) !== "pending") {
+          this.#processedSlots.add(siteKey);
+          this.#recordMerge(tx, output.outputContext, utxo);
+        }
+        return true;
+      }
+    } finally {
+      for (const plaintext of opened) plaintext.fill(0);
+    }
+    this.undecryptableCandidates++;
+    return true;
+  }
+
   /** Missing inputs may be outputs of another merge in the same batch. */
-  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
-    const slot = tx.outputSlots[site.slot];
+  #reconstructRingMerge({ tx, output }: MergeSite, siteKey: string): boolean {
     const firstNullifier = tx.nullifiers[0];
     if (
-      slot === undefined ||
       firstNullifier === undefined ||
       !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
     ) {
@@ -979,7 +1040,15 @@ class SyncPass {
         matched.push(entry);
       }
       const first = matched[0];
-      if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
+      const ringProgramId = first?.utxo.ringProgramId;
+      if (
+        first === undefined ||
+        ringProgramId === undefined ||
+        matched.some(
+          (entry) =>
+            entry.utxo.asset !== first.utxo.asset || entry.utxo.ringProgramId !== ringProgramId,
+        )
+      ) {
         this.undecryptableCandidates++;
         return true;
       }
@@ -988,31 +1057,17 @@ class SyncPass {
         amount += entry.utxo.amount;
         if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
       }
-      const ringProgramId = first.utxo.ringProgramId;
-      if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const ringDataHash =
-        ringProgramId === undefined
-          ? undefined
-          : slot.payload.length === 32
-            ? (copy(slot.payload) as Bytes32)
-            : null;
-      if (ringDataHash === null) {
-        this.undecryptableCandidates++;
-        return true;
-      }
       const utxo = new Utxo({
         owner: this.#owner,
         asset: first.utxo.asset,
         amount,
         blinding: outputBlinding,
-        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+        ringProgramId,
       });
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
+      const ringDataHash = copy(output.payload) as Bytes32;
+      if (this.#storeRecipientUtxos([utxo], output.outputContext, undefined, ringDataHash)) {
         this.#processedSlots.add(siteKey);
-        this.#recordMerge(tx, slot.outputContext, utxo);
+        this.#recordMerge(tx, output.outputContext, utxo);
       }
       return true;
     } catch (error) {

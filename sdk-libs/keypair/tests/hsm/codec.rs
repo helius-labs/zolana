@@ -1,7 +1,4 @@
-use p256::{
-    ecdsa::Signature,
-    elliptic_curve::{scalar::IsHigh, sec1::ToEncodedPoint},
-};
+use p256::{ecdsa::Signature, elliptic_curve::scalar::IsHigh};
 use zolana_keypair::P256Pubkey;
 
 pub const P256_SPKI_PREFIX: [u8; 26] = [
@@ -10,13 +7,8 @@ pub const P256_SPKI_PREFIX: [u8; 26] = [
 ];
 
 pub fn spki_from_p256(pubkey: &P256Pubkey) -> Vec<u8> {
-    let point = pubkey
-        .to_p256()
-        .expect("valid P-256 pubkey")
-        .to_encoded_point(false);
-    let mut spki = P256_SPKI_PREFIX.to_vec();
-    spki.extend_from_slice(point.as_bytes());
-    spki
+    let point = pubkey.to_uncompressed().expect("valid P-256 pubkey");
+    [P256_SPKI_PREFIX.as_slice(), point.as_slice()].concat()
 }
 
 pub fn p256_from_spki(spki: &[u8]) -> P256Pubkey {

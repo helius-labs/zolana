@@ -1,4 +1,3 @@
-// Package merge implements the default and policy-ring SPP merge circuits.
 package merge
 
 import (
@@ -7,18 +6,8 @@ import (
 
 	"zolana/prover/circuits/gadget"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
+	ve "zolana/prover/circuits/verifiable-encryption"
 )
-
-// Properties:
-// 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
-// 2. Nonzero dummy nullifiers are indistinguishable from UTXO nullifiers;
-// compact padding publishes 0.
-// 3. No owner signature is enforced; cache insertion requires its write authority to sign.
-// 4. Balances are preserved.
-// 5. Input and output utxos are owned by the same owner.
-// 6. 1/many UTXOs to one UTXO
-// 7. The output UTXO is derived completely deterministically from the
-// input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
 
 type (
 	Input  = mergeshared.Input
@@ -30,19 +19,20 @@ const (
 	DummyDomain = mergeshared.DummyDomain
 )
 
-// Circuit is the default-ring merge rail. It publishes the owner's signing
-// pk_field and nullifier public key in addition to the common preimage.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
 
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [mergeshared.MintChunkCount]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
+
+	ViewingPk   [ve.UncompressedPointBytes]frontend.Variable
+	EphemeralSk [ve.ScalarBytes]frontend.Variable
 
 	mergeshared.CommonPublicInputs
 
@@ -51,8 +41,6 @@ type Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-// NewMergeCircuit allocates the default-rail merge circuit for n input slots.
-// One proving system exists per supported count; Define rejects any other.
 func NewMergeCircuit(n int) *Circuit {
 	return &Circuit{
 		NumInputs:          n,
@@ -61,40 +49,44 @@ func NewMergeCircuit(n int) *Circuit {
 	}
 }
 
-func (c *Circuit) transaction() mergeshared.Transaction {
-	return mergeshared.Transaction{
+func (c *Circuit) Define(api frontend.API) error {
+	var sealed ve.Sealed
+	tx := mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
-		Asset:               c.Asset,
+		MintChunks:          c.MintChunks,
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
 		Public:              c.CommonPublicInputs,
 		RingProgramID:       frontend.Variable(0),
+		OutputBlinding: func(amount frontend.Variable) frontend.Variable {
+			sealed = ve.Envelope{
+				SecretTag:   mergeshared.MergeSecretTag,
+				KdfInfo:     mergeshared.MergeKdfInfo,
+				EphemeralSk: c.EphemeralSk,
+				RecipientPk: c.ViewingPk,
+				Plaintext:   mergeshared.MergePlaintext(api, amount, c.MintChunks),
+			}.Seal(api)
+			return mergeshared.MergeDerivedBlinding(api, sealed.SharedSecret)
+		},
 	}
-}
-
-func (c *Circuit) Define(api frontend.API) error {
-	tx := c.transaction()
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
 
 	assertDefaultRing(api, tx.Inputs, tx.Output)
-	if _, err := tx.Constrain(api); err != nil {
-		return err
-	}
+	tx.Constrain(api)
 	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
+	envelope := mergeshared.EnvelopePublicElements(api, sealed)
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.UserSigningPkHash, c.UserNullifierPk)
+	fields = append(fields, envelope[:]...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }
 
-// assertDefaultRing pins ring data to zero for every real input and for the
-// always-real output. Dummy input ring data remains free, matching the existing
-// arity-hiding convention.
 func assertDefaultRing(api frontend.API, inputs []Input, output Output) {
 	for _, input := range inputs {
 		isUtxo := api.IsZero(api.Sub(input.Domain, UtxoDomain))
