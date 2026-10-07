@@ -316,6 +316,25 @@ fn a_policy_file_is_a_pin_file_or_a_bare_policy() {
     refusal("not json");
 }
 
+#[test]
+fn the_published_deployment_pins_load() {
+    for (json, platform) in [
+        (
+            include_str!("../../../../../prover/tee/deployments/phala-h200.json"),
+            Platform::DstackTdx,
+        ),
+        (
+            include_str!("../../../../../prover/tee/deployments/nitro-c6a.json"),
+            Platform::AwsNitro,
+        ),
+    ] {
+        assert_eq!(
+            TeePolicy::from_file_json(json).unwrap().platform(),
+            platform
+        );
+    }
+}
+
 #[derive(Deserialize)]
 struct Vectors {
     ikm: String,
