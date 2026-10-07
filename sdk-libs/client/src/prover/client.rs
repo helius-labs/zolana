@@ -266,7 +266,7 @@ impl ProverClient {
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: ProofDataSource::default(),
+            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -283,7 +283,7 @@ impl ProverClient {
             http,
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: ProofDataSource::default(),
+            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -531,7 +531,7 @@ impl ProverClient {
             route,
             key,
         } = request;
-        let url = self.endpoint.url(&route.path(key))?;
+        let url = route.url(&self.endpoint, key)?;
         crate::prover::timing::note(0, "prover_request_bytes", body.len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
@@ -680,18 +680,37 @@ impl ProverClient {
     }
 }
 
+/// Prover-side proof data, except on the Helius gateway, which has no
+/// indexed route.
+fn default_proof_data_source(server_address: &str) -> ProofDataSource {
+    if ProverEndpoint::parse(server_address).is_gateway() {
+        ProofDataSource::Client
+    } else {
+        ProofDataSource::default()
+    }
+}
+
 enum ProofRoute {
     Complete,
     Indexed,
 }
 
 impl ProofRoute {
-    fn path(&self, key: &ExpectedProvingKey) -> String {
-        let path = key.prove_path();
-        match self {
-            Self::Complete => path,
-            Self::Indexed => path + "/indexed",
-        }
+    /// On the Helius gateway, the key-less `/prove`, where the prover reads
+    /// the key from the body; the gateway has no indexed route.
+    fn url(&self, endpoint: &ProverEndpoint, key: &ExpectedProvingKey) -> Result<Url, ClientError> {
+        let gateway = endpoint.is_gateway();
+        let path =
+            match (self, gateway) {
+                (Self::Complete, true) => "/prove".to_owned(),
+                (Self::Indexed, true) => return Err(ClientError::Prover(
+                    "the Helius gateway has no indexed prove route; use ProofDataSource::Client"
+                        .into(),
+                )),
+                (Self::Complete, false) => key.prove_path(),
+                (Self::Indexed, false) => key.prove_path() + "/indexed",
+            };
+        endpoint.url(&path)
     }
 
     fn failure(&self, status: StatusCode, text: &str) -> ClientError {
@@ -953,7 +972,7 @@ impl AsyncProverClient {
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: ProofDataSource::default(),
+            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -967,7 +986,7 @@ impl AsyncProverClient {
             http,
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: ProofDataSource::default(),
+            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -1212,7 +1231,7 @@ impl AsyncProverClient {
             route,
             key,
         } = request;
-        let url = self.endpoint.url(&route.path(key))?;
+        let url = route.url(&self.endpoint, key)?;
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body, delivery).await?;
@@ -2778,6 +2797,62 @@ mod tests {
             "the retry must queue rather than ask again for a permit just refused"
         );
         assert!(requests.get(1).expect("queued retry").async_requested);
+    }
+
+    /// The Helius gateway routes proofs only to the key-less `/prove` and
+    /// `/prove/status`, and has no indexed route.
+    #[test]
+    fn the_helius_gateway_gets_key_less_paths_and_client_proof_data() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(429, json!({ "code": "prover_busy" })),
+            MockResponse::json(202, json!({ "jobId": "gateway-job" })),
+            MockResponse::json(
+                200,
+                json!({ "status": "completed", "result": { "proof": gnark_proof() } }),
+            ),
+        ]);
+        let address: std::net::SocketAddr = server
+            .url()
+            .trim_start_matches("http://")
+            .parse()
+            .expect("mock server address");
+        let http = reqwest::blocking::Client::builder()
+            .resolve("beta-devnet.helius-rpc.com", address)
+            .build()
+            .expect("client");
+        let gateway = ProverClient::with_client(
+            format!(
+                "http://beta-devnet.helius-rpc.com:{}/v1/zolana?api-key=secret",
+                address.port()
+            ),
+            http,
+        )
+        .with_async_poll_config(AsyncPollConfig {
+            poll_interval_secs: 1,
+            max_wait_secs: 1,
+        });
+        assert_eq!(gateway.proof_data_source(), ProofDataSource::Client);
+        gateway
+            .send("{}", Delivery::InResponse, &test_key())
+            .expect("the gateway proves on its key-less path");
+        assert_paths(
+            &server.requests(),
+            [
+                "/v1/zolana/prove?api-key=secret",
+                "/v1/zolana/prove?api-key=secret",
+                "/v1/zolana/prove/status?api-key=secret&jobId=gateway-job",
+            ],
+        );
+
+        let (request, _) = indexed_fixture();
+        let refused = ProverClient::new("https://beta-devnet.helius-rpc.com/v1/zolana".into())
+            .with_proof_data_source(ProofDataSource::Prover)
+            .prove_indexed(&request);
+        assert!(matches!(refused, Err(ClientError::Prover(_))));
+        assert_eq!(
+            ProverClient::new("https://prover.example/v1/zolana".into()).proof_data_source(),
+            ProofDataSource::Prover
+        );
     }
 
     fn indexed_fixture() -> (IndexedProofRequest, Value) {
