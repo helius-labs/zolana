@@ -28,7 +28,7 @@ use zolana_interface::{
     INPUT_TREES, MAX_INPUT_TREES,
 };
 
-use super::{field::right_align_slice, ExpectedProvingKey, Proof, Shape};
+use super::{endpoint::ProverEndpoint, field::right_align_slice, ExpectedProvingKey, Proof, Shape};
 use crate::ClientError;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,6 +36,18 @@ pub enum ProofDataSource {
     Client,
     #[default]
     Prover,
+}
+
+impl ProofDataSource {
+    /// Prover-side proof data, except on the Helius gateway, which has no
+    /// indexed route.
+    pub(crate) fn for_endpoint(endpoint: &ProverEndpoint) -> Self {
+        if endpoint.is_gateway() {
+            Self::Client
+        } else {
+            Self::default()
+        }
+    }
 }
 
 pub(crate) use sealed::Request;

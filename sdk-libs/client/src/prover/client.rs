@@ -261,12 +261,13 @@ impl ProverClient {
     }
 
     pub fn new(server_address: String) -> Self {
+        let endpoint = ProverEndpoint::parse(&server_address);
         Self {
-            endpoint: ProverEndpoint::parse(&server_address),
+            proof_data_source: ProofDataSource::for_endpoint(&endpoint),
+            endpoint,
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -278,12 +279,13 @@ impl ProverClient {
     /// route proof traffic through a proxy such as Tor. `new()` keeps the
     /// default direct behavior.
     pub fn with_client(server_address: String, http: reqwest::blocking::Client) -> Self {
+        let endpoint = ProverEndpoint::parse(&server_address);
         Self {
-            endpoint: ProverEndpoint::parse(&server_address),
+            proof_data_source: ProofDataSource::for_endpoint(&endpoint),
+            endpoint,
             http,
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -680,16 +682,6 @@ impl ProverClient {
     }
 }
 
-/// Prover-side proof data, except on the Helius gateway, which has no
-/// indexed route.
-fn default_proof_data_source(server_address: &str) -> ProofDataSource {
-    if ProverEndpoint::parse(server_address).is_gateway() {
-        ProofDataSource::Client
-    } else {
-        ProofDataSource::default()
-    }
-}
-
 enum ProofRoute {
     Complete,
     Indexed,
@@ -967,12 +959,13 @@ impl AsyncProverClient {
     }
 
     pub fn new(server_address: String) -> Self {
+        let endpoint = ProverEndpoint::parse(&server_address);
         Self {
-            endpoint: ProverEndpoint::parse(&server_address),
+            proof_data_source: ProofDataSource::for_endpoint(&endpoint),
+            endpoint,
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
@@ -981,12 +974,13 @@ impl AsyncProverClient {
     ///
     /// Async counterpart of [`ProverClient::with_client`].
     pub fn with_client(server_address: String, http: reqwest::Client) -> Self {
+        let endpoint = ProverEndpoint::parse(&server_address);
         Self {
-            endpoint: ProverEndpoint::parse(&server_address),
+            proof_data_source: ProofDataSource::for_endpoint(&endpoint),
+            endpoint,
             http,
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
-            proof_data_source: default_proof_data_source(&server_address),
             tee: None,
         }
     }
