@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import functools
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -16,7 +19,13 @@ sys.path.append(str(GPU))
 
 import aws as gpu  # noqa: E402
 import aws_stack  # noqa: E402
-from aws_nitro_host import MEASUREMENTS, PCRS, ROOT  # noqa: E402
+from aws_nitro_host import (  # noqa: E402
+    MEASUREMENTS,
+    PCRS,
+    ROOT,
+    SEED_OBJECT,
+    image_files,
+)
 
 OWNER = {"Key": "zolana-tool", "Value": "nitro-deploy"}
 IMAGE = re.compile(
@@ -26,6 +35,7 @@ IMAGE = re.compile(
 AMI = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 MEASURE_IMAGE = "amazonlinux:2023@sha256:8ed3c0a996841537f75607e7d1de2114d8150391f75792e8da9268738547e73f"
 PCR = re.compile(r"[0-9a-f]{96}")
+HPKE_KEY = re.compile(r"[0-9a-f]{64}")
 INSTANCE_TYPE = "m6i.4xlarge"
 DISK_GB = 30
 # An enclave cannot take CPU 0's core.
@@ -52,8 +62,148 @@ def template(config):
     distribution = resources["Distribution"]["Properties"]["DistributionConfig"]
     distribution["Origins"][0]["Id"] = "gateway"
     distribution["DefaultCacheBehavior"]["TargetOriginId"] = "gateway"
+    body["Outputs"]["HostRole"] = {"Value": aws_stack.attr("HostRole", "Arn")}
     body["Description"] = "Zolana Nitro Enclave prover"
     return body
+
+
+# The administrator can decrypt the seed and is the trust root.
+def key_policy(account, *statements):
+    return aws_stack.document(
+        [
+            {
+                "Sid": "Administrator",
+                "Effect": "Allow",
+                "Principal": {"AWS": f"arn:aws:iam::{account}:root"},
+                "Action": "kms:*",
+                "Resource": "*",
+            },
+            *statements,
+        ]
+    )
+
+
+def attested_decrypt(host_role, pcrs):
+    return {
+        "Sid": "AttestedEnclave",
+        "Effect": "Allow",
+        "Principal": {"AWS": host_role},
+        "Action": "kms:Decrypt",
+        "Resource": "*",
+        "Condition": {
+            "StringEqualsIgnoreCase": {
+                f"kms:RecipientAttestation:{name}": pcrs[name] for name in PCRS
+            }
+        },
+    }
+
+
+# Decrypt needs every PCR, and no principal may wrap a seed it chose.
+def sealed(pcrs):
+    return [
+        {
+            "Sid": "SealedSeed",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": [
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyPair*",
+                "kms:GenerateDataKeyWithoutPlaintext",
+            ],
+            "Resource": "*",
+        },
+        *(
+            {
+                "Sid": f"Attested{name}",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "kms:Decrypt",
+                "Resource": "*",
+                "Condition": {
+                    "StringNotEqualsIgnoreCase": {
+                        f"kms:RecipientAttestation:{name}": pcrs[name]
+                    }
+                },
+            }
+            for name in PCRS
+        ),
+    ]
+
+
+def find_kms_key(aws, name):
+    try:
+        metadata = aws.call("kms", "describe-key", KeyId=f"alias/{name}")["KeyMetadata"]
+    except gpu.AwsError as error:
+        if "NotFoundException" in str(error):
+            return None
+        raise
+    tags = aws.call("kms", "list-resource-tags", KeyId=metadata["KeyId"])["Tags"]
+    if {"TagKey": OWNER["Key"], "TagValue": OWNER["Value"]} not in tags:
+        raise RuntimeError(f"alias/{name} is not owned by the deployment tool")
+    if metadata["KeyState"] != "Enabled":
+        raise RuntimeError(f"alias/{name} is {metadata['KeyState']}")
+    return metadata["Arn"]
+
+
+def create_kms_key(aws, name, account):
+    arn = find_kms_key(aws, name)
+    if arn:
+        return arn
+    metadata = aws.call(
+        "kms",
+        "create-key",
+        Description=f"{name} HPKE seed",
+        Policy=json.dumps(key_policy(account)),
+        Tags=[{"TagKey": OWNER["Key"], "TagValue": OWNER["Value"]}],
+    )["KeyMetadata"]
+    try:
+        aws.call(
+            "kms",
+            "create-alias",
+            AliasName=f"alias/{name}",
+            TargetKeyId=metadata["KeyId"],
+        )
+    except (Exception, KeyboardInterrupt):
+        delete_kms_key(aws, metadata["KeyId"])
+        raise
+    gpu.log(f"Created alias/{name}")
+    return metadata["Arn"]
+
+
+def delete_kms_key(aws, key):
+    aws.call("kms", "schedule-key-deletion", KeyId=key, PendingWindowInDays=7)
+
+
+def release_seed(aws, out, key, pcrs):
+    account = key.split(":")[4]
+
+    def put_policy(*statements):
+        aws.call(
+            "kms",
+            "put-key-policy",
+            KeyId=key,
+            PolicyName="default",
+            Policy=json.dumps(key_policy(account, *statements)),
+        )
+
+    if not gpu.object_exists(aws, out["Bucket"], SEED_OBJECT):
+        put_policy()
+        blob = aws.call(
+            "kms", "generate-data-key-without-plaintext", KeyId=key, KeySpec="AES_256"
+        )["CiphertextBlob"]
+        with tempfile.TemporaryDirectory() as directory:
+            seed = Path(directory) / "hpke-seed.bin"
+            seed.write_bytes(base64.b64decode(blob))
+            aws.command(
+                "s3",
+                "cp",
+                str(seed),
+                f"s3://{out['Bucket']}/{SEED_OBJECT}",
+                "--only-show-errors",
+            )
+    put_policy(attested_decrypt(out["HostRole"], pcrs), *sealed(pcrs))
 
 
 def enclave_size(described):
@@ -94,7 +244,7 @@ def docker(*args, stdout=None, timeout=1800):
 def measure(image):
     image_reference(image)
     docker("pull", "--platform", "linux/amd64", image, stdout=sys.stderr)
-    return json.loads(
+    record = json.loads(
         docker(
             "run",
             "--rm",
@@ -111,7 +261,8 @@ def measure(image):
             image,
             stdout=subprocess.PIPE,
         )
-    ) | {"source": "measure"}
+    )
+    return record | {"kms_key": image_files(image)["kms_key"], "source": "measure"}
 
 
 def expected_pcrs(path):
@@ -120,13 +271,18 @@ def expected_pcrs(path):
         name: value.lower() if isinstance(value := record.get(name), str) else value
         for name in PCRS
     }
-    if record.get("source") != "measure" or not all(
-        isinstance(value, str) and PCR.fullmatch(value) for value in pcrs.values()
+    if (
+        record.get("source") != "measure"
+        or "kms_key" not in record
+        or not isinstance(record.get("image"), str)
+        or not all(
+            isinstance(value, str) and PCR.fullmatch(value) for value in pcrs.values()
+        )
     ):
         raise argparse.ArgumentTypeError(
-            f"{path} needs PCR0, PCR1 and PCR2 written by tools/nitro/aws_nitro.py measure"
+            f"{path} needs PCR0, PCR1, PCR2, image and kms_key written by tools/nitro/aws_nitro.py measure"
         )
-    return pcrs
+    return pcrs | {"kms_key": record["kms_key"], "image": record["image"]}
 
 
 def configuration(args, aws):
@@ -184,40 +340,64 @@ def check_measurements(expected, measured):
         )
 
 
-def attestation_policy(measurements):
+def attestation_policy(measurements, hpke_public_key):
     return {
         "platform": "aws-nitro",
         "measurements": [{name.lower(): measurements[name] for name in PCRS}],
+        "hpke_public_key": hpke_public_key,
         "gpu": "optional",
         "max_age_secs": 600,
     }
 
 
-def check_attestation(aws, out, measurements):
+def offered_key(url, api_key):
+    request = urllib.request.Request(
+        f"{url}/tee/v1/attestation?nonce={secrets.token_hex(32)}",
+        headers={"X-API-Key": api_key},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        key = json.loads(response.read()).get("hpke_public_key")
+    if not isinstance(key, str) or not HPKE_KEY.fullmatch(key):
+        raise RuntimeError("Attestation carries no HPKE key")
+    return key
+
+
+# Round robin sends consecutive requests to every enclave in turn.
+def check_attestation(aws, out, measurements, enclaves):
+    api_key = gpu.api_key(aws, out)
+    rounds = 2 * enclaves
+    offered = {offered_key(out["Url"], api_key) for _ in range(rounds)}
+    if len(offered) != 1:
+        raise RuntimeError(
+            "Enclaves offer different HPKE keys. Do not pin this deployment."
+        )
+    (hpke_public_key,) = offered
     refused = (
         f"Enclave at {out['Url']} failed tee-check. Do not pin this deployment.\n"
         "Deploy verifies the enclave with cargo run -p xtask from the repository root"
     )
     with tempfile.TemporaryDirectory() as directory:
         policy = Path(directory) / "policy.json"
-        policy.write_text(json.dumps(attestation_policy(measurements)))
-        try:
-            result = subprocess.run(
-                [*TEE_CHECK, out["Url"], "--policy", str(policy)],
-                cwd=REPOSITORY,
-                env=os.environ | {"PROVER_API_KEY": gpu.api_key(aws, out)},
-                # Deploy stdout carries only the JSON summary.
-                stdout=sys.stderr,
-                timeout=VERIFY_TIMEOUT,
-                check=False,
-            )
-        except FileNotFoundError as error:
-            raise RuntimeError(refused) from error
-    if result.returncode:
-        raise RuntimeError(refused)
+        policy.write_text(json.dumps(attestation_policy(measurements, hpke_public_key)))
+        for _ in range(rounds):
+            try:
+                result = subprocess.run(
+                    [*TEE_CHECK, out["Url"], "--policy", str(policy)],
+                    cwd=REPOSITORY,
+                    env=os.environ | {"PROVER_API_KEY": api_key},
+                    # Deploy stdout carries only the JSON summary.
+                    stdout=sys.stderr,
+                    timeout=VERIFY_TIMEOUT,
+                    check=False,
+                )
+            except FileNotFoundError as error:
+                raise RuntimeError(refused) from error
+            if result.returncode:
+                raise RuntimeError(refused)
+    return hpke_public_key
 
 
-def show(stack, measurements=None):
+def show(stack, measurements=None, hpke_public_key=None):
     out = gpu.outputs(stack)
     config = json.loads(out.get("Config", "{}"))
     summary = {"stack": stack["StackName"], "status": stack["StackStatus"]}
@@ -229,10 +409,19 @@ def show(stack, measurements=None):
             summary[name] = config[name]
     if measurements:
         summary["measurements"] = measurements
+    if hpke_public_key:
+        summary["hpke_public_key"] = hpke_public_key
     print(json.dumps(summary, indent=2))
 
 
 def deploy(args, aws, stack):
+    kms_key = None
+    if args.expect_pcrs and args.expect_pcrs["kms_key"]:
+        kms_key = find_kms_key(aws, args.name)
+        if args.expect_pcrs["kms_key"] != kms_key:
+            raise ValueError(
+                "The image names another KMS key than this deployment. Run kms-key and build the image with the ARN it prints"
+            )
     if stack:
         if args.plan:
             print(json.dumps(stack, indent=2))
@@ -272,8 +461,12 @@ def deploy(args, aws, stack):
         gpu.log(
             f"Creating {args.name} with {config['instance_type']} in {config['zone']}"
         )
+    if args.expect_pcrs and args.expect_pcrs["image"] != config["prover_image"]:
+        raise ValueError("The measured PCRs belong to another image")
     stack = gpu.wait_stack(aws, args.name, owner=OWNER)
     out = gpu.outputs(stack)
+    if kms_key:
+        release_seed(aws, out, kms_key, args.expect_pcrs)
     if not gpu.object_exists(aws, out["Bucket"], "install/complete"):
         gpu.install(
             aws,
@@ -287,7 +480,10 @@ def deploy(args, aws, stack):
     if measurements is None:
         raise RuntimeError("Installation recorded no enclave measurements")
     check_measurements(args.expect_pcrs, measurements)
-    check_attestation(aws, out, args.expect_pcrs)
+    hpke_public_key = check_attestation(
+        aws, out, args.expect_pcrs, measurements["enclaves"]
+    )
+    gpu.log(f"{measurements['enclaves']} enclaves attest HPKE key {hpke_public_key}")
     with tempfile.TemporaryDirectory() as directory:
         marker = Path(directory) / "complete"
         marker.write_text(config["prover_image"])
@@ -298,14 +494,16 @@ def deploy(args, aws, stack):
             f"s3://{out['Bucket']}/install/complete",
             "--only-show-errors",
         )
-    show(stack, measurements)
+    show(stack, measurements, hpke_public_key)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Deploy the CPU prover in an AWS Nitro Enclave. Requires Python 3 and AWS CLI v2."
     )
-    parser.add_argument("action", choices=("measure", "deploy", "status", "destroy"))
+    parser.add_argument(
+        "action", choices=("kms-key", "measure", "deploy", "status", "destroy")
+    )
     parser.add_argument(
         "name",
         nargs="?",
@@ -350,15 +548,26 @@ def main():
     if identity["Account"] != gpu.REGISTRY_ACCOUNT:
         raise ValueError(f"Select an AWS profile in account {gpu.REGISTRY_ACCOUNT}")
     gpu.log(f"AWS account {identity['Account']}, region {args.region}")
+    if args.action == "kms-key":
+        print(create_kms_key(aws, args.name, identity["Account"]))
+        return
     stack = gpu.get_stack(aws, args.name, OWNER)
     if args.action == "deploy":
         deploy(args, aws, stack)
-    elif stack is None:
-        raise ValueError("Deployment does not exist")
     elif args.action == "status":
+        if stack is None:
+            raise ValueError("Deployment does not exist")
         show(stack, read_measurements(aws, gpu.outputs(stack)))
     else:
-        gpu.destroy(aws, stack, owner=OWNER)
+        kms_key = find_kms_key(aws, args.name)
+        if stack is None and kms_key is None:
+            raise ValueError("Deployment does not exist")
+        if stack:
+            gpu.destroy(aws, stack, owner=OWNER)
+        if kms_key:
+            aws.call("kms", "delete-alias", AliasName=f"alias/{args.name}")
+            delete_kms_key(aws, kms_key)
+            gpu.log(f"Scheduled deletion of alias/{args.name}")
 
 
 if __name__ == "__main__":

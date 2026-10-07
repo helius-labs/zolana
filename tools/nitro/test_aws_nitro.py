@@ -1,7 +1,10 @@
 import argparse
+import base64
 import fnmatch
+import io
 import json
 import re
+import socket
 import subprocess
 import tempfile
 import threading
@@ -27,6 +30,18 @@ IMAGE = (
     + "a" * 64
 )
 PCR = {name: str(index) * 96 for index, name in enumerate(host.PCRS)}
+KMS_KEY = (
+    "arn:aws:kms:eu-central-1:558215002830:key/"
+    + "1" * 8
+    + "-1111-1111-1111-"
+    + "1" * 12
+)
+HOST_ROLE = "arn:aws:iam::558215002830:role/zolana-nitro-test-HostRole"
+HPKE = "ab" * 32
+ENCLAVES = [
+    {"cpus": [*range(1, 24), *range(49, 72)], "memory_mib": 92546},
+    {"cpus": [*range(24, 48), *range(72, 96)], "memory_mib": 92658},
+]
 
 
 def config():
@@ -70,10 +85,16 @@ def routes(indexer=""):
     return outcome.returncode, outcome.stdout, outcome.stderr
 
 
-def resume(parent):
-    aws = Mock()
-    aws.call.return_value = {"SecretString": "secret"}
-    out = {"Bucket": "b", "ApiKeySecret": "s", "Url": "https://x"}
+def resume(parent, expected=None, seed=True, aws=None):
+    if aws is None:
+        aws = Mock()
+        aws.call.return_value = {"SecretString": "secret"}
+    out = {
+        "Bucket": "b",
+        "ApiKeySecret": "s",
+        "Url": "https://x",
+        "HostRole": HOST_ROLE,
+    }
     stack = {
         "Parameters": [
             {"ParameterKey": "Config", "ParameterValue": json.dumps(config())}
@@ -86,13 +107,18 @@ def resume(parent):
         indexer_url=None,
         instance_type=None,
         zone=None,
-        expect_pcrs=PCR,
+        expect_pcrs=expected or dict(PCR, kms_key=None, image=IMAGE),
     )
     try:
         with (
             patch.object(aws_nitro.gpu, "wait_stack", return_value={}),
             patch.object(aws_nitro.gpu, "outputs", return_value=out),
-            patch.object(aws_nitro.gpu, "object_exists", return_value=True),
+            patch.object(
+                aws_nitro.gpu,
+                "object_exists",
+                side_effect=lambda _aws, _bucket, key: seed or key != host.SEED_OBJECT,
+            ),
+            patch.object(aws_nitro, "offered_key", return_value=HPKE),
             patch.object(aws_nitro.gpu, "check_gateway"),
             patch.object(aws_nitro.gpu, "log"),
             patch.object(aws_nitro, "read_measurements", return_value=parent),
@@ -104,6 +130,7 @@ def resume(parent):
         raise
     marker = aws.command.call_args.args
     assert marker[:2] == ("s3", "cp") and marker[-2].endswith("/install/complete")
+    return aws
 
 
 class StackTests(unittest.TestCase):
@@ -134,10 +161,20 @@ class StackTests(unittest.TestCase):
         )
 
     def test_host_role_reads_only_the_api_key_and_writes_only_measurements(self):
-        statements = aws_nitro.template(config())["Resources"]["HostRole"][
-            "Properties"
-        ]["Policies"][0]["PolicyDocument"]["Statement"]
+        body = aws_nitro.template(config())
+        statements = body["Resources"]["HostRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
         by_action = {tuple(s["Action"]): s["Resource"] for s in statements}
+        self.assertFalse(
+            any(action.startswith("kms:") for s in statements for action in s["Action"])
+        )
+        self.assertFalse(
+            any(r["Type"].startswith("AWS::KMS") for r in body["Resources"].values())
+        )
+        self.assertEqual(
+            body["Outputs"]["HostRole"], {"Value": {"Fn::GetAtt": ["HostRole", "Arn"]}}
+        )
         self.assertEqual(
             by_action[("secretsmanager:GetSecretValue",)], [{"Ref": "ApiKey"}]
         )
@@ -215,7 +252,7 @@ class StackTests(unittest.TestCase):
 
     def test_plan_never_creates_resources(self):
         client = Mock()
-        args = argparse.Namespace(plan=True, name="zolana-nitro-test")
+        args = argparse.Namespace(plan=True, name="zolana-nitro-test", expect_pcrs=None)
         with (
             patch.object(aws_nitro, "configuration", return_value=config()),
             patch("builtins.print"),
@@ -237,13 +274,24 @@ class StackTests(unittest.TestCase):
     def test_expected_pcrs_need_every_measure_pcr(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "pcrs.json"
-            measured = dict(PCR, HashAlgorithm="Sha512_48 { .. }", source="measure")
+            measured = dict(
+                PCR,
+                HashAlgorithm="Sha512_48 { .. }",
+                source="measure",
+                kms_key=KMS_KEY,
+                image=IMAGE,
+            )
             path.write_text(json.dumps(measured))
-            self.assertEqual(aws_nitro.expected_pcrs(str(path)), PCR)
+            expected = dict(PCR, kms_key=KMS_KEY, image=IMAGE)
+            self.assertEqual(aws_nitro.expected_pcrs(str(path)), expected)
             path.write_text(json.dumps(dict(measured, PCR1=PCR["PCR1"].upper())))
-            self.assertEqual(aws_nitro.expected_pcrs(str(path)), PCR)
+            self.assertEqual(aws_nitro.expected_pcrs(str(path)), expected)
+            path.write_text(json.dumps(dict(measured, kms_key=None)))
+            self.assertIsNone(aws_nitro.expected_pcrs(str(path))["kms_key"])
             for record in (
                 dict(PCR, HashAlgorithm="Sha512_48 { .. }"),
+                {k: v for k, v in measured.items() if k != "kms_key"},
+                {k: v for k, v in measured.items() if k != "image"},
                 {k: v for k, v in measured.items() if k != "PCR2"},
                 dict(measured, PCR1="g" * 96),
                 dict(measured, PCR0=PCR["PCR0"][:-2]),
@@ -267,10 +315,17 @@ class StackTests(unittest.TestCase):
 
     def test_measure_builds_in_the_pinned_container_with_the_host_script(self):
         record = json.dumps(dict(PCR, HashAlgorithm="Sha512_48 { .. }"))
-        with patch.object(aws_nitro, "docker", side_effect=["", record]) as docker:
+        with (
+            patch.object(aws_nitro, "docker", side_effect=["", record]) as docker,
+            patch.object(
+                aws_nitro, "image_files", return_value={"kms_key": KMS_KEY}
+            ) as files,
+        ):
             measured = aws_nitro.measure(IMAGE)
             self.assertEqual(measured["PCR0"], PCR["PCR0"])
             self.assertEqual(measured["source"], "measure")
+            self.assertEqual(measured["kms_key"], KMS_KEY)
+        files.assert_called_once_with(IMAGE)
         pull, build = (call.args for call in docker.call_args_list)
         self.assertEqual(pull, ("pull", "--platform", "linux/amd64", IMAGE))
         self.assertRegex(
@@ -302,6 +357,7 @@ class StackTests(unittest.TestCase):
             indexer_url=None,
             instance_type=None,
             zone=None,
+            expect_pcrs=None,
         )
         with self.assertRaisesRegex(ValueError, "different settings"):
             aws_nitro.deploy(args, Mock(), stack)
@@ -317,7 +373,7 @@ class AttestationTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, returncode)
 
         with patch.object(aws_nitro.subprocess, "run", side_effect=tee_check):
-            resume(PCR)
+            resume(dict(PCR, enclaves=1))
         return seen
 
     def test_deploy_marks_complete_only_after_tee_check_passes(self):
@@ -333,6 +389,7 @@ class AttestationTests(unittest.TestCase):
                 "measurements": [
                     {"pcr0": PCR["PCR0"], "pcr1": PCR["PCR1"], "pcr2": PCR["PCR2"]}
                 ],
+                "hpke_public_key": HPKE,
                 "gpu": "optional",
                 "max_age_secs": 600,
             },
@@ -353,7 +410,271 @@ class AttestationTests(unittest.TestCase):
             patch.object(aws_nitro.subprocess, "run", side_effect=FileNotFoundError),
             self.assertRaisesRegex(RuntimeError, "cargo(.|\n)*repository root"),
         ):
-            resume(PCR)
+            resume(dict(PCR, enclaves=1))
+
+    def test_every_enclave_must_offer_one_key_before_tee_check(self):
+        aws = Mock()
+        aws.call.return_value = {"SecretString": "secret"}
+        out = {"ApiKeySecret": "s", "Url": "https://x"}
+        with (
+            patch.object(
+                aws_nitro, "offered_key", side_effect=[HPKE, HPKE, "cd" * 32, HPKE]
+            ),
+            patch.object(aws_nitro.subprocess, "run") as tee_check,
+            self.assertRaisesRegex(RuntimeError, "different HPKE keys"),
+        ):
+            aws_nitro.check_attestation(aws, out, PCR, 2)
+        tee_check.assert_not_called()
+
+    def test_tee_check_runs_twice_per_enclave_against_the_pinned_key(self):
+        aws = Mock()
+        aws.call.return_value = {"SecretString": "secret"}
+        out = {"ApiKeySecret": "s", "Url": "https://x"}
+        policies = []
+
+        def tee_check(command, **kwargs):
+            policies.append(json.loads(Path(command[-1]).read_text()))
+            return subprocess.CompletedProcess(command, 0)
+
+        with (
+            patch.object(aws_nitro, "offered_key", return_value=HPKE) as offered,
+            patch.object(aws_nitro.subprocess, "run", side_effect=tee_check),
+        ):
+            self.assertEqual(aws_nitro.check_attestation(aws, out, PCR, 2), HPKE)
+        self.assertEqual(offered.call_count, 4)
+        self.assertEqual(len(policies), 4)
+        self.assertTrue(all(p["hpke_public_key"] == HPKE for p in policies))
+
+    def test_offered_key_requires_a_hex_key(self):
+        for body, ok in (
+            ({"hpke_public_key": HPKE}, True),
+            ({"hpke_public_key": HPKE.upper()}, False),
+            ({"hpke_public_key": HPKE[:-2]}, False),
+            ({}, False),
+        ):
+            response = Mock()
+            response.__enter__ = Mock(
+                return_value=io.BytesIO(json.dumps(body).encode())
+            )
+            response.__exit__ = Mock(return_value=False)
+            with (
+                self.subTest(body=body),
+                patch.object(
+                    aws_nitro.urllib.request, "urlopen", return_value=response
+                ) as urlopen,
+            ):
+                if ok:
+                    self.assertEqual(aws_nitro.offered_key("https://x", "secret"), HPKE)
+                    request = urlopen.call_args.args[0]
+                    self.assertRegex(
+                        request.full_url,
+                        r"^https://x/tee/v1/attestation\?nonce=[0-9a-f]{64}$",
+                    )
+                    self.assertEqual(request.get_header("X-api-key"), "secret")
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "HPKE"):
+                        aws_nitro.offered_key("https://x", "secret")
+
+
+class KmsTests(unittest.TestCase):
+    def test_key_policy_releases_the_seed_only_to_the_measured_enclave(self):
+        self.assertEqual(
+            aws_nitro.key_policy(
+                "558215002830", aws_nitro.attested_decrypt(HOST_ROLE, PCR)
+            ),
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "Administrator",
+                        "Effect": "Allow",
+                        "Principal": {"AWS": "arn:aws:iam::558215002830:root"},
+                        "Action": "kms:*",
+                        "Resource": "*",
+                    },
+                    {
+                        "Sid": "AttestedEnclave",
+                        "Effect": "Allow",
+                        "Principal": {"AWS": HOST_ROLE},
+                        "Action": "kms:Decrypt",
+                        "Resource": "*",
+                        "Condition": {
+                            "StringEqualsIgnoreCase": {
+                                "kms:RecipientAttestation:PCR0": PCR["PCR0"],
+                                "kms:RecipientAttestation:PCR1": PCR["PCR1"],
+                                "kms:RecipientAttestation:PCR2": PCR["PCR2"],
+                            }
+                        },
+                    },
+                ],
+            },
+        )
+
+    def owned(self, aws, state="Enabled", tags=None):
+        answers = {
+            "describe-key": {
+                "KeyMetadata": {"KeyId": "k", "Arn": KMS_KEY, "KeyState": state}
+            },
+            "list-resource-tags": {
+                "Tags": tags
+                if tags is not None
+                else [{"TagKey": "zolana-tool", "TagValue": "nitro-deploy"}]
+            },
+        }
+        aws.call.side_effect = lambda _service, operation, **_: answers[operation]
+
+    def test_kms_key_reuses_its_alias(self):
+        aws = Mock()
+        self.owned(aws)
+        self.assertEqual(
+            aws_nitro.create_kms_key(aws, "zolana-nitro-test", "558215002830"), KMS_KEY
+        )
+        self.assertNotIn(
+            "create-key", [call.args[1] for call in aws.call.call_args_list]
+        )
+        aws.call.assert_any_call("kms", "describe-key", KeyId="alias/zolana-nitro-test")
+
+    def test_kms_key_refuses_a_foreign_or_disabled_alias(self):
+        for state, tags in (("Enabled", []), ("PendingDeletion", None)):
+            aws = Mock()
+            self.owned(aws, state, tags)
+            with self.subTest(state=state), self.assertRaises(RuntimeError):
+                aws_nitro.find_kms_key(aws, "zolana-nitro-test")
+
+    def test_new_kms_key_starts_with_the_administrator_only(self):
+        aws = Mock()
+        calls = []
+
+        def call(service, operation, **parameters):
+            calls.append((operation, parameters))
+            if operation == "describe-key":
+                raise aws_nitro.gpu.AwsError("NotFoundException")
+            if operation == "create-key":
+                return {"KeyMetadata": {"KeyId": "k", "Arn": KMS_KEY}}
+            if operation == "create-alias":
+                raise aws_nitro.gpu.AwsError("LimitExceededException")
+            return {}
+
+        aws.call.side_effect = call
+        with (
+            patch.object(aws_nitro.gpu, "log"),
+            self.assertRaisesRegex(aws_nitro.gpu.AwsError, "LimitExceeded"),
+        ):
+            aws_nitro.create_kms_key(aws, "zolana-nitro-test", "558215002830")
+        created = dict(calls)["create-key"]
+        self.assertEqual(
+            json.loads(created["Policy"]), aws_nitro.key_policy("558215002830")
+        )
+        self.assertEqual(
+            created["Tags"], [{"TagKey": "zolana-tool", "TagValue": "nitro-deploy"}]
+        )
+        self.assertEqual(
+            dict(calls)["schedule-key-deletion"],
+            {"KeyId": "k", "PendingWindowInDays": 7},
+        )
+
+    def expected(self, image_key=KMS_KEY):
+        return dict(PCR, kms_key=image_key, image=IMAGE)
+
+    def kms_deploy(self, seed):
+        operations, uploads = [], []
+
+        def call(service, operation, **parameters):
+            operations.append((operation, parameters))
+            if operation == "generate-data-key-without-plaintext":
+                return {"CiphertextBlob": base64.b64encode(b"blob").decode()}
+            return {"SecretString": "secret"}
+
+        def command(*args, **kwargs):
+            if args[:2] == ("s3", "cp") and args[2].endswith("hpke-seed.bin"):
+                uploads.append((Path(args[2]).read_bytes(), args[3]))
+
+        aws = Mock()
+        aws.call.side_effect = call
+        aws.command.side_effect = command
+        with (
+            patch.object(aws_nitro, "find_kms_key", return_value=KMS_KEY),
+            patch.object(
+                aws_nitro.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ),
+        ):
+            resume(dict(PCR, enclaves=2), self.expected(), seed=seed, aws=aws)
+        return operations, uploads
+
+    def test_deploy_seeds_once_then_seals_the_policy(self):
+        operations, uploads = self.kms_deploy(seed=False)
+        self.assertEqual(
+            [name for name, _ in operations if name != "get-secret-value"],
+            ["put-key-policy", "generate-data-key-without-plaintext", "put-key-policy"],
+        )
+        unsealed, policy = (
+            parameters for name, parameters in operations if name == "put-key-policy"
+        )
+        self.assertEqual(
+            json.loads(unsealed["Policy"]), aws_nitro.key_policy("558215002830")
+        )
+        self.assertEqual(policy["KeyId"], KMS_KEY)
+        self.assertEqual(
+            json.loads(policy["Policy"]),
+            aws_nitro.key_policy(
+                "558215002830",
+                aws_nitro.attested_decrypt(HOST_ROLE, PCR),
+                *aws_nitro.sealed(PCR),
+            ),
+        )
+        self.assertEqual(
+            dict(operations)["generate-data-key-without-plaintext"],
+            {"KeyId": KMS_KEY, "KeySpec": "AES_256"},
+        )
+        self.assertEqual(uploads, [(b"blob", "s3://b/" + host.SEED_OBJECT)])
+        operations, uploads = self.kms_deploy(seed=True)
+        names = [name for name, _ in operations]
+        self.assertIn("put-key-policy", names)
+        self.assertNotIn("generate-data-key-without-plaintext", names)
+        self.assertEqual(uploads, [])
+
+    def test_sealed_policy_denies_wrapping_and_unattested_decrypt(self):
+        wrap, *decrypt = aws_nitro.sealed(PCR)
+        self.assertEqual(wrap["Effect"], "Deny")
+        self.assertEqual(wrap["Principal"], "*")
+        self.assertNotIn("kms:Decrypt", wrap["Action"])
+        self.assertIn("kms:GenerateDataKeyWithoutPlaintext", wrap["Action"])
+        self.assertEqual(
+            [statement["Condition"] for statement in decrypt],
+            [
+                {
+                    "StringNotEqualsIgnoreCase": {
+                        f"kms:RecipientAttestation:{name}": PCR[name]
+                    }
+                }
+                for name in host.PCRS
+            ],
+        )
+
+    def test_deploy_refuses_pcrs_of_another_image(self):
+        with (
+            patch.object(aws_nitro, "find_kms_key", return_value=KMS_KEY),
+            self.assertRaisesRegex(ValueError, "another image"),
+        ):
+            resume(dict(PCR, enclaves=2), dict(self.expected(), image=IMAGE + "0"))
+
+    def test_deploy_refuses_an_image_for_another_kms_key(self):
+        aws = Mock()
+        args = argparse.Namespace(
+            plan=False,
+            name="zolana-nitro-test",
+            expect_pcrs=self.expected(KMS_KEY[:-1] + "2"),
+        )
+        for found in (KMS_KEY, None):
+            with (
+                self.subTest(found=found),
+                patch.object(aws_nitro, "find_kms_key", return_value=found),
+                self.assertRaisesRegex(ValueError, "another KMS key"),
+            ):
+                aws_nitro.deploy(args, aws, None)
+        aws.call.assert_not_called()
 
 
 class HostTests(unittest.TestCase):
@@ -368,7 +689,7 @@ class HostTests(unittest.TestCase):
         built = json.dumps({"Measurements": dict(PCR, HashAlgorithm="Sha512_48")})
         with patch.object(host, "run", side_effect=[built, built, "", "[]"]) as run:
             host.build_eif(IMAGE, Path("prover.eif"))
-            host.enclave_state()
+            host.enclave_state(f"{host.ENCLAVE}-0")
         self.assertEqual(
             [call.args[:2] for call in run.call_args_list],
             [
@@ -385,7 +706,7 @@ class HostTests(unittest.TestCase):
         self.assertTrue(self.artifacts.is_dir())
         self.assertIn(
             f"Environment=NITRO_CLI_ARTIFACTS={host.ARTIFACTS}",
-            host.units([])["zolana-enclave.service"],
+            host.units([], ENCLAVES, True)["zolana-enclave@.service"],
         )
 
     def test_host_and_measure_install_the_same_nitro_cli(self):
@@ -403,8 +724,9 @@ class HostTests(unittest.TestCase):
         )
 
     def test_supervise_survives_describe_failures_until_the_enclave_stops(self):
-        running = json.dumps([{"EnclaveName": host.ENCLAVE, "State": "RUNNING"}])
-        other = json.dumps([{"EnclaveName": "other", "State": "RUNNING"}])
+        name = f"{host.ENCLAVE}-1"
+        running = json.dumps([{"EnclaveName": name, "State": "RUNNING"}])
+        other = json.dumps([{"EnclaveName": f"{host.ENCLAVE}-0", "State": "RUNNING"}])
         answers = {
             "terminate-enclave": [RuntimeError("busy")],
             "run-enclave": [""],
@@ -416,8 +738,10 @@ class HostTests(unittest.TestCase):
                 other,
             ],
         }
+        seen = []
 
         def nitro(*args, timeout=300):
+            seen.append(args)
             answer = answers[args[0]].pop(0)
             if isinstance(answer, Exception):
                 raise answer
@@ -426,23 +750,115 @@ class HostTests(unittest.TestCase):
         with (
             patch.object(host, "nitro", side_effect=nitro),
             patch("sys.stderr"),
-            self.assertRaisesRegex(RuntimeError, "ABSENT"),
+            self.assertRaisesRegex(RuntimeError, "Enclave 1 is ABSENT"),
         ):
-            host.supervise(config(), poll=0)
+            host.supervise(ENCLAVES, 1, poll=0)
         self.assertEqual(answers["describe-enclaves"], [])
+        self.assertEqual(seen[0], ("terminate-enclave", "--enclave-name", name))
 
-    def test_allocator_matches_the_enclave_run_and_never_debugs(self):
-        settings = config()
+    def sysfs(self, nodes, offline=""):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        (root / "cpu").mkdir()
+        (root / "cpu/offline").write_text(offline + "\n")
+        half = sum(len(host.cpu_list(cpus)) for cpus, _ in nodes) // 2
+        for number, (cpus, kib) in enumerate(nodes):
+            node = root / f"node/node{number}"
+            node.mkdir(parents=True)
+            (node / "cpulist").write_text(cpus + "\n")
+            (node / "meminfo").write_text(f"Node {number} MemTotal:       {kib} kB\n")
+            for cpu in host.cpu_list(cpus):
+                topology = root / f"cpu/cpu{cpu}/topology"
+                topology.mkdir(parents=True)
+                low = cpu % half
+                (topology / "thread_siblings_list").write_text(f"{low},{low + half}\n")
+        return root
+
+    def test_two_numa_nodes_get_one_enclave_each_without_cpu0_core(self):
+        root = self.sysfs([("0-23,48-71", 96866164), ("24-47,72-95", 96979944)])
+        settings = {"enclave_cpus": 92, "enclave_memory_mib": 180224}
+        self.assertEqual(host.layout(host.topology(root), settings, True), ENCLAVES)
         self.assertEqual(
-            host.allocator(settings), "---\nmemory_mib: 49152\ncpu_count: 12\n"
+            host.layout(host.topology(root), settings, False), [ENCLAVES[1]]
         )
-        command = host.enclave_command(settings)
+
+    def test_one_numa_node_keeps_the_instance_caps(self):
+        root = self.sysfs([("0-15", 66060288)])
+        (enclave,) = host.layout(host.topology(root), config(), True)
+        self.assertEqual(enclave["memory_mib"], 49152)
+        self.assertEqual(len(enclave["cpus"]), 12)
+        self.assertNotIn(0, enclave["cpus"])
+        self.assertNotIn(8, enclave["cpus"])
+        self.assertEqual(
+            {cpu % 8 for cpu in enclave["cpus"]},
+            {cpu - 8 for cpu in enclave["cpus"] if cpu >= 8},
+        )
+
+    def test_layout_skips_a_node_without_two_usable_cpus(self):
+        nodes = [([(1, 3)], 8192), ([], 8192)]
+        settings = {"enclave_cpus": 64, "enclave_memory_mib": 65536}
+        self.assertEqual(
+            host.layout(nodes, settings, True), [{"cpus": [1, 3], "memory_mib": 6144}]
+        )
+        with self.assertRaisesRegex(RuntimeError, "No NUMA node"):
+            host.layout([([], 8192)], settings, True)
+
+    def test_topology_refuses_offline_cpus(self):
+        root = self.sysfs([("0-3", 8388608)], offline="2-3")
+        with self.assertRaisesRegex(RuntimeError, "offline"):
+            host.topology(root)
+
+    def test_allocator_runs_once_per_node_then_pools_every_cpu(self):
+        configs = []
+
+        def allocator(command, cwd, env, **kwargs):
+            self.assertEqual(env["NITRO_CLI_INSTALL_DIR"], cwd)
+            configs.append(Path(cwd, "etc/nitro_enclaves/allocator.yaml").read_text())
+            return subprocess.CompletedProcess(command, 0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory) / "ne_cpus"
+            with (
+                patch.object(host, "CPU_POOL", pool),
+                patch.object(host.subprocess, "run", side_effect=allocator),
+            ):
+                host.allocate(ENCLAVES)
+            self.assertEqual(
+                pool.read_text(),
+                ",".join(map(str, ENCLAVES[0]["cpus"] + ENCLAVES[1]["cpus"])) + "\n",
+            )
+        self.assertEqual(
+            configs,
+            [
+                f"---\nmemory_mib: {e['memory_mib']}\ncpu_pool: {','.join(map(str, e['cpus']))}\n"
+                for e in ENCLAVES
+            ],
+        )
+        with (
+            patch.object(
+                host.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 1),
+            ),
+            self.assertRaisesRegex(RuntimeError, "allocator failed"),
+        ):
+            host.allocate(ENCLAVES)
+
+    def test_enclave_runs_on_its_node_and_never_debugs(self):
+        command = host.enclave_command(ENCLAVES[1], 1)
         self.assertNotIn("--debug-mode", command)
         self.assertNotIn("--attach-console", command)
-        self.assertEqual(command[command.index("--cpu-count") + 1], "12")
-        self.assertEqual(command[command.index("--memory") + 1], "49152")
+        self.assertNotIn("--cpu-count", command)
+        start = command.index("--cpu-ids") + 1
         self.assertEqual(
-            command[command.index("--enclave-cid") + 1], str(host.ENCLAVE_CID)
+            command[start : command.index("--memory")],
+            [str(cpu) for cpu in ENCLAVES[1]["cpus"]],
+        )
+        self.assertEqual(command[command.index("--memory") + 1], "92658")
+        self.assertEqual(command[command.index("--enclave-cid") + 1], "17")
+        self.assertEqual(
+            command[command.index("--enclave-name") + 1], f"{host.ENCLAVE}-1"
         )
 
     def test_proxy_allowlist_is_exactly_the_image_routes(self):
@@ -458,7 +874,7 @@ class HostTests(unittest.TestCase):
                 ]
             },
         )
-        units = host.units(parsed)
+        units = host.units(parsed, ENCLAVES, True)
         egress = {name: text for name, text in units.items() if "egress" in name}
         self.assertEqual(
             [
@@ -484,15 +900,34 @@ class HostTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 host.parse_routes(text)
 
-    def test_ingress_reaches_the_enclave_listener(self):
+    def test_each_ingress_reaches_its_enclave_listener(self):
         self.assertIn(f"VSOCK-LISTEN:{host.ENCLAVE_PORT},", ENTRYPOINT)
         self.assertIn(f"--prover-address 127.0.0.1:{host.ENCLAVE_PORT}", ENTRYPOINT)
-        ingress = host.units([])["zolana-ingress.service"]
-        self.assertIn(
-            f"TCP-LISTEN:{host.INGRESS_PORT},bind=127.0.0.1,fork,reuseaddr VSOCK-CONNECT:{host.ENCLAVE_CID}:{host.ENCLAVE_PORT}",
-            ingress,
+        units = host.units([], ENCLAVES, True)
+        for index, (port, cid) in enumerate(((3003, 16), (3005, 17))):
+            self.assertIn(
+                f"TCP-LISTEN:{port},bind=127.0.0.1,fork,reuseaddr VSOCK-CONNECT:{cid}:{host.ENCLAVE_PORT}",
+                units[f"zolana-ingress-{index}.service"],
+            )
+        ports = {host.ingress_port(index) for index in range(8)}
+        self.assertFalse(
+            ports & {host.AUTHORIZER_PORT, host.GATEWAY_PORT, host.ENCLAVE_PORT}
         )
-        self.assertIn(f"127.0.0.1:{host.INGRESS_PORT}", aws_host.gateway(False))
+
+    def test_gateway_round_robins_over_every_ingress_with_keepalive(self):
+        text = aws_host.gateway(
+            False,
+            authorizer=f"http://127.0.0.1:{host.AUTHORIZER_PORT}/auth",
+            upstreams=["127.0.0.1:3003", "127.0.0.1:3005"],
+        )
+        pool = re.search(r"upstream prover \{([^}]*)\}", text).group(1)
+        self.assertEqual(
+            re.findall(r"server (\S+);", pool), ["127.0.0.1:3003", "127.0.0.1:3005"]
+        )
+        self.assertIn("keepalive", pool)
+        self.assertEqual(text.count("proxy_pass http://prover;"), 2)
+        self.assertIn('proxy_set_header Connection "";', text)
+        self.assertNotIn("proxy_pass http://127.0.0.1:3003", text)
 
     def test_proxy_workers_exceed_the_indexer_concurrency(self):
         default = re.search(
@@ -501,20 +936,44 @@ class HostTests(unittest.TestCase):
         ).group(1)
         self.assertGreater(host.PROXY_WORKERS, int(default))
 
-    def test_enclave_unit_restarts_and_terminates(self):
-        unit = host.units([])["zolana-enclave.service"]
+    def test_enclave_template_restarts_and_terminates_only_its_enclave(self):
+        units = host.units([], ENCLAVES, True)
+        unit = units["zolana-enclave@.service"]
         self.assertIn("Restart=always", unit)
         head, service = unit.split("[Service]")
-        self.assertIn("Requires=nitro-enclaves-allocator.service", head)
+        self.assertIn(f"Requires={host.ALLOCATOR_UNIT}", head)
+        self.assertIn("zolana-kms.service", head)
         self.assertNotIn("Requires=", service)
         self.assertIn(
-            f"ExecStopPost=-/usr/bin/nitro-cli terminate-enclave --enclave-name {host.ENCLAVE}",
+            f"ExecStart=/usr/bin/python3 {host.ROOT}/aws_nitro_host.py supervise {host.ROOT}/config.json %i",
             unit,
         )
-        self.assertNotIn("DynamicUser", unit)
-        for name, text in host.units([]).items():
-            if name != "zolana-enclave.service":
+        self.assertIn(
+            f"ExecStopPost=-/usr/bin/nitro-cli terminate-enclave --enclave-name {host.ENCLAVE}-%i",
+            unit,
+        )
+        allocator = units[host.ALLOCATOR_UNIT]
+        self.assertIn("Type=oneshot", allocator)
+        self.assertIn("RemainAfterExit=yes", allocator)
+        self.assertNotIn("Restart=", allocator)
+        self.assertNotIn(
+            f"After=network-online.target {host.ALLOCATOR_UNIT}", allocator
+        )
+        for name, text in units.items():
+            if name not in ("zolana-enclave@.service", host.ALLOCATOR_UNIT):
                 self.assertIn("DynamicUser=yes", text)
+        self.assertEqual(
+            host.services(units, ENCLAVES)[-2:],
+            ["zolana-enclave@0.service", "zolana-enclave@1.service"],
+        )
+        self.assertNotIn("zolana-enclave@.service", host.services(units, ENCLAVES))
+
+    def test_kms_service_runs_only_for_a_shared_key(self):
+        self.assertIn(
+            f"/usr/bin/python3 {host.ROOT}/aws_nitro_host.py kms {host.ROOT}/config.json",
+            host.units([], ENCLAVES, True)["zolana-kms.service"],
+        )
+        self.assertNotIn("zolana-kms.service", host.units([], ENCLAVES[:1], False))
 
     def test_gateway_enforces_the_key_and_passes_the_tee_headers(self):
         text = aws_host.gateway(
@@ -548,23 +1007,161 @@ class HostTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "disagrees"):
                 host.measurements(built, other, IMAGE)
 
+    def image(self, files):
+        def run(*args, **kwargs):
+            if args[:2] == ("docker", "cp"):
+                for name, text in files.items():
+                    Path(args[3], name).write_text(text)
+            return "container"
+
+        with patch.object(host, "run", side_effect=run):
+            return host.image_files(IMAGE)
+
+    def test_image_names_its_kms_key_only_with_the_kms_source(self):
+        base = {"routes": "127.0.0.2 keys.example.com 443 8001\n", "indexer-url": "\n"}
+        for extra, expected in (
+            ({}, None),
+            ({"key-source": "boot\n"}, None),
+            ({"key-source": "kms\n", "kms-key": KMS_KEY + "\n"}, KMS_KEY),
+        ):
+            with self.subTest(extra=extra):
+                files = self.image(base | extra)
+                self.assertEqual(files["kms_key"], expected)
+                self.assertEqual(files["indexer_url"], "")
+        for extra in (
+            {"key-source": "kms\n"},
+            {"key-source": "kms\n", "kms-key": "\n"},
+        ):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "KMS"):
+                self.image(base | extra)
+
     def test_install_rejects_an_image_for_another_indexer(self):
         settings = dict(
             config(), outputs={"Bucket": "b", "ApiKeySecret": "s", "LogGroup": "l"}
         )
         with (
             patch.object(host, "run", return_value=""),
+            patch.object(host, "retire_units"),
             patch.object(host.aws_host, "pull") as pull,
             patch.object(host, "write"),
-            patch.object(host.subprocess, "run"),
             patch.object(
-                host, "image_files", return_value=([], "https://other.example.com")
+                host,
+                "image_files",
+                return_value={
+                    "routes": [],
+                    "indexer_url": "https://other.example.com",
+                    "kms_key": None,
+                },
             ),
             patch("builtins.print"),
             self.assertRaisesRegex(ValueError, "another indexer"),
         ):
             host.install(settings)
         pull.assert_called_once_with(settings, (IMAGE, host.NGINX))
+
+
+class KmsConfigTests(unittest.TestCase):
+    CREDENTIALS = {
+        "Code": "Success",
+        "AccessKeyId": "ASIAEXAMPLE",
+        "SecretAccessKey": "secret-key",
+        "Token": "session-token",
+        "Expiration": "2026-10-07T20:00:00Z",
+    }
+
+    def test_message_is_one_json_line_without_key_or_region(self):
+        line = host.kms_config(b"\x00\xffblob", self.CREDENTIALS)
+        self.assertTrue(line.endswith(b"\n"))
+        self.assertEqual(line.count(b"\n"), 1)
+        self.assertEqual(
+            list(json.loads(line).items()),
+            [
+                ("ciphertext", base64.b64encode(b"\x00\xffblob").decode()),
+                ("access_key_id", "ASIAEXAMPLE"),
+                ("secret_access_key", "secret-key"),
+                ("session_token", "session-token"),
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "limit"):
+            host.kms_config(b"x" * host.KMS_LIMIT, self.CREDENTIALS)
+
+    def opener(self, answers, requests):
+        def opener(request, timeout):
+            requests.append(request)
+            response = Mock()
+            response.__enter__ = Mock(
+                return_value=io.BytesIO(answers[request.full_url].encode())
+            )
+            response.__exit__ = Mock(return_value=False)
+            return response
+
+        return opener
+
+    def imds(self, roles, record):
+        base = host.IMDS + "/meta-data/iam/security-credentials/"
+        return {
+            host.IMDS + "/api/token": "token",
+            base: roles,
+            base + "zolana-host": json.dumps(record),
+        }
+
+    def test_credentials_come_from_imdsv2_for_the_one_role(self):
+        requests = []
+        credentials = host.role_credentials(
+            self.opener(self.imds("zolana-host\n", self.CREDENTIALS), requests)
+        )
+        self.assertEqual(credentials, self.CREDENTIALS)
+        token, *reads = requests
+        self.assertEqual(token.get_method(), "PUT")
+        self.assertEqual(token.get_header("X-aws-ec2-metadata-token-ttl-seconds"), "60")
+        self.assertTrue(
+            all(r.get_header("X-aws-ec2-metadata-token") == "token" for r in reads)
+        )
+
+    def test_credentials_refuse_a_failed_or_ambiguous_role(self):
+        for roles, record in (
+            ("zolana-host", dict(self.CREDENTIALS, Code="Expired")),
+            ("zolana-host\nother", self.CREDENTIALS),
+            ("", self.CREDENTIALS),
+        ):
+            with self.subTest(roles=roles), self.assertRaises(RuntimeError):
+                host.role_credentials(self.opener(self.imds(roles, record), []))
+
+    def exchange(self, peer, message):
+        parent, enclave = socket.socketpair()
+        with enclave:
+            host.answer_kms(parent, peer, {16, 17}, message)
+            received = b""
+            while chunk := enclave.recv(4096):
+                received += chunk
+        return received
+
+    def test_each_enclave_connection_gets_fresh_credentials(self):
+        fetched = []
+
+        def message():
+            fetched.append(None)
+            return host.kms_config(
+                b"blob", dict(self.CREDENTIALS, Token=str(len(fetched)))
+            )
+
+        tokens = [
+            json.loads(self.exchange((cid, 5000), message))["session_token"]
+            for cid in (16, 17)
+        ]
+        self.assertEqual(tokens, ["1", "2"])
+
+    def test_another_peer_gets_nothing(self):
+        message = Mock()
+        self.assertEqual(self.exchange((3, 5000), message), b"")
+        message.assert_not_called()
+
+    def test_a_failed_credential_read_closes_without_an_answer(self):
+        with patch("sys.stderr"):
+            received = self.exchange(
+                (16, 5000), Mock(side_effect=RuntimeError("no role"))
+            )
+        self.assertEqual(received, b"")
 
 
 class AuthorizerTests(unittest.TestCase):
