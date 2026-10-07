@@ -2993,11 +2993,7 @@ mod tests {
     #[test]
     fn membership_accepts_active_and_default_outputs() {
         let (_sender, prepared) = prepared_transfer(4);
-        let inputs = prepared
-            .inputs()
-            .iter()
-            .map(SppProofInputUtxo::from)
-            .collect::<Vec<_>>();
+        let inputs = prepared.inputs().to_vec();
         let mut outputs = prepared.outputs().to_vec();
         RingMembership {
             program_id: ring().program_id(),
@@ -3029,11 +3025,7 @@ mod tests {
     #[test]
     fn membership_refuses_ring_data_outside_a_ring() {
         let (_sender, prepared) = prepared_transfer(4);
-        let inputs = prepared
-            .inputs()
-            .iter()
-            .map(SppProofInputUtxo::from)
-            .collect::<Vec<_>>();
+        let inputs = prepared.inputs().to_vec();
         let mut outputs = prepared.outputs().to_vec();
         outputs[1].ring_data_hash = Some([3u8; 32]);
         assert!(matches!(
