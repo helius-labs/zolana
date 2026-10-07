@@ -230,21 +230,55 @@ func TestSpreadCTRRejectsTamperedCiphertextUnderTestEngine(t *testing.T) {
 	}
 }
 
-func TestLaneChunkTableIsUniqueBase6ParityDigits(t *testing.T) {
-	seen := make(map[int]int)
-	for c := 0; c < chunkRadix; c++ {
-		lanes := c
-		expected := 0
-		for lane := 0; lane < lanesPerChunk; lane++ {
-			expected |= (lanes % chunkLaneBase & 1) << uint(lane)
-			lanes /= chunkLaneBase
-		}
-		if lanes != 0 || chunkParity(c) != expected {
-			t.Fatalf("chunk %d parity %d, expected %d", c, chunkParity(c), expected)
-		}
-		seen[expected]++
+func TestLaneChunkTableKnownAnswers(t *testing.T) {
+	// digits are the base-6 lane sums, least significant lane first; parity
+	// carries bit i = digits[i] mod 2.
+	entries := []struct {
+		chunk  int
+		digits [lanesPerChunk]int
+		parity int
+	}{
+		{0, [lanesPerChunk]int{0, 0, 0, 0}, 0b0000},
+		{1, [lanesPerChunk]int{1, 0, 0, 0}, 0b0001},
+		{2, [lanesPerChunk]int{2, 0, 0, 0}, 0b0000},
+		{5, [lanesPerChunk]int{5, 0, 0, 0}, 0b0001},
+		{6, [lanesPerChunk]int{0, 1, 0, 0}, 0b0010},
+		{7, [lanesPerChunk]int{1, 1, 0, 0}, 0b0011},
+		{12, [lanesPerChunk]int{0, 2, 0, 0}, 0b0000},
+		{36, [lanesPerChunk]int{0, 0, 1, 0}, 0b0100},
+		{216, [lanesPerChunk]int{0, 0, 0, 1}, 0b1000},
+		{259, [lanesPerChunk]int{1, 1, 1, 1}, 0b1111},
+		{753, [lanesPerChunk]int{3, 5, 2, 3}, 0b1011},
+		{1036, [lanesPerChunk]int{4, 4, 4, 4}, 0b0000},
+		{1294, [lanesPerChunk]int{4, 5, 5, 5}, 0b1110},
+		{1295, [lanesPerChunk]int{5, 5, 5, 5}, 0b1111},
 	}
-	if len(seen) != 16 {
-		t.Fatalf("chunk table covers %d nibbles", len(seen))
+	for _, e := range entries {
+		if got := e.digits[0] + 6*e.digits[1] + 36*e.digits[2] + 216*e.digits[3]; got != e.chunk {
+			t.Fatalf("digits %v encode %d, entry says %d", e.digits, got, e.chunk)
+		}
+		if got := chunkParity(e.chunk); got != e.parity {
+			t.Fatalf("chunk %d (digits %v): parity %04b, want %04b", e.chunk, e.digits, got, e.parity)
+		}
+	}
+}
+
+// Each lane digit ranges over 0..5, three odd and three even, so every 4-bit
+// parity pattern is hit by exactly 3^4 chunks.
+func TestLaneChunkTableHitsEveryNibbleEqually(t *testing.T) {
+	if chunkRadix != 1296 {
+		t.Fatalf("chunk radix %d, want 6^4", chunkRadix)
+	}
+	counts := make(map[int]int)
+	for c := 0; c < chunkRadix; c++ {
+		counts[chunkParity(c)]++
+	}
+	for nibble := 0; nibble < 16; nibble++ {
+		if counts[nibble] != 81 {
+			t.Fatalf("nibble %04b appears %d times, want 81", nibble, counts[nibble])
+		}
+	}
+	if len(counts) != 16 {
+		t.Fatalf("chunk table produces %d distinct values, want 16", len(counts))
 	}
 }

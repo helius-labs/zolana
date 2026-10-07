@@ -79,16 +79,66 @@ func TestMergeEnvelopeRejectsTamperedCiphertext(t *testing.T) {
 	}
 }
 
-func TestMergeEnvelopeRejectsForeignRecipient(t *testing.T) {
+// The circuit accepts an envelope to any valid recipient. What keeps a merge on
+// the registered viewing key is the public input hash: the program recomputes
+// it from the registry key (merge_rejects_a_proof_encrypted_to_a_key_other_than_the_registered_one
+// in program-tests/shielded-pool/tests/merge/functional.rs).
+func TestMergeEnvelopeBindsTheRecipientIntoThePublicInput(t *testing.T) {
 	other, err := ecdh.P256().NewPrivateKey(append(make([]byte, 31), 0x2c))
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := buildValidWitness(t)
-	for i, b := range other.PublicKey().Bytes() {
-		a.ViewingPk[i] = b
+	foreignKeys := hosttest.Keys{RecipientSecret: other, EphemeralSecret: hosttest.DefaultKeys().EphemeralSecret}
+	toForeign := func(t testing.TB, plaintext []byte) hostEnvelope {
+		return envelopeTo(foreignKeys, plaintext)
 	}
-	assertDefaultUnsat(t, a, "a foreign recipient key")
+	cs := compiledDefaultMerge(t)
+	registered := buildMergeFixture(t, mergeFixtureOptions{})
+	foreign := buildMergeFixture(t, mergeFixtureOptions{encrypt: toForeign})
+
+	if err := solveMerge(t, cs, foreign.defaultCircuit()); err != nil {
+		t.Fatalf("a consistent envelope to a foreign recipient was rejected: %v", err)
+	}
+	if registered.envelope.recipientLo.Cmp(foreign.envelope.recipientLo) == 0 {
+		t.Fatal("the recipient public element does not depend on the recipient")
+	}
+	if registered.publicInputHash.Cmp(foreign.publicInputHash) == 0 {
+		t.Fatal("the public input hash does not depend on the recipient")
+	}
+
+	presented := foreign.defaultCircuit()
+	presented.PublicInputHash = registered.publicInputHash
+	if err := solveMerge(t, cs, presented); err == nil {
+		t.Fatal("an envelope to a foreign recipient verified against the registered key's public input hash")
+	}
+}
+
+func TestMergeEnvelopeRejectsOffCurveViewingKey(t *testing.T) {
+	a := buildValidWitness(t)
+	// Bit 1 of y keeps the parity, so the compressed recipient and the public
+	// input hash stay those of the honest key and only the curve check can fail.
+	a.ViewingPk[ve.UncompressedPointBytes-1] = a.ViewingPk[ve.UncompressedPointBytes-1].(byte) ^ 0x02
+	err := solveMerge(t, compiledDefaultMerge(t), a)
+	if err == nil {
+		t.Fatal("an off-curve viewing key was accepted")
+	}
+	if !strings.Contains(err.Error(), "constraint") {
+		t.Fatalf("the off-curve viewing key failed outside a constraint: %v", err)
+	}
+}
+
+func TestMergeEnvelopeRejectsZeroEphemeralKey(t *testing.T) {
+	a := buildValidWitness(t)
+	for i := range a.EphemeralSk {
+		a.EphemeralSk[i] = 0
+	}
+	err := solveMerge(t, compiledDefaultMerge(t), a)
+	if err == nil {
+		t.Fatal("a zero ephemeral key was accepted")
+	}
+	if !strings.Contains(err.Error(), "constraint") {
+		t.Fatalf("the zero ephemeral key failed outside a constraint: %v", err)
+	}
 }
 
 func TestMergeEnvelopeRejectsNullifierDerivedBlinding(t *testing.T) {

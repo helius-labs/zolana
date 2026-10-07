@@ -68,7 +68,10 @@ type hostEnvelope struct {
 
 func honestEnvelope(t testing.TB, plaintext []byte) hostEnvelope {
 	t.Helper()
-	keys := hosttest.DefaultKeys()
+	return envelopeTo(hosttest.DefaultKeys(), plaintext)
+}
+
+func envelopeTo(keys hosttest.Keys, plaintext []byte) hostEnvelope {
 	ciphertext, sharedSecret := keys.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
 	recipientLo, recipientHi := keys.RecipientPacked()
 	ephemeralLo, ephemeralHi := keys.EphemeralPacked()

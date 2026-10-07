@@ -94,7 +94,10 @@ func (in envelopeInputs) witness() *envelopeCircuit {
 }
 
 func envelopeAssignment(n int) *envelopeCircuit {
-	keys := hosttest.DefaultKeys()
+	return envelopeTo(hosttest.DefaultKeys(), n)
+}
+
+func envelopeTo(keys hosttest.Keys, n int) *envelopeCircuit {
 	plaintext := envelopePlaintext(n)
 	ciphertext, _ := keys.Encrypt(testSecretTag, testKdfInfo, plaintext)
 	recipientLo, recipientHi := keys.RecipientPacked()
@@ -148,17 +151,41 @@ func TestEnvelopeRejectsTamperedCiphertext(t *testing.T) {
 	}
 }
 
-func TestEnvelopeRejectsForeignRecipient(t *testing.T) {
+// The envelope accepts any valid recipient; callers bind the intended one by
+// exposing the recipient and ciphertext as public inputs.
+func TestEnvelopeBindsTheRecipientIntoItsPublicOutputs(t *testing.T) {
 	other, err := ecdh.P256().NewPrivateKey(append(make([]byte, 31), 0x2c))
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := envelopeAssignment(eciesPlaintextBytes)
-	for i, b := range other.PublicKey().Bytes() {
-		a.RecipientPk[i] = b
+	keys := hosttest.DefaultKeys()
+	foreignKeys := hosttest.Keys{RecipientSecret: other, EphemeralSecret: keys.EphemeralSecret}
+	registered := envelopeTo(keys, eciesPlaintextBytes)
+	foreign := envelopeTo(foreignKeys, eciesPlaintextBytes)
+
+	cs := compileEnvelope(t, eciesPlaintextBytes)
+	if err := solveCompiled(t, cs, foreign); err != nil {
+		t.Fatalf("a consistent envelope to a foreign recipient was rejected: %v", err)
 	}
-	if err := test.IsSolved(newEnvelopeCircuit(eciesPlaintextBytes), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("a foreign recipient key was accepted")
+	if registered.RecipientLo.(*big.Int).Cmp(foreign.RecipientLo.(*big.Int)) == 0 &&
+		registered.RecipientHi.(*big.Int).Cmp(foreign.RecipientHi.(*big.Int)) == 0 {
+		t.Fatal("the recipient public outputs do not depend on the recipient")
+	}
+	sameCiphertext := true
+	for i := range registered.Ciphertext {
+		if registered.Ciphertext[i] != foreign.Ciphertext[i] {
+			sameCiphertext = false
+		}
+	}
+	if sameCiphertext {
+		t.Fatal("the ciphertext does not depend on the recipient")
+	}
+
+	presented := envelopeTo(foreignKeys, eciesPlaintextBytes)
+	presented.RecipientLo, presented.RecipientHi = registered.RecipientLo, registered.RecipientHi
+	presented.Ciphertext = registered.Ciphertext
+	if err := solveCompiled(t, cs, presented); err == nil {
+		t.Fatal("an envelope to a foreign recipient matched the registered recipient's public outputs")
 	}
 }
 
