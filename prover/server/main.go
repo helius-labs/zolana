@@ -479,6 +479,12 @@ func runCli() {
 						Usage:   "Proving keys this deployment proves, as patterns over key names without .key, e.g. 'transfer_*' or '*_36_*' (default: all). Each key is served at /prove/<key>",
 						EnvVars: []string{"PROVER_SERVE_KEYS"},
 					},
+					&cli.BoolFlag{
+						Name:    "legacy-prove-paths",
+						Usage:   "Also serve the key-less /prove, /prove/indexed and /prove/status, resolving each proof's key from its body",
+						EnvVars: []string{"PROVER_LEGACY_PROVE_PATHS"},
+						Value:   true,
+					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
 						Usage: "Preload keys: none (lazy load all), all (preload everything), or a run mode (rpc, forester, forester-test, full, full-test, local-rpc)",
@@ -694,6 +700,7 @@ func runCli() {
 							MetricsAddress:    context.String("metrics-address"),
 							Served:            served,
 							TEE:               teeServer,
+							LegacyProvePaths:  context.Bool("legacy-prove-paths"),
 						}
 
 						if redisQueue != nil {

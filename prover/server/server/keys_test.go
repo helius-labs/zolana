@@ -103,19 +103,34 @@ func transferRequest(t *testing.T) []byte {
 // file rather than proving.
 func proofMux(t *testing.T, served *ServedKeys) *http.ServeMux {
 	t.Helper()
+	mux := http.NewServeMux()
+	registerProofPaths(mux, testProveHandler(t, served))
+	return mux
+}
+
+// legacyProofMux is proofMux with the key-less paths as well.
+func legacyProofMux(t *testing.T, served *ServedKeys) *http.ServeMux {
+	t.Helper()
+	handler := testProveHandler(t, served)
+	mux := http.NewServeMux()
+	registerProofPaths(mux, handler)
+	registerLegacyProofPaths(mux, handler)
+	return mux
+}
+
+func testProveHandler(t *testing.T, served *ServedKeys) proveHandler {
+	t.Helper()
 	_, queue := newTestQueue(t)
 	readiness := NewReadiness()
 	readiness.MarkReady()
-	mux := http.NewServeMux()
-	registerProofPaths(mux, proveHandler{
+	return proveHandler{
 		readiness:         readiness,
 		keyManager:        common.NewLazyKeyManager(t.TempDir(), &common.DownloadConfig{}),
 		transferExecution: NewExecution(1),
 		redisQueue:        queue,
 		served:            served,
 		admission:         newSyncAdmission(1),
-	})
-	return mux
+	}
 }
 
 func post(mux *http.ServeMux, path string, body []byte) *httptest.ResponseRecorder {
@@ -187,7 +202,7 @@ func TestKeyPathsReachTheirHandlers(t *testing.T) {
 	}
 }
 
-// Every proof names its key: there is no path that takes any key.
+// The key paths take no key-less path; those are registerLegacyProofPaths.
 func TestThereIsNoPathWithoutAKey(t *testing.T) {
 	mux := proofMux(t, nil)
 	for _, prefix := range []string{"", gatewayPrefix} {
@@ -203,6 +218,57 @@ func TestThereIsNoPathWithoutAKey(t *testing.T) {
 				t.Errorf("%s %s%s: got %d %q", test.method, prefix, test.path, response.Code, response.Body.String())
 			}
 		}
+	}
+}
+
+// The key-less paths resolve each proof's key from its body and admit it as a
+// key path would, bare and under the gateway prefix.
+func TestLegacyPathsResolveTheKeyFromTheBody(t *testing.T) {
+	mux := legacyProofMux(t, nil)
+	for _, prefix := range []string{"", gatewayPrefix} {
+		response := post(mux, prefix+"/prove", transferRequest(t))
+		if errorCode(t, response) != "proving_error" || !strings.Contains(response.Body.String(), "transfer_confidential_2_2.key") {
+			t.Fatalf("%s/prove: got %d %q", prefix, response.Code, response.Body.String())
+		}
+		response = post(mux, prefix+"/prove/indexed", indexedTransferRequest(t))
+		if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
+			t.Fatalf("%s/prove/indexed: got %d %q", prefix, response.Code, response.Body.String())
+		}
+		response = serve(mux, http.MethodGet, prefix+"/prove/status?jobId=x", nil)
+		if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
+			t.Fatalf("%s/prove/status: got %d %q", prefix, response.Code, response.Body.String())
+		}
+	}
+	var response *httptest.ResponseRecorder
+	// Key paths still hold the body to their key.
+	response = post(mux, "/prove/transfer_confidential_1_2", transferRequest(t))
+	if response.Code != http.StatusBadRequest || errorCode(t, response) != "proving_key_mismatch" {
+		t.Fatalf("key path: got %d %q", response.Code, response.Body.String())
+	}
+
+	served := legacyProofMux(t, servedKeys(t, "merge_*"))
+	response = post(served, "/prove", transferRequest(t))
+	if response.Code != http.StatusNotFound || errorCode(t, response) != "proving_key_not_served" {
+		t.Fatalf("unserved /prove: got %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestKeylessQueuedJobIsPolledOnTheKeylessStatusPath(t *testing.T) {
+	_, queue := newTestQueue(t)
+	readiness := NewReadiness()
+	readiness.MarkReady()
+	handler := proveHandler{readiness: readiness, redisQueue: queue, enableQueue: true}
+	response := httptest.NewRecorder()
+	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove", nil), transferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("enqueue got %d %q", response.Code, response.Body.String())
+	}
+	var queued struct{ JobID, StatusURL string }
+	if err := json.Unmarshal(response.Body.Bytes(), &queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued.StatusURL != "/prove/status?jobId="+queued.JobID {
+		t.Fatalf("status url %q", queued.StatusURL)
 	}
 }
 

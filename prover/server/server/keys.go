@@ -177,6 +177,27 @@ func (handler keyStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	handler.status.ServeHTTP(w, r)
 }
 
+// statusPath is where a queued proof is polled: its key's status path, or the
+// key-less /prove/status for a proof submitted on a key-less path.
 func statusPath(file string) string {
+	if file == "" {
+		return "/prove/status"
+	}
 	return "/prove/" + keyName(file) + "/status"
+}
+
+// registerLegacyProofPaths serves the key-less paths of provers before key
+// paths, bare and under the gateway prefix: /prove, /prove/indexed and, with a
+// queue, /prove/status. The key is resolved from the body and admitted if
+// served.
+func registerLegacyProofPaths(mux *http.ServeMux, prove proveHandler) {
+	complete := prove
+	complete.indexed = false
+	indexedProve := prove
+	indexedProve.indexed = true
+	handleBoth(mux, "/prove", observeProofHTTP("complete", complete))
+	handleBoth(mux, "/prove/indexed", observeProofHTTP("indexed", indexedProve))
+	if prove.redisQueue != nil {
+		handleBoth(mux, "/prove/status", proofStatusHandler{redisQueue: prove.redisQueue})
+	}
 }
