@@ -279,6 +279,9 @@ type EnhancedConfig struct {
 	Served *ServedKeys
 	// TEE, when set, serves attestation and decrypts encrypted requests.
 	TEE *tee.Server
+	// LegacyProvePaths also serves the key-less /prove, /prove/indexed and
+	// /prove/status.
+	LegacyProvePaths bool
 }
 
 type proveHandler struct {
@@ -630,8 +633,9 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 		Queue: &QueueConfig{
 			Enabled: redisQueue != nil,
 		},
-		Served: config.Served,
-		TEE:    config.TEE,
+		Served:           config.Served,
+		TEE:              config.TEE,
+		LegacyProvePaths: config.LegacyProvePaths,
 	}, redisQueue, keyManager)
 }
 
@@ -706,6 +710,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		admission:         newSyncAdmission(syncPermits()),
 	}
 	registerProofPaths(proverMux, handler)
+	if config.LegacyProvePaths {
+		registerLegacyProofPaths(proverMux, handler)
+	}
 
 	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{
@@ -884,6 +891,9 @@ type Config struct {
 	// The proving keys this deployment proves; nil serves every key.
 	Served *ServedKeys
 	TEE    *tee.Server
+	// LegacyProvePaths also serves the key-less /prove, /prove/indexed and
+	// /prove/status.
+	LegacyProvePaths bool
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {

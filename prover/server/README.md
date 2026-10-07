@@ -39,6 +39,7 @@ This part explains the existing cli commands.
    4. Optional: prover-address *address* - Address for the prover server, defaults to localhost:3000
    5. Optional: metrics-address *address* - Address for the metrics server, defaults to localhost:9998
    6. Optional: serve *pattern* - Proving keys to prove, repeatable patterns over key names without `.key` (`transfer_*`, `*_36_*`), defaults to every key
+   7. Optional: legacy-prove-paths (`PROVER_LEGACY_PROVE_PATHS`) - Also serves the key-less `/prove`, `/prove/indexed` and `/prove/status`, resolving each proof's key from its body; not under `/v1/zolana`
 4. prove - Reads a prover system file, generates and returns proof based on prover parameters  
    Flags:  
    1. config: Config file, which may contain the following fields:
