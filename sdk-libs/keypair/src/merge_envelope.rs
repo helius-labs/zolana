@@ -17,7 +17,7 @@ const MERGE_MINT_LEN: usize = 32;
 
 pub const MERGE_ENVELOPE_CIPHERTEXT_LEN: usize = MERGE_AMOUNT_LEN + MERGE_MINT_LEN;
 
-pub struct MergeEnvelopeSeal<'a> {
+pub struct MergeEnvelopeEncryption<'a> {
     pub recipient: &'a P256Pubkey,
     pub ephemeral: &'a ViewingKey,
     pub amount: u64,
@@ -25,14 +25,14 @@ pub struct MergeEnvelopeSeal<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SealedMergeEnvelope {
+pub struct EncryptedMergeEnvelope {
     pub ephemeral_pk: [u8; P256_PUBKEY_LEN],
     pub ciphertext: [u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
     pub output_blinding: [u8; 32],
 }
 
-impl MergeEnvelopeSeal<'_> {
-    pub fn seal(&self) -> Result<SealedMergeEnvelope, KeypairError> {
+impl MergeEnvelopeEncryption<'_> {
+    pub fn encrypt(&self) -> Result<EncryptedMergeEnvelope, KeypairError> {
         let ephemeral_pk = self.ephemeral.pubkey();
         let shared_x = Zeroizing::new(self.ephemeral.ecdh(self.recipient)?);
         let secret = merge_shared_secret(&shared_x, &ephemeral_pk, self.recipient)?;
@@ -41,7 +41,7 @@ impl MergeEnvelopeSeal<'_> {
         amount.copy_from_slice(&self.amount.to_be_bytes());
         mint.copy_from_slice(&self.mint);
         symmetric_apply(&secret, MERGE_ENVELOPE_INFO, &mut ciphertext)?;
-        Ok(SealedMergeEnvelope {
+        Ok(EncryptedMergeEnvelope {
             ephemeral_pk: *ephemeral_pk.as_bytes(),
             ciphertext,
             output_blinding: merge_derived_blinding(&secret)?,
@@ -49,20 +49,20 @@ impl MergeEnvelopeSeal<'_> {
     }
 }
 
-pub struct MergeEnvelopeOpen<'a> {
+pub struct MergeEnvelopeDecryption<'a> {
     pub viewing_key: &'a ViewingKey,
     pub ephemeral_pk: &'a P256Pubkey,
     pub ciphertext: &'a [u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OpenedMergeEnvelope {
+pub struct DecryptedMergeEnvelope {
     pub amount: u64,
     pub mint: [u8; MERGE_MINT_LEN],
     pub output_blinding: [u8; 32],
 }
 
-impl OpenedMergeEnvelope {
+impl DecryptedMergeEnvelope {
     pub const LEN: usize = MERGE_AMOUNT_LEN + MERGE_MINT_LEN + 32;
 
     pub fn to_bytes(&self) -> [u8; Self::LEN] {
@@ -88,15 +88,15 @@ impl OpenedMergeEnvelope {
     }
 }
 
-impl MergeEnvelopeOpen<'_> {
-    pub fn open(&self) -> Result<OpenedMergeEnvelope, KeypairError> {
+impl MergeEnvelopeDecryption<'_> {
+    pub fn decrypt(&self) -> Result<DecryptedMergeEnvelope, KeypairError> {
         let recipient = self.viewing_key.pubkey();
         let shared_x = Zeroizing::new(self.viewing_key.ecdh(self.ephemeral_pk)?);
         let secret = merge_shared_secret(&shared_x, self.ephemeral_pk, &recipient)?;
         let mut plaintext = *self.ciphertext;
         symmetric_apply(&secret, MERGE_ENVELOPE_INFO, &mut plaintext)?;
         let (amount, mint) = split_plaintext(&plaintext);
-        Ok(OpenedMergeEnvelope {
+        Ok(DecryptedMergeEnvelope {
             amount,
             mint,
             output_blinding: merge_derived_blinding(&secret)?,

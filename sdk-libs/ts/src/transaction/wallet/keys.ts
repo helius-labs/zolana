@@ -10,11 +10,11 @@ import {
 } from "../../keypair/derivation.js";
 import { MERGE_CIPHERTEXT_LENGTH } from "../../interface/constants.js";
 import {
-  encodeOpenedMergeEnvelope,
+  encodeDecryptedMergeEnvelope,
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
-  openMergeEnvelope,
+  decryptMergeEnvelope,
 } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -239,8 +239,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
           request.salt,
         );
       case "mergeEnvelope":
-        return encodeOpenedMergeEnvelope(
-          openMergeEnvelope({
+        return encodeDecryptedMergeEnvelope(
+          decryptMergeEnvelope({
             viewingKey: viewing,
             ephemeralPublicKey: request.txViewingPublicKey,
             ciphertext: request.ciphertext,

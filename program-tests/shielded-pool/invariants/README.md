@@ -244,7 +244,7 @@ Status of the audit findings against the current (post-PR164) tree:
   `records_event_root_not_instruction_root` (INV-BATCH-NULL-07).
 - F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
   PR164 (bound in the `external_data_hash` preimage, now `ExternalDataPreimage` -- INV-XC-16).
-- F-06 merge viewing-key canonicality: FIXED. The default-rail merge seals its
+- F-06 merge viewing-key canonicality: FIXED. The default-rail merge encrypts its
   output to the registry `viewing_pk` again (merge envelope). The key agreement
   in `prover/server/circuits/verifiable-encryption/p256/keyagreement.go` asserts
   the `0x04` prefix, 8-bit coordinate bytes, canonical coordinates below the

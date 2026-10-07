@@ -106,7 +106,7 @@ func TestMergeEnvelopeRejectsReportForgery(t *testing.T) {
 			recipientLo, recipientHi := forgery.Keys.RecipientPacked()
 			ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
 			forged := func(t testing.TB, plaintext []byte) hostEnvelope {
-				ciphertext, secret := forgery.Seal(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+				ciphertext, secret := forgery.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
 				return hostEnvelope{
 					recipientPk:  forgery.Keys.RecipientUncompressed(),
 					recipientLo:  recipientLo,
@@ -118,7 +118,7 @@ func TestMergeEnvelopeRejectsReportForgery(t *testing.T) {
 					sharedSecret: secret,
 				}
 			}
-			f := buildMergeFixture(t, mergeFixtureOptions{seal: forged})
+			f := buildMergeFixture(t, mergeFixtureOptions{encrypt: forged})
 
 			err := solveMerge(t, cs, f.defaultCircuit(), forgery.Hints(t)...)
 			if err == nil {

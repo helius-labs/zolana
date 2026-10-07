@@ -9,7 +9,7 @@ use zolana_interface::instruction::{
     },
     NullifierTreeProof,
 };
-use zolana_keypair::SealedMergeEnvelope;
+use zolana_keypair::EncryptedMergeEnvelope;
 
 use crate::error::ClientError;
 
@@ -114,14 +114,14 @@ impl ProofCompressed {
 
     pub(crate) fn into_merge_parts(
         self,
-        sealed: Option<&SealedMergeEnvelope>,
+        encrypted: Option<&EncryptedMergeEnvelope>,
     ) -> Result<(MergeProof, Option<MergeEnvelope>), ClientError> {
-        let envelope = match (self.commitment, sealed) {
-            (Some(commitment), Some(sealed)) => Some(MergeEnvelope {
+        let envelope = match (self.commitment, encrypted) {
+            (Some(commitment), Some(encrypted)) => Some(MergeEnvelope {
                 commitment: commitment.commitment,
                 commitment_pok: commitment.commitment_pok,
-                ephemeral_pk: sealed.ephemeral_pk,
-                ciphertext: sealed.ciphertext,
+                ephemeral_pk: encrypted.ephemeral_pk,
+                ciphertext: encrypted.ciphertext,
             }),
             (None, None) => None,
             (None, Some(_)) => {

@@ -56,20 +56,20 @@ type mergeEnvelopeVectorCircuit struct {
 }
 
 func (c *mergeEnvelopeVectorCircuit) Define(api frontend.API) error {
-	sealed := ve.Envelope{
+	encrypted := ve.Envelope{
 		SecretTag:   mergeshared.MergeSecretTag,
 		KdfInfo:     mergeshared.MergeKdfInfo,
 		EphemeralSk: c.EphemeralSk,
 		RecipientPk: c.RecipientPk,
 		Plaintext:   mergeshared.MergePlaintext(api, c.Amount, c.MintChunks),
-	}.Seal(api)
-	api.AssertIsEqual(sealed.RecipientLo, c.RecipientLo)
-	api.AssertIsEqual(sealed.RecipientHi, c.RecipientHi)
-	api.AssertIsEqual(sealed.EphemeralLo, c.EphemeralLo)
-	api.AssertIsEqual(sealed.EphemeralHi, c.EphemeralHi)
-	api.AssertIsEqual(sealed.SharedSecret, c.SharedSecret)
-	api.AssertIsEqual(mergeshared.MergeDerivedBlinding(api, sealed.SharedSecret), c.OutputBlinding)
-	for i, b := range sealed.Ciphertext {
+	}.Encrypt(api)
+	api.AssertIsEqual(encrypted.RecipientLo, c.RecipientLo)
+	api.AssertIsEqual(encrypted.RecipientHi, c.RecipientHi)
+	api.AssertIsEqual(encrypted.EphemeralLo, c.EphemeralLo)
+	api.AssertIsEqual(encrypted.EphemeralHi, c.EphemeralHi)
+	api.AssertIsEqual(encrypted.SharedSecret, c.SharedSecret)
+	api.AssertIsEqual(mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret), c.OutputBlinding)
+	for i, b := range encrypted.Ciphertext {
 		api.AssertIsEqual(b, c.Ciphertext[i])
 	}
 	return nil
@@ -137,7 +137,7 @@ func TestMergeEnvelopeMatchesRustVector(t *testing.T) {
 
 	plaintext := binary.BigEndian.AppendUint64(nil, vector.Amount)
 	plaintext = append(plaintext, mint...)
-	ciphertext, sharedSecret := keys.Seal(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+	ciphertext, sharedSecret := keys.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
 	outputBlinding, err := poseidon.Hash([]*big.Int{big.NewInt(mergeshared.MergeDerivedBlindingDomain), sharedSecret})
 	if err != nil {
 		t.Fatal(err)

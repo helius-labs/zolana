@@ -22,7 +22,7 @@ import {
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
-  openMergeEnvelope,
+  decryptMergeEnvelope,
   symmetricApply,
   type Bytes16,
   type Bytes31,
@@ -34,7 +34,7 @@ import {
   mergeOutputBlinding,
   mergePrivateTxBlinding,
   mergeSharedSecret,
-  sealMergeEnvelope,
+  encryptMergeEnvelope,
 } from "../src/keypair/merge/index.js";
 
 type RailVectors = Readonly<{
@@ -225,7 +225,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     );
   });
 
-  it("seals and opens the merge envelope", () => {
+  it("encrypts and decrypts the merge envelope", () => {
     const section = vectors.merge_envelope;
     const recipient = ViewingKey.fromBytes(bytes(section.recipient_secret) as Bytes32);
     const ephemeral = ViewingKey.fromBytes(bytes(section.ephemeral_secret) as Bytes32);
@@ -244,17 +244,22 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       ),
     ).toBe(section.shared_secret);
 
-    const sealed = sealMergeEnvelope({ recipient: recipientPublicKey, ephemeral, amount, mint });
-    expect(hex(sealed.ephemeralPublicKey.toBytes())).toBe(section.ephemeral_pk);
-    expect(hex(sealed.ciphertext)).toBe(section.ciphertext);
-    expect(hex(sealed.outputBlinding)).toBe(section.output_blinding);
+    const encrypted = encryptMergeEnvelope({
+      recipient: recipientPublicKey,
+      ephemeral,
+      amount,
+      mint,
+    });
+    expect(hex(encrypted.ephemeralPublicKey.toBytes())).toBe(section.ephemeral_pk);
+    expect(hex(encrypted.ciphertext)).toBe(section.ciphertext);
+    expect(hex(encrypted.outputBlinding)).toBe(section.output_blinding);
 
-    const opened = openMergeEnvelope({
+    const decrypted = decryptMergeEnvelope({
       viewingKey: recipient,
       ephemeralPublicKey: P256PublicKey.fromBytes(bytes(section.ephemeral_pk) as Bytes33),
       ciphertext: bytes(section.ciphertext),
     });
-    expect(opened).toEqual({
+    expect(decrypted).toEqual({
       amount,
       mint,
       outputBlinding: bytes(section.output_blinding),

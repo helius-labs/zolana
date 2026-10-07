@@ -11,7 +11,7 @@ import (
 )
 
 const MaxDeposits = 8
-const OpeningBytes = 64
+const DepositPlaintextBytes = 64
 const Domain uint32 = 0x43524450
 const EncryptionInfo = "CRING/dep1"
 
@@ -39,7 +39,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(validCount, 1)
 	var enabled [MaxDeposits]frontend.Variable
 	var ownerHashes [MaxDeposits]frontend.Variable
-	plaintext := make([]frontend.Variable, MaxDeposits*OpeningBytes)
+	plaintext := make([]frontend.Variable, MaxDeposits*DepositPlaintextBytes)
 	registry.AssertMode(api, c.KeyEscrow, c.KeyRegistryRoot)
 	for i := range c.OwnerPkHashes {
 		enabled[i] = frontend.Variable(0)
@@ -52,28 +52,28 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		api.AssertIsEqual(api.Mul(disabled, c.Blindings[i]), 0)
 		c.Keys[i].AssertEscrowed(api, api.Mul(enabled[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
 		ownerHashes[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
-		copy(plaintext[i*OpeningBytes:], ve.FieldToBytesBE(api, ownerHashes[i], 32))
-		copy(plaintext[i*OpeningBytes+32:], ve.FieldToBytesBE(api, c.Blindings[i], 32))
+		copy(plaintext[i*DepositPlaintextBytes:], ve.FieldToBytesBE(api, ownerHashes[i], 32))
+		copy(plaintext[i*DepositPlaintextBytes+32:], ve.FieldToBytesBE(api, c.Blindings[i], 32))
 	}
 
 	rangeChecker := rangecheck.New(api)
 	for _, b := range c.EphSk {
 		rangeChecker.Check(b, 8)
 	}
-	sealed := ve.Envelope{
+	encrypted := ve.Envelope{
 		SecretTag:   base.SharedSecretTag,
 		KdfInfo:     []byte(EncryptionInfo),
 		EphemeralSk: c.EphSk,
 		RecipientPk: c.AuditorPk,
 		Plaintext:   plaintext,
-	}.Seal(api)
+	}.Encrypt(api)
 	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
 	for i := range ownerHashes {
 		ownerCommitment := gadget.PoseidonHash(api, []frontend.Variable{ownerHashes[i], c.Blindings[i]})
-		ciphertextHash := gadget.HashBytes(api, sealed.Ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])
+		ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext[i*DepositPlaintextBytes:(i+1)*DepositPlaintextBytes])
 		chain = append(chain, api.Mul(enabled[i], ownerCommitment), api.Mul(enabled[i], ciphertextHash))
 	}
-	chain = append(chain, sealed.RecipientLo, sealed.RecipientHi, sealed.EphemeralLo, sealed.EphemeralHi, c.KeyEscrow, c.KeyRegistryRoot)
+	chain = append(chain, encrypted.RecipientLo, encrypted.RecipientHi, encrypted.EphemeralLo, encrypted.EphemeralHi, c.KeyEscrow, c.KeyRegistryRoot)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }

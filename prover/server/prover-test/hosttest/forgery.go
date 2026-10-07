@@ -53,7 +53,7 @@ func forgeReport(t testing.TB, name string, ephemeral *big.Int, mirrored bool) R
 	return ReportForgery{Name: name, Keys: keys, ForgedX: forgedX, ForgedY: forgedY, Mirrored: mirrored}
 }
 
-func (f ReportForgery) Seal(tag, info, plaintext []byte) (ciphertext []byte, sharedSecret *big.Int) {
+func (f ReportForgery) Encrypt(tag, info, plaintext []byte) (ciphertext []byte, sharedSecret *big.Int) {
 	sharedSecret = f.Keys.sharedSecret(tag, [32]byte(f.ForgedX.FillBytes(make([]byte, 32))))
 	key, nonce := KeySchedule(sharedSecret, info)
 	return CTR(key, nonce, plaintext), sharedSecret

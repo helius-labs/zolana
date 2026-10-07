@@ -56,20 +56,20 @@ func MergePlaintext(api frontend.API, amount frontend.Variable, mintChunks [Mint
 	return plaintext
 }
 
-func EnvelopePublicElements(api frontend.API, sealed ve.Sealed) [4]frontend.Variable {
-	ciphertext := sealed.Ciphertext
+func EnvelopePublicElements(api frontend.API, encrypted ve.Encrypted) [4]frontend.Variable {
+	ciphertext := encrypted.Ciphertext
 	head := ciphertext[:MergeHeadChunkCiphertextBytes]
 	tail := ciphertext[MergeHeadChunkCiphertextBytes:MergeCiphertextBytes]
 	recipientShift := new(big.Int).Lsh(big.NewInt(1), 8*(2+MergeHeadChunkCiphertextBytes))
 	ephemeralShift := new(big.Int).Lsh(big.NewInt(1), 8*MergeHeadChunkCiphertextBytes)
 	packed := api.Add(
-		api.Mul(sealed.RecipientHi, recipientShift),
-		api.Mul(sealed.EphemeralHi, ephemeralShift),
+		api.Mul(encrypted.RecipientHi, recipientShift),
+		api.Mul(encrypted.EphemeralHi, ephemeralShift),
 		ve.BytesToField(api, head),
 	)
 	return [4]frontend.Variable{
-		sealed.RecipientLo,
-		sealed.EphemeralLo,
+		encrypted.RecipientLo,
+		encrypted.EphemeralLo,
 		packed,
 		ve.BytesToField(api, tail),
 	}

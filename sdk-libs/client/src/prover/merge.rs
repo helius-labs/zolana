@@ -15,7 +15,7 @@ use zolana_interface::{
     state::cache::CACHE_CAPACITY,
     tree_slot::{tree_id_field, tree_slots_hash_chain},
 };
-use zolana_keypair::{Curve, NullifierKey, SealedMergeEnvelope};
+use zolana_keypair::{Curve, EncryptedMergeEnvelope, NullifierKey};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
@@ -79,7 +79,7 @@ pub struct MergeProofResult {
     pub cache_slot: Option<u8>,
     pub ring_program_id: Option<Address>,
     pub output_ring_data_hash: [u8; 32],
-    pub envelope: Option<SealedMergeEnvelope>,
+    pub envelope: Option<EncryptedMergeEnvelope>,
 }
 
 impl MergeProofResult {
@@ -200,16 +200,16 @@ impl MergeProver {
         {
             return Err(ClientError::MergeOutputMismatch);
         }
-        let sealed = tx.sealed_envelope()?;
-        let expected_blinding = match (&tx.envelope, &sealed, tx.ring_program_id) {
-            (Some(envelope), Some(sealed), None) => {
+        let encrypted = tx.encrypted_envelope()?;
+        let expected_blinding = match (&tx.envelope, &encrypted, tx.ring_program_id) {
+            (Some(envelope), Some(encrypted), None) => {
                 if output
                     .owner_address
                     .is_none_or(|owner| owner.viewing_pubkey != envelope.recipient)
                 {
                     return Err(ClientError::MergeOutputMismatch);
                 }
-                sealed.output_blinding
+                encrypted.output_blinding
             }
             (None, None, Some(_)) => merge_output_blinding(&self.nullifier_key, &first_nullifier)?,
             _ => return Err(TransactionError::MergeBlindingRailMismatch.into()),
@@ -273,15 +273,15 @@ impl MergeProver {
         ];
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
-        let envelope_inputs = match (&envelope, &sealed) {
-            (Some(envelope), Some(sealed)) => {
+        let envelope_inputs = match (&envelope, &encrypted) {
+            (Some(envelope), Some(encrypted)) => {
                 // Bind both halves of the UTXO owner to the registry, so another
                 // nullifier key cannot manufacture a merge for this signing identity.
                 elements.extend([user_signing_pk_hash, nullifier_pubkey]);
                 elements.extend(merge_envelope_public_elements(
                     envelope.recipient.as_bytes(),
-                    &sealed.ephemeral_pk,
-                    &sealed.ciphertext,
+                    &encrypted.ephemeral_pk,
+                    &encrypted.ciphertext,
                 )?);
                 Some(MergeEnvelopeInputs::new(envelope)?)
             }
@@ -332,7 +332,7 @@ impl MergeProver {
             cache_slot,
             ring_program_id,
             output_ring_data_hash,
-            envelope: sealed,
+            envelope: encrypted,
         })
     }
 }

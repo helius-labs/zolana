@@ -14,7 +14,7 @@ use zolana_interface::{
     merge_utils::merge_envelope_public_elements,
     tree_slot::tree_id_field,
 };
-use zolana_keypair::{Curve, NullifierKey, SealedMergeEnvelope};
+use zolana_keypair::{Curve, EncryptedMergeEnvelope, NullifierKey};
 use zolana_transaction::{
     instructions::{
         merge::{
@@ -51,7 +51,7 @@ pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
     ring_data_hash: Option<[u8; 32]>,
-    envelope: Option<SealedMergeEnvelope>,
+    envelope: Option<EncryptedMergeEnvelope>,
 }
 
 pub enum ProvenIndexedMerge {
@@ -97,9 +97,9 @@ impl IndexedMergePreparation {
         let tree_id = first.tree_id;
         let first_nullifier = first.nullifier;
         let nullifier_pk = nullifier_key.pubkey()?;
-        let sealed = merge.sealed_envelope()?;
-        let expected_blinding = match (&merge.envelope, &sealed, merge.ring_program_id) {
-            (Some(envelope), Some(sealed), None) => {
+        let encrypted = merge.encrypted_envelope()?;
+        let expected_blinding = match (&merge.envelope, &encrypted, merge.ring_program_id) {
+            (Some(envelope), Some(encrypted), None) => {
                 if merge
                     .output_utxo
                     .owner_address
@@ -107,7 +107,7 @@ impl IndexedMergePreparation {
                 {
                     return Err(invalid());
                 }
-                sealed.output_blinding
+                encrypted.output_blinding
             }
             (None, None, Some(_)) => merge_output_blinding(&nullifier_key, &first_nullifier)?,
             _ => return Err(TransactionError::MergeBlindingRailMismatch.into()),
@@ -220,13 +220,13 @@ impl IndexedMergePreparation {
             external,
             scalar_one(),
         ];
-        let envelope = match (&merge.envelope, &sealed) {
-            (Some(envelope), Some(sealed)) => {
+        let envelope = match (&merge.envelope, &encrypted) {
+            (Some(envelope), Some(encrypted)) => {
                 public_inputs.extend([owner_pk_hash, nullifier_pk]);
                 public_inputs.extend(merge_envelope_public_elements(
                     envelope.recipient.as_bytes(),
-                    &sealed.ephemeral_pk,
-                    &sealed.ciphertext,
+                    &encrypted.ephemeral_pk,
+                    &encrypted.ciphertext,
                 )?);
                 Some(MergeEnvelopeInputs::new(envelope)?)
             }
@@ -289,7 +289,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
-            envelope: sealed,
+            envelope: encrypted,
         })
     }
 }

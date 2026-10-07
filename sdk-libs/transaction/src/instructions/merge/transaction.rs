@@ -1,5 +1,7 @@
 use solana_address::Address;
-use zolana_keypair::{MergeEnvelopeSeal, P256Pubkey, PublicKey, SealedMergeEnvelope, ViewingKey};
+use zolana_keypair::{
+    EncryptedMergeEnvelope, MergeEnvelopeEncryption, P256Pubkey, PublicKey, ViewingKey,
+};
 
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, SppProofOutputUtxo};
 
@@ -10,18 +12,18 @@ pub struct MergeOutputEnvelope {
 }
 
 impl MergeOutputEnvelope {
-    pub fn seal(
+    pub fn encrypt(
         &self,
         amount: u64,
         mint: &Address,
-    ) -> Result<SealedMergeEnvelope, TransactionError> {
-        Ok(MergeEnvelopeSeal {
+    ) -> Result<EncryptedMergeEnvelope, TransactionError> {
+        Ok(MergeEnvelopeEncryption {
             recipient: &self.recipient,
             ephemeral: &self.ephemeral,
             amount,
             mint: mint.to_bytes(),
         }
-        .seal()?)
+        .encrypt()?)
     }
 }
 
@@ -41,10 +43,12 @@ impl MergeProofInputs {
         self.output_utxo.hash(self.output_tree_id)
     }
 
-    pub fn sealed_envelope(&self) -> Result<Option<SealedMergeEnvelope>, TransactionError> {
+    pub fn encrypted_envelope(&self) -> Result<Option<EncryptedMergeEnvelope>, TransactionError> {
         self.envelope
             .as_ref()
-            .map(|envelope| envelope.seal(self.output_utxo.amount, &self.output_utxo.asset.asset))
+            .map(|envelope| {
+                envelope.encrypt(self.output_utxo.amount, &self.output_utxo.asset.asset)
+            })
             .transpose()
     }
 }

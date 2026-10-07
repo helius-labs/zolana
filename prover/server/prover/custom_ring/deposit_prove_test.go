@@ -104,7 +104,7 @@ func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (deposi
 	iv := make([]byte, 16)
 	copy(iv, nonce[20:])
 	iv[15] = 2
-	plaintext := make([]byte, deposit.MaxDeposits*deposit.OpeningBytes)
+	plaintext := make([]byte, deposit.MaxDeposits*deposit.DepositPlaintextBytes)
 	for i := range owners {
 		owners[i].FillBytes(plaintext[i*64 : i*64+32])
 		p.Blindings[i].FillBytes(plaintext[i*64+32 : (i+1)*64])

@@ -33,17 +33,17 @@ export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
 
 const MERGE_AMOUNT_LENGTH = 8;
 const MERGE_MINT_LENGTH = 32;
-export const OPENED_MERGE_ENVELOPE_LENGTH = MERGE_AMOUNT_LENGTH + MERGE_MINT_LENGTH + 32;
+export const DECRYPTED_MERGE_ENVELOPE_LENGTH = MERGE_AMOUNT_LENGTH + MERGE_MINT_LENGTH + 32;
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
-export interface SealedMergeEnvelope {
+export interface EncryptedMergeEnvelope {
   readonly ephemeralPublicKey: P256PublicKey;
   readonly ciphertext: Uint8Array;
   readonly outputBlinding: Bytes32;
 }
 
-export interface OpenedMergeEnvelope {
+export interface DecryptedMergeEnvelope {
   readonly amount: bigint;
   readonly mint: Bytes32;
   readonly outputBlinding: Bytes32;
@@ -76,14 +76,14 @@ export function mergeSharedSecret(
   return keyAgreementSecret(MERGE_SECRET_TAG, sharedX, ephemeralPublicKey, recipient);
 }
 
-export function sealMergeEnvelope(
+export function encryptMergeEnvelope(
   input: Readonly<{
     recipient: P256PublicKey;
     ephemeral: ViewingKey;
     amount: bigint;
     mint: Bytes32;
   }>,
-): SealedMergeEnvelope {
+): EncryptedMergeEnvelope {
   if (typeof input.amount !== "bigint" || input.amount < 0n || input.amount > U64_MAX) {
     throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
       name: "merge amount",
@@ -113,13 +113,13 @@ export function sealMergeEnvelope(
   }
 }
 
-export function openMergeEnvelope(
+export function decryptMergeEnvelope(
   input: Readonly<{
     viewingKey: ViewingKey;
     ephemeralPublicKey: P256PublicKey;
     ciphertext: Uint8Array;
   }>,
-): OpenedMergeEnvelope {
+): DecryptedMergeEnvelope {
   const ciphertext = checkedBytes<Uint8Array>(
     input.ciphertext,
     MERGE_CIPHERTEXT_LENGTH,
@@ -145,29 +145,29 @@ export function openMergeEnvelope(
   }
 }
 
-export function encodeOpenedMergeEnvelope(opened: OpenedMergeEnvelope): Uint8Array {
+export function encodeDecryptedMergeEnvelope(decrypted: DecryptedMergeEnvelope): Uint8Array {
   return concatBytes(
-    u64be(opened.amount),
-    checkedBytes<Bytes32>(opened.mint, MERGE_MINT_LENGTH, "merge mint"),
-    checkedBytes<Bytes32>(opened.outputBlinding, 32, "merge output blinding"),
+    u64be(decrypted.amount),
+    checkedBytes<Bytes32>(decrypted.mint, MERGE_MINT_LENGTH, "merge mint"),
+    checkedBytes<Bytes32>(decrypted.outputBlinding, 32, "merge output blinding"),
   );
 }
 
-export function decodeOpenedMergeEnvelope(bytes: Uint8Array): OpenedMergeEnvelope {
-  const opened = checkedBytes<Uint8Array>(
+export function decodeDecryptedMergeEnvelope(bytes: Uint8Array): DecryptedMergeEnvelope {
+  const decrypted = checkedBytes<Uint8Array>(
     bytes,
-    OPENED_MERGE_ENVELOPE_LENGTH,
-    "opened merge envelope",
+    DECRYPTED_MERGE_ENVELOPE_LENGTH,
+    "decrypted merge envelope",
   );
   const mintEnd = MERGE_AMOUNT_LENGTH + MERGE_MINT_LENGTH;
   try {
     return Object.freeze({
-      amount: bytesToBigInt(opened.subarray(0, MERGE_AMOUNT_LENGTH)),
-      mint: copyBytes(opened.subarray(MERGE_AMOUNT_LENGTH, mintEnd)) as Bytes32,
-      outputBlinding: copyBytes(opened.subarray(mintEnd)) as Bytes32,
+      amount: bytesToBigInt(decrypted.subarray(0, MERGE_AMOUNT_LENGTH)),
+      mint: copyBytes(decrypted.subarray(MERGE_AMOUNT_LENGTH, mintEnd)) as Bytes32,
+      outputBlinding: copyBytes(decrypted.subarray(mintEnd)) as Bytes32,
     });
   } finally {
-    opened.fill(0);
+    decrypted.fill(0);
   }
 }
 

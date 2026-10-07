@@ -40,18 +40,18 @@ func newEnvelopeCircuit(n int) *envelopeCircuit {
 }
 
 func (c *envelopeCircuit) Define(api frontend.API) error {
-	sealed := ve.Envelope{
+	encrypted := ve.Envelope{
 		SecretTag:   testSecretTag,
 		KdfInfo:     testKdfInfo,
 		EphemeralSk: c.EphemeralSk,
 		RecipientPk: c.RecipientPk,
 		Plaintext:   c.Plaintext,
-	}.Seal(api)
-	api.AssertIsEqual(sealed.RecipientLo, c.RecipientLo)
-	api.AssertIsEqual(sealed.RecipientHi, c.RecipientHi)
-	api.AssertIsEqual(sealed.EphemeralLo, c.EphemeralLo)
-	api.AssertIsEqual(sealed.EphemeralHi, c.EphemeralHi)
-	for i, b := range sealed.Ciphertext {
+	}.Encrypt(api)
+	api.AssertIsEqual(encrypted.RecipientLo, c.RecipientLo)
+	api.AssertIsEqual(encrypted.RecipientHi, c.RecipientHi)
+	api.AssertIsEqual(encrypted.EphemeralLo, c.EphemeralLo)
+	api.AssertIsEqual(encrypted.EphemeralHi, c.EphemeralHi)
+	for i, b := range encrypted.Ciphertext {
 		api.AssertIsEqual(b, c.Ciphertext[i])
 	}
 	return nil
@@ -96,7 +96,7 @@ func (in envelopeInputs) witness() *envelopeCircuit {
 func envelopeAssignment(n int) *envelopeCircuit {
 	keys := hosttest.DefaultKeys()
 	plaintext := envelopePlaintext(n)
-	ciphertext, _ := keys.Seal(testSecretTag, testKdfInfo, plaintext)
+	ciphertext, _ := keys.Encrypt(testSecretTag, testKdfInfo, plaintext)
 	recipientLo, recipientHi := keys.RecipientPacked()
 	ephemeralLo, ephemeralHi := keys.EphemeralPacked()
 	return envelopeInputs{
@@ -187,7 +187,7 @@ func TestEnvelopeRejectsReportForgery(t *testing.T) {
 	for _, forgery := range hosttest.ForgeReports(t) {
 		t.Run(forgery.Name, func(t *testing.T) {
 			plaintext := envelopePlaintext(eciesPlaintextBytes)
-			ciphertext, _ := forgery.Seal(testSecretTag, testKdfInfo, plaintext)
+			ciphertext, _ := forgery.Encrypt(testSecretTag, testKdfInfo, plaintext)
 			recipientLo, recipientHi := forgery.Keys.RecipientPacked()
 			ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
 			a := envelopeInputs{

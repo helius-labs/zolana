@@ -448,7 +448,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 #### Merge output indexing (removed merge view tag)
 
-The single-use `merge_view_tag` stream — `merge_view_tag_secret`, a per-user `merge_count`, the HKDF tag derivation, and SPP's nullifier-tree insertion of the tag — was removed. `merge_transact` tags the merged output with the owner signing pubkey like every confidential default-ring output; [`merge_ring`](#merge_ring) indexes the output by the **first input's published nullifier**; neither instruction takes a supplied tag. On `merge_transact` the output blinding comes from the [merge envelope](#merge-envelope) sealed to the owner's registered `viewing_pk`, so a merger that holds the nullifier secret cannot read the output. On `merge_ring` the output blinding is `merge_output_blinding`. On both rails the padding-slot nullifiers are `merge_dummy_nullifier` (domain-separated Poseidon over the owner's nullifier secret and the first nullifier — see [Methods](#methods)), and replay protection comes from the proof-bound input nullifiers themselves.
+The single-use `merge_view_tag` stream — `merge_view_tag_secret`, a per-user `merge_count`, the HKDF tag derivation, and SPP's nullifier-tree insertion of the tag — was removed. `merge_transact` tags the merged output with the owner signing pubkey like every confidential default-ring output; [`merge_ring`](#merge_ring) indexes the output by the **first input's published nullifier**; neither instruction takes a supplied tag. On `merge_transact` the output blinding comes from the [merge envelope](#merge-envelope) encrypted to the owner's registered `viewing_pk`, so a merger that holds the nullifier secret cannot read the output. On `merge_ring` the output blinding is `merge_output_blinding`. On both rails the padding-slot nullifiers are `merge_dummy_nullifier` (domain-separated Poseidon over the owner's nullifier secret and the first nullifier — see [Methods](#methods)), and replay protection comes from the proof-bound input nullifiers themselves.
 
 #### View Tag Selection
 
@@ -472,7 +472,7 @@ flowchart TD
 5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
 6. `merge_output_blinding(first_nullifier)` / `merge_dummy_nullifier(first_nullifier, slot_index)` — deterministic merge derivations from the owner's nullifier secret (domain-separated Poseidon); used by the merge prover and by the owner during sync. `merge_dummy_nullifier` serves both [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring); `merge_output_blinding` serves only `merge_ring`. Replaces the removed `get_merge_view_tag(merge_count)`.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> P256Keypair` — per-transaction P-256 keypair for ECDH encryption to recipients.
-8. `open_merge_envelope(ephemeral_pk, ciphertext) -> (amount, mint, output_blinding)` — opens a [merge envelope](#merge-envelope) with `viewing_sk`; used during sync to rebuild [`merge_transact`](#merge_transact) outputs.
+8. `decrypt_merge_envelope(ephemeral_pk, ciphertext) -> (amount, mint, output_blinding)` — decrypts a [merge envelope](#merge-envelope) with `viewing_sk`; used during sync to rebuild [`merge_transact`](#merge_transact) outputs.
 
 ## Derivation seed
 
@@ -702,7 +702,7 @@ Schemes:
 
 1. Transfer — one sender and `0<=` recipient ciphertexts.
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
-3. Merge — a [`merge_transact`](#merge_transact) output carries a [merge envelope](#merge-envelope), a 40-byte ciphertext of the output amount and mint sealed to the owner's registered `viewing_pk` and bound by the merge proof. A [`merge_ring`](#merge_ring) output carries no ciphertext (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
+3. Merge — a [`merge_transact`](#merge_transact) output carries a [merge envelope](#merge-envelope), a 40-byte ciphertext of the output amount and mint encrypted to the owner's registered `viewing_pk` and bound by the merge proof. A [`merge_ring`](#merge_ring) output carries no ciphertext (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
 4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
 
 ## AES Key derivation
@@ -729,7 +729,7 @@ Integrity is verified by recomputing the UTXO hash from the decrypted plaintext 
 A [`merge_transact`](#merge_transact) output is encrypted inside the
 [merge proof](#merge-proof---merge-zk-proof). Any caller may run a merge and
 every merger holds the owner's nullifier secret, so the output cannot be keyed
-by that secret. Instead the merger seals the output amount and mint to the
+by that secret. Instead the merger encrypts the output amount and mint to the
 owner's registered `viewing_pk` (the [registry](#registry) record), and the
 proof shows that the published ciphertext encrypts exactly the merged output.
 The output blinding derives from the same shared secret, so only the holder of
@@ -753,7 +753,7 @@ ciphertext       = AES-256-CTR(key, nonce, plaintext)       // first counter blo
 output_blinding  = Poseidon(int_be("TMEB"), shared_secret)
 ```
 
-The owner opens the envelope with `shared_x = ECDH_x(viewing_sk, ephemeral_pk)`
+The owner decrypts the envelope with `shared_x = ECDH_x(viewing_sk, ephemeral_pk)`
 and the same derivation, then rebuilds the UTXO with `asset = hash_bytes_32(mint)`
 and `output_blinding`. It accepts the output only if the recomputed `utxo_hash`
 equals the published `output_utxo_hash`. `ephemeral_pk` and `ciphertext` travel
@@ -1022,7 +1022,7 @@ On the default rail (`merge_transact`) the merged output carries a
 40-byte ciphertext and its `tx_viewing_pk` is the envelope's `ephemeral_pk`. The
 event's `view_tag` is the owner signing pubkey (the P256 x-coordinate or the
 full ed25519 key, rail-selected like the owner identity), so the wallet's
-owner-pubkey scan finds it. On sync the wallet opens the envelope with its
+owner-pubkey scan finds it. On sync the wallet decrypts the envelope with its
 `viewing_sk`, rebuilds the output, and checks the recomputed UTXO hash against
 the on-chain output commitment. It needs none of the merged inputs.
 
@@ -1408,7 +1408,7 @@ move of width 1 uses 2x2 and one of width 3 uses 4x4.
 
 ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_<N>_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_<N>_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
 
-The proof is Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The default merge seals its output in a [merge envelope](#merge-envelope): the in-circuit P-256 key agreement and AES use lookup tables, so its proof carries one BSB22 commitment and proof of knowledge over private variables, verified against `merge_8_1` / `merge_24_1` / `merge_54_1`. The policy-ring merge is vanilla Groth16 with no ciphertext: its output blinding is derived in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`). On both rails padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`).
+The proof is Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The default merge encrypts its output in a [merge envelope](#merge-envelope): the in-circuit P-256 key agreement and AES use lookup tables, so its proof carries one BSB22 commitment and proof of knowledge over private variables, verified against `merge_8_1` / `merge_24_1` / `merge_54_1`. The policy-ring merge is vanilla Groth16 with no ciphertext: its output blinding is derived in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`). On both rails padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`).
 
 **Requirement.** No signing or viewing secret witness. `nullifier_secret` is required. The default merge also takes the merger-chosen `ephemeral_sk` and the owner's public `viewing_pk`.
 
@@ -2323,7 +2323,7 @@ the instruction and must use a fresh blinding per output.
 
 **Discriminator:** 13
 
-**Description.** Consolidates up to 54 input slots (an [8-, 24- or 54-input circuit](#merge-proof---merge-zk-proof)) of one owner and asset into one output of the same owner, asset, and total amount; dummy slots or compact padding fill the slots past the real inputs. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag). The output is sealed in a [merge envelope](#merge-envelope) to the owner's registered `viewing_pk`.
+**Description.** Consolidates up to 54 input slots (an [8-, 24- or 54-input circuit](#merge-proof---merge-zk-proof)) of one owner and asset into one output of the same owner, asset, and total amount; dummy slots or compact padding fill the slots past the real inputs. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag). The output is encrypted in a [merge envelope](#merge-envelope) to the owner's registered `viewing_pk`.
 
 **Accounts**
 
@@ -2397,7 +2397,7 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity, its `nullifier_pk` and the envelope packing of its `viewing_pk` into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof). `envelope` must be present (`MergeEnvelopeMissing`), checked before any state is read. The record's `viewing_pk` and the envelope `ephemeral_pk` must carry a `0x02`/`0x03` prefix (`InvalidViewingKeyEncoding`).
 6. The Groth16 proof with the envelope's BSB22 commitment verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
-8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The proof binds the envelope ciphertext to the output, so the owner rebuilds the output on sync by [opening the envelope](#merge-envelope).
+8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The proof binds the envelope ciphertext to the output, so the owner rebuilds the output on sync by [decrypting the envelope](#merge-envelope).
 9. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = user_record.signing_view_tag`.
 10. With `cache_slot`, the merge requires the `write_authority` signer (`CacheWriteAuthorityMismatch`), an unexpired cache (`CacheExpired`) on `output_tree` (`CacheTreeMismatch`) and `cache_slot < 36` (`InvalidCacheSlot`); the output overwrites the slot after the proof.
 11. No nullifier is `0` (`ZeroInputNullifier`); see [compact padding](#compact-padding).
@@ -2833,9 +2833,9 @@ UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they ar
 
 **Merging UTXOs.** A merge service needs decrypted UTXOs but does not hold encryption keys. Therefore the wallet must trigger the merge service and supply the merge proof inputs.
 
-**Sync.** After each `merge_transact`, the emitted event tags the merged output with the owner signing pubkey, so it surfaces in the wallet's default-ring owner-pubkey scan. The wallet opens the output's [merge envelope](#merge-envelope) with its `viewing_sk` and rebuilds the output without the merged inputs (see [First Time Sync Wallet](#first-time-sync-wallet)).
+**Sync.** After each `merge_transact`, the emitted event tags the merged output with the owner signing pubkey, so it surfaces in the wallet's default-ring owner-pubkey scan. The wallet decrypts the output's [merge envelope](#merge-envelope) with its `viewing_sk` and rebuilds the output without the merged inputs (see [First Time Sync Wallet](#first-time-sync-wallet)).
 
-**Threat model.** The [merge proof](#merge-proof---merge-zk-proof) preserves ownership and value and seals the output to the owner's registered `viewing_pk`. A service can disclose the inputs it was given or refuse to process transactions. Building a proof requires the decrypted input UTXOs and the owner's `nullifier_secret`; enabling merging alone does not give a caller those inputs. The `nullifier_secret` is shared with every merger and cannot rotate, so the merged output is not derived from it: a merger learns the output only from the inputs it merged itself.
+**Threat model.** The [merge proof](#merge-proof---merge-zk-proof) preserves ownership and value and encrypts the output to the owner's registered `viewing_pk`. A service can disclose the inputs it was given or refuse to process transactions. Building a proof requires the decrypted input UTXOs and the owner's `nullifier_secret`; enabling merging alone does not give a caller those inputs. The `nullifier_secret` is shared with every merger and cannot rotate, so the merged output is not derived from it: a merger learns the output only from the inputs it merged itself.
 
 ## Registry
 
@@ -2852,7 +2852,7 @@ struct Record {
     owner_p256: Option<P256Pubkey>,
     nullifier_pk: [u8; 32],
     /// The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)).
-    /// Merges seal their output to it (see [merge envelope](#merge-envelope)).
+    /// Merges encrypt their output to it (see [merge envelope](#merge-envelope)).
     viewing_pk: P256Pubkey,
     /// Opt-in for [`merge_transact`](#merge_transact); default `false`. When `true`,
     /// any caller may run the merge for this owner. SPP hashes the
@@ -2969,7 +2969,7 @@ Wallet {
                 2. for each known recipient `r`, derive `wallet.get_send_shared_view_tag(r, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
             2. **Decrypt and store.** Decrypt and store UTXOs.
 
-    3. **Merge reconstruction.** On the default rail the event tags the output with the owner signing pubkey (so merge candidates surface in the owner-pubkey fetch above) and carries the [merge envelope](#merge-envelope): open it with `viewing_sk`, rebuild the output from the decrypted amount and mint and the envelope `output_blinding`, and check the recomputed UTXO hash against the on-chain output commitment. `merge_ring` outputs carry no ciphertext and are indexed by the first input's published nullifier: for each fetched transaction whose first nullifier matches one of the wallet's own UTXOs, skip slots whose nullifier equals `merge_dummy_nullifier(nullifier_key, first_nullifier, i)`, sum the matched inputs, recompute the output blinding via `merge_output_blinding(nullifier_key, first_nullifier)`, and check the recomputed UTXO hash. A ring merge's slot payload is the output `ring_data_hash`. Store the reconstructed UTXO with the transaction's `nullifiers`.
+    3. **Merge reconstruction.** On the default rail the event tags the output with the owner signing pubkey (so merge candidates surface in the owner-pubkey fetch above) and carries the [merge envelope](#merge-envelope): decrypt it with `viewing_sk`, rebuild the output from the decrypted amount and mint and the envelope `output_blinding`, and check the recomputed UTXO hash against the on-chain output commitment. `merge_ring` outputs carry no ciphertext and are indexed by the first input's published nullifier: for each fetched transaction whose first nullifier matches one of the wallet's own UTXOs, skip slots whose nullifier equals `merge_dummy_nullifier(nullifier_key, first_nullifier, i)`, sum the matched inputs, recompute the output blinding via `merge_output_blinding(nullifier_key, first_nullifier)`, and check the recomputed UTXO hash. A ring merge's slot payload is the output `ring_data_hash`. Store the reconstructed UTXO with the transaction's `nullifiers`.
 
 3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
 

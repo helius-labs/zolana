@@ -150,7 +150,7 @@ fn merge_rejects_a_tampered_envelope_byte() {
 }
 
 #[test]
-fn merge_rejects_a_proof_sealed_to_a_key_other_than_the_registered_one() {
+fn merge_rejects_a_proof_encrypted_to_a_key_other_than_the_registered_one() {
     let mut pool = proof_env();
     let merge = default_merge(&mut pool, 1);
     let owner = ShieldedKeypair::from_keypair(&pool.rpc.payer).expect("shielded keypair");
@@ -163,7 +163,7 @@ fn merge_rejects_a_proof_sealed_to_a_key_other_than_the_registered_one() {
         &merge,
         ix.clone(),
         ShieldedPoolError::TransactProofVerificationFailed,
-        "proof sealed to the owner's previous viewing key",
+        "proof encrypted to the owner's previous viewing key",
     );
 
     set_registry_viewing_key(
@@ -173,7 +173,7 @@ fn merge_rejects_a_proof_sealed_to_a_key_other_than_the_registered_one() {
     );
     send_merge(&mut pool, ix);
     assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.nullifiers)
-        .expect("the merge sealed to the registered key spends its inputs");
+        .expect("the merge encrypted to the registered key spends its inputs");
 }
 
 #[test]

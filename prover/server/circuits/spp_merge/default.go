@@ -50,7 +50,7 @@ func NewMergeCircuit(n int) *Circuit {
 }
 
 func (c *Circuit) Define(api frontend.API) error {
-	var sealed ve.Sealed
+	var encrypted ve.Encrypted
 	tx := mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
@@ -61,14 +61,14 @@ func (c *Circuit) Define(api frontend.API) error {
 		Public:              c.CommonPublicInputs,
 		RingProgramID:       frontend.Variable(0),
 		OutputBlinding: func(amount frontend.Variable) frontend.Variable {
-			sealed = ve.Envelope{
+			encrypted = ve.Envelope{
 				SecretTag:   mergeshared.MergeSecretTag,
 				KdfInfo:     mergeshared.MergeKdfInfo,
 				EphemeralSk: c.EphemeralSk,
 				RecipientPk: c.ViewingPk,
 				Plaintext:   mergeshared.MergePlaintext(api, amount, c.MintChunks),
-			}.Seal(api)
-			return mergeshared.MergeDerivedBlinding(api, sealed.SharedSecret)
+			}.Encrypt(api)
+			return mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret)
 		},
 	}
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
@@ -79,7 +79,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	tx.Constrain(api)
 	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
-	envelope := mergeshared.EnvelopePublicElements(api, sealed)
+	envelope := mergeshared.EnvelopePublicElements(api, encrypted)
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.UserSigningPkHash, c.UserNullifierPk)
 	fields = append(fields, envelope[:]...)

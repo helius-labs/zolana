@@ -45,14 +45,14 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	secretFE := ve.BytesToField(api, c.NullifierSecret[:])
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{secretFE})
 
-	sealed := ve.Envelope{
+	encrypted := ve.Envelope{
 		SecretTag:   base.SharedSecretTag,
 		KdfInfo:     []byte(NfKeyEncInfo),
 		EphemeralSk: c.EphSk,
 		RecipientPk: c.AuditorPk,
 		Plaintext:   c.NullifierSecret[:],
-	}.Seal(api)
-	ciphertextHash := gadget.HashBytes(api, sealed.Ciphertext)
+	}.Encrypt(api)
+	ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext)
 
 	keyHash := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, ciphertextHash})
 	newRoot := registry.Insertion{
@@ -69,7 +69,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 
 	chain := []frontend.Variable{
 		c.RegistryOldRoot, c.RegistryNewRoot, c.Member,
-		nullifierPk, sealed.RecipientLo, sealed.RecipientHi, sealed.EphemeralLo, sealed.EphemeralHi, ciphertextHash,
+		nullifierPk, encrypted.RecipientLo, encrypted.RecipientHi, encrypted.EphemeralLo, encrypted.EphemeralHi, ciphertextHash,
 		c.NewIndex,
 	}
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))

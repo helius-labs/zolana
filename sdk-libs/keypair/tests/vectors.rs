@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use zolana_keypair::{
     derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
     merge_envelope::merge_shared_secret,
-    symmetric_apply, MergeEnvelopeOpen, MergeEnvelopeSeal, OpenedMergeEnvelope, P256Pubkey,
-    ShieldedKeypair, SigningKey, ViewingKey,
+    symmetric_apply, DecryptedMergeEnvelope, MergeEnvelopeDecryption, MergeEnvelopeEncryption,
+    P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 
 const VECTORS_JSON: &str = include_str!("../../../test-vectors/key_derivation.json");
@@ -255,13 +255,13 @@ fn compute_merge_envelope() -> MergeEnvelope {
     let amount = 1_234_567_890_123u64;
     let mint = merge_envelope_mint();
     let recipient_pk = recipient.pubkey();
-    let sealed = MergeEnvelopeSeal {
+    let encrypted = MergeEnvelopeEncryption {
         recipient: &recipient_pk,
         ephemeral: &ephemeral,
         amount,
         mint,
     }
-    .seal()
+    .encrypt()
     .unwrap();
     let shared_secret = merge_shared_secret(
         &ephemeral.ecdh(&recipient_pk).unwrap(),
@@ -276,10 +276,10 @@ fn compute_merge_envelope() -> MergeEnvelope {
         mint: hex::encode(mint),
         recipient_compressed: hex::encode(recipient_pk.as_bytes()),
         recipient_uncompressed: hex::encode(recipient_pk.to_uncompressed().unwrap()),
-        ephemeral_pk: hex::encode(sealed.ephemeral_pk),
+        ephemeral_pk: hex::encode(encrypted.ephemeral_pk),
         shared_secret: hex::encode(shared_secret.as_slice()),
-        ciphertext: hex::encode(sealed.ciphertext),
-        output_blinding: hex::encode(sealed.output_blinding),
+        ciphertext: hex::encode(encrypted.ciphertext),
+        output_blinding: hex::encode(encrypted.output_blinding),
     }
 }
 
@@ -378,16 +378,16 @@ fn shared_vectors_match() {
         .unwrap()
         .try_into()
         .unwrap();
-    let opened = MergeEnvelopeOpen {
+    let decrypted = MergeEnvelopeDecryption {
         viewing_key: &recipient,
         ephemeral_pk: &ephemeral_pk,
         ciphertext: &ciphertext,
     }
-    .open()
+    .decrypt()
     .unwrap();
     assert_eq!(
-        opened,
-        OpenedMergeEnvelope {
+        decrypted,
+        DecryptedMergeEnvelope {
             amount: committed.merge_envelope.amount,
             mint: merge_envelope_mint(),
             output_blinding: hex::decode(&committed.merge_envelope.output_blinding)
@@ -396,7 +396,10 @@ fn shared_vectors_match() {
                 .unwrap(),
         }
     );
-    assert_eq!(OpenedMergeEnvelope::from_bytes(&opened.to_bytes()), opened);
+    assert_eq!(
+        DecryptedMergeEnvelope::from_bytes(&decrypted.to_bytes()),
+        decrypted
+    );
 }
 
 #[test]

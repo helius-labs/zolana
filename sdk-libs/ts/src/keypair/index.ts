@@ -45,12 +45,12 @@ export {
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
 export {
-  encodeOpenedMergeEnvelope,
+  encodeDecryptedMergeEnvelope,
   mergePrivateTxBlinding,
-  openMergeEnvelope,
+  decryptMergeEnvelope,
   symmetricApply,
-  type OpenedMergeEnvelope,
-  type SealedMergeEnvelope,
+  type DecryptedMergeEnvelope,
+  type EncryptedMergeEnvelope,
 } from "./merge/index.js";
 export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from "./transact/index.js";
 export {

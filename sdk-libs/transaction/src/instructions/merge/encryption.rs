@@ -95,7 +95,7 @@ impl MergeTransaction {
                     ephemeral: ephemeral.clone(),
                 };
                 output_utxo.blinding = envelope
-                    .seal(output_utxo.amount, &output_utxo.asset.asset)?
+                    .encrypt(output_utxo.amount, &output_utxo.asset.asset)?
                     .output_blinding;
                 Some(envelope)
             }

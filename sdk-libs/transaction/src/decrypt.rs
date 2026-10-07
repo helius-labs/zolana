@@ -7,7 +7,7 @@ use zolana_hasher::p256::is_reserved_derivation_point;
 use zolana_keypair::{
     constants::{P256_PUBKEY_LEN, SALT_LEN},
     shielded::ShieldedAddress,
-    OpenedMergeEnvelope, P256Pubkey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
+    DecryptedMergeEnvelope, P256Pubkey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 
 use crate::{
@@ -522,7 +522,7 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
         MergeOutput::Envelope {
             ephemeral_pk,
             ciphertext,
-        } => open_merge_envelope(
+        } => decrypt_merge_envelope(
             shielded_keys,
             address,
             tx,
@@ -537,7 +537,7 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
     }
 }
 
-fn open_merge_envelope<K: ShieldedKeys + ?Sized>(
+fn decrypt_merge_envelope<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
     tx: &ShieldedTransaction,
@@ -549,7 +549,7 @@ fn open_merge_envelope<K: ShieldedKeys + ?Sized>(
     if is_reserved_derivation_point(ephemeral_pk.as_bytes()) {
         return Ok(MergeRebuild::NotOurs);
     }
-    let opened = decrypt_each(
+    let decrypted = decrypt_each(
         shielded_keys,
         shielded_keys.viewing_public_keys(),
         |viewing_pubkey| DecryptRequest {
@@ -561,11 +561,11 @@ fn open_merge_envelope<K: ShieldedKeys + ?Sized>(
             label: DecryptLabel::MergeEnvelope,
         },
     )?;
-    for bytes in opened {
-        let Ok(bytes) = <&[u8; OpenedMergeEnvelope::LEN]>::try_from(bytes.as_slice()) else {
+    for bytes in decrypted {
+        let Ok(bytes) = <&[u8; DecryptedMergeEnvelope::LEN]>::try_from(bytes.as_slice()) else {
             continue;
         };
-        let envelope = OpenedMergeEnvelope::from_bytes(bytes);
+        let envelope = DecryptedMergeEnvelope::from_bytes(bytes);
         let mint = Address::new_from_array(envelope.mint);
         let utxo = Utxo {
             owner: address.signing_pubkey,

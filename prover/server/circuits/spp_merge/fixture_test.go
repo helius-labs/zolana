@@ -52,7 +52,7 @@ type mergeFixtureOptions struct {
 	inputSlot           int
 	outputNullifierPk   *big.Int
 	legacyBlinding      bool
-	seal                func(t testing.TB, plaintext []byte) hostEnvelope
+	encrypt             func(t testing.TB, plaintext []byte) hostEnvelope
 }
 
 type hostEnvelope struct {
@@ -69,7 +69,7 @@ type hostEnvelope struct {
 func honestEnvelope(t testing.TB, plaintext []byte) hostEnvelope {
 	t.Helper()
 	keys := hosttest.DefaultKeys()
-	ciphertext, sharedSecret := keys.Seal(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+	ciphertext, sharedSecret := keys.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
 	recipientLo, recipientHi := keys.RecipientPacked()
 	ephemeralLo, ephemeralHi := keys.EphemeralPacked()
 	return hostEnvelope{
@@ -348,15 +348,15 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 	var envelope *hostEnvelope
 	if options.rail == defaultFixtureRail {
-		seal := options.seal
-		if seal == nil {
-			seal = honestEnvelope
+		encrypt := options.encrypt
+		if encrypt == nil {
+			encrypt = honestEnvelope
 		}
-		sealed := seal(t, mergePlaintext(outAmount, mint))
-		envelope = &sealed
+		encrypted := encrypt(t, mergePlaintext(outAmount, mint))
+		envelope = &encrypted
 		if !options.legacyBlinding {
 			outBlinding, err = poseidon.Hash([]*big.Int{
-				big.NewInt(mergeshared.MergeDerivedBlindingDomain), sealed.sharedSecret,
+				big.NewInt(mergeshared.MergeDerivedBlindingDomain), encrypted.sharedSecret,
 			})
 			if err != nil {
 				t.Fatal(err)

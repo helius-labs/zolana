@@ -2870,16 +2870,17 @@ mod tests {
             .signing_pubkey()
             .confidential_view_tag()
             .expect("owner tag");
-        let sealed = prepared
-            .sealed_envelope()
-            .expect("seal merge envelope")
+        let encrypted = prepared
+            .encrypted_envelope()
+            .expect("encrypt merge envelope")
             .expect("default merge envelope");
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
             event_index: Some(0),
             tx_viewing_pk: Some(
-                zolana_keypair::P256Pubkey::from_bytes(sealed.ephemeral_pk).expect("ephemeral key"),
+                zolana_keypair::P256Pubkey::from_bytes(encrypted.ephemeral_pk)
+                    .expect("ephemeral key"),
             ),
             salt: None,
             output_slots: vec![OutputSlot {
@@ -2889,7 +2890,7 @@ mod tests {
                     tree_id: TEST_TREE_ID,
                     leaf_index: 0,
                 },
-                payload: sealed.ciphertext.to_vec(),
+                payload: encrypted.ciphertext.to_vec(),
             }],
             messages: Vec::new(),
             nullifiers: commitments

@@ -15,7 +15,7 @@ import { mergeEnvelopePublicElements } from "../../interface/merge-utils.js";
 import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
-import type { SealedMergeEnvelope } from "../../keypair/merge/index.js";
+import type { EncryptedMergeEnvelope } from "../../keypair/merge/index.js";
 import { MergeOutputEnvelope, PreparedMerge } from "../../transaction/instructions/builders.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
@@ -420,8 +420,8 @@ export function prepareMerge(
             ownerPublicKeyHash,
             nullifierPublicKey,
             recipient: validated.envelope.recipient.toBytes(),
-            ephemeralPublicKey: validated.sealed.ephemeralPublicKey.toBytes(),
-            ciphertext: validated.sealed.ciphertext,
+            ephemeralPublicKey: validated.encrypted.ephemeralPublicKey.toBytes(),
+            ciphertext: validated.encrypted.ciphertext,
           },
   }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
@@ -468,7 +468,7 @@ export function prepareMerge(
         Object.freeze({
           expiryUnixTs,
           proof: copyMergeProof(proof),
-          ...mergeEnvelopeData(proof, validated?.sealed),
+          ...mergeEnvelopeData(proof, validated?.encrypted),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
           eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
@@ -595,7 +595,7 @@ function validatePreparedMerge(prepared: PreparedMerge): ValidatedEnvelope | und
 
 interface ValidatedEnvelope {
   readonly envelope: MergeOutputEnvelope;
-  readonly sealed: SealedMergeEnvelope;
+  readonly encrypted: EncryptedMergeEnvelope;
 }
 
 function validatedEnvelope(prepared: PreparedMerge): ValidatedEnvelope | undefined {
@@ -611,19 +611,19 @@ function validatedEnvelope(prepared: PreparedMerge): ValidatedEnvelope | undefin
   if (viewingPublicKey === undefined || !viewingPublicKey.equals(envelope.recipient)) {
     throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
   }
-  const sealed = prepared.sealedEnvelope();
-  if (sealed === undefined || !equal(sealed.outputBlinding, prepared.output.blinding)) {
+  const encrypted = prepared.encryptedEnvelope();
+  if (encrypted === undefined || !equal(encrypted.outputBlinding, prepared.output.blinding)) {
     throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", { details: { index: 0 } });
   }
-  return Object.freeze({ envelope, sealed });
+  return Object.freeze({ envelope, encrypted });
 }
 
 function mergeEnvelopeData(
   proof: CompressedProofParts,
-  sealed: SealedMergeEnvelope | undefined,
+  encrypted: EncryptedMergeEnvelope | undefined,
 ): Readonly<{ envelope?: MergeEnvelope }> {
   const { commitment, commitmentPok } = proof;
-  if (sealed === undefined) {
+  if (encrypted === undefined) {
     if (commitment !== undefined || commitmentPok !== undefined) {
       throw commitmentError("unexpected commitment");
     }
@@ -636,8 +636,8 @@ function mergeEnvelopeData(
     envelope: Object.freeze({
       commitment: checkedBytes(commitment, 32, "merge proof commitment"),
       commitmentPok: checkedBytes(commitmentPok, 32, "merge proof commitmentPok"),
-      ephemeralPk: sealed.ephemeralPublicKey.toBytes(),
-      ciphertext: new Uint8Array(sealed.ciphertext),
+      ephemeralPk: encrypted.ephemeralPublicKey.toBytes(),
+      ciphertext: new Uint8Array(encrypted.ciphertext),
     }),
   };
 }

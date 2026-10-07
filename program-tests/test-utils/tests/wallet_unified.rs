@@ -3,7 +3,7 @@ mod wallet_common;
 use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
-use zolana_keypair::{MergeEnvelopeSeal, P256Pubkey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{MergeEnvelopeEncryption, P256Pubkey, ShieldedKeypair, ViewingKey};
 #[cfg(feature = "parallel")]
 use zolana_test_utils::wallet::PrivateTransactionDirection;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
@@ -17,25 +17,25 @@ use zolana_transaction::{
 
 const WINDOW: u64 = 8;
 
-fn sealed_merge(
+fn encrypted_merge(
     owner: &ShieldedKeypair,
     amount: u64,
     slot: u8,
     nullifiers: Vec<[u8; 32]>,
 ) -> (ShieldedTransaction, Utxo) {
-    let sealed = MergeEnvelopeSeal {
+    let encrypted = MergeEnvelopeEncryption {
         recipient: &owner.viewing_pubkey(),
         ephemeral: &ViewingKey::from_bytes(&[slot; 32]).unwrap(),
         amount,
         mint: SOL_MINT.to_bytes(),
     }
-    .seal()
+    .encrypt()
     .unwrap();
     let output = Utxo {
         owner: owner.signing_pubkey(),
         asset: zolana_transaction::Mint::SOL,
         amount,
-        blinding: sealed.output_blinding,
+        blinding: encrypted.output_blinding,
         ring_program_id: None,
         data: Data::default(),
     };
@@ -43,7 +43,7 @@ fn sealed_merge(
         slot: u64::from(slot),
         tx_signature: solana_signature::Signature::default(),
         event_index: Some(0),
-        tx_viewing_pk: Some(P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap()),
+        tx_viewing_pk: Some(P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap()),
         salt: None,
         output_slots: vec![OutputSlot {
             view_tag: owner.signing_pubkey().confidential_view_tag().unwrap(),
@@ -59,7 +59,7 @@ fn sealed_merge(
                 tree_id: 0,
                 leaf_index: u64::from(slot),
             },
-            payload: sealed.ciphertext.to_vec(),
+            payload: encrypted.ciphertext.to_vec(),
         }],
         messages: Vec::new(),
         nullifiers,
@@ -148,7 +148,7 @@ fn fresh_sync_resolves_merge_dependencies() {
             merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).unwrap()
         }),
     );
-    let (merge, output) = sealed_merge(&alice, input.amount, 2, nullifiers);
+    let (merge, output) = encrypted_merge(&alice, input.amount, 2, nullifiers);
     let merge_context = &merge.output_slots.first().unwrap().output_context;
     let chained_nullifier = output
         .nullifier(&merge_context.hash, nullifier_key)
@@ -159,7 +159,7 @@ fn fresh_sync_resolves_merge_dependencies() {
             merge_dummy_nullifier(nullifier_key, &chained_nullifier, slot as u8).unwrap()
         }),
     );
-    let (chained_merge, _) = sealed_merge(&alice, output.amount, 3, chained_nullifiers);
+    let (chained_merge, _) = encrypted_merge(&alice, output.amount, 3, chained_nullifiers);
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
 
     let mut fresh = Wallet::new(alice.shielded_address().unwrap(), assets.clone()).unwrap();
@@ -222,7 +222,7 @@ fn sync_recovers_a_compact_merge() {
     let first_nullifier = input
         .nullifier(&input_context.hash, &alice.nullifier_key)
         .unwrap();
-    let (merge, output) = sealed_merge(&alice, input.amount, 2, vec![first_nullifier]);
+    let (merge, output) = encrypted_merge(&alice, input.amount, 2, vec![first_nullifier]);
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
     let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
     let report = wallet

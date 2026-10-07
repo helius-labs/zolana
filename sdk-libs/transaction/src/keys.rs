@@ -19,7 +19,7 @@
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
-    MergeEnvelopeOpen, NullifierKey, P256Pubkey, ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
+    MergeEnvelopeDecryption, NullifierKey, P256Pubkey, ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 
 use crate::{
@@ -176,13 +176,13 @@ impl ShieldedKeys for LocalShieldedKeys {
                                 actual: request.ciphertext.len(),
                             }
                         })?;
-                        MergeEnvelopeOpen {
+                        MergeEnvelopeDecryption {
                             viewing_key: viewing,
                             ephemeral_pk: &request.tx_viewing_pubkey,
                             ciphertext,
                         }
-                        .open()
-                        .map(|opened| opened.to_bytes().to_vec())
+                        .decrypt()
+                        .map(|decrypted| decrypted.to_bytes().to_vec())
                     }
                 }?;
                 Ok(plaintext)

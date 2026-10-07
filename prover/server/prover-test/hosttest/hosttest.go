@@ -70,7 +70,7 @@ func (k Keys) sharedSecret(tag []byte, sharedX [32]byte) *big.Int {
 	)
 }
 
-func (k Keys) Seal(tag, info, plaintext []byte) (ciphertext []byte, sharedSecret *big.Int) {
+func (k Keys) Encrypt(tag, info, plaintext []byte) (ciphertext []byte, sharedSecret *big.Int) {
 	sharedSecret = k.SharedSecret(tag)
 	key, nonce := KeySchedule(sharedSecret, info)
 	return CTR(key, nonce, plaintext), sharedSecret

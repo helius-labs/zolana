@@ -8,7 +8,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously described a variable 
 count `N` and an oversized proof; `docs/spec.md` now matches the code: 8-in, 24-in
 and 54-in, 1-out shapes and a 192-byte Groth16 `a||b||c` proof, which carries a
 BSB22 commitment on the default rail only (`program-libs/interface/src/instruction/instruction_data/merge_transact.rs`,
-`docs/spec.md:1795-1836`). The default-rail merge seals its output in a merge
+`docs/spec.md:1795-1836`). The default-rail merge encrypts its output in a merge
 envelope (P-256 ECIES to the registry `viewing_pk`, `docs/spec.md` "Merge Envelope"):
 its proof carries one BSB22 commitment and the instruction carries the envelope.
 The ring-rail merge output is ciphertext-free and recovered from the first real
@@ -99,7 +99,7 @@ nullifiers.
   - Statement: `merge_transact` returns Err with `MergeEnvelopeMissing = 7080` before reading any account when `envelope` is absent; `merge_ring` returns Err with `MergeEnvelopeUnexpected = 7081` when `envelope` is present.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`process_merge_transact_ix`), `program-libs/interface/src/instruction/instruction_data/merge_ring.rs` (`MergeRingIxDataRef::from_bytes`)
   - Error: `ShieldedPoolError::MergeEnvelopeMissing = 7080` / `MergeEnvelopeUnexpected = 7081`
-  - Severity: High (an unsealed default merge would publish an unreadable output)
+  - Severity: High (an unencrypted default merge would publish an unreadable output)
   - Suggested test: negative both rails; harness: program-tests integration (`cargo test-sbf`)
 
 ### Proof Binding
@@ -114,13 +114,13 @@ nullifiers.
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-MERGE-09: the proof binds the owner's registered viewing key**
-  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_proof_sealed_to_a_key_other_than_the_registered_one` (a real proof sealed to the owner's key fails with 7008 while the registry holds another valid key, and lands once the registry holds the sealed-to key); `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_registry_viewing_key_without_a_compressed_prefix` (7082); `program-tests/shielded-pool/tests/merge/public_input.rs` `default_rail_rejects_a_registered_viewing_key_without_a_compressed_prefix`
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_proof_encrypted_to_a_key_other_than_the_registered_one` (a real proof encrypted to the owner's key fails with 7008 while the registry holds another valid key, and lands once the registry holds the encrypted-to key); `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_registry_viewing_key_without_a_compressed_prefix` (7082); `program-tests/shielded-pool/tests/merge/public_input.rs` `default_rail_rejects_a_registered_viewing_key_without_a_compressed_prefix`
   - Kind: postcondition
-  - Statement: the default-rail public-input hash folds `pack33(user_record.viewing_pk)` as the envelope recipient, so a proof sealed to any other key fails verification; a registry `viewing_pk` without a `0x02`/`0x03` prefix returns `InvalidViewingKeyEncoding = 7082`.
+  - Statement: the default-rail public-input hash folds `pack33(user_record.viewing_pk)` as the envelope recipient, so a proof encrypted to any other key fails verification; a registry `viewing_pk` without a `0x02`/`0x03` prefix returns `InvalidViewingKeyEncoding = 7082`.
   - Location: `programs/shielded-pool/src/instructions/merge/account.rs` (`load_user_record`), `merge/verify.rs` (`fn public_input_hash`), `program-libs/interface/src/merge_utils.rs` (`merge_envelope_public_elements`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidViewingKeyEncoding = 7082`
-  - Severity: Critical (a merger could seal the output to its own key)
-  - Suggested test: negative (proof sealed to a foreign viewing key); harness: program-tests integration
+  - Severity: Critical (a merger could encrypt the output to its own key)
+  - Suggested test: negative (proof encrypted to a foreign viewing key); harness: program-tests integration
 
 - [x] **INV-MERGE-10: the envelope ciphertext and ephemeral key are bound on-chain**
   - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_tampered_envelope_byte` (flipping the first ciphertext byte, the last ciphertext byte, or one `ephemeral_pk` x-coordinate byte of a valid merge each fails with 7008 and leaves the tree and nullifier PDAs untouched; the untampered merge then lands); `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_an_ephemeral_key_without_a_compressed_prefix` (an `ephemeral_pk` prefix other than `0x02`/`0x03` returns 7082)

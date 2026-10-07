@@ -25,7 +25,7 @@ type Envelope struct {
 	Plaintext   []frontend.Variable
 }
 
-type Sealed struct {
+type Encrypted struct {
 	RecipientLo  frontend.Variable
 	RecipientHi  frontend.Variable
 	EphemeralLo  frontend.Variable
@@ -41,7 +41,7 @@ func SecretTagValue(tag []byte) *big.Int {
 	return new(big.Int).SetBytes(tag)
 }
 
-func (e Envelope) Seal(api frontend.API) Sealed {
+func (e Envelope) Encrypt(api frontend.API) Encrypted {
 	agreement := p256.AgreeKey(api, e.EphemeralSk, e.RecipientPk)
 	sharedSecret := gadget.PoseidonHash(api, []frontend.Variable{
 		SecretTagValue(e.SecretTag),
@@ -53,7 +53,7 @@ func (e Envelope) Seal(api frontend.API) Sealed {
 	key, nonce := KeySchedule(api, sharedSecret, e.KdfInfo)
 	ciphertext := aes.CTREncrypt(api, key, nonce, e.Plaintext)
 
-	return Sealed{
+	return Encrypted{
 		RecipientLo:  agreement.RecipientLo,
 		RecipientHi:  agreement.RecipientHi,
 		EphemeralLo:  agreement.EphemeralLo,

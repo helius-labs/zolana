@@ -58,14 +58,14 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 	}
 	txLo, txHi := p256.PublicKeyPacked(api, w.TxViewingSk)
 
-	sealed := ve.Envelope{
+	encrypted := ve.Envelope{
 		SecretTag:   SharedSecretTag,
 		KdfInfo:     []byte(AuditEncInfo),
 		EphemeralSk: w.EphSk,
 		RecipientPk: w.AuditorPk,
 		Plaintext:   w.TxViewingSk[:],
-	}.Seal(api)
-	ciphertextHash := gadget.HashBytes(api, sealed.Ciphertext)
+	}.Encrypt(api)
+	ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext)
 	outputHashChain, disclosureHash := disclosureElements(
 		api, rangeChecker, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
 	)
@@ -74,8 +74,8 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 	return [11]frontend.Variable{
 		w.PrivateTxHash,
 		txLo, txHi,
-		sealed.RecipientLo, sealed.RecipientHi,
-		sealed.EphemeralLo, sealed.EphemeralHi,
+		encrypted.RecipientLo, encrypted.RecipientHi,
+		encrypted.EphemeralLo, encrypted.EphemeralHi,
 		ciphertextHash,
 		outputHashChain,
 		saltField,

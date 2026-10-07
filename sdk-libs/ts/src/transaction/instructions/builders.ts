@@ -3,8 +3,8 @@ import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
   mergeDummyNullifier,
   mergePrivateTxBlinding,
-  sealMergeEnvelope,
-  type SealedMergeEnvelope,
+  encryptMergeEnvelope,
+  type EncryptedMergeEnvelope,
 } from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -60,8 +60,8 @@ export class MergeOutputEnvelope {
     this.recipient = input.recipient;
   }
 
-  seal(amount: bigint, mint: Address): SealedMergeEnvelope {
-    return sealMergeEnvelope({
+  encrypt(amount: bigint, mint: Address): EncryptedMergeEnvelope {
+    return encryptMergeEnvelope({
       recipient: this.recipient,
       ephemeral: this.#ephemeral,
       amount,
@@ -187,8 +187,8 @@ export class PreparedMerge {
     return this.output.hash(this.outputTreeId);
   }
 
-  sealedEnvelope(): SealedMergeEnvelope | undefined {
-    return this.envelope?.seal(this.output.amount, this.output.asset);
+  encryptedEnvelope(): EncryptedMergeEnvelope | undefined {
+    return this.envelope?.encrypt(this.output.amount, this.output.asset);
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
@@ -325,7 +325,7 @@ export class Merge {
     let outputBlinding: Bytes32;
     if (blinding.kind === "envelope") {
       envelope = new MergeOutputEnvelope({ recipient: address.viewingPublicKey });
-      outputBlinding = envelope.seal(amount, asset).outputBlinding;
+      outputBlinding = envelope.encrypt(amount, asset).outputBlinding;
     } else {
       outputBlinding = checked<Bytes32>(blinding.outputBlinding, 32, "merge output blinding");
     }

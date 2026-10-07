@@ -4,7 +4,9 @@ use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{MergeProver, ProofCompressed, ProverClient, ProverExt, Rpc};
 use zolana_interface::verifying_keys::{merge_24_1, merge_54_1, merge_8_1};
-use zolana_keypair::{random_blinding, MergeEnvelopeOpen, P256Pubkey, ShieldedKeypair, SigningKey};
+use zolana_keypair::{
+    random_blinding, MergeEnvelopeDecryption, P256Pubkey, ShieldedKeypair, SigningKey,
+};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
 use zolana_transaction::{Data, Mint, Utxo};
 
@@ -123,15 +125,15 @@ impl MergeHarness {
         );
 
         let envelope = data.envelope.expect("default merge envelope");
-        let opened = MergeEnvelopeOpen {
+        let decrypted = MergeEnvelopeDecryption {
             viewing_key: &sender.viewing_key,
             ephemeral_pk: &P256Pubkey::from_bytes(envelope.ephemeral_pk).expect("ephemeral key"),
             ciphertext: &envelope.ciphertext,
         }
-        .open()
-        .expect("owner opens the merge envelope");
+        .decrypt()
+        .expect("owner decrypts the merge envelope");
         assert_eq!(
-            (opened.amount, opened.mint, opened.output_blinding),
+            (decrypted.amount, decrypted.mint, decrypted.output_blinding),
             (
                 expected_output.amount,
                 expected_output.asset.asset.to_bytes(),

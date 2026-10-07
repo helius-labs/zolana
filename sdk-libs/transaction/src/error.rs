@@ -218,7 +218,7 @@ pub enum TransactionError {
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
-    #[error("the merge envelope or blinding source does not match the rail: a default merge seals its output in an envelope, a ring merge derives its blinding")]
+    #[error("the merge envelope or blinding source does not match the rail: a default merge encrypts its output in an envelope, a ring merge derives its blinding")]
     MergeBlindingRailMismatch,
 
     #[error("merge input {index} carries program or ring data, which is not supported")]

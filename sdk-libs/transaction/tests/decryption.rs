@@ -8,7 +8,9 @@ use std::{
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{MergeEnvelopeSeal, P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    MergeEnvelopeEncryption, P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+};
 use zolana_transaction::{
     decrypt, decrypt_spendable,
     instructions::merge::{
@@ -1068,18 +1070,18 @@ fn merge_publication_to(
             )
         }
         None => {
-            let sealed = MergeEnvelopeSeal {
+            let encrypted = MergeEnvelopeEncryption {
                 recipient: &recipient,
                 ephemeral: &ViewingKey::from_bytes(&[tx_slot; 32]).unwrap(),
                 amount,
                 mint: first.utxo.asset.asset.to_bytes(),
             }
-            .seal()
+            .encrypt()
             .unwrap();
             (
-                sealed.output_blinding,
-                Some(P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap()),
-                sealed.ciphertext.to_vec(),
+                encrypted.output_blinding,
+                Some(P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap()),
+                encrypted.ciphertext.to_vec(),
                 None,
             )
         }
@@ -1223,7 +1225,7 @@ fn merge_outputs_rebuild_in_the_batch_in_any_order() {
 }
 
 #[test]
-fn a_default_merge_opens_from_its_envelope_without_its_inputs() {
+fn a_default_merge_decrypts_from_its_envelope_without_its_inputs() {
     let owner = keypair(47);
     let spl = Mint::new(Address::new_from_array([6; 32]), 9);
     let mut assets = AssetRegistry::default();
@@ -1257,7 +1259,7 @@ fn a_default_merge_opens_from_its_envelope_without_its_inputs() {
 }
 
 #[test]
-fn a_default_merge_opens_under_a_retired_viewing_key() {
+fn a_default_merge_decrypts_under_a_retired_viewing_key() {
     let owner = keypair(53);
     let assets = AssetRegistry::default();
     let note = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
@@ -1293,7 +1295,7 @@ fn output(tx: &mut ShieldedTransaction) -> &mut OutputSlot {
 }
 
 #[test]
-fn default_merge_envelopes_that_do_not_open_to_the_commitment_rebuild_nothing() {
+fn default_merge_envelopes_that_do_not_decrypt_to_the_commitment_rebuild_nothing() {
     let owner = keypair(54);
     let other = keypair(55);
     let assets = AssetRegistry::default();

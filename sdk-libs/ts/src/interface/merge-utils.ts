@@ -91,13 +91,13 @@ export function mergeEnvelopePublicElements(
 ): readonly [Bytes32, Bytes32, Bytes32, Bytes32] {
   const recipientKey = checkedCompressedKey(recipient);
   const ephemeralKey = checkedCompressedKey(ephemeral);
-  const sealed = copyBytes(ciphertext, MERGE_CIPHERTEXT_LENGTH, "ciphertext");
+  const encrypted = copyBytes(ciphertext, MERGE_CIPHERTEXT_LENGTH, "ciphertext");
   const packed = Uint8Array.of(
     ...recipientKey.subarray(0, PACK_BE_CHUNK_BYTES),
     ...ephemeralKey.subarray(0, PACK_BE_CHUNK_BYTES),
     ...recipientKey.subarray(PACK_BE_CHUNK_BYTES),
     ...ephemeralKey.subarray(PACK_BE_CHUNK_BYTES),
-    ...sealed,
+    ...encrypted,
   );
   return Object.freeze([
     packChunk(packed, 0),

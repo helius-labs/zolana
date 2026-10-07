@@ -4,7 +4,7 @@ use std::cell::RefCell;
 
 use common::{keypair, wallet_utxo};
 use zolana_keypair::{
-    MergeEnvelopeOpen, OpenedMergeEnvelope, P256Pubkey, ShieldedAddress, ShieldedKeypair,
+    DecryptedMergeEnvelope, MergeEnvelopeDecryption, P256Pubkey, ShieldedAddress, ShieldedKeypair,
     SigningKey, ViewingKey,
 };
 use zolana_transaction::{
@@ -67,21 +67,21 @@ fn assert_preserved(actual: &SppProofInputUtxo, expected: &WalletUtxo) {
     );
 }
 
-fn open(result: &MergeProofInputs, recipient: &ViewingKey) -> OpenedMergeEnvelope {
-    let sealed = result
-        .sealed_envelope()
+fn decrypt_envelope(result: &MergeProofInputs, recipient: &ViewingKey) -> DecryptedMergeEnvelope {
+    let encrypted = result
+        .encrypted_envelope()
         .unwrap()
         .expect("default merge envelope");
-    let ephemeral_pk = P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap();
-    let opened = MergeEnvelopeOpen {
+    let ephemeral_pk = P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap();
+    let decrypted = MergeEnvelopeDecryption {
         viewing_key: recipient,
         ephemeral_pk: &ephemeral_pk,
-        ciphertext: &sealed.ciphertext,
+        ciphertext: &encrypted.ciphertext,
     }
-    .open()
+    .decrypt()
     .unwrap();
-    assert_eq!(opened.output_blinding, sealed.output_blinding);
-    opened
+    assert_eq!(decrypted.output_blinding, encrypted.output_blinding);
+    decrypted
 }
 
 #[test]
@@ -142,10 +142,10 @@ fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
             .iter()
             .skip(notes.len())
             .all(|input| input.is_compact() && input.utxo.amount == 0));
-        let opened = open(&result, &owner.viewing_key);
+        let decrypted = decrypt_envelope(&result, &owner.viewing_key);
         assert_eq!(
-            opened,
-            OpenedMergeEnvelope {
+            decrypted,
+            DecryptedMergeEnvelope {
                 amount: u64::from(count) * 2,
                 mint: Mint::SOL.asset.to_bytes(),
                 output_blinding: result.output_utxo.blinding,
@@ -168,8 +168,8 @@ fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
         let recovered = Utxo {
             owner: sender.signing_pubkey,
             asset: Mint::SOL,
-            amount: opened.amount,
-            blinding: opened.output_blinding,
+            amount: decrypted.amount,
+            blinding: decrypted.output_blinding,
             ring_program_id: None,
             data: Data::default(),
         };
@@ -587,7 +587,7 @@ fn merge_routes_key_requests_and_propagates_failures() {
         );
         assert_eq!(
             output.output_utxo.blinding,
-            open(&output, &keys.owner.viewing_key).output_blinding
+            decrypt_envelope(&output, &keys.owner.viewing_key).output_blinding
         );
     }
 }
@@ -662,7 +662,7 @@ fn merge_blinding_source_must_match_the_rail() {
 }
 
 #[test]
-fn default_merge_envelope_seals_to_the_owner_with_the_given_ephemeral_key() {
+fn default_merge_envelope_encrypts_to_the_owner_with_the_given_ephemeral_key() {
     let owner = keypair(7);
     let notes = inputs(&owner, 1);
     let first_nullifier = notes.first().unwrap().nullifier;
@@ -680,14 +680,14 @@ fn default_merge_envelope_seals_to_the_owner_with_the_given_ephemeral_key() {
             &dummy_nullifiers,
         )
         .unwrap();
-    let sealed = result.sealed_envelope().unwrap().unwrap();
-    assert_eq!(sealed.ephemeral_pk, *ephemeral.pubkey().as_bytes());
-    let foreign = MergeEnvelopeOpen {
+    let encrypted = result.encrypted_envelope().unwrap().unwrap();
+    assert_eq!(encrypted.ephemeral_pk, *ephemeral.pubkey().as_bytes());
+    let foreign = MergeEnvelopeDecryption {
         viewing_key: &keypair(9).viewing_key,
         ephemeral_pk: &ephemeral.pubkey(),
-        ciphertext: &sealed.ciphertext,
+        ciphertext: &encrypted.ciphertext,
     }
-    .open()
+    .decrypt()
     .unwrap();
     assert_ne!(foreign.output_blinding, result.output_utxo.blinding);
 }

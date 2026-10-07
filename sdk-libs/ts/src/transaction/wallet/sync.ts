@@ -2,8 +2,8 @@ import { MERGE_CIPHERTEXT_LENGTH, mergePaddedInputCount } from "../../interface/
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { isDerivationPoint } from "../../keypair/derivation.js";
 import {
-  OPENED_MERGE_ENVELOPE_LENGTH,
-  decodeOpenedMergeEnvelope,
+  DECRYPTED_MERGE_ENVELOPE_LENGTH,
+  decodeDecryptedMergeEnvelope,
 } from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -946,7 +946,7 @@ class SyncPass {
         const resolved =
           ephemeralPublicKey === undefined
             ? this.#reconstructRingMerge(site, siteKey)
-            : this.#openMergeEnvelope(site, ephemeralPublicKey, siteKey);
+            : this.#decryptMergeEnvelope(site, ephemeralPublicKey, siteKey);
         if (!resolved) unresolved.push(site);
       }
       if (unresolved.length === pending.length) {
@@ -957,7 +957,11 @@ class SyncPass {
     }
   }
 
-  #openMergeEnvelope(site: MergeSite, ephemeralPublicKey: P256PublicKey, siteKey: string): boolean {
+  #decryptMergeEnvelope(
+    site: MergeSite,
+    ephemeralPublicKey: P256PublicKey,
+    siteKey: string,
+  ): boolean {
     const { tx, output } = site;
     if (isDerivationPoint(ephemeralPublicKey)) {
       this.undecryptableCandidates++;
@@ -973,12 +977,12 @@ class SyncPass {
         label: "mergeEnvelope",
       }),
     );
-    const opened = requested.filter((plaintext) => plaintext !== undefined);
-    if (opened.length !== requested.length) return false;
+    const decrypted = requested.filter((plaintext) => plaintext !== undefined);
+    if (decrypted.length !== requested.length) return false;
     try {
-      for (const plaintext of opened) {
-        if (plaintext.length !== OPENED_MERGE_ENVELOPE_LENGTH) continue;
-        const { amount, mint, outputBlinding } = decodeOpenedMergeEnvelope(plaintext);
+      for (const plaintext of decrypted) {
+        if (plaintext.length !== DECRYPTED_MERGE_ENVELOPE_LENGTH) continue;
+        const { amount, mint, outputBlinding } = decodeDecryptedMergeEnvelope(plaintext);
         const utxo = new Utxo({
           owner: this.#owner,
           asset: encodeAddress(mint),
@@ -995,7 +999,7 @@ class SyncPass {
         return true;
       }
     } finally {
-      for (const plaintext of opened) plaintext.fill(0);
+      for (const plaintext of decrypted) plaintext.fill(0);
     }
     this.undecryptableCandidates++;
     return true;

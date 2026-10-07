@@ -16,7 +16,7 @@ import { P_CONST_SEC1 } from "../src/keypair/derivation.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
-  sealMergeEnvelope,
+  encryptMergeEnvelope,
 } from "../src/keypair/merge/index.js";
 import {
   DEFAULT_TREE_ID,
@@ -81,7 +81,7 @@ interface RequestWithCursor {
   readonly cursor?: Uint8Array;
 }
 
-function sealedMerge(
+function encryptedMerge(
   keypair: ShieldedKeypair,
   amount: bigint,
   recipient: P256PublicKey = keypair.viewingPublicKey(),
@@ -89,7 +89,7 @@ function sealedMerge(
 ) {
   const ephemeral = ViewingKey.generate();
   try {
-    const sealed = sealMergeEnvelope({
+    const encrypted = encryptMergeEnvelope({
       recipient,
       ephemeral,
       amount,
@@ -100,17 +100,17 @@ function sealedMerge(
         owner: keypair.signingPublicKey(),
         asset,
         amount,
-        blinding: sealed.outputBlinding,
+        blinding: encrypted.outputBlinding,
       }),
-      txViewingPublicKey: sealed.ephemeralPublicKey,
-      payload: sealed.ciphertext,
+      txViewingPublicKey: encrypted.ephemeralPublicKey,
+      payload: encrypted.ciphertext,
     };
   } finally {
     ephemeral.destroy();
   }
 }
 
-type Sealed = ReturnType<typeof sealedMerge>;
+type Encrypted = ReturnType<typeof encryptedMerge>;
 type EnvelopeOverrides = Readonly<{
   slot?: bigint;
   txSignature?: Signature;
@@ -123,23 +123,24 @@ type EnvelopeOverrides = Readonly<{
 
 function envelopeMergeTransaction(
   keypair: ShieldedKeypair,
-  sealed: Sealed,
+  encrypted: Encrypted,
   overrides: EnvelopeOverrides = {},
 ) {
   return {
     slot: overrides.slot ?? 4n,
     txSignature: overrides.txSignature ?? SIGNATURE,
-    txViewingPublicKey: overrides.txViewingPublicKey ?? sealed.txViewingPublicKey,
+    txViewingPublicKey: overrides.txViewingPublicKey ?? encrypted.txViewingPublicKey,
     outputSlots: [
       {
         viewTag: keypair.signingPublicKey().confidentialViewTag(),
         outputContext: {
           hash:
-            overrides.outputHash ?? sealed.utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+            overrides.outputHash ??
+            encrypted.utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
           tree: TREE,
           leafIndex: overrides.leafIndex ?? 5n,
         },
-        payload: overrides.payload ?? sealed.payload,
+        payload: overrides.payload ?? encrypted.payload,
       },
     ],
     messages: [],
@@ -204,9 +205,9 @@ function mergeAfterSplit() {
     utxo.nullifier(contexts[index]!.hash, keypair.nullifierKey()),
   );
   const firstNullifier = spent[0]!;
-  const sealed = sealedMerge(keypair, 42n);
-  const merged = sealed.utxo;
-  const merge = envelopeMergeTransaction(keypair, sealed, {
+  const encrypted = encryptedMerge(keypair, 42n);
+  const merged = encrypted.utxo;
+  const merge = envelopeMergeTransaction(keypair, encrypted, {
     slot: 2n,
     txSignature: "2".repeat(64) as Signature,
     leafIndex: 2n,
@@ -219,7 +220,7 @@ function mergeAfterSplit() {
   });
   const mergeContext = merge.outputSlots[0]!.outputContext;
   const chainedNullifier = merged.nullifier(mergeContext.hash, keypair.nullifierKey());
-  const chainedMerge = envelopeMergeTransaction(keypair, sealedMerge(keypair, 42n), {
+  const chainedMerge = envelopeMergeTransaction(keypair, encryptedMerge(keypair, 42n), {
     slot: 3n,
     txSignature: "3".repeat(64) as Signature,
     leafIndex: 3n,
@@ -768,12 +769,12 @@ describe("wallet sync", () => {
             mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + real),
           )),
     ];
-    const sealed = sealedMerge(keypair, total);
+    const encrypted = encryptedMerge(keypair, total);
 
     const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
       wallet,
       transactions: [
-        envelopeMergeTransaction(keypair, sealed, {
+        envelopeMergeTransaction(keypair, encrypted, {
           slot: 1n,
           leafIndex: BigInt(real),
           nullifiers,
@@ -804,16 +805,16 @@ describe("wallet sync", () => {
         return keys.decrypt(requests);
       },
     };
-    const sealed = sealedMerge(keypair, 77n);
+    const encrypted = encryptedMerge(keypair, 77n);
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 
     const report = await decryptWithKeys(holder, {
       wallet,
-      transactions: [envelopeMergeTransaction(keypair, sealed)],
+      transactions: [envelopeMergeTransaction(keypair, encrypted)],
     });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    expect(wallet.utxos().map((entry) => entry.utxo)).toEqual([sealed.utxo]);
+    expect(wallet.utxos().map((entry) => entry.utxo)).toEqual([encrypted.utxo]);
     expect(wallet.privateTransactions()).toEqual([
       expect.objectContaining({ kind: "merge", direction: "selfTransfer", amount: 77n }),
     ]);
@@ -823,14 +824,14 @@ describe("wallet sync", () => {
           label: "mergeEnvelope",
           slotIndex: 0,
           salt: Array.from({ length: 16 }, () => 0),
-          txViewingPublicKey: sealed.txViewingPublicKey.toBytes(),
-          ciphertext: sealed.payload,
+          txViewingPublicKey: encrypted.txViewingPublicKey.toBytes(),
+          ciphertext: encrypted.payload,
         },
       ],
     ]);
   });
 
-  it("rebuilds a merge sealed to a retired viewing key", async () => {
+  it("rebuilds a merge encrypted to a retired viewing key", async () => {
     const keypair = ShieldedKeypair.generate();
     const retired = ViewingKey.generate();
     const keys = LocalShieldedKeys.fromKeys({
@@ -838,20 +839,20 @@ describe("wallet sync", () => {
       viewingKeys: [keypair.viewingKey(), retired],
       nullifierKey: keypair.nullifierKey(),
     });
-    const sealed = sealedMerge(keypair, 9n, retired.publicKey());
+    const encrypted = encryptedMerge(keypair, 9n, retired.publicKey());
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 
     const report = await decryptWithKeys(keys, {
       wallet,
-      transactions: [envelopeMergeTransaction(keypair, sealed)],
+      transactions: [envelopeMergeTransaction(keypair, encrypted)],
     });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(9n);
   });
 
-  it.each<[string, boolean, (sealed: Sealed) => EnvelopeOverrides]>([
-    ["sealed to another viewing key", true, () => ({})],
+  it.each<[string, boolean, (encrypted: Encrypted) => EnvelopeOverrides]>([
+    ["encrypted to another viewing key", true, () => ({})],
     [
       "with a tampered ciphertext",
       false,
@@ -866,7 +867,7 @@ describe("wallet sync", () => {
   ])("leaves a merge %s unrecovered without failing the sync", async (_name, toOther, fault) => {
     const keypair = ShieldedKeypair.generate();
     const other = ShieldedKeypair.generate();
-    const sealed = sealedMerge(
+    const encrypted = encryptedMerge(
       keypair,
       77n,
       toOther ? other.viewingPublicKey() : keypair.viewingPublicKey(),
@@ -875,7 +876,7 @@ describe("wallet sync", () => {
 
     const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
       wallet,
-      transactions: [envelopeMergeTransaction(keypair, sealed, fault(sealed))],
+      transactions: [envelopeMergeTransaction(keypair, encrypted, fault(encrypted))],
     });
 
     expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
@@ -885,14 +886,14 @@ describe("wallet sync", () => {
 
   it("keeps an unregistered merge mint only once the output commitment matches", async () => {
     const keypair = ShieldedKeypair.generate();
-    const sealed = sealedMerge(keypair, 77n, keypair.viewingPublicKey(), SPL_MINT);
-    const transaction = envelopeMergeTransaction(keypair, sealed);
+    const encrypted = encryptedMerge(keypair, 77n, keypair.viewingPublicKey(), SPL_MINT);
+    const transaction = envelopeMergeTransaction(keypair, encrypted);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
 
     const mismatched = new Wallet({ identity: keypair.shieldedAddress() });
     const rejected = await decryptWithKeys(keys, {
       wallet: mismatched,
-      transactions: [envelopeMergeTransaction(keypair, sealed, { outputHash: bytes(79) })],
+      transactions: [envelopeMergeTransaction(keypair, encrypted, { outputHash: bytes(79) })],
     });
     expect(rejected).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
     expect(mismatched.utxos()).toEqual([]);
@@ -900,13 +901,13 @@ describe("wallet sync", () => {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const report = await decryptWithKeys(keys, { wallet, transactions: [transaction] });
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    expect(wallet.utxos().map((entry) => entry.utxo)).toEqual([sealed.utxo]);
+    expect(wallet.utxos().map((entry) => entry.utxo)).toEqual([encrypted.utxo]);
     expect(() => wallet.balance(SPL_MINT)).toThrowError("TRANSACTION_UNKNOWN_MINT");
   });
 
   it("does not take a short envelope payload for a merge", async () => {
     const keypair = ShieldedKeypair.generate();
-    const sealed = sealedMerge(keypair, 77n);
+    const encrypted = encryptedMerge(keypair, 77n);
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const decrypt = vi.fn(async () => []);
 
@@ -915,7 +916,7 @@ describe("wallet sync", () => {
       {
         wallet,
         transactions: [
-          envelopeMergeTransaction(keypair, sealed, { payload: sealed.payload.subarray(1) }),
+          envelopeMergeTransaction(keypair, encrypted, { payload: encrypted.payload.subarray(1) }),
         ],
       },
     );
@@ -1053,8 +1054,8 @@ describe("wallet sync", () => {
     };
     for (let index = 1; index < depth; index++) {
       const spent = previous.utxo.nullifier(previous.context.hash, keypair.nullifierKey());
-      const sealed = sealedMerge(keypair, 42n);
-      const merge = envelopeMergeTransaction(keypair, sealed, {
+      const encrypted = encryptedMerge(keypair, 42n);
+      const merge = envelopeMergeTransaction(keypair, encrypted, {
         slot: BigInt(index + 2),
         txSignature: String(index + 3)
           .repeat(64)
@@ -1068,7 +1069,7 @@ describe("wallet sync", () => {
         ],
       });
       merges.push(merge);
-      previous = { utxo: sealed.utxo, context: merge.outputSlots[0]!.outputContext };
+      previous = { utxo: encrypted.utxo, context: merge.outputSlots[0]!.outputContext };
     }
     return { ...fixture, merges };
   }

@@ -11,7 +11,9 @@ use zolana_client::{
     OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{MergeEnvelopeSeal, P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{
+    MergeEnvelopeEncryption, P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey,
+};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
@@ -238,18 +240,18 @@ fn merge(
             (None, vec![0; 32])
         }
         None => {
-            let sealed = MergeEnvelopeSeal {
+            let encrypted = MergeEnvelopeEncryption {
                 recipient: &owner.viewing_pubkey(),
                 ephemeral: &ViewingKey::from_bytes(&[nonce; 32]).unwrap(),
                 amount: utxo.amount,
                 mint: utxo.asset.asset.to_bytes(),
             }
-            .seal()
+            .encrypt()
             .unwrap();
-            utxo.blinding = sealed.output_blinding;
+            utxo.blinding = encrypted.output_blinding;
             (
-                Some(P256Pubkey::from_bytes(sealed.ephemeral_pk).unwrap()),
-                sealed.ciphertext.to_vec(),
+                Some(P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap()),
+                encrypted.ciphertext.to_vec(),
             )
         }
     };

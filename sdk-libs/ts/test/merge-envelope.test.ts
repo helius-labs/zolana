@@ -38,12 +38,12 @@ describe("merge envelope guards", () => {
     });
   }
 
-  it("seals a default merge to the owner's viewing key and takes the sealed blinding", () => {
+  it("encrypts a default merge to the owner's viewing key and takes the encrypted blinding", () => {
     const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
-    const sealed = prepared.sealedEnvelope();
+    const encrypted = prepared.encryptedEnvelope();
     expect(prepared.envelope?.recipient.equals(owner.viewingPublicKey())).toBe(true);
-    expect(sealed?.outputBlinding).toEqual(prepared.output.blinding);
-    expect(sealed?.ciphertext).toHaveLength(40);
+    expect(encrypted?.outputBlinding).toEqual(prepared.output.blinding);
+    expect(encrypted?.ciphertext).toHaveLength(40);
   });
 
   it("refuses a default merge without its envelope", () => {
@@ -53,12 +53,15 @@ describe("merge envelope guards", () => {
     );
   });
 
-  it("refuses an envelope sealed to a key other than the output owner's", () => {
+  it("refuses an envelope encrypted to a key other than the output owner's", () => {
     const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
     const other = ShieldedKeypair.generate();
     try {
       const envelope = new MergeOutputEnvelope({ recipient: other.viewingPublicKey() });
-      const blinding = envelope.seal(prepared.output.amount, prepared.output.asset).outputBlinding;
+      const blinding = envelope.encrypt(
+        prepared.output.amount,
+        prepared.output.asset,
+      ).outputBlinding;
       expect(() =>
         assembleMergeWithProofs(rebuilt(prepared, { envelope, blinding }), [], submitTree),
       ).toThrow(expect.objectContaining({ code: "CLIENT_MERGE_OUTPUT_MISMATCH" }));
@@ -99,12 +102,12 @@ describe("merge envelope guards", () => {
     );
     const commitment = new Uint8Array(32).fill(3);
     const commitmentPok = new Uint8Array(32).fill(4);
-    const sealed = prepared.sealedEnvelope();
+    const encrypted = prepared.encryptedEnvelope();
     expect(complete.instructionData({ ...proof, commitment, commitmentPok }).envelope).toEqual({
       commitment,
       commitmentPok,
-      ephemeralPk: sealed?.ephemeralPublicKey.toBytes(),
-      ciphertext: sealed?.ciphertext,
+      ephemeralPk: encrypted?.ephemeralPublicKey.toBytes(),
+      ciphertext: encrypted?.ciphertext,
     });
   });
 
