@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 <prover-image@sha256:digest> <cvm-name> (--photon <image@sha256:digest> | --external-indexer <https-url>) [--photon-dump-sha256 <digest>] [--gpu] [--update] [--replace] [--plan]" >&2
+    echo "usage: $0 <prover-image@sha256:digest> <cvm-name> (--photon <image@sha256:digest> | --external-indexer <https-url>) [--photon-dump-sha256 <digest>] [--gpu] [--concurrency <n>] [--update] [--replace] [--plan]" >&2
     exit 1
 }
 [[ $# -ge 2 ]] || usage
@@ -17,12 +17,14 @@ gpu=false
 update=false
 plan=false
 replace=()
+concurrency=1
 while [[ $# -gt 0 ]]; do
     case $1 in
         --photon) [[ $# -ge 2 ]] || usage; photon_image=$2; shift ;;
         --photon-dump-sha256) [[ $# -ge 2 ]] || usage; dump_sha256=$2; shift ;;
         --external-indexer) [[ $# -ge 2 ]] || usage; external=$2; shift ;;
         --gpu) gpu=true ;;
+        --concurrency) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]?$ ]] || usage; concurrency=$2; shift ;;
         --update) update=true ;;
         --replace) replace=(--replace) ;;
         --plan) plan=true ;;
@@ -75,9 +77,11 @@ services:
       - --prover-address=0.0.0.0:3001
       - --tee=dstack
       - --indexer-url=@INDEXER_URL@
+      - --transfer-concurrency=@CONCURRENCY@
     environment:
       - PROVER_API_KEY
       - PROVER_INDEXER_API_KEY
+      - PROVER_SYNC_CONCURRENCY=@CONCURRENCY@
 EOF
     if $gpu; then
         cat <<'EOF'
@@ -185,6 +189,7 @@ EOF
 shopt -u patsub_replacement 2>/dev/null || true
 compose=$(<"$work/docker-compose.yml")
 compose=${compose//@PROVER_IMAGE@/$prover_image}
+compose=${compose//@CONCURRENCY@/$concurrency}
 compose=${compose//@PHOTON_IMAGE@/$photon_image}
 compose=${compose//@POSTGRES@/$postgres}
 compose=${compose//@CURL@/$curl}

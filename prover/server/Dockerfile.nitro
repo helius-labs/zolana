@@ -11,8 +11,20 @@ ARG PROVER_PGO
 RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local/bin/light-prover
 
 ARG INDEXER_URL=
+ARG CONCURRENCY=2
+ARG KEY_SOURCE=boot
+ARG KMS_KEY_ARN=
 RUN mkdir /out \
-    && sh nitro/routes.sh prover/common/key_downloader.go "$INDEXER_URL" > /out/routes \
+    && case $CONCURRENCY in [1-9] | [1-9][0-9]) ;; *) echo "CONCURRENCY must be 1 to 99" >&2; exit 1 ;; esac \
+    && echo "$CONCURRENCY" > /out/concurrency \
+    && case $KEY_SOURCE in \
+        kms) [ -n "$KMS_KEY_ARN" ] || { echo "KEY_SOURCE=kms needs KMS_KEY_ARN" >&2; exit 1; } ;; \
+        boot) [ -z "$KMS_KEY_ARN" ] || { echo "KEY_SOURCE=boot takes no KMS_KEY_ARN" >&2; exit 1; } ;; \
+        *) echo "KEY_SOURCE must be kms or boot" >&2; exit 1 ;; \
+    esac \
+    && echo "$KEY_SOURCE" > /out/key-source \
+    && sh nitro/routes.sh prover/common/key_downloader.go "$INDEXER_URL" "$KMS_KEY_ARN" > /out/routes \
+    && printf '%s\n' "$KMS_KEY_ARN" > /out/kms-key \
     && printf '%s\n' "$INDEXER_URL" > /out/indexer-url
 
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8

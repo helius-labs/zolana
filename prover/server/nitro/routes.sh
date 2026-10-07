@@ -1,5 +1,5 @@
 #!/bin/sh
-# routes.sh <key_downloader.go> <indexer-url or empty> prints "loopback host port vsock-port" per egress origin.
+# routes.sh <key_downloader.go> <indexer-url or empty> [kms-key-arn] prints "loopback host port vsock-port" per egress origin.
 set -eu
 
 fail() {
@@ -41,3 +41,10 @@ route() {
 
 route "$keys"
 [ -z "$2" ] || route "$2"
+key_arn=${3-}
+if [ -n "$key_arn" ]; then
+    [ "$(printf '%s\n' "$key_arn" | grep -Ex 'arn:aws:kms:[a-z]{2}(-[a-z]+)+-[0-9]+:[0-9]{12}:key/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}')" = "$key_arn" ] \
+        || fail "$key_arn is not a KMS key ARN"
+    region=${key_arn#arn:aws:kms:}
+    route "https://kms.${region%%:*}.amazonaws.com"
+fi
