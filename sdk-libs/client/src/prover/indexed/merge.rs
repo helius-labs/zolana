@@ -6,7 +6,8 @@ use zolana_interface::{
         instruction_data::{
             merge_ring::MergeRingIxData,
             merge_transact::{
-                merge_circuit_width, MergeExternalDataHash, MergeProof, MergeTransactIxData,
+                merge_circuit_width, MergeBody, MergeExternalDataHash, MergeProof,
+                MergeTransactIxData,
             },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
@@ -49,7 +50,7 @@ pub struct IndexedMergePreparation {
 
 pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
-    data: MergeTransactIxData,
+    data: MergeBody,
     ring_data_hash: Option<[u8; 32]>,
     envelope: Option<EncryptedMergeEnvelope>,
 }
@@ -269,7 +270,7 @@ impl IndexedMergePreparation {
             inputs: lookups,
             public_inputs,
         })?;
-        let data = MergeTransactIxData {
+        let data = MergeBody {
             expiry_unix_ts: merge.expiry_unix_ts,
             proof: MergeProof {
                 a: [0; 32],
@@ -282,7 +283,6 @@ impl IndexedMergePreparation {
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
             cache_slot: cache.map(|target| target.slot),
-            envelope: None,
             eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
         };
         Ok(PreparedIndexedMerge {
@@ -334,18 +334,30 @@ impl Request for PreparedIndexedMerge {
             .first()
             .ok_or_else(invalid_resolution)?
             .context;
-        let mut data = self.data.clone();
-        data.utxo_tree_root_index = context.utxo_tree_root_index;
-        data.nullifier_tree_root_index = context.nullifier_tree_root_index;
-        (data.proof, data.envelope) =
-            ProofCompressed::try_from(proof)?.into_merge_parts(self.envelope.as_ref())?;
-        Ok(match self.ring_data_hash {
-            Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
-                output_ring_data_hash,
-                merge: data,
-            }),
-            None => ProvenIndexedMerge::Merge(data),
-        })
+        let mut body = self.data.clone();
+        body.utxo_tree_root_index = context.utxo_tree_root_index;
+        body.nullifier_tree_root_index = context.nullifier_tree_root_index;
+        let proof = ProofCompressed::try_from(proof)?;
+        match (self.ring_data_hash, self.envelope.as_ref()) {
+            (Some(output_ring_data_hash), None) => {
+                body.proof = proof.into_ring_merge_proof()?;
+                Ok(ProvenIndexedMerge::Ring(MergeRingIxData {
+                    output_ring_data_hash,
+                    body,
+                }))
+            }
+            (None, Some(encrypted)) => {
+                let (proof, proof_commitment, envelope) =
+                    proof.into_default_merge_parts(encrypted)?;
+                body.proof = proof;
+                Ok(ProvenIndexedMerge::Merge(MergeTransactIxData {
+                    body,
+                    proof_commitment,
+                    envelope,
+                }))
+            }
+            _ => Err(TransactionError::MergeBlindingRailMismatch.into()),
+        }
     }
 }
 

@@ -25,7 +25,8 @@ pub use deposit::{
 };
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
-    merge_circuit_width, MergeEnvelope, MergeEnvelopeRef, MergeExternalDataHash, MergeProof,
+    merge_circuit_width, MergeBody, MergeBodyRef, MergeEnvelope, MergeEnvelopeRef,
+    MergeExternalDataHash, MergeProof, MergeProofCommitment, MergeProofCommitmentRef,
     MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };

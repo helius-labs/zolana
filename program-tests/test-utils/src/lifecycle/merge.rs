@@ -168,7 +168,7 @@ impl LifecycleHarness {
         // The client assembles the instruction data (incl. the encrypted_utxo blob)
         // the same way the prover bound `external_data_hash`, so they agree on-chain.
         let data = result.instruction_data(ProofCompressed::try_from(proof)?)?;
-        let sent_nullifiers = data.nullifiers.clone();
+        let sent_nullifiers = data.body.nullifiers.clone();
         let merge_key_pays = sent_nullifiers.len() > MERGE_DEFAULT_INPUT_COUNT;
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;

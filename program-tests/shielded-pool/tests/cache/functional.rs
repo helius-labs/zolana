@@ -200,7 +200,7 @@ fn merge_writes_the_bound_slot() {
 
     assert_eq!(
         cache_state(&pool.rpc, &cache.address),
-        cache.holding(SLOT, merge.data.output_utxo_hash)
+        cache.holding(SLOT, merge.data.body.output_utxo_hash)
     );
     assert_eq!(
         tree_progress(&pool.rpc, &tree),
@@ -269,7 +269,7 @@ fn ring_merge_writes_the_bound_slot() {
 
     assert_eq!(
         cache_state(&pool.rpc, &cache.address),
-        cache.holding(SLOT, merge.data.merge.output_utxo_hash)
+        cache.holding(SLOT, merge.data.body.output_utxo_hash)
     );
     assert_eq!(
         tree_progress(&pool.rpc, &tree),
@@ -350,7 +350,7 @@ fn ring_merge_without_a_cache_verifies() {
     }
     .build(&mut pool);
     assert_eq!(
-        merge.data.merge.cache_slot, None,
+        merge.data.body.cache_slot, None,
         "a plain ring merge carries no cache slot"
     );
     let ix = merge.instruction(&pool);

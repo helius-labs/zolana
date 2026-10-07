@@ -16,7 +16,9 @@ use zolana_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
     InstructionGroup, ParsedInstruction,
 };
-use zolana_interface::instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT;
+use zolana_interface::instruction::instruction_data::merge_transact::{
+    MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
+};
 use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
 use zolana_interface::verifying_keys::{CacheAccess, CircuitId};
 
@@ -550,13 +552,13 @@ fn merge_transact_event_rebuilds_the_default_inputs_and_the_owner_indexed_output
 
 #[test]
 fn merge_transact_without_an_envelope_is_rejected() {
-    let mut merge = merge_ix([0xC0; 32]);
-    merge.envelope = None;
+    let mut bytes = merge_ix([0xC0; 32]).serialize().expect("serialize merge");
+    bytes.truncate(bytes.len() - 33 - MERGE_CIPHERTEXT_LEN);
     let src = source(
         Pubkey::new_unique(),
         tag::MERGE_TRANSACT,
         Vec::new(),
-        merge.serialize().expect("serialize merge"),
+        bytes,
         1,
     );
 
@@ -708,7 +710,7 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
     for ring in [false, true] {
         let (tag, bytes, output_data, tx_viewing_pk) = if ring {
             let mut wrapper = merge_ring_ix([0xC0; 32], [0xE0; 32]);
-            wrapper.merge.cache_slot = Some(35);
+            wrapper.body.cache_slot = Some(35);
             (
                 tag::RING_MERGE_TRANSACT,
                 wrapper.serialize().unwrap(),
@@ -717,7 +719,7 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
             )
         } else {
             let mut merge = merge_ix([0xC0; 32]);
-            merge.cache_slot = Some(35);
+            merge.body.cache_slot = Some(35);
             (
                 tag::MERGE_TRANSACT,
                 merge.serialize().unwrap(),

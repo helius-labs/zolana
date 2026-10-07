@@ -965,7 +965,9 @@ fn tx_size(args: Vec<String>) {
     {
         use zolana_interface::instruction::{
             instruction_data::{
-                merge_transact::{MergeEnvelope, MERGE_CIPHERTEXT_LEN},
+                merge_transact::{
+                    MergeBody, MergeEnvelope, MergeProofCommitment, MERGE_CIPHERTEXT_LEN,
+                },
                 MergeProof,
             },
             MergeTransactIxData,
@@ -974,14 +976,8 @@ fn tx_size(args: Vec<String>) {
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
-        let data = MergeTransactIxData {
+        let body = MergeBody {
             cache_slot: None,
-            envelope: Some(MergeEnvelope {
-                commitment: [0u8; 32],
-                commitment_pok: [0u8; 32],
-                ephemeral_pk: [0u8; 33],
-                ciphertext: [0u8; MERGE_CIPHERTEXT_LEN],
-            }),
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
@@ -991,6 +987,17 @@ fn tx_size(args: Vec<String>) {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
         };
+        let data = MergeTransactIxData {
+            body: body.clone(),
+            proof_commitment: MergeProofCommitment {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            envelope: MergeEnvelope {
+                ephemeral_pk: [0u8; 33],
+                ciphertext: [0u8; MERGE_CIPHERTEXT_LEN],
+            },
+        };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
         let ring_merge_ix = MergeRing {
@@ -998,10 +1005,7 @@ fn tx_size(args: Vec<String>) {
             output_tree: tree,
             ring_program_id: ring_config,
             payer: payer_pk,
-            data: MergeTransactIxData {
-                envelope: None,
-                ..data.clone()
-            },
+            data: body,
             output_ring_data_hash: [0u8; 32],
             cache: None,
         }

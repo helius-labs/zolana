@@ -119,12 +119,12 @@ impl MergeHarness {
             .instruction_data(ProofCompressed::try_from(proof).expect("compress merge proof"))
             .expect("merge instruction data");
         assert_eq!(
-            data.nullifiers.len(),
+            data.body.nullifiers.len(),
             n,
             "compact padding is left out of the instruction"
         );
 
-        let envelope = data.envelope.expect("default merge envelope");
+        let envelope = data.envelope;
         let decrypted = MergeEnvelopeDecryption {
             viewing_key: &sender.viewing_key,
             ephemeral_pk: &P256Pubkey::from_bytes(envelope.ephemeral_pk).expect("ephemeral key"),

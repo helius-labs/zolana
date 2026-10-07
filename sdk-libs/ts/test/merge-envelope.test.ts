@@ -103,9 +103,12 @@ describe("merge envelope guards", () => {
     const commitment = new Uint8Array(32).fill(3);
     const commitmentPok = new Uint8Array(32).fill(4);
     const encrypted = prepared.encryptedEnvelope();
-    expect(complete.instructionData({ ...proof, commitment, commitmentPok }).envelope).toEqual({
+    const data = complete.instructionData({ ...proof, commitment, commitmentPok });
+    expect("proofCommitment" in data ? data.proofCommitment : undefined).toEqual({
       commitment,
       commitmentPok,
+    });
+    expect("envelope" in data ? data.envelope : undefined).toEqual({
       ephemeralPk: encrypted?.ephemeralPublicKey.toBytes(),
       ciphertext: encrypted?.ciphertext,
     });

@@ -45,25 +45,37 @@ pub struct MergeProofRef<'a> {
     pub c: &'a [u8; 32],
 }
 
+/// The BSB22 commitment and its proof of knowledge that the P-256 default-merge
+/// circuit adds to its Groth16 proof. The ring merge circuit has none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct MergeEnvelope {
+pub struct MergeProofCommitment {
     pub commitment: [u8; 32],
     pub commitment_pok: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct MergeProofCommitmentRef<'a> {
+    pub commitment: &'a [u8; 32],
+    pub commitment_pok: &'a [u8; 32],
+}
+
+/// The default-merge output amount and mint, encrypted to the owner's viewing
+/// key: the sender's SEC1-compressed ephemeral key and the 40-byte ciphertext.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct MergeEnvelope {
     pub ephemeral_pk: [u8; 33],
     pub ciphertext: [u8; MERGE_CIPHERTEXT_LEN],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeEnvelopeRef<'a> {
-    pub commitment: &'a [u8; 32],
-    pub commitment_pok: &'a [u8; 32],
     pub ephemeral_pk: &'a [u8; 33],
     pub ciphertext: &'a [u8; MERGE_CIPHERTEXT_LEN],
 }
 
-/// `merge_transact` instruction data (spec: SPP `merge_transact`).
+/// The fields `merge_transact` and `merge_ring` share.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct MergeTransactIxData {
+pub struct MergeBody {
     pub expiry_unix_ts: u64,
     pub proof: MergeProof,
     pub output_utxo_hash: [u8; 32],
@@ -80,7 +92,16 @@ pub struct MergeTransactIxData {
     /// Both merge instructions reject extra accounts, including when this is
     /// `None`.
     pub cache_slot: Option<u8>,
-    pub envelope: Option<MergeEnvelope>,
+}
+
+/// `merge_transact` instruction data (spec: SPP `merge_transact`). The
+/// default rail always carries the proof commitment and the encrypted output
+/// envelope, so neither is optional.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct MergeTransactIxData {
+    pub body: MergeBody,
+    pub proof_commitment: MergeProofCommitment,
+    pub envelope: MergeEnvelope,
 }
 
 impl MergeTransactIxData {
@@ -93,7 +114,7 @@ impl MergeTransactIxData {
     }
 }
 
-/// Read config for the borrowed view: identical to the default config used by
+/// Read config for the borrowed views: identical to the default config used by
 /// [`MergeTransactIxData::serialize`]; every sequence carries an explicit
 /// `FixIntLen<u8>` override, so the config choice never surfaces on the wire.
 pub(crate) type RefConfig = wincode::config::Configuration<
@@ -102,10 +123,10 @@ pub(crate) type RefConfig = wincode::config::Configuration<
     FixIntLen<u16>,
 >;
 
-/// Zero-copy view of [`MergeTransactIxData`]. The proof points alias the
-/// instruction buffer; only the small element vectors are read owned.
+/// Zero-copy view of [`MergeBody`]. The proof points alias the instruction
+/// buffer; only the small element vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
-pub struct MergeTransactIxDataRef<'a> {
+pub struct MergeBodyRef<'a> {
     pub expiry_unix_ts: u64,
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
@@ -116,27 +137,46 @@ pub struct MergeTransactIxDataRef<'a> {
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
     pub cache_slot: Option<u8>,
-    pub envelope: Option<MergeEnvelopeRef<'a>>,
+}
+
+impl MergeBodyRef<'_> {
+    /// The instruction carries only the leading nullifiers; the circuit
+    /// [`merge_circuit_width`] selects pads the rest with compact padding.
+    pub(crate) fn validate_shape(&self) -> Result<(), ShieldedPoolError> {
+        if merge_circuit_width(self.nullifiers.len()).is_none() {
+            return Err(ShieldedPoolError::InvalidMergeShape);
+        }
+        Ok(())
+    }
+}
+
+/// Parses a merge view from the whole instruction buffer: trailing bytes, a
+/// malformed encoding and an unsupported nullifier count all fail with
+/// `InvalidMergeShape`.
+pub(crate) fn parse_merge_view<'a, T>(
+    data: &'a [u8],
+    body: impl FnOnce(&T) -> &MergeBodyRef<'a>,
+) -> Result<T, ShieldedPoolError>
+where
+    T: wincode::SchemaRead<'a, RefConfig, Dst = T>,
+{
+    let parsed: T = wincode::config::deserialize_exact(data, RefConfig::new())
+        .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+    body(&parsed).validate_shape()?;
+    Ok(parsed)
+}
+
+/// Zero-copy view of [`MergeTransactIxData`].
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+pub struct MergeTransactIxDataRef<'a> {
+    pub body: MergeBodyRef<'a>,
+    pub proof_commitment: MergeProofCommitmentRef<'a>,
+    pub envelope: MergeEnvelopeRef<'a>,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
-        parsed.validate_shape()?;
-        Ok(parsed)
-    }
-
-    pub fn envelope_for_default_rail(&self) -> Result<MergeEnvelopeRef<'a>, ShieldedPoolError> {
-        self.envelope.ok_or(ShieldedPoolError::MergeEnvelopeMissing)
-    }
-
-    /// The instruction carries only the leading nullifiers; the circuit
-    /// [`merge_circuit_width`] selects pads the rest with compact padding.
-    pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
-        if merge_circuit_width(self.nullifiers.len()).is_none() {
-            return Err(wincode::ReadError::Custom("unsupported merge shape"));
-        }
-        Ok(())
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, ShieldedPoolError> {
+        parse_merge_view(data, |ix: &Self| &ix.body)
     }
 }
 

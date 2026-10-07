@@ -1,8 +1,10 @@
 import type {
   Address,
   Bytes32,
+  MergeBody,
   MergeEnvelope,
-  MergeTransactInstructionData,
+  MergeInstructionData,
+  MergeProofCommitment,
   RequestContext,
 } from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
@@ -64,7 +66,11 @@ export interface MergeAssembly {
   readonly externalDataHash: Bytes32;
   readonly eddsaOwner: boolean;
   readonly cacheSlot?: number;
-  instructionData(proof: CompressedProofParts): MergeTransactInstructionData;
+  /**
+   * The default merge's `merge_transact` data, or the ring merge's shared body,
+   * which `merge_ring` sends after the output `ring_data_hash`.
+   */
+  instructionData(proof: CompressedProofParts): MergeInstructionData;
 }
 
 export async function assembleMerge(
@@ -464,7 +470,7 @@ export function prepareMerge(
       );
       const utxoTreeRootIndex = inputTree.utxoRootIndex;
       const nullifierTreeRootIndex = inputTree.nullifierRootIndex;
-      const instructionData = (proof: CompressedProofParts): MergeTransactInstructionData =>
+      const instructionData = (proof: CompressedProofParts): MergeInstructionData =>
         Object.freeze({
           expiryUnixTs,
           proof: copyMergeProof(proof),
@@ -621,7 +627,7 @@ function validatedEnvelope(prepared: PreparedMerge): ValidatedEnvelope | undefin
 function mergeEnvelopeData(
   proof: CompressedProofParts,
   encrypted: EncryptedMergeEnvelope | undefined,
-): Readonly<{ envelope?: MergeEnvelope }> {
+): Readonly<{ proofCommitment?: MergeProofCommitment; envelope?: MergeEnvelope }> {
   const { commitment, commitmentPok } = proof;
   if (encrypted === undefined) {
     if (commitment !== undefined || commitmentPok !== undefined) {
@@ -633,9 +639,11 @@ function mergeEnvelopeData(
     throw commitmentError("missing commitment");
   }
   return {
-    envelope: Object.freeze({
+    proofCommitment: Object.freeze({
       commitment: checkedBytes(commitment, 32, "merge proof commitment"),
       commitmentPok: checkedBytes(commitmentPok, 32, "merge proof commitmentPok"),
+    }),
+    envelope: Object.freeze({
       ephemeralPk: encrypted.ephemeralPublicKey.toBytes(),
       ciphertext: new Uint8Array(encrypted.ciphertext),
     }),
@@ -648,7 +656,7 @@ function commitmentError(reason: string): ClientError {
   });
 }
 
-function copyMergeProof(proof: CompressedProofParts): MergeTransactInstructionData["proof"] {
+function copyMergeProof(proof: CompressedProofParts): MergeBody["proof"] {
   return Object.freeze({
     a: checkedBytes(proof.a, 32, "merge proof a"),
     b: checkedBytes(proof.b, 128, "merge proof b"),

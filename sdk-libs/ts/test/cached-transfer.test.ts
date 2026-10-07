@@ -23,7 +23,12 @@ import {
 import { treeAddress } from "../src/interface/pda/index.js";
 import { InstructionTag } from "../src/interface/program.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
-import type { Bytes16, Bytes32, Bytes128 } from "../src/interface/types.js";
+import type {
+  Bytes16,
+  Bytes32,
+  Bytes128,
+  MergeTransactInstructionData,
+} from "../src/interface/types.js";
 import { ShieldedKeypair, sha256Bytes } from "../src/keypair/index.js";
 import {
   Merge,
@@ -946,7 +951,9 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(442);
+    expect(encodeMergeTransactInstructionData(data as MergeTransactInstructionData)).toHaveLength(
+      441,
+    );
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,

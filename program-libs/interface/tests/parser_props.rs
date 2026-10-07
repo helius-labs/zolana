@@ -17,8 +17,9 @@ use zolana_interface::instruction::instruction_data::{
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
-        merge_circuit_width, MergeEnvelope, MergeProof, MergeTransactIxData,
-        MergeTransactIxDataRef, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
+        merge_circuit_width, MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment,
+        MergeTransactIxData, MergeTransactIxDataRef, MERGE_CIPHERTEXT_LEN,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
@@ -151,24 +152,7 @@ mod strategies {
             )
     }
 
-    pub fn merge_envelope() -> impl Strategy<Value = MergeEnvelope> {
-        (
-            any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
-            any::<[u8; 33]>(),
-            any::<[u8; MERGE_CIPHERTEXT_LEN]>(),
-        )
-            .prop_map(|(commitment, commitment_pok, ephemeral_pk, ciphertext)| {
-                MergeEnvelope {
-                    commitment,
-                    commitment_pok,
-                    ephemeral_pk,
-                    ciphertext,
-                }
-            })
-    }
-
-    pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
+    pub fn merge_body() -> impl Strategy<Value = MergeBody> {
         (
             any::<u64>(),
             (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>()),
@@ -178,7 +162,6 @@ mod strategies {
             any::<u16>(),
             any::<[u8; 32]>(),
             any::<bool>(),
-            prop::option::of(merge_envelope()),
         )
             .prop_map(
                 |(
@@ -190,10 +173,8 @@ mod strategies {
                     nullifier_tree_root_index,
                     private_tx_hash,
                     eddsa_owner,
-                    envelope,
                 )| {
-                    MergeTransactIxData {
-                        envelope,
+                    MergeBody {
                         cache_slot: None,
                         expiry_unix_ts,
                         proof: MergeProof { a, b, c },
@@ -203,6 +184,31 @@ mod strategies {
                         nullifiers,
                         utxo_tree_root_index,
                         nullifier_tree_root_index,
+                    }
+                },
+            )
+    }
+
+    pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
+        (
+            merge_body(),
+            any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
+            any::<[u8; 33]>(),
+            any::<[u8; MERGE_CIPHERTEXT_LEN]>(),
+        )
+            .prop_map(
+                |(body, commitment, commitment_pok, ephemeral_pk, ciphertext)| {
+                    MergeTransactIxData {
+                        body,
+                        proof_commitment: MergeProofCommitment {
+                            commitment,
+                            commitment_pok,
+                        },
+                        envelope: MergeEnvelope {
+                            ephemeral_pk,
+                            ciphertext,
+                        },
                     }
                 },
             )
@@ -356,13 +362,15 @@ proptest! {
         let view = MergeTransactIxDataRef::from_bytes(&bytes);
         prop_assert!(view.is_ok());
         if let Ok(view) = view {
-            prop_assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
-            prop_assert_eq!(view.nullifier_tree_root_index, owned.nullifier_tree_root_index);
-            prop_assert_eq!(view.envelope.is_some(), owned.envelope.is_some());
+            prop_assert_eq!(view.body.utxo_tree_root_index, owned.body.utxo_tree_root_index);
+            prop_assert_eq!(
+                view.body.nullifier_tree_root_index,
+                owned.body.nullifier_tree_root_index
+            );
         }
 
         let mut resized = owned.clone();
-        resized.nullifiers = vec![[7u8; 32]; nullifier_count];
+        resized.body.nullifiers = vec![[7u8; 32]; nullifier_count];
         let bytes = resized.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
@@ -370,26 +378,44 @@ proptest! {
         );
     }
 
-    /// The `merge_ring` wrapper enforces the embedded merge shape through its
+    /// The `merge_ring` wrapper enforces the shared body shape through its
     /// own decoder.
     #[test]
     fn merge_ring_wrapper_enforces_the_embedded_shape(
-        merge in strategies::merge_ix_data(),
+        body in strategies::merge_body(),
         view_tag in any::<[u8; 32]>(),
         clear_nullifiers in any::<bool>(),
     ) {
         let mut owned = MergeRingIxData {
             output_ring_data_hash: view_tag,
-            merge,
+            body,
         };
         if clear_nullifiers {
-            owned.merge.nullifiers.clear();
+            owned.body.nullifiers.clear();
         }
         let bytes = owned.serialize().expect("serialize merge_ring ix");
         prop_assert_eq!(
             MergeRingIxDataRef::from_bytes(&bytes).is_ok(),
-            !clear_nullifiers && owned.merge.envelope.is_none()
+            !clear_nullifiers
         );
+    }
+
+    /// A default-rail payload never parses as a ring merge, and a ring payload
+    /// never parses as a default merge, whatever the field values.
+    #[test]
+    fn merge_rails_reject_each_others_payloads(
+        merge in strategies::merge_ix_data(),
+        view_tag in any::<[u8; 32]>(),
+    ) {
+        let default_bytes = merge.serialize().expect("serialize merge ix");
+        prop_assert!(MergeRingIxDataRef::from_bytes(&default_bytes).is_err());
+        let ring_bytes = MergeRingIxData {
+            output_ring_data_hash: view_tag,
+            body: merge.body,
+        }
+        .serialize()
+        .expect("serialize merge_ring ix");
+        prop_assert!(MergeTransactIxDataRef::from_bytes(&ring_bytes).is_err());
     }
 
     /// The deposit decoders enforce their exact-length wire contract: any

@@ -281,14 +281,20 @@ export interface RingConfigAccount {
   readonly bump: number;
 }
 
-export interface MergeEnvelope {
+/** The BSB22 commitment the P-256 default-merge circuit adds to its proof. */
+export interface MergeProofCommitment {
   readonly commitment: Bytes32;
   readonly commitmentPok: Bytes32;
+}
+
+/** The default-merge output amount and mint, encrypted to the owner's viewing key. */
+export interface MergeEnvelope {
   readonly ephemeralPk: Bytes33;
   readonly ciphertext: Uint8Array;
 }
 
-export interface MergeTransactInstructionData {
+/** The fields `merge_transact` and `merge_ring` share. */
+export interface MergeBody {
   readonly expiryUnixTs: bigint;
   readonly proof: Readonly<{
     a: Bytes32;
@@ -302,8 +308,19 @@ export interface MergeTransactInstructionData {
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
   readonly cacheSlot?: number;
-  readonly envelope?: MergeEnvelope;
 }
+
+/**
+ * `merge_transact` data: the shared body plus the proof commitment and the
+ * encrypted envelope, which the default rail always carries.
+ */
+export interface MergeTransactInstructionData extends MergeBody {
+  readonly proofCommitment: MergeProofCommitment;
+  readonly envelope: MergeEnvelope;
+}
+
+/** A proved merge's data: `merge_transact` data, or a ring merge's shared body. */
+export type MergeInstructionData = MergeTransactInstructionData | MergeBody;
 
 export interface CreateCacheData {
   readonly writeAuthority: Address;

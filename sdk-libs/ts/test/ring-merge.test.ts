@@ -7,7 +7,8 @@ import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merg
 import { mergeProverRequestBody } from "../src/client/prover/client.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
-import type { Address, Bytes32, Bytes33, Bytes128 } from "../src/interface/types.js";
+import { encodeMergeBody } from "../src/interface/codecs/index.js";
+import type { Address, Bytes32, Bytes33, Bytes128, MergeBody } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import {
   mergeDummyNullifier,
@@ -438,7 +439,7 @@ describe("ring merge", () => {
     expect(instruction.accounts).toHaveLength(9 + inputs.length);
   });
 
-  it("writes the None envelope tag and refuses an envelope", async () => {
+  it("encodes the shared body alone and refuses a proof commitment or an envelope", async () => {
     const inputs = [input(3n), input(5n)];
     const prepared = merge(inputs).prepare();
     const assembly = assembleMergeWithProofs(
@@ -460,22 +461,25 @@ describe("ring merge", () => {
       outputRingDataHash: field(0),
     };
     const instruction = await ringMergeInstruction({ ...request, data });
-    expect(instruction.data).toHaveLength(1 + 32 + 272 + 32 * data.nullifiers.length);
-    expect(Array.from(instruction.data?.slice(-2) ?? [])).toEqual([0, 0]);
-    await expect(
-      ringMergeInstruction({
-        ...request,
-        data: {
-          ...data,
-          envelope: {
-            commitment: field(1),
-            commitmentPok: field(2),
-            ephemeralPk: Uint8Array.of(2, ...field(3)) as Bytes33,
-            ciphertext: new Uint8Array(40),
-          },
-        },
-      }),
-    ).rejects.toMatchObject({ code: "RING_BUILD_MERGE", details: { field: "envelope" } });
+    expect(instruction.data).toHaveLength(1 + 32 + 271 + 32 * data.nullifiers.length);
+    expect(Array.from(instruction.data?.slice(1 + 32) ?? [])).toEqual(
+      Array.from(encodeMergeBody(data)),
+    );
+    expect(instruction.data?.at(-1)).toBe(0);
+    const extras = {
+      proofCommitment: { commitment: field(1), commitmentPok: field(2) },
+      envelope: {
+        ephemeralPk: Uint8Array.of(2, ...field(3)) as Bytes33,
+        ciphertext: new Uint8Array(40),
+      },
+    } as const;
+    for (const name of ["proofCommitment", "envelope"] as const) {
+      const withExtra: MergeBody = { ...data, [name]: extras[name] };
+      await expect(ringMergeInstruction({ ...request, data: withExtra })).rejects.toMatchObject({
+        code: "RING_BUILD_MERGE",
+        details: { field: name },
+      });
+    }
   });
 
   it("refuses an envelope on the ring rail and a committed proof for its data", () => {

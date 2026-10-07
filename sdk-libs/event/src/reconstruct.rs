@@ -176,18 +176,17 @@ pub fn merge_general_event(
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            let envelope = merge
-                .envelope_for_default_rail()
-                .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            let output_data = envelope.ciphertext.to_vec();
-            let tx_viewing_pk = *envelope.ephemeral_pk;
-            (merge, output_data, tx_viewing_pk)
+            (
+                merge.body,
+                merge.envelope.ciphertext.to_vec(),
+                *merge.envelope.ephemeral_pk,
+            )
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
             let output_data = ring.output_ring_data_hash.to_vec();
-            (ring.merge, output_data, [0u8; 33])
+            (ring.body, output_data, [0u8; 33])
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };

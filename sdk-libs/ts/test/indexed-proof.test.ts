@@ -151,7 +151,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(result.data).toEqual(
       complete.instructionData(compressProof(parseProof(STANDARD_PROOF))),
     );
-    expect(result.data.envelope?.ephemeralPk).toEqual(
+    expect("envelope" in result.data ? result.data.envelope.ephemeralPk : undefined).toEqual(
       prepared.encryptedEnvelope()?.ephemeralPublicKey.toBytes(),
     );
     const request: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));

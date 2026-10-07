@@ -335,7 +335,7 @@ proptest! {
     ) {
         let spp = Pubkey::new_unique();
         let mut merge = merge_ix(output_utxo_hash);
-        merge.nullifiers = nullifiers.clone();
+        merge.body.nullifiers = nullifiers.clone();
         let (source_tag, ix_bytes, output_data, tx_viewing_pk) = match ring_data_hash {
             None => (
                 tag::MERGE_TRANSACT,
@@ -345,7 +345,7 @@ proptest! {
             ),
             Some(ring_data_hash) => {
                 let mut ring = merge_ring_ix(output_utxo_hash, ring_data_hash);
-                ring.merge.nullifiers = merge.nullifiers;
+                ring.body.nullifiers = merge.body.nullifiers;
                 (
                     tag::RING_MERGE_TRANSACT,
                     ring.serialize().expect("serialize merge ring"),

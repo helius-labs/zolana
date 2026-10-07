@@ -93,20 +93,22 @@ Breaking
   `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
   and `TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH`, which `Merge` throws for a
   `blinding` of the other merge kind, and `ShieldedPoolError` gains
-  `ZeroInputNullifier`, `ZeroOutputUtxoHash`, `MergeEnvelopeMissing`,
-  `MergeEnvelopeUnexpected` and `InvalidViewingKeyEncoding` → handle them in
-  exhaustive switches.
+  `ZeroInputNullifier`, `ZeroOutputUtxoHash` and `InvalidViewingKeyEncoding`
+  → handle them in exhaustive switches.
 - `Merge` takes `blinding`, a `MergeBlindingSource`, in place of
   `outputBlinding`, and a default merge encrypts its amount and mint to the
   owner's viewing key in a `MergeOutputEnvelope` kept in
   `PreparedMerge.envelope`, takes the output blinding the encryption derives, and
-  carries the encrypted envelope in `MergeTransactInstructionData.envelope`, a
-  `MergeEnvelope` that `ZolanaClient.proveMerge` fills from the proof,
-  `getMergeTransactInstructionAsync` and the shielded-pool program of this
-  release require on a merge, and `ringMergeInstruction` and the program refuse
-  on a ring merge → pass `{ kind: "envelope" }` for a default merge and
-  `{ kind: "derived", outputBlinding }` for a ring merge, and set `envelope`
-  only on hand-built default merge data.
+  `MergeTransactInstructionData` extends the new `MergeBody` with the required
+  `proofCommitment`, a `MergeProofCommitment`, and `envelope`, a
+  `MergeEnvelope` holding only `ephemeralPk` and `ciphertext`, while
+  `ringMergeInstruction` takes a `MergeBody`, refuses either field and encodes
+  it with the new `encodeMergeBody`, and `ProvedMerge.data` and
+  `MergeAssembly.instructionData` return a `MergeInstructionData`, the default
+  data or a ring merge's body → pass `{ kind: "envelope" }` for a default merge
+  and `{ kind: "derived", outputBlinding }` for a ring merge, and set
+  `proofCommitment` and `envelope` on hand-built default merge data and neither
+  on ring merge data.
 - `MergeInputs` requires `mint` and, on a default merge, `envelope`, a
   `MergeEnvelopeInputs` with the uncompressed viewing key and the ephemeral
   secret, which the merge prover request sends as `mint` in place of `asset`

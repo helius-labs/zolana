@@ -16,7 +16,7 @@ import {
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import {
-  encodeMergeTransactInstructionData,
+  encodeMergeBody,
   encodeTransactInstructionData,
   writeTreeContext,
 } from "../interface/codecs/index.js";
@@ -32,6 +32,7 @@ import {
   ringPolicyConfigAddress,
 } from "../interface/pda/index.js";
 import type {
+  MergeBody,
   MergeTransactInstructionData,
   Bytes32,
   Bytes33,
@@ -705,13 +706,15 @@ export async function ringMergeInstruction(
     inputTree: Address;
     outputTree: Address;
     payer: SignerAccount;
-    data: MergeTransactInstructionData;
+    data: MergeBody;
     outputRingDataHash: Bytes32;
     cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
-  if (input.data.envelope !== undefined) {
-    throw new RingError("RING_BUILD_MERGE", { details: { field: "envelope" } });
+  for (const field of ["proofCommitment", "envelope"] as const) {
+    if ((input.data as Partial<MergeTransactInstructionData>)[field] !== undefined) {
+      throw new RingError("RING_BUILD_MERGE", { details: { field } });
+    }
   }
   const [config, cosigner, auth, nullifiers] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
@@ -735,7 +738,7 @@ export async function ringMergeInstruction(
     data: new Writer()
       .u8(InstructionTag.ringMergeTransact, "instructionTag")
       .bytes(input.outputRingDataHash, 32, "outputRingDataHash")
-      .bytes(encodeMergeTransactInstructionData(input.data))
+      .bytes(encodeMergeBody(input.data))
       .finish(),
   };
 }

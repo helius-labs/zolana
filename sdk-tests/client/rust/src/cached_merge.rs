@@ -99,7 +99,7 @@ pub fn assert_widest_merge_that_fits(
         "the merge transaction should fit: {fitted:?}"
     );
     let mut data = merge.data.clone();
-    data.nullifiers.push([u8::MAX; 32]);
+    data.body.nullifiers.push([u8::MAX; 32]);
     let overflow = size(&MergeTransact {
         input_tree: merge.input_tree,
         output_tree: merge.output_tree,

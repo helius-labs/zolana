@@ -1877,29 +1877,29 @@ OVER marks a layout above the 4,096-byte limit:
 | Ring transact P256 49 in 2 out | 2359 | 4292 OVER | 55 |
 | Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
 | Ring transact P256 46 in 2 out, 49x2 compact | 2260 | 4094 | 52 |
-| Merge 8 in 1 out, direct | 666 | 1214 | 13 |
-| Merge 8 in 1 out, execute_sync | 700 | 1346 | 16 |
-| Ring merge 8 in 1 out | 561 | 1141 | 14 |
-| Merge 24 in 1 out, direct | 1178 | 2254 | 29 |
-| Merge 24 in 1 out, execute_sync | 1228 | 2402 | 32 |
-| Ring merge 24 in 1 out | 1073 | 2181 | 30 |
-| Merge 54 in 1 out, direct | 2138 | 4204 OVER | 59 |
-| Merge 54 in 1 out, execute_sync | 2218 | 4382 OVER | 62 |
-| Ring merge 54 in 1 out | 2033 | 4131 OVER | 60 |
-| Merge 3 in 1 out, 8 compact, direct | 506 | 889 | 8 |
-| Merge 3 in 1 out, 8 compact, execute_sync | 535 | 1016 | 11 |
-| Ring merge 3 in 1 out, 8 compact | 401 | 816 | 9 |
-| Merge 9 in 1 out, 24 compact, direct | 698 | 1279 | 14 |
-| Merge 9 in 1 out, 24 compact, execute_sync | 733 | 1412 | 17 |
-| Ring merge 9 in 1 out, 24 compact | 593 | 1206 | 15 |
-| Merge 25 in 1 out, 54 compact, direct | 1210 | 2319 | 30 |
-| Merge 25 in 1 out, 54 compact, execute_sync | 1261 | 2468 | 33 |
-| Ring merge 25 in 1 out, 54 compact | 1105 | 2246 | 31 |
-| Merge 53 in 1 out, 54 compact, direct | 2106 | 4139 OVER | 58 |
-| Merge 53 in 1 out, 54 compact, execute_sync | 2185 | 4316 OVER | 61 |
-| Ring merge 53 in 1 out, 54 compact | 2001 | 4066 | 59 |
+| Merge 8 in 1 out, direct | 665 | 1213 | 13 |
+| Merge 8 in 1 out, execute_sync | 699 | 1345 | 16 |
+| Ring merge 8 in 1 out | 560 | 1140 | 14 |
+| Merge 24 in 1 out, direct | 1177 | 2253 | 29 |
+| Merge 24 in 1 out, execute_sync | 1227 | 2401 | 32 |
+| Ring merge 24 in 1 out | 1072 | 2180 | 30 |
+| Merge 54 in 1 out, direct | 2137 | 4203 OVER | 59 |
+| Merge 54 in 1 out, execute_sync | 2217 | 4381 OVER | 62 |
+| Ring merge 54 in 1 out | 2032 | 4130 OVER | 60 |
+| Merge 3 in 1 out, 8 compact, direct | 505 | 888 | 8 |
+| Merge 3 in 1 out, 8 compact, execute_sync | 534 | 1015 | 11 |
+| Ring merge 3 in 1 out, 8 compact | 400 | 815 | 9 |
+| Merge 9 in 1 out, 24 compact, direct | 697 | 1278 | 14 |
+| Merge 9 in 1 out, 24 compact, execute_sync | 732 | 1411 | 17 |
+| Ring merge 9 in 1 out, 24 compact | 592 | 1205 | 15 |
+| Merge 25 in 1 out, 54 compact, direct | 1209 | 2318 | 30 |
+| Merge 25 in 1 out, 54 compact, execute_sync | 1260 | 2467 | 33 |
+| Ring merge 25 in 1 out, 54 compact | 1104 | 2245 | 31 |
+| Merge 53 in 1 out, 54 compact, direct | 2105 | 4138 OVER | 58 |
+| Merge 53 in 1 out, 54 compact, execute_sync | 2184 | 4315 OVER | 61 |
+| Ring merge 53 in 1 out, 54 compact | 2000 | 4065 | 59 |
 
-A default merge carries the 138-byte [merge envelope](#merge-envelope), so a
+A default merge carries a 64-byte proof commitment and the 73-byte [merge envelope](#merge-envelope), so a
 54-input default merge exceeds 4,096 bytes even when sent directly, and so does
 one of 53 real inputs with [compact padding](#compact-padding). Through Squads
 `execute_transaction_sync` a 54-input merge also exceeds the limit, and the
@@ -2342,7 +2342,7 @@ the instruction and must use a fresh blinding per output.
 **Instruction data**
 
 ```rust
-struct MergeTransactIxData {
+struct MergeBody {
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
     /// Groth16 proof: `a(32) || b(128) || c(32)` — 192 bytes. `a` and
@@ -2370,19 +2370,32 @@ struct MergeTransactIxData {
     nullifier_tree_root_index: u16,
     /// Cache slot for the merged output.
     cache_slot: Option<u8>,
-    /// Required here, absent in `merge_ring`.
-    envelope: Option<MergeEnvelope>,
 }
 
-struct MergeEnvelope {
+struct MergeTransactIxData {
+    /// The fields `merge_ring` shares.
+    body: MergeBody,
+    proof_commitment: MergeProofCommitment,
+    envelope: MergeEnvelope,
+}
+
+struct MergeProofCommitment {
     /// BSB22 commitment and its proof of knowledge, compressed G1.
     commitment: [u8; 32],
     commitment_pok: [u8; 32],
+}
+
+struct MergeEnvelope {
     /// The [merge envelope](#merge-envelope) `ephemeral_pk` and `ciphertext`.
     ephemeral_pk: P256Pubkey,
     ciphertext: [u8; 40],
 }
 ```
+
+The proof commitment and the envelope are not optional: the encoding has no
+field that could leave either out, and `merge_ring` has no field for either.
+Instruction data that does not decode to exactly this layout, including trailing
+bytes, fails with `InvalidMergeShape`.
 
 `external_data_hash := Sha256BE(u8(spp_instruction_discriminator) ||
 u64_be(expiry_unix_ts) || output_utxo_hash || u8(cache_slot.is_some()) ||
@@ -2394,8 +2407,8 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 2. `utxo_tree_root_index` and `nullifier_tree_root_index` reference non-stale roots in `input_tree`; the one pair serves every input, since SPP merges from a single `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
-5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity, its `nullifier_pk` and the envelope packing of its `viewing_pk` into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof). `envelope` must be present (`MergeEnvelopeMissing`), checked before any state is read. The record's `viewing_pk` and the envelope `ephemeral_pk` must carry a `0x02`/`0x03` prefix (`InvalidViewingKeyEncoding`).
-6. The Groth16 proof with the envelope's BSB22 commitment verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
+5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity, its `nullifier_pk` and the envelope packing of its `viewing_pk` into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof). The record's `viewing_pk` and the envelope `ephemeral_pk` must carry a `0x02`/`0x03` prefix (`InvalidViewingKeyEncoding`).
+6. The Groth16 proof with `proof_commitment` verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The proof binds the envelope ciphertext to the output, so the owner rebuilds the output on sync by [decrypting the envelope](#merge-envelope).
 9. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = user_record.signing_view_tag`.
@@ -2406,9 +2419,11 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: envelope.ciphertext }`, `first_output_leaf_index = event.output_leaf_index`, `tx_viewing_pk = envelope.ephemeral_pk`, zeroed `salt`, empty `messages` and `movements`.
 
-Serialized body: `409 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, the `137`-byte envelope behind its option tag).
-With discriminator, `N = 24`: `1,178 B` (a `2,254 B` transaction); `N = 54`:
-`2,138 B` (`4,204 B`), over the 4,096-byte limit even when sent directly. See
+Serialized data: `408 + 32·N` bytes, `+1` with a cache slot: the `271 + 32·N`-byte
+`MergeBody` (`192`-byte proof, one root-index pair, the cache-slot option tag),
+the `64`-byte proof commitment and the `73`-byte envelope.
+With discriminator, `N = 24`: `1,177 B` (a `2,253 B` transaction); `N = 54`:
+`2,137 B` (`4,203 B`), over the 4,096-byte limit even when sent directly. See
 [Transaction size](#transaction-size).
 
 ### `merge_ring`
@@ -2434,9 +2449,19 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 
 **Instruction data**
 
-[`MergeTransactIxData`](#merge_transact) with `envelope = None`
-(`MergeEnvelopeUnexpected` otherwise), plus an `output_ring_data_hash: [u8; 32]`
-field: the ring data the calling ring program selected for the output. The merge
+```rust
+struct MergeRingIxData {
+    output_ring_data_hash: [u8; 32],
+    /// The [`MergeBody`](#merge_transact) `merge_transact` sends; no proof
+    /// commitment and no envelope.
+    body: MergeBody,
+}
+```
+
+`32 + 271 + 32·N` bytes, `+1` with a cache slot. Instruction data that does not
+decode to exactly this layout, including a `merge_transact` payload, fails with
+`InvalidMergeShape`. `output_ring_data_hash` is the ring data the calling ring
+program selected for the output. The merge
 proof asserts it against the output's `ring_data_hash` and folds it into the
 public-input hash; the wallet reads it from the rebuilt [`GeneralEvent`](#general-event)
 to reconstruct the merged ring output. `merge_ring` indexes the output by the first input's

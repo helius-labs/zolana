@@ -7,7 +7,8 @@ use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, Merge
 use zolana_event_parser::ParsedInstruction;
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{
-        MergeEnvelope, MergeProof, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
+        MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment, MERGE_CIPHERTEXT_LEN,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
     TransactIxData, TransactOutput, TransactProof, TreeContext,
@@ -68,13 +69,21 @@ pub fn transact_ix(
 
 pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
     MergeTransactIxData {
-        cache_slot: None,
-        envelope: Some(MergeEnvelope {
+        body: merge_body(output_utxo_hash),
+        proof_commitment: MergeProofCommitment {
             commitment: [0u8; 32],
             commitment_pok: [0u8; 32],
+        },
+        envelope: MergeEnvelope {
             ephemeral_pk: MERGE_EPHEMERAL_PK,
             ciphertext: MERGE_CIPHERTEXT,
-        }),
+        },
+    }
+}
+
+fn merge_body(output_utxo_hash: [u8; 32]) -> MergeBody {
+    MergeBody {
+        cache_slot: None,
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash,
@@ -94,10 +103,7 @@ pub fn merge_ring_ix(
 ) -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash,
-        merge: MergeTransactIxData {
-            envelope: None,
-            ..merge_ix(output_utxo_hash)
-        },
+        body: merge_body(output_utxo_hash),
     }
 }
 

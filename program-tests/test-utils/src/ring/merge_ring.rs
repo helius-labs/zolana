@@ -254,17 +254,15 @@ impl RingHarness {
         };
         let proof = ProofCompressed::try_from(proof)?;
         let data = if prove_for_default_merge {
-            let mut merge = result.instruction_data(proof)?;
-            merge.envelope = None;
             MergeRingIxData {
                 output_ring_data_hash: result.output_ring_data_hash,
-                merge,
+                body: result.instruction_data(proof)?.body,
             }
         } else {
             result.ring_instruction_data(proof)?
         };
         let output_hash = result.output_hash;
-        let input_nullifiers = data.merge.nullifiers.clone();
+        let input_nullifiers = data.body.nullifiers.clone();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
@@ -273,7 +271,7 @@ impl RingHarness {
             output_tree: self.tree,
             ring_program_id: submit_ring.unwrap_or(self.ring_program_id),
             payer: payer.pubkey(),
-            data: data.merge.clone(),
+            data: data.body.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
             cache: None,
         }
@@ -439,7 +437,7 @@ impl RingHarness {
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             payer: payer.pubkey(),
-            data: data.merge.clone(),
+            data: data.body.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
             cache: None,
         }

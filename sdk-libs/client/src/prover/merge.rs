@@ -7,7 +7,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::{
             merge_ring::MergeRingIxData,
-            merge_transact::{MergeExternalDataHash, MergeTransactIxData},
+            merge_transact::{MergeBody, MergeExternalDataHash, MergeProof, MergeTransactIxData},
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
@@ -90,16 +90,22 @@ impl MergeProofResult {
         &self,
         proof: ProofCompressed,
     ) -> Result<MergeTransactIxData, ClientError> {
-        if self.envelope.is_none() {
-            return Err(TransactionError::MergeBlindingRailMismatch.into());
-        }
-        self.merge_data(proof)
+        let encrypted = self
+            .envelope
+            .as_ref()
+            .ok_or(TransactionError::MergeBlindingRailMismatch)?;
+        let (proof, proof_commitment, envelope) = proof.into_default_merge_parts(encrypted)?;
+        Ok(MergeTransactIxData {
+            body: self.merge_body(proof),
+            proof_commitment,
+            envelope,
+        })
     }
 
-    /// Assemble the `merge_ring` instruction data: the same `merge_transact`
-    /// body wrapped in a [`MergeRingIxData`] with the output `ring_data_hash`
-    /// the ring program selected. The caller passes the result to the
-    /// `MergeRing` builder with the tree / ring_config accounts.
+    /// Assemble the `merge_ring` instruction data: the shared merge body
+    /// wrapped in a [`MergeRingIxData`] with the output `ring_data_hash` the
+    /// ring program selected. The caller passes the result to the `MergeRing`
+    /// builder with the tree / ring_config accounts.
     pub fn ring_instruction_data(
         &self,
         proof: ProofCompressed,
@@ -109,13 +115,12 @@ impl MergeProofResult {
         }
         Ok(MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
-            merge: self.merge_data(proof)?,
+            body: self.merge_body(proof.into_ring_merge_proof()?),
         })
     }
 
-    fn merge_data(&self, proof: ProofCompressed) -> Result<MergeTransactIxData, ClientError> {
-        let (proof, envelope) = proof.into_merge_parts(self.envelope.as_ref())?;
-        Ok(MergeTransactIxData {
+    fn merge_body(&self, proof: MergeProof) -> MergeBody {
+        MergeBody {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
@@ -125,8 +130,7 @@ impl MergeProofResult {
             private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
             cache_slot: self.cache_slot,
-            envelope,
-        })
+        }
     }
 }
 

@@ -64,7 +64,8 @@ use zolana_indexer_api::{
 };
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{
-        MergeEnvelope, MergeProof, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
+        MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment, MERGE_CIPHERTEXT_LEN,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, OwnerTag, TransactIxData,
     TransactOutput, TransactProof, TreeContext,
@@ -2254,23 +2255,27 @@ const MERGE_CIPHERTEXT: [u8; MERGE_CIPHERTEXT_LEN] = [0x44; MERGE_CIPHERTEXT_LEN
 
 fn merge_transaction_info() -> TransactionInfo {
     let merge = MergeTransactIxData {
-        cache_slot: None,
-        envelope: Some(MergeEnvelope {
+        body: MergeBody {
+            cache_slot: None,
+            expiry_unix_ts: 0,
+            proof: MergeProof::zeroed(),
+            output_utxo_hash: [0x66; 32],
+            eddsa_owner: true,
+            private_tx_hash: [0; 32],
+            nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
+                .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
+                .collect(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        },
+        proof_commitment: MergeProofCommitment {
             commitment: [0; 32],
             commitment_pok: [0; 32],
+        },
+        envelope: MergeEnvelope {
             ephemeral_pk: MERGE_EPHEMERAL_PK,
             ciphertext: MERGE_CIPHERTEXT,
-        }),
-        expiry_unix_ts: 0,
-        proof: MergeProof::zeroed(),
-        output_utxo_hash: [0x66; 32],
-        eddsa_owner: true,
-        private_tx_hash: [0; 32],
-        nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
-            .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
-            .collect(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        },
     };
     let mut source_data = vec![tag::MERGE_TRANSACT];
     source_data.extend_from_slice(&merge.serialize().expect("serialize merge"));

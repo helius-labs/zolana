@@ -76,7 +76,7 @@ fn assert_merge_rejected_untouched(
         tree_before,
         "{case}: a rejected merge leaves the tree untouched"
     );
-    assert_nullifier_pdas_absent(&pool.rpc, &pool.tree, &merge.data.nullifiers)
+    assert_nullifier_pdas_absent(&pool.rpc, &pool.tree, &merge.data.body.nullifiers)
         .unwrap_or_else(|error| panic!("{case}: {error:?}"));
 }
 
@@ -119,7 +119,7 @@ fn merge_rejects_a_tampered_envelope_byte() {
         "ephemeral key x byte",
     ] {
         let mut data = merge.data.clone();
-        let envelope = data.envelope.as_mut().expect("default merge envelope");
+        let envelope = &mut data.envelope;
         let byte = match case {
             "first ciphertext byte" => envelope.ciphertext.first_mut(),
             "last ciphertext byte" => envelope.ciphertext.last_mut(),
@@ -145,7 +145,7 @@ fn merge_rejects_a_tampered_envelope_byte() {
 
     let ix = merge.instruction(&pool);
     send_merge(&mut pool, ix);
-    assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.nullifiers)
+    assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.body.nullifiers)
         .expect("the untampered merge spends its inputs");
 }
 
@@ -172,7 +172,7 @@ fn merge_rejects_a_proof_encrypted_to_a_key_other_than_the_registered_one() {
         *owner.viewing_pubkey().as_bytes(),
     );
     send_merge(&mut pool, ix);
-    assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.nullifiers)
+    assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.body.nullifiers)
         .expect("the merge encrypted to the registered key spends its inputs");
 }
 
@@ -181,7 +181,7 @@ fn merged_output_rebuilds_from_the_envelope_alone() {
     let mut pool = proof_env();
     let owner = ShieldedKeypair::from_keypair(&pool.rpc.payer).expect("shielded keypair");
     let merge = default_merge(&mut pool, 3);
-    let envelope = merge.data.envelope.expect("default merge envelope");
+    let envelope = merge.data.envelope;
     let (utxo_next_before, _) = tree_progress(&pool.rpc, &pool.tree);
 
     let ix = merge.instruction(&pool);
@@ -220,7 +220,7 @@ fn merged_output_rebuilds_from_the_envelope_alone() {
             output.nullifier,
         ),
         (
-            merge.data.output_utxo_hash,
+            merge.data.body.output_utxo_hash,
             utxo_next_before,
             pool.tree_id,
             owner.signing_pubkey(),
@@ -266,7 +266,7 @@ fn merge_with_compact_padding_spends_only_the_real_inputs() {
             real_input_count,
         }
         .build_compact(&mut pool);
-        assert_eq!(merge.data.nullifiers.len(), real_input_count);
+        assert_eq!(merge.data.body.nullifiers.len(), real_input_count);
         let ix = merge.instruction(&pool);
         let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
         pool.rpc
@@ -284,7 +284,7 @@ fn merge_with_compact_padding_spends_only_the_real_inputs() {
             ),
             "one output appended and one nullifier queued per real input"
         );
-        assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.nullifiers)
+        assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.body.nullifiers)
             .expect("nullifier PDAs for the real inputs");
         assert_nullifier_pdas_absent(&pool.rpc, &tree, &[[0u8; 32]])
             .expect("no nullifier PDA for compact padding");

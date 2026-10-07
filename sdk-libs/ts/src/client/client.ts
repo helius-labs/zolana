@@ -1041,6 +1041,10 @@ export class ZolanaClient
     if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
       throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
     }
+    const data = input.proved.data;
+    if (!("proofCommitment" in data && "envelope" in data)) {
+      throw new ClientError("CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH");
+    }
     checkedAddress(input.feePayer, "feePayer");
     checkedAddress(input.userRecord, "userRecord");
     const lifetime = await this.getLatestBlockhash(context);
@@ -1050,7 +1054,7 @@ export class ZolanaClient
       userRecord: input.userRecord,
       lifetime,
       ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
-      data: input.proved.data,
+      data,
     });
   }
 
