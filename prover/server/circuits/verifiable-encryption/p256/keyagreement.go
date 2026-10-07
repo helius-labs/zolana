@@ -33,14 +33,41 @@ func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [
 	fp := newAgreementField(api)
 
 	api.AssertIsEqual(recipientPk[0], uncompressedPrefix)
+	recipient, recipientParity := canonicalRecipient(api, c, fp, recipientPk[1:])
+
+	// gnark >= v0.16.4 (GHSA-7fx8-hmgc-82jp) constrains the hinted ScalarMul
+	// output to the curve, and P-256 has prime order, so with a finite on-curve
+	// recipient and a nonzero scalar both products are the honest finite points.
+	ephemeral := DerivePublicKey(api, ephemeralSk)
+	shared := c.ScalarMul(recipient, ephemeral.scalar)
+
+	sharedX, _ := canonicalFpBytes(api, fp, &shared.X)
+
+	var result KeyAgreement
+	result.RecipientLo, result.RecipientHi = packCompressedPoint(api, recipientParity, recipientPk[1:33])
+	result.EphemeralLo, result.EphemeralHi = ephemeral.Packed(api)
+	result.SharedLo, result.SharedHi = packSharedX(api, sharedX[:])
+	return result
+}
+
+// canonicalRecipient decodes a finite, on-curve point from x || y bytes and
+// returns it with the parity of y. The parity is read from the last y byte,
+// which is the canonical parity only because the same function has already
+// forced y < p, so the two cannot be separated by a refactor.
+func canonicalRecipient(
+	api frontend.API,
+	c *sw_emulated.Curve[emulated.P256Fp, emulated.P256Fr],
+	fp *agreementField,
+	bytes []frontend.Variable,
+) (*agreementPoint, frontend.Variable) {
 	rc := rangecheck.New(api)
-	for _, b := range recipientPk[1:] {
+	for _, b := range bytes {
 		rc.Check(b, 8)
 	}
 
 	recipient := &agreementPoint{
-		X: *fp.NewElement(agreementLimbs(api, recipientPk[1:33])),
-		Y: *fp.NewElement(agreementLimbs(api, recipientPk[33:65])),
+		X: *fp.NewElement(agreementLimbs(api, bytes[0:32])),
+		Y: *fp.NewElement(agreementLimbs(api, bytes[32:64])),
 	}
 	fp.AssertIsInRange(&recipient.X)
 	fp.AssertIsInRange(&recipient.Y)
@@ -50,20 +77,7 @@ func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [
 	// depend only on public values and anyone could decrypt the envelope.
 	api.AssertIsEqual(api.And(fp.IsZero(&recipient.X), fp.IsZero(&recipient.Y)), 0)
 
-	// gnark >= v0.16.4 (GHSA-7fx8-hmgc-82jp) constrains the hinted ScalarMul
-	// output to the curve, and P-256 has prime order, so with a finite on-curve
-	// recipient and a nonzero scalar both products are the honest finite points.
-	ephemeral := DerivePublicKey(api, ephemeralSk)
-	shared := c.ScalarMul(recipient, ephemeral.scalar)
-
-	sharedX, _ := canonicalFpBytes(api, fp, &shared.X)
-	recipientParity := api.ToBinary(recipientPk[64], 8)[0]
-
-	var result KeyAgreement
-	result.RecipientLo, result.RecipientHi = packCompressedPoint(api, recipientParity, recipientPk[1:33])
-	result.EphemeralLo, result.EphemeralHi = ephemeral.Packed(api)
-	result.SharedLo, result.SharedHi = packSharedX(api, sharedX[:])
-	return result
+	return recipient, api.ToBinary(bytes[63], 8)[0]
 }
 
 func agreementLimbs(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
@@ -75,25 +89,11 @@ func agreementLimbs(api frontend.API, bytes []frontend.Variable) []frontend.Vari
 	return limbs
 }
 
-func limbBytesAndLsb(api frontend.API, limb frontend.Variable) ([8]frontend.Variable, frontend.Variable) {
-	bits := api.ToBinary(limb, 64)
-	var bytes [8]frontend.Variable
+func canonicalFpBytes(api frontend.API, fp *agreementField, e *agreementElement) ([32]frontend.Variable, frontend.Variable) {
+	bits := fp.ToBitsCanonical(e)
+	var bytes [32]frontend.Variable
 	copy(bytes[:], gadget.BitsToBytesBE(api, bits))
 	return bytes, bits[0]
-}
-
-func canonicalFpBytes(api frontend.API, fp *agreementField, e *agreementElement) ([32]frontend.Variable, frontend.Variable) {
-	reduced := fp.ReduceStrict(e)
-	var bytes [32]frontend.Variable
-	var lsb frontend.Variable
-	for i, limb := range reduced.Limbs {
-		limbBE, low := limbBytesAndLsb(api, limb)
-		if i == 0 {
-			lsb = low
-		}
-		copy(bytes[(3-i)*8:], limbBE[:])
-	}
-	return bytes, lsb
 }
 
 func packCompressedPoint(api frontend.API, parity frontend.Variable, x []frontend.Variable) (lo, hi frontend.Variable) {

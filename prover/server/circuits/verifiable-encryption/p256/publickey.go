@@ -21,8 +21,8 @@ type SelfKeyAgreement struct {
 	PublicKey [33]frontend.Variable
 }
 
-// DerivePublicKey range-checks the big-endian secret key bytes, refuses the
-// zero scalar (the point at infinity) and derives the public point.
+// DerivePublicKey range-checks the big-endian secret key bytes, reduces the
+// scalar modulo the group order, refuses zero and derives the public point.
 func DerivePublicKey(api frontend.API, sk [32]frontend.Variable) PublicKey {
 	fp := newAgreementField(api)
 	fr := newScalarField(api)

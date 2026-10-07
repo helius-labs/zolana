@@ -56,7 +56,7 @@ func spreadValue(value uint64, lanes int, base int64) *big.Int {
 		if (value>>uint(lane))&1 == 1 {
 			out.Add(out, weight)
 		}
-		weight = new(big.Int).Mul(weight, step)
+		weight.Mul(weight, step)
 	}
 	return out
 }
@@ -308,8 +308,27 @@ func (s *ctrStream) keystreamState(counter uint32) [blockBytes]frontend.Variable
 	return s.keys.middleRounds(state, 2)
 }
 
+// Cipher holds an expanded AES-256 key for reuse within one circuit.
+// Construct it with NewCipher using that circuit's API.
+type Cipher struct {
+	keys *roundKeys
+}
+
+// NewCipher constrains the key bytes and expands the key once for this circuit.
+func NewCipher(api frontend.API, key [aes256KeyBytes]frontend.Variable) *Cipher {
+	return &Cipher{keys: expandRoundKeys(api, key)}
+}
+
+// CTREncrypt encrypts bytes with AES-256-CTR, starting at nonce || 0x00000002.
+// Use NewCipher to share a key expansion across several streams.
 func CTREncrypt(api frontend.API, key [aes256KeyBytes]frontend.Variable, nonce [12]frontend.Variable, plaintext []frontend.Variable) []frontend.Variable {
-	keys := expandRoundKeys(api, key)
+	return NewCipher(api, key).CTREncrypt(nonce, plaintext)
+}
+
+// CTREncrypt starts a fresh stream at nonce || 0x00000002 using the expanded key.
+// Distinct messages encrypted with this key require distinct nonces.
+func (c *Cipher) CTREncrypt(nonce [12]frontend.Variable, plaintext []frontend.Variable) []frontend.Variable {
+	keys := c.keys
 	t := keys.tables
 	spreadNonce := make([]frontend.Variable, len(nonce))
 	for i := range nonce {
