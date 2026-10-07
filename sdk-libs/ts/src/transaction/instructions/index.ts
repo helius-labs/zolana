@@ -1,10 +1,10 @@
 export {
   ConfidentialSplit,
   Merge,
+  MergeOutputEnvelope,
   PreparedMerge,
   PreparedSplit,
   type MergeBlindingSource,
-  type MergeOutputEnvelope,
 } from "./builders.js";
 export {
   BN254_MODULUS_DEC,

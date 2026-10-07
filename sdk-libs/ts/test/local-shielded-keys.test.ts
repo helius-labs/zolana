@@ -171,42 +171,48 @@ describe("LocalShieldedKeys", () => {
     const keypair = ShieldedKeypair.generate();
     const keys = LocalShieldedKeys.fromKeypair(keypair);
     const ephemeral = ViewingKey.generate();
-    const mint = new Uint8Array(32).fill(7) as Bytes32;
-    const encrypted = encryptMergeEnvelope({
-      recipient: keypair.viewingPublicKey(),
-      ephemeral,
-      amount: 55n,
-      mint,
-    });
-    const request = {
-      ciphertext: encrypted.ciphertext,
-      viewingPublicKey: keypair.viewingPublicKey(),
-      txViewingPublicKey: encrypted.ephemeralPublicKey,
-      salt: new Uint8Array(16) as Bytes16,
-      slotIndex: 0,
-      label: "mergeEnvelope" as const,
-    };
-    const [decrypted] = await keys.decrypt([request]);
-    expect(decrypted).toHaveLength(72);
-    expect(decodeDecryptedMergeEnvelope(decrypted!)).toEqual({
-      amount: 55n,
-      mint,
-      outputBlinding: encrypted.outputBlinding,
-    });
-    await expect(keys.decrypt([{ ...request, slotIndex: 1 }])).rejects.toMatchObject({
-      code: "TRANSACTION_INVALID_POSITION",
-    });
-    await expect(
-      keys.decrypt([{ ...request, ciphertext: encrypted.ciphertext.subarray(1) }]),
-    ).rejects.toMatchObject({
-      code: "TRANSACTION_INVALID_LENGTH",
-      details: { field: "ciphertext", expected: 40, actual: 39 },
-    });
-    await expect(keys.decrypt([{ ...request, label: "unknown" as never }])).rejects.toMatchObject({
-      code: "TRANSACTION_DESERIALIZE",
-      details: { field: "label" },
-    });
-    ephemeral.destroy();
-    keys.destroy();
+    try {
+      const mint = new Uint8Array(32).fill(7) as Bytes32;
+      const encrypted = encryptMergeEnvelope({
+        recipient: keypair.viewingPublicKey(),
+        ephemeral,
+        amount: 55n,
+        mint,
+      });
+      const request = {
+        ciphertext: encrypted.ciphertext,
+        viewingPublicKey: keypair.viewingPublicKey(),
+        txViewingPublicKey: encrypted.ephemeralPublicKey,
+        salt: new Uint8Array(16) as Bytes16,
+        slotIndex: 0,
+        label: "mergeEnvelope" as const,
+      };
+      const [decrypted] = await keys.decrypt([request]);
+      expect(decrypted).toHaveLength(72);
+      expect(decodeDecryptedMergeEnvelope(decrypted!)).toEqual({
+        amount: 55n,
+        mint,
+        outputBlinding: encrypted.outputBlinding,
+      });
+      await expect(keys.decrypt([{ ...request, slotIndex: 1 }])).rejects.toMatchObject({
+        code: "TRANSACTION_INVALID_POSITION",
+      });
+      await expect(
+        keys.decrypt([{ ...request, ciphertext: encrypted.ciphertext.subarray(1) }]),
+      ).rejects.toMatchObject({
+        code: "TRANSACTION_INVALID_LENGTH",
+        details: { field: "ciphertext", expected: 40, actual: 39 },
+      });
+      await expect(keys.decrypt([{ ...request, label: "unknown" as never }])).rejects.toMatchObject(
+        {
+          code: "TRANSACTION_DESERIALIZE",
+          details: { field: "label" },
+        },
+      );
+    } finally {
+      ephemeral.destroy();
+      keys.destroy();
+      keypair.destroy();
+    }
   });
 });

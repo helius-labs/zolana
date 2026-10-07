@@ -939,7 +939,7 @@ describe("a merge writing its output to a cache slot", () => {
     commitmentPok: bytes(0),
   };
 
-  it("names the slot in its data and commits its external data hash to the cache", () => {
+  it("names the slot in its data and commits its external data hash to the cache", async () => {
     const { prepared, proofs, dummyProofs } = mergeFixture();
     const cached = assembleMergeWithProofs(prepared, proofs, TREE, dummyProofs, {
       address: CACHE,
@@ -964,7 +964,9 @@ describe("a merge writing its output to a cache slot", () => {
     );
     expect(cached.externalDataHash).not.toEqual(plain.externalDataHash);
     expect(cached.publicInputHash).not.toEqual(plain.publicInputHash);
-    expect(cached.proverInputs.externalDataHash).toBe(bytesToBigInt(cached.externalDataHash));
+    expect(await cached.withProverInputs((inputs) => inputs.externalDataHash)).toBe(
+      bytesToBigInt(cached.externalDataHash),
+    );
     expect(cached.outputHash).toEqual(plain.outputHash);
   });
 
@@ -988,7 +990,7 @@ describe("a merge writing its output to a cache slot", () => {
         slot: 2,
       });
       const fetch = proverFetch({
-        publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
+        publicInputHash: `0x${bytesToBigInt(expected.publicInputHash).toString(16)}`,
         trees: [
           {
             tree: TREE,

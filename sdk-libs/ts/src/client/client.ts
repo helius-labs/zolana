@@ -997,10 +997,8 @@ export class ZolanaClient
       }
       if (this.#proofDataSource === "prover") {
         const prepared = prepareMerge(input.prepared, this.tree, input.cache);
-        const { proof, trees } = await proveThroughAuthority(
-          input.keys,
-          this.#withMinContextSlot(prepared.inputs, undefined),
-          context,
+        const { proof, trees } = await prepared.withInputs((inputs) =>
+          proveThroughAuthority(input.keys, this.#withMinContextSlot(inputs, undefined), context),
         );
         const [tree] = trees;
         if (tree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
@@ -1013,7 +1011,7 @@ export class ZolanaClient
       }
       const assembled = await assembleMerge(input.prepared, this, this.tree, context, input.cache);
       const compressed = compressProof(
-        await input.keys.proveMerge(assembled.proverInputs, context),
+        await assembled.withProverInputs((inputs) => input.keys.proveMerge(inputs, context)),
       );
       return Object.freeze({
         data: assembled.instructionData(compressed),

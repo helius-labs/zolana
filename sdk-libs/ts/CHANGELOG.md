@@ -6,12 +6,11 @@ SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Transfers prove on a grid of up to 49 inputs and 16 outputs, merges
 prove up to 54 notes and encrypt their output to the owner's viewing key, so
-wallet sync decrypts a merge without holding its inputs, and
-transfers can leave their unused slots out of the transaction at the cost of
-revealing the real counts, which every merge now does.
-Registration never replaces an owner's published keys, and replacing them is
-its own transaction. The private transaction hash ignores padding and no longer
-covers the external data, which P-256 owners now sign alongside it.
+wallet sync decrypts a merge without holding its inputs, and transfers can leave
+their unused slots out of the transaction at the cost of revealing the real
+counts, which every merge now does. Registration never replaces an owner's
+published keys, the private transaction hash ignores padding, and P-256 owners
+sign the external data alongside it.
 
 Breaking
 
@@ -22,239 +21,190 @@ Breaking
   `RingDelegateProofClient`, `RingMergeClient`, `PolicyAnswerInput` and
   `openRingEscrowedKeys` require `proofDataSource`, and `RingMergeClient`
   requires `proveMerge` in place of `getInputMerkleProofs` and
-  `getNonInclusionProofs` → configure `PROVER_INDEXER_URL` on the prover or
-  select `proofDataSource: "client"` to keep SDK fetching, add the field to
-  custom client implementations and `openRingEscrowedKeys` calls, drop
-  `indexer` from `proveMerge` calls, and implement `proveMerge` in a custom
-  `RingMergeClient` and `IndexedProofAuthority.proveIndexed` in remote key
-  holders.
+  `getNonInclusionProofs`, while on the prover route `LocalKeys.proveIndexed`
+  or a remote `IndexedProofAuthority` completes each request, a prover without
+  an indexer fails with `CLIENT_PROVER_INDEXER_UNCONFIGURED`, an output owner
+  without an escrowed key fails with `CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED`
+  naming `details.member`, which ring builders report as
+  `RING_UNREGISTERED_OUTPUT_KEY`, and the transaction builders wait out
+  `CLIENT_INDEXER_PROOF_DATA_NOT_READY` up to the retry bound → configure
+  `PROVER_INDEXER_URL` on the prover or select `proofDataSource: "client"` to
+  keep SDK fetching, add the field to custom client implementations and
+  `openRingEscrowedKeys` calls, drop `indexer` from `proveMerge` calls, and
+  implement `proveMerge` in a custom `RingMergeClient` and
+  `IndexedProofAuthority.proveIndexed` in remote key holders.
 - `ClientErrorCode` gains `CLIENT_PROVER_INDEXER_UNCONFIGURED`,
-  `CLIENT_INDEXER_PROOF_DATA_NOT_READY` and
-  `CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH`, which `ZolanaClient.proveMerge` and
-  `ProverClient.proveMerge` throw for a default merge without an envelope or a
-  ring merge with one → handle them in exhaustive switches.
-- `buildRegistrationTransaction` rejects with `WALLET_BUILD_REGISTRATION` and
-  `causeCode` `WALLET_USER_RECORD_KEYS_MISMATCH` when the owner's record holds
-  other keys, where it used to replace the viewing key and send the owner's
-  payments to the new one → call `buildKeyUpdateTransaction` to replace the
-  viewing key on purpose.
-- `WalletErrorCode` gains `WALLET_BUILD_KEY_UPDATE` and
-  `WALLET_USER_RECORD_KEYS_MISMATCH` → handle both in exhaustive switches.
+  `CLIENT_INDEXER_PROOF_DATA_NOT_READY`, `CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH`
+  for a merge whose envelope does not match its kind,
+  `CLIENT_PROVER_TEE_ATTESTATION` and `CLIENT_PROVER_TEE_ENCRYPTION`, which
+  name the failed check in `details.check`, `WalletErrorCode` gains
+  `WALLET_BUILD_KEY_UPDATE` and `WALLET_USER_RECORD_KEYS_MISMATCH`,
+  `TransactionErrorCode` gains `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
+  `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` and `TRANSACTION_UNUSED_WRITE_CACHE`
+  for a cache write the program would reject,
+  `TRANSACTION_SLOT_AFTER_COMPACT_PADDING` and
+  `TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH`, `KeypairErrorCode` gains
+  `KEYPAIR_INVALID_AMOUNT` and `KEYPAIR_INVALID_INPUT`, and `ShieldedPoolError`
+  gains `ZeroInputNullifier`, `ZeroOutputUtxoHash`, `InvalidViewingKeyEncoding`
+  and `InvalidEphemeralKeyEncoding` → handle them in exhaustive switches.
 - `CLIENT_INVALID_FIELD` and `CLIENT_INVALID_INTEGER` no longer copy the
   rejected value, a nullifier secret included, into `details` or the error's
   JSON, and their `ClientErrorDetailsMap` types drop `value` → read
   `details.field` to name the rejected input and drop `value` when
   constructing either error.
-- `ClientErrorCode` gains `CLIENT_PROVER_TEE_ATTESTATION` and
-  `CLIENT_PROVER_TEE_ENCRYPTION`, each naming the failed check in
-  `details.check` → handle both in exhaustive switches.
-- `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
-  `MERGE_INPUT_COUNT`, the 24-input default, or `MAX_MERGE_INPUTS` from
-  `@heliuslabs/zolana/interface`.
+- `buildRegistrationTransaction` rejects with `WALLET_BUILD_REGISTRATION` and
+  `causeCode` `WALLET_USER_RECORD_KEYS_MISMATCH` when the owner's record holds
+  other keys, where it used to replace the viewing key and send the owner's
+  payments to the new one → call the new `buildKeyUpdateTransaction(input)`,
+  which replaces the published viewing key, returns `undefined` when the record
+  already holds the address and rejects a missing record or a changed
+  nullifier key.
 - `SPP_SUPPORTED_SHAPES` lists 38 shapes of 1 to 49 inputs and 2, 4, 8 or 16
   outputs in proving-cost order, `selectSppShape` and transfers take the
-  cheapest one that fits, and the 1x1, 2x3, 3x3, 4x3 and 5x3 transfer shapes,
-  the 8 and 36 input merges and the 1x1 and 3x3 ring authority shapes are
-  gone, so a declared removed shape fails with `TRANSACTION_UNSUPPORTED_SHAPE`,
-  a ring authority transfer of one or three slots proves the 2x2 or 4x4 shape,
-  and a ring list entry write or spend registration proves the 1x2 shape →
-  declare a listed shape and prove against the program and prover of this
-  release.
-- `MAX_CACHE_WRITES` is 16, so `bindCacheWrite`, `validCacheWrites` and a
+  cheapest one that fits, the 1x1, 2x3, 3x3, 4x3 and 5x3 transfer shapes, the
+  8 and 36 input merges and the 1x1 and 3x3 ring authority shapes are gone, so
+  a declared removed shape fails with `TRANSACTION_UNSUPPORTED_SHAPE`, a ring
+  authority transfer of one or three slots proves the 2x2 or 4x4 shape and a
+  ring list entry write or spend registration proves the 1x2 shape,
+  `MAX_CACHE_WRITES` is 16, so `bindCacheWrite`, `validCacheWrites` and a
   cached `CircuitId` take 16 write slots and a cached selector encodes to 40
-  bytes → pass `NO_CACHE_WRITES` or 16 entries and build cache writes with
-  this release.
+  bytes, and `MERGE_INPUTS` is removed from
+  `@heliuslabs/zolana/transaction` → declare a listed shape, pass
+  `NO_CACHE_WRITES` or 16 cache write entries, and import `MERGE_INPUT_COUNT`,
+  the 24-input default, or `MAX_MERGE_INPUTS` from
+  `@heliuslabs/zolana/interface`.
 - `ProverClient` and `ZolanaClient` send each proof to the path of its proving
   key, `/prove/<key>` or `/prove/<key>/indexed`, and poll a queued one at
-  `/prove/<key>/status`, so a gateway can route and price each key apart, and
-  a prover that predates these paths answers 404 → upgrade the prover before
-  the SDK.
-- `privateTxHash` no longer takes `externalDataHash` and skips zero entries in
-  its input, output and address chains, so padding no longer changes it,
+  `/prove/<key>/status`, so a gateway can route and price each key
+  apart, and `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring
+  policy proving keys, so a prover that predates these paths answers 404 and
+  one on the previous keys fails with `CLIENT_PROVING_KEY_MISMATCH` → upgrade
+  the prover before the SDK and prove against the prover and program of this
+  release.
+- `privateTxHash` no longer takes `externalDataHash` and ignores padding,
   `SppProofInputs.messageHash()` returns a new digest that also covers the
-  external data and a transfer's cache write, and `CustomRingPolicyProofRequest` drops `externalDataHash` and
-  takes a zero `addressChain` for a transfer that creates no address → drop
+  external data and a transfer's cache write, and
+  `CustomRingPolicyProofRequest` drops `externalDataHash` and takes a zero
+  `addressChain` for a transfer that creates no address → drop
   `externalDataHash` from hand-built hash inputs and policy requests, sign
   again, and prove against the program and prover of this release.
-- `PreparedTransfer.withInputTreeLast`, `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
+- A transfer may spend inputs from different trees in any order, so
+  `PreparedTransfer.withInputTreeLast`,
+  `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
   `CLIENT_INPUTS_NOT_GROUPED_BY_TREE` and
   `ShieldedPoolError.InputsNotGroupedByTree` are removed, leaving code 7063
-  unused, because a transfer may now spend inputs from different trees in any
-  order, a padding input that names a tree no real input uses fails with
-  `CLIENT_INPUT_TREE_UNRESOLVED`, and `SppProofInputs` refuses a real input or
-  output that follows a padding slot with `TRANSACTION_REAL_SLOT_AFTER_DUMMY` →
-  drop the calls and the handling of the removed codes, handle the new ones and
-  place padding after every real slot.
-- `TransactionErrorCode` gains `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
-  `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` and `TRANSACTION_UNUSED_WRITE_CACHE`,
-  which `SppProofInputs.messageHash()` throws for a cache write the program
-  would reject → handle them in exhaustive switches.
-- `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
-  `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
-  and `TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH`, which `Merge` throws for a
-  `blinding` of the other merge kind, and `ShieldedPoolError` gains
-  `ZeroInputNullifier`, `ZeroOutputUtxoHash`, `InvalidViewingKeyEncoding`
-  and `InvalidEphemeralKeyEncoding` → handle them in exhaustive switches.
+  unused, a padding input that names a tree no real input uses fails with
+  `CLIENT_INPUT_TREE_UNRESOLVED`, `SppProofInputs` refuses a real slot after a
+  padding slot with `TRANSACTION_REAL_SLOT_AFTER_DUMMY`, and
+  `ProofOutputUtxo` requires `isCompact()` → drop the removed calls and codes,
+  handle the new ones, place padding after every real slot, and return `true`
+  from `isCompact()` only for compact padding in custom `ProofOutputUtxo`
+  implementations.
+- `ConfidentialTransfer.prepare` places only the change outputs it keeps first,
+  SPL before SOL, with the recipients right after them, so
+  `ConfidentialTransfer.withCompactChange`, `ChangeLayout`,
+  `PreparedTransfer.changeLayout` and `RING_PADDED_CHANGE` are removed,
+  `SENDER_SLOT_COUNT` is the maximum number of change outputs, the
+  sender-bundle helpers put the SOL change at slot 0 when there is no SPL
+  change and recover no outputs from a bundle an earlier release built without
+  one, `plaintextTransferFromUtxos` refuses UTXOs out of slot order with
+  `TRANSACTION_INVALID_OUTPUT_POSITION`, and
+  `PreparedTransfer.withAppendedSlot` requires `recordSlot` → read the change
+  count from `PreparedTransfer.senderOutputCount`, build transfers and their
+  bundles with this release, and pass the number of the transfer's own outputs
+  as `recordSlot`.
 - `Merge` takes `blinding`, a `MergeBlindingSource`, in place of
-  `outputBlinding`, and a default merge encrypts its amount and mint to the
-  owner's viewing key in a `MergeOutputEnvelope` kept in
-  `PreparedMerge.envelope`, takes the output blinding the encryption derives, and
-  `MergeTransactInstructionData` extends the new `MergeBody` with the required
-  `proofCommitment`, a `MergeProofCommitment`, and `envelope`, a
-  `MergeEnvelope` holding only `ephemeralPk` and `ciphertext`, while
-  `ringMergeInstruction` takes a `MergeBody`, refuses either field and encodes
-  it with the new `encodeMergeBody`, and `ProvedMerge.data` and
-  `MergeAssembly.instructionData` return a `MergeInstructionData`, the default
-  data or a ring merge's body → pass `{ kind: "envelope" }` for a default merge
-  and `{ kind: "derived", outputBlinding }` for a ring merge, and set
+  `outputBlinding`, a default merge encrypts its amount and mint to the owner's
+  viewing key in a `MergeOutputEnvelope` that `PreparedMerge.envelope` holds
+  and `PreparedMerge.encryptedEnvelope()` returns encrypted, and a default
+  merge's `MergeTransactInstructionData` is a `MergeBody` with a
+  `MergeProofCommitment` and a `MergeEnvelope`, while `ringMergeInstruction`
+  takes a bare `MergeBody` and `ProvedMerge.data` returns a
+  `MergeInstructionData` → pass `{ kind: "envelope" }` for a default merge and
+  `{ kind: "derived", outputBlinding }` for a ring merge, and set
   `proofCommitment` and `envelope` on hand-built default merge data and neither
   on ring merge data.
 - `MergeInputs` requires `mint` and, on a default merge, `envelope`, a
-  `MergeEnvelopeInputs` with the uncompressed viewing key and the ephemeral
-  secret, which the merge prover request sends as `mint` in place of `asset`
-  and as `viewingPk` and `ephemeralSk`, and a default merge proof carries a
-  commitment and four more public inputs → set both fields on hand-built merge
-  inputs and prove against the prover of this release.
-- `DecryptLabel` gains `"mergeEnvelope"`, which wallet sync sends to
-  `ShieldedKeys.decrypt` with a merge's ephemeral key as `txViewingPublicKey`,
-  a zero salt and slot 0 → answer it in custom `ShieldedKeys` implementations
-  with `encodeDecryptedMergeEnvelope(decryptMergeEnvelope(...))`.
-- `ProofOutputUtxo` requires `isCompact()`, which the outputs
-  `createProofOutput` returns provide → add it to custom `ProofOutputUtxo`
-  implementations, returning `true` only for compact padding.
-- `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
-  proving keys, so `ProverClient` rejects a proof from a prover on the previous
-  keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
-  release.
-- `ConfidentialTransfer.withCompactChange`, `ChangeLayout`,
-  `PreparedTransfer.changeLayout` and `RING_PADDED_CHANGE` are removed because
-  `ConfidentialTransfer.prepare` places only the change outputs it keeps first,
-  SPL before SOL, with the recipients right after them, and
-  `SENDER_SLOT_COUNT` is now the maximum number of change outputs rather than
-  the recipients' first slot → drop the calls and the handling of the removed
-  code, and read the change output count from
-  `PreparedTransfer.senderOutputCount`.
-- `anonymousSenderUtxos`, `plaintextTransferUtxos`, `anonymousSenderFromUtxos`
-  and `plaintextTransferFromUtxos` put the SOL change at slot 0 when there is
-  no SPL change and the recipients right after the change outputs present, and
-  `plaintextTransferFromUtxos` takes its UTXOs in slot order from slot 0 and
-  refuses any other order with `TRANSACTION_INVALID_OUTPUT_POSITION`, so a
-  bundle built by an earlier release without an SPL change no longer recovers
-  its outputs → build transfers and their bundles with this release.
-- `PreparedTransfer.withAppendedSlot` requires `recordSlot`, the output slot
-  the appended record takes, and refuses a slot before the transfer's outputs
-  or past the shape with `TRANSACTION_UNSUPPORTED_SHAPE` → pass the number of
-  the transfer's own outputs.
+  `MergeEnvelopeInputs`, and `ShieldedKeys.decrypt` receives merge envelopes
+  under the new `DecryptLabel` `"mergeEnvelope"`, and a sync fails on an answer
+  that is not an encoded decrypted envelope → set both fields on hand-built merge inputs,
+  prove against the prover of this release, and answer the label in custom
+  `ShieldedKeys` with `encodeDecryptedMergeEnvelope(decryptMergeEnvelope(...))`.
 
 Added
 
-- `ZolanaClientConfig.proofDataSource` accepts `"prover"` to fetch transfer and
-  merge proof data on the prover, with `LocalKeys.proveIndexed` or a remote
-  `IndexedProofAuthority` completing the request, a prover without an indexer
-  failing with `CLIENT_PROVER_INDEXER_UNCONFIGURED`, and an output owner
-  without an escrowed key failing with `CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED`
-  naming `details.member`, which ring builders report as
-  `RING_UNREGISTERED_OUTPUT_KEY` as with `"client"`, while
-  `buildTransferTransaction`, `buildWithdrawalTransaction`,
-  `buildSplitTransaction`, `buildMergeTransaction` and the ring transaction
-  builders wait out `CLIENT_INDEXER_PROOF_DATA_NOT_READY` up to the retry
-  bound instead of failing.
 - `ZolanaClient.getUserRecords(owners)` and the `UserRecordReader` port read
   the registry records of up to 100 owners from the indexer in one request,
-  returning a `UserRecordsLookup` with one `RegistryRecord` or `null` per
-  owner in request order.
-- `buildKeyUpdateTransaction(input)` replaces the viewing key published for an
-  owner, returns `undefined` when the record already holds the address, and
-  rejects a missing record and a changed nullifier key.
+  returning a `UserRecordsLookup` with one `RegistryRecord` or `null` per owner
+  in request order.
 - `ConfidentialTransfer.compact` pads unused slots with compact padding, which
   the transaction leaves out and which costs no nullifier account, queue entry
-  or tree leaf but reveals the real input and output counts, while each compact
-  slot still takes a non-inclusion proof for the nullifier it derives.
-- `ProofInputUtxo.compact` creates one compact padding input, which names the
-  first input tree, carries its derived nullifier in `nullifier()` and 0 in the
-  new `ProofInputUtxo.publishedNullifier()`, `ProofOutputInit.compact` makes
-  `createProofOutput` return a compact padding output,
-  `ProofInputUtxo.isCompact()`, `ProofOutputUtxo.isCompact()` and
-  `ProofOutputUtxo.compact` tell compact padding from a random dummy, and
-  `PreparedTransfer.compactPadding` is `true` for a transfer that
-  `ConfidentialTransfer.compact` prepared.
-- `IndexedProofLookup` names an `IndexedProofInputs` lookup entry, whose
-  `nullifier` carries the derived nullifier of a compact slot for the prover to
-  fetch and is `null` for every other slot.
-- Wallet sync recovers the output of a default merge, compact ones included,
-  from its envelope under every viewing key the wallet holds, retired ones
-  included, without holding the merge's inputs, and leaves one it cannot decrypt
-  or match to its output unrecovered without failing the sync, while
-  `decryptMergeEnvelope` and `encodeDecryptedMergeEnvelope` from
-  `@heliuslabs/zolana/keypair` decrypt an envelope with a viewing key into a
-  `DecryptedMergeEnvelope` and encode it as the `ShieldedKeys.decrypt` answer,
-  and the `EncryptedMergeEnvelope` type there describes an encrypted one.
+  or tree leaf but reveals the real input and output counts, each compact slot
+  still proving non-inclusion of the nullifier it derives, while
+  `ProofInputUtxo.compact`, `ProofOutputInit.compact`,
+  `ProofInputUtxo.publishedNullifier()`, the `isCompact()` and `compact`
+  members of `ProofInputUtxo` and `ProofOutputUtxo`,
+  `PreparedTransfer.compactPadding` and `IndexedProofLookup` build and tell
+  apart compact padding, and `emptyCachedInputFields` and `cachedInputFields`
+  accept up to 49 inputs.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
-  `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 8-input
-  proof, above 8 to the 24-input proof or above 24 to the 54-input proof, and
-  `buildRingMergeTransaction` and `createRingMergeSubmission` take
-  `maxInputs`, 24 by default and at most 54.
+  `MAX_MERGE_INPUTS` (54) notes in one transaction, proved by the 8, 24 or
+  54-input merge, `buildMergeTransaction` without named inputs sweeps up to 24,
+  `buildRingMergeTransaction` and `createRingMergeSubmission` take `maxInputs`,
+  24 by default and at most 54, and every merge fills its unused slots with
+  compact padding, so it reveals its real input count, a ring merge of up to 53
+  notes fits one transaction, and `getMergeTransactInstructionAsync` takes from
+  one to 54 nullifiers.
+- Wallet sync recovers a default merge's output from its envelope under every
+  viewing key the wallet holds, retired ones included, without holding its
+  inputs, asks the key holder only about merges addressed to the wallet, holds
+  one in an unregistered mint back until the registry knows it, and counts one
+  the key holder fails to decrypt in `SyncReport.undecryptableMerges` without
+  failing the sync, while `MergeOutputEnvelope` from
+  `@heliuslabs/zolana/transaction` builds an envelope for a hand-built
+  `PreparedMerge`, lends its ephemeral secret only inside
+  `withEphemeralSecret(use)` and wipes it on `destroy()`, and
+  `decryptMergeEnvelope`, `encodeDecryptedMergeEnvelope`,
+  `DecryptedMergeEnvelope` and `EncryptedMergeEnvelope` from
+  `@heliuslabs/zolana/keypair` decrypt and describe an envelope.
 - `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
   call, encrypted, only to a prover whose attestation matches it, an Intel TDX
   VM on Phala dstack under a `DstackTdxPolicy` or an AWS Nitro Enclave under an
-  `AwsNitroPolicy` that pins its PCR0 to PCR2.
-  Concurrent calls share one attestation. It takes up to three attempts after a
-  transport failure, a 503, or a 429. It waits out the `Retry-After` of a 429,
-  in seconds or as an IMF-fixdate. It re-attests and resends once when a Nitro
-  enclave lost its key.
-- `teePolicyFromJson` parses a policy that names its `platform` and refuses
-  unknown fields, and `ZolanaClient.attestProver` returns the verified
-  `AttestedProver` with its `platform`, HPKE key, `imageId` (the dstack compose
-  hash or the Nitro PCR0) and, on dstack, `tcbStatus`.
-  `defaultTeePolicy()` rejects with `CLIENT_PROVER_TEE_ATTESTATION` and
-  `details.check` `no_default_deployment` when the release has no deployment pin.
-  This release requires an explicit policy.
+  `AwsNitroPolicy` that pins its PCR0 to PCR2, sharing one attestation across
+  concurrent calls, making up to three attempts after a transport failure, a
+  503 or a 429, waiting out a 429's `Retry-After`, and re-attesting once when a
+  Nitro enclave lost its key, while `teePolicyFromJson` parses a policy that
+  names its `platform` and refuses unknown fields, `ZolanaClient.attestProver`
+  returns the verified `AttestedProver` with its platform, HPKE key, `imageId`
+  and, on dstack, `tcbStatus`, and `defaultTeePolicy()` rejects with
+  `CLIENT_PROVER_TEE_ATTESTATION` until a release pins a deployment, so this
+  release requires an explicit policy.
 
 Changed
 
-- `Merge`, `Merge.fromKeypair`, `buildMergeTransaction`,
-  `buildRingMergeTransaction` and `createRingMergeSubmission` fill a merge's
-  unused slots with compact padding where they used random dummies, so a
-  merge reveals its real input count, sends no nullifier for an unused slot,
-  and a ring merge of up to 53 notes fits one transaction, while `Merge` still
-  takes one `dummyNullifiers` entry per padded slot.
 - UTXO selection for transfers, withdrawals, merges and splits skips
-  zero-amount UTXOs.
-- `buildTransferTransaction` and `buildWithdrawalTransaction` select up to 40
-  UTXOs where they stopped at 5, the most that always fit one transaction, and
-  still refuse a wider cover with `WALLET_TOO_MANY_INPUTS`, merge first.
-- `buildMergeTransaction` without named inputs sweeps up to 24, and
-  `emptyCachedInputFields` and `cachedInputFields` accept up to 49 inputs where
-  they stopped at the 36 cache slots.
-- `getMergeTransactInstructionAsync` accepts from one to `MAX_MERGE_INPUTS`
-  nullifiers, the counts a compact merge sends, where it took only 8 or 36.
+  zero-amount UTXOs, and `buildTransferTransaction` and
+  `buildWithdrawalTransaction` select up to 40 UTXOs where they stopped at 5,
+  still refusing a wider cover with `WALLET_TOO_MANY_INPUTS`, merge first.
 
 Fixed
 
 - A proof a prover of this release refused with `429` could be refused again
-  on retry, `ZolanaClient` now asks that prover to queue the retried proof.
-- Wallet sync skipped the output of a merge with more than eight inputs, such
-  as one the Rust SDK built, and the merged note now appears in the wallet.
-- `ZolanaClient.proveMerge` could throw an error other than `ClientError`, and
-  every `ZolanaClient` proving method now throws a `ClientError`.
-- `proveCustomRingTransfer` on a ring with a spend window put padding before
-  the spend record, which the transaction proof refuses, and now places the
-  record after the spent UTXOs and before the padding inputs, and fills a
-  spare output slot before the record output with a zero-amount copy of the
-  sender's change, else of the last output, so that slot adds no subject to
-  the ring's rules.
+  on retry, wallet sync skipped the output of a merge with more than eight
+  inputs, and `ZolanaClient.proveMerge` could throw an error other than
+  `ClientError`, and now the retried proof is queued, the merged note appears
+  in the wallet, and every `ZolanaClient` proving method throws a
+  `ClientError`.
+- Custom-ring transfers built proofs the prover refuses or transactions over
+  the 4,096-byte limit when they padded an output slot or used a spend window,
+  as a `buildRingWithdrawalTransaction` that keeps change or a transfer to two
+  recipients with change did, and now padding stays in the ring, the spend
+  record follows the real inputs and outputs with compact padding after it,
+  and a spare output slot before the record holds a zero-amount copy of the
+  change.
 - `buildWithdrawalTransaction` failed with `WALLET_BUILD_WITHDRAWAL` when an
   owner who also pays the fee withdrew the whole balance of an SPL mint, and
   now builds that withdrawal with a zero-amount SOL change output.
-- A custom-ring transfer that padded an output slot, such as a
-  `buildRingWithdrawalTransaction` that keeps change and is paid for by its
-  owner, built a proof the prover refuses, and its padding now stays in the
-  ring as Rust's does.
-- A custom-ring transfer on a ring with a spend window could exceed the
-  4,096-byte transaction limit or be refused with `RING_BUILD_TRANSFER`, as a
-  transfer to two recipients with change was, and the proof shape now holds
-  the real inputs and outputs plus the spend record, which follows the real
-  outputs with compact padding after it that the transaction leaves out.
 
 Dependencies
 

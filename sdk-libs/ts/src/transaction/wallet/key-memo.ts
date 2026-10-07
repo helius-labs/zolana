@@ -1,5 +1,6 @@
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 import { decodeBatch } from "../../interface/decode.js";
+import { DECRYPTED_MERGE_ENVELOPE_LENGTH } from "../../keypair/merge/index.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { TransactionError } from "../error.js";
@@ -7,6 +8,14 @@ import { copy } from "../internal.js";
 import { deriveAnswers, destroyTransactionKeys, transactionKeyAnswers } from "./key-batch.js";
 import type { DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest } from "./keys.js";
 import { hex } from "./state.js";
+
+/**
+ * A merge envelope the key holder decrypted, or one it failed to decrypt. A
+ * failure is final for that merge in this sync, never "ask again".
+ */
+export type MergeEnvelopeAnswer =
+  | Readonly<{ kind: "decrypted"; plaintext: Uint8Array }>
+  | Readonly<{ kind: "failed" }>;
 
 /**
  * Synchronous view over a `ShieldedKeys` for code that decodes in one pass
@@ -21,9 +30,12 @@ import { hex } from "./state.js";
 export class KeyMemo {
   readonly #keys: ShieldedKeys;
   readonly #decrypted = new Map<string, Uint8Array>();
+  /** `null` marks a merge envelope the key holder failed to decrypt. */
+  readonly #mergeEnvelopes = new Map<string, Uint8Array | null>();
   readonly #derived = new Map<string, Bytes32>();
   readonly #transactionKeys = new Map<string, ViewingKey>();
   readonly #pendingDecrypt = new Map<string, DecryptRequest>();
+  readonly #pendingMergeEnvelopes = new Map<string, DecryptRequest>();
   readonly #pendingDerive = new Map<string, DeriveRequest>();
   readonly #pendingTransactionKeys = new Map<string, TransactionKeyRequest>();
 
@@ -43,6 +55,31 @@ export class KeyMemo {
       slotIndex: request.slotIndex,
       label: request.label,
     });
+    return undefined;
+  }
+
+  /**
+   * Merge envelopes are decrypted one per key-holder call, apart from the
+   * batch: a holder that fails one merge leaves that merge unread, not the
+   * sync. The caller filters on the output view tag first, so the calls are
+   * the wallet's own merges only.
+   */
+  decryptMergeEnvelope(
+    request: Omit<DecryptRequest, "label" | "salt" | "slotIndex">,
+  ): MergeEnvelopeAnswer | undefined {
+    const full: DecryptRequest = {
+      ciphertext: copy(request.ciphertext),
+      viewingPublicKey: request.viewingPublicKey,
+      txViewingPublicKey: request.txViewingPublicKey,
+      salt: new Uint8Array(16) as DecryptRequest["salt"],
+      slotIndex: 0,
+      label: "mergeEnvelope",
+    };
+    const key = decryptKey(full);
+    const known = this.#mergeEnvelopes.get(key);
+    if (known === null) return { kind: "failed" };
+    if (known !== undefined) return { kind: "decrypted", plaintext: copy(known) };
+    this.#pendingMergeEnvelopes.set(key, full);
     return undefined;
   }
 
@@ -69,6 +106,7 @@ export class KeyMemo {
   pending(): boolean {
     return (
       this.#pendingDecrypt.size > 0 ||
+      this.#pendingMergeEnvelopes.size > 0 ||
       this.#pendingDerive.size > 0 ||
       this.#pendingTransactionKeys.size > 0
     );
@@ -78,12 +116,69 @@ export class KeyMemo {
     const decrypts = [...this.#pendingDecrypt.entries()];
     const derives = [...this.#pendingDerive.entries()];
     const transactionKeys = [...this.#pendingTransactionKeys.entries()];
+    const mergeEnvelopes = [...this.#pendingMergeEnvelopes.entries()];
     this.#pendingDecrypt.clear();
+    this.#pendingMergeEnvelopes.clear();
     this.#pendingDerive.clear();
     this.#pendingTransactionKeys.clear();
     // Settled, not raced: a rejection in one call must not lose the fresh keys
     // another call already handed out.
-    const settled = await Promise.allSettled([
+    const [settled, mergeAnswers] = await Promise.all([
+      this.#settleBatches(decrypts, derives, transactionKeys, context),
+      Promise.allSettled(
+        mergeEnvelopes.map(async ([, request]) => this.#keys.decrypt([request], context)),
+      ),
+    ]);
+    const minted = settled[2].status === "fulfilled" ? settled[2].value : [];
+    try {
+      const plaintexts = decodeBatch(
+        fulfilled(settled[0]),
+        decrypts.length,
+        (value) => (value instanceof Uint8Array ? copy(value) : undefined),
+        batchMismatch,
+      );
+      const derived = deriveAnswers(fulfilled(settled[1]), derives.length, batchMismatch);
+      const keys = transactionKeyAnswers(
+        fulfilled(settled[2]),
+        transactionKeys.length,
+        batchMismatch,
+      );
+      const envelopes = mergeAnswers.map((answer) => mergeEnvelopeAnswer(answer, context));
+      plaintexts.forEach((plaintext, index) => {
+        const request = decrypts[index];
+        if (request !== undefined) this.#decrypted.set(request[0], plaintext);
+      });
+      envelopes.forEach((plaintext, index) => {
+        const request = mergeEnvelopes[index];
+        if (request !== undefined) this.#mergeEnvelopes.set(request[0], plaintext);
+      });
+      derived.forEach((value, index) => {
+        const request = derives[index];
+        if (request !== undefined) this.#derived.set(request[0], value);
+      });
+      keys.forEach((viewingKey, index) => {
+        const request = transactionKeys[index];
+        if (request !== undefined) this.#transactionKeys.set(request[0], viewingKey);
+      });
+    } catch (cause) {
+      destroyTransactionKeys(minted);
+      throw cause;
+    }
+  }
+
+  #settleBatches(
+    decrypts: readonly (readonly [string, DecryptRequest])[],
+    derives: readonly (readonly [string, DeriveRequest])[],
+    transactionKeys: readonly (readonly [string, TransactionKeyRequest])[],
+    context: RequestContext | undefined,
+  ): Promise<
+    [
+      PromiseSettledResult<readonly Uint8Array[]>,
+      PromiseSettledResult<readonly Bytes32[]>,
+      PromiseSettledResult<readonly ViewingKey[]>,
+    ]
+  > {
+    return Promise.allSettled([
       decrypts.length === 0
         ? []
         : this.#keys.decrypt(
@@ -103,36 +198,6 @@ export class KeyMemo {
             context,
           ),
     ]);
-    const minted = settled[2].status === "fulfilled" ? settled[2].value : [];
-    try {
-      const plaintexts = decodeBatch(
-        fulfilled(settled[0]),
-        decrypts.length,
-        (value) => (value instanceof Uint8Array ? copy(value) : undefined),
-        batchMismatch,
-      );
-      const derived = deriveAnswers(fulfilled(settled[1]), derives.length, batchMismatch);
-      const keys = transactionKeyAnswers(
-        fulfilled(settled[2]),
-        transactionKeys.length,
-        batchMismatch,
-      );
-      plaintexts.forEach((plaintext, index) => {
-        const request = decrypts[index];
-        if (request !== undefined) this.#decrypted.set(request[0], plaintext);
-      });
-      derived.forEach((value, index) => {
-        const request = derives[index];
-        if (request !== undefined) this.#derived.set(request[0], value);
-      });
-      keys.forEach((viewingKey, index) => {
-        const request = transactionKeys[index];
-        if (request !== undefined) this.#transactionKeys.set(request[0], viewingKey);
-      });
-    } catch (cause) {
-      destroyTransactionKeys(minted);
-      throw cause;
-    }
   }
 
   destroy(): void {
@@ -140,6 +205,8 @@ export class KeyMemo {
     this.#transactionKeys.clear();
     for (const plaintext of this.#decrypted.values()) plaintext.fill(0);
     this.#decrypted.clear();
+    for (const plaintext of this.#mergeEnvelopes.values()) plaintext?.fill(0);
+    this.#mergeEnvelopes.clear();
     this.#derived.clear();
   }
 }
@@ -174,6 +241,39 @@ function fulfilled<T>(result: PromiseSettledResult<T>): T {
     throw cause;
   }
   return result.value;
+}
+
+/**
+ * A rejection is the holder failing this one merge. A wrong-length answer is
+ * a malformed response and fails the sync, as does a cancelled sync, which
+ * must not read as a merge the holder could not decrypt.
+ */
+function mergeEnvelopeAnswer(
+  answer: PromiseSettledResult<readonly Uint8Array[]>,
+  context: RequestContext | undefined,
+): Uint8Array | null {
+  if (answer.status === "rejected") {
+    if (context?.signal?.aborted === true) {
+      const cause: unknown = answer.reason;
+      throw cause;
+    }
+    return null;
+  }
+  const [plaintext] = decodeBatch(
+    answer.value,
+    1,
+    (value) => (value instanceof Uint8Array ? value : undefined),
+    batchMismatch,
+  );
+  if (plaintext === undefined) throw batchMismatch();
+  if (plaintext.length !== DECRYPTED_MERGE_ENVELOPE_LENGTH) {
+    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+      field: "mergeEnvelope",
+      expected: DECRYPTED_MERGE_ENVELOPE_LENGTH,
+      actual: plaintext.length,
+    });
+  }
+  return copy(plaintext);
 }
 
 function batchMismatch(): TransactionError {

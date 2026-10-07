@@ -69,8 +69,23 @@ export class MergeOutputEnvelope {
     });
   }
 
-  ephemeralSecret(): Bytes32 {
-    return this.#ephemeral.secretBytes();
+  /**
+   * Lends a copy of the ephemeral secret to `use`, which the merge prover
+   * needs to prove the envelope. The copy is wiped once `use` settles, so it
+   * must not be retained.
+   */
+  async withEphemeralSecret<T>(use: (secret: Bytes32) => Promise<T> | T): Promise<T> {
+    const secret = this.#ephemeral.secretBytes();
+    try {
+      return await use(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  /** Wipes the ephemeral key; the envelope can no longer encrypt or be proven. */
+  destroy(): void {
+    this.#ephemeral.destroy();
   }
 }
 

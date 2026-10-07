@@ -339,7 +339,7 @@ describe("compact padding", () => {
     expect(prepared.output.amount).toBe(9n);
   });
 
-  it("proves non-inclusion of each compact merge slot's dummy nullifier and publishes 0", () => {
+  it("proves non-inclusion of each compact merge slot's dummy nullifier and publishes 0", async () => {
     const owner = ShieldedKeypair.generate();
     const inputs = [solInput(owner, 2n), solInput(owner, 3n), solInput(owner, 4n)];
     const prepared = Merge.fromKeypair(owner, inputs).prepare();
@@ -352,11 +352,13 @@ describe("compact padding", () => {
     const assembly = assembleMergeWithProofs(prepared, inputs.map(spendProof), tree, dummyProofs);
     expect(assembly.nullifiers.slice(3)).toEqual(dummyNullifiers.map(() => new Uint8Array(32)));
     expect(
-      assembly.proverInputs.inputs.slice(3).map((input) => ({
-        isDummy: input.isDummy,
-        nullifier: input.nullifier,
-        nullifierLowPathIndex: input.nullifierLowPathIndex,
-      })),
+      (await assembly.withProverInputs((proverInputs) => proverInputs.inputs))
+        .slice(3)
+        .map((input) => ({
+          isDummy: input.isDummy,
+          nullifier: input.nullifier,
+          nullifierLowPathIndex: input.nullifierLowPathIndex,
+        })),
     ).toEqual(
       dummyNullifiers.map(() => ({ isDummy: 1n, nullifier: 0n, nullifierLowPathIndex: 3n })),
     );
@@ -379,11 +381,11 @@ describe("compact padding", () => {
 
     // The prover-resolved path publishes 0 and carries the dummy nullifier in
     // the lookup for the prover to fetch.
-    const local = prepareMerge(prepared, tree);
-    expect(local.inputs.payload.inputs.slice(3).map((input) => input.nullifier)).toEqual(
+    const local = await prepareMerge(prepared, tree).withInputs((inputs) => inputs);
+    expect(local.payload.inputs.slice(3).map((input) => input.nullifier)).toEqual(
       dummyNullifiers.map(() => 0n),
     );
-    expect(local.inputs.lookups.map((lookup) => lookup.nullifier)).toEqual([
+    expect(local.lookups.map((lookup) => lookup.nullifier)).toEqual([
       null,
       null,
       null,

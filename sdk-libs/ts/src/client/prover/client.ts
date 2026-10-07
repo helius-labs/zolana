@@ -11,6 +11,7 @@ import {
   checkDepositResolution,
   checkPolicyResolution,
   decodeIndexedInputs,
+  wipeIndexedInputs,
   indexedRequestEnvelope,
   parseIndexedResponse,
   resolvedTrees,
@@ -254,10 +255,15 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<IndexedProofResult> {
     const inputs = decodeIndexedInputs(request);
-    const prepared =
-      inputs.circuit === "merge"
-        ? mergeProverRequest(inputs.payload, completeSecret)
-        : proverRequest(inputs, completeSecret);
+    let prepared: ProverRequestBody;
+    try {
+      prepared =
+        inputs.circuit === "merge"
+          ? mergeProverRequest(inputs.payload, completeSecret)
+          : proverRequest(inputs, completeSecret);
+    } finally {
+      wipeIndexedInputs(inputs);
+    }
     const key = provingKeyFor(
       inputs.circuit === "merge"
         ? { circuit: mergeCircuit(inputs.payload), nInputs: inputs.payload.inputs.length }

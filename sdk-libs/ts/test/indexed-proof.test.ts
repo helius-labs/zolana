@@ -27,7 +27,7 @@ const decode = wireDecoder(() => new Error("invalid shared vector"));
 
 it.each([1, 8, 9, MERGE_INPUT_COUNT])(
   "hashes each real merge input once with %i real inputs",
-  (count) => {
+  async (count) => {
     const owner = ShieldedKeypair.generate();
     try {
       const inputs = Array.from({ length: count }, () =>
@@ -46,19 +46,19 @@ it.each([1, 8, 9, MERGE_INPUT_COUNT])(
       const hashes = inputs.map((input) => vi.spyOn(input, "hash"));
       try {
         const tree = treeAddress(prepared.inputTreeId);
-        const first = prepareMerge(prepared, tree);
+        const first = await prepareMerge(prepared, tree).withInputs((inputs) => inputs);
         hashes.forEach((hash) => expect(hash).toHaveBeenCalledTimes(1));
-        expect(first.inputs.lookups.map((lookup) => lookup.commitment)).toEqual([
+        expect(first.lookups.map((lookup) => lookup.commitment)).toEqual([
           ...expected,
           ...Array.from({ length: (mergePaddedInputCount(count) ?? 0) - count }, () => null),
         ]);
         const input = inputs[0];
         if (input === undefined) throw new Error("missing test input");
         input.utxo.blinding.fill(0);
-        const second = prepareMerge(prepared, tree);
-        expect(second.inputs.lookups[0]?.commitment).not.toEqual(expected[0]);
-        expect(second.inputs.payload.privateTxHash).not.toBe(first.inputs.payload.privateTxHash);
-        expect(first.inputs.lookups[0]?.commitment).toEqual(expected[0]);
+        const second = await prepareMerge(prepared, tree).withInputs((inputs) => inputs);
+        expect(second.lookups[0]?.commitment).not.toEqual(expected[0]);
+        expect(second.payload.privateTxHash).not.toBe(first.payload.privateTxHash);
+        expect(first.lookups[0]?.commitment).toEqual(expected[0]);
       } finally {
         hashes.forEach((hash) => hash.mockRestore());
       }
@@ -116,6 +116,8 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
   const prepared = Merge.fromKeypair(owner, [input]).prepare();
   const tree = treeAddress(prepared.inputTreeId);
   const local = prepareMerge(prepared, tree);
+  const indexed = await local.withInputs((inputs) => inputs);
+  expect(indexed.payload.envelope?.ephemeralSecret).toEqual(new Uint8Array(32));
   const resolved = {
     tree,
     id: prepared.inputTreeId,
@@ -161,7 +163,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(payload).not.toHaveProperty("treeSlots");
     expect(typeof payload["userNullifierSecret"]).toBe("string");
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(ONE_INPUT_MERGE_WIDTH);
-    expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
+    expect(payload["privateTxHash"]).toBe(`0x${indexed.payload.privateTxHash.toString(16)}`);
     expect(payload).not.toHaveProperty("asset");
     expect(payload["mint"]).toBe("00".repeat(32));
     expect(payload["viewingPk"]).toBe(
@@ -194,12 +196,12 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
               proof: { ...valid.proof, [part]: undefined },
             }),
           },
-          local.inputs,
+          indexed,
         ),
       ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
     }
     await expect(
-      proveThroughAuthority({ proveIndexed: () => undefined }, local.inputs),
+      proveThroughAuthority({ proveIndexed: () => undefined }, indexed),
     ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
     await expect(
       proveThroughAuthority(
@@ -226,7 +228,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
             };
           },
         },
-        local.inputs,
+        indexed,
       ),
     ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
   } finally {
@@ -235,12 +237,14 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
   }
 });
 
-it("refuses an indexed merge whose envelope does not match its rail", () => {
+it("refuses an indexed merge whose envelope does not match its rail", async () => {
   const owner = ShieldedKeypair.generate();
   try {
     const input = solInput(owner, 5n);
     const prepared = Merge.fromKeypair(owner, [input]).prepare();
-    const request = prepareMerge(prepared, treeAddress(prepared.inputTreeId)).inputs;
+    const request = await prepareMerge(prepared, treeAddress(prepared.inputTreeId)).withInputs(
+      (inputs) => inputs,
+    );
     expect(decodeIndexedInputs(request).publicInputs).toHaveLength(12);
     const { envelope, ...withoutEnvelope } = request.payload;
     if (envelope === undefined) throw new Error("a default merge carries an envelope");

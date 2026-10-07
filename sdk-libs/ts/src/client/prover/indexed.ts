@@ -56,12 +56,23 @@ export async function proveThroughAuthority(
 ): Promise<Readonly<{ proof: Proof; trees: readonly InputTree[] }>> {
   checkIndexedAuthority(authority);
   // The key holder edits only its own copy, never the statement checked below.
-  const result: unknown = await authority.proveIndexed(decodeIndexedInputs(inputs), context);
+  const copy = decodeIndexedInputs(inputs);
+  let result: unknown;
+  try {
+    result = await authority.proveIndexed(copy, context);
+  } finally {
+    wipeIndexedInputs(copy);
+  }
   const decoded = resultDecoder.record(result, "result");
   return Object.freeze({
     proof: authorityProof(decoded["proof"]),
     trees: resolvedTrees(inputs, checkedResolution(decoded["resolution"], authorityField)),
   });
+}
+
+/** Wipes the merge ephemeral secret a decoded copy carries; the copy is unusable afterwards. */
+export function wipeIndexedInputs(inputs: IndexedProofInputs): void {
+  if (inputs.circuit === "merge") inputs.payload.envelope?.ephemeralSecret.fill(0);
 }
 
 export function decodeIndexedInputs(value: unknown): IndexedProofInputs {

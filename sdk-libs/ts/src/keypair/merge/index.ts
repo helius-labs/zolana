@@ -25,9 +25,9 @@ import {
 import { KeypairError, invalidLength } from "../error.js";
 import type { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
-import type { P256PublicKey } from "../public-key.js";
+import { P256PublicKey } from "../public-key.js";
 import { privateTxBlinding } from "../transact/index.js";
-import type { ViewingKey } from "../viewing-key.js";
+import { ViewingKey } from "../viewing-key.js";
 
 export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
 
@@ -76,6 +76,37 @@ export function mergeSharedSecret(
   return keyAgreementSecret(MERGE_SECRET_TAG, sharedX, ephemeralPublicKey, recipient);
 }
 
+function checkInput(input: unknown): void {
+  if (typeof input !== "object" || input === null) {
+    throw new KeypairError("KEYPAIR_INVALID_INPUT", { name: "merge envelope input" });
+  }
+}
+
+function checkedPublicKey(value: unknown, name: string): P256PublicKey {
+  if (!(value instanceof P256PublicKey)) {
+    throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { name, reason: "type" });
+  }
+  return value;
+}
+
+function checkedViewingKey(value: unknown, name: string): ViewingKey {
+  if (!(value instanceof ViewingKey)) {
+    throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { name, reason: "type" });
+  }
+  return value;
+}
+
+function checkedAmount(value: unknown): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
+    throw new KeypairError("KEYPAIR_INVALID_AMOUNT", {
+      name: "merge amount",
+      minimum: 0,
+      maximum: U64_MAX.toString(),
+    });
+  }
+  return value;
+}
+
 export function encryptMergeEnvelope(
   input: Readonly<{
     recipient: P256PublicKey;
@@ -84,23 +115,20 @@ export function encryptMergeEnvelope(
     mint: Bytes32;
   }>,
 ): EncryptedMergeEnvelope {
-  if (typeof input.amount !== "bigint" || input.amount < 0n || input.amount > U64_MAX) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name: "merge amount",
-      minimum: 0,
-      maximum: U64_MAX.toString(),
-    });
-  }
+  checkInput(input);
+  const recipient = checkedPublicKey(input.recipient, "merge recipient");
+  const ephemeral = checkedViewingKey(input.ephemeral, "merge ephemeral key");
+  const amount = checkedAmount(input.amount);
   const plaintext = concatBytes(
-    u64be(input.amount),
+    u64be(amount),
     checkedBytes<Bytes32>(input.mint, MERGE_MINT_LENGTH, "merge mint"),
   );
   let sharedX: Bytes32 | undefined;
   let secret: Bytes32 | undefined;
   try {
-    const ephemeralPublicKey = input.ephemeral.publicKey();
-    sharedX = input.ephemeral.ecdh(input.recipient);
-    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, input.recipient);
+    const ephemeralPublicKey = ephemeral.publicKey();
+    sharedX = ephemeral.ecdh(recipient);
+    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient);
     return Object.freeze({
       ephemeralPublicKey,
       ciphertext: symmetricApply(secret, MERGE_ENVELOPE_INFO, plaintext),
@@ -120,6 +148,12 @@ export function decryptMergeEnvelope(
     ciphertext: Uint8Array;
   }>,
 ): DecryptedMergeEnvelope {
+  checkInput(input);
+  const viewingKey = checkedViewingKey(input.viewingKey, "merge viewing key");
+  const ephemeralPublicKey = checkedPublicKey(
+    input.ephemeralPublicKey,
+    "merge ephemeral public key",
+  );
   const ciphertext = checkedBytes<Uint8Array>(
     input.ciphertext,
     MERGE_CIPHERTEXT_LENGTH,
@@ -129,9 +163,9 @@ export function decryptMergeEnvelope(
   let secret: Bytes32 | undefined;
   let plaintext: Uint8Array | undefined;
   try {
-    const recipient = input.viewingKey.publicKey();
-    sharedX = input.viewingKey.ecdh(input.ephemeralPublicKey);
-    secret = mergeSharedSecret(sharedX, input.ephemeralPublicKey, recipient);
+    const recipient = viewingKey.publicKey();
+    sharedX = viewingKey.ecdh(ephemeralPublicKey);
+    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient);
     plaintext = symmetricApply(secret, MERGE_ENVELOPE_INFO, ciphertext);
     return Object.freeze({
       amount: bytesToBigInt(plaintext.subarray(0, MERGE_AMOUNT_LENGTH)),

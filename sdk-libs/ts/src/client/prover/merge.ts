@@ -50,10 +50,14 @@ import {
   validateSpendProof,
 } from "./assembly.js";
 import type { CompressedProofParts } from "./proof.js";
-import type { Field, MergeInputs, TransferInput } from "./types.js";
+import type { Field, MergeEnvelopeInputs, MergeInputs, TransferInput } from "./types.js";
 
 export interface MergeAssembly {
-  readonly proverInputs: MergeInputs;
+  /**
+   * Lends the complete prover inputs to `use`. A default merge's inputs carry
+   * a copy of the envelope's ephemeral secret, wiped once `use` settles.
+   */
+  withProverInputs<T>(use: (inputs: MergeInputs) => Promise<T> | T): Promise<T>;
   readonly expiryUnixTs: bigint;
   readonly outputHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
@@ -261,14 +265,21 @@ function assembleMergeUnchecked(
 
   const local = prepareMerge(prepared, tree, cache);
   const complete = local.finish(inputTree);
+  const treeSlots = Object.freeze(inputTreeSlots([inputTree.slot]).map(treeSlotFields));
+  const publicInputHash = asField(bytesToBigInt(complete.publicInputHash));
   return Object.freeze({
     ...complete,
-    proverInputs: Object.freeze({
-      ...local.inputs.payload,
-      inputs: Object.freeze(inputs),
-      treeSlots: Object.freeze(inputTreeSlots([inputTree.slot]).map(treeSlotFields)),
-      publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
-    }),
+    withProverInputs: <T>(use: (inputs: MergeInputs) => Promise<T> | T): Promise<T> =>
+      local.withInputs((request) =>
+        use(
+          Object.freeze({
+            ...request.payload,
+            inputs: Object.freeze(inputs),
+            treeSlots,
+            publicInputHash,
+          }),
+        ),
+      ),
   });
 }
 
@@ -321,12 +332,18 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
   ];
 }
 
+type IndexedMergeInputs = IndexedProofInputs & {
+  readonly circuit: "merge";
+  readonly payload: PreparedMergeInputs;
+};
+
 interface PreparedMergeAssembly {
-  readonly inputs: IndexedProofInputs & {
-    readonly circuit: "merge";
-    readonly payload: PreparedMergeInputs;
-  };
-  finish(tree: MergeInputTree): Omit<MergeAssembly, "proverInputs">;
+  /**
+   * Lends the prover request to `use`. A default merge's request carries a
+   * copy of the envelope's ephemeral secret, wiped once `use` settles.
+   */
+  withInputs<T>(use: (inputs: IndexedMergeInputs) => Promise<T> | T): Promise<T>;
+  finish(tree: MergeInputTree): Omit<MergeAssembly, "withProverInputs">;
 }
 
 export function prepareMerge(
@@ -430,19 +447,11 @@ export function prepareMerge(
             ciphertext: validated.encrypted.ciphertext,
           },
   }).map(asField);
-  const payload: PreparedMergeInputs = Object.freeze({
+  const payload: Omit<PreparedMergeInputs, "envelope"> = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
     outputTreeId: asField(outputTreeIdField),
     mint: addressBytes(prepared.output.asset),
-    ...(validated === undefined
-      ? {}
-      : {
-          envelope: Object.freeze({
-            viewingPublicKey: validated.envelope.recipient.toUncompressed(),
-            ephemeralSecret: validated.envelope.ephemeralSecret(),
-          }),
-        }),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     userNullifierPublicKey: asField(nullifierPublicKey),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
@@ -451,15 +460,26 @@ export function prepareMerge(
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
   });
-  return Object.freeze({
-    inputs: Object.freeze({
+  const trees = Object.freeze([{ tree, id: prepared.inputTreeId }]);
+  const lookups = Object.freeze(slots.map((slot) => slot.lookup));
+  const frozenPublicInputs = Object.freeze(publicInputs);
+  const request = (envelope?: MergeEnvelopeInputs): IndexedMergeInputs =>
+    Object.freeze({
       circuit: "merge",
-      payload,
-      trees: Object.freeze([{ tree, id: prepared.inputTreeId }]),
-      lookups: Object.freeze(slots.map((slot) => slot.lookup)),
-      publicInputs: Object.freeze(publicInputs),
-    }),
-    finish(inputTree: MergeInputTree): Omit<MergeAssembly, "proverInputs"> {
+      payload: Object.freeze({ ...payload, ...(envelope === undefined ? {} : { envelope }) }),
+      trees,
+      lookups,
+      publicInputs: frozenPublicInputs,
+    });
+  return Object.freeze({
+    async withInputs<T>(use: (inputs: IndexedMergeInputs) => Promise<T> | T): Promise<T> {
+      if (validated === undefined) return await use(request());
+      const viewingPublicKey = validated.envelope.recipient.toUncompressed();
+      return await validated.envelope.withEphemeralSecret((ephemeralSecret) =>
+        use(request(Object.freeze({ viewingPublicKey, ephemeralSecret }))),
+      );
+    },
+    finish(inputTree: MergeInputTree): Omit<MergeAssembly, "withProverInputs"> {
       const publicInputHash = checkedBytes(
         bigintToBytes(
           resolvedPublicInputHash(publicInputs, inputTreeSlots([inputTree.slot])),

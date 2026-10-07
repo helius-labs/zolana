@@ -5,6 +5,7 @@ import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merge.js";
 import { mergeProverRequestBody } from "../src/client/prover/client.js";
+import { bytesToBigInt } from "../src/client/internal.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
 import { encodeMergeBody } from "../src/interface/codecs/index.js";
@@ -171,7 +172,7 @@ describe("ring merge", () => {
         Response.json({
           ...proofFor({ circuitType: "merge-ring", inputs: Array(prepared.inputs.length) }),
           resolution: {
-            publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
+            publicInputHash: `0x${bytesToBigInt(expected.publicInputHash).toString(16)}`,
             trees: [
               {
                 tree: treeAddress(7),
@@ -366,7 +367,7 @@ describe("ring merge", () => {
     );
   });
 
-  it("binds a separate output tree and sends a ring merge proof request", () => {
+  it("binds a separate output tree and sends a ring merge proof request", async () => {
     const inputs = [input(3n), input(5n)];
     const prepared = merge(inputs, 9).prepare();
     const assembly = assembleMergeWithProofs(
@@ -375,11 +376,12 @@ describe("ring merge", () => {
       treeAddress(7),
       prepared.dummyNullifiers().map(nonInclusion),
     );
-    expect(mergeProverRequestBody(assembly.proverInputs)).toMatchObject({
+    const proverInputs = await assembly.withProverInputs((inputs) => inputs);
+    expect(mergeProverRequestBody(proverInputs)).toMatchObject({
       circuitType: "merge-ring",
     });
-    expect(assembly.proverInputs.ringProgramId).not.toBe(0n);
-    expect(assembly.proverInputs.outputRingDataHash).toBe(0n);
+    expect(proverInputs.ringProgramId).not.toBe(0n);
+    expect(proverInputs.outputRingDataHash).toBe(0n);
     expect(assembly.outputHash).toEqual(prepared.output.hash(9));
     expect(assembly.outputHash).not.toEqual(prepared.output.hash(7));
   });
@@ -482,7 +484,7 @@ describe("ring merge", () => {
     }
   });
 
-  it("refuses an envelope on the ring rail and a committed proof for its data", () => {
+  it("refuses an envelope on the ring rail and a committed proof for its data", async () => {
     const inputs = [input(3n), input(5n)];
     const first = inputs[0]!;
     const key = owner.nullifierKey();
@@ -525,7 +527,9 @@ describe("ring merge", () => {
         details: { path: "$.proof.proofCommitment", reason: "unexpected commitment" },
       }),
     );
-    expect(prepareMerge(prepared, treeAddress(7)).inputs.publicInputs).toHaveLength(8);
+    expect(
+      (await prepareMerge(prepared, treeAddress(7)).withInputs((inputs) => inputs)).publicInputs,
+    ).toHaveLength(8);
   });
 
   it("binds ring identity and destination into approval", () => {
