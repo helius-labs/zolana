@@ -12,7 +12,9 @@ BSB22 commitment on the default rail only (`program-libs/interface/src/instructi
 envelope (P-256 ECIES to the registry `viewing_pk`, `docs/spec.md` "Merge Envelope"):
 its proof carries one BSB22 commitment and the instruction carries the envelope.
 The ring-rail merge output is ciphertext-free and recovered from the first real
-input and its nullifier. On both rails padding slots publish derived dummy
+input and its nullifier. Its blinding derives from the owner's nullifier secret,
+so any holder of that secret can read a ring merge output; this is an accepted
+limitation (`docs/spec.md` "Merge output indexing"), not an invariant. On both rails padding slots publish derived dummy
 nullifiers.
 
 ## MergeTransact
