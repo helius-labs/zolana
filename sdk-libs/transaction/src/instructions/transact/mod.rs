@@ -81,7 +81,7 @@ use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo, 
 /// ```
 #[derive(Clone)]
 pub struct ConfidentialTransaction {
-    inputs: Vec<WalletUtxo>,
+    inputs: Vec<SppProofInputUtxo>,
     outputs: Vec<SppProofOutputUtxo>,
     public_transfers: Vec<PublicTransferRequest>,
     payer: Address,
@@ -95,7 +95,7 @@ pub struct ConfidentialTransaction {
 }
 
 impl ConfidentialTransaction {
-    pub fn inputs(&self) -> &[WalletUtxo] {
+    pub fn inputs(&self) -> &[SppProofInputUtxo] {
         &self.inputs
     }
 
@@ -123,6 +123,16 @@ impl ConfidentialTransaction {
     /// 3. Read the first nullifier and initialize the transaction with a fresh
     ///    blinding seed and no outputs or public transfers.
     pub fn new(inputs: Vec<WalletUtxo>, payer: Address) -> Result<Self, TransactionError> {
+        Self::from_validated_inputs(
+            inputs.into_iter().map(SppProofInputUtxo::from).collect(),
+            payer,
+        )
+    }
+
+    fn from_validated_inputs(
+        inputs: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
         // 1. Require a real input in the first slot.
         if inputs
             .first()
@@ -207,51 +217,32 @@ impl ConfidentialTransaction {
 
     /// Like [`new_compact`](Self::new_compact), for inputs a program SDK
     /// assembles itself, such as a program-owned UTXO it reconstructs from its
-    /// own state, rather than notes the indexer returned to a wallet.
-    ///
-    /// The transaction still picks the shape, pads, derives every output
-    /// blinding and encrypts. The inputs carry no indexer record, so
-    /// [`inputs`](Self::inputs) reports slot 0, slot index 0 and the default
-    /// signature for them; the leaf index and tree ID stay as given.
+    /// own state, rather than notes the indexer returned to a wallet. The
+    /// transaction still picks the shape, pads, derives every output blinding
+    /// and encrypts.
     ///
     /// Steps:
-    /// 1. Reject compact padding and cached inputs, which a wallet UTXO cannot
-    ///    represent.
-    /// 2. Convert each input to a wallet UTXO without indexer metadata.
-    /// 3. Validate and pad like [`new_compact`](Self::new_compact).
+    /// 1. Reject compact padding, which the transaction adds itself, and
+    ///    cached inputs, whose cache accounts [`encrypt`](Self::encrypt) does
+    ///    not populate.
+    /// 2. Validate and pad like [`new_compact`](Self::new_compact).
     pub fn from_proof_inputs(
         inputs: Vec<SppProofInputUtxo>,
         payer: Address,
     ) -> Result<Self, TransactionError> {
-        let inputs = inputs
-            .into_iter()
-            .enumerate()
-            .map(|(index, input)| {
-                // 1. Reject inputs a wallet UTXO cannot represent.
-                if input.compact {
-                    return Err(TransactionError::CompactProofInput { index });
-                }
-                if input.cache_slot.is_some() {
-                    return Err(TransactionError::CachedProofInput { index });
-                }
-                // 2. Convert without indexer metadata.
-                Ok(WalletUtxo {
-                    utxo: input.utxo,
-                    nullifier_pubkey: input.nullifier_pubkey,
-                    utxo_hash: input.utxo_hash,
-                    nullifier: input.nullifier,
-                    data_hash: input.data_hash,
-                    ring_data_hash: input.ring_data_hash,
-                    tree_id: input.tree_id,
-                    leaf_index: input.leaf_index,
-                    slot: 0,
-                    tx_signature: Default::default(),
-                    slot_index: 0,
-                })
-            })
-            .collect::<Result<Vec<_>, TransactionError>>()?;
-        // 3. Validate and pad like `new_compact`.
-        Self::new_compact(inputs, payer)
+        // 1. Reject padding and cached inputs.
+        for (index, input) in inputs.iter().enumerate() {
+            if input.compact {
+                return Err(TransactionError::CompactProofInput { index });
+            }
+            if input.cache_slot.is_some() {
+                return Err(TransactionError::CachedProofInput { index });
+            }
+        }
+        // 2. Validate and pad like `new_compact`.
+        let mut transaction = Self::from_validated_inputs(inputs, payer)?;
+        transaction.compact_padding = true;
+        Ok(transaction)
     }
 
     /// Transfer SPL tokens to a recipient shielded address.

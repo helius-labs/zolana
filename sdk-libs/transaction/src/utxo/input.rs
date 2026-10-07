@@ -9,7 +9,7 @@ use crate::{Data, Mint, TransactionError};
 /// An input UTXO with every value the transaction and the prover read from it
 /// already computed, so nothing downstream holds key material. Convert from
 /// [`WalletUtxo`](crate::WalletUtxo) when finalizing a transaction.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SppProofInputUtxo {
     /// Includes the resolved [`Mint`], carrying both the address and compact ID.
     pub utxo: Utxo,

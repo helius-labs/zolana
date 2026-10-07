@@ -4,10 +4,7 @@ use zolana_keypair::{shielded::ShieldedAddress, Curve};
 
 use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{
-    error::TransactionError,
-    instructions::transact::shape::Shape,
-    utxo::{SppProofInputUtxo, SppProofOutputUtxo},
-    Mint,
+    error::TransactionError, instructions::transact::shape::Shape, utxo::SppProofOutputUtxo, Mint,
 };
 
 pub struct Recipient {
@@ -50,7 +47,7 @@ impl ConfidentialTransaction {
         Ok(self)
     }
 
-    /// Convert wallet inputs and pad all UTXOs without reordering existing slots.
+    /// Pad all UTXOs without reordering existing slots.
     ///
     /// Steps:
     /// 1. Reject repeated padding and validate the shape, input count and public
@@ -60,8 +57,8 @@ impl ConfidentialTransaction {
     /// 4. Check output capacity, append dummy outputs that publish a
     ///    participant's view tag and verify balance. A transaction naming no
     ///    participant keeps a zero-amount SOL change for the sender.
-    /// 5. Convert wallet inputs to proof inputs, append dummy inputs and commit
-    ///    both vectors. Errors leave the original transaction unchanged.
+    /// 5. Append dummy inputs and commit both vectors. Errors leave the
+    ///    original transaction unchanged.
     pub fn pad_utxos(
         &mut self,
         shape: Shape,
@@ -154,8 +151,8 @@ impl ConfidentialTransaction {
             }
         }
 
-        // 5. Convert wallet inputs, append dummy inputs and commit both vectors.
-        let mut inputs = self.inputs.iter().map(SppProofInputUtxo::from).collect();
+        // 5. Append dummy inputs and commit both vectors.
+        let mut inputs = self.inputs.clone();
         pad_inputs(&mut inputs, shape, self.compact_padding)?;
         self.outputs = outputs;
         self.padded_inputs = Some(inputs);
