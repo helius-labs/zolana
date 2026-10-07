@@ -34,7 +34,7 @@
       "arch": "arm64",
       "asset": "prover-darwin-arm64-v0.4.0-alpha",
       "size": 29528402,
-      "sha256": "a1b46a83f4f966cc568c7feb5b375cd5654ecfbedcdeb026d17bbf74e2cd18d2"
+      "sha256": "a276476ee16a4370a4f91cba5e1f5ea85a3f775bec850079c62c8b99b692e741"
     },
     {
       "role": "photon",
@@ -50,7 +50,7 @@
       "arch": "x64",
       "asset": "prover-linux-x64-v0.4.0-alpha",
       "size": 31899772,
-      "sha256": "98a44be4d67573e60a1136696b5fef4adfb8fa5a9685e694966739f0f1b96500"
+      "sha256": "ee2163d8d0381aacb975f2a368b7885037641bdc533d8882b29f3b55a59f97b4"
     },
     {
       "role": "photon",
