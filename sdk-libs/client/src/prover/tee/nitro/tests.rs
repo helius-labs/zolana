@@ -41,6 +41,7 @@ const NOW: u64 = 1_800_000_000;
 const DAY: u64 = 86_400;
 const NONCE: [u8; 32] = [0x11; 32];
 const HPKE_PUBLIC_KEY: [u8; 32] = [0x22; 32];
+const REBOOTED_HPKE_PUBLIC_KEY: [u8; 32] = [0x44; 32];
 const ROOT: &str = "CN=root";
 const INTERMEDIATE: &str = "CN=intermediate";
 
@@ -59,6 +60,7 @@ pub(crate) struct Fixture {
     tagged: bool,
     flip_signature: bool,
     document_nonce: [u8; 32],
+    hpke_public_key: [u8; 32],
     public_key: [u8; 32],
     user_data: [u8; 64],
     edit_document: fn(&mut Vec<(Value, Value)>),
@@ -87,6 +89,7 @@ impl Fixture {
             nonce,
             policy: TeePolicy::new(PlatformPolicy::AwsNitro(NitroPolicy {
                 measurements: vec![measurement.clone()],
+                hpke_public_key: None,
             })),
             measurement,
             trusted_root_seed: 1,
@@ -99,6 +102,7 @@ impl Fixture {
             tagged: true,
             flip_signature: false,
             document_nonce: nonce,
+            hpke_public_key: HPKE_PUBLIC_KEY,
             public_key: HPKE_PUBLIC_KEY,
             user_data: report_data(&nonce, &HPKE_PUBLIC_KEY, None),
             edit_document: |_| {},
@@ -106,6 +110,21 @@ impl Fixture {
             edit_cose: |encoded| encoded,
             gpu: None,
         }
+    }
+
+    pub(crate) fn pinning_key(mut self) -> Self {
+        let PlatformPolicy::AwsNitro(pins) = &mut self.policy.pins else {
+            unreachable!()
+        };
+        pins.hpke_public_key = Some(HPKE_PUBLIC_KEY);
+        self
+    }
+
+    pub(crate) fn rebooted(mut self) -> Self {
+        self.hpke_public_key = REBOOTED_HPKE_PUBLIC_KEY;
+        self.public_key = REBOOTED_HPKE_PUBLIC_KEY;
+        self.user_data = report_data(&self.nonce, &REBOOTED_HPKE_PUBLIC_KEY, None);
+        self
     }
 
     /// A session trusting the fixture root in place of the AWS root.
@@ -116,7 +135,7 @@ impl Fixture {
     pub(crate) fn attestation_json(&self) -> serde_json::Value {
         serde_json::json!({
             "platform": "aws-nitro",
-            "hpke_public_key": hex::encode(HPKE_PUBLIC_KEY),
+            "hpke_public_key": hex::encode(self.hpke_public_key),
             "gpu": self.gpu,
             "evidence": { "document": hex::encode(self.document()) },
         })
@@ -629,6 +648,7 @@ fn each_nitro_check_refuses_with_its_own_error() {
                 f.measurement.pcr0 = [0; 48];
                 f.policy = TeePolicy::new(PlatformPolicy::AwsNitro(NitroPolicy {
                     measurements: vec![f.measurement.clone()],
+                    hpke_public_key: None,
                 }));
             },
             document,
@@ -708,6 +728,17 @@ fn a_document_passes_at_each_tolerated_edge() {
         edit(&mut fixture);
         assert!(fixture.verify().is_ok(), "{name}");
     }
+}
+
+#[test]
+fn a_key_pin_admits_only_the_pinned_key() {
+    let prover = Fixture::default().pinning_key().verify().unwrap();
+    assert_eq!(prover.hpke_public_key, HPKE_PUBLIC_KEY);
+    assert!(Fixture::default().rebooted().verify().is_ok());
+    assert!(matches!(
+        Fixture::default().pinning_key().rebooted().verify(),
+        Err(TeeError::HpkeKeyMismatch)
+    ));
 }
 
 #[test]

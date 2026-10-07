@@ -60,7 +60,8 @@ The checks:
 ### aws-nitro
 
 An AWS Nitro Enclave without a GPU.
-The enclave draws its HPKE key at boot and never exports it, so each boot attests a new key and a client pins the image, not the key.
+The enclave draws its HPKE key at boot or derives it from a seed that an AWS KMS key releases, and it never exports the key.
+The KMS key policy releases the seed to the host only inside an enclave with the PCR0, PCR1 and PCR2 of the deployment, so all enclaves of a KMS deployment hold the same key.
 `evidence` holds `document`, the attestation document the Nitro Secure Module signs, a COSE_Sign1 structure.
 The prover requests it with `user_data` set to report_data, `nonce` set to the client's nonce, and `public_key` set to `hpke_public_key`.
 
@@ -78,12 +79,13 @@ The checks:
 - the document holds text where text is due, byte strings where bytes are due and integers where integers are due
 - the document has a `module_id` and a `timestamp`, `pcrs` holds at most 32 entries, `cabundle` at most 8 certificates, `digest` is `SHA384`, PCR0, PCR1 and PCR2 are pinned, and PCR0 is not zero as in a debug enclave
 - `user_data`, `nonce` and `public_key` equal report_data, the client's nonce and `hpke_public_key`
+- `hpke_public_key` equals the pinned key when the policy pins one
 
 ## Policy
 
 A policy is a JSON object with `platform`, the platform's pins, `gpu` (`required` or `optional`) and `max_age_secs`, the time a passed attestation is reused.
 A `dstack-tdx` policy pins `app_id`, `hpke_public_key`, `key_provider_id`, `os_image_hashes`, `measurements` (`mrtd`, `rtmr0`, `rtmr1`, `rtmr2`), `compose_hashes` and `tcb_statuses`.
-An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`).
+An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also pin `hpke_public_key`, which stays the same across boots only on a KMS deployment.
 
 ## Encryption
 
@@ -107,7 +109,7 @@ Its plaintext is the status as a big-endian `u16`, then the body.
 A replayed request derives the same response key, but each answer gets an independent nonce.
 A client refuses a 2xx answer without `Zolana-Tee: v1`.
 A 400 `tee_decryption_failed` answer means the request does not decrypt under the key the prover holds.
-On `aws-nitro`, whose key changes at every boot, the client then attests again and resends the call once.
+On `aws-nitro`, where a boot key changes at every boot, the client then attests again and resends the call once.
 A resent proof request costs only a second proof, because an encrypted prover runs each request synchronously and keeps no job state.
 An unencrypted failure reaches the caller as unauthenticated, so load shedding and retries still work.
 

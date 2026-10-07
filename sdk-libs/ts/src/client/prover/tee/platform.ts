@@ -54,6 +54,11 @@ export class PolicyFields {
     return policyHex(this.get(name), name, bytes);
   }
 
+  /** Undefined only when the field is absent. */
+  optionalHex(name: string, bytes: number): string | undefined {
+    return this.get(name) === undefined ? undefined : this.hex(name, bytes);
+  }
+
   hexList(name: string, bytes: number): readonly string[] {
     return Object.freeze(
       policyDecode.list(this.get(name), name).map((hex) => policyHex(hex, name, bytes)),

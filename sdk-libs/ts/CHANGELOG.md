@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1-alpha — unreleased
+
+A Nitro Enclave prover can now be held to one encryption key. Deployments that
+share a KMS-released key across enclaves and reboots keep that key stable.
+
+Added
+
+- `AwsNitroPolicy.hpkePublicKey` optionally pins the prover's encryption key, and
+  `proverTee` then refuses an attestation that offers any other key.
+
 ## 0.4.0-alpha — 2026-10-07
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the

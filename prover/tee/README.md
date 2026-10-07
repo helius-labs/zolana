@@ -7,6 +7,7 @@ The TEE prover is the Go prover in an Intel TDX confidential VM on Phala Cloud. 
 A client that requires a TEE sends a request only after an Intel-signed quote proves which image runs. Only the process that quote measures can read the request.
 
 The same server also runs on the CPU in an AWS Nitro Enclave, deployed with `tools/nitro`, whose guide covers that platform. A policy names its platform, and both SDKs accept either.
+The `tools/nitro` guide also gives the AWS KMS layout that lets all enclaves of a deployment share one HPKE key.
 This guide covers the Phala dstack deployment.
 
 ## Threat
