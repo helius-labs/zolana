@@ -7,7 +7,7 @@ use input_fixture::wallet_utxo;
 use num_bigint::BigUint;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    prover::MergeEnvelopeInputs, CompressedCommitments, MergeProofResult, MergeProver,
+    prover::MergeEnvelopeInputs, ClientError, CompressedCommitments, MergeProofResult, MergeProver,
     ProofCompressed, Rpc,
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
@@ -99,6 +99,56 @@ fn merge_proof_inputs_and_instruction_carry_the_one_encrypted_envelope() {
     assert_eq!(
         (data.envelope.ephemeral_pk, data.envelope.ciphertext),
         (encrypted.ephemeral_pk, encrypted.ciphertext)
+    );
+}
+
+#[test]
+fn default_merge_instruction_data_moves_the_commitment_into_the_proof_commitment() {
+    let sender = ShieldedKeypair::new_p256().expect("sender keypair");
+    let (_, result) = prove_default_merge(&sender);
+
+    let data = result
+        .instruction_data(ProofCompressed {
+            a: [1; 32],
+            b: [2; 128],
+            c: [3; 32],
+            commitment: Some(CompressedCommitments {
+                commitment: [4; 32],
+                commitment_pok: [5; 32],
+            }),
+        })
+        .expect("merge instruction data");
+
+    assert_eq!(
+        (data.body.proof.a, data.body.proof.b, data.body.proof.c),
+        ([1; 32], [2; 128], [3; 32])
+    );
+    assert_eq!(
+        (
+            data.proof_commitment.commitment,
+            data.proof_commitment.commitment_pok
+        ),
+        ([4; 32], [5; 32])
+    );
+}
+
+#[test]
+fn default_merge_instruction_data_rejects_a_proof_without_a_commitment() {
+    let sender = ShieldedKeypair::new_p256().expect("sender keypair");
+    let (_, result) = prove_default_merge(&sender);
+
+    let error = result
+        .instruction_data(ProofCompressed {
+            a: [1; 32],
+            b: [2; 128],
+            c: [3; 32],
+            commitment: None,
+        })
+        .expect_err("a default merge proof needs its BSB22 commitment");
+
+    assert!(
+        matches!(&error, ClientError::ProofParse(message) if message.contains("missing its BSB22 commitment")),
+        "unexpected error: {error:?}"
     );
 }
 

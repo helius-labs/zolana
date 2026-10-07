@@ -66,7 +66,7 @@ function hashChain(values: readonly Bytes32[]): Bytes32 {
 }
 
 /**
- * Mirrors Rust `derive_audit_shared_secret` and the circuit's `DeriveAuditSharedSecret`.
+ * Mirrors Rust `AuditSharedSecret::derive` and the shared secret of the circuit's `ve.Envelope.Encrypt`.
  * Binds the ECDH x-coordinate to both public keys, so one shared point serves one key pair.
  */
 export function auditSharedSecret(

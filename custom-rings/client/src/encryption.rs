@@ -1,22 +1,26 @@
 //! Host mirror of the custom-ring circuit's crypto
-//! (`prover/server/custom_rings/circuits/base/{circuit.go,pack.go}`).
+//! (`prover/server/custom_rings/circuits/base/circuit.go`, which encrypts
+//! through `ve.Envelope` in
+//! `prover/server/circuits/verifiable-encryption/ecies.go`).
 //!
 //! The circuit proves that the transaction viewing secret key was encrypted to
 //! the ring's auditor key, so every value below has an in-circuit counterpart
 //! that must agree bit for bit:
 //!
 //! ```text
-//! dh            = ECDH(eph_sk, auditor_pk).x                 -- p256.ECDH
+//! dh            = ECDH(eph_sk, auditor_pk).x                 -- p256.AgreeKey
 //! shared_secret = Poseidon(DOM_SEP_CR_SHARED,
 //!                          dh_lo, dh_hi,
 //!                          eph_pk_lo, eph_pk_hi,
-//!                          auditor_pk_lo, auditor_pk_hi)     -- DeriveAuditSharedSecret
+//!                          auditor_pk_lo, auditor_pk_hi)     -- ve.Envelope.Encrypt
 //! ciphertext    = AES-256-CTR(KeySchedule(shared_secret, AUDIT_ENC_INFO),
 //!                             tx_viewing_sk)                 -- ve.KeySchedule + aes.CTREncrypt
 //! ```
 //!
-//! `pack.go` is the source of truth for the packing of `dh` and of the 33-byte
-//! compressed keys into pairs of field elements; [`pack_be`] mirrors it. The
+//! `packSharedX` and `packCompressedPoint` in
+//! `prover/server/circuits/verifiable-encryption/p256/keyagreement.go` are the
+//! source of truth for the packing of `dh` and of the 33-byte compressed keys
+//! into pairs of field elements; [`pack_be`] mirrors them. The
 //! key schedule and the CTR keystream come from
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
@@ -399,16 +403,17 @@ pub fn auditor_view_tag(pk: &P256Pubkey) -> [u8; 32] {
 
 type Result<T> = core::result::Result<T, AuditEncryptionError>;
 
-/// Key-schedule info string; equals the Go `auditEncInfo`.
+/// Key-schedule info string; equals the Go `AuditEncInfo`.
 pub(crate) const AUDIT_ENC_INFO: &[u8; 10] = b"CRING/adt1";
 
 /// Shared-secret domain separator, ASCII "CR_S" read as a big-endian u32; equals
-/// the Go `DomSepCRShared`.
+/// the Go `SharedSecretTag`.
 const DOM_SEP_CR_SHARED: u32 = 0x4352_5f53;
 
-/// Mirrors `DeriveAuditSharedSecret`: binds the raw ECDH x-coordinate to both
-/// public keys that produced it, so the key schedule input cannot be replayed
-/// under a different key pair. Input order is pinned by `pack.go`.
+/// Mirrors the shared secret `ve.Envelope.Encrypt` derives: binds the raw ECDH
+/// x-coordinate to both public keys that produced it, so the key schedule input
+/// cannot be replayed under a different key pair. Input order is pinned by
+/// `ve.Envelope.Encrypt` and the packing by `p256.AgreeKey`.
 #[must_use]
 pub(crate) struct AuditSharedSecret<'a> {
     pub diffie_hellman_x: &'a [u8; 32],

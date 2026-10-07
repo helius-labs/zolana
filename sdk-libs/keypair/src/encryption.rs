@@ -20,7 +20,7 @@ use crate::{
 
 type Aes256Ctr = Ctr32BE<Aes256>;
 
-/// AES-256-CTR matching aes/ctr.go: J0 = nonce || 0x00000001 and the counter is
+/// AES-256-CTR matching `aes.CTREncrypt` (verifiable-encryption/aes/spread.go): J0 = nonce || 0x00000001 and the counter is
 /// advanced once before the first block, so encryption starts at nonce || 2.
 /// Used for transfer and merge ciphertexts (no authentication tag; integrity
 /// comes from proof-committed hashes).

@@ -286,7 +286,7 @@ fn opened_counters(
 /// uses them through the emulated-field gadgets, i.e. it binds `bytes mod n`.
 /// A prover can therefore encrypt any representative of the scalar class -
 /// `sk`, `sk + n`, ... - and still satisfy
-/// `ScalarMulGenerator(bytes) == tx_viewing_pk`. Reducing here maps every such
+/// `p256.PublicKeyPacked(bytes) == tx_viewing_pk`. Reducing here maps every such
 /// representative back to the canonical one that `ViewingKey::from_bytes`
 /// accepts. Any 256-bit integer is below `2n`, so p256's single conditional
 /// subtraction is a complete reduction.
