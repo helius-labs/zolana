@@ -1495,6 +1495,19 @@ slots with compact padding, so a merge reveals its real input count. At every
 width the default merge adds the [merge envelope](#merge-envelope); the ring
 merge carries no ciphertext.
 
+R1CS constraint counts (gnark v0.16.4):
+
+| Width | `merge_N_1` (default, envelope) | `merge_ring_N_1` |
+| --- | --- | --- |
+| 8 | 342,363 | 178,894 |
+| 24 | 689,499 | 526,078 |
+| 54 | 1,341,939 | 1,178,608 |
+
+The envelope over its 40-byte plaintext (P-256 key agreement, Poseidon key
+schedule and AES-256-CTR) is 163,206 constraints and the proof's one BSB22
+commitment; the default merge costs about 163,400 more than the ring merge at
+every width.
+
 # SPP - Solana Privacy Program
 
 ## Accounts
