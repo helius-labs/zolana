@@ -45,9 +45,13 @@ func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [
 	fp.AssertIsInRange(&recipient.X)
 	fp.AssertIsInRange(&recipient.Y)
 	c.AssertIsOnCurve(recipient)
+	// AssertIsOnCurve admits (0,0) as its infinity encoding. A recipient at
+	// infinity makes the shared point infinity too, so the shared secret would
+	// depend only on public values and anyone could decrypt the envelope.
+	api.AssertIsEqual(api.And(fp.IsZero(&recipient.X), fp.IsZero(&recipient.Y)), 0)
 
 	// gnark >= v0.16.4 (GHSA-7fx8-hmgc-82jp) constrains the hinted ScalarMul
-	// output to the curve, and P-256 has prime order, so with an on-curve
+	// output to the curve, and P-256 has prime order, so with a finite on-curve
 	// recipient and a nonzero scalar both products are the honest finite points.
 	ephemeral := DerivePublicKey(api, ephemeralSk)
 	shared := c.ScalarMul(recipient, ephemeral.scalar)

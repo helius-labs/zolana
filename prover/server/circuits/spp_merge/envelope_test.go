@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"crypto/ecdh"
+	"math/big"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +16,9 @@ import (
 
 	merge "zolana/prover/circuits/spp_merge"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
+	ve "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/prover-test/hosttest"
+	"zolana/prover/prover-test/poseidon"
 )
 
 var (
@@ -97,6 +100,45 @@ func TestMergeEnvelopeRejectsNonUncompressedPrefix(t *testing.T) {
 	a := buildValidWitness(t)
 	a.ViewingPk[0] = 0x03
 	assertDefaultUnsat(t, a, "a viewing key without the 0x04 prefix")
+}
+
+func TestMergeEnvelopeRejectsInfinityRecipient(t *testing.T) {
+	keys := hosttest.DefaultKeys()
+	recipientLo, recipientHi := hosttest.PackCompressed([33]byte{0x02})
+	ephemeralLo, ephemeralHi := keys.EphemeralPacked()
+	sharedLo, sharedHi := hosttest.PackShared([32]byte{})
+	infinity := func(t testing.TB, plaintext []byte) hostEnvelope {
+		t.Helper()
+		sharedSecret, err := poseidon.Hash([]*big.Int{
+			ve.SecretTagValue(mergeshared.MergeSecretTag),
+			sharedLo, sharedHi,
+			ephemeralLo, ephemeralHi,
+			recipientLo, recipientHi,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, nonce := hosttest.KeySchedule(sharedSecret, mergeshared.MergeKdfInfo)
+		return hostEnvelope{
+			recipientPk:  [65]byte{0x04},
+			recipientLo:  recipientLo,
+			recipientHi:  recipientHi,
+			ephemeralSk:  keys.EphemeralScalar(),
+			ephemeralLo:  ephemeralLo,
+			ephemeralHi:  ephemeralHi,
+			ciphertext:   hosttest.CTR(key, nonce, plaintext),
+			sharedSecret: sharedSecret,
+		}
+	}
+	f := buildMergeFixture(t, mergeFixtureOptions{encrypt: infinity})
+	err := solveMerge(t, compiledDefaultMerge(t), f.defaultCircuit())
+	if err == nil {
+		t.Fatal("a merge envelope to the infinity recipient was accepted")
+	}
+	if !strings.Contains(err.Error(), "constraint") {
+		t.Fatalf("the infinity recipient failed outside a constraint: %v", err)
+	}
+	t.Logf("rejected: %v", err)
 }
 
 func TestMergeEnvelopeRejectsReportForgery(t *testing.T) {
