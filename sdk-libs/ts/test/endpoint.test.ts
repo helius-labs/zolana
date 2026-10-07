@@ -28,7 +28,7 @@ describe("resolveClientEndpoints", () => {
     }
     const custom = resolveClientEndpoints({ solanaRpcUrl: "https://devnet.helius-rpc.com/custom" });
     expect(custom.photon).toBe("https://devnet.helius-rpc.com/custom");
-    expect(isZolanaGateway(new URL("https://prover.example/zolana"))).toBe(false);
+    expect(isZolanaGateway(new URL("https://prover.example/v1/zolana"))).toBe(false);
   });
 
   it("resolves localnet to accepted service urls", () => {

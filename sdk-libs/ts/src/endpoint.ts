@@ -19,12 +19,15 @@ export const ZOLANA_GATEWAY_PATH = "/v1/zolana";
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
 
 /**
- * Whether `url` is the Helius gateway's zolana namespace. It serves the
- * indexer at `/v1/zolana/<method>` and proofs only at the key-less
- * `/v1/zolana/prove` and `/v1/zolana/prove/status`, with no indexed route.
+ * Whether `url` is the Helius gateway's zolana namespace on a
+ * `*.helius-rpc.com` host. It serves the indexer at `/v1/zolana/<method>` and
+ * proofs only at the key-less `/v1/zolana/prove` and `/v1/zolana/prove/status`,
+ * with no indexed route.
  */
 export function isZolanaGateway(url: URL): boolean {
-  return url.pathname.replace(/\/+$/u, "").endsWith(ZOLANA_GATEWAY_PATH);
+  return (
+    HELIUS_RPC_HOST.test(url.hostname) && url.pathname.replace(/\/+$/u, "") === ZOLANA_GATEWAY_PATH
+  );
 }
 
 /** A Helius RPC root URL as its zolana namespace, query kept; any other URL unchanged. */

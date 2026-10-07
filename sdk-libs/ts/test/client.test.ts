@@ -1242,10 +1242,10 @@ describe("prover indexer fetching", () => {
       });
       const instance = new ZolanaClient({
         proofDataSource: "prover",
-        proverUrl: "https://prover.test/zolana?api-key=secret",
+        proverUrl: "https://prover.test/v1/zolana?api-key=secret",
         fetch,
       });
-      const indexedUrl = `https://prover.test/zolana/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
+      const indexedUrl = `https://prover.test/v1/zolana/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
       const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
       try {
         const result =
@@ -1260,7 +1260,7 @@ describe("prover indexer fetching", () => {
           expect(String(fetch.mock.calls[1]?.[0])).toBe(indexedUrl);
           expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
           expect(String(fetch.mock.calls[2]?.[0])).toBe(
-            "https://prover.test/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
+            "https://prover.test/v1/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
           );
         }
         expect(String(fetch.mock.calls[0]?.[0])).toBe(indexedUrl);
