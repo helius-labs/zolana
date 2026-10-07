@@ -21,9 +21,7 @@ pub fn pad_input_utxos(
 /// Steps:
 /// 1. Reject an input count above the shape's capacity.
 /// 2. Collect the declared tree IDs and select the padding tree.
-/// 3. Select the first real input in that tree as the padding template.
-/// 4. Append padding with the template's tree ID and leaf index until the
-///    input count matches the shape.
+/// 3. Append padding until the input count matches the shape.
 pub(super) fn pad_inputs(
     input_utxos: &mut Vec<SppProofInputUtxo>,
     shape: Shape,
@@ -46,22 +44,13 @@ pub(super) fn pad_inputs(
         tree_ids.last()
     }
     .ok_or(TransactionError::NoInputs)?;
-    // 3. Padding repeats a real input's tree ID and leaf index, so its position
-    //    metadata is indistinguishable from a real spend's.
-    let leaf_index = input_utxos
-        .iter()
-        .find(|input_utxo| !input_utxo.is_dummy() && input_utxo.tree_id == padding_tree_id)
-        .ok_or(TransactionError::NoInputs)?
-        .leaf_index;
-    // 4. Append padding without moving existing slots.
+    // 3. Append padding without moving existing slots.
     while input_utxos.len() < shape.n_inputs() {
-        let mut padding = if compact {
+        input_utxos.push(if compact {
             SppProofInputUtxo::compact(padding_tree_id)?
         } else {
             SppProofInputUtxo::dummy(padding_tree_id)?
-        };
-        padding.leaf_index = leaf_index;
-        input_utxos.push(padding);
+        });
     }
     Ok(())
 }

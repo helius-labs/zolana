@@ -79,10 +79,7 @@ pub(crate) fn pad_with_compact(
                 got: inputs.len(),
                 max: padded_input_count,
             })?;
-    // Padding repeats the first input's tree ID and leaf index, so its
-    // position metadata is indistinguishable from a real spend's.
-    let template = inputs.first().ok_or(TransactionError::NoInputs)?;
-    let (tree_id, leaf_index) = (template.tree_id, template.leaf_index);
+    let tree_id = inputs.first().ok_or(TransactionError::NoInputs)?.tree_id;
     if dummy_nullifiers.len() != want {
         return Err(TransactionError::IncompleteDerivation {
             got: dummy_nullifiers.len(),
@@ -92,7 +89,6 @@ pub(crate) fn pad_with_compact(
     for nullifier in dummy_nullifiers {
         let mut input = SppProofInputUtxo::compact(tree_id)?;
         input.nullifier = *nullifier;
-        input.leaf_index = leaf_index;
         inputs.push(input);
     }
     Ok(())
