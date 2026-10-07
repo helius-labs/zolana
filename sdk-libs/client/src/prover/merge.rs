@@ -134,6 +134,72 @@ impl MergeProofResult {
     }
 }
 
+/// The rail-specific half of a merge proof, shared by every merge prover. The
+/// default rail binds both halves of the UTXO owner to the registry, so another
+/// nullifier key cannot manufacture a merge for this signing identity, and
+/// binds the envelope; a policy ring binds its output ring data and program.
+pub(crate) struct MergeRailInputs<'a> {
+    pub transaction: &'a MergeProofInputs,
+    pub nullifier_key: &'a NullifierKey,
+    pub first_nullifier: &'a [u8; 32],
+}
+
+pub(crate) struct MergeRail {
+    pub public_inputs: Vec<[u8; 32]>,
+    pub envelope: Option<MergeEnvelopeInputs>,
+}
+
+impl MergeRailInputs<'_> {
+    /// Checks the output blinding against the rail and returns the public
+    /// inputs that follow the common merge prefix.
+    pub fn resolve(&self) -> Result<MergeRail, ClientError> {
+        let tx = self.transaction;
+        let output = &tx.output_utxo;
+        let (expected_blinding, rail) = match (&tx.envelope, tx.ring_program_id) {
+            (Some(envelope), None) => {
+                if output
+                    .owner_address
+                    .is_none_or(|owner| owner.viewing_pubkey != *envelope.recipient())
+                {
+                    return Err(ClientError::MergeOutputMismatch);
+                }
+                let encrypted = envelope.encrypted();
+                let mut public_inputs = vec![
+                    tx.signing_pubkey.owner_proof_input_hash()?,
+                    self.nullifier_key.pubkey()?,
+                ];
+                public_inputs.extend(merge_envelope_public_elements(
+                    envelope.recipient().as_bytes(),
+                    &encrypted.ephemeral_pk,
+                    &encrypted.ciphertext,
+                )?);
+                (
+                    encrypted.output_blinding,
+                    MergeRail {
+                        public_inputs,
+                        envelope: Some(MergeEnvelopeInputs::new(envelope)?),
+                    },
+                )
+            }
+            (None, Some(_)) => (
+                merge_output_blinding(self.nullifier_key, self.first_nullifier)?,
+                MergeRail {
+                    public_inputs: vec![
+                        output.ring_data_hash.unwrap_or_default(),
+                        program_id_proof_input_hash(&tx.ring_program_id)?,
+                    ],
+                    envelope: None,
+                },
+            ),
+            _ => return Err(TransactionError::MergeBlindingRailMismatch.into()),
+        };
+        if output.blinding != expected_blinding {
+            return Err(ClientError::OutputBlindingMismatch { index: 0 });
+        }
+        Ok(rail)
+    }
+}
+
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
         let tx = &self.transaction;
@@ -204,23 +270,13 @@ impl MergeProver {
         {
             return Err(ClientError::MergeOutputMismatch);
         }
-        let encrypted = tx.encrypted_envelope()?;
-        let expected_blinding = match (&tx.envelope, &encrypted, tx.ring_program_id) {
-            (Some(envelope), Some(encrypted), None) => {
-                if output
-                    .owner_address
-                    .is_none_or(|owner| owner.viewing_pubkey != envelope.recipient)
-                {
-                    return Err(ClientError::MergeOutputMismatch);
-                }
-                encrypted.output_blinding
-            }
-            (None, None, Some(_)) => merge_output_blinding(&self.nullifier_key, &first_nullifier)?,
-            _ => return Err(TransactionError::MergeBlindingRailMismatch.into()),
-        };
-        if output.blinding != expected_blinding {
-            return Err(ClientError::OutputBlindingMismatch { index: 0 });
+        let rail = MergeRailInputs {
+            transaction: tx,
+            nullifier_key: &self.nullifier_key,
+            first_nullifier: &first_nullifier,
         }
+        .resolve()?;
+        let encrypted = tx.encrypted_envelope().copied();
         let MergeProofInputs {
             input_utxos,
             output_utxo,
@@ -228,7 +284,7 @@ impl MergeProver {
             signing_pubkey,
             output_tree_id,
             ring_program_id,
-            envelope,
+            envelope: _,
         } = self.transaction;
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
         let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge)?;
@@ -277,23 +333,7 @@ impl MergeProver {
         ];
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
-        let envelope_inputs = match (&envelope, &encrypted) {
-            (Some(envelope), Some(encrypted)) => {
-                // Bind both halves of the UTXO owner to the registry, so another
-                // nullifier key cannot manufacture a merge for this signing identity.
-                elements.extend([user_signing_pk_hash, nullifier_pubkey]);
-                elements.extend(merge_envelope_public_elements(
-                    envelope.recipient.as_bytes(),
-                    &encrypted.ephemeral_pk,
-                    &encrypted.ciphertext,
-                )?);
-                Some(MergeEnvelopeInputs::new(envelope)?)
-            }
-            _ => {
-                elements.extend([output_ring_data_hash, ring_hash]);
-                None
-            }
-        };
+        elements.extend(rail.public_inputs);
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         let eddsa_owner = match signing_pubkey.curve()? {
             Curve::Ed25519 | Curve::Pda => true,
@@ -320,7 +360,7 @@ impl MergeProver {
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
             mint: output_utxo.asset.asset.to_bytes(),
-            envelope: envelope_inputs,
+            envelope: rail.envelope,
         };
         Ok(MergeProofResult {
             inputs,

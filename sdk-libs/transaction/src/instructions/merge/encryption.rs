@@ -90,13 +90,13 @@ impl MergeTransaction {
             SppProofOutputUtxo::new(validated_inputs.asset, validated_inputs.total, *sender)?;
         let envelope = match (ring_program_id, blinding) {
             (None, MergeBlindingSource::Envelope { ephemeral }) => {
-                let envelope = MergeOutputEnvelope {
-                    recipient: sender.viewing_pubkey,
-                    ephemeral: ephemeral.clone(),
-                };
-                output_utxo.blinding = envelope
-                    .encrypt(output_utxo.amount, &output_utxo.asset.asset)?
-                    .output_blinding;
+                let envelope = MergeOutputEnvelope::encrypt(
+                    sender.viewing_pubkey,
+                    ephemeral.clone(),
+                    output_utxo.amount,
+                    &output_utxo.asset.asset,
+                )?;
+                output_utxo.blinding = envelope.encrypted().output_blinding;
                 Some(envelope)
             }
             (Some(ring_program_id), MergeBlindingSource::Derived { output_blinding }) => {

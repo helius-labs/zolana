@@ -68,10 +68,7 @@ fn assert_preserved(actual: &SppProofInputUtxo, expected: &WalletUtxo) {
 }
 
 fn decrypt_envelope(result: &MergeProofInputs, recipient: &ViewingKey) -> DecryptedMergeEnvelope {
-    let encrypted = result
-        .encrypted_envelope()
-        .unwrap()
-        .expect("default merge envelope");
+    let encrypted = result.encrypted_envelope().expect("default merge envelope");
     let ephemeral_pk = P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap();
     let decrypted = MergeEnvelopeDecryption {
         viewing_key: recipient,
@@ -152,7 +149,10 @@ fn every_merge_size_preserves_inputs_and_recovers_the_exact_sum() {
             }
         );
         assert_eq!(
-            result.envelope.as_ref().map(|envelope| envelope.recipient),
+            result
+                .envelope
+                .as_ref()
+                .map(|envelope| *envelope.recipient()),
             Some(sender.viewing_pubkey)
         );
         assert_eq!(
@@ -680,7 +680,7 @@ fn default_merge_envelope_encrypts_to_the_owner_with_the_given_ephemeral_key() {
             &dummy_nullifiers,
         )
         .unwrap();
-    let encrypted = result.encrypted_envelope().unwrap().unwrap();
+    let encrypted = result.encrypted_envelope().unwrap();
     assert_eq!(encrypted.ephemeral_pk, *ephemeral.pubkey().as_bytes());
     let foreign = MergeEnvelopeDecryption {
         viewing_key: &keypair(9).viewing_key,

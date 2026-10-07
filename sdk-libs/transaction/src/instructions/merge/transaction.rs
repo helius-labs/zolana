@@ -5,25 +5,47 @@ use zolana_keypair::{
 
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, SppProofOutputUtxo};
 
+/// The default-rail merge output envelope, encrypted exactly once. The
+/// ephemeral key stays next to its ciphertext because the proof needs it, and
+/// keeping the fields private ties the two together.
 #[derive(Clone)]
 pub struct MergeOutputEnvelope {
-    pub recipient: P256Pubkey,
-    pub ephemeral: ViewingKey,
+    recipient: P256Pubkey,
+    ephemeral: ViewingKey,
+    encrypted: EncryptedMergeEnvelope,
 }
 
 impl MergeOutputEnvelope {
     pub fn encrypt(
-        &self,
+        recipient: P256Pubkey,
+        ephemeral: ViewingKey,
         amount: u64,
         mint: &Address,
-    ) -> Result<EncryptedMergeEnvelope, TransactionError> {
-        Ok(MergeEnvelopeEncryption {
-            recipient: &self.recipient,
-            ephemeral: &self.ephemeral,
+    ) -> Result<Self, TransactionError> {
+        let encrypted = MergeEnvelopeEncryption {
+            recipient: &recipient,
+            ephemeral: &ephemeral,
             amount,
             mint: mint.to_bytes(),
         }
-        .encrypt()?)
+        .encrypt()?;
+        Ok(Self {
+            recipient,
+            ephemeral,
+            encrypted,
+        })
+    }
+
+    pub fn recipient(&self) -> &P256Pubkey {
+        &self.recipient
+    }
+
+    pub fn ephemeral(&self) -> &ViewingKey {
+        &self.ephemeral
+    }
+
+    pub fn encrypted(&self) -> &EncryptedMergeEnvelope {
+        &self.encrypted
     }
 }
 
@@ -43,12 +65,7 @@ impl MergeProofInputs {
         self.output_utxo.hash(self.output_tree_id)
     }
 
-    pub fn encrypted_envelope(&self) -> Result<Option<EncryptedMergeEnvelope>, TransactionError> {
-        self.envelope
-            .as_ref()
-            .map(|envelope| {
-                envelope.encrypt(self.output_utxo.amount, &self.output_utxo.asset.asset)
-            })
-            .transpose()
+    pub fn encrypted_envelope(&self) -> Option<&EncryptedMergeEnvelope> {
+        self.envelope.as_ref().map(MergeOutputEnvelope::encrypted)
     }
 }

@@ -12,16 +12,12 @@ use zolana_interface::{
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
-    merge_utils::merge_envelope_public_elements,
     tree_slot::tree_id_field,
 };
 use zolana_keypair::{Curve, EncryptedMergeEnvelope, NullifierKey};
 use zolana_transaction::{
     instructions::{
-        merge::{
-            merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
-            MergeProofInputs,
-        },
+        merge::{merge_dummy_nullifier, merge_private_tx_blinding, MergeProofInputs},
         transact::PrivateTxHash,
     },
     TransactionError,
@@ -35,6 +31,7 @@ use crate::{
     prover::{
         field::right_align_slice,
         json::MergeOutputParamsJson,
+        merge::MergeRailInputs,
         proving_key::hex,
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
@@ -98,24 +95,12 @@ impl IndexedMergePreparation {
         let tree_id = first.tree_id;
         let first_nullifier = first.nullifier;
         let nullifier_pk = nullifier_key.pubkey()?;
-        let encrypted = merge.encrypted_envelope()?;
-        let expected_blinding = match (&merge.envelope, &encrypted, merge.ring_program_id) {
-            (Some(envelope), Some(encrypted), None) => {
-                if merge
-                    .output_utxo
-                    .owner_address
-                    .is_none_or(|owner| owner.viewing_pubkey != envelope.recipient)
-                {
-                    return Err(invalid());
-                }
-                encrypted.output_blinding
-            }
-            (None, None, Some(_)) => merge_output_blinding(&nullifier_key, &first_nullifier)?,
-            _ => return Err(TransactionError::MergeBlindingRailMismatch.into()),
-        };
-        if merge.output_utxo.blinding != expected_blinding {
-            return Err(invalid());
+        let rail = MergeRailInputs {
+            transaction: &merge,
+            nullifier_key: &nullifier_key,
+            first_nullifier: &first_nullifier,
         }
+        .resolve()?;
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
@@ -221,21 +206,7 @@ impl IndexedMergePreparation {
             external,
             scalar_one(),
         ];
-        let envelope = match (&merge.envelope, &encrypted) {
-            (Some(envelope), Some(encrypted)) => {
-                public_inputs.extend([owner_pk_hash, nullifier_pk]);
-                public_inputs.extend(merge_envelope_public_elements(
-                    envelope.recipient.as_bytes(),
-                    &encrypted.ephemeral_pk,
-                    &encrypted.ciphertext,
-                )?);
-                Some(MergeEnvelopeInputs::new(envelope)?)
-            }
-            _ => {
-                public_inputs.extend([ring_data_hash, ring_hash]);
-                None
-            }
-        };
+        public_inputs.extend(rail.public_inputs);
         let witness = PreparedMergeJson {
             circuit_type: if merge.ring_program_id.is_some() {
                 IndexedCircuit::MergeRing
@@ -249,7 +220,7 @@ impl IndexedMergePreparation {
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
             mint: hex(merge.output_utxo.asset.asset.as_array()),
-            envelope,
+            envelope: rail.envelope,
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -289,7 +260,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
-            envelope: encrypted,
+            envelope: merge.encrypted_envelope().copied(),
         })
     }
 }

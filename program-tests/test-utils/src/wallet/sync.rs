@@ -2872,7 +2872,6 @@ mod tests {
             .expect("owner tag");
         let encrypted = prepared
             .encrypted_envelope()
-            .expect("encrypt merge envelope")
             .expect("default merge envelope");
         ShieldedTransaction {
             slot,
