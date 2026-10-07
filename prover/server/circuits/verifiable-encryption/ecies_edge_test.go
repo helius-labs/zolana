@@ -2,11 +2,11 @@ package verifiableencryption_test
 
 import (
 	"math/big"
-	"strings"
 	"testing"
 	"time"
 
 	ve "zolana/prover/circuits/verifiable-encryption"
+	"zolana/prover/prover-test/hintattack"
 	"zolana/prover/prover-test/hosttest"
 	"zolana/prover/prover-test/poseidon"
 )
@@ -70,12 +70,5 @@ func TestEnvelopeRejectsInfinityRecipient(t *testing.T) {
 		ciphertext:  hosttest.CTR(key, nonce, plaintext),
 	}.witness()
 
-	err = solveCompiled(t, compileEnvelope(t, eciesPlaintextBytes), a)
-	if err == nil {
-		t.Fatal("an envelope to the infinity recipient was accepted")
-	}
-	if !strings.Contains(err.Error(), "constraint") {
-		t.Fatalf("the infinity recipient failed outside a constraint: %v", err)
-	}
-	t.Logf("rejected: %v", err)
+	hintattack.RequireConstraintRejection(t, solveCompiled(t, compileEnvelope(t, eciesPlaintextBytes), a))
 }

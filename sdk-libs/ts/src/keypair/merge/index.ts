@@ -54,6 +54,7 @@ export function keyAgreementSecret(
   sharedX: Bytes32,
   ephemeralPublicKey: P256PublicKey,
   recipient: P256PublicKey,
+  context?: Bytes32,
 ): Bytes32 {
   const packed = pack32(sharedX);
   try {
@@ -62,6 +63,7 @@ export function keyAgreementSecret(
       ...packed,
       ...pack33(ephemeralPublicKey.toBytes()),
       ...pack33(recipient.toBytes()),
+      ...(context === undefined ? [] : [context]),
     ]) as Bytes32;
   } finally {
     for (const field of packed) field.fill(0);
@@ -72,8 +74,15 @@ export function mergeSharedSecret(
   sharedX: Bytes32,
   ephemeralPublicKey: P256PublicKey,
   recipient: P256PublicKey,
+  firstNullifier: Bytes32,
 ): Bytes32 {
-  return keyAgreementSecret(MERGE_SECRET_TAG, sharedX, ephemeralPublicKey, recipient);
+  return keyAgreementSecret(
+    MERGE_SECRET_TAG,
+    sharedX,
+    ephemeralPublicKey,
+    recipient,
+    firstNullifier,
+  );
 }
 
 function checkInput(input: unknown): void {
@@ -113,12 +122,14 @@ export function encryptMergeEnvelope(
     ephemeral: ViewingKey;
     amount: bigint;
     mint: Bytes32;
+    firstNullifier: Bytes32;
   }>,
 ): EncryptedMergeEnvelope {
   checkInput(input);
   const recipient = checkedPublicKey(input.recipient, "merge recipient");
   const ephemeral = checkedViewingKey(input.ephemeral, "merge ephemeral key");
   const amount = checkedAmount(input.amount);
+  const firstNullifier = checkedBytes<Bytes32>(input.firstNullifier, 32, "first nullifier");
   const plaintext = concatBytes(
     u64be(amount),
     checkedBytes<Bytes32>(input.mint, MERGE_MINT_LENGTH, "merge mint"),
@@ -128,7 +139,7 @@ export function encryptMergeEnvelope(
   try {
     const ephemeralPublicKey = ephemeral.publicKey();
     sharedX = ephemeral.ecdh(recipient);
-    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient);
+    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient, firstNullifier);
     return Object.freeze({
       ephemeralPublicKey,
       ciphertext: symmetricApply(secret, MERGE_ENVELOPE_INFO, plaintext),
@@ -146,6 +157,7 @@ export function decryptMergeEnvelope(
     viewingKey: ViewingKey;
     ephemeralPublicKey: P256PublicKey;
     ciphertext: Uint8Array;
+    firstNullifier: Bytes32;
   }>,
 ): DecryptedMergeEnvelope {
   checkInput(input);
@@ -159,13 +171,14 @@ export function decryptMergeEnvelope(
     MERGE_CIPHERTEXT_LENGTH,
     "merge envelope ciphertext",
   );
+  const firstNullifier = checkedBytes<Bytes32>(input.firstNullifier, 32, "first nullifier");
   let sharedX: Bytes32 | undefined;
   let secret: Bytes32 | undefined;
   let plaintext: Uint8Array | undefined;
   try {
     const recipient = viewingKey.publicKey();
     sharedX = viewingKey.ecdh(ephemeralPublicKey);
-    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient);
+    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient, firstNullifier);
     plaintext = symmetricApply(secret, MERGE_ENVELOPE_INFO, ciphertext);
     return Object.freeze({
       amount: bytesToBigInt(plaintext.subarray(0, MERGE_AMOUNT_LENGTH)),

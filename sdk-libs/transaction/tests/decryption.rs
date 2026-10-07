@@ -465,6 +465,7 @@ impl ShieldedKeys for RecordingKeys {
         viewing_pubkey: &P256Pubkey,
         ephemeral_pk: &P256Pubkey,
         ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+        first_nullifier: &[u8; 32],
     ) -> Result<DecryptedMergeEnvelope, TransactionError> {
         self.merge_calls.borrow_mut().push(RecordedMergeDecrypt {
             viewing_pubkey: *viewing_pubkey,
@@ -474,7 +475,7 @@ impl ShieldedKeys for RecordingKeys {
             return Err(TransactionError::Authority("merge envelope".into()));
         }
         self.local
-            .decrypt_merge_envelope(viewing_pubkey, ephemeral_pk, ciphertext)
+            .decrypt_merge_envelope(viewing_pubkey, ephemeral_pk, ciphertext, first_nullifier)
     }
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
         self.derive_calls.borrow_mut().push(requests.to_vec());
@@ -1106,6 +1107,7 @@ fn merge_publication_to(
                 ephemeral: &ViewingKey::from_bytes(&[tx_slot; 32]).unwrap(),
                 amount,
                 mint: first.utxo.asset.asset.to_bytes(),
+                first_nullifier,
             }
             .encrypt()
             .unwrap();

@@ -25,7 +25,7 @@ func TestEnvelopeRejectsHintAttacks(t *testing.T) {
 	} {
 		assignment := envelopeAssignmentFor(row.keys, eciesPlaintextBytes)
 		t.Run(row.name, func(t *testing.T) {
-			hintattack.RunHintAttacks(t, func(opts ...solver.Option) error {
+			hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
 				return solveCompiled(t, cs, assignment, opts...)
 			})
 		})

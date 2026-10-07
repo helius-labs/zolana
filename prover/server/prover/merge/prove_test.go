@@ -192,7 +192,7 @@ func provableParams(t testing.TB, circuitType common.CircuitType) *MergeParamete
 		plaintext := make([]byte, mergeshared.MergeAmountBytes, mergeshared.MergeCiphertextBytes)
 		outAmount.FillBytes(plaintext)
 		plaintext = append(plaintext, mint[:]...)
-		ciphertext, sharedSecret := keys.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+		ciphertext, sharedSecret := keys.EncryptWithContext(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext, nullifiers[0])
 		outBlinding = mustPoseidon(t, big.NewInt(mergeshared.MergeDerivedBlindingDomain), sharedSecret)
 		params.ViewingPk = keys.RecipientUncompressed()
 		params.EphemeralSk = keys.EphemeralScalar()

@@ -51,6 +51,12 @@ describe("merge envelope guards", () => {
     });
   }
 
+  function firstNullifier(prepared: PreparedMerge): Bytes32 {
+    const first = prepared.inputs[0];
+    if (first === undefined) throw new Error("expected a first input");
+    return first.nullifier();
+  }
+
   it("encrypts a default merge to the owner's viewing key and takes the encrypted blinding", () => {
     const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
     const encrypted = prepared.encryptedEnvelope();
@@ -70,7 +76,10 @@ describe("merge envelope guards", () => {
     const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
     const other = ShieldedKeypair.generate();
     try {
-      const envelope = new MergeOutputEnvelope({ recipient: other.viewingPublicKey() });
+      const envelope = new MergeOutputEnvelope({
+        recipient: other.viewingPublicKey(),
+        firstNullifier: firstNullifier(prepared),
+      });
       const blinding = envelope.encrypt(
         prepared.output.amount,
         prepared.output.asset,
@@ -83,9 +92,31 @@ describe("merge envelope guards", () => {
     }
   });
 
+  it("refuses an envelope keyed by a first nullifier other than the merge's", () => {
+    const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
+    const envelope = new MergeOutputEnvelope({
+      recipient: owner.viewingPublicKey(),
+      firstNullifier: new Uint8Array(32).fill(1) as Bytes32,
+    });
+    try {
+      const blinding = envelope.encrypt(
+        prepared.output.amount,
+        prepared.output.asset,
+      ).outputBlinding;
+      expect(() =>
+        assembleMergeWithProofs(rebuilt(prepared, { envelope, blinding }), [], submitTree),
+      ).toThrow(expect.objectContaining({ code: "CLIENT_MERGE_OUTPUT_MISMATCH" }));
+    } finally {
+      envelope.destroy();
+    }
+  });
+
   it("refuses an output blinding the envelope does not derive", () => {
     const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
-    const envelope = new MergeOutputEnvelope({ recipient: owner.viewingPublicKey() });
+    const envelope = new MergeOutputEnvelope({
+      recipient: owner.viewingPublicKey(),
+      firstNullifier: firstNullifier(prepared),
+    });
     expect(() => assembleMergeWithProofs(rebuilt(prepared, { envelope }), [], submitTree)).toThrow(
       expect.objectContaining({ code: "CLIENT_OUTPUT_BLINDING_MISMATCH", details: { index: 0 } }),
     );
@@ -146,7 +177,10 @@ describe("merge envelope guards", () => {
 
   it("proves a default merge an integrator assembles around its own envelope", async () => {
     const prepared = Merge.fromKeypair(owner, [solInput(owner, 5n)]).prepare();
-    const envelope = new MergeOutputEnvelope({ recipient: owner.viewingPublicKey() });
+    const envelope = new MergeOutputEnvelope({
+      recipient: owner.viewingPublicKey(),
+      firstNullifier: firstNullifier(prepared),
+    });
     try {
       const blinding = envelope.encrypt(
         prepared.output.amount,
@@ -163,7 +197,10 @@ describe("merge envelope guards", () => {
   });
 
   it("lends the ephemeral secret only while the callback runs", async () => {
-    const envelope = new MergeOutputEnvelope({ recipient: owner.viewingPublicKey() });
+    const envelope = new MergeOutputEnvelope({
+      recipient: owner.viewingPublicKey(),
+      firstNullifier: new Uint8Array(32).fill(1) as Bytes32,
+    });
     try {
       let lent: Uint8Array = new Uint8Array();
       await envelope.withEphemeralSecret(async (secret) => {
@@ -225,6 +262,7 @@ describe("merge envelope guards", () => {
 describe("merge envelope encryption inputs", () => {
   const recipient = ShieldedKeypair.generate();
   const mint = new Uint8Array(getAddressEncoder().encode(SOL_MINT)) as Bytes32;
+  const firstNullifier = new Uint8Array(32).fill(5) as Bytes32;
 
   it("refuses an amount outside u64 with its own code", () => {
     const ephemeral = ViewingKey.generate();
@@ -232,7 +270,7 @@ describe("merge envelope encryption inputs", () => {
       for (const amount of [-1n, 1n << 64n, 7]) {
         expect(() =>
           Reflect.apply(encryptMergeEnvelope, undefined, [
-            { recipient: recipient.viewingPublicKey(), ephemeral, amount, mint },
+            { recipient: recipient.viewingPublicKey(), ephemeral, amount, mint, firstNullifier },
           ]),
         ).toThrow(expect.objectContaining({ code: "KEYPAIR_INVALID_AMOUNT" }));
       }
@@ -250,17 +288,25 @@ describe("merge envelope encryption inputs", () => {
         ephemeral,
         amount: 7n,
         mint,
+        firstNullifier,
       });
       const publicKeyBytes = recipient.viewingPublicKey().toBytes();
       const encryptWith = (input: unknown) => () =>
         Reflect.apply(encryptMergeEnvelope, undefined, [input]);
       const decryptWith = (input: unknown) => () =>
         Reflect.apply(decryptMergeEnvelope, undefined, [input]);
-      const valid = { recipient: recipient.viewingPublicKey(), ephemeral, amount: 7n, mint };
+      const valid = {
+        recipient: recipient.viewingPublicKey(),
+        ephemeral,
+        amount: 7n,
+        mint,
+        firstNullifier,
+      };
       const opened = {
         viewingKey,
         ephemeralPublicKey: encrypted.ephemeralPublicKey,
         ciphertext: encrypted.ciphertext,
+        firstNullifier,
       };
       const cases: readonly [() => unknown, string][] = [
         [encryptWith(null), "KEYPAIR_INVALID_INPUT"],
@@ -273,6 +319,10 @@ describe("merge envelope encryption inputs", () => {
           "KEYPAIR_INVALID_SECRET_KEY",
         ],
         [encryptWith({ ...valid, mint: mint.subarray(1) }), "KEYPAIR_INVALID_LENGTH"],
+        [
+          encryptWith({ ...valid, firstNullifier: firstNullifier.subarray(1) }),
+          "KEYPAIR_INVALID_LENGTH",
+        ],
         [decryptWith(undefined), "KEYPAIR_INVALID_INPUT"],
         [
           decryptWith({ ...opened, viewingKey: { publicKey: () => recipient.viewingPublicKey() } }),
@@ -286,6 +336,7 @@ describe("merge envelope encryption inputs", () => {
           decryptWith({ ...opened, ciphertext: encrypted.ciphertext.subarray(1) }),
           "KEYPAIR_INVALID_LENGTH",
         ],
+        [decryptWith({ ...opened, firstNullifier: undefined }), "KEYPAIR_INVALID_LENGTH"],
       ];
       for (const [call, code] of cases) {
         expect(call).toThrow(expect.objectContaining({ code }));
@@ -295,8 +346,41 @@ describe("merge envelope encryption inputs", () => {
           viewingKey,
           ephemeralPublicKey: P256PublicKey.fromBytes(encrypted.ephemeralPublicKey.toBytes()),
           ciphertext: encrypted.ciphertext,
+          firstNullifier,
         }),
       ).toMatchObject({ amount: 7n, mint, outputBlinding: encrypted.outputBlinding });
+    } finally {
+      ephemeral.destroy();
+      viewingKey.destroy();
+    }
+  });
+
+  it("keys a reused ephemeral key afresh under each first nullifier", () => {
+    const ephemeral = ViewingKey.generate();
+    const viewingKey = recipient.viewingKey();
+    try {
+      const encryptUnder = (nullifier: Bytes32) =>
+        encryptMergeEnvelope({
+          recipient: recipient.viewingPublicKey(),
+          ephemeral,
+          amount: 7n,
+          mint,
+          firstNullifier: nullifier,
+        });
+      const other = new Uint8Array(32).fill(6) as Bytes32;
+      const first = encryptUnder(firstNullifier);
+      const second = encryptUnder(other);
+      expect(second.ephemeralPublicKey.equals(first.ephemeralPublicKey)).toBe(true);
+      expect(second.ciphertext).not.toEqual(first.ciphertext);
+      expect(second.outputBlinding).not.toEqual(first.outputBlinding);
+      expect(
+        decryptMergeEnvelope({
+          viewingKey,
+          ephemeralPublicKey: first.ephemeralPublicKey,
+          ciphertext: first.ciphertext,
+          firstNullifier: other,
+        }).outputBlinding,
+      ).not.toEqual(first.outputBlinding);
     } finally {
       ephemeral.destroy();
       viewingKey.destroy();

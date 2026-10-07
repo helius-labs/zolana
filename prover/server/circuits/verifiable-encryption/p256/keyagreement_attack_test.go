@@ -29,7 +29,7 @@ func TestAgreeKeyRejectsHintAttacks(t *testing.T) {
 	for _, row := range attackScalars() {
 		w := agreeKeyWitness(t, row.scalar, peer)
 		t.Run(row.name, func(t *testing.T) {
-			hintattack.RunHintAttacks(t, func(opts ...solver.Option) error {
+			hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
 				return solveAgreement(t, cs, w, opts...)
 			})
 		})
@@ -41,7 +41,7 @@ func TestSelfAgreeKeyRejectsHintAttacks(t *testing.T) {
 	for _, row := range attackScalars() {
 		w := scalarRow{name: row.name, scalar: row.scalar, reduced: row.scalar}.selfAgreementWitness(t)
 		t.Run(row.name, func(t *testing.T) {
-			hintattack.RunHintAttacks(t, func(opts ...solver.Option) error {
+			hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
 				return solveAgreement(t, cs, w, opts...)
 			})
 		})

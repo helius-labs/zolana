@@ -3,11 +3,11 @@ package p256_test
 import (
 	"crypto/elliptic"
 	"math/big"
-	"strings"
 	"testing"
 	"time"
 
 	"zolana/prover/circuits/verifiable-encryption/p256"
+	"zolana/prover/prover-test/hintattack"
 	"zolana/prover/prover-test/hosttest"
 )
 
@@ -65,14 +65,7 @@ func TestAgreeKeyRejectsInfinityRecipient(t *testing.T) {
 			for i, v := range []*big.Int{recipientLo, recipientHi, ephemeralLo, ephemeralHi, sharedLo, sharedHi} {
 				w.Expected[i] = v
 			}
-			err := p256.SolveAgreement(t, cs, &w)
-			if err == nil {
-				t.Fatal("the infinity recipient was accepted")
-			}
-			if !strings.Contains(err.Error(), "constraint") {
-				t.Fatalf("the infinity recipient failed outside a constraint: %v", err)
-			}
-			t.Logf("rejected: %v", err)
+			hintattack.RequireConstraintRejection(t, p256.SolveAgreement(t, cs, &w))
 		})
 	}
 }

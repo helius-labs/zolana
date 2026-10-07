@@ -50,28 +50,39 @@ func (k Keys) EphemeralPacked() (lo, hi *big.Int) {
 	return PackCompressed(CompressP256(k.EphemeralSecret.PublicKey().Bytes()))
 }
 
-func (k Keys) SharedSecret(tag []byte) *big.Int {
+func (k Keys) SharedSecret(tag []byte, context *big.Int) *big.Int {
 	dh, err := k.EphemeralSecret.ECDH(k.RecipientSecret.PublicKey())
 	if err != nil {
 		panic(err)
 	}
-	return k.sharedSecret(tag, [32]byte(dh))
+	return k.sharedSecret(tag, [32]byte(dh), context)
 }
 
-func (k Keys) sharedSecret(tag []byte, sharedX [32]byte) *big.Int {
+func (k Keys) sharedSecret(tag []byte, sharedX [32]byte, context *big.Int) *big.Int {
 	sharedLo, sharedHi := PackShared(sharedX)
 	ephemeralLo, ephemeralHi := k.EphemeralPacked()
 	recipientLo, recipientHi := k.RecipientPacked()
-	return mustPoseidon(
+	inputs := []*big.Int{
 		ve.SecretTagValue(tag),
 		sharedLo, sharedHi,
 		ephemeralLo, ephemeralHi,
 		recipientLo, recipientHi,
-	)
+	}
+	if context != nil {
+		inputs = append(inputs, context)
+	}
+	return mustPoseidon(inputs...)
 }
 
 func (k Keys) Encrypt(tag, info, plaintext []byte) (ciphertext []byte, sharedSecret *big.Int) {
-	sharedSecret = k.SharedSecret(tag)
+	return k.EncryptWithContext(tag, info, plaintext, nil)
+}
+
+func (k Keys) EncryptWithContext(tag, info, plaintext []byte, context *big.Int) (ciphertext []byte, sharedSecret *big.Int) {
+	return encryptUnder(k.SharedSecret(tag, context), info, plaintext)
+}
+
+func encryptUnder(sharedSecret *big.Int, info, plaintext []byte) ([]byte, *big.Int) {
 	key, nonce := KeySchedule(sharedSecret, info)
 	return CTR(key, nonce, plaintext), sharedSecret
 }

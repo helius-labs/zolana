@@ -577,12 +577,18 @@ fn decrypt_merge_envelope<K: ShieldedKeys + ?Sized>(
     {
         return Ok(MergeRebuild::NotOurs);
     }
+    let Some(first_nullifier) = tx.nullifiers.first() else {
+        return Ok(MergeRebuild::NotOurs);
+    };
     let context = &slot.output_context;
     let mut failed = false;
     for viewing_pubkey in shielded_keys.viewing_public_keys() {
-        let Ok(envelope) =
-            shielded_keys.decrypt_merge_envelope(&viewing_pubkey, ephemeral_pk, ciphertext)
-        else {
+        let Ok(envelope) = shielded_keys.decrypt_merge_envelope(
+            &viewing_pubkey,
+            ephemeral_pk,
+            ciphertext,
+            first_nullifier,
+        ) else {
             failed = true;
             continue;
         };

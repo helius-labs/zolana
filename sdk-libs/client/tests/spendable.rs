@@ -245,6 +245,7 @@ fn merge(
                 ephemeral: &ViewingKey::from_bytes(&[nonce; 32]).unwrap(),
                 amount: utxo.amount,
                 mint: utxo.asset.asset.to_bytes(),
+                first_nullifier: first,
             }
             .encrypt()
             .unwrap();

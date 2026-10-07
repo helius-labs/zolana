@@ -86,6 +86,7 @@ impl MergeTransaction {
             output_ring_data_hash,
         } = self;
         validate_merge_owner(sender, &inputs)?;
+        let first_nullifier = inputs.first().ok_or(TransactionError::NoInputs)?.nullifier;
         let mut output_utxo =
             SppProofOutputUtxo::new(validated_inputs.asset, validated_inputs.total, *sender)?;
         let envelope = match (ring_program_id, blinding) {
@@ -95,6 +96,7 @@ impl MergeTransaction {
                     ephemeral.clone(),
                     output_utxo.amount,
                     &output_utxo.asset.asset,
+                    first_nullifier,
                 )?;
                 output_utxo.blinding = envelope.encrypted().output_blinding;
                 Some(envelope)

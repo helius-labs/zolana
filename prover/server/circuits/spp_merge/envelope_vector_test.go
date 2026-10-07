@@ -27,6 +27,7 @@ type mergeEnvelopeVector struct {
 	EphemeralSecret       string `json:"ephemeral_secret"`
 	Amount                uint64 `json:"amount"`
 	Mint                  string `json:"mint"`
+	FirstNullifier        string `json:"first_nullifier"`
 	RecipientCompressed   string `json:"recipient_compressed"`
 	RecipientUncompressed string `json:"recipient_uncompressed"`
 	EphemeralPk           string `json:"ephemeral_pk"`
@@ -46,6 +47,7 @@ type mergeEnvelopeVectorCircuit struct {
 	RecipientPk    [ve.UncompressedPointBytes]frontend.Variable
 	Amount         frontend.Variable
 	MintChunks     [mergeshared.MintChunkCount]frontend.Variable
+	FirstNullifier frontend.Variable                                   `gnark:",public"`
 	RecipientLo    frontend.Variable                                   `gnark:",public"`
 	RecipientHi    frontend.Variable                                   `gnark:",public"`
 	EphemeralLo    frontend.Variable                                   `gnark:",public"`
@@ -62,6 +64,7 @@ func (c *mergeEnvelopeVectorCircuit) Define(api frontend.API) error {
 		EphemeralSk: c.EphemeralSk,
 		RecipientPk: c.RecipientPk,
 		Plaintext:   mergeshared.MergePlaintext(api, ve.BytesBigEndian(api, c.Amount, mergeshared.MergeAmountBytes), c.MintChunks),
+		Context:     c.FirstNullifier,
 	}.Encrypt(api)
 	api.AssertIsEqual(encrypted.RecipientLo, c.RecipientLo)
 	api.AssertIsEqual(encrypted.RecipientHi, c.RecipientHi)
@@ -135,9 +138,10 @@ func TestMergeEnvelopeMatchesRustVector(t *testing.T) {
 		{"ephemeral_pk", ephemeralCompressed[:], decodeVectorHex(t, "ephemeral_pk", vector.EphemeralPk, 33)},
 	}
 
+	firstNullifier := new(big.Int).SetBytes(decodeVectorHex(t, "first_nullifier", vector.FirstNullifier, 32))
 	plaintext := binary.BigEndian.AppendUint64(nil, vector.Amount)
 	plaintext = append(plaintext, mint...)
-	ciphertext, sharedSecret := keys.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+	ciphertext, sharedSecret := keys.EncryptWithContext(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext, firstNullifier)
 	outputBlinding, err := poseidon.Hash([]*big.Int{big.NewInt(mergeshared.MergeDerivedBlindingDomain), sharedSecret})
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +168,7 @@ func TestMergeEnvelopeMatchesRustVector(t *testing.T) {
 			new(big.Int).SetBytes(mint[:mergeshared.MintHeadChunkBytes]),
 			new(big.Int).SetBytes(mint[mergeshared.MintHeadChunkBytes:]),
 		},
+		FirstNullifier: firstNullifier,
 		RecipientLo:    recipientLo,
 		RecipientHi:    recipientHi,
 		EphemeralLo:    ephemeralLo,

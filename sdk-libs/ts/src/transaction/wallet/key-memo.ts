@@ -54,6 +54,9 @@ export class KeyMemo {
       salt: copy(request.salt),
       slotIndex: request.slotIndex,
       label: request.label,
+      ...(request.firstNullifier === undefined
+        ? {}
+        : { firstNullifier: copy(request.firstNullifier) }),
     });
     return undefined;
   }
@@ -65,7 +68,8 @@ export class KeyMemo {
    * the wallet's own merges only.
    */
   decryptMergeEnvelope(
-    request: Omit<DecryptRequest, "label" | "salt" | "slotIndex">,
+    request: Omit<DecryptRequest, "label" | "salt" | "slotIndex" | "firstNullifier"> &
+      Readonly<{ firstNullifier: Bytes32 }>,
   ): MergeEnvelopeAnswer | undefined {
     const full: DecryptRequest = {
       ciphertext: copy(request.ciphertext),
@@ -74,6 +78,7 @@ export class KeyMemo {
       salt: new Uint8Array(16) as DecryptRequest["salt"],
       slotIndex: 0,
       label: "mergeEnvelope",
+      firstNullifier: copy(request.firstNullifier),
     };
     const key = decryptKey(full);
     const known = this.#mergeEnvelopes.get(key);
@@ -219,6 +224,7 @@ function decryptKey(request: DecryptRequest): string {
     hex(request.salt),
     String(request.slotIndex),
     hex(request.ciphertext),
+    request.firstNullifier === undefined ? "" : hex(request.firstNullifier),
   ].join("|");
 }
 

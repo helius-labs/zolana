@@ -71,6 +71,9 @@ func (c *Circuit) Define(api frontend.API) error {
 		EphemeralSk: c.EphemeralSk,
 		RecipientPk: c.ViewingPk,
 		Plaintext:   mergeshared.MergePlaintext(api, amountBytes, c.MintChunks),
+		// The published first nullifier is unique per accepted merge, so a
+		// reused ephemeral key repeats neither the keystream nor the output leaf.
+		Context: c.Nullifiers[0],
 	}.Encrypt(api)
 	tx.OutputAmount = amount
 	tx.OutputBlinding = mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret)

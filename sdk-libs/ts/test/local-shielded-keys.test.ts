@@ -173,13 +173,15 @@ describe("LocalShieldedKeys", () => {
     const ephemeral = ViewingKey.generate();
     try {
       const mint = new Uint8Array(32).fill(7) as Bytes32;
+      const firstNullifier = new Uint8Array(32).fill(8) as Bytes32;
       const encrypted = encryptMergeEnvelope({
         recipient: keypair.viewingPublicKey(),
         ephemeral,
         amount: 55n,
         mint,
+        firstNullifier,
       });
-      const request = {
+      const withoutFirstNullifier = {
         ciphertext: encrypted.ciphertext,
         viewingPublicKey: keypair.viewingPublicKey(),
         txViewingPublicKey: encrypted.ephemeralPublicKey,
@@ -187,12 +189,23 @@ describe("LocalShieldedKeys", () => {
         slotIndex: 0,
         label: "mergeEnvelope" as const,
       };
+      const request = { ...withoutFirstNullifier, firstNullifier };
       const [decrypted] = await keys.decrypt([request]);
       expect(decrypted).toHaveLength(72);
       expect(decodeDecryptedMergeEnvelope(decrypted!)).toEqual({
         amount: 55n,
         mint,
         outputBlinding: encrypted.outputBlinding,
+      });
+      const [other] = await keys.decrypt([
+        { ...request, firstNullifier: new Uint8Array(32).fill(9) as Bytes32 },
+      ]);
+      expect(decodeDecryptedMergeEnvelope(other!).outputBlinding).not.toEqual(
+        encrypted.outputBlinding,
+      );
+      await expect(keys.decrypt([withoutFirstNullifier])).rejects.toMatchObject({
+        code: "TRANSACTION_DESERIALIZE",
+        details: { field: "firstNullifier" },
       });
       await expect(keys.decrypt([{ ...request, slotIndex: 1 }])).rejects.toMatchObject({
         code: "TRANSACTION_INVALID_POSITION",

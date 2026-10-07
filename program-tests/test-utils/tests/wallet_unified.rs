@@ -28,6 +28,7 @@ fn encrypted_merge(
         ephemeral: &ViewingKey::from_bytes(&[slot; 32]).unwrap(),
         amount,
         mint: SOL_MINT.to_bytes(),
+        first_nullifier: *nullifiers.first().expect("a merge has a first nullifier"),
     }
     .encrypt()
     .unwrap();

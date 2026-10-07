@@ -92,6 +92,7 @@ type KeyDerivationVectors = Readonly<{
     ephemeral_secret: string;
     amount: number;
     mint: string;
+    first_nullifier: string;
     recipient_compressed: string;
     recipient_uncompressed: string;
     ephemeral_pk: string;
@@ -232,6 +233,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     const recipientPublicKey = recipient.publicKey();
     const amount = BigInt(section.amount);
     const mint = bytes(section.mint) as Bytes32;
+    const firstNullifier = bytes(section.first_nullifier) as Bytes32;
     expect(hex(recipientPublicKey.toBytes())).toBe(section.recipient_compressed);
     expect(hex(recipientPublicKey.toUncompressed())).toBe(section.recipient_uncompressed);
     expect(
@@ -240,6 +242,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
           ephemeral.ecdh(recipientPublicKey),
           ephemeral.publicKey(),
           recipientPublicKey,
+          firstNullifier,
         ),
       ),
     ).toBe(section.shared_secret);
@@ -249,6 +252,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       ephemeral,
       amount,
       mint,
+      firstNullifier,
     });
     expect(hex(encrypted.ephemeralPublicKey.toBytes())).toBe(section.ephemeral_pk);
     expect(hex(encrypted.ciphertext)).toBe(section.ciphertext);
@@ -258,6 +262,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       viewingKey: recipient,
       ephemeralPublicKey: P256PublicKey.fromBytes(bytes(section.ephemeral_pk) as Bytes33),
       ciphertext: bytes(section.ciphertext),
+      firstNullifier,
     });
     expect(decrypted).toEqual({
       amount,

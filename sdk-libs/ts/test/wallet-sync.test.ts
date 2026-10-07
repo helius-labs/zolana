@@ -78,6 +78,8 @@ function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
+const MERGE_FIRST_NULLIFIER = bytes(0x21);
+
 interface RequestWithCursor {
   readonly cursor?: Uint8Array;
 }
@@ -87,6 +89,7 @@ function encryptedMerge(
   amount: bigint,
   recipient: P256PublicKey = keypair.viewingPublicKey(),
   asset: Address = SOL_MINT,
+  firstNullifier: Bytes32 = MERGE_FIRST_NULLIFIER,
 ) {
   const ephemeral = ViewingKey.generate();
   try {
@@ -95,6 +98,7 @@ function encryptedMerge(
       ephemeral,
       amount,
       mint: new Uint8Array(getAddressEncoder().encode(asset)) as Bytes32,
+      firstNullifier,
     });
     return {
       utxo: new Utxo({
@@ -146,7 +150,7 @@ function envelopeMergeTransaction(
       },
     ],
     messages: [],
-    nullifiers: overrides.nullifiers ?? [bytes(61), bytes(62)],
+    nullifiers: overrides.nullifiers ?? [MERGE_FIRST_NULLIFIER, bytes(62)],
     proofless: false,
   };
 }
@@ -207,7 +211,14 @@ function mergeAfterSplit() {
     utxo.nullifier(contexts[index]!.hash, keypair.nullifierKey()),
   );
   const firstNullifier = spent[0]!;
-  const merge = envelopeMergeTransaction(keypair, encryptedMerge(keypair, 42n), {
+  const encrypted = encryptedMerge(
+    keypair,
+    42n,
+    keypair.viewingPublicKey(),
+    SOL_MINT,
+    firstNullifier,
+  );
+  const merge = envelopeMergeTransaction(keypair, encrypted, {
     slot: 2n,
     txSignature: "2".repeat(64) as Signature,
     leafIndex: 2n,
@@ -828,7 +839,13 @@ describe("wallet sync", () => {
             mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + real),
           )),
     ];
-    const encrypted = encryptedMerge(keypair, total);
+    const encrypted = encryptedMerge(
+      keypair,
+      total,
+      keypair.viewingPublicKey(),
+      SOL_MINT,
+      firstNullifier,
+    );
 
     const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
       wallet,
@@ -859,6 +876,7 @@ describe("wallet sync", () => {
             salt: Array.from(request.salt),
             txViewingPublicKey: request.txViewingPublicKey.toBytes(),
             ciphertext: request.ciphertext,
+            firstNullifier: request.firstNullifier,
           })),
         );
         return keys.decrypt(requests);
@@ -885,6 +903,7 @@ describe("wallet sync", () => {
           salt: Array.from({ length: 16 }, () => 0),
           txViewingPublicKey: encrypted.txViewingPublicKey.toBytes(),
           ciphertext: encrypted.payload,
+          firstNullifier: MERGE_FIRST_NULLIFIER,
         },
       ],
     ]);
@@ -923,6 +942,7 @@ describe("wallet sync", () => {
       () => ({ txViewingPublicKey: P256PublicKey.fromBytes(P_CONST_SEC1 as Bytes33) }),
     ],
     ["with another output commitment", false, () => ({ outputHash: bytes(79) })],
+    ["under another first nullifier", false, () => ({ nullifiers: [bytes(0x22), bytes(62)] })],
   ])("leaves a merge %s unrecovered without failing the sync", async (_name, toOther, fault) => {
     const keypair = ShieldedKeypair.generate();
     const other = ShieldedKeypair.generate();

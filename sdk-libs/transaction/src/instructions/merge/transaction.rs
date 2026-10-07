@@ -21,12 +21,14 @@ impl MergeOutputEnvelope {
         ephemeral: ViewingKey,
         amount: u64,
         mint: &Address,
+        first_nullifier: [u8; 32],
     ) -> Result<Self, TransactionError> {
         let encrypted = MergeEnvelopeEncryption {
             recipient: &recipient,
             ephemeral: &ephemeral,
             amount,
             mint: mint.to_bytes(),
+            first_nullifier,
         }
         .encrypt()?;
         Ok(Self {

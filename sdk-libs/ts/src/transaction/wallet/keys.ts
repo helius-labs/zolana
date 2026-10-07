@@ -41,6 +41,8 @@ export interface DecryptRequest {
   /** Zero for a ring deposit, which carries one envelope. */
   readonly slotIndex: number;
   readonly label: DecryptLabel;
+  /** The merge's first published nullifier; a `mergeEnvelope` request requires it. */
+  readonly firstNullifier?: Bytes32;
 }
 
 export interface TransactionKeyRequest {
@@ -244,6 +246,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
             viewingKey: viewing,
             ephemeralPublicKey: request.txViewingPublicKey,
             ciphertext: request.ciphertext,
+            firstNullifier: mergeFirstNullifier(request),
           }),
         );
       case "transfer":
@@ -367,6 +370,13 @@ function checkDecryptRequest(request: DecryptRequest): void {
       actual: request.ciphertext.length,
     });
   }
+}
+
+function mergeFirstNullifier(request: DecryptRequest): Bytes32 {
+  if (request.firstNullifier === undefined) {
+    throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "firstNullifier" });
+  }
+  return request.firstNullifier;
 }
 
 function checkSlotIndex(slotIndex: number, max: number): void {

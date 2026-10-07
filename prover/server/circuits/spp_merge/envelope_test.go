@@ -17,6 +17,7 @@ import (
 	merge "zolana/prover/circuits/spp_merge"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	ve "zolana/prover/circuits/verifiable-encryption"
+	"zolana/prover/prover-test/hintattack"
 	"zolana/prover/prover-test/hosttest"
 	"zolana/prover/prover-test/poseidon"
 )
@@ -89,8 +90,8 @@ func TestMergeEnvelopeBindsTheRecipientIntoThePublicInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	foreignKeys := hosttest.Keys{RecipientSecret: other, EphemeralSecret: hosttest.DefaultKeys().EphemeralSecret}
-	toForeign := func(t testing.TB, plaintext []byte) hostEnvelope {
-		return envelopeTo(foreignKeys, plaintext)
+	toForeign := func(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope {
+		return envelopeTo(foreignKeys, plaintext, firstNullifier)
 	}
 	cs := compiledDefaultMerge(t)
 	registered := buildMergeFixture(t, mergeFixtureOptions{})
@@ -157,13 +158,14 @@ func TestMergeEnvelopeRejectsInfinityRecipient(t *testing.T) {
 	recipientLo, recipientHi := hosttest.PackCompressed([33]byte{0x02})
 	ephemeralLo, ephemeralHi := keys.EphemeralPacked()
 	sharedLo, sharedHi := hosttest.PackShared([32]byte{})
-	infinity := func(t testing.TB, plaintext []byte) hostEnvelope {
+	infinity := func(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope {
 		t.Helper()
 		sharedSecret, err := poseidon.Hash([]*big.Int{
 			ve.SecretTagValue(mergeshared.MergeSecretTag),
 			sharedLo, sharedHi,
 			ephemeralLo, ephemeralHi,
 			recipientLo, recipientHi,
+			firstNullifier,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -181,14 +183,7 @@ func TestMergeEnvelopeRejectsInfinityRecipient(t *testing.T) {
 		}
 	}
 	f := buildMergeFixture(t, mergeFixtureOptions{encrypt: infinity})
-	err := solveMerge(t, compiledDefaultMerge(t), f.defaultCircuit())
-	if err == nil {
-		t.Fatal("a merge envelope to the infinity recipient was accepted")
-	}
-	if !strings.Contains(err.Error(), "constraint") {
-		t.Fatalf("the infinity recipient failed outside a constraint: %v", err)
-	}
-	t.Logf("rejected: %v", err)
+	hintattack.RequireConstraintRejection(t, solveMerge(t, compiledDefaultMerge(t), f.defaultCircuit()))
 }
 
 func TestMergeEnvelopeRejectsReportForgery(t *testing.T) {
@@ -197,8 +192,8 @@ func TestMergeEnvelopeRejectsReportForgery(t *testing.T) {
 		t.Run(forgery.Name, func(t *testing.T) {
 			recipientLo, recipientHi := forgery.Keys.RecipientPacked()
 			ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
-			forged := func(t testing.TB, plaintext []byte) hostEnvelope {
-				ciphertext, secret := forgery.Encrypt(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+			forged := func(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope {
+				ciphertext, secret := forgery.EncryptWithContext(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext, firstNullifier)
 				return hostEnvelope{
 					recipientPk:  forgery.Keys.RecipientUncompressed(),
 					recipientLo:  recipientLo,

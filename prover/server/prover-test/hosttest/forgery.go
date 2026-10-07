@@ -54,9 +54,12 @@ func forgeReport(t testing.TB, name string, ephemeral *big.Int, mirrored bool) R
 }
 
 func (f ReportForgery) Encrypt(tag, info, plaintext []byte) (ciphertext []byte, sharedSecret *big.Int) {
-	sharedSecret = f.Keys.sharedSecret(tag, [32]byte(f.ForgedX.FillBytes(make([]byte, 32))))
-	key, nonce := KeySchedule(sharedSecret, info)
-	return CTR(key, nonce, plaintext), sharedSecret
+	return f.EncryptWithContext(tag, info, plaintext, nil)
+}
+
+func (f ReportForgery) EncryptWithContext(tag, info, plaintext []byte, context *big.Int) (ciphertext []byte, sharedSecret *big.Int) {
+	forgedX := [32]byte(f.ForgedX.FillBytes(make([]byte, 32)))
+	return encryptUnder(f.Keys.sharedSecret(tag, forgedX, context), info, plaintext)
 }
 
 func (f ReportForgery) Hints(t testing.TB) []solver.Option {

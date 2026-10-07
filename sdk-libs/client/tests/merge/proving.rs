@@ -129,6 +129,7 @@ impl MergeHarness {
             viewing_key: &sender.viewing_key,
             ephemeral_pk: &P256Pubkey::from_bytes(envelope.ephemeral_pk).expect("ephemeral key"),
             ciphertext: &envelope.ciphertext,
+            first_nullifier: data.body.nullifiers.first().expect("first nullifier"),
         }
         .decrypt()
         .expect("owner decrypts the merge envelope");

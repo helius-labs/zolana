@@ -4,11 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/consensys/gnark/constraint"
+	cs_bn254 "github.com/consensys/gnark/constraint/bn254"
 	"github.com/consensys/gnark/constraint/solver"
 )
 
@@ -101,22 +105,28 @@ func HintAttacks() []HintAttack {
 	)
 }
 
-func RunHintAttacks(t *testing.T, solve func(opts ...solver.Option) error) {
+func RunHintAttacks(t *testing.T, cs constraint.ConstraintSystem, solve func(opts ...solver.Option) error) {
 	t.Helper()
-	if err := solve(); err != nil {
+	substituted := SubstituteOutOfRangeLookups(t, cs, 0)
+	base := append(LenientZeroChecks(), SkipMissingLookupQueries(t))
+	if err := solve(base...); err != nil {
 		t.Fatalf("the honest witness is rejected: %v", err)
+	}
+	if n := substituted.Load(); n != 0 {
+		t.Fatalf("the honest witness substituted %d out-of-range lookups", n)
 	}
 	start := time.Now()
 	attacks := HintAttacks()
 	for _, attack := range attacks {
 		t.Run(attack.Name, func(t *testing.T) {
-			runHintAttack(t, attack, solve)
+			substituted.Store(0)
+			runHintAttack(t, attack, solve, base, substituted)
 		})
 	}
 	t.Logf("%d hint attacks in %s", len(attacks), time.Since(start).Round(time.Millisecond))
 }
 
-func runHintAttack(t *testing.T, attack HintAttack, solve func(opts ...solver.Option) error) {
+func runHintAttack(t *testing.T, attack HintAttack, solve func(opts ...solver.Option) error, base []solver.Option, substituted *atomic.Int64) {
 	t.Helper()
 	honest, err := registeredHint(attack.Hint)
 	if err != nil {
@@ -126,8 +136,7 @@ func runHintAttack(t *testing.T, attack HintAttack, solve func(opts ...solver.Op
 		t.Skipf("not applicable: no registered hint ends in %s", attack.Hint)
 	}
 	forged := &forgedHint{honest: honest, forge: attack.Forge}
-	opts := append(append(LenientZeroChecks(), LenientLookupCounts()...), solver.OverrideHint(solver.GetHintID(honest), forged.solve))
-	err = solve(opts...)
+	err = solve(append(slices.Clone(base), solver.OverrideHint(solver.GetHintID(honest), forged.solve))...)
 	calls, forgedCall, forgeErr := forged.report()
 	switch {
 	case forgeErr != nil:
@@ -136,23 +145,134 @@ func runHintAttack(t *testing.T, attack HintAttack, solve func(opts ...solver.Op
 		t.Skipf("not applicable: the circuit never calls %s", attack.Hint)
 	case forgedCall == 0:
 		t.Skipf("not applicable: none of the %d calls to %s qualifies", calls, attack.Hint)
-	case err == nil:
-		t.Fatalf("accepted: call %d of %d to %s forged", forgedCall, calls, attack.Hint)
-	case !strings.Contains(err.Error(), "constraint"):
-		t.Fatalf("stopped by a hint, not a constraint: %v", err)
-	case strings.Contains(err.Error(), "lookup query too large"):
-		t.Logf("call %d of %d forged, refused by the lookup solver before the log-derivative constraint: %v", forgedCall, calls, err)
-	default:
-		t.Logf("call %d of %d forged, rejected: %v", forgedCall, calls, err)
 	}
+	t.Logf("call %d of %d to %s forged", forgedCall, calls, attack.Hint)
+	if n := substituted.Load(); n != 0 {
+		t.Logf("the forgery reached %d lookups with an out-of-range index, answered with table entry 0", n)
+	}
+	RequireConstraintRejection(t, err)
+}
+
+func RequireConstraintRejection(t testing.TB, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	var unsatisfied *cs_bn254.UnsatisfiedConstraintError
+	if !errors.As(err, &unsatisfied) {
+		t.Fatalf("stopped outside a constraint: %v", err)
+	}
+	if unsatisfied.Err == nil || !strings.Contains(unsatisfied.Err.Error(), " ⋅ ") || !strings.Contains(unsatisfied.Err.Error(), " != ") {
+		t.Fatalf("stopped by the solver, not by a constraint equation: %v", err)
+	}
+	t.Logf("rejected: %v", err)
 }
 
 func LenientZeroChecks() []solver.Option {
 	return lenientHints(PolyMvHint, MulHint)
 }
 
-func LenientLookupCounts() []solver.Option {
-	return lenientHints(CountHint)
+func SkipMissingLookupQueries(t testing.TB) solver.Option {
+	t.Helper()
+	honest, err := registeredHint(CountHint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if honest == nil {
+		t.Fatalf("gnark no longer registers a hint ending in %s", CountHint)
+	}
+	return solver.OverrideHint(solver.GetHintID(honest), countQueriesInTable)
+}
+
+func countQueriesInTable(_ *big.Int, inputs, outputs []*big.Int) error {
+	if len(inputs) < 2 || !inputs[0].IsInt64() || !inputs[1].IsInt64() {
+		return errors.New("lookup count: want the table length and the row length first")
+	}
+	nbTable, nbRow := int(inputs[0].Int64()), int(inputs[1].Int64())
+	rows := inputs[2:]
+	if nbRow < 1 || len(outputs) != nbTable || len(rows) < nbTable*nbRow || len(rows)%nbRow != 0 {
+		return errors.New("lookup count: inputs do not match the table layout")
+	}
+	key := func(row []*big.Int) string {
+		parts := make([]string, len(row))
+		for i, v := range row {
+			parts[i] = v.Text(16)
+		}
+		return strings.Join(parts, ",")
+	}
+	positions := make(map[string]int, nbTable)
+	for i := range nbTable {
+		positions[key(rows[i*nbRow:(i+1)*nbRow])] = i
+	}
+	counts := make([]int64, nbTable)
+	for start := nbTable * nbRow; start < len(rows); start += nbRow {
+		if i, ok := positions[key(rows[start:start+nbRow])]; ok {
+			counts[i]++
+		}
+	}
+	for i, out := range outputs {
+		out.SetInt64(counts[i])
+	}
+	return nil
+}
+
+type substitutedLookup struct {
+	*constraint.BlueprintLookupHint[constraint.U64]
+	substitute  uint64
+	substituted *atomic.Int64
+}
+
+func (b substitutedLookup) Solve(s constraint.Solver[constraint.U64], inst constraint.Instruction) error {
+	nbEntries := uint64(inst.Calldata[1])
+	indices := make([]uint64, inst.Calldata[2])
+	outside := false
+	offset := 3
+	for i := range indices {
+		query, n := s.Read(inst.Calldata[offset:])
+		offset += n
+		index, ok := s.Uint64(query)
+		if !ok || index >= nbEntries {
+			index, outside = b.substitute, true
+		}
+		indices[i] = index
+	}
+	if !outside {
+		return b.BlueprintLookupHint.Solve(s, inst)
+	}
+	if b.substitute >= nbEntries {
+		return fmt.Errorf("substitute index %d outside a table of %d entries", b.substitute, nbEntries)
+	}
+	entries := make([]constraint.U64, 0, nbEntries)
+	for offset := 0; uint64(len(entries)) < nbEntries; {
+		entry, n := s.Read(b.EntriesCalldata[offset:])
+		offset += n
+		entries = append(entries, entry)
+	}
+	for i, index := range indices {
+		s.SetValue(inst.WireOffset+uint32(i), entries[index])
+	}
+	b.substituted.Add(1)
+	return nil
+}
+
+func SubstituteOutOfRangeLookups(t testing.TB, cs constraint.ConstraintSystem, substitute uint64) *atomic.Int64 {
+	t.Helper()
+	compiled, ok := cs.(*cs_bn254.R1CS)
+	if !ok {
+		t.Fatalf("compiled system is a %T", cs)
+	}
+	substituted := new(atomic.Int64)
+	original := slices.Clone(compiled.Blueprints)
+	tables := 0
+	for i, blueprint := range compiled.Blueprints {
+		if lookup, ok := blueprint.(*constraint.BlueprintLookupHint[constraint.U64]); ok {
+			compiled.Blueprints[i] = substitutedLookup{BlueprintLookupHint: lookup, substitute: substitute, substituted: substituted}
+			tables++
+		}
+	}
+	t.Cleanup(func() { copy(compiled.Blueprints, original) })
+	t.Logf("%d lookup tables answer an out-of-range index with entry %d", tables, substitute)
+	return substituted
 }
 
 func lenientHints(suffixes ...string) []solver.Option {

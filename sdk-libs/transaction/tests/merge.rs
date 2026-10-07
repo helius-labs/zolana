@@ -70,10 +70,12 @@ fn assert_preserved(actual: &SppProofInputUtxo, expected: &WalletUtxo) {
 fn decrypt_envelope(result: &MergeProofInputs, recipient: &ViewingKey) -> DecryptedMergeEnvelope {
     let encrypted = result.encrypted_envelope().expect("default merge envelope");
     let ephemeral_pk = P256Pubkey::from_bytes(encrypted.ephemeral_pk).unwrap();
+    let first_nullifier = result.input_utxos.first().unwrap().nullifier;
     let decrypted = MergeEnvelopeDecryption {
         viewing_key: recipient,
         ephemeral_pk: &ephemeral_pk,
         ciphertext: &encrypted.ciphertext,
+        first_nullifier: &first_nullifier,
     }
     .decrypt()
     .unwrap();
@@ -526,9 +528,10 @@ impl ShieldedKeys for RecordingKeys {
         viewing_pubkey: &P256Pubkey,
         ephemeral_pk: &P256Pubkey,
         ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+        first_nullifier: &[u8; 32],
     ) -> Result<DecryptedMergeEnvelope, TransactionError> {
         self.owner
-            .decrypt_merge_envelope(viewing_pubkey, ephemeral_pk, ciphertext)
+            .decrypt_merge_envelope(viewing_pubkey, ephemeral_pk, ciphertext, first_nullifier)
     }
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
         self.derived.borrow_mut().extend_from_slice(requests);
@@ -695,6 +698,7 @@ fn default_merge_envelope_encrypts_to_the_owner_with_the_given_ephemeral_key() {
         viewing_key: &keypair(9).viewing_key,
         ephemeral_pk: &ephemeral.pubkey(),
         ciphertext: &encrypted.ciphertext,
+        first_nullifier: &first_nullifier,
     }
     .decrypt()
     .unwrap();

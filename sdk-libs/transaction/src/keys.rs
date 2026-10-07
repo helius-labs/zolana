@@ -93,11 +93,13 @@ pub trait ShieldedKeys {
     /// envelope cipher is unauthenticated, so a key the merge was not sent to
     /// returns noise rather than an error; the caller detects that by the
     /// output commitment. An error leaves this one merge unread, not the sync.
+    /// `first_nullifier` is the merge's first published nullifier.
     fn decrypt_merge_envelope(
         &self,
         viewing_pubkey: &P256Pubkey,
         ephemeral_pk: &P256Pubkey,
         ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+        first_nullifier: &[u8; 32],
     ) -> Result<DecryptedMergeEnvelope, TransactionError>;
 
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError>;
@@ -194,11 +196,13 @@ impl ShieldedKeys for LocalShieldedKeys {
         viewing_pubkey: &P256Pubkey,
         ephemeral_pk: &P256Pubkey,
         ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+        first_nullifier: &[u8; 32],
     ) -> Result<DecryptedMergeEnvelope, TransactionError> {
         Ok(MergeEnvelopeDecryption {
             viewing_key: self.viewing_key(viewing_pubkey)?,
             ephemeral_pk,
             ciphertext,
+            first_nullifier,
         }
         .decrypt()?)
     }
@@ -259,11 +263,13 @@ impl ShieldedKeys for ShieldedKeypair {
         viewing_pubkey: &P256Pubkey,
         ephemeral_pk: &P256Pubkey,
         ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+        first_nullifier: &[u8; 32],
     ) -> Result<DecryptedMergeEnvelope, TransactionError> {
         LocalShieldedKeys::from_keypair(self)?.decrypt_merge_envelope(
             viewing_pubkey,
             ephemeral_pk,
             ciphertext,
+            first_nullifier,
         )
     }
 

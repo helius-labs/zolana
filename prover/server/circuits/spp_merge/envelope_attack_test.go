@@ -14,7 +14,7 @@ func TestMergeRejectsHintAttacks(t *testing.T) {
 	cs := compiledDefaultMerge(t)
 	assignment := buildValidWitness(t)
 	t.Logf("compiled and built the witness in %s", time.Since(start).Round(time.Millisecond))
-	hintattack.RunHintAttacks(t, func(opts ...solver.Option) error {
+	hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
 		return solveMerge(t, cs, assignment, opts...)
 	})
 	t.Logf("total %s", time.Since(start).Round(time.Millisecond))

@@ -999,11 +999,14 @@ class SyncPass {
       this.undecryptableCandidates++;
       return true;
     }
+    const firstNullifier = tx.nullifiers[0];
+    if (firstNullifier === undefined) return true;
     const answers = this.#viewingPublicKeys.map((viewingPublicKey) =>
       this.#keys.decryptMergeEnvelope({
         ciphertext: output.payload,
         viewingPublicKey,
         txViewingPublicKey: ephemeralPublicKey,
+        firstNullifier,
       }),
     );
     const decrypted: Uint8Array[] = [];

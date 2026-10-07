@@ -127,10 +127,13 @@ Breaking
   on ring merge data.
 - `MergeInputs` requires `mint` and, on a default merge, `envelope`, a
   `MergeEnvelopeInputs`, and `ShieldedKeys.decrypt` receives merge envelopes
-  under the new `DecryptLabel` `"mergeEnvelope"`, and a sync fails on an answer
-  that is not an encoded decrypted envelope → set both fields on hand-built merge inputs,
-  prove against the prover of this release, and answer the label in custom
-  `ShieldedKeys` with `encodeDecryptedMergeEnvelope(decryptMergeEnvelope(...))`.
+  under the new `DecryptLabel` `"mergeEnvelope"` with the merge's first
+  published nullifier in the new `DecryptRequest.firstNullifier`, and a sync
+  fails on an answer that is not an encoded decrypted envelope → set both fields
+  on hand-built merge inputs, prove against the prover of this release, and
+  answer the label in custom `ShieldedKeys` with
+  `encodeDecryptedMergeEnvelope(decryptMergeEnvelope(...))`, passing the
+  request's `firstNullifier`.
 
 Added
 
@@ -164,11 +167,12 @@ Added
   `syncWallet` commits nothing and rejects with `WALLET_UNDECRYPTED_MERGE` so
   the next sync retries it, while `MergeOutputEnvelope` from
   `@heliuslabs/zolana/transaction` builds an envelope for a hand-built
-  `PreparedMerge`, lends its ephemeral secret only inside
-  `withEphemeralSecret(use)` and wipes it on `destroy()`, and
-  `decryptMergeEnvelope`, `encodeDecryptedMergeEnvelope`,
+  `PreparedMerge` from the owner's viewing key and the merge's first nullifier,
+  lends its ephemeral secret only inside `withEphemeralSecret(use)` and wipes it
+  on `destroy()`, and `decryptMergeEnvelope`, `encodeDecryptedMergeEnvelope`,
   `DecryptedMergeEnvelope` and `EncryptedMergeEnvelope` from
-  `@heliuslabs/zolana/keypair` decrypt and describe an envelope.
+  `@heliuslabs/zolana/keypair` decrypt and describe an envelope, decryption
+  taking the merge's first published nullifier.
 - `ZolanaClientConfig.proverTee` takes a `TeePolicy` and sends every prover
   call, encrypted, only to a prover whose attestation matches it, an Intel TDX
   VM on Phala dstack under a `DstackTdxPolicy` or an AWS Nitro Enclave under an

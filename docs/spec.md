@@ -472,7 +472,7 @@ flowchart TD
 5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
 6. `merge_output_blinding(first_nullifier)` / `merge_dummy_nullifier(first_nullifier, slot_index)` — deterministic merge derivations from the owner's nullifier secret (domain-separated Poseidon); used by the merge prover and by the owner during sync. `merge_dummy_nullifier` serves both [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring); `merge_output_blinding` serves only `merge_ring`. Replaces the removed `get_merge_view_tag(merge_count)`.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> P256Keypair` — per-transaction P-256 keypair for ECDH encryption to recipients.
-8. `decrypt_merge_envelope(ephemeral_pk, ciphertext) -> (amount, mint, output_blinding)` — decrypts a [merge envelope](#merge-envelope) with `viewing_sk`; used during sync to rebuild [`merge_transact`](#merge_transact) outputs.
+8. `decrypt_merge_envelope(ephemeral_pk, ciphertext, first_nullifier) -> (amount, mint, output_blinding)` — decrypts a [merge envelope](#merge-envelope) with `viewing_sk`, keyed by the merge's first published nullifier; used during sync to rebuild [`merge_transact`](#merge_transact) outputs.
 
 ## Derivation seed
 
@@ -741,10 +741,11 @@ integers below the BN254 scalar modulus.
 ```
 ephemeral_sk, ephemeral_pk = fresh P-256 keypair chosen by the merger
 recipient_pk     = user_record.viewing_pk
+first_nullifier  = the merge's published nullifier of input slot 0
 shared_x         = ECDH_x(ephemeral_sk, recipient_pk)
 pack33(c)        = (int_be(c[0..31]), int_be(c[31..33]))
 pack32(x)        = (int_be(x[0..31]), int_be(x[31..32]))
-shared_secret    = Poseidon(int_be("TMES"), pack32(shared_x), pack33(ephemeral_pk), pack33(recipient_pk))
+shared_secret    = Poseidon(int_be("TMES"), pack32(shared_x), pack33(ephemeral_pk), pack33(recipient_pk), first_nullifier)
 siloed           = Poseidon(int_be("TMSI"), shared_secret, int_be("TMEC"))
 key              = be32(Poseidon(int_be("TMSL"), siloed))[16..32] || be32(Poseidon(int_be("TMSK"), siloed))[16..32]
 nonce            = be32(Poseidon(int_be("TMSN"), siloed))[20..32]
@@ -753,12 +754,18 @@ ciphertext       = AES-256-CTR(key, nonce, plaintext)       // first counter blo
 output_blinding  = Poseidon(int_be("TMEB"), shared_secret)
 ```
 
-The owner decrypts the envelope with `shared_x = ECDH_x(viewing_sk, ephemeral_pk)`
-and the same derivation, then rebuilds the UTXO with `asset = hash_bytes_32(mint)`
-and `output_blinding`. It accepts the output only if the recomputed `utxo_hash`
-equals the published `output_utxo_hash`. `ephemeral_pk` and `ciphertext` travel
-in the [`merge_transact`](#merge_transact) instruction data and enter the merge
-public inputs.
+`first_nullifier` enters the merge public inputs and the nullifier tree accepts
+it once, so `shared_secret`, and with it the key, nonce and `output_blinding`, is
+unique per merge. A merger that reuses an ephemeral key repeats no keystream and
+cannot re-merge an output alone into an identical leaf whose nullifier that merge
+already published.
+
+The owner decrypts the envelope with `shared_x = ECDH_x(viewing_sk, ephemeral_pk)`,
+the transaction's first nullifier and the same derivation, then rebuilds the UTXO
+with `asset = hash_bytes_32(mint)` and `output_blinding`. It accepts the output
+only if the recomputed `utxo_hash` equals the published `output_utxo_hash`.
+`ephemeral_pk` and `ciphertext` travel in the [`merge_transact`](#merge_transact)
+instruction data and enter the merge public inputs.
 
 
 ## UTXO Data
@@ -1468,7 +1475,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
 | Output well-formed | the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. The output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)` on the policy-ring merge and the envelope `output_blinding` on the default merge. |
 | Key agreement (default merge) | `viewing_pk` is `0x04`, byte-range checked, canonical and on the curve; `ephemeral_sk != 0`; `ephemeral_pk = ephemeral_sk · G`; `shared = ephemeral_sk · viewing_pk`. gnark's emulated P-256 scalar multiplication hints its result; from gnark v0.16.4 (GHSA-7fx8-hmgc-82jp) gnark constrains that result to the curve and to `ephemeral_sk · viewing_pk`, so the circuit adds no check of its own on the shared point. |
-| Envelope (default merge) | the ciphertext is the [merge envelope](#merge-envelope) of `u64_be(amount) \|\| mint` under `viewing_pk` and `ephemeral_sk`, and its packing equals the four public envelope elements. |
+| Envelope (default merge) | the ciphertext is the [merge envelope](#merge-envelope) of `u64_be(amount) \|\| mint` under `viewing_pk`, `ephemeral_sk` and the public `first_nullifier`, and its packing equals the four public envelope elements. |
 | Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
 

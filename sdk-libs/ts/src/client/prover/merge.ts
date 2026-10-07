@@ -637,6 +637,10 @@ function validatedEnvelope(prepared: PreparedMerge): ValidatedEnvelope | undefin
   if (viewingPublicKey === undefined || !viewingPublicKey.equals(envelope.recipient)) {
     throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
   }
+  const first = prepared.inputs[0];
+  if (first === undefined || !equal(first.nullifier(), envelope.firstNullifier)) {
+    throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
+  }
   const encrypted = prepared.encryptedEnvelope();
   if (encrypted === undefined || !equal(encrypted.outputBlinding, prepared.output.blinding)) {
     throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", { details: { index: 0 } });

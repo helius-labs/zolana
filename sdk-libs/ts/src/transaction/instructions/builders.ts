@@ -51,13 +51,15 @@ function checkedU64(value: bigint, field: string): bigint {
 
 export class MergeOutputEnvelope {
   readonly recipient: P256PublicKey;
+  readonly firstNullifier: Bytes32;
   readonly #ephemeral = ViewingKey.generate();
 
-  constructor(input: Readonly<{ recipient: P256PublicKey }>) {
+  constructor(input: Readonly<{ recipient: P256PublicKey; firstNullifier: Bytes32 }>) {
     if (!(input.recipient instanceof P256PublicKey)) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "recipient" });
     }
     this.recipient = input.recipient;
+    this.firstNullifier = checked<Bytes32>(input.firstNullifier, 32, "first nullifier");
   }
 
   encrypt(amount: bigint, mint: Address): EncryptedMergeEnvelope {
@@ -66,6 +68,7 @@ export class MergeOutputEnvelope {
       ephemeral: this.#ephemeral,
       amount,
       mint: decodeAddress(mint),
+      firstNullifier: this.firstNullifier,
     });
   }
 
@@ -339,7 +342,10 @@ export class Merge {
     let envelope: MergeOutputEnvelope | undefined;
     let outputBlinding: Bytes32;
     if (blinding.kind === "envelope") {
-      envelope = new MergeOutputEnvelope({ recipient: address.viewingPublicKey });
+      envelope = new MergeOutputEnvelope({
+        recipient: address.viewingPublicKey,
+        firstNullifier: firstInput.nullifier(),
+      });
       outputBlinding = envelope.encrypt(amount, asset).outputBlinding;
     } else {
       outputBlinding = checked<Bytes32>(blinding.outputBlinding, 32, "merge output blinding");

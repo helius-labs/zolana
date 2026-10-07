@@ -110,6 +110,7 @@ struct MergeEnvelope {
     ephemeral_secret: String,
     amount: u64,
     mint: String,
+    first_nullifier: String,
     recipient_compressed: String,
     recipient_uncompressed: String,
     ephemeral_pk: String,
@@ -250,16 +251,29 @@ fn merge_envelope_mint() -> [u8; 32] {
     mint
 }
 
+fn merge_envelope_first_nullifier() -> [u8; 32] {
+    let mut first_nullifier = [0u8; 32];
+    for (byte, value) in first_nullifier.iter_mut().zip(0xc0u8..) {
+        *byte = value;
+    }
+    if let Some(top) = first_nullifier.first_mut() {
+        *top = 0x1e;
+    }
+    first_nullifier
+}
+
 fn compute_merge_envelope() -> MergeEnvelope {
     let (recipient, ephemeral) = merge_envelope_keys();
     let amount = 1_234_567_890_123u64;
     let mint = merge_envelope_mint();
+    let first_nullifier = merge_envelope_first_nullifier();
     let recipient_pk = recipient.pubkey();
     let encrypted = MergeEnvelopeEncryption {
         recipient: &recipient_pk,
         ephemeral: &ephemeral,
         amount,
         mint,
+        first_nullifier,
     }
     .encrypt()
     .unwrap();
@@ -267,6 +281,7 @@ fn compute_merge_envelope() -> MergeEnvelope {
         &ephemeral.ecdh(&recipient_pk).unwrap(),
         &ephemeral.pubkey(),
         &recipient_pk,
+        &first_nullifier,
     )
     .unwrap();
     MergeEnvelope {
@@ -274,6 +289,7 @@ fn compute_merge_envelope() -> MergeEnvelope {
         ephemeral_secret: hex::encode(ephemeral.secret_bytes().as_slice()),
         amount,
         mint: hex::encode(mint),
+        first_nullifier: hex::encode(first_nullifier),
         recipient_compressed: hex::encode(recipient_pk.as_bytes()),
         recipient_uncompressed: hex::encode(recipient_pk.to_uncompressed().unwrap()),
         ephemeral_pk: hex::encode(encrypted.ephemeral_pk),
@@ -378,10 +394,15 @@ fn shared_vectors_match() {
         .unwrap()
         .try_into()
         .unwrap();
+    let first_nullifier: [u8; 32] = hex::decode(&committed.merge_envelope.first_nullifier)
+        .unwrap()
+        .try_into()
+        .unwrap();
     let decrypted = MergeEnvelopeDecryption {
         viewing_key: &recipient,
         ephemeral_pk: &ephemeral_pk,
         ciphertext: &ciphertext,
+        first_nullifier: &first_nullifier,
     }
     .decrypt()
     .unwrap();
