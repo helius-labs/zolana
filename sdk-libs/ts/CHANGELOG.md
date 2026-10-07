@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2-alpha — unreleased
+## 0.4.0-alpha — 2026-10-07
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
