@@ -78,7 +78,7 @@ Breaking
   key, `/prove/<key>` or `/prove/<key>/indexed`, and poll a queued one at
   `/prove/<key>/status`, so a gateway can route and price each key
   apart, and `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring
-  policy proving keys, so a prover that predates these paths answers 404 and
+  proving keys, so a prover that predates these paths answers 404 and
   one on the previous keys fails with `CLIENT_PROVING_KEY_MISMATCH` → upgrade
   the prover before the SDK and prove against the prover and program of this
   release.
