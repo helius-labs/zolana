@@ -183,28 +183,32 @@ func TestEnvelopeConstraintCounts(t *testing.T) {
 }
 
 func TestEnvelopeRejectsReportForgery(t *testing.T) {
-	forgery := hosttest.ForgeReport(t)
-	plaintext := envelopePlaintext(eciesPlaintextBytes)
-	ciphertext, _ := forgery.Seal(testSecretTag, testKdfInfo, plaintext)
-	recipientLo, recipientHi := forgery.Keys.RecipientPacked()
-	ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
-	a := envelopeInputs{
-		ephemeralSk: forgery.Keys.EphemeralScalar(),
-		recipientPk: forgery.Keys.RecipientUncompressed(),
-		recipientLo: recipientLo,
-		recipientHi: recipientHi,
-		ephemeralLo: ephemeralLo,
-		ephemeralHi: ephemeralHi,
-		plaintext:   plaintext,
-		ciphertext:  ciphertext,
-	}.witness()
+	cs := compileEnvelope(t, eciesPlaintextBytes)
+	for _, forgery := range hosttest.ForgeReports(t) {
+		t.Run(forgery.Name, func(t *testing.T) {
+			plaintext := envelopePlaintext(eciesPlaintextBytes)
+			ciphertext, _ := forgery.Seal(testSecretTag, testKdfInfo, plaintext)
+			recipientLo, recipientHi := forgery.Keys.RecipientPacked()
+			ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
+			a := envelopeInputs{
+				ephemeralSk: forgery.Keys.EphemeralScalar(),
+				recipientPk: forgery.Keys.RecipientUncompressed(),
+				recipientLo: recipientLo,
+				recipientHi: recipientHi,
+				ephemeralLo: ephemeralLo,
+				ephemeralHi: ephemeralHi,
+				plaintext:   plaintext,
+				ciphertext:  ciphertext,
+			}.witness()
 
-	err := solveCompiled(t, compileEnvelope(t, eciesPlaintextBytes), a, forgery.Hints(t)...)
-	if err == nil {
-		t.Fatal("the report forgery was accepted")
+			err := solveCompiled(t, cs, a, forgery.Hints(t)...)
+			if err == nil {
+				t.Fatal("the report forgery was accepted")
+			}
+			if !strings.Contains(err.Error(), "constraint") {
+				t.Fatalf("the forgery failed outside a constraint: %v", err)
+			}
+			t.Logf("forgery rejected: %v", err)
+		})
 	}
-	if !strings.Contains(err.Error(), "constraint") {
-		t.Fatalf("the forgery failed outside a constraint: %v", err)
-	}
-	t.Logf("forgery rejected: %v", err)
 }

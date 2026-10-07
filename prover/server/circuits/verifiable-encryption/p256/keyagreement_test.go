@@ -312,6 +312,35 @@ func TestAgreeKeyRejectsReportForgery(t *testing.T) {
 	}
 }
 
+func TestSelfAgreeKeyRejectsReportForgery(t *testing.T) {
+	n := elliptic.P256().Params().N
+	cs := compile(t, &selfAgreementCircuit{})
+	for _, row := range []struct {
+		name     string
+		scalar   *big.Int
+		x        *big.Int
+		mirrored bool
+	}{
+		{"off-curve result at scalar minus one", new(big.Int).Sub(n, big.NewInt(1)), new(big.Int).SetBytes([]byte("an x nobody can recompute later!")), false},
+		{"zero x at scalar minus one", new(big.Int).Sub(n, big.NewInt(1)), big.NewInt(0), false},
+		{"off-curve result at scalar one", big.NewInt(1), new(big.Int).SetBytes([]byte("an x nobody can recompute later!")), true},
+		{"zero x at scalar one", big.NewInt(1), big.NewInt(0), true},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			w := scalarRow{scalar: row.scalar, reduced: row.scalar}.selfAgreementWitness(t)
+			setBytes(w.SharedX[:], be32(row.x))
+			if err := solveAgreement(t, cs, w); err == nil {
+				t.Fatal("honest prover produced the forged shared secret")
+			}
+			err := solveAgreement(t, cs, w, forgedHints(t, row.x, row.mirrored)...)
+			if err == nil {
+				t.Fatal("forged shared secret accepted")
+			}
+			t.Logf("rejected: %v", err)
+		})
+	}
+}
+
 func TestAgreeKeyCommitmentCount(t *testing.T) {
 	cs := compile(t, &agreeKeyCircuit{})
 	commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)

@@ -46,15 +46,13 @@ func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [
 	fp.AssertIsInRange(&recipient.X)
 	fp.AssertIsInRange(&recipient.Y)
 	c.AssertIsOnCurve(recipient)
-	fp.AssertIsDifferent(&recipient.Y, fp.Zero())
 	fr.AssertIsDifferent(scalar, fr.Zero())
 
+	// gnark >= v0.16.4 (GHSA-7fx8-hmgc-82jp) constrains the hinted ScalarMul
+	// output to the curve, and P-256 has prime order, so with an on-curve
+	// recipient and a nonzero scalar both products are the honest finite points.
 	shared := c.ScalarMul(recipient, scalar)
-	c.AssertIsOnCurve(shared)
-	fp.AssertIsDifferent(&shared.Y, fp.Zero())
-	fp.AssertIsDifferent(fp.Add(&shared.Y, &recipient.Y), fp.Zero())
 	ephemeral := c.ScalarMulBase(scalar)
-	c.AssertIsOnCurve(ephemeral)
 
 	sharedX, _ := canonicalFpBytes(api, fp, &shared.X)
 	ephemeralX, _ := canonicalFpBytes(api, fp, &ephemeral.X)

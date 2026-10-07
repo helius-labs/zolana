@@ -100,32 +100,36 @@ func TestMergeEnvelopeRejectsNonUncompressedPrefix(t *testing.T) {
 }
 
 func TestMergeEnvelopeRejectsReportForgery(t *testing.T) {
-	forgery := hosttest.ForgeReport(t)
-	recipientLo, recipientHi := forgery.Keys.RecipientPacked()
-	ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
-	forged := func(t testing.TB, plaintext []byte) hostEnvelope {
-		ciphertext, secret := forgery.Seal(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
-		return hostEnvelope{
-			recipientPk:  forgery.Keys.RecipientUncompressed(),
-			recipientLo:  recipientLo,
-			recipientHi:  recipientHi,
-			ephemeralSk:  forgery.Keys.EphemeralScalar(),
-			ephemeralLo:  ephemeralLo,
-			ephemeralHi:  ephemeralHi,
-			ciphertext:   ciphertext,
-			sharedSecret: secret,
-		}
-	}
-	f := buildMergeFixture(t, mergeFixtureOptions{seal: forged})
+	cs := compiledDefaultMerge(t)
+	for _, forgery := range hosttest.ForgeReports(t) {
+		t.Run(forgery.Name, func(t *testing.T) {
+			recipientLo, recipientHi := forgery.Keys.RecipientPacked()
+			ephemeralLo, ephemeralHi := forgery.Keys.EphemeralPacked()
+			forged := func(t testing.TB, plaintext []byte) hostEnvelope {
+				ciphertext, secret := forgery.Seal(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext)
+				return hostEnvelope{
+					recipientPk:  forgery.Keys.RecipientUncompressed(),
+					recipientLo:  recipientLo,
+					recipientHi:  recipientHi,
+					ephemeralSk:  forgery.Keys.EphemeralScalar(),
+					ephemeralLo:  ephemeralLo,
+					ephemeralHi:  ephemeralHi,
+					ciphertext:   ciphertext,
+					sharedSecret: secret,
+				}
+			}
+			f := buildMergeFixture(t, mergeFixtureOptions{seal: forged})
 
-	err := solveMerge(t, compiledDefaultMerge(t), f.defaultCircuit(), forgery.Hints(t)...)
-	if err == nil {
-		t.Fatal("the report forgery was accepted")
+			err := solveMerge(t, cs, f.defaultCircuit(), forgery.Hints(t)...)
+			if err == nil {
+				t.Fatal("the report forgery was accepted")
+			}
+			if !strings.Contains(err.Error(), "constraint") {
+				t.Fatalf("the forgery failed outside a constraint: %v", err)
+			}
+			t.Logf("forgery rejected: %v", err)
+		})
 	}
-	if !strings.Contains(err.Error(), "constraint") {
-		t.Fatalf("the forgery failed outside a constraint: %v", err)
-	}
-	t.Logf("forgery rejected: %v", err)
 }
 
 func TestMergeCompiledSolvesHonestWitness(t *testing.T) {

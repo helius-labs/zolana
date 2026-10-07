@@ -14,7 +14,6 @@ func PublicKeyPacked(api frontend.API, sk [32]frontend.Variable) (lo, hi fronten
 	scalar := fr.NewElement(agreementLimbs(api, sk[:]))
 	fr.AssertIsDifferent(scalar, fr.Zero())
 	public := c.ScalarMulBase(scalar)
-	c.AssertIsOnCurve(public)
 	x, _ := canonicalFpBytes(api, fp, &public.X)
 	_, parity := canonicalFpBytes(api, fp, &public.Y)
 	return packCompressedPoint(api, parity, x[:])
@@ -28,11 +27,7 @@ func SelfAgreeKey(api frontend.API, sk [32]frontend.Variable) SelfKeyAgreement {
 	fr.AssertIsDifferent(scalar, fr.Zero())
 
 	public := c.ScalarMulBase(scalar)
-	c.AssertIsOnCurve(public)
 	shared := c.ScalarMul(public, scalar)
-	c.AssertIsOnCurve(shared)
-	fp.AssertIsDifferent(&shared.Y, fp.Zero())
-	fp.AssertIsDifferent(fp.Add(&shared.Y, &public.Y), fp.Zero())
 
 	var result SelfKeyAgreement
 	result.SharedX, _ = canonicalFpBytes(api, fp, &shared.X)
