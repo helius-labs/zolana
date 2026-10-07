@@ -469,8 +469,9 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
         .env("GOOS", goos)
         .env("GOARCH", goarch)
         .arg("build-release.sh")
-        // -trimpath + empty buildid make the prover build reproducible so a
-        // re-run produces byte-identical output (stable lockfile checksums).
+        // -trimpath, -buildvcs=false and an empty buildid make the prover build
+        // reproducible across commits, so a re-run at the lockfile commit produces
+        // byte-identical output (stable lockfile checksums).
         .arg(&out_abs)
         .status()
         .context("failed to run go build for prover")?;
