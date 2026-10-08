@@ -6,7 +6,11 @@ the prover. The indexer must serve the same network. A prover without an
 indexer refuses indexed requests with `ClientError::ProverIndexerUnconfigured`.
 
 Opt into client fetching with
-`with_proof_data_source(ProofDataSource::Client)`. The setting lives on
+`with_proof_data_source(ProofDataSource::Client)`. A prover URL on a
+`*.helius-rpc.com` host's `/v1/zolana` path, the Helius gateway, defaults to
+client fetching, sends every proof to the key-less `/v1/zolana/prove`, polls
+`/v1/zolana/prove/status`, and refuses indexed requests, which the gateway
+does not route. The setting lives on
 `ProverClient` and `AsyncProverClient`. The `ZolanaClient` method sets it on
 both prover clients it holds. Custom-ring proof environments read it from the
 prover client they are given.
