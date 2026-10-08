@@ -13,7 +13,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
-import { resolveClientEndpoints } from "../endpoint.js";
+import { isZolanaGateway, resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -145,7 +145,7 @@ const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
-  /** `"prover"` unless set. */
+  /** `"prover"` unless set, `"client"` on the Helius gateway, which refuses `"prover"`. */
   readonly proofDataSource?: ProofDataSource;
   /**
    * Serves the indexer and the prover too, unless either names its own URL.
@@ -239,7 +239,6 @@ export class ZolanaClient
       input.proofDataSource !== "prover"
     )
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
-    this.#proofDataSource = input.proofDataSource ?? "prover";
     const treeId = input.treeId ?? DEFAULT_TREE_ID;
     if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "treeId" } });
@@ -305,6 +304,12 @@ export class ZolanaClient
         cause,
       });
     }
+    // The Helius gateway has no indexed route, so proof data comes from the client there.
+    const gateway = isZolanaGateway(proverUrl);
+    if (input.proofDataSource === "prover" && gateway) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
+    }
+    this.#proofDataSource = input.proofDataSource ?? (gateway ? "client" : "prover");
 
     this.#computeUnitLimit = checkedComputeUnitLimit(
       input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,

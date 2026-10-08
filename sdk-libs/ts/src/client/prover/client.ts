@@ -35,6 +35,7 @@ import {
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
+import { isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -162,6 +163,8 @@ export interface ProvingKeyReport {
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
+  /** The Helius gateway routes only the key-less `/prove` and `/prove/status`. */
+  readonly #keyless: boolean;
   readonly #asyncPoll: AsyncPollConfig;
   readonly #tee: TeeSession | undefined;
 
@@ -184,6 +187,7 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
+    this.#keyless = isZolanaGateway(url);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     try {
       this.#fetch = checkedFetch(input.fetch);
@@ -435,6 +439,9 @@ export class ProverClient {
     key: ExpectedProvingKey,
     context?: RequestContext,
   ): Promise<unknown> {
+    if (route === "indexed" && this.#keyless) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
+    }
     const url = this.#keyUrl(key);
     if (route === "indexed") url.pathname += INDEXED_PATH;
     let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
@@ -515,9 +522,11 @@ export class ProverClient {
   /**
    * `/prove/<key>`: every proof and its status poll go to its proving key's
    * path, so a gateway sends both to the prover pool that serves the key.
+   * On the Helius gateway, `/prove`, where the prover reads the key from the body.
    */
   #keyUrl(key: ExpectedProvingKey): URL {
     const url = new URL(this.#url);
+    if (this.#keyless) return url;
     url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
     return url;
   }
