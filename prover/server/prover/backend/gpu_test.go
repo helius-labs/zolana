@@ -70,11 +70,11 @@ func TestGPUBackendTransfer(t *testing.T) {
 	std.RegisterHints()
 	resetBackend(t)
 	t.Setenv("PROVER_BACKEND", "aeglos")
-	if err = Initialize(); err != nil {
+	if err = Initialize(Options{}); err != nil {
 		t.Fatal(err)
 	}
 	before := testutil.ToFloat64(engineCache.WithLabelValues("miss"))
-	proof, err := prove(system.ConstraintSystem, system.ProvingKey, full)
+	proof, err := prove(nil, system.ConstraintSystem, system.ProvingKey, full)
 	if err != nil {
 		t.Fatal(err)
 	}

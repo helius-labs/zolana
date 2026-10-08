@@ -6,11 +6,14 @@ import (
 	"math/big"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 	aeglos "github.com/helius-labs/aeglos"
+
+	"zolana/prover/prover/timing"
 )
 
 func TestUnsetBackendIsAeglosCPU(t *testing.T) {
@@ -18,15 +21,15 @@ func TestUnsetBackendIsAeglosCPU(t *testing.T) {
 	t.Setenv("PROVER_BACKEND", "")
 	t.Setenv("AEGLOS_CPU_THREADS", "2")
 	t.Setenv("AEGLOS_CPU_FAMILY", "scalar")
-	if err := Initialize(); err != nil {
+	if err := Initialize(Options{BatchWindow: time.Millisecond, BatchMax: 4}); err != nil {
 		t.Fatal(err)
 	}
 	engine, ok := state.prover.(*aeglos.Engine)
 	if !ok || engine.Backend() != aeglos.BackendCPU {
 		t.Fatal("Aeglos CPU backend was not selected")
 	}
-	if UsesGPU() {
-		t.Fatal("Aeglos CPU backend claims a GPU")
+	if UsesGPU() || state.batches == nil {
+		t.Fatal("Aeglos CPU backend claims a GPU or proves without batches")
 	}
 }
 
@@ -40,7 +43,7 @@ func TestAeglosCPURejectsInvalidSettings(t *testing.T) {
 		t.Setenv("PROVER_BACKEND", "aeglos-cpu")
 		t.Setenv("AEGLOS_CPU_FAMILY", "scalar")
 		t.Setenv(setting.name, setting.value)
-		if err := Initialize(); err == nil {
+		if err := Initialize(Options{}); err == nil {
 			t.Fatalf("accepted %s=%q", setting.name, setting.value)
 		}
 	}
@@ -82,7 +85,7 @@ func chainAssignment(x int64) chain {
 func TestAeglosCPUProofsVerify(t *testing.T) {
 	resetBackend(t)
 	t.Setenv("PROVER_BACKEND", "aeglos-cpu")
-	if err := Initialize(); err != nil {
+	if err := Initialize(Options{BatchWindow: maxBatchWindow, BatchMax: 3}); err != nil {
 		t.Fatal(err)
 	}
 	for _, circuit := range []frontend.Circuit{&chain{}, &committedChain{}} {
@@ -98,10 +101,16 @@ func TestAeglosCPUProofsVerify(t *testing.T) {
 				if _, ok := circuit.(*committedChain); ok {
 					assignment = &committedChain{chainAssignment(x + 2)}
 				}
-				proof, err := ProveAssignment(nil, ccs, key, func() (frontend.Circuit, error) { return assignment, nil })
+				trace := timing.New()
+				proof, err := ProveAssignment(trace, ccs, key, func() (frontend.Circuit, error) { return assignment, nil })
 				if err != nil {
 					t.Error(err)
 					return
+				}
+				for _, span := range trace.Snapshot() {
+					if span.Name == "batch" && span.DurationMS >= float64(maxBatchWindow.Milliseconds()) {
+						t.Error("request waited for the window instead of filling a batch")
+					}
 				}
 				public, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
 				if err != nil {

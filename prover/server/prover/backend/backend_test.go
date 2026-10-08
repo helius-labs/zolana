@@ -16,15 +16,15 @@ import (
 func resetBackend(t *testing.T) {
 	t.Helper()
 	state.Lock()
-	previous, initialized := state.prover, state.initialized
-	state.prover, state.initialized = cpuProver{}, false
+	previous, batches, initialized := state.prover, state.batches, state.initialized
+	state.prover, state.batches, state.initialized = cpuProver{}, nil, false
 	state.Unlock()
 	t.Cleanup(func() {
 		if err := Close(); err != nil {
 			t.Error(err)
 		}
 		state.Lock()
-		state.prover, state.initialized = previous, initialized
+		state.prover, state.batches, state.initialized = previous, batches, initialized
 		state.Unlock()
 	})
 }
@@ -41,13 +41,13 @@ func compile(t *testing.T, circuit frontend.Circuit) constraint.ConstraintSystem
 func TestInitializeCPU(t *testing.T) {
 	resetBackend(t)
 	t.Setenv("PROVER_BACKEND", "gnark")
-	if err := Initialize(); err != nil {
+	if err := Initialize(Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := state.prover.(cpuProver); !ok {
 		t.Fatal("CPU backend was not selected")
 	}
-	if err := Initialize(); err == nil {
+	if err := Initialize(Options{}); err == nil {
 		t.Fatal("backend was initialized twice")
 	}
 }
@@ -55,10 +55,10 @@ func TestInitializeCPU(t *testing.T) {
 func TestInvalidSelectionDisablesProofs(t *testing.T) {
 	resetBackend(t)
 	t.Setenv("PROVER_BACKEND", "invalid")
-	if err := Initialize(); err == nil {
+	if err := Initialize(Options{}); err == nil {
 		t.Fatal("invalid backend was accepted")
 	}
-	if _, err := prove(nil, nil, nil); err == nil {
+	if _, err := prove(nil, nil, nil, nil); err == nil {
 		t.Fatal("proof request reached a backend after selection failed")
 	}
 }
@@ -89,7 +89,7 @@ func TestCloseDrainsProofs(t *testing.T) {
 	state.Unlock()
 	proved := make(chan error, 1)
 	go func() {
-		_, err := prove(nil, nil, nil)
+		_, err := prove(nil, nil, nil, nil)
 		proved <- err
 	}()
 	<-p.entered
@@ -112,7 +112,7 @@ func TestCloseDrainsProofs(t *testing.T) {
 	default:
 		t.Fatal("backend resources were not closed")
 	}
-	if _, err := prove(nil, nil, nil); err == nil {
+	if _, err := prove(nil, nil, nil, nil); err == nil {
 		t.Fatal("closed backend accepted a proof")
 	}
 	if err := Close(); err != nil {

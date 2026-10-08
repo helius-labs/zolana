@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -20,6 +21,12 @@ type prover interface {
 	Close() error
 }
 
+// ProveBatch returns proofs in witness order or one error for the whole batch.
+type batchProver interface {
+	prover
+	ProveBatch(constraint.ConstraintSystem, groth16.ProvingKey, []witness.Witness) ([]groth16.Proof, error)
+}
+
 type cpuProver struct{}
 
 func (cpuProver) Prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness.Witness) (groth16.Proof, error) {
@@ -27,20 +34,33 @@ func (cpuProver) Prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, 
 }
 func (cpuProver) Close() error { return nil }
 
+// Options take effect only on a backend with ProveBatch.
+type Options struct {
+	BatchWindow time.Duration
+	// BatchMax at one or zero proves every request alone.
+	BatchMax int
+}
+
+const maxBatchWindow = time.Second
+
 var state = struct {
 	sync.RWMutex
 	prover      prover
+	batches     *batcher
 	initialized bool
 	gpu         bool
 }{prover: cpuProver{}}
 
-func Initialize() error {
+func Initialize(options Options) error {
 	state.Lock()
 	defer state.Unlock()
 	if state.initialized {
 		return fmt.Errorf("proof backend is already initialized")
 	}
-	state.prover = nil
+	state.prover, state.batches = nil, nil
+	if options.BatchWindow < 0 || options.BatchWindow > maxBatchWindow || options.BatchMax < 0 {
+		return fmt.Errorf("invalid proof batch window %s or size %d", options.BatchWindow, options.BatchMax)
+	}
 	name := os.Getenv("PROVER_BACKEND")
 	if name == "" {
 		name = defaultBackend
@@ -60,9 +80,12 @@ func Initialize() error {
 		return err
 	}
 	state.prover = selected
+	if engine, ok := selected.(batchProver); ok && options.BatchMax > 1 {
+		state.batches = newBatcher(engine, options)
+	}
 	state.initialized = true
 	state.gpu = name == "aeglos"
-	logging.Logger().Info().Str("proof_backend", name).Msg("Proof backend initialized")
+	logging.Logger().Info().Str("proof_backend", name).Bool("batching", state.batches != nil).Msg("Proof backend initialized")
 	return nil
 }
 
@@ -71,16 +94,6 @@ func UsesGPU() bool {
 	state.RLock()
 	defer state.RUnlock()
 	return state.gpu
-}
-
-func prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness.Witness) (groth16.Proof, error) {
-	//1 - Backend ownership lasts until each admitted proof returns.
-	state.RLock()
-	defer state.RUnlock()
-	if state.prover == nil {
-		return nil, fmt.Errorf("proof backend is closed")
-	}
-	return state.prover.Prove(ccs, key, full)
 }
 
 func ProveAssignment(trace *timing.Trace, ccs constraint.ConstraintSystem, key groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {
@@ -95,12 +108,25 @@ func ProveAssignment(trace *timing.Trace, ccs constraint.ConstraintSystem, key g
 		return nil, fmt.Errorf("create witness: %w", err)
 	}
 	finishWitness()
-	defer trace.Start("prove")()
-	proof, err := prove(ccs, key, full)
+	proof, err := prove(trace, ccs, key, full)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}
 	return proof, nil
+}
+
+func prove(trace *timing.Trace, ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness.Witness) (groth16.Proof, error) {
+	//1 - Backend ownership lasts until each admitted proof returns.
+	state.RLock()
+	defer state.RUnlock()
+	if state.prover == nil {
+		return nil, fmt.Errorf("proof backend is closed")
+	}
+	if state.batches != nil {
+		return state.batches.prove(trace, ccs, key, full)
+	}
+	defer trace.Start("prove")()
+	return state.prover.Prove(ccs, key, full)
 }
 
 func Close() error {
@@ -110,6 +136,6 @@ func Close() error {
 		return nil
 	}
 	err := state.prover.Close()
-	state.prover = nil
+	state.prover, state.batches = nil, nil
 	return err
 }
