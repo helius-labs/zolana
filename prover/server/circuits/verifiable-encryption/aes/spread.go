@@ -1,6 +1,7 @@
 package aes
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
@@ -82,6 +83,9 @@ type ctrStream struct {
 
 // encryptBlock returns ciphertext for up to one block of plaintext.
 func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Variable) []frontend.Variable {
+	var counterBytes [4]byte
+	binary.BigEndian.PutUint32(counterBytes[:], counter)
+
 	// 1. Constrain and spread the plaintext bytes.
 	t := s.keys.tables
 	spreadPlaintext := make([]frontend.Variable, len(plaintextBytes))
@@ -95,9 +99,8 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 		s.cachedHigh = high
 		var state [blockBytes]frontend.Variable
 		copy(state[:12], s.nonceState)
-		for position := 12; position < 15; position++ {
-			counterByteIndex := blockBytes - 1 - position
-			counterByte := byte(counter >> uint(bitsPerByte*counterByteIndex))
+		for counterByteIndex, counterByte := range counterBytes[:3] {
+			position := len(s.nonceState) + counterByteIndex
 			state[position] = s.counterByte(position, counterByte)
 		}
 		for column := 1; column < wordBytes; column++ {
@@ -109,7 +112,7 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 	}
 
 	// 3. Complete the first round using the current low counter byte.
-	last := s.counterByte(15, byte(counter))
+	last := s.counterByte(blockBytes-1, counterBytes[3])
 	state := s.firstRound
 	spreadCounterContribution := t.substitute(3, last)
 	spreadColumnSum := t.api.Add(s.columnZero, spreadCounterContribution)
