@@ -23,7 +23,8 @@ import (
 
 const (
 	testKMSKey       = "arn:aws:kms:eu-central-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
-	testParentConfig = `{"ciphertext":"AQID","access_key_id":"AKIA","secret_access_key":"secret","session_token":"token"}`
+	testSeedContext  = "5555555555555555555555555555555555555555555555555555555555555555"
+	testParentConfig = `{"ciphertext":"AQID","access_key_id":"AKIA","secret_access_key":"secret","session_token":"token","seed_context":"` + testSeedContext + `"}`
 )
 
 func measuredKey() ([]byte, error) { return []byte(testKMSKey + "\n"), nil }
@@ -50,6 +51,7 @@ func TestParentConfig(t *testing.T) {
 		AccessKeyID:     "AKIA",
 		SecretAccessKey: "secret",
 		SessionToken:    "token",
+		SeedContext:     testSeedContext,
 	}
 	if !reflect.DeepEqual(config, want) {
 		t.Fatalf("config %+v", config)
@@ -71,6 +73,9 @@ func TestParentConfigRejects(t *testing.T) {
 		"no ciphertext":   {edit("AQID", ""), "ciphertext has 0 bytes"},
 		"long ciphertext": {edit("AQID", base64.StdEncoding.EncodeToString(make([]byte, maxKMSCiphertext+1))), "ciphertext has 6145 bytes"},
 		"no token":        {edit(`"token"`, `""`), "lacks credentials"},
+		"no context":      {edit(testSeedContext, ""), "seed context"},
+		"short context":   {edit(testSeedContext, testSeedContext[2:]), "seed context"},
+		"upper context":   {edit(testSeedContext, strings.ToUpper("ab"+testSeedContext[2:])), "seed context"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			release := &kmsRelease{dial: parentSends([]byte(tc.payload))}
@@ -259,6 +264,9 @@ func TestNitroKMSDecryptNamesTheMeasuredKey(t *testing.T) {
 	}
 	if len(recorder.inputs) != 1 || aws.ToString(recorder.inputs[0].KeyId) != testKMSKey {
 		t.Fatalf("Decrypt inputs %+v", recorder.inputs)
+	}
+	if got := recorder.inputs[0].EncryptionContext; !reflect.DeepEqual(got, map[string]string{"zolana-seed": testSeedContext}) {
+		t.Fatalf("Decrypt context %v", got)
 	}
 }
 

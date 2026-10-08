@@ -31,6 +31,11 @@ const (
 	maxKMSCiphertext = 6144
 )
 
+// Deploy binds the key policy to one random value of the context.
+const seedContextKey = "zolana-seed"
+
+var seedContextPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 var kmsKeyARNPattern = regexp.MustCompile(`^arn:aws:kms:([a-z]{2}(?:-[a-z]+)+-[0-9]+):[0-9]{12}:key/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // Unmeasured, trusted only through KMS.
@@ -39,6 +44,7 @@ type parentConfig struct {
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
 	SessionToken    string `json:"session_token"`
+	SeedContext     string `json:"seed_context"`
 }
 
 type kmsDecrypter interface {
@@ -88,7 +94,8 @@ func (r *kmsRelease) seed(ctx context.Context, attest func(*request.Attestation)
 	answer, err := r.client(r.region, credentials).Decrypt(ctx, &kms.DecryptInput{
 		CiphertextBlob: config.Ciphertext,
 		// KMS refuses a ciphertext made under any other key.
-		KeyId: aws.String(r.keyARN),
+		KeyId:             aws.String(r.keyARN),
+		EncryptionContext: map[string]string{seedContextKey: config.SeedContext},
 		Recipient: &types.RecipientInfo{
 			KeyEncryptionAlgorithm: types.KeyEncryptionMechanismRsaesOaepSha256,
 			AttestationDocument:    document,
@@ -142,6 +149,8 @@ func parseParentConfig(line []byte) (parentConfig, error) {
 		return parentConfig{}, fmt.Errorf("parent config ciphertext has %d bytes", len(config.Ciphertext))
 	case config.AccessKeyID == "" || config.SecretAccessKey == "" || config.SessionToken == "":
 		return parentConfig{}, errors.New("parent config lacks credentials")
+	case !seedContextPattern.MatchString(config.SeedContext):
+		return parentConfig{}, errors.New("parent config seed context is not 32 bytes of hex")
 	}
 	return config, nil
 }
