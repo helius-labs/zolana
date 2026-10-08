@@ -130,3 +130,27 @@ func packCompressedPoint(api frontend.API, parity frontend.Variable, x []fronten
 func packSharedX(api frontend.API, x []frontend.Variable) (lo, hi frontend.Variable) {
 	return gadget.BytesToField(api, x[0:31]), x[31]
 }
+
+func newP256Curve(api frontend.API) *sw_emulated.Curve[emulated.P256Fp, emulated.P256Fr] {
+	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](api, sw_emulated.GetP256Params())
+	if err != nil {
+		panic(err)
+	}
+	return curve
+}
+
+func newAgreementField(api frontend.API) *agreementField {
+	fp, err := emulated.NewField[emulated.P256Fp](api)
+	if err != nil {
+		panic(err)
+	}
+	return fp
+}
+
+func newScalarField(api frontend.API) *emulated.Field[emulated.P256Fr] {
+	fr, err := emulated.NewField[emulated.P256Fr](api)
+	if err != nil {
+		panic(err)
+	}
+	return fr
+}
