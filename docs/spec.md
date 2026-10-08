@@ -755,10 +755,12 @@ output_blinding  = Poseidon(int_be("TMEB"), shared_secret)
 ```
 
 `first_nullifier` enters the merge public inputs and the nullifier tree accepts
-it once, so `shared_secret`, and with it the key, nonce and `output_blinding`, is
-unique per merge. A merger that reuses an ephemeral key repeats no keystream and
-cannot re-merge an output alone into an identical leaf whose nullifier that merge
-already published.
+it once, so a merger that reuses an ephemeral key cannot re-merge an output alone
+into an identical leaf whose nullifier that merge already published. Solana keeps
+the instruction data of a failed transaction, including `ephemeral_pk` and
+`ciphertext`. Two attempts with the same `ephemeral_sk` and `first_nullifier`
+share the key, nonce and `output_blinding`, so the merger draws a fresh
+`ephemeral_sk` per attempt.
 
 The owner decrypts the envelope with `shared_x = ECDH_x(viewing_sk, ephemeral_pk)`,
 the transaction's first nullifier and the same derivation, then rebuilds the UTXO
