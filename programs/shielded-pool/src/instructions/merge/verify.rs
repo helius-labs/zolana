@@ -26,7 +26,9 @@ use crate::instructions::verifier;
 /// and carries the default rail's proof commitment and encrypted envelope, which
 /// the ring rail does not have.
 pub enum MergeOwnerBinding<'a> {
-    /// Default merge (`merge_transact`), verified against `merge_<n_inputs>_1`.
+    /// Default merge (`merge_transact`): owner identity bound from the user
+    /// registry record -- both the signing identity and nullifier public key.
+    /// Verified against `merge_<n_inputs>_1`.
     Default {
         signing_pk_field: [u8; 32],
         nullifier_pk: [u8; 32],
@@ -131,7 +133,11 @@ impl<'a> MergeProof<'a> {
     ///
     /// Both variants share the same 7 leading elements (nullifier chain, output
     /// hash, tree slot chain, output tree id, private tx hash, external data
-    /// hash, dummy-input policy).
+    /// hash, dummy-input policy); the default merge then appends the owner's
+    /// signing identity and nullifier public key (from the registry) followed by
+    /// the envelope elements, while the policy-ring merge omits that identity (no
+    /// registry to bind it against) and appends the output `ring_data_hash` and
+    /// `ring_program_id`.
     ///
     /// Invariant: HashChain4 folds its first element alone and then three
     /// elements per Poseidon call, so the 7-element prefix (1 + 3 + 3) ends on

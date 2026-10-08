@@ -12,6 +12,11 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
+// CreateWitness assigns the pre-computed parameters onto the merge circuit. It
+// performs no hashing. The merge-ring rail (CircuitType == MergeRingCircuitType)
+// is assigned onto the policy-ring circuit, which additionally carries the
+// top-level OutputRingDataHash and RingProgramID; every other rail uses the
+// default merge circuit.
 func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 	if p.CircuitType == common.MergeRingCircuitType {
 		return p.createRingWitness()
@@ -93,6 +98,9 @@ func (p *MergeParameters) mintChunks() [mergeshared.MintChunkCount]frontend.Vari
 	}
 }
 
+// assignTreeSlots fills the circuit's pre-allocated slots. The count is fixed
+// by the compiled skeleton, so a request with any other count is rejected here
+// as well as in ValidateShape: CreateWitness is reachable without it.
 func (p *MergeParameters) assignTreeSlots(slots []transaction.TreeSlot) error {
 	if len(p.TreeSlots) != len(slots) {
 		return fmt.Errorf("merge: tree slot count mismatch: got %d want %d", len(p.TreeSlots), len(slots))

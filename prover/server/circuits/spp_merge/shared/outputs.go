@@ -16,6 +16,8 @@ func constrainOutput(
 	ringProgramID,
 	treeID frontend.Variable,
 ) frontend.Variable {
+	// DataHash is fixed to zero, so no owner signature is needed. The merged
+	// output is always real, so it is never compact padding.
 	utxo := transaction.UtxoCircuitFields{
 		Domain:        UtxoDomain,
 		Owner:         userOwnerHash,

@@ -50,6 +50,7 @@ func (s successorCounters) encrypt(api frontend.API, txViewingKey p256.PublicKey
 	copy(key[:], first)
 	copy(nonce[:], second)
 
+	// Canonical field bytes bind the encrypted opening to the record commitment.
 	plaintext := ve.FieldToBytesBE(api, s.salt, 32)
 	for i, asset := range s.assets {
 		plaintext = append(plaintext, ve.FieldToBytesBE(api, asset, 32)...)

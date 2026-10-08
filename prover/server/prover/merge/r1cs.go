@@ -9,6 +9,10 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
+// R1CSMerge compiles the n-in/1-out merge circuit. WithCompressThreshold(300)
+// matches the constraint system the committed verifying key is produced with
+// (the emulated P256 gadget adds a BSB22 commitment); keep it in sync with the
+// transfer rail and the verifying-key regeneration.
 func R1CSMerge(nInputs int) (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),
@@ -18,6 +22,9 @@ func R1CSMerge(nInputs int) (constraint.ConstraintSystem, error) {
 	)
 }
 
+// R1CSMergeRing compiles the policy-ring merge circuit (merge_ring). It mirrors
+// R1CSMerge with the ring binding added, so the same compression threshold
+// applies.
 func R1CSMergeRing(nInputs int) (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),

@@ -1,3 +1,5 @@
+// Package deposit binds every deposited owner's commitment to an opening
+// encrypted for the configured auditor.
 package deposit
 
 import (
@@ -11,9 +13,10 @@ import (
 
 const MaxDeposits = 8
 const DepositPlaintextBytes = 64
-const Domain uint32 = 0x43524450
+const Domain uint32 = 0x43524450 // CRDP
 const EncryptionInfo = "CRING/dep1"
 
+// Each owner commitment must match the opening encrypted for the auditor.
 type CustomRingDepositCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 	ContextHash     frontend.Variable
@@ -29,6 +32,7 @@ type CustomRingDepositCircuit struct {
 }
 
 func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
+	// 1. Prove exactly the occupied prefix with canonical zero padding.
 	var countMatches [MaxDeposits]frontend.Variable
 	validCount := frontend.Variable(0)
 	for i := range countMatches {
@@ -51,10 +55,13 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		api.AssertIsEqual(api.Mul(disabled, c.Blindings[i]), 0)
 		c.Keys[i].AssertEscrowed(api, api.Mul(enabled[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
 		ownerHashes[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
+		// The plaintext must be the canonical field encoding.
 		copy(plaintext[i*DepositPlaintextBytes:], ve.FieldToBytesBE(api, ownerHashes[i], 32))
 		copy(plaintext[i*DepositPlaintextBytes+32:], ve.FieldToBytesBE(api, c.Blindings[i], 32))
 	}
 
+	// 2. Bind the shared key to the auditor and published ephemeral key.
+	// 3. Assign distinct CTR blocks to every deposit opening.
 	encrypted := ve.Envelope{
 		SecretTag:   base.SharedSecretTag,
 		KdfInfo:     []byte(EncryptionInfo),
@@ -69,6 +76,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		chain = append(chain, api.Mul(enabled[i], ownerCommitment), api.Mul(enabled[i], ciphertextHash))
 	}
 	chain = append(chain, encrypted.RecipientLo, encrypted.RecipientHi, encrypted.EphemeralLo, encrypted.EphemeralHi, c.KeyEscrow, c.KeyRegistryRoot)
+	// 4. Bind disclosure to the program's SPP deposit bytes.
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }

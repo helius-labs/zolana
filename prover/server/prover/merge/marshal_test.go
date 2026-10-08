@@ -75,6 +75,10 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	}
 }
 
+// TestMergeParametersJSONKeys pins the request schema the Rust client encodes:
+// tree identity is published once per slot and selected privately per input, so
+// the per-input roots must be gone, and no field carries the private tx
+// blinding (the circuit derives it from UserNullifierSecret).
 func TestMergeParametersJSONKeys(t *testing.T) {
 	cases := []struct {
 		params *MergeParameters
@@ -193,12 +197,19 @@ func TestMergeParametersRejectInvalidEnvelopeKeys(t *testing.T) {
 	}
 }
 
+// TestMergeParametersRejectMissingUserNullifierSecret guards the required
+// field. The secret seeds the private tx blinding, so defaulting an absent one
+// to zero would hand it to an observer.
 func TestMergeParametersRejectMissingUserNullifierSecret(t *testing.T) {
 	if _, err := unmarshalMutated(t, sampleParams(), deleteKey("userNullifierSecret")); err == nil {
 		t.Fatal("expected an omitted userNullifierSecret to be rejected")
 	}
 }
 
+// TestMergeParametersValidateShapeTreeSlots checks ValidateShape rejects a
+// request the circuit's SelectTreeSlot would only fail on as an opaque proving
+// error: a slot list of the wrong length or an input selecting a slot that does
+// not exist.
 func TestMergeParametersValidateShapeTreeSlots(t *testing.T) {
 	t.Run("wrong slot count", func(t *testing.T) {
 		p := sampleParams()

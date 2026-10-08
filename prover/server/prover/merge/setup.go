@@ -10,8 +10,12 @@ import (
 	"github.com/consensys/gnark/constraint"
 )
 
+// MergeNOutputs is fixed: a merge always produces exactly one UTXO. The input
+// count is per-shape, see SupportedNInputs.
 const MergeNOutputs uint32 = 1
 
+// SupportedNInputs are the merge input counts a proving system exists for,
+// smallest first.
 func SupportedNInputs() []uint32 {
 	counts := make([]uint32, 0, len(mergeshared.SupportedInputCounts))
 	for _, n := range mergeshared.SupportedInputCounts {
@@ -20,10 +24,14 @@ func SupportedNInputs() []uint32 {
 	return counts
 }
 
+// IsSupportedNInputs reports whether a merge circuit exists for nInputs.
 func IsSupportedNInputs(nInputs uint32) bool {
 	return mergeshared.IsSupportedInputCount(int(nInputs))
 }
 
+// SetupMerge runs trusted setup for the default merge circuit at nInputs inputs
+// and returns a proof system (reusing common.TransferProofSystem as the generic
+// Groth16 holder).
 func SetupMerge(nInputs uint32) (*common.TransferProofSystem, error) {
 	if !IsSupportedNInputs(nInputs) {
 		return nil, fmt.Errorf("merge: unsupported input count %d, want one of %v", nInputs, SupportedNInputs())
@@ -40,6 +48,8 @@ func SetupMerge(nInputs uint32) (*common.TransferProofSystem, error) {
 	return mergeSystem(common.MergeCircuitType, nInputs, pk, vk, ccs), nil
 }
 
+// SetupMergeRing runs trusted setup for the policy-ring merge circuit
+// (merge_ring) at nInputs inputs.
 func SetupMergeRing(nInputs uint32) (*common.TransferProofSystem, error) {
 	if !IsSupportedNInputs(nInputs) {
 		return nil, fmt.Errorf("merge-ring: unsupported input count %d, want one of %v", nInputs, SupportedNInputs())

@@ -21,8 +21,10 @@ type InputParamsJSON struct {
 	NullifierNextValue       string   `json:"nullifierNextValue"`
 	NullifierLowPathElements []string `json:"nullifierLowPathElements"`
 	NullifierLowPathIndex    string   `json:"nullifierLowPathIndex"`
-	TreeSlot                 string   `json:"treeSlot"`
-	Nullifier                string   `json:"nullifier"`
+	// TreeSlot indexes the request's treeSlots and stays private; it replaces
+	// the per-input roots, which are published once per tree slot.
+	TreeSlot  string `json:"treeSlot"`
+	Nullifier string `json:"nullifier"`
 }
 
 type OutputParamsJSON struct {
@@ -140,6 +142,10 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.UserNullifierPk, err = common.FeFromHex(params.UserNullifierPk); err != nil {
 		return err
 	}
+	// Required, not defaulted: the secret seeds the private tx blinding and the
+	// policy-ring merged output's blinding, which the circuit derives from it. A
+	// zero secret makes both computable by an observer, so an omitted field must
+	// fail here rather than silently degrade to a known blinding.
 	if params.UserNullifierSecret == "" {
 		return fmt.Errorf("merge: userNullifierSecret is required")
 	}

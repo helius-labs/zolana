@@ -17,6 +17,8 @@ const (
 )
 
 // KeySchedule derives an AES-256 key and 12-byte nonce from a shared secret.
+// It mirrors sdk-libs/keypair/src/encryption.rs:key_schedule in-circuit; the
+// Rust host KDF MUST mirror the domain separators byte for byte.
 // The compile-time info label is at most 434 bytes. Its final 31-byte chunk
 // (including a full final chunk) must not start with zero, so differently sized
 // labels cannot pack into the same field elements. Empty info is allowed.

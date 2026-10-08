@@ -1,3 +1,4 @@
+// Package merge implements the default and policy-ring SPP merge circuits.
 package merge
 
 import (
@@ -9,6 +10,17 @@ import (
 	ve "zolana/prover/circuits/verifiable-encryption"
 )
 
+// Properties:
+// 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
+// 2. Nonzero dummy nullifiers are indistinguishable from UTXO nullifiers;
+// compact padding publishes 0.
+// 3. No owner signature is enforced; cache insertion requires its write authority to sign.
+// 4. Balances are preserved.
+// 5. Input and output utxos are owned by the same owner.
+// 6. 1/many UTXOs to one UTXO
+// 7. The output UTXO blinding derives from the envelope shared secret, so the
+// owner recovers the output by decrypting the envelope with its viewing key.
+
 type (
 	Input  = mergeshared.Input
 	Output = mergeshared.Output
@@ -19,6 +31,8 @@ const (
 	DummyDomain = mergeshared.DummyDomain
 )
 
+// Circuit is the default-ring merge rail. It publishes the owner's signing
+// pk_field and nullifier public key in addition to the common preimage.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -41,6 +55,8 @@ type Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
+// NewMergeCircuit allocates the default-rail merge circuit for n input slots.
+// One proving system exists per supported count; Define rejects any other.
 func NewMergeCircuit(n int) *Circuit {
 	return &Circuit{
 		NumInputs:          n,
@@ -90,6 +106,9 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
+// assertDefaultRing pins ring data to zero for every real input and for the
+// always-real output. Dummy input ring data remains free, matching the existing
+// arity-hiding convention.
 func assertDefaultRing(api frontend.API, inputs []Input, output Output) {
 	for _, input := range inputs {
 		isUtxo := api.IsZero(api.Sub(input.Domain, UtxoDomain))

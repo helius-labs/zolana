@@ -39,22 +39,28 @@ const (
 const defaultFixtureInputs = 24
 
 type mergeFixtureOptions struct {
-	inputCount          int
-	externalDataHash    *big.Int
-	rail                mergeFixtureRail
-	eddsa               bool
-	ringProgramID       *big.Int
-	inputRingData       []*big.Int
-	outputRingData      *big.Int
-	userSigningPkHash   *big.Int
-	allowDummyInputs    *big.Int
+	inputCount        int
+	externalDataHash  *big.Int
+	rail              mergeFixtureRail
+	eddsa             bool
+	ringProgramID     *big.Int
+	inputRingData     []*big.Int
+	outputRingData    *big.Int
+	userSigningPkHash *big.Int
+	allowDummyInputs  *big.Int
+	// duplicateFirstInput fills input slot 1 with an exact copy of slot 0
+	// (same UTXO, same paths, same nullifier); only the distinctness
+	// constraint can reject the resulting witness.
 	duplicateFirstInput bool
-	inputSlot           int
-	outputNullifierPk   *big.Int
-	legacyBlinding      bool
-	realInputs          []fixtureInput
-	outputTreeID        int64
-	encrypt             func(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope
+	// inputSlot places input 1 in that tree slot: hashed under the slot's tree
+	// id and the sole leaf of a second state tree published as the slot's root.
+	inputSlot int
+	// outputNullifierPk publishes the merged output under another nullifier key.
+	outputNullifierPk *big.Int
+	legacyBlinding    bool
+	realInputs        []fixtureInput
+	outputTreeID      int64
+	encrypt           func(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope
 }
 
 type fixtureInput struct {
@@ -121,11 +127,14 @@ func mergePlaintext(amount *big.Int, mint [32]byte) []byte {
 	return append(plaintext, mint[:]...)
 }
 
+// Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
+// every slot id so a swapped input/output id is caught.
 const (
 	fixtureInputTreeID  = 7
 	fixtureOutputTreeID = 11
 )
 
+// fixtureSlotTreeIDs returns InputTrees distinct tree ids, slot 0 = fixtureInputTreeID.
 func fixtureSlotTreeIDs() []*big.Int {
 	ids := []int64{fixtureInputTreeID, 17, 19, 23, 29}
 	out := make([]*big.Int, mergeshared.InputTrees)
@@ -135,6 +144,7 @@ func fixtureSlotTreeIDs() []*big.Int {
 	return out
 }
 
+// fixtureTreeSlots pairs each slot's id with its two roots.
 func fixtureTreeSlots(ids, utxoRoots, nullifierRoots []*big.Int) []protocol.TreeSlot {
 	slots := make([]protocol.TreeSlot, len(ids))
 	for k := range ids {
@@ -143,6 +153,7 @@ func fixtureTreeSlots(ids, utxoRoots, nullifierRoots []*big.Int) []protocol.Tree
 	return slots
 }
 
+// publicTreeSlots reads the assigned circuit slots back as host values.
 func publicTreeSlots(slots []transaction.TreeSlot) []protocol.TreeSlot {
 	out := make([]protocol.TreeSlot, len(slots))
 	for k, slot := range slots {
@@ -155,6 +166,7 @@ func publicTreeSlots(slots []transaction.TreeSlot) []protocol.TreeSlot {
 	return out
 }
 
+// mergeUtxoHash hashes u under the raw id of the tree that holds it.
 func mergeUtxoHash(t testing.TB, u protocol.Utxo, treeID int64) *big.Int {
 	t.Helper()
 	return spptest.MustUtxoHash(t, u, big.NewInt(treeID))
@@ -275,6 +287,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 	treeIDs := fixtureSlotTreeIDs()
 	inputSlots := []int{0, options.inputSlot}
+	// Real input UTXOs and their state-tree leaves. Slot 0 is always real.
 	inUtxos := make([]protocol.Utxo, numReal)
 	inHashes := make([]*big.Int, numReal)
 	stateEntries := map[uint64]*big.Int{}
@@ -305,6 +318,9 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every slot publishes the slot-0 state root under its own tree id. An
+	// input placed in another slot is instead the sole leaf of a second tree
+	// published as that slot's root.
 	slotRoots := make([]*big.Int, mergeshared.InputTrees)
 	for k := range slotRoots {
 		slotRoots[k] = stateRoot
@@ -321,6 +337,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		stateProofs[1] = stateProofs[0]
 	}
 
+	// Empty nullifier tree: every real nullifier is bracketed by the sentinel.
 	nfTree, err := protocol.NewNullifierTree()
 	if err != nil {
 		t.Fatal(err)

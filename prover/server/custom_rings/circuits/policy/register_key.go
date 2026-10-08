@@ -10,8 +10,10 @@ import (
 	"zolana/prover/custom_rings/circuits/registry"
 )
 
+// Separates the nullifier key ciphertext from the audit ciphertext, equals Rust NF_KEY_ENC_INFO.
 const NfKeyEncInfo = "CRING/nfk1"
 
+// Attests the member's own key claim, unbound to any UTXO owner.
 type KeyRegisterCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -20,6 +22,7 @@ type KeyRegisterCircuit struct {
 	Member          frontend.Variable
 	NewIndex        frontend.Variable
 
+	// Byte 0 is zero, the 31-byte packing stays below the field order.
 	NullifierSecret [32]frontend.Variable
 	EphSk           [32]frontend.Variable
 	AuditorPk       [65]frontend.Variable
@@ -33,12 +36,14 @@ type KeyRegisterCircuit struct {
 }
 
 func (c *KeyRegisterCircuit) Define(api frontend.API) error {
+	// 1. Bound all bytes and limit the nullifier secret to 31 bytes.
 	rangeChecker := rangecheck.New(api)
 	for _, b := range c.NullifierSecret {
 		rangeChecker.Check(b, 8)
 	}
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
 
+	// 2. Bind the encrypted secret to the registered nullifier public key.
 	secretFE := gadget.BytesToField(api, c.NullifierSecret[:])
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{secretFE})
 
@@ -51,6 +56,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	}.Encrypt(api)
 	ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext)
 
+	// 3. Require member absence before inserting the key hash.
 	keyHash := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, ciphertextHash})
 	newRoot := registry.Insertion{
 		OldRoot:  c.RegistryOldRoot,
@@ -64,6 +70,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	}.NewRoot(api)
 	api.AssertIsEqual(newRoot, c.RegistryNewRoot)
 
+	// 4. Bind registration to the program's public statement.
 	chain := []frontend.Variable{
 		c.RegistryOldRoot, c.RegistryNewRoot, c.Member,
 		nullifierPk, encrypted.RecipientLo, encrypted.RecipientHi, encrypted.EphemeralLo, encrypted.EphemeralHi, ciphertextHash,

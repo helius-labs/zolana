@@ -17,6 +17,20 @@ const (
 	maxTagBytes            = 31
 )
 
+// Envelope encrypts Plaintext to RecipientPk under a fresh ephemeral key.
+// Encrypt binds the raw ECDH output to both public keys that produced it, so
+// the AES key schedule input is a single field element that cannot be replayed
+// under a different key pair:
+//
+//	shared_secret = Poseidon(SecretTag,
+//	                         dh_lo, dh_hi,
+//	                         eph_pk_lo, eph_pk_hi,
+//	                         recipient_pk_lo, recipient_pk_hi
+//	                         [, Context])
+//
+// The Rust host derivation MUST mirror this input order element for element.
+// Ciphertext integrity is enforced by a Poseidon ciphertext hash folded into
+// the public input hash, not by a GCM tag.
 type Envelope struct {
 	SecretTag   []byte
 	KdfInfo     []byte

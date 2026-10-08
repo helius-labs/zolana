@@ -483,6 +483,12 @@ struct MergeSkips<'a> {
     undecryptable: &'a mut usize,
 }
 
+/// Rebuilds the outputs of this wallet's merges and returns the ones still
+/// pending. A default merge's output is decrypted from its envelope. A ring
+/// merge publishes no ciphertext: its output carries the inputs' total under a
+/// blinding derived from the first nullifier, so the owner recomputes it from
+/// the notes it holds. A merge can spend another merge's output, so passes
+/// repeat until one resolves nothing new.
 fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
@@ -515,7 +521,10 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     Ok(pending.into_iter().cloned().collect())
 }
 
-/// Rebuilds the output of `merge`; a ring merge's inputs are found in `held`.
+/// Rebuilds the output of `merge`; a ring merge's inputs are found in `held`
+/// by nullifier. [`decrypt()`] rebuilds the merges of one batch from that batch's
+/// candidates; a client that keeps UTXOs between syncs passes them here, since
+/// a ring merge's inputs were usually published in an earlier batch.
 pub fn rebuild_merge<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     merge: &ShieldedTransaction,

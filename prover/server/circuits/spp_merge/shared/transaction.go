@@ -1,3 +1,5 @@
+// Package shared holds the witness building blocks and constraints shared by
+// the default and policy-ring SPP merge circuits.
 package shared
 
 import (
@@ -26,6 +28,7 @@ const (
 // must agree on which counts exist.
 var SupportedInputCounts = []int{8, 24, 54}
 
+// IsSupportedInputCount reports whether a merge circuit exists for n inputs.
 func IsSupportedInputCount(n int) bool {
 	for _, supported := range SupportedInputCounts {
 		if supported == n {
@@ -35,6 +38,8 @@ func IsSupportedInputCount(n int) bool {
 	return false
 }
 
+// Input contains the free per-slot merge witness. The circuit supplies the
+// shared owner, asset, data hash, and ring program when reconstructing its UTXO.
 type Input struct {
 	Domain       frontend.Variable
 	Amount       frontend.Variable
@@ -43,7 +48,8 @@ type Input struct {
 
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
-	TreeSlot          frontend.Variable
+	// TreeSlot selects the public tree slot this input is spent from.
+	TreeSlot frontend.Variable
 
 	NullifierLowValue        frontend.Variable
 	NullifierNextValue       frontend.Variable
@@ -51,10 +57,16 @@ type Input struct {
 	NullifierLowPathIndex    frontend.Variable
 }
 
+// Output contains the merged output's only free leaf field. The circuit
+// derives its owner, asset, amount, domain, data hash, ring program, and
+// blinding.
 type Output struct {
 	RingDataHash frontend.Variable
 }
 
+// CommonPublicInputs contains the prover-supplied public-input-hash components
+// shared by both merge rails. Only the final PublicInputHash is gnark-public;
+// Constrain binds every derived component below to its supplied signal.
 type CommonPublicInputs struct {
 	Nullifiers []frontend.Variable
 	OutputHash frontend.Variable
@@ -63,10 +75,16 @@ type CommonPublicInputs struct {
 	ExternalDataHash frontend.Variable
 	AllowDummyInputs frontend.Variable
 
-	TreeSlots    []transaction.TreeSlot
+	// Input tree slots: each tree's raw u16 id and both roots, selected as a
+	// unit by every input's private tree slot.
+	TreeSlots []transaction.TreeSlot
+	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
 }
 
+// Transaction is the common merge statement over a wrapper-owned witness.
+// RingProgramID is 0 on the default rail and the ring's public signal on the
+// policy-ring rail.
 type Transaction struct {
 	Inputs []Input
 	Output Output
@@ -114,6 +132,7 @@ func sumAmounts(api frontend.API, inputs []Input) frontend.Variable {
 	return sum
 }
 
+// NewInputs allocates n merge input slots and their Merkle paths.
 func NewInputs(n int) []Input {
 	inputs := make([]Input, n)
 	for i := range inputs {
@@ -123,6 +142,8 @@ func NewInputs(n int) []Input {
 	return inputs
 }
 
+// NewCommonPublicInputs allocates the per-input public signal slices for n
+// inputs.
 func NewCommonPublicInputs(n int) CommonPublicInputs {
 	return CommonPublicInputs{
 		Nullifiers: make([]frontend.Variable, n),
@@ -130,6 +151,7 @@ func NewCommonPublicInputs(n int) CommonPublicInputs {
 	}
 }
 
+// Prefix returns the common public-input-hash preimage prefix.
 func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 	return []frontend.Variable{
 		gadget.RightHashChain4(api, p.Nullifiers),
@@ -142,6 +164,11 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 	}
 }
 
+// ValidateLayout checks every slice indexed by the merge skeleton before
+// Constrain emits any constraints. The declared input count must be one the
+// circuits are keyed for: the public-input-hash prefix folds a nullifier chain
+// whose length is the input count, so a count with no key would produce a proof
+// the program can never verify.
 func (t Transaction) ValidateLayout(numInputs int) error {
 	if !IsSupportedInputCount(numInputs) {
 		return fmt.Errorf("merge: unsupported input count %d, want one of %v", numInputs, SupportedInputCounts)
@@ -188,6 +215,8 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 	return nil
 }
 
+// Constrain proves the common merge statement and binds every supplied common
+// public-input-hash component to its in-circuit derivation.
 func (t Transaction) Constrain(api frontend.API) {
 	asset := gadget.HashChain(api, t.MintChunks[:])
 	userOwnerHash := gadget.PoseidonHash(
@@ -199,6 +228,8 @@ func (t Transaction) Constrain(api frontend.API) {
 	api.AssertIsEqual(t.UserNullifierPk, nullifierPk)
 	api.AssertIsBoolean(t.Public.AllowDummyInputs)
 	isCompact := transaction.CompactSlots(api, t.Public.Nullifiers)
+	// Compact padding (nullifier 0) inserts nothing, so the gate does not
+	// apply to it.
 	for i := range t.Inputs {
 		isDummy := api.IsZero(api.Sub(t.Inputs[i].Domain, DummyDomain))
 		api.AssertIsEqual(
@@ -207,6 +238,8 @@ func (t Transaction) Constrain(api frontend.API) {
 		)
 	}
 
+	// Slot zero must be a real input. Constrain it first so its genuine,
+	// single-use nullifier can seed the output blinding and dummy nullifiers.
 	api.AssertIsEqual(t.Inputs[0].Domain, UtxoDomain)
 
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
