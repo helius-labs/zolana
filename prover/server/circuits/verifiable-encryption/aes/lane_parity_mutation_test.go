@@ -38,7 +38,7 @@ func chunkParityHint(_ *big.Int, inputs []*big.Int, outputs []*big.Int) error {
 	return nil
 }
 
-func decodeXorBytesMutant(t *spreadTables, spreadSum frontend.Variable, byteCount int, mutation laneParityMutation) []frontend.Variable {
+func decodeWordSumMutant(t *spreadTables, spreadSum frontend.Variable, byteCount int, mutation laneParityMutation) []frontend.Variable {
 	out := make([]frontend.Variable, byteCount)
 	chunks, err := t.api.NewHint(laneChunksHint, 2*byteCount, spreadSum)
 	if err != nil {
@@ -80,7 +80,7 @@ func (c *laneParityMutantCircuit) Define(api frontend.API) error {
 	if c.mutation == laneParityWithoutChunkMembership {
 		t.chunks.Lookup(1)
 	}
-	api.AssertIsEqual(decodeXorBytesMutant(t, c.Lane, 1, c.mutation)[0], c.Byte)
+	api.AssertIsEqual(decodeWordSumMutant(t, c.Lane, 1, c.mutation)[0], c.Byte)
 	return nil
 }
 

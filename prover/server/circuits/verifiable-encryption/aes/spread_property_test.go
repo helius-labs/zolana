@@ -25,7 +25,7 @@ func (c *spreadBytePropertyCircuit) Define(api frontend.API) error {
 	for i, value := range c.Bytes {
 		spread := tables.spreadByte(value)
 		api.AssertIsEqual(spread, c.Expected[i])
-		api.AssertIsEqual(tables.decodeXorBytes(spread, 1)[0], value)
+		api.AssertIsEqual(tables.decodeWordSum(spread, 1)[0], value)
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ func (c *spreadXORPropertyCircuit) Define(api frontend.API) error {
 	var sum frontend.Variable = 0
 	for i, value := range c.Bytes {
 		sum = api.Add(sum, tables.spreadByte(value))
-		api.AssertIsEqual(tables.decodeXorBytes(sum, 1)[0], c.XOR[i])
+		api.AssertIsEqual(tables.decodeWordSum(sum, 1)[0], c.XOR[i])
 	}
 	return nil
 }

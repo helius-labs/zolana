@@ -168,7 +168,7 @@ func (c *laneRecompositionCircuit) Define(api frontend.API) error {
 	// isolated lane check. Sum=1 fixes the expected byte to one.
 	api.AssertIsEqual(t.spreadByte(c.Sum), t.spreadConstant(1))
 	api.AssertIsEqual(t.substitute(sboxRegion, c.Sum), t.spreadConstant(sbox0[1]))
-	api.AssertIsEqual(t.decodeXorBytes(c.Sum, 1)[0], c.Byte)
+	api.AssertIsEqual(t.decodeWordSum(c.Sum, 1)[0], c.Byte)
 	return nil
 }
 

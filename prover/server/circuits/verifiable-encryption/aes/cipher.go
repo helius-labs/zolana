@@ -111,7 +111,7 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 	state := s.firstRound
 	spreadCounterContribution := t.substitute(3, last)
 	spreadColumnSum := t.api.Add(s.columnZero, spreadCounterContribution)
-	columnBytes := t.decodeXorBytes(spreadColumnSum, wordBytes)
+	columnBytes := t.decodeWordSum(spreadColumnSum, wordBytes)
 	copy(state[:wordBytes], columnBytes)
 
 	// 4. Apply AES rounds 2 through 13.
@@ -133,7 +133,7 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 		spreadRoundKeyByte := spreadFinalRoundKey[i]
 		sums[i] = t.api.Add(spreadSubstitutedByte, spreadRoundKeyByte, spreadPlaintext[i])
 	}
-	return t.xorBytes(sums)
+	return t.decodeByteSums(sums)
 }
 
 func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
@@ -143,7 +143,7 @@ func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
 	spreadKeyByte := s.keys.spreadBytes[position]
 	spreadCounterByte := s.keys.tables.spreadConstant(value)
 	sum := s.keys.tables.api.Add(spreadKeyByte, spreadCounterByte)
-	return s.keys.tables.xorBytes([]frontend.Variable{sum})[0]
+	return s.keys.tables.decodeByteSums([]frontend.Variable{sum})[0]
 }
 
 type roundKeys struct {
@@ -198,7 +198,7 @@ func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *r
 		for j := range sums {
 			sums[j] = api.Add(spreadEarlierWordBytes[j], mixed[j])
 		}
-		copy(currentWordBytes, t.xorBytes(sums))
+		copy(currentWordBytes, t.decodeByteSums(sums))
 		for j, roundKeyByte := range currentWordBytes {
 			spreadCurrentWordBytes[j] = t.spreadByte(roundKeyByte)
 		}
@@ -211,12 +211,12 @@ func (k *roundKeys) addRoundKey(spreadBytes []frontend.Variable, offset int) []f
 	for i := range sums {
 		sums[i] = k.tables.api.Add(spreadBytes[i], k.spreadBytes[offset+i])
 	}
-	return k.tables.xorBytes(sums)
+	return k.tables.decodeByteSums(sums)
 }
 
 func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
 	spreadColumnSum := k.columnSum(round, column, state, 0, 1, 2, 3)
-	return k.tables.decodeXorBytes(spreadColumnSum, wordBytes)
+	return k.tables.decodeWordSum(spreadColumnSum, wordBytes)
 }
 
 var columnSources = [columnsPerBlock][wordBytes]int{
@@ -230,7 +230,7 @@ func (k *roundKeys) columnSum(round, column int, state *[blockBytes]frontend.Var
 	start := round*blockBytes + column*wordBytes
 	end := start + wordBytes
 	spreadRoundKeyWord := k.spreadBytes[start:end]
-	sum := k.tables.word(spreadRoundKeyWord)
+	sum := k.tables.packSpreadWord(spreadRoundKeyWord)
 	for _, region := range regions {
 		stateByteIndex := columnSources[column][region]
 		spreadContribution := k.tables.substitute(region, state[stateByteIndex])

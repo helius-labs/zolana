@@ -239,23 +239,23 @@ func TestLaneChunkTableKnownAnswers(t *testing.T) {
 	// carries bit i = digits[i] mod 2.
 	entries := []struct {
 		chunk  int
-		digits [lanesPerChunk]int
+		digits [digitsPerChunk]int
 		parity int
 	}{
-		{0, [lanesPerChunk]int{0, 0, 0, 0}, 0b0000},
-		{1, [lanesPerChunk]int{1, 0, 0, 0}, 0b0001},
-		{2, [lanesPerChunk]int{2, 0, 0, 0}, 0b0000},
-		{5, [lanesPerChunk]int{5, 0, 0, 0}, 0b0001},
-		{6, [lanesPerChunk]int{0, 1, 0, 0}, 0b0010},
-		{7, [lanesPerChunk]int{1, 1, 0, 0}, 0b0011},
-		{12, [lanesPerChunk]int{0, 2, 0, 0}, 0b0000},
-		{36, [lanesPerChunk]int{0, 0, 1, 0}, 0b0100},
-		{216, [lanesPerChunk]int{0, 0, 0, 1}, 0b1000},
-		{259, [lanesPerChunk]int{1, 1, 1, 1}, 0b1111},
-		{753, [lanesPerChunk]int{3, 5, 2, 3}, 0b1011},
-		{1036, [lanesPerChunk]int{4, 4, 4, 4}, 0b0000},
-		{1294, [lanesPerChunk]int{4, 5, 5, 5}, 0b1110},
-		{1295, [lanesPerChunk]int{5, 5, 5, 5}, 0b1111},
+		{0, [digitsPerChunk]int{0, 0, 0, 0}, 0b0000},
+		{1, [digitsPerChunk]int{1, 0, 0, 0}, 0b0001},
+		{2, [digitsPerChunk]int{2, 0, 0, 0}, 0b0000},
+		{5, [digitsPerChunk]int{5, 0, 0, 0}, 0b0001},
+		{6, [digitsPerChunk]int{0, 1, 0, 0}, 0b0010},
+		{7, [digitsPerChunk]int{1, 1, 0, 0}, 0b0011},
+		{12, [digitsPerChunk]int{0, 2, 0, 0}, 0b0000},
+		{36, [digitsPerChunk]int{0, 0, 1, 0}, 0b0100},
+		{216, [digitsPerChunk]int{0, 0, 0, 1}, 0b1000},
+		{259, [digitsPerChunk]int{1, 1, 1, 1}, 0b1111},
+		{753, [digitsPerChunk]int{3, 5, 2, 3}, 0b1011},
+		{1036, [digitsPerChunk]int{4, 4, 4, 4}, 0b0000},
+		{1294, [digitsPerChunk]int{4, 5, 5, 5}, 0b1110},
+		{1295, [digitsPerChunk]int{5, 5, 5, 5}, 0b1111},
 	}
 	for _, e := range entries {
 		if got := e.digits[0] + 6*e.digits[1] + 36*e.digits[2] + 216*e.digits[3]; got != e.chunk {

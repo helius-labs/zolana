@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	chunkLaneBase    = 6
-	lanesPerChunk    = 4
-	chunkRadix       = 1296
+	spreadBase       = 6
+	digitsPerChunk   = 4
+	chunkRadix       = 1296 // 6^4: all combinations of four base-6 digits.
+	chunksPerByte    = bitsPerByte / digitsPerChunk
+	nibbleRadix      = 1 << digitsPerChunk
 	tableRegionSize  = 256
 	sboxRegion       = 4
 	substitutionSize = 5 * tableRegionSize
@@ -34,56 +36,67 @@ type compilerStore interface {
 type spreadTablesKey struct{}
 
 func sharedSpreadTables(api frontend.API) *spreadTables {
-	store, shared := api.Compiler().(compilerStore)
-	if shared {
-		if existing, ok := store.GetKeyValue(spreadTablesKey{}).(*spreadTables); ok {
-			return existing
+	store, supportsCaching := api.Compiler().(compilerStore)
+	if supportsCaching {
+		if cachedTables, ok := store.GetKeyValue(spreadTablesKey{}).(*spreadTables); ok {
+			return cachedTables
 		}
 	}
-	t := newSpreadTables(api)
-	if shared {
-		store.SetKeyValue(spreadTablesKey{}, t)
+	tables := newSpreadTables(api)
+	if supportsCaching {
+		store.SetKeyValue(spreadTablesKey{}, tables)
 	}
-	return t
+	return tables
 }
 
 func newSpreadTables(api frontend.API) *spreadTables {
 	t := &spreadTables{api: api}
-	// Packed bytes have weights 1, 6^8, 6^16, and 6^24.
-	spreadBase := big.NewInt(chunkLaneBase)
-	for j := range t.byteWeights {
-		exponent := big.NewInt(int64(bitsPerByte * j))
-		t.byteWeights[j] = new(big.Int).Exp(spreadBase, exponent, nil)
+	// 1. Assign packed-byte weights 1, 6^8, 6^16, and 6^24.
+	base := big.NewInt(spreadBase)
+	for byteIndex := range t.byteWeights {
+		exponent := big.NewInt(int64(bitsPerByte * byteIndex))
+		t.byteWeights[byteIndex] = new(big.Int).Exp(base, exponent, nil)
 	}
+
+	// 2. Populate the combined S-box and MixColumns regions.
 	t.substitution = logderivlookup.New(api)
 	for region := 0; region < sboxRegion; region++ {
-		for a := 0; a < tableRegionSize; a++ {
-			substitutionWord := substitutionWords[region][a]
-			spreadWord := spreadValue(uint64(substitutionWord), bitsPerByte*wordBytes, chunkLaneBase)
+		for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
+			substitutionWord := substitutionWords[region][byteValue]
+			spreadWord := spreadValue(uint64(substitutionWord), bitsPerByte*wordBytes)
 			t.substitution.Insert(spreadWord)
 		}
 	}
-	for a := 0; a < tableRegionSize; a++ {
-		substitutedByte := sbox0[a]
-		spreadSubstitutedByte := spreadValue(uint64(substitutedByte), bitsPerByte, chunkLaneBase)
+
+	// 3. Append the S-box-only region.
+	for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
+		substitutedByte := sbox0[byteValue]
+		spreadSubstitutedByte := spreadValue(uint64(substitutedByte), bitsPerByte)
 		t.substitution.Insert(spreadSubstitutedByte)
 	}
+
+	// 4. Map each byte to its spread encoding.
 	t.bytes = logderivlookup.New(api)
-	for a := 0; a < tableRegionSize; a++ {
-		spreadByte := spreadValue(uint64(a), bitsPerByte, chunkLaneBase)
+	for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
+		spreadByte := spreadValue(uint64(byteValue), bitsPerByte)
 		t.bytes.Insert(spreadByte)
 	}
+
+	// 5. Map each bounded chunk to its parity nibble.
 	t.chunks = logderivlookup.New(api)
-	for c := 0; c < chunkRadix; c++ {
-		t.chunks.Insert(chunkParity(c))
+	for chunk := 0; chunk < chunkRadix; chunk++ {
+		t.chunks.Insert(chunkParity(chunk))
 	}
 	return t
 }
 
 // substitute returns a spread-encoded lookup result: sboxRegion applies only
 // the AES S-box; regions 0..3 combine the S-box with a MixColumns contribution.
+// The caller must already constrain index to a byte to keep it in its region.
 func (t *spreadTables) substitute(region int, index frontend.Variable) frontend.Variable {
-	return t.substitution.Lookup(t.api.Add(index, region*tableRegionSize))[0]
+	regionOffset := region * tableRegionSize
+	lookupIndex := t.api.Add(index, regionOffset)
+	return t.substitution.Lookup(lookupIndex)[0]
 }
 
 func (t *spreadTables) spreadByte(value frontend.Variable) frontend.Variable {
@@ -91,48 +104,63 @@ func (t *spreadTables) spreadByte(value frontend.Variable) frontend.Variable {
 }
 
 func (t *spreadTables) spreadConstant(value byte) *big.Int {
-	return spreadValue(uint64(value), bitsPerByte, chunkLaneBase)
+	return spreadValue(uint64(value), bitsPerByte)
 }
 
-func (t *spreadTables) xorBytes(sums []frontend.Variable) []frontend.Variable {
-	out := make([]frontend.Variable, 0, len(sums))
-	for start := 0; start < len(sums); start += wordBytes {
-		end := min(start+wordBytes, len(sums))
-		spreadWordSum := t.word(sums[start:end])
-		decodedBytes := t.decodeXorBytes(spreadWordSum, end-start)
-		out = append(out, decodedBytes...)
+// decodeByteSums batches spread byte sums into words and decodes their XOR results.
+func (t *spreadTables) decodeByteSums(spreadByteSums []frontend.Variable) []frontend.Variable {
+	decodedBytes := make([]frontend.Variable, 0, len(spreadByteSums))
+	for start := 0; start < len(spreadByteSums); start += wordBytes {
+		end := min(start+wordBytes, len(spreadByteSums))
+		spreadWordSum := t.packSpreadWord(spreadByteSums[start:end])
+		decodedWordBytes := t.decodeWordSum(spreadWordSum, end-start)
+		decodedBytes = append(decodedBytes, decodedWordBytes...)
 	}
-	return out
+	return decodedBytes
 }
 
-func (t *spreadTables) word(bytes []frontend.Variable) frontend.Variable {
+// packSpreadWord packs up to four spread byte values or sums into one word.
+func (t *spreadTables) packSpreadWord(spreadByteSums []frontend.Variable) frontend.Variable {
 	var acc frontend.Variable = 0
-	for j, b := range bytes {
-		acc = t.api.Add(acc, t.api.Mul(b, t.byteWeights[j]))
+	for byteIndex, spreadByteSum := range spreadByteSums {
+		weightedByte := t.api.Mul(spreadByteSum, t.byteWeights[byteIndex])
+		acc = t.api.Add(acc, weightedByte)
 	}
 	return acc
 }
 
-func (t *spreadTables) decodeXorBytes(spreadSum frontend.Variable, byteCount int) []frontend.Variable {
-	out := make([]frontend.Variable, byteCount)
-	chunks, err := t.api.NewHint(laneChunksHint, 2*byteCount, spreadSum)
+// decodeWordSum takes each base-6 digit's parity to recover the XOR of the original bytes.
+func (t *spreadTables) decodeWordSum(spreadSum frontend.Variable, byteCount int) []frontend.Variable {
+	// 1. Obtain candidate chunks from the hint.
+	chunkCount := chunksPerByte * byteCount
+	chunks, err := t.api.NewHint(laneChunksHint, chunkCount, spreadSum)
 	if err != nil {
 		panic(err)
 	}
+
+	// 2. Require the chunks to reconstruct the original spread sum.
 	var recomposed frontend.Variable = 0
-	weight := big.NewInt(1)
-	for _, c := range chunks {
-		recomposed = t.api.Add(recomposed, t.api.Mul(c, weight))
-		weight = new(big.Int).Mul(weight, big.NewInt(chunkRadix))
+	chunkWeight := big.NewInt(1)
+	radix := big.NewInt(chunkRadix)
+	for _, chunk := range chunks {
+		weightedChunk := t.api.Mul(chunk, chunkWeight)
+		recomposed = t.api.Add(recomposed, weightedChunk)
+		chunkWeight = new(big.Int).Mul(chunkWeight, radix)
 	}
 	t.api.AssertIsEqual(spreadSum, recomposed)
+
+	// 3. Bound each chunk and look up its parity nibble.
 	nibbles := t.chunks.Lookup(chunks...)
-	for j := range out {
-		lowNibble := nibbles[2*j]
-		highNibble := nibbles[2*j+1]
-		out[j] = t.api.Add(lowNibble, t.api.Mul(highNibble, 16))
+
+	// 4. Assemble pairs of parity nibbles into ordinary bytes.
+	decodedBytes := make([]frontend.Variable, byteCount)
+	for byteIndex := range decodedBytes {
+		chunkIndex := chunksPerByte * byteIndex
+		lowNibble := nibbles[chunkIndex]
+		highNibble := nibbles[chunkIndex+1]
+		decodedBytes[byteIndex] = t.api.Add(lowNibble, t.api.Mul(highNibble, nibbleRadix))
 	}
-	return out
+	return decodedBytes
 }
 
 func init() {
@@ -143,35 +171,38 @@ func laneChunksHint(_ *big.Int, inputs []*big.Int, outputs []*big.Int) error {
 	if len(inputs) != 1 {
 		return fmt.Errorf("lane chunks: expected one input, got %d", len(inputs))
 	}
-	rest := new(big.Int).Set(inputs[0])
+	remainingSum := new(big.Int).Set(inputs[0])
 	radix := big.NewInt(chunkRadix)
-	for _, out := range outputs {
-		rest.DivMod(rest, radix, out)
+	for _, chunk := range outputs {
+		remainingSum.DivMod(remainingSum, radix, chunk)
 	}
-	if rest.Sign() != 0 {
+	if remainingSum.Sign() != 0 {
 		return fmt.Errorf("lane chunks: sum exceeds %d chunks", len(outputs))
 	}
 	return nil
 }
 
-func spreadValue(value uint64, lanes int, base int64) *big.Int {
-	out := new(big.Int)
-	weight := big.NewInt(1)
-	step := big.NewInt(base)
-	for lane := 0; lane < lanes; lane++ {
-		if (value>>uint(lane))&1 == 1 {
-			out.Add(out, weight)
+func spreadValue(value uint64, bitCount int) *big.Int {
+	encodedValue := new(big.Int)
+	bitWeight := big.NewInt(1)
+	base := big.NewInt(spreadBase)
+	for bitIndex := 0; bitIndex < bitCount; bitIndex++ {
+		bitIsSet := (value>>uint(bitIndex))&1 == 1
+		if bitIsSet {
+			encodedValue.Add(encodedValue, bitWeight)
 		}
-		weight.Mul(weight, step)
+		bitWeight.Mul(bitWeight, base)
 	}
-	return out
+	return encodedValue
 }
 
 func chunkParity(chunk int) int {
 	parity := 0
-	for lane := 0; lane < lanesPerChunk; lane++ {
-		parity |= (chunk % chunkLaneBase % 2) << uint(lane)
-		chunk /= chunkLaneBase
+	for bitIndex := 0; bitIndex < digitsPerChunk; bitIndex++ {
+		digit := chunk % spreadBase
+		parityBit := digit % 2
+		parity |= parityBit << uint(bitIndex)
+		chunk /= spreadBase
 	}
 	return parity
 }
