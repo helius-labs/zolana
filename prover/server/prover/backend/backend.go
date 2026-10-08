@@ -46,16 +46,18 @@ func Initialize() error {
 		name = defaultBackend
 	}
 	var selected prover = cpuProver{}
+	var err error
 	switch name {
 	case "gnark":
 	case "aeglos":
-		var err error
 		selected, err = newGPU()
-		if err != nil {
-			return err
-		}
+	case "aeglos-cpu":
+		selected, err = newAeglosCPU()
 	default:
 		return fmt.Errorf("unknown proof backend %q", name)
+	}
+	if err != nil {
+		return err
 	}
 	state.prover = selected
 	state.initialized = true

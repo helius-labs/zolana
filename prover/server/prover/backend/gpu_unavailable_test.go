@@ -1,4 +1,4 @@
-//go:build !aeglos
+//go:build !aeglos && !aeglos_cpu
 
 package backend
 

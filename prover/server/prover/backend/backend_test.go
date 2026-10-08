@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/constraint"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
 func resetBackend(t *testing.T) {
@@ -24,6 +27,15 @@ func resetBackend(t *testing.T) {
 		state.prover, state.initialized = previous, initialized
 		state.Unlock()
 	})
+}
+
+func compile(t *testing.T, circuit frontend.Circuit) constraint.ConstraintSystem {
+	t.Helper()
+	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ccs
 }
 
 func TestInitializeCPU(t *testing.T) {
