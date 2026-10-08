@@ -27,8 +27,9 @@ use crate::{
 };
 
 use super::{TransferPreparation, ZolanaClient};
+use crate::indexer::ZolanaIndexer;
 
-impl<R: Rpc> Rpc for ZolanaClient<R> {
+impl<R: Rpc> Rpc for ZolanaClient<R, ZolanaIndexer> {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address)
     }
@@ -109,7 +110,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     }
 
     fn should_retry(&self, error: &ClientError) -> bool {
-        self.rpc.should_retry(error) || self.blocking_indexer().should_retry(error)
+        self.rpc.should_retry(error) || self.indexer.should_retry(error)
     }
 
     fn get_encrypted_utxos_by_tags(
@@ -119,7 +120,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.blocking_indexer().get_encrypted_utxos_by_tags(
+        self.indexer.get_encrypted_utxos_by_tags(
             tags,
             cursor,
             limit,
@@ -134,7 +135,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.blocking_indexer().get_shielded_transactions_by_tags(
+        self.indexer.get_shielded_transactions_by_tags(
             tags,
             cursor,
             limit,
@@ -147,7 +148,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         options: RingHistoryOptions,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.blocking_indexer()
+        self.indexer
             .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
     }
 
@@ -156,11 +157,10 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         signature: Signature,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
-        self.blocking_indexer()
-            .get_shielded_transactions_by_signature(
-                signature,
-                Some(config.unwrap_or(self.indexer_config)),
-            )
+        self.indexer.get_shielded_transactions_by_signature(
+            signature,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn get_shielded_transactions_by_nullifiers(
@@ -170,20 +170,19 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.blocking_indexer()
-            .get_shielded_transactions_by_nullifiers(
-                nullifiers,
-                cursor,
-                limit,
-                Some(config.unwrap_or(self.indexer_config)),
-            )
+        self.indexer.get_shielded_transactions_by_nullifiers(
+            nullifiers,
+            cursor,
+            limit,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
     ) -> Result<ShieldedTransactionStream, ClientError> {
-        self.blocking_indexer()
+        self.indexer
             .subscribe_to_shielded_transactions_by_tags(tags)
     }
 
@@ -193,7 +192,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        self.blocking_indexer().get_merkle_proofs(
+        self.indexer.get_merkle_proofs(
             tree_account,
             leaves,
             Some(config.unwrap_or(self.indexer_config)),
@@ -206,7 +205,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        self.blocking_indexer().get_non_inclusion_proofs(
+        self.indexer.get_non_inclusion_proofs(
             tree_account,
             leaves,
             Some(config.unwrap_or(self.indexer_config)),
@@ -219,7 +218,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Ok(self
-            .blocking_indexer()
+            .indexer
             .input_witnesses(
                 input_utxos,
                 &[],
@@ -232,22 +231,21 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         &self,
         request: RingSpendRecordRequest,
     ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.blocking_indexer().get_ring_spend_record(request)
+        self.indexer.get_ring_spend_record(request)
     }
 
     fn get_ring_key_registry_entry(
         &self,
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.blocking_indexer().get_ring_key_registry_entry(request)
+        self.indexer.get_ring_key_registry_entry(request)
     }
 
     fn get_ring_key_registry_register_proof(
         &self,
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.blocking_indexer()
-            .get_ring_key_registry_register_proof(request)
+        self.indexer.get_ring_key_registry_register_proof(request)
     }
 
     fn get_user_records(
@@ -255,7 +253,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         owners: Vec<Address>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetUserRecordsResponse, ClientError> {
-        self.blocking_indexer()
+        self.indexer
             .get_user_records(owners, Some(config.unwrap_or(self.indexer_config)))
     }
 
@@ -264,13 +262,13 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
-        if self.proves_indexed() {
-            let proved = self.indexed_transfer(
-                TransferPreparation {
+        if let Some(server) = self.indexed_prover() {
+            let proved = server.prove_indexed(
+                &TransferPreparation {
                     transaction,
                     config: self.indexer_config,
-                },
-                authority,
+                }
+                .prepare(authority)?,
             )?;
             return Ok(ProveResult {
                 proof: proved.proof,
@@ -278,12 +276,11 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
                 circuit_id: 0,
             });
         }
+        let prover = self.prover();
         let commitments = transaction.input_utxo_hashes()?;
-        let witnesses = self.blocking_indexer().input_witnesses(
-            &commitments,
-            &transaction.dummy_nullifiers(),
-            None,
-        )?;
+        let witnesses =
+            self.indexer
+                .input_witnesses(&commitments, &transaction.dummy_nullifiers(), None)?;
         let mut assembled = assemble(
             transaction,
             &witnesses.spend_proofs,
@@ -291,7 +288,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         )?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.blocking_prover().prove_transfer(inputs)?;
+        let proof = prover.prove_transfer(inputs)?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {

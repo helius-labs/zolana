@@ -18,7 +18,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_client::{
-    client::{SignedPrivateTransaction, ZolanaClient},
+    client::{AsyncZolanaClient, SignedPrivateTransaction, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         transact::assemble, witness::WitnessReader, AsyncProverClient, Proof, ProofCompressed,
@@ -47,20 +47,33 @@ fn from_urls_requires_https_off_loopback() {
     // The indexer response is the wallet's UTXO set and the prover request
     // is the witness. In plaintext to a remote host both are readable by
     // anyone on the path, which is the privacy property itself.
-    for (indexer, prover) in [
-        ("http://indexer.example.com", "https://prover.example.com"),
-        ("https://indexer.example.com", "http://prover.example.com"),
+    for (indexer, prover, field) in [
+        (
+            "http://indexer.example.com",
+            "https://prover.example.com",
+            "indexer_url",
+        ),
+        (
+            "ws://127.0.0.1:8784",
+            "https://prover.example.com",
+            "indexer_url",
+        ),
+        (
+            "https://indexer.example.com",
+            "http://prover.example.com",
+            "prover_url",
+        ),
     ] {
         assert!(
             matches!(
-                ZolanaClient::from_urls((), indexer, prover),
-                Err(ClientError::InsecureServiceUrl { .. })
+                ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover),
+                Err(ClientError::InsecureServiceUrl { field: rejected, .. }) if rejected == field
             ),
-            "expected {indexer} / {prover} to be rejected"
+            "expected {indexer} / {prover} to be rejected for {field}"
         );
     }
 
-    assert!(ZolanaClient::from_urls(
+    assert!(ZolanaClient::<(), ZolanaIndexer>::from_urls(
         (),
         "https://indexer.example.com",
         "https://prover.example.com",
@@ -79,7 +92,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://svc.localhost:8784",
     ] {
         assert!(
-            ZolanaClient::from_urls((), url, url).is_ok(),
+            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url).is_ok(),
             "expected {url} to be allowed"
         );
     }
@@ -89,7 +102,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://notlocalhost:8784",
     ] {
         assert!(
-            ZolanaClient::from_urls((), url, url).is_err(),
+            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url).is_err(),
             "expected {url} to be rejected"
         );
     }
@@ -102,20 +115,39 @@ fn the_insecure_escape_hatch_is_explicit() {
     let indexer = "http://indexer.internal:8784";
     let prover = "http://prover.internal:3001";
     assert!(matches!(
-        ZolanaClient::from_urls((), indexer, prover),
+        ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover),
         Err(ClientError::InsecureServiceUrl { .. })
     ));
 
-    let client = ZolanaClient::from_urls_allowing_insecure_http((), indexer, prover);
+    let client =
+        ZolanaClient::<(), ZolanaIndexer>::from_urls_allowing_insecure_http((), indexer, prover);
     assert_eq!(client.indexer().api().base_path(), indexer);
 }
 
+/// A blocking client's indexer and prover own their runtime, so building and
+/// dropping one inside another runtime is fine, as it is for the async client.
 #[tokio::test]
-async fn from_urls_is_safe_inside_an_async_runtime() {
-    let client = ZolanaClient::from_urls((), "http://127.0.0.1:8784", "http://127.0.0.1:3001")
-        .expect("loopback http is allowed");
+async fn clients_of_either_mode_are_built_inside_an_async_runtime() {
+    let (indexer, prover) = ("http://127.0.0.1:8784", "http://127.0.0.1:3001");
+    drop(AsyncZolanaClient::from_urls((), indexer, prover).expect("loopback http is allowed"));
+    drop(ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover).expect("loopback"));
+}
 
-    drop(client);
+/// Inside a multi-thread runtime a blocking call leaves the worker first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_blocking_client_is_called_from_inside_a_multi_thread_runtime() {
+    let signature = Signature::from([24u8; 64]);
+    let server =
+        MockIndexerServer::respond_with(vec![indexed_transaction_by_signature_response(signature)]);
+    let client = ZolanaClient::new(
+        MockSubmitRpc::new(signature),
+        ZolanaIndexer::new(server.url()),
+        ProverClient::new("http://unused.invalid".to_string()),
+    );
+    client
+        .confirm_private_transaction_sync(signature)
+        .expect("indexed");
+    assert_eq!(server.requests(), ["/getShieldedTransactionsBySignature"]);
 }
 
 #[test]
@@ -223,8 +255,6 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
         rpc,
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_priority_fee(25_000);
 
@@ -295,8 +325,6 @@ fn submit_validation_binds_fee_payer() {
         MockSubmitRpc::new(Signature::default()),
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_proof_data_source(zolana_client::ProofDataSource::Client);
 
@@ -369,21 +397,15 @@ fn assert_recorded_one_completed_transfer(prover: &RecordingProver) {
     assert_ne!(request["inputs"][0]["nullifierSecret"], "0x0");
 }
 
-// Both prover URLs below are unroutable: reaching either would fail with a
-// server error rather than the recording prover's refusal.
-
 #[test]
 fn with_prover_replaces_the_prover_server_when_blocking() {
     let (sender, signed, server) = with_prover_fixture();
     let prover = RecordingProver::default();
-    let client = ZolanaClient::new(
+    let client = ZolanaClient::with_prover(
         MockSubmitRpc::new(Signature::default()),
         ZolanaIndexer::new(server.url()),
-        ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
-    )
-    .with_prover(prover.clone());
+        prover.clone(),
+    );
 
     let result = client.finish_submission_unsigned_sync(&signed, signed.transaction.payer, &sender);
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
@@ -394,19 +416,64 @@ fn with_prover_replaces_the_prover_server_when_blocking() {
 async fn with_prover_replaces_the_prover_server_when_async() {
     let (sender, signed, server) = with_prover_fixture();
     let prover = RecordingProver::default();
-    let client = ZolanaClient::from_urls(
+    let client = AsyncZolanaClient::with_prover(
         MockSubmitRpc::new(Signature::default()),
-        server.url(),
-        "http://127.0.0.1:1",
-    )
-    .expect("loopback urls")
-    .with_prover(prover.clone());
+        AsyncZolanaIndexer::new(server.url()),
+        prover.clone(),
+    );
 
     let result = client
         .finish_submission_unsigned(&signed, signed.transaction.payer, Hash::default(), &sender)
         .await;
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
+}
+
+/// A prover given for one submission proves it in place of the client's own
+/// prover, and the client fetches the proof data itself even where its own
+/// prover would take the prover server's indexed route.
+#[test]
+fn a_prover_given_for_one_submission_replaces_the_clients() {
+    let own = RecordingProver::default();
+    let with_own_prover = |server: &MockIndexerServer| {
+        ZolanaClient::with_prover(
+            MockSubmitRpc::new(Signature::default()),
+            ZolanaIndexer::new(server.url()),
+            own.clone(),
+        )
+    };
+    // This client proves on the prover server's indexed route, where the
+    // server, not the client, reads the proof data. The mock indexer answers
+    // only the two reads, so a request on that route fails the test.
+    let on_indexed_route = |server: &MockIndexerServer| {
+        ZolanaClient::from_urls(
+            MockSubmitRpc::new(Signature::default()),
+            server.url(),
+            server.url(),
+        )
+        .expect("loopback urls")
+    };
+    for client in [
+        &with_own_prover as &dyn Fn(&MockIndexerServer) -> ZolanaClient<MockSubmitRpc>,
+        &on_indexed_route,
+    ] {
+        let (sender, signed, server) = with_prover_fixture();
+        let given = RecordingProver::default();
+        let result = client(&server).finish_submission_unsigned_sync_with_prover(
+            &signed,
+            signed.transaction.payer,
+            &sender,
+            &given,
+        );
+        assert!(
+            matches!(result, Err(ClientError::Prover(message)) if message == "recording prover")
+        );
+        assert_recorded_one_completed_transfer(&given);
+        let mut requests = server.requests();
+        requests.sort();
+        assert_eq!(requests, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+    }
+    assert!(own.requests.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -427,8 +494,6 @@ fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
             MockSubmitRpc::new(Signature::default()),
             ZolanaIndexer::new(server.url()),
             ProverClient::new("http://unused.invalid".to_string()),
-            AsyncZolanaIndexer::new(server.url()),
-            AsyncProverClient::new("http://unused.invalid".to_string()),
         );
         let result =
             Rpc::get_input_merkle_proofs(&client, &[&input], Some(IndexerRpcConfig::at_slot(0)));
@@ -464,8 +529,6 @@ fn a_client_writes_its_configured_ceilings_into_the_header() {
             MockSubmitRpc::new(Signature::from([1u8; 64])),
             ZolanaIndexer::new("http://unused.invalid"),
             ProverClient::new("http://unused.invalid".to_string()),
-            AsyncZolanaIndexer::new("http://unused.invalid"),
-            AsyncProverClient::new("http://unused.invalid".to_string()),
         )
         .with_compute_unit_limit(1_000_000);
         match price {
@@ -501,8 +564,6 @@ fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         rpc,
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
     let error = client
@@ -523,10 +584,8 @@ fn confirm_private_transaction_async_polls_until_the_event_is_indexed() {
         })),
         indexed_transaction_by_signature_response(signature),
     ]);
-    let client = ZolanaClient::new(
+    let client = AsyncZolanaClient::new(
         MockSubmitRpc::new(signature),
-        ZolanaIndexer::new(server.url()),
-        ProverClient::new("http://unused.invalid".to_string()),
         AsyncZolanaIndexer::new(server.url()),
         AsyncProverClient::new("http://unused.invalid".to_string()),
     )
@@ -557,8 +616,6 @@ fn confirm_private_transaction_sync_retries_transient_indexer_error() {
         MockSubmitRpc::new(signature),
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
 
@@ -589,8 +646,6 @@ fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
         MockSubmitRpc::new(signature),
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
 
@@ -635,8 +690,6 @@ fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
         MockSubmitRpc::new(signature),
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new(server.url()),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
 
@@ -657,8 +710,6 @@ fn client_forwards_transact_output_view_tags_to_the_rpc() {
         MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
         ZolanaIndexer::new("http://unused.invalid"),
         ProverClient::new("http://unused.invalid".to_string()),
-        AsyncZolanaIndexer::new("http://unused.invalid"),
-        AsyncProverClient::new("http://unused.invalid".to_string()),
     );
 
     assert_eq!(
@@ -666,6 +717,11 @@ fn client_forwards_transact_output_view_tags_to_the_rpc() {
         expected
     );
 
+    let client = AsyncZolanaClient::new(
+        MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
+        AsyncZolanaIndexer::new("http://unused.invalid"),
+        AsyncProverClient::new("http://unused.invalid".to_string()),
+    );
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     assert_eq!(
         runtime
@@ -675,6 +731,55 @@ fn client_forwards_transact_output_view_tags_to_the_rpc() {
             .expect("async tags"),
         expected
     );
+}
+
+/// A client with its own prover reads only its indexer: the proof data and the
+/// confirmation come from there, and the proof from the prover it was given.
+#[test]
+fn a_client_with_its_own_prover_reads_only_its_indexer() {
+    let payer = Keypair::new();
+    let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
+    let funded = funded_utxo(&sender, 10);
+    let tree = pda::tree(funded.tree_id);
+    let signature = Signature::from([22u8; 64]);
+    let server = MockIndexerServer::respond_by_path(vec![
+        ("/getMerkleProofs", merkle_response(tree, funded.utxo_hash)),
+        (
+            "/getNonInclusionProofs",
+            nullifier_response(tree, funded.nullifier),
+        ),
+        (
+            "/getShieldedTransactionsBySignature",
+            indexed_transaction_by_signature_response(signature),
+        ),
+    ]);
+    let signed = SignedPrivateTransaction {
+        transaction: ConfidentialTransaction::new(vec![funded], payer.pubkey())
+            .expect("transaction")
+            .encrypt(&sender)
+            .expect("encrypt"),
+        settlement_transfers: Vec::new(),
+    };
+    let prover = RecordingProver::default();
+    let client = ZolanaClient::with_prover(
+        MockSubmitRpc::new(signature),
+        ZolanaIndexer::new(server.url()),
+        prover.clone(),
+    );
+
+    let result = client.finish_submission_unsigned_sync(&signed, payer.pubkey(), &sender);
+    assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
+    assert_recorded_one_completed_transfer(&prover);
+    client
+        .confirm_private_transaction_sync(signature)
+        .expect("indexed");
+
+    let requests = server.requests();
+    let (proofs, rest) = requests.split_at(2);
+    let mut proofs = proofs.to_vec();
+    proofs.sort();
+    assert_eq!(proofs, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+    assert_eq!(rest, ["/getShieldedTransactionsBySignature"]);
 }
 
 fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {
@@ -1123,7 +1228,7 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
         .encrypt(&owner)
         .unwrap();
     let server = MockIndexerServer::respond_with(vec![json!({}), json!({})]);
-    let client = ZolanaClient::from_urls(
+    let client = AsyncZolanaClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
@@ -1187,7 +1292,7 @@ async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let client = ZolanaClient::from_urls(
+    let client = AsyncZolanaClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),

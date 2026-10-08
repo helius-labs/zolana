@@ -1,3 +1,4 @@
+use solana_address::Address;
 use solana_hash::Hash;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
@@ -12,7 +13,7 @@ use crate::{
         transact::witness::{assemble, AssembledTransfer},
         verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
         witness::{AsyncWitnessReader, WitnessReader},
-        ProofCompressed, ProverExt, TransferProofResult,
+        ProofCompressed, Prover, ProverExt, TransferProofResult,
     },
     rpc::{
         compile_message, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig, Rpc,
@@ -21,6 +22,7 @@ use crate::{
 };
 
 use super::{validation::validate_fee_payer_pubkey, TransferPreparation, ZolanaClient};
+use crate::indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 
 /// A signed shielded transaction ready for proof assembly and submission.
 ///
@@ -31,20 +33,20 @@ pub struct SignedPrivateTransaction {
     pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
 }
 
-impl<R> ZolanaClient<R> {
+impl<R> ZolanaClient<R, AsyncZolanaIndexer> {
     /// Ask the configured prover for a default-ring Ed25519 transfer proof and
     /// verify it locally before returning its transaction wire encoding.
     pub async fn prove_confidential_transfer_result(
         &self,
         result: &TransferProofResult,
     ) -> Result<ProofCompressed, ClientError> {
-        let proof = self.prove_transfer_async(&result.inputs).await?;
+        let proof = self.prove_transfer(&result.inputs).await?;
         verify_confidential_transfer_proof(result, &proof)?;
         ProofCompressed::try_from(proof)
     }
 }
 
-impl<R: Rpc> ZolanaClient<R> {
+impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
     /// Fetch the input merkle proofs from the indexer and prove the transaction
     /// with the client's prover, returning the assembled `transact` instruction
     /// data ready for the [`Transact`] builder.
@@ -57,24 +59,23 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        if self.proves_indexed() {
-            return Ok(self
-                .indexed_transfer(
-                    TransferPreparation {
+        if let Some(server) = self.indexed_prover() {
+            return Ok(server
+                .prove_indexed(
+                    &TransferPreparation {
                         transaction: proof_inputs,
                         config: config.unwrap_or(self.indexer_config),
-                    },
-                    authority,
+                    }
+                    .prepare(authority)?,
                 )?
                 .data);
         }
+        let prover = self.prover();
         let commitments = proof_inputs.input_utxo_hashes()?;
-        let witnesses = self.blocking_indexer().input_witnesses(
-            &commitments,
-            &proof_inputs.dummy_nullifiers(),
-            config,
-        )?;
-        self.blocking_prover().prove_transact(
+        let witnesses =
+            self.indexer
+                .input_witnesses(&commitments, &proof_inputs.dummy_nullifiers(), config)?;
+        prover.prove_transact(
             proof_inputs,
             &witnesses.spend_proofs,
             &witnesses.dummy_nullifier_proofs,
@@ -90,8 +91,8 @@ impl<R: Rpc> ZolanaClient<R> {
     /// having already paid for the sync and the proof: an 80-worker run lost
     /// 297 of 337 transfers to "Blockhash not found".
     ///
-    /// `R: Sync` because the two proof fetches below share the indexer across
-    /// scoped threads.
+    /// `R: Sync` because the two proof fetches share the indexer across scoped
+    /// threads.
     pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
@@ -101,38 +102,58 @@ impl<R: Rpc> ZolanaClient<R> {
     where
         R: Sync,
     {
-        validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
-        if signed.transaction.cache_accounts.write.is_some() {
-            return Err(ClientError::CacheWriteNeedsWriter);
-        }
-        let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proves_indexed() {
-            let proved = self.indexed_transfer(
-                TransferPreparation {
-                    transaction: signed.transaction.clone(),
-                    config: self.indexer_config,
-                },
-                authority,
-            )?;
-            let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
-            return build_unsigned_message(
-                self.compute_budget(),
+        let Some(server) = self.indexed_prover() else {
+            return self.finish_submission_unsigned_sync_with_prover(
+                signed,
                 fee_payer,
-                TransactTrees {
-                    input_tree_ids: proved.input_tree_ids,
-                    read_cache: signed.transaction.cache_accounts.read,
-                    output_tree_id: signed.transaction.output_tree_id,
-                },
-                owner_signers,
-                signed.settlement_transfers.clone(),
-                proved.data,
-                recent_blockhash,
+                authority,
+                self.prover(),
             );
-        }
+        };
+        let owner_signers = submission_owner_signers(signed, fee_payer)?;
+        let proved = server.prove_indexed(
+            &TransferPreparation {
+                transaction: signed.transaction.clone(),
+                config: self.indexer_config,
+            }
+            .prepare(authority)?,
+        )?;
+        let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
+        build_unsigned_message(
+            self.compute_budget(),
+            fee_payer,
+            TransactTrees {
+                input_tree_ids: proved.input_tree_ids,
+                read_cache: signed.transaction.cache_accounts.read,
+                output_tree_id: signed.transaction.output_tree_id,
+            },
+            owner_signers,
+            signed.settlement_transfers.clone(),
+            proved.data,
+            recent_blockhash,
+        )
+    }
+
+    /// [`Self::finish_submission_unsigned_sync`], proved by `prover` instead of
+    /// the client's prover, for a caller that chooses where each transaction
+    /// is proved. As with [`Self::with_prover`], the client fetches the proof
+    /// data from the indexer itself, so the transaction never takes the prover
+    /// server's indexed route.
+    pub fn finish_submission_unsigned_sync_with_prover(
+        &self,
+        signed: &SignedPrivateTransaction,
+        fee_payer: Address,
+        authority: &dyn ProofAuthority,
+        prover: &dyn Prover,
+    ) -> Result<VersionedMessage, ClientError>
+    where
+        R: Sync,
+    {
+        let owner_signers = submission_owner_signers(signed, fee_payer)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         // The overlap this used to hand-roll lives in the reader now, which
         // runs all the round trips together rather than two.
-        let witnesses = self.blocking_indexer().input_witnesses(
+        let witnesses = self.indexer.input_witnesses(
             &commitments,
             &signed.transaction.dummy_nullifiers(),
             None,
@@ -144,7 +165,7 @@ impl<R: Rpc> ZolanaClient<R> {
         )?;
         let proof = {
             let _t = crate::prover::timing::Phase::start("prove_transfer", 0);
-            assembled.prove(self.blocking_prover(), authority)?
+            assembled.prove(prover, authority)?
         };
         // Last thing before building, so the blockhash is as young as it can be
         // when the transaction reaches the cluster.
@@ -162,7 +183,7 @@ impl<R: Rpc> ZolanaClient<R> {
     }
 }
 
-impl<R: AsyncRpc> ZolanaClient<R> {
+impl<R: AsyncRpc> ZolanaClient<R, AsyncZolanaIndexer> {
     pub async fn finish_submission_unsigned(
         &self,
         signed: &SignedPrivateTransaction,
@@ -170,19 +191,15 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         recent_blockhash: Hash,
         authority: &dyn ProofAuthority,
     ) -> Result<VersionedMessage, ClientError> {
-        validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
-        if signed.transaction.cache_accounts.write.is_some() {
-            return Err(ClientError::CacheWriteNeedsWriter);
-        }
-        let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proves_indexed_async() {
-            let proved = self
-                .indexed_transfer_async(
-                    TransferPreparation {
+        let owner_signers = submission_owner_signers(signed, fee_payer)?;
+        if let Some(server) = self.indexed_prover() {
+            let proved = server
+                .prove_indexed(
+                    &TransferPreparation {
                         transaction: signed.transaction.clone(),
                         config: self.indexer_config,
-                    },
-                    authority,
+                    }
+                    .prepare(authority)?,
                 )
                 .await?;
             return build_unsigned_message(
@@ -201,7 +218,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         }
         let commitments = signed.transaction.input_utxo_hashes()?;
         let witnesses = AsyncWitnessReader::input_witnesses(
-            &self.async_indexer,
+            &self.indexer,
             &commitments,
             &signed.transaction.dummy_nullifiers(),
             None,
@@ -214,7 +231,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.prove_transfer_async(inputs).await?;
+        let proof = self.prove_transfer(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         let trees = transact_trees(&assembled, &signed.transaction);
@@ -228,6 +245,20 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             recent_blockhash,
         )
     }
+}
+
+/// The owners who sign `signed`, once it is known that `fee_payer` is the
+/// payer its proof binds and that it writes no cache, which these submission
+/// paths cannot do.
+fn submission_owner_signers(
+    signed: &SignedPrivateTransaction,
+    fee_payer: Address,
+) -> Result<Vec<Address>, ClientError> {
+    validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+    if signed.transaction.cache_accounts.write.is_some() {
+        return Err(ClientError::CacheWriteNeedsWriter);
+    }
+    Ok(signed.transaction.owner_signer_pubkeys()?)
 }
 
 /// The trees a `Transact` names, as the raw ids everything upstream carries.

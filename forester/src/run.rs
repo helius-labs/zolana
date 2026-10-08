@@ -174,8 +174,9 @@ fn indexed_value_shortage(
 }
 
 /// Drain ready nullifier zkp-batches for `opts.tree`. Endpoints and credentials
-/// come from `config`, resolved at the process boundary. Must run on a thread with
-/// no Tokio runtime — the prover and photon clients use `reqwest::blocking`.
+/// come from `config`, resolved at the process boundary. The prover and photon
+/// clients block, each on a Tokio runtime of its own, so this runs on a plain
+/// thread; a `current_thread` runtime cannot host it.
 pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
     let rpc_url = config.rpc_url.clone();
     let photon = BlockingZolanaApi::new(config.photon_url.clone());
@@ -841,7 +842,7 @@ fn drain_once(
             };
 
             // Scoped threads rather than an async runtime: the prover client is
-            // blocking, and `run` is documented to hold no Tokio runtime.
+            // blocking, and `run` is documented to run on a plain thread.
             let submitted = &submitted;
             in_flight.push_back(scope.spawn(move || {
                 // Kept typed, so the run loop can tell an unavailable prover apart.

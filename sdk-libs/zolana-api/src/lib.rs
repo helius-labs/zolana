@@ -1,8 +1,22 @@
 //! Async and blocking transports for the Zolana indexer JSON-RPC contract.
+//!
+//! [`ZolanaApi`] is the implementation; [`BlockingZolanaApi`] runs it on a
+//! Tokio runtime it owns, for blocking callers, the way `solana_rpc_client`'s
+//! blocking `RpcClient` drives its nonblocking one. Requests go through an
+//! [`HttpClient`]: a `reqwest` client by default, or the application's own
+//! networking stack; a [`BlockingHttpClient`] is carried on the runtime's
+//! blocking pool. The `zolana-client` prover clients use the same traits.
 
-use std::{error::Error as StdError, fmt};
+use std::{
+    borrow::Cow, error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration,
+};
 
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
+    Method,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use zeroize::Zeroizing;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
@@ -36,21 +50,250 @@ const REQUEST_ID: &str = "test-account";
 pub struct ZolanaApi {
     base_path: String,
     api_key: Option<String>,
-    client: reqwest::Client,
+    client: Arc<dyn HttpClient>,
     trace_http: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct BlockingZolanaApi {
-    base_path: String,
-    api_key: Option<String>,
-    client: reqwest::blocking::Client,
-    trace_http: bool,
+    api: ZolanaApi,
+    /// Shared by clones: one runtime per client.
+    runtime: Arc<BlockingRuntime>,
+}
+
+/// A single-threaded Tokio runtime that runs async clients for blocking
+/// callers. It shuts down in the background when dropped, so a client built or
+/// dropped inside another runtime does not panic.
+pub struct BlockingRuntime(Option<tokio::runtime::Runtime>);
+
+impl BlockingRuntime {
+    pub fn new() -> Self {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread Tokio runtime");
+        Self(Some(runtime))
+    }
+
+    /// Run `future` to completion. Inside a multi-thread runtime the call
+    /// leaves the worker first; a `current_thread` runtime cannot host a
+    /// blocking client and panics here, as Tokio documents.
+    pub fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+        let runtime = self.0.as_ref().expect("the runtime lives until drop");
+        tokio::task::block_in_place(|| runtime.block_on(future))
+    }
+}
+
+impl Default for BlockingRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for BlockingRuntime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("BlockingRuntime")
+    }
+}
+
+impl Drop for BlockingRuntime {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.0.take() {
+            runtime.shutdown_background();
+        }
+    }
+}
+
+/// A [`BlockingHttpClient`] serving as an [`HttpClient`]: each request runs on
+/// Tokio's blocking pool. [`BlockingZolanaApi::with_client`] and the blocking
+/// prover client carry a blocking transport this way.
+#[derive(Debug)]
+pub struct OnBlockingPool(Arc<dyn BlockingHttpClient>);
+
+impl OnBlockingPool {
+    pub fn new(client: impl BlockingHttpClient + 'static) -> Self {
+        Self(Arc::new(client))
+    }
+}
+
+impl HttpClient for OnBlockingPool {
+    fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a> {
+        let client = Arc::clone(&self.0);
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || client.send(request))
+                .await
+                .map_err(|error| ApiError::HttpClient(Box::new(error)))?
+        })
+    }
+}
+
+/// Sends the requests of a [`ZolanaApi`] and of the `zolana-client` async
+/// prover client.
+pub trait HttpClient: fmt::Debug + Send + Sync {
+    /// Send `request` and answer with the server's response, whatever its
+    /// status: the caller acts on the status. Fail only without a response:
+    /// with [`ApiError::HttpClient`] when no response arrived, and with
+    /// [`ApiError::ResponseLost`] when its status arrived and its body could
+    /// not be read.
+    fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a>;
+}
+
+/// Sends the requests of a [`BlockingZolanaApi`] and of the `zolana-client`
+/// blocking prover client.
+pub trait BlockingHttpClient: fmt::Debug + Send + Sync {
+    /// As [`HttpClient::send`].
+    fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError>;
+}
+
+pub type HttpFuture<'a> = Pin<Box<dyn Future<Output = Result<HttpResponse, ApiError>> + Send + 'a>>;
+
+/// One request of an [`HttpClient`] or a [`BlockingHttpClient`].
+///
+/// Its `Debug` shows the header names and the body length only, with the
+/// URL's `api-key` masked: a header can carry a credential and a proof
+/// request's body carries the proof inputs.
+pub struct HttpRequest {
+    pub method: Method,
+    pub url: String,
+    pub headers: HeaderMap,
+    /// Empty for a `GET`. Wiped on drop: a proof request's body carries the
+    /// proof inputs.
+    pub body: Zeroizing<Vec<u8>>,
+    /// The caller's bound on the whole request, for a client that can keep
+    /// one; the `reqwest` clients do. Without it the client's own bound
+    /// applies.
+    pub timeout: Option<Duration>,
+}
+
+impl HttpRequest {
+    pub fn get(url: impl Into<String>) -> Self {
+        Self {
+            method: Method::GET,
+            url: url.into(),
+            headers: HeaderMap::new(),
+            body: Zeroizing::new(Vec::new()),
+            timeout: None,
+        }
+    }
+
+    /// A `POST` of `body`, a JSON document, to `url`.
+    pub fn post_json(url: impl Into<String>, body: Vec<u8>) -> Self {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        Self {
+            method: Method::POST,
+            url: url.into(),
+            headers,
+            body: Zeroizing::new(body),
+            timeout: None,
+        }
+    }
+
+    pub fn with_header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.headers.insert(name, value);
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+}
+
+impl fmt::Debug for HttpRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("url", &redact_api_key(&self.url))
+            .field("headers", &self.headers.keys().collect::<Vec<_>>())
+            .field("body_len", &self.body.len())
+            .field("timeout", &self.timeout)
+            .finish()
+    }
+}
+
+/// The server's answer to an [`HttpRequest`]. The body stays bytes: a
+/// prover inside a TEE answers with ciphertext, and its headers say so.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HttpResponse {
+    pub status: reqwest::StatusCode,
+    pub headers: HeaderMap,
+    pub body: Vec<u8>,
+}
+
+impl HttpClient for reqwest::Client {
+    fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a> {
+        Box::pin(async move {
+            let HttpRequest {
+                method,
+                url,
+                headers,
+                mut body,
+                timeout,
+            } = request;
+            let mut builder = self
+                .request(method, url)
+                .headers(headers)
+                .body(std::mem::take(&mut *body));
+            if let Some(timeout) = timeout {
+                builder = builder.timeout(timeout);
+            }
+            let response = builder.send().await?;
+            let status = response.status();
+            let headers = response.headers().clone();
+            let body = response.bytes().await.map_err(response_lost)?.to_vec();
+            Ok(HttpResponse {
+                status,
+                headers,
+                body,
+            })
+        })
+    }
+}
+
+impl BlockingHttpClient for reqwest::blocking::Client {
+    fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+        let HttpRequest {
+            method,
+            url,
+            headers,
+            mut body,
+            timeout,
+        } = request;
+        let mut builder = self
+            .request(method, url)
+            .headers(headers)
+            .body(std::mem::take(&mut *body));
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.send()?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = response.bytes().map_err(response_lost)?.to_vec();
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
+    }
+}
+
+fn response_lost(error: reqwest::Error) -> ApiError {
+    ApiError::ResponseLost(Box::new(error))
 }
 
 #[derive(Debug)]
 pub enum ApiError {
     Request(reqwest::Error),
+    /// A custom [`HttpClient`] or [`BlockingHttpClient`] failed before it had
+    /// a response.
+    HttpClient(Box<dyn StdError + Send + Sync>),
+    /// The response's status arrived and its body could not be read. The
+    /// server got the request and may have acted on it, so a request that is
+    /// not safe to repeat, such as a proof, is not sent again.
+    ResponseLost(Box<dyn StdError + Send + Sync>),
     Response {
         status: reqwest::StatusCode,
         body: String,
@@ -67,28 +310,26 @@ pub enum ApiError {
     MissingResult(&'static str),
 }
 
+/// Every `api-key` value is masked: a `reqwest` error and a custom client's
+/// failure both tend to name the URL, and the URL carries the key.
 impl fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Request(error) => write!(formatter, "request error: {error}"),
-            Self::Response { status, body } => {
-                write!(formatter, "HTTP response error {status}: {body}")
-            }
+        let text = match self {
+            Self::Request(error) => format!("request error: {error}"),
+            Self::HttpClient(error) => format!("HTTP client error: {error}"),
+            Self::ResponseLost(error) => format!("failed to read response body: {error}"),
+            Self::Response { status, body } => format!("HTTP response error {status}: {body}"),
             Self::JsonRpc {
                 method,
                 code,
                 message,
-            } => write!(
-                formatter,
-                "JSON-RPC error from {method}: code={code:?} message={message:?}"
-            ),
-            Self::InvalidRequest { field, message } => {
-                write!(formatter, "invalid {field}: {message}")
-            }
+            } => format!("JSON-RPC error from {method}: code={code:?} message={message:?}"),
+            Self::InvalidRequest { field, message } => format!("invalid {field}: {message}"),
             Self::MissingResult(method) => {
-                write!(formatter, "JSON-RPC response from {method} omitted result")
+                format!("JSON-RPC response from {method} omitted result")
             }
-        }
+        };
+        formatter.write_str(&redact_api_key(&text))
     }
 }
 
@@ -96,6 +337,7 @@ impl StdError for ApiError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::Request(error) => Some(error),
+            Self::HttpClient(error) | Self::ResponseLost(error) => Some(error.as_ref()),
             _ => None,
         }
     }
@@ -140,22 +382,24 @@ struct JsonRpcError {
 
 impl ZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
+        Self::with_client(url, reqwest::Client::new())
+    }
+
+    pub fn with_client(url: impl AsRef<str>, client: impl HttpClient + 'static) -> Self {
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
             api_key,
-            client: reqwest::Client::new(),
+            client: Arc::new(client),
             trace_http: false,
         }
     }
 
-    pub fn with_client(url: impl AsRef<str>, client: reqwest::Client) -> Self {
-        let (base_path, api_key) = parse_url(url.as_ref());
-        Self {
-            base_path,
-            api_key,
-            client,
-            trace_http: false,
+    /// This API for blocking callers, run on a Tokio runtime of its own.
+    pub fn into_blocking(self) -> BlockingZolanaApi {
+        BlockingZolanaApi {
+            api: self,
+            runtime: Arc::new(BlockingRuntime::new()),
         }
     }
 
@@ -315,22 +559,12 @@ impl ZolanaApi {
         R: DeserializeOwned,
     {
         let url = self.url(method);
+        let body = encode_body(body)?;
         if self.trace_http {
-            print_api_request(&url, body);
+            print_api_request(&url, &body);
         }
-        let response = self.client.post(&url).json(body).send().await?;
-        let status = response.status();
-        let response_body = response.text().await?;
-        if self.trace_http {
-            print_api_response(method, status, &response_body);
-        }
-        if !status.is_success() {
-            return Err(ApiError::Response {
-                status,
-                body: response_body,
-            });
-        }
-        parse_json_response(status, response_body)
+        let response = self.client.send(HttpRequest::post_json(url, body)).await?;
+        handle_response(method, response, self.trace_http)
     }
 
     fn url(&self, method: &str) -> String {
@@ -340,35 +574,30 @@ impl ZolanaApi {
 
 impl BlockingZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
-        let (base_path, api_key) = parse_url(url.as_ref());
-        Self {
-            base_path,
-            api_key,
-            client: reqwest::blocking::Client::new(),
-            trace_http: false,
-        }
+        ZolanaApi::new(url).into_blocking()
     }
 
-    pub fn with_client(url: impl AsRef<str>, client: reqwest::blocking::Client) -> Self {
-        let (base_path, api_key) = parse_url(url.as_ref());
-        Self {
-            base_path,
-            api_key,
-            client,
-            trace_http: false,
-        }
+    /// Send through `client`, run on the runtime's blocking pool. An async
+    /// transport goes through [`ZolanaApi::with_client`] and
+    /// [`ZolanaApi::into_blocking`] instead.
+    pub fn with_client(url: impl AsRef<str>, client: impl BlockingHttpClient + 'static) -> Self {
+        ZolanaApi::with_client(url, OnBlockingPool::new(client)).into_blocking()
+    }
+
+    pub fn api(&self) -> &ZolanaApi {
+        &self.api
     }
 
     pub fn base_path(&self) -> &str {
-        &self.base_path
+        self.api.base_path()
     }
 
     pub fn api_key(&self) -> Option<&str> {
-        self.api_key.as_deref()
+        self.api.api_key()
     }
 
     pub fn with_http_trace(mut self) -> Self {
-        self.trace_http = true;
+        self.api.trace_http = true;
         self
     }
 
@@ -378,12 +607,8 @@ impl BlockingZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
-        self.call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
-            tags,
-            cursor,
-            limit: optional_limit(limit)?,
-            ring_program_id: None,
-        })
+        self.runtime
+            .block_on(self.api.get_encrypted_utxos_by_tags(tags, cursor, limit))
     }
 
     pub fn get_shielded_transactions_by_tags(
@@ -392,28 +617,28 @@ impl BlockingZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
-            tags,
-            cursor,
-            limit: optional_limit(limit)?,
-            ring_program_id: None,
-        })
+        self.runtime.block_on(
+            self.api
+                .get_shielded_transactions_by_tags(tags, cursor, limit),
+        )
     }
 
     pub fn get_shielded_transactions_by_signature(
         &self,
         tx_signature: SerializableSignature,
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ApiError> {
-        self.call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
-            tx_signature,
-        })
+        self.runtime.block_on(
+            self.api
+                .get_shielded_transactions_by_signature(tx_signature),
+        )
     }
 
     pub fn get_shielded_transactions(
         &self,
         request: GetRingsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByTags>(request)
+        self.runtime
+            .block_on(self.api.get_shielded_transactions(request))
     }
 
     pub fn get_shielded_transactions_by_nullifiers(
@@ -422,11 +647,10 @@ impl BlockingZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
-            nullifiers,
-            cursor,
-            limit: optional_limit(limit)?,
-        })
+        self.runtime.block_on(
+            self.api
+                .get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit),
+        )
     }
 
     pub fn get_merkle_proofs(
@@ -434,31 +658,32 @@ impl BlockingZolanaApi {
         tree_account: SerializablePubkey,
         leaves: Vec<Hash>,
     ) -> Result<GetMerkleProofsResponse, ApiError> {
-        self.call::<GetMerkleProofs>(GetMerkleProofsRequest {
-            tree_account,
-            leaves,
-        })
+        self.runtime
+            .block_on(self.api.get_merkle_proofs(tree_account, leaves))
     }
 
     pub fn get_ring_spend_record(
         &self,
         request: RingSpendRecordRequest,
     ) -> Result<GetRingSpendRecordResponse, ApiError> {
-        self.call::<GetRingSpendRecord>(request)
+        self.runtime
+            .block_on(self.api.get_ring_spend_record(request))
     }
 
     pub fn get_ring_key_registry_entry(
         &self,
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryEntryResponse, ApiError> {
-        self.call::<GetRingKeyRegistryEntry>(request)
+        self.runtime
+            .block_on(self.api.get_ring_key_registry_entry(request))
     }
 
     pub fn get_ring_key_registry_register_proof(
         &self,
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryRegisterProofResponse, ApiError> {
-        self.call::<GetRingKeyRegistryRegisterProof>(request)
+        self.runtime
+            .block_on(self.api.get_ring_key_registry_register_proof(request))
     }
 
     pub fn get_non_inclusion_proofs(
@@ -466,10 +691,8 @@ impl BlockingZolanaApi {
         tree_account: SerializablePubkey,
         leaves: Vec<Hash>,
     ) -> Result<GetNonInclusionProofsResponse, ApiError> {
-        self.call::<GetNonInclusionProofs>(GetNonInclusionProofsRequest {
-            tree_account,
-            leaves,
-        })
+        self.runtime
+            .block_on(self.api.get_non_inclusion_proofs(tree_account, leaves))
     }
 
     pub fn get_nullifier_queue_elements(
@@ -478,56 +701,46 @@ impl BlockingZolanaApi {
         start_seq: Option<u64>,
         limit: u64,
     ) -> Result<GetNullifierQueueElementsResponse, ApiError> {
-        self.call::<GetNullifierQueueElements>(GetNullifierQueueElementsRequest {
-            tree_account,
-            start_seq: start_seq.unwrap_or_default(),
-            limit: required_limit(limit)?,
-        })
+        self.runtime.block_on(
+            self.api
+                .get_nullifier_queue_elements(tree_account, start_seq, limit),
+        )
     }
 
     pub fn get_user_records(
         &self,
         owners: Vec<SerializablePubkey>,
     ) -> Result<GetUserRecordsResponse, ApiError> {
-        self.call::<GetUserRecords>(user_records_request(owners)?)
+        self.runtime.block_on(self.api.get_user_records(owners))
     }
+}
 
-    fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
-    where
-        M: RpcMethod,
+const API_KEY_PARAMETER: &str = "api-key=";
+
+/// `text` with the value after every `api-key=` replaced by `redacted`. The
+/// value ends at the first character a query value does not use unencoded.
+fn redact_api_key(text: &str) -> Cow<'_, str> {
+    let lowercase = text.to_ascii_lowercase();
+    if !lowercase.contains(API_KEY_PARAMETER) {
+        return Cow::Borrowed(text);
+    }
+    let mut redacted = String::with_capacity(text.len());
+    let mut start = 0;
+    while let Some(found) = lowercase
+        .get(start..)
+        .and_then(|rest| rest.find(API_KEY_PARAMETER))
     {
-        let body = JsonRpcRequest::new(M::NAME, &params);
-        let response: JsonRpcResponse<M::Response> = self.post(M::NAME, &body)?;
-        unwrap_response::<M>(response)
+        let value_start = start + found + API_KEY_PARAMETER.len();
+        let rest = text.get(value_start..).unwrap_or_default();
+        let value_len = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || "-._~%+/=".contains(c)))
+            .unwrap_or(rest.len());
+        redacted.push_str(text.get(start..value_start).unwrap_or_default());
+        redacted.push_str("redacted");
+        start = value_start + value_len;
     }
-
-    fn post<B, R>(&self, method: &'static str, body: &B) -> Result<R, ApiError>
-    where
-        B: Serialize + ?Sized,
-        R: DeserializeOwned,
-    {
-        let url = self.url(method);
-        if self.trace_http {
-            print_api_request(&url, body);
-        }
-        let response = self.client.post(&url).json(body).send()?;
-        let status = response.status();
-        let response_body = response.text()?;
-        if self.trace_http {
-            print_api_response(method, status, &response_body);
-        }
-        if !status.is_success() {
-            return Err(ApiError::Response {
-                status,
-                body: response_body,
-            });
-        }
-        parse_json_response(status, response_body)
-    }
-
-    fn url(&self, method: &str) -> String {
-        api_url(&self.base_path, self.api_key.as_deref(), method)
-    }
+    redacted.push_str(text.get(start..).unwrap_or_default());
+    Cow::Owned(redacted)
 }
 
 fn optional_limit(value: Option<u64>) -> Result<Option<Limit>, ApiError> {
@@ -597,13 +810,36 @@ fn api_url(base_path: &str, api_key: Option<&str>, method: &str) -> String {
     url
 }
 
-fn print_api_request<B>(url: &str, body: &B)
+fn encode_body<B>(body: &B) -> Result<Vec<u8>, ApiError>
 where
     B: Serialize + ?Sized,
 {
-    let body_json = serde_json::to_string(body)
-        .unwrap_or_else(|error| format!(r#"{{"serialization_error":"{error}"}}"#));
-    println!("Photon API request:\n{}", curl_command(url, &body_json));
+    serde_json::to_vec(body).map_err(|_| ApiError::InvalidRequest {
+        field: "params",
+        message: "cannot be encoded as JSON",
+    })
+}
+
+fn handle_response<R>(method: &str, response: HttpResponse, trace_http: bool) -> Result<R, ApiError>
+where
+    R: DeserializeOwned,
+{
+    let status = response.status;
+    let body = String::from_utf8_lossy(&response.body).into_owned();
+    if trace_http {
+        print_api_response(method, status, &body);
+    }
+    if !status.is_success() {
+        return Err(ApiError::Response { status, body });
+    }
+    parse_json_response(status, body)
+}
+
+fn print_api_request(url: &str, body: &[u8]) {
+    println!(
+        "Photon API request:\n{}",
+        curl_command(url, &String::from_utf8_lossy(body))
+    );
 }
 
 fn print_api_response(method: &str, status: reqwest::StatusCode, body: &str) {
@@ -648,8 +884,174 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
     use zolana_indexer_api::{GET_ENCRYPTED_UTXOS_BY_TAGS, GET_MERKLE_PROOFS};
+
+    const NO_TRANSACTIONS: &str = r#"{"jsonrpc":"2.0","id":"test-account","result":{"context":{"blockTime":0,"slot":7},"transactions":[]}}"#;
+
+    /// Answers every request with one status and body, or fails before a
+    /// response when `status` is 0, and records the requests it was sent.
+    #[derive(Debug)]
+    struct FakeClient {
+        status: u16,
+        body: &'static str,
+        requests: Arc<Mutex<Vec<HttpRequest>>>,
+    }
+
+    impl FakeClient {
+        fn answering(status: u16, body: &'static str) -> Self {
+            Self {
+                status,
+                body,
+                requests: Arc::default(),
+            }
+        }
+
+        fn answer(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+            self.requests.lock().unwrap().push(request);
+            match reqwest::StatusCode::from_u16(self.status) {
+                Ok(status) => Ok(HttpResponse {
+                    status,
+                    headers: HeaderMap::new(),
+                    body: self.body.as_bytes().to_vec(),
+                }),
+                Err(_) => Err(ApiError::HttpClient("offline".into())),
+            }
+        }
+    }
+
+    impl BlockingHttpClient for FakeClient {
+        fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+            self.answer(request)
+        }
+    }
+
+    impl HttpClient for FakeClient {
+        fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a> {
+            Box::pin(async move { self.answer(request) })
+        }
+    }
+
+    fn assert_signature_request(requests: &Mutex<Vec<HttpRequest>>) {
+        let request = requests.lock().unwrap().pop().expect("one request");
+        assert_eq!(request.method, Method::POST);
+        assert_eq!(
+            request.url,
+            "https://rpc.example.test/v1/getShieldedTransactionsBySignature?api-key=secret"
+        );
+        assert_eq!(
+            request.headers.get(CONTENT_TYPE).map(HeaderValue::as_bytes),
+            Some(b"application/json".as_slice())
+        );
+        assert_eq!(request.timeout, None);
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body.as_slice()).expect("the API sends JSON");
+        assert_eq!(body["jsonrpc"], JSON_RPC_VERSION);
+        assert_eq!(body["method"], "getShieldedTransactionsBySignature");
+        assert!(body["params"]["txSignature"].is_string(), "{body}");
+    }
+
+    #[test]
+    fn blocking_api_sends_through_its_client() {
+        let client = FakeClient::answering(200, NO_TRANSACTIONS);
+        let requests = client.requests.clone();
+        let api =
+            BlockingZolanaApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
+        let response = api
+            .get_shielded_transactions_by_signature(SerializableSignature::default())
+            .unwrap();
+        assert_eq!(response.context.slot, 7);
+        assert_signature_request(&requests);
+    }
+
+    #[tokio::test]
+    async fn async_api_sends_through_its_client() {
+        let client = FakeClient::answering(200, NO_TRANSACTIONS);
+        let requests = client.requests.clone();
+        let api = ZolanaApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
+        let response = api
+            .get_shielded_transactions_by_signature(SerializableSignature::default())
+            .await
+            .unwrap();
+        assert_eq!(response.context.slot, 7);
+        assert_signature_request(&requests);
+    }
+
+    #[test]
+    fn client_answers_keep_their_errors() {
+        let call = |status, body| {
+            BlockingZolanaApi::with_client(
+                "https://rpc.example.test",
+                FakeClient::answering(status, body),
+            )
+            .get_shielded_transactions_by_signature(SerializableSignature::default())
+        };
+        assert!(matches!(
+            call(429, "slow down"),
+            Err(ApiError::Response { status, body })
+                if status == reqwest::StatusCode::TOO_MANY_REQUESTS && body == "slow down"
+        ));
+        assert!(matches!(
+            call(
+                200,
+                r#"{"jsonrpc":"2.0","id":"test-account","error":{"code":-32603,"message":"Internal error"}}"#
+            ),
+            Err(ApiError::JsonRpc {
+                code: Some(-32603),
+                ..
+            })
+        ));
+        assert!(matches!(
+            call(200, "not json"),
+            Err(ApiError::Response { .. })
+        ));
+        let error = call(0, "").unwrap_err();
+        assert!(matches!(error, ApiError::HttpClient(_)));
+        assert_eq!(error.to_string(), "HTTP client error: offline");
+    }
+
+    #[test]
+    fn errors_mask_the_api_key() {
+        let error = ApiError::HttpClient(
+            "connect error for https://gw.test/v1?API-KEY=SECRET-1&page=2 and https://gw.test/v1?api-key=SECRET-2"
+                .into(),
+        );
+        assert_eq!(
+            error.to_string(),
+            "HTTP client error: connect error for https://gw.test/v1?API-KEY=redacted&page=2 and https://gw.test/v1?api-key=redacted"
+        );
+        let error =
+            ApiError::ResponseLost("reset reading https://gw.test/v1?api-key=SECRET".into());
+        assert_eq!(
+            error.to_string(),
+            "failed to read response body: reset reading https://gw.test/v1?api-key=redacted"
+        );
+        assert_eq!(
+            ApiError::HttpClient("offline".into()).to_string(),
+            "HTTP client error: offline"
+        );
+    }
+
+    #[test]
+    fn a_request_prints_no_secret() {
+        let request = HttpRequest::post_json(
+            "https://gw.test/v1/prove?api-key=SECRET",
+            br#"{"nullifierSecret":"WITNESS"}"#.to_vec(),
+        )
+        .with_header(
+            HeaderName::from_static("x-token"),
+            HeaderValue::from_static("TOKEN"),
+        );
+        let printed = format!("{request:?}");
+        assert!(printed.contains("api-key=redacted"), "{printed}");
+        assert!(printed.contains("x-token"), "{printed}");
+        assert!(printed.contains("body_len: 29"), "{printed}");
+        for secret in ["SECRET", "WITNESS", "TOKEN"] {
+            assert!(!printed.contains(secret), "{printed}");
+        }
+    }
 
     #[test]
     fn extracts_api_key_from_url() {
@@ -679,7 +1081,7 @@ mod tests {
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
-            api.url(GetNonInclusionProofs::NAME),
+            api.api().url(GetNonInclusionProofs::NAME),
             "https://rpc.example.test/getNonInclusionProofs?api-key=secret"
         );
     }

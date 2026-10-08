@@ -1,9 +1,19 @@
 //! High-level Zolana client.
 //!
-//! [`ZolanaClient`] owns Solana RPC, Photon, and the prover.
-//! [`sign_private_transaction`] returns a signed native Solana transaction.
-//! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
-//! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
+//! [`ZolanaClient`] owns the three services a private transaction needs: the
+//! Solana RPC, the indexer and the prover. The indexer fixes the client's mode:
+//! over a [`ZolanaIndexer`], the default, the client blocks and implements
+//! [`Rpc`](crate::rpc::Rpc); over an [`AsyncZolanaIndexer`] it is `async` and
+//! implements [`AsyncRpc`](crate::rpc::AsyncRpc), and [`AsyncZolanaClient`]
+//! names it. The blocking client's indexer and prover run on a Tokio runtime
+//! of their own, so it is built, used and dropped from plain threads or from
+//! inside a multi-thread runtime alike; only a `current_thread` runtime cannot
+//! host it.
+//!
+//! Sign a private transaction into a native Solana transaction, submit it
+//! through the client's RPC, then confirm on chain and wait for the indexer
+//! with [`ZolanaClient::confirm_private_transaction_sync`] or
+//! [`AsyncZolanaClient::confirm_private_transaction`].
 
 mod blocking;
 mod confirmation;
@@ -11,14 +21,14 @@ mod nonblocking;
 mod transaction;
 mod validation;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::{
     authority::ProofAuthority,
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
-        indexed::{PreparedIndexedTransfer, ProofDataSource, ProvenIndexedTransfer},
+        indexed::{PreparedIndexedTransfer, ProofDataSource},
         tee::TeePolicy,
         AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
     },
@@ -42,63 +52,134 @@ use validation::check_service_url;
 /// ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
+/// An indexer client a [`ZolanaClient`] is built over. It fixes the client's
+/// mode, blocking for [`ZolanaIndexer`] and `async` for [`AsyncZolanaIndexer`],
+/// and names the prover client of the same kind. Sealed.
+pub trait Indexer: sealed::Sealed + Sized {
+    type ProverClient;
+
+    fn from_url(url: &str) -> Self;
+    fn prover_client(url: String) -> Self::ProverClient;
+    fn proof_data_source(prover: &Self::ProverClient) -> ProofDataSource;
+    fn with_proof_data_source(
+        prover: Self::ProverClient,
+        source: ProofDataSource,
+    ) -> Self::ProverClient;
+    fn with_tee(prover: Self::ProverClient, policy: TeePolicy) -> Self::ProverClient;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for crate::indexer::ZolanaIndexer {}
+    impl Sealed for crate::indexer::AsyncZolanaIndexer {}
+}
+
+impl Indexer for ZolanaIndexer {
+    type ProverClient = ProverClient;
+
+    fn from_url(url: &str) -> ZolanaIndexer {
+        ZolanaIndexer::new(url)
+    }
+
+    fn prover_client(url: String) -> ProverClient {
+        ProverClient::new(url)
+    }
+
+    fn proof_data_source(prover: &ProverClient) -> ProofDataSource {
+        prover.proof_data_source()
+    }
+
+    fn with_proof_data_source(prover: ProverClient, source: ProofDataSource) -> ProverClient {
+        prover.with_proof_data_source(source)
+    }
+
+    fn with_tee(prover: ProverClient, policy: TeePolicy) -> ProverClient {
+        prover.with_tee(policy)
+    }
+}
+
+impl Indexer for AsyncZolanaIndexer {
+    type ProverClient = AsyncProverClient;
+
+    fn from_url(url: &str) -> AsyncZolanaIndexer {
+        AsyncZolanaIndexer::new(url)
+    }
+
+    fn prover_client(url: String) -> AsyncProverClient {
+        AsyncProverClient::new(url)
+    }
+
+    fn proof_data_source(prover: &AsyncProverClient) -> ProofDataSource {
+        prover.proof_data_source()
+    }
+
+    fn with_proof_data_source(
+        prover: AsyncProverClient,
+        source: ProofDataSource,
+    ) -> AsyncProverClient {
+        prover.with_proof_data_source(source)
+    }
+
+    fn with_tee(prover: AsyncProverClient, policy: TeePolicy) -> AsyncProverClient {
+        prover.with_tee(policy)
+    }
+}
+
+/// A [`ZolanaClient`] over an [`AsyncZolanaIndexer`]: the `async` client.
+pub type AsyncZolanaClient<R> = ZolanaClient<R, AsyncZolanaIndexer>;
+
+/// What proves the client's transactions.
+enum ProverBackend<S> {
+    /// The prover server.
+    Server(S),
+    /// A prover the caller gave, such as one on the device. It only proves
+    /// what the client hands it, so the client always fetches the proof data
+    /// itself and no request reaches a prover server.
+    Custom(Arc<dyn Prover>),
+}
+
 /// Unified client for private transaction proving and submission helpers.
 ///
-/// The caller should not have to thread Solana RPC, Photon, and prover handles
-/// through each step. This client owns those services. Proving and native Solana
-/// transaction construction happen during [`sign_private_transaction`]; submission
-/// is the caller's RPC adapter.
-pub struct ZolanaClient<R> {
+/// The caller should not have to thread Solana RPC, the indexer and the prover
+/// through each step. This client owns those services; the indexer `I` fixes
+/// whether it blocks or is `async`. Proving and native Solana transaction
+/// construction happen when a private transaction is signed; submission is
+/// the caller's RPC adapter.
+pub struct ZolanaClient<R, I: Indexer = ZolanaIndexer> {
     rpc: R,
-    indexer: OnceLock<ZolanaIndexer>,
-    prover: OnceLock<ProverClient>,
-    /// Set by [`Self::with_prover`]; replaces both prover clients so no proof
-    /// request reaches a prover server.
-    custom_prover: Option<Arc<dyn Prover>>,
-    blocking_indexer_url: Option<String>,
-    blocking_prover_url: Option<String>,
-    /// Applied to the blocking prover when it is built lazily.
-    prover_tee: Option<TeePolicy>,
-    async_indexer: AsyncZolanaIndexer,
-    async_prover: AsyncProverClient,
+    indexer: I,
+    prover: ProverBackend<I::ProverClient>,
     cu_limit: u32,
     priority_fee_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
 }
 
-impl<R> ZolanaClient<R> {
-    pub fn new(
-        rpc: R,
-        indexer: ZolanaIndexer,
-        prover: ProverClient,
-        async_indexer: AsyncZolanaIndexer,
-        async_prover: AsyncProverClient,
-    ) -> Self {
-        Self {
-            rpc,
-            indexer: OnceLock::from(indexer),
-            prover: OnceLock::from(prover),
-            custom_prover: None,
-            blocking_indexer_url: None,
-            blocking_prover_url: None,
-            prover_tee: None,
-            async_indexer,
-            async_prover,
-            cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
-            priority_fee_lamports: None,
-            indexer_config: IndexerRpcConfig::default(),
-        }
+impl<R, I: Indexer> ZolanaClient<R, I> {
+    /// A client over `rpc`, `indexer` and the prover server `prover`.
+    pub fn new(rpc: R, indexer: I, prover: I::ProverClient) -> Self {
+        Self::build(rpc, indexer, ProverBackend::Server(prover))
     }
 
-    /// Build both async and blocking service adapters from their URLs.
+    /// A client that proves with `prover` instead of a prover server, for
+    /// example on the device, so the proof inputs never leave the process.
+    /// The client fetches the proof data from `indexer` itself, whatever
+    /// [`Self::with_proof_data_source`] says. The `async` client runs the prover
+    /// on Tokio's blocking pool.
+    pub fn with_prover(rpc: R, indexer: I, prover: impl Prover + 'static) -> Self {
+        Self::build(rpc, indexer, ProverBackend::Custom(Arc::new(prover)))
+    }
+
+    /// Build the indexer and prover clients from their URLs. Both must be
+    /// https, or http to loopback: the indexer answers with the wallet's UTXO
+    /// set and the prover is sent every proof input.
     pub fn from_urls(
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
     ) -> Result<Self, ClientError> {
-        let indexer_url = indexer_url.as_ref().to_string();
+        let indexer_url = indexer_url.as_ref();
         let prover_url = prover_url.into();
-        check_service_url(&indexer_url, "indexer_url")?;
+        check_service_url(indexer_url, "indexer_url")?;
         check_service_url(&prover_url, "prover_url")?;
         Ok(Self::from_urls_allowing_insecure_http(
             rpc,
@@ -118,32 +199,22 @@ impl<R> ZolanaClient<R> {
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
     ) -> Self {
-        let indexer_url = indexer_url.as_ref().to_string();
-        let prover_url = prover_url.into();
+        Self::new(
+            rpc,
+            I::from_url(indexer_url.as_ref()),
+            I::prover_client(prover_url.into()),
+        )
+    }
+
+    fn build(rpc: R, indexer: I, prover: ProverBackend<I::ProverClient>) -> Self {
         Self {
             rpc,
-            indexer: OnceLock::new(),
-            prover: OnceLock::new(),
-            custom_prover: None,
-            blocking_indexer_url: Some(indexer_url.clone()),
-            blocking_prover_url: Some(prover_url.clone()),
-            prover_tee: None,
-            async_indexer: AsyncZolanaIndexer::new(indexer_url),
-            async_prover: AsyncProverClient::new(prover_url),
+            indexer,
+            prover,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             priority_fee_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
         }
-    }
-
-    /// Prove with `prover` instead of the prover server, for example on the
-    /// device. Every proving method uses it, blocking and async alike, so the
-    /// witness never leaves the process. The client fetches the proof data from
-    /// the indexer itself, whatever [`Self::with_proof_data_source`] says. The
-    /// async methods run the prover on Tokio's blocking pool.
-    pub fn with_prover(mut self, prover: impl Prover + 'static) -> Self {
-        self.custom_prover = Some(Arc::new(prover));
-        self
     }
 
     pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
@@ -170,61 +241,34 @@ impl<R> ZolanaClient<R> {
         self
     }
 
-    #[must_use]
-    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
-        self.async_prover = self.async_prover.with_proof_data_source(source);
-        if let Some(prover) = self.prover.take() {
-            self.prover = OnceLock::from(prover.with_proof_data_source(source));
-        }
-        self
-    }
-
-    /// Applies [`ProverClient::with_tee`] to both prover clients.
-    #[must_use]
-    pub fn with_prover_tee(mut self, policy: TeePolicy) -> Self {
-        self.async_prover = self.async_prover.with_tee(policy.clone());
-        if let Some(prover) = self.prover.take() {
-            self.prover = OnceLock::from(prover.with_tee(policy.clone()));
-        }
-        self.prover_tee = Some(policy);
-        self
-    }
-
-    /// Whether a transfer takes the prover server's indexed route, where the
-    /// server fetches the proof data. A custom prover only proves what the
-    /// client hands it, so with one set the client always fetches the data
-    /// itself and no transfer reaches the prover server.
-    fn proves_indexed(&self) -> bool {
-        self.custom_prover.is_none()
-            && self.prover_client().proof_data_source() == ProofDataSource::Prover
-    }
-
-    fn proves_indexed_async(&self) -> bool {
-        self.custom_prover.is_none()
-            && self.async_prover.proof_data_source() == ProofDataSource::Prover
-    }
-
-    fn indexed_transfer(
-        &self,
-        preparation: TransferPreparation,
-        authority: &dyn ProofAuthority,
-    ) -> Result<ProvenIndexedTransfer, ClientError> {
-        self.prover_client()
-            .prove_indexed(&preparation.prepare(authority)?)
-    }
-
-    async fn indexed_transfer_async(
-        &self,
-        preparation: TransferPreparation,
-        authority: &dyn ProofAuthority,
-    ) -> Result<ProvenIndexedTransfer, ClientError> {
-        self.async_prover
-            .prove_indexed(&preparation.prepare(authority)?)
-            .await
-    }
-
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
         self.indexer_config = config;
+        self
+    }
+
+    /// Where the prover server reads a transfer's proof data from. A prover
+    /// from [`Self::with_prover`] is handed the data by the client, so this
+    /// does not apply to it.
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.prover = match self.prover {
+            ProverBackend::Server(prover) => {
+                ProverBackend::Server(I::with_proof_data_source(prover, source))
+            }
+            custom => custom,
+        };
+        self
+    }
+
+    /// Send proofs only to a prover server that attests to `policy`; see
+    /// [`ProverClient::with_tee`]. A prover from [`Self::with_prover`] never
+    /// reaches a server, so this does not apply to it.
+    #[must_use]
+    pub fn with_prover_tee(mut self, policy: TeePolicy) -> Self {
+        self.prover = match self.prover {
+            ProverBackend::Server(prover) => ProverBackend::Server(I::with_tee(prover, policy)),
+            custom => custom,
+        };
         self
     }
 
@@ -232,48 +276,42 @@ impl<R> ZolanaClient<R> {
         &self.rpc
     }
 
-    pub fn indexer(&self) -> &ZolanaIndexer {
-        self.blocking_indexer()
+    pub fn indexer(&self) -> &I {
+        &self.indexer
     }
 
-    fn blocking_indexer(&self) -> &ZolanaIndexer {
-        self.indexer.get_or_init(|| {
-            ZolanaIndexer::new(
-                self.blocking_indexer_url
-                    .as_deref()
-                    .expect("blocking indexer URL is set when the client is deferred"),
-            )
-        })
-    }
-
-    fn blocking_prover(&self) -> &dyn Prover {
-        match &self.custom_prover {
-            Some(prover) => prover.as_ref(),
-            None => self.prover_client(),
+    /// The prover server, when a transfer takes its indexed route: the server
+    /// fetches the proof data. Otherwise the client fetches the data and hands
+    /// it to its prover, server or custom.
+    fn indexed_prover(&self) -> Option<&I::ProverClient> {
+        match &self.prover {
+            ProverBackend::Server(prover)
+                if I::proof_data_source(prover) == ProofDataSource::Prover =>
+            {
+                Some(prover)
+            }
+            _ => None,
         }
     }
+}
 
-    fn prover_client(&self) -> &ProverClient {
-        self.prover.get_or_init(|| {
-            let prover = ProverClient::new(
-                self.blocking_prover_url
-                    .clone()
-                    .expect("blocking prover URL is set when the client is deferred"),
-            )
-            .with_proof_data_source(self.async_prover.proof_data_source());
-            match &self.prover_tee {
-                Some(policy) => prover.with_tee(policy.clone()),
-                None => prover,
-            }
-        })
+impl<R> ZolanaClient<R, ZolanaIndexer> {
+    /// The prover of a transfer off the indexed route.
+    fn prover(&self) -> &dyn Prover {
+        match &self.prover {
+            ProverBackend::Server(prover) => prover,
+            ProverBackend::Custom(prover) => prover.as_ref(),
+        }
     }
+}
 
-    /// The async counterpart of [`Self::blocking_prover`]'s transfer proof.
-    async fn prove_transfer_async(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let Some(prover) = &self.custom_prover else {
-            return self.async_prover.prove_transfer(inputs).await;
+impl<R> ZolanaClient<R, AsyncZolanaIndexer> {
+    /// The transfer proof of a transfer off the indexed route.
+    async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        let prover = match &self.prover {
+            ProverBackend::Server(prover) => return prover.prove_transfer(inputs).await,
+            ProverBackend::Custom(prover) => Arc::clone(prover),
         };
-        let prover = Arc::clone(prover);
         let request = crate::prover::requests::transfer(inputs)?;
         tokio::task::spawn_blocking(move || prover.prove(&request))
             .await

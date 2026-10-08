@@ -10,7 +10,7 @@ use crate::{
 
 use super::ZolanaClient;
 
-impl<R: Rpc> ZolanaClient<R> {
+impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
     ///
@@ -21,11 +21,11 @@ impl<R: Rpc> ZolanaClient<R> {
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        wait_for_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
+        wait_for_indexed_transaction(&self.indexer, signature, self.indexer_config.poll)
     }
 }
 
-impl<R: AsyncRpc> ZolanaClient<R> {
+impl<R: AsyncRpc> ZolanaClient<R, AsyncZolanaIndexer> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
     ///
@@ -36,8 +36,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
-        wait_for_indexed_transaction_async(&self.async_indexer, signature, self.indexer_config.poll)
-            .await
+        wait_for_indexed_transaction_async(&self.indexer, signature, self.indexer_config.poll).await
     }
 }
 

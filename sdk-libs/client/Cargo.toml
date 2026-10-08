@@ -10,7 +10,7 @@ autotests = false
 [features]
 default = []
 socks = ["reqwest/socks"]
-indexer-api = ["dep:zolana-api"]
+indexer-api = []
 solana-rpc = ["dep:bs58", "dep:base64", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 client = ["indexer-api", "solana-rpc"]
 # Gates the test binaries that spawn the local prover, so a plain
@@ -28,7 +28,7 @@ zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
-zolana-api = { workspace = true, optional = true }
+zolana-api = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 solana-address = { workspace = true }
@@ -136,6 +136,10 @@ name = "witness_trees"
 # Hermetic: a loopback mock prover, no prover server.
 [[test]]
 name = "prover_retry"
+
+# Hermetic: a fake HTTP client in place of a prover.
+[[test]]
+name = "prover_http_client"
 
 [[test]]
 name = "transaction_proving"
