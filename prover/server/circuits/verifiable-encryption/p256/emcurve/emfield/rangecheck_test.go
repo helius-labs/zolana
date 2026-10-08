@@ -1,3 +1,7 @@
+// Tested invariants and diagnostics:
+//
+//  1. Forged range decomposition and multiplicity hints are rejected.
+//  2. Partial-piece range checks accept their maximum and reject the next value.
 package emfield
 
 import (
@@ -11,6 +15,64 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
+
+// Invariant 1: Forged range decomposition and multiplicity hints are rejected.
+func TestRangeCheckHintForgeriesAreRejected(t *testing.T) {
+	cs := compilePlain(t, p256P, LookupLayout)
+	w := plainArithWitness(LookupLayout, p256P, big.NewInt(0x1234_5678), new(big.Int).Sub(p256P, big.NewInt(7)), big.NewInt(99))
+	t.Run("multiplicities", func(t *testing.T) {
+		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(countHint), func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := countHint(q, inputs, outputs); err != nil {
+				return err
+			}
+			outputs[0].Add(outputs[0], big.NewInt(1))
+			return nil
+		}))
+	})
+	t.Run("decomposition", func(t *testing.T) {
+		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(decomposeHint), func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := decomposeHint(q, inputs, outputs); err != nil {
+				return err
+			}
+			outputs[0].Add(outputs[0], pow2(LookupLayout.PieceBits))
+			outputs[1].Sub(outputs[1], big.NewInt(1)).Mod(outputs[1], q)
+			return nil
+		}))
+	})
+}
+
+// Invariant 2: Partial-piece range checks accept their maximum and reject the next value.
+func TestPartialPieceRangeCheck(t *testing.T) {
+	q := ecc.BN254.ScalarField()
+	for _, bits := range []int{3, 8} {
+		cs, err := frontend.Compile(q, r1cs.NewBuilder, &smallRangeCircuit{Bits: bits})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range []struct {
+			v      *big.Int
+			accept bool
+		}{
+			{big.NewInt(0), true},
+			{new(big.Int).Sub(pow2(bits), big.NewInt(1)), true},
+			{pow2(bits), false},
+			{new(big.Int).Sub(q, big.NewInt(1)), false},
+			{new(big.Int).ModInverse(pow2(LookupLayout.PieceBits-bits), q), false},
+		} {
+			w := smallRangeCircuit{Bits: bits}
+			for i := range w.V {
+				w.V[i] = 1
+			}
+			w.V[0] = row.v
+			witness, _ := frontend.NewWitness(&w, q)
+			if err := cs.IsSolved(witness); (err == nil) != row.accept {
+				t.Fatalf("bits %d value %x: accept=%v err=%v", bits, row.v, row.accept, err)
+			}
+		}
+	}
+}
+
+// Test circuits and shared helpers.
 
 var p256P, _ = new(big.Int).SetString("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16)
 
@@ -40,30 +102,6 @@ func expectRejected(t *testing.T, cs constraint.ConstraintSystem, w frontend.Cir
 	}
 }
 
-func TestRangeCheckHintForgeriesAreRejected(t *testing.T) {
-	cs := compilePlain(t, p256P, LookupLayout)
-	w := plainArithWitness(LookupLayout, p256P, big.NewInt(0x1234_5678), new(big.Int).Sub(p256P, big.NewInt(7)), big.NewInt(99))
-	t.Run("multiplicities", func(t *testing.T) {
-		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(countHint), func(q *big.Int, inputs, outputs []*big.Int) error {
-			if err := countHint(q, inputs, outputs); err != nil {
-				return err
-			}
-			outputs[0].Add(outputs[0], big.NewInt(1))
-			return nil
-		}))
-	})
-	t.Run("decomposition", func(t *testing.T) {
-		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(decomposeHint), func(q *big.Int, inputs, outputs []*big.Int) error {
-			if err := decomposeHint(q, inputs, outputs); err != nil {
-				return err
-			}
-			outputs[0].Add(outputs[0], pow2(LookupLayout.PieceBits))
-			outputs[1].Sub(outputs[1], big.NewInt(1)).Mod(outputs[1], q)
-			return nil
-		}))
-	})
-}
-
 type smallRangeCircuit struct {
 	V    [12]frontend.Variable
 	Bits int `gnark:"-"`
@@ -75,34 +113,4 @@ func (c *smallRangeCircuit) Define(api frontend.API) error {
 		rc.Check(v, c.Bits)
 	}
 	return nil
-}
-
-func TestPartialPieceRangeCheck(t *testing.T) {
-	q := ecc.BN254.ScalarField()
-	for _, bits := range []int{3, 8} {
-		cs, err := frontend.Compile(q, r1cs.NewBuilder, &smallRangeCircuit{Bits: bits})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, row := range []struct {
-			v      *big.Int
-			accept bool
-		}{
-			{big.NewInt(0), true},
-			{new(big.Int).Sub(pow2(bits), big.NewInt(1)), true},
-			{pow2(bits), false},
-			{new(big.Int).Sub(q, big.NewInt(1)), false},
-			{new(big.Int).ModInverse(pow2(LookupLayout.PieceBits-bits), q), false},
-		} {
-			w := smallRangeCircuit{Bits: bits}
-			for i := range w.V {
-				w.V[i] = 1
-			}
-			w.V[0] = row.v
-			witness, _ := frontend.NewWitness(&w, q)
-			if err := cs.IsSolved(witness); (err == nil) != row.accept {
-				t.Fatalf("bits %d value %x: accept=%v err=%v", bits, row.v, row.accept, err)
-			}
-		}
-	}
 }

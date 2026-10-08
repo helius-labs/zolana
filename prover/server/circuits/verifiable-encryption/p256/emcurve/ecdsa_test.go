@@ -1,3 +1,13 @@
+// Tested invariants and diagnostics:
+//
+//  1. Supported honest signatures match the host verifier.
+//  2. Invalid signatures and malformed inputs are rejected.
+//  3. The variable-base ladder rejects its documented exceptional signature scalars.
+//  4. Forged reports and mutated hints cannot satisfy signature verification.
+//  5. The verification x-coordinate is compared modulo the group order, including
+//     wraparound.
+//  6. Diagnostic: signature constraint counts are recorded for both range-check
+//     modes.
 package emcurve
 
 import (
@@ -18,6 +28,295 @@ import (
 
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
+
+// Invariant 1: Supported honest signatures match the host verifier.
+func TestECDSAAcceptsHonestSignatures(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		n := GroupOrder()
+		for i, message := range []string{"spend", "another spend", "a third spend"} {
+			v := signedVector(t, signingKey(t), message)
+			twin := v.with(func(w *ecdsaVector) { w.s = new(big.Int).Sub(n, v.s) })
+			for name, vec := range map[string]ecdsaVector{"signature": v, "malleable twin": twin} {
+				if !vec.hostVerifies() {
+					t.Fatalf("%d %s: host rejects", i, name)
+				}
+				if err := solveECDSA(t, cs, vec.witness()); err != nil {
+					t.Fatalf("%d %s: compiled circuit rejects: %v", i, name, err)
+				}
+				if err := test.IsSolved(&ecdsaCircuit{NoLookups: noLookups}, vec.witness(), ecc.BN254.ScalarField()); err != nil {
+					t.Fatalf("%d %s: test engine rejects: %v", i, name, err)
+				}
+			}
+		}
+	})
+}
+
+// Invariant 2: Invalid signatures and malformed inputs are rejected.
+func TestECDSARejectsInvalidSignatures(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		n := GroupOrder()
+		p := elliptic.P256().Params().P
+		key := signingKey(t)
+		v := signedVector(t, key, "spend")
+		other := signingKey(t)
+		rows := map[string]ecdsaVector{
+			"wrong message":      v.with(func(w *ecdsaVector) { w.h = new(big.Int).Add(v.h, big.NewInt(1)) }),
+			"wrong key":          v.with(func(w *ecdsaVector) { w.x, w.y = other.X, other.Y }),
+			"negated key":        v.with(func(w *ecdsaVector) { w.y = new(big.Int).Sub(p, v.y) }),
+			"r zero":             v.with(func(w *ecdsaVector) { w.r = big.NewInt(0) }),
+			"s zero":             v.with(func(w *ecdsaVector) { w.s = big.NewInt(0) }),
+			"r group order":      v.with(func(w *ecdsaVector) { w.r = n }),
+			"s group order":      v.with(func(w *ecdsaVector) { w.s = n }),
+			"r plus order":       v.with(func(w *ecdsaVector) { w.r = new(big.Int).Add(v.r, n) }),
+			"s plus order":       v.with(func(w *ecdsaVector) { w.s = new(big.Int).Add(v.s, n) }),
+			"r and s swapped":    v.with(func(w *ecdsaVector) { w.r, w.s = v.s, v.r }),
+			"r negated":          v.with(func(w *ecdsaVector) { w.r = new(big.Int).Sub(n, v.r) }),
+			"key x plus p":       v.with(func(w *ecdsaVector) { w.x = new(big.Int).Add(v.x, p) }),
+			"key off curve":      v.with(func(w *ecdsaVector) { w.y = new(big.Int).Add(v.y, big.NewInt(1)) }),
+			"key at infinity":    v.with(func(w *ecdsaVector) { w.x, w.y = big.NewInt(0), big.NewInt(0) }),
+			"message plus 2^256": v.with(func(w *ecdsaVector) { w.h = new(big.Int).Add(v.h, pow2(256)) }),
+		}
+		for name, row := range rows {
+			t.Run(name, func(t *testing.T) {
+				if row.hostVerifies() {
+					t.Fatal("host accepts the vector")
+				}
+				if solveECDSA(t, cs, row.witness()) == nil {
+					t.Fatal("compiled circuit accepts")
+				}
+			})
+		}
+		t.Run("limbs above 64 bits", func(t *testing.T) {
+			w := v.witness()
+			w.R[0] = new(big.Int).Add(w.R[0].(*big.Int), pow2(64))
+			w.R[1] = new(big.Int).Sub(w.R[1].(*big.Int), big.NewInt(1))
+			if w.R[1].(*big.Int).Sign() < 0 {
+				t.Skip("second limb is zero")
+			}
+			if solveECDSA(t, cs, w) == nil {
+				t.Fatal("compiled circuit accepts a non-canonical limb split")
+			}
+		})
+	})
+}
+
+// Invariant 3: The variable-base ladder rejects its documented exceptional signature scalars.
+func TestECDSARefusesExceptionalScalars(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		n := GroupOrder()
+		d := new(big.Int).SetBytes([]byte("a private key for exceptional u2"))
+		u1 := new(big.Int).SetBytes([]byte("the generator scalar of the test"))
+		third := new(big.Int).ModInverse(big.NewInt(3), n)
+		neg := func(v *big.Int) *big.Int { return new(big.Int).Sub(n, v) }
+		for name, scalars := range map[string][2]*big.Int{
+			"u2 one":             {u1, big.NewInt(1)},
+			"u2 minus one":       {u1, neg(big.NewInt(1))},
+			"u2 three":           {u1, big.NewInt(3)},
+			"u2 minus three":     {u1, neg(big.NewInt(3))},
+			"u2 one third":       {u1, third},
+			"u2 minus one third": {u1, neg(third)},
+			"u1 zero":            {big.NewInt(0), big.NewInt(5)},
+		} {
+			t.Run(name, func(t *testing.T) {
+				v := vectorWithScalars(t, d, scalars[0], scalars[1])
+				if !v.hostVerifies() {
+					t.Fatal("host rejects the constructed signature")
+				}
+				if solveECDSA(t, cs, v.witness()) == nil {
+					t.Fatal("expected the exceptional scalar to be refused")
+				}
+			})
+		}
+		control := vectorWithScalars(t, d, u1, big.NewInt(5))
+		if err := solveECDSA(t, cs, control.witness()); err != nil {
+			t.Fatalf("control signature rejected: %v", err)
+		}
+	})
+}
+
+// Invariant 4: Forged reports and mutated hints cannot satisfy signature verification.
+func TestECDSARejectsReportForgery(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		real := reportVector(t, reportRealM, reportRealR, reportRealS)
+		fake := reportVector(t, reportFakeM, reportFakeR, reportFakeS)
+		if !real.hostVerifies() || fake.hostVerifies() {
+			t.Fatal("report vectors do not match the report")
+		}
+		if err := solveECDSA(t, cs, real.witness()); err != nil {
+			t.Fatalf("genuine report signature rejected: %v", err)
+		}
+		if solveECDSA(t, cs, fake.witness()) == nil {
+			t.Fatal("honest prover proves the forged signature")
+		}
+		n := GroupOrder()
+		u2 := new(big.Int).ModInverse(fake.s, n)
+		u2.Mul(u2, fake.r).Mod(u2, n)
+		if u2.Cmp(new(big.Int).Sub(n, big.NewInt(1))) != 0 {
+			t.Fatal("the report forgery uses r/s = -1")
+		}
+		forgedX, forgedY := hexInt(t, reportFakeX), hexInt(t, reportFakeY)
+		attacks := map[string]*big.Int{"report result": forgedX, "result of another x": new(big.Int).Add(forgedX, big.NewInt(1))}
+		for name, x := range attacks {
+			t.Run(name, func(t *testing.T) {
+				called := 0
+				count := func(h solver.Hint) solver.Hint {
+					return func(q *big.Int, inputs, outputs []*big.Int) error {
+						called++
+						return h(q, inputs, outputs)
+					}
+				}
+				err := solveECDSA(t, cs, fake.witness(),
+					solver.OverrideHint(solver.GetHintID(p256DecomposeScalarHint), count(equalHalvesDecompositionHint)),
+					solver.OverrideHint(solver.GetHintID(p256ScalarMulHint), count(fixedResultHint(x, forgedY))),
+				)
+				if called != 2 {
+					t.Fatalf("forged hints ran %d times, want 2", called)
+				}
+				if err == nil {
+					t.Fatal("forged signature accepted")
+				}
+			})
+		}
+	})
+}
+
+// Invariant 4: Forged reports and mutated hints cannot satisfy signature verification.
+func TestECDSARejectsForgedHints(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		v := signedVector(t, signingKey(t), "spend")
+		n := GroupOrder()
+		if err := solveECDSA(t, cs, v.witness()); err != nil {
+			t.Fatalf("honest witness: %v", err)
+		}
+		u2 := new(big.Int).ModInverse(v.s, n)
+		u2.Mul(u2, v.r).Mod(u2, n)
+		forgeries := []struct {
+			name string
+			hint solver.Hint
+			with solver.Hint
+			also []solver.Option
+		}{
+			{"inverse plus one", p256ScalarInverseHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+				return emfield.Unwrap(q, inputs, outputs, func(m *big.Int, _, in, out []*big.Int) error {
+					out[0].ModInverse(in[0], m).Add(out[0], big.NewInt(1))
+					return nil
+				})
+			}, nil},
+			{"inverse zero", p256ScalarInverseHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+				return emfield.Unwrap(q, inputs, outputs, func(_ *big.Int, _, _, _ []*big.Int) error { return nil })
+			}, nil},
+			{"inverse of the negated s", p256ScalarInverseHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+				return emfield.Unwrap(q, inputs, outputs, func(m *big.Int, _, in, out []*big.Int) error {
+					out[0].ModInverse(new(big.Int).Sub(m, in[0]), m)
+					return nil
+				})
+			}, nil},
+			{"order wrap flipped", p256OrderWrapHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+				if err := p256OrderWrapHint(q, inputs, outputs); err != nil {
+					return err
+				}
+				outputs[0].Xor(outputs[0], big.NewInt(1))
+				return nil
+			}, nil},
+			{"limb split", p256SplitLowBitsHint, func(_ *big.Int, inputs, outputs []*big.Int) error {
+				n := uint(inputs[1].Uint64())
+				outputs[0].Rsh(inputs[0], n).Sub(outputs[0], big.NewInt(1))
+				outputs[1].And(inputs[0], new(big.Int).Sub(pow2(int(n)), big.NewInt(1))).Add(outputs[1], pow2(int(n)))
+				return nil
+			}, nil},
+			{"ladder result negated", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Sub(n, s) }), nil},
+			{"ladder result plus Q", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }), nil},
+			{"consistent ladder for another scalar", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }),
+				[]solver.Option{solver.OverrideHint(solver.GetHintID(p256DecomposeScalarHint), forgedDecompositionHint(new(big.Int).Add(u2, big.NewInt(1))))}},
+			{"decomposition of another scalar", p256DecomposeScalarHint, forgedDecompositionHint(new(big.Int).Add(u2, big.NewInt(1))), nil},
+			{"comb recoding of another scalar", p256CombRecodeHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+				shifted := []*big.Int{new(big.Int).Add(inputs[0], big.NewInt(1))}
+				return p256CombRecodeHint(q, append(shifted, inputs[1:]...), outputs)
+			}, nil},
+			{"x-coordinates claimed equal", p256XEqualHint, func(_ *big.Int, _, outputs []*big.Int) error {
+				outputs[0].SetUint64(1)
+				outputs[1].SetUint64(0)
+				return nil
+			}, nil},
+			{"unified slope", p256UnifiedSlopeHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
+				return modRatio(p, new(big.Int).Sub(in[3], in[1]), new(big.Int).Sub(in[2], in[0]))
+			}), nil},
+			{"balanced slope limb", emfield.BalanceHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+				if err := emfield.BalanceHint(q, inputs, outputs); err != nil {
+					return err
+				}
+				outputs[0].Xor(outputs[0], big.NewInt(1))
+				return nil
+			}, nil},
+		}
+		for _, f := range forgeries {
+			t.Run(f.name, func(t *testing.T) {
+				called := false
+				with := func(q *big.Int, inputs, outputs []*big.Int) error {
+					called = true
+					return f.with(q, inputs, outputs)
+				}
+				err := solveECDSA(t, cs, v.witness(), append(f.also, solver.OverrideHint(solver.GetHintID(f.hint), with))...)
+				if !called {
+					t.Fatal("the forged hint never ran")
+				}
+				if err == nil {
+					t.Fatal("forged hint accepted")
+				}
+			})
+		}
+	})
+}
+
+// Invariant 5: The verification x-coordinate is compared modulo the group order, including wraparound.
+func TestECDSAComparesXModuloOrder(t *testing.T) {
+	cs := compile(t, &orderWrapCircuit{})
+	n := GroupOrder()
+	p := elliptic.P256().Params().P
+	small := big.NewInt(5)
+	above := new(big.Int).Add(n, small)
+	top := new(big.Int).Sub(p, big.NewInt(1))
+	for _, row := range []struct {
+		name   string
+		x, r   *big.Int
+		accept bool
+	}{
+		{"x below the order", small, small, true},
+		{"x above the order", above, small, true},
+		{"largest x", top, new(big.Int).Sub(top, n), true},
+		{"x above the order compared unreduced", above, above, false},
+		{"off by one", above, big.NewInt(4), false},
+		{"r of another x", small, big.NewInt(6), false},
+		{"x plus p", new(big.Int).Add(small, p), new(big.Int).Sub(new(big.Int).Add(small, p), n), false},
+	} {
+		w := &orderWrapCircuit{}
+		copy(w.X[:], fieldLimbValues(row.x))
+		copy(w.R[:], fieldLimbValues(row.r))
+		witness, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.IsSolved(witness); (err == nil) != row.accept {
+			t.Fatalf("%s: accept=%v err=%v", row.name, row.accept, err)
+		}
+	}
+}
+
+// Diagnostic 6: signature constraint counts are recorded for both range-check modes.
+func TestECDSAConstraintCount(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		wires := cs.GetNbInternalVariables() + cs.GetNbSecretVariables() + cs.GetNbPublicVariables()
+		t.Logf("ecdsa constraints %7d wires %7d commitments %d", cs.GetNbConstraints(), wires, len(cs.GetCommitments().CommitmentIndexes()))
+	})
+}
+
+// Test circuits and shared helpers.
 
 type ecdsaCircuit struct {
 	NoLookups  bool `gnark:"-"`
@@ -152,111 +451,6 @@ func solveECDSA(t *testing.T, cs constraint.ConstraintSystem, w *ecdsaCircuit, o
 	return err
 }
 
-func TestECDSAAcceptsHonestSignatures(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
-		n := GroupOrder()
-		for i, message := range []string{"spend", "another spend", "a third spend"} {
-			v := signedVector(t, signingKey(t), message)
-			twin := v.with(func(w *ecdsaVector) { w.s = new(big.Int).Sub(n, v.s) })
-			for name, vec := range map[string]ecdsaVector{"signature": v, "malleable twin": twin} {
-				if !vec.hostVerifies() {
-					t.Fatalf("%d %s: host rejects", i, name)
-				}
-				if err := solveECDSA(t, cs, vec.witness()); err != nil {
-					t.Fatalf("%d %s: compiled circuit rejects: %v", i, name, err)
-				}
-				if err := test.IsSolved(&ecdsaCircuit{NoLookups: noLookups}, vec.witness(), ecc.BN254.ScalarField()); err != nil {
-					t.Fatalf("%d %s: test engine rejects: %v", i, name, err)
-				}
-			}
-		}
-	})
-}
-
-func TestECDSARejectsInvalidSignatures(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
-		n := GroupOrder()
-		p := elliptic.P256().Params().P
-		key := signingKey(t)
-		v := signedVector(t, key, "spend")
-		other := signingKey(t)
-		rows := map[string]ecdsaVector{
-			"wrong message":      v.with(func(w *ecdsaVector) { w.h = new(big.Int).Add(v.h, big.NewInt(1)) }),
-			"wrong key":          v.with(func(w *ecdsaVector) { w.x, w.y = other.X, other.Y }),
-			"negated key":        v.with(func(w *ecdsaVector) { w.y = new(big.Int).Sub(p, v.y) }),
-			"r zero":             v.with(func(w *ecdsaVector) { w.r = big.NewInt(0) }),
-			"s zero":             v.with(func(w *ecdsaVector) { w.s = big.NewInt(0) }),
-			"r group order":      v.with(func(w *ecdsaVector) { w.r = n }),
-			"s group order":      v.with(func(w *ecdsaVector) { w.s = n }),
-			"r plus order":       v.with(func(w *ecdsaVector) { w.r = new(big.Int).Add(v.r, n) }),
-			"s plus order":       v.with(func(w *ecdsaVector) { w.s = new(big.Int).Add(v.s, n) }),
-			"r and s swapped":    v.with(func(w *ecdsaVector) { w.r, w.s = v.s, v.r }),
-			"r negated":          v.with(func(w *ecdsaVector) { w.r = new(big.Int).Sub(n, v.r) }),
-			"key x plus p":       v.with(func(w *ecdsaVector) { w.x = new(big.Int).Add(v.x, p) }),
-			"key off curve":      v.with(func(w *ecdsaVector) { w.y = new(big.Int).Add(v.y, big.NewInt(1)) }),
-			"key at infinity":    v.with(func(w *ecdsaVector) { w.x, w.y = big.NewInt(0), big.NewInt(0) }),
-			"message plus 2^256": v.with(func(w *ecdsaVector) { w.h = new(big.Int).Add(v.h, pow2(256)) }),
-		}
-		for name, row := range rows {
-			t.Run(name, func(t *testing.T) {
-				if row.hostVerifies() {
-					t.Fatal("host accepts the vector")
-				}
-				if solveECDSA(t, cs, row.witness()) == nil {
-					t.Fatal("compiled circuit accepts")
-				}
-			})
-		}
-		t.Run("limbs above 64 bits", func(t *testing.T) {
-			w := v.witness()
-			w.R[0] = new(big.Int).Add(w.R[0].(*big.Int), pow2(64))
-			w.R[1] = new(big.Int).Sub(w.R[1].(*big.Int), big.NewInt(1))
-			if w.R[1].(*big.Int).Sign() < 0 {
-				t.Skip("second limb is zero")
-			}
-			if solveECDSA(t, cs, w) == nil {
-				t.Fatal("compiled circuit accepts a non-canonical limb split")
-			}
-		})
-	})
-}
-
-func TestECDSARefusesExceptionalScalars(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
-		n := GroupOrder()
-		d := new(big.Int).SetBytes([]byte("a private key for exceptional u2"))
-		u1 := new(big.Int).SetBytes([]byte("the generator scalar of the test"))
-		third := new(big.Int).ModInverse(big.NewInt(3), n)
-		neg := func(v *big.Int) *big.Int { return new(big.Int).Sub(n, v) }
-		for name, scalars := range map[string][2]*big.Int{
-			"u2 one":             {u1, big.NewInt(1)},
-			"u2 minus one":       {u1, neg(big.NewInt(1))},
-			"u2 three":           {u1, big.NewInt(3)},
-			"u2 minus three":     {u1, neg(big.NewInt(3))},
-			"u2 one third":       {u1, third},
-			"u2 minus one third": {u1, neg(third)},
-			"u1 zero":            {big.NewInt(0), big.NewInt(5)},
-		} {
-			t.Run(name, func(t *testing.T) {
-				v := vectorWithScalars(t, d, scalars[0], scalars[1])
-				if !v.hostVerifies() {
-					t.Fatal("host rejects the constructed signature")
-				}
-				if solveECDSA(t, cs, v.witness()) == nil {
-					t.Fatal("expected the exceptional scalar to be refused")
-				}
-			})
-		}
-		control := vectorWithScalars(t, d, u1, big.NewInt(5))
-		if err := solveECDSA(t, cs, control.witness()); err != nil {
-			t.Fatalf("control signature rejected: %v", err)
-		}
-	})
-}
-
 const (
 	reportPkX   = "696d724d9ca18306d21e5849dd0b45cdbdad0a5878e8ee1f9679d49d1b524d54"
 	reportPkY   = "bfc64470f942da1519a5fb5dc6ad02f74ef14871c50069c912356f661336fac7"
@@ -284,140 +478,6 @@ func fixedResultHint(x, y *big.Int) solver.Hint {
 	}
 }
 
-func TestECDSARejectsReportForgery(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
-		real := reportVector(t, reportRealM, reportRealR, reportRealS)
-		fake := reportVector(t, reportFakeM, reportFakeR, reportFakeS)
-		if !real.hostVerifies() || fake.hostVerifies() {
-			t.Fatal("report vectors do not match the report")
-		}
-		if err := solveECDSA(t, cs, real.witness()); err != nil {
-			t.Fatalf("genuine report signature rejected: %v", err)
-		}
-		if solveECDSA(t, cs, fake.witness()) == nil {
-			t.Fatal("honest prover proves the forged signature")
-		}
-		n := GroupOrder()
-		u2 := new(big.Int).ModInverse(fake.s, n)
-		u2.Mul(u2, fake.r).Mod(u2, n)
-		if u2.Cmp(new(big.Int).Sub(n, big.NewInt(1))) != 0 {
-			t.Fatal("the report forgery uses r/s = -1")
-		}
-		forgedX, forgedY := hexInt(t, reportFakeX), hexInt(t, reportFakeY)
-		attacks := map[string]*big.Int{"report result": forgedX, "result of another x": new(big.Int).Add(forgedX, big.NewInt(1))}
-		for name, x := range attacks {
-			t.Run(name, func(t *testing.T) {
-				called := 0
-				count := func(h solver.Hint) solver.Hint {
-					return func(q *big.Int, inputs, outputs []*big.Int) error {
-						called++
-						return h(q, inputs, outputs)
-					}
-				}
-				err := solveECDSA(t, cs, fake.witness(),
-					solver.OverrideHint(solver.GetHintID(p256DecomposeScalarHint), count(equalHalvesDecompositionHint)),
-					solver.OverrideHint(solver.GetHintID(p256ScalarMulHint), count(fixedResultHint(x, forgedY))),
-				)
-				if called != 2 {
-					t.Fatalf("forged hints ran %d times, want 2", called)
-				}
-				if err == nil {
-					t.Fatal("forged signature accepted")
-				}
-			})
-		}
-	})
-}
-
-func TestECDSARejectsForgedHints(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
-		v := signedVector(t, signingKey(t), "spend")
-		n := GroupOrder()
-		if err := solveECDSA(t, cs, v.witness()); err != nil {
-			t.Fatalf("honest witness: %v", err)
-		}
-		u2 := new(big.Int).ModInverse(v.s, n)
-		u2.Mul(u2, v.r).Mod(u2, n)
-		forgeries := []struct {
-			name string
-			hint solver.Hint
-			with solver.Hint
-			also []solver.Option
-		}{
-			{"inverse plus one", p256ScalarInverseHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				return emfield.Unwrap(q, inputs, outputs, func(m *big.Int, _, in, out []*big.Int) error {
-					out[0].ModInverse(in[0], m).Add(out[0], big.NewInt(1))
-					return nil
-				})
-			}, nil},
-			{"inverse zero", p256ScalarInverseHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				return emfield.Unwrap(q, inputs, outputs, func(_ *big.Int, _, _, _ []*big.Int) error { return nil })
-			}, nil},
-			{"inverse of the negated s", p256ScalarInverseHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				return emfield.Unwrap(q, inputs, outputs, func(m *big.Int, _, in, out []*big.Int) error {
-					out[0].ModInverse(new(big.Int).Sub(m, in[0]), m)
-					return nil
-				})
-			}, nil},
-			{"order wrap flipped", p256OrderWrapHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				if err := p256OrderWrapHint(q, inputs, outputs); err != nil {
-					return err
-				}
-				outputs[0].Xor(outputs[0], big.NewInt(1))
-				return nil
-			}, nil},
-			{"limb split", p256SplitLowBitsHint, func(_ *big.Int, inputs, outputs []*big.Int) error {
-				n := uint(inputs[1].Uint64())
-				outputs[0].Rsh(inputs[0], n).Sub(outputs[0], big.NewInt(1))
-				outputs[1].And(inputs[0], new(big.Int).Sub(pow2(int(n)), big.NewInt(1))).Add(outputs[1], pow2(int(n)))
-				return nil
-			}, nil},
-			{"ladder result negated", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Sub(n, s) }), nil},
-			{"ladder result plus Q", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }), nil},
-			{"consistent ladder for another scalar", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }),
-				[]solver.Option{solver.OverrideHint(solver.GetHintID(p256DecomposeScalarHint), forgedDecompositionHint(new(big.Int).Add(u2, big.NewInt(1))))}},
-			{"decomposition of another scalar", p256DecomposeScalarHint, forgedDecompositionHint(new(big.Int).Add(u2, big.NewInt(1))), nil},
-			{"comb recoding of another scalar", p256CombRecodeHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				shifted := []*big.Int{new(big.Int).Add(inputs[0], big.NewInt(1))}
-				return p256CombRecodeHint(q, append(shifted, inputs[1:]...), outputs)
-			}, nil},
-			{"x-coordinates claimed equal", p256XEqualHint, func(_ *big.Int, _, outputs []*big.Int) error {
-				outputs[0].SetUint64(1)
-				outputs[1].SetUint64(0)
-				return nil
-			}, nil},
-			{"unified slope", p256UnifiedSlopeHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
-				return modRatio(p, new(big.Int).Sub(in[3], in[1]), new(big.Int).Sub(in[2], in[0]))
-			}), nil},
-			{"balanced slope limb", emfield.BalanceHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				if err := emfield.BalanceHint(q, inputs, outputs); err != nil {
-					return err
-				}
-				outputs[0].Xor(outputs[0], big.NewInt(1))
-				return nil
-			}, nil},
-		}
-		for _, f := range forgeries {
-			t.Run(f.name, func(t *testing.T) {
-				called := false
-				with := func(q *big.Int, inputs, outputs []*big.Int) error {
-					called = true
-					return f.with(q, inputs, outputs)
-				}
-				err := solveECDSA(t, cs, v.witness(), append(f.also, solver.OverrideHint(solver.GetHintID(f.hint), with))...)
-				if !called {
-					t.Fatal("the forged hint never ran")
-				}
-				if err == nil {
-					t.Fatal("forged hint accepted")
-				}
-			})
-		}
-	})
-}
-
 type orderWrapCircuit struct {
 	X, R [8]frontend.Variable
 }
@@ -428,45 +488,4 @@ func (c *orderWrapCircuit) Define(api frontend.API) error {
 	cv.fr.AssertCanonical(r)
 	cv.assertXModOrder(cv.fp.FromLimbs(c.X[:]), r)
 	return nil
-}
-
-func TestECDSAComparesXModuloOrder(t *testing.T) {
-	cs := compile(t, &orderWrapCircuit{})
-	n := GroupOrder()
-	p := elliptic.P256().Params().P
-	small := big.NewInt(5)
-	above := new(big.Int).Add(n, small)
-	top := new(big.Int).Sub(p, big.NewInt(1))
-	for _, row := range []struct {
-		name   string
-		x, r   *big.Int
-		accept bool
-	}{
-		{"x below the order", small, small, true},
-		{"x above the order", above, small, true},
-		{"largest x", top, new(big.Int).Sub(top, n), true},
-		{"x above the order compared unreduced", above, above, false},
-		{"off by one", above, big.NewInt(4), false},
-		{"r of another x", small, big.NewInt(6), false},
-		{"x plus p", new(big.Int).Add(small, p), new(big.Int).Sub(new(big.Int).Add(small, p), n), false},
-	} {
-		w := &orderWrapCircuit{}
-		copy(w.X[:], fieldLimbValues(row.x))
-		copy(w.R[:], fieldLimbValues(row.r))
-		witness, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := cs.IsSolved(witness); (err == nil) != row.accept {
-			t.Fatalf("%s: accept=%v err=%v", row.name, row.accept, err)
-		}
-	}
-}
-
-func TestECDSAConstraintCount(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
-		wires := cs.GetNbInternalVariables() + cs.GetNbSecretVariables() + cs.GetNbPublicVariables()
-		t.Logf("ecdsa constraints %7d wires %7d commitments %d", cs.GetNbConstraints(), wires, len(cs.GetCommitments().CommitmentIndexes()))
-	})
 }

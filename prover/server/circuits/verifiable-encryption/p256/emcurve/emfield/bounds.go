@@ -17,20 +17,6 @@ import (
 	"math/big"
 )
 
-type Term struct {
-	Coef    int64
-	Factors []*Element
-}
-
-func T(coef int64, factors ...*Element) Term {
-	return Term{Coef: coef, Factors: factors}
-}
-
-type term struct {
-	coef    *big.Int
-	factors []*Element
-}
-
 func polyMulAbs(a, b []*big.Int) []*big.Int {
 	out := make([]*big.Int, len(a)+len(b)-1)
 	for i := range out {
@@ -44,28 +30,28 @@ func polyMulAbs(a, b []*big.Int) []*big.Int {
 	return out
 }
 
-func addInto(dst []*big.Int, src []*big.Int) []*big.Int {
-	for len(dst) < len(src) {
-		dst = append(dst, new(big.Int))
+func addInto(destination []*big.Int, source []*big.Int) []*big.Int {
+	for len(destination) < len(source) {
+		destination = append(destination, new(big.Int))
 	}
-	for i := range src {
-		dst[i].Add(dst[i], src[i])
+	for i := range source {
+		destination[i].Add(destination[i], source[i])
 	}
-	return dst
+	return destination
 }
 
-func intervalMul(alo, ahi, blo, bhi *big.Int) (*big.Int, *big.Int) {
-	c := []*big.Int{
-		new(big.Int).Mul(alo, blo), new(big.Int).Mul(alo, bhi),
-		new(big.Int).Mul(ahi, blo), new(big.Int).Mul(ahi, bhi),
+func intervalMul(aMin, aMax, bMin, bMax *big.Int) (*big.Int, *big.Int) {
+	products := []*big.Int{
+		new(big.Int).Mul(aMin, bMin), new(big.Int).Mul(aMin, bMax),
+		new(big.Int).Mul(aMax, bMin), new(big.Int).Mul(aMax, bMax),
 	}
-	lo, hi := c[0], c[0]
-	for _, v := range c[1:] {
-		if v.Cmp(lo) < 0 {
-			lo = v
+	lo, hi := products[0], products[0]
+	for _, product := range products[1:] {
+		if product.Cmp(lo) < 0 {
+			lo = product
 		}
-		if v.Cmp(hi) > 0 {
-			hi = v
+		if product.Cmp(hi) > 0 {
+			hi = product
 		}
 	}
 	return lo, hi
@@ -75,18 +61,18 @@ func termRange(t term) (*big.Int, *big.Int) {
 	lo, hi := big.NewInt(1), big.NewInt(1)
 	for i, e := range t.factors {
 		if i > 0 && e == t.factors[i-1] && len(t.factors) == 2 {
-			m := absMax(e.vlo, e.vhi)
+			m := absMax(e.valueMin, e.valueMax)
 			sq := new(big.Int).Mul(m, m)
-			if e.vlo.Sign() >= 0 {
-				lo, hi = new(big.Int).Mul(e.vlo, e.vlo), new(big.Int).Mul(e.vhi, e.vhi)
-			} else if e.vhi.Sign() <= 0 {
-				lo, hi = new(big.Int).Mul(e.vhi, e.vhi), new(big.Int).Mul(e.vlo, e.vlo)
+			if e.valueMin.Sign() >= 0 {
+				lo, hi = new(big.Int).Mul(e.valueMin, e.valueMin), new(big.Int).Mul(e.valueMax, e.valueMax)
+			} else if e.valueMax.Sign() <= 0 {
+				lo, hi = new(big.Int).Mul(e.valueMax, e.valueMax), new(big.Int).Mul(e.valueMin, e.valueMin)
 			} else {
 				lo, hi = new(big.Int), sq
 			}
 			continue
 		}
-		lo, hi = intervalMul(lo, hi, e.vlo, e.vhi)
+		lo, hi = intervalMul(lo, hi, e.valueMin, e.valueMax)
 	}
 	lo.Mul(lo, t.coef)
 	hi.Mul(hi, t.coef)
@@ -102,18 +88,6 @@ func limbAbs(e *Element) []*big.Int {
 		out[i] = absMax(e.lo[i], e.hi[i])
 	}
 	return out
-}
-
-func (f *Field) Eval(terms ...Term) *Element {
-	return f.newCheck(terms, true)
-}
-
-func (f *Field) AssertZero(terms ...Term) {
-	f.newCheck(terms, false)
-}
-
-func (f *Field) newCheck(in []Term, withResult bool) *Element {
-	return f.plainCheck(in, withResult)
 }
 
 func signed(v, q *big.Int) *big.Int {

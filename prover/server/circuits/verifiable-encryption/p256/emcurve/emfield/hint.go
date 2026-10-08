@@ -18,48 +18,51 @@ import (
 	"math/big"
 )
 
-func Unwrap(q *big.Int, inputs, outputs []*big.Int, fn func(mod *big.Int, natives, in, out []*big.Int) error) error {
-	lay, err := layoutOf(inputs)
+func Unwrap(nativeModulus *big.Int, inputs, outputs []*big.Int, fn func(modulus *big.Int, nativeInputs, elementInputs, elementOutputs []*big.Int) error) error {
+	// 1. Decode the layout, modulus, and native inputs from the hint header.
+	layout, err := layoutOf(inputs)
 	if err != nil {
 		return err
 	}
-	n := lay.NbLimbs
-	pos := headerLen
-	if len(inputs) < pos+n+1 {
+	limbCount := layout.NbLimbs
+	position := headerLen
+	if len(inputs) < position+limbCount+1 {
 		return errors.New("missing hint header")
 	}
-	mod := lay.recompose(inputs[pos : pos+n])
-	pos += n
-	nbNatives := int(inputs[pos].Int64())
-	pos++
-	natives := inputs[pos : pos+nbNatives]
-	pos += nbNatives
-	var in []*big.Int
-	for pos < len(inputs) {
-		nl := int(inputs[pos].Int64())
-		pos++
-		limbs := make([]*big.Int, nl)
+	modulus := layout.recompose(inputs[position : position+limbCount])
+	position += limbCount
+	nativeCount := int(inputs[position].Int64())
+	position++
+	nativeInputs := inputs[position : position+nativeCount]
+	position += nativeCount
+	// 2. Recompose signed limbs into the emulated input integers.
+	var elementInputs []*big.Int
+	for position < len(inputs) {
+		elementLimbCount := int(inputs[position].Int64())
+		position++
+		limbs := make([]*big.Int, elementLimbCount)
 		for j := range limbs {
-			limbs[j] = signed(inputs[pos+j], q)
+			limbs[j] = signed(inputs[position+j], nativeModulus)
 		}
-		pos += nl
-		in = append(in, lay.recompose(limbs))
+		position += elementLimbCount
+		elementInputs = append(elementInputs, layout.recompose(limbs))
 	}
-	widths := lay.reducedWidths(mod.BitLen())
-	per := lay.nbPiecesAll(widths)
-	if len(outputs)%per != 0 {
+	widths := layout.reducedWidths(modulus.BitLen())
+	piecesPerElement := layout.nbPiecesAll(widths)
+	if len(outputs)%piecesPerElement != 0 {
 		return errors.New("output count is not a multiple of the element size")
 	}
-	out := make([]*big.Int, len(outputs)/per)
-	for i := range out {
-		out[i] = new(big.Int)
+	elementOutputs := make([]*big.Int, len(outputs)/piecesPerElement)
+	for i := range elementOutputs {
+		elementOutputs[i] = new(big.Int)
 	}
-	if err := fn(mod, natives, in, out); err != nil {
+	// 3. Run the host computation and encode its outputs as range-check pieces.
+	if err := fn(modulus, nativeInputs, elementInputs, elementOutputs); err != nil {
 		return err
 	}
-	rest := outputs
-	for _, v := range out {
-		rest = lay.writePieces(rest, new(big.Int).Mod(v, mod), widths)
+	remainingOutputs := outputs
+	for _, elementValue := range elementOutputs {
+		remainingOutputs = layout.writePieces(remainingOutputs, new(big.Int).Mod(elementValue, modulus), widths)
 	}
 	return nil
 }

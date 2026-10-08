@@ -22,10 +22,6 @@ import (
 	"github.com/consensys/gnark/std/multicommit"
 )
 
-func init() {
-	solver.RegisterHint(p256RowLookupHint, p256RowCountHint)
-}
-
 const rowSeparationLog = 8
 
 type rowTable struct {
@@ -54,13 +50,13 @@ func (t *rowTable) lookup(index frontend.Variable) []frontend.Variable {
 	for _, row := range t.rows {
 		inputs = append(inputs, row...)
 	}
-	out, err := t.api.Compiler().NewHint(p256RowLookupHint, t.nbCols, inputs...)
+	rowValues, err := t.api.Compiler().NewHint(p256RowLookupHint, t.nbCols, inputs...)
 	if err != nil {
 		panic(err)
 	}
 	t.indices = append(t.indices, index)
-	t.results = append(t.results, out)
-	return out
+	t.results = append(t.results, rowValues)
+	return rowValues
 }
 
 func (t *rowTable) build(api frontend.API) error {
@@ -70,56 +66,60 @@ func (t *rowTable) build(api frontend.API) error {
 	if len(t.indices)+len(t.rows) >= 1<<rowSeparationLog {
 		panic("too many rows and queries for the column separation")
 	}
+	// 1. Obtain candidate row multiplicities for the recorded queries.
 	counts, err := api.Compiler().NewHint(p256RowCountHint, len(t.rows), append([]frontend.Variable{len(t.rows)}, t.indices...)...)
 	if err != nil {
 		return err
 	}
-	var toCommit []frontend.Variable
+	// 2. Bind rows, queries, results, and multiplicities before deriving the challenge.
+	var committedValues []frontend.Variable
 	for _, row := range t.rows {
-		toCommit = append(toCommit, row...)
+		committedValues = append(committedValues, row...)
 	}
-	toCommit = append(toCommit, t.indices...)
-	for _, res := range t.results {
-		toCommit = append(toCommit, res...)
+	committedValues = append(committedValues, t.indices...)
+	for _, rowValues := range t.results {
+		committedValues = append(committedValues, rowValues...)
 	}
-	toCommit = append(toCommit, counts...)
-	multicommit.WithCommitment(api, func(api frontend.API, ch frontend.Variable) error {
-		coeffs := make([]frontend.Variable, t.nbCols)
-		alpha := ch
-		for j := range coeffs {
+	committedValues = append(committedValues, counts...)
+	multicommit.WithCommitment(api, func(api frontend.API, challenge frontend.Variable) error {
+		// 3. Separate columns using powers of the commitment-derived challenge.
+		columnWeights := make([]frontend.Variable, t.nbCols)
+		alpha := challenge
+		for j := range columnWeights {
 			for i := 0; i < rowSeparationLog; i++ {
 				alpha = api.Mul(alpha, alpha)
 			}
-			coeffs[j] = alpha
+			columnWeights[j] = alpha
 		}
-		encode := func(index frontend.Variable, vals []frontend.Variable) frontend.Variable {
-			v := index
-			for j, val := range vals {
-				v = api.Add(v, api.Mul(coeffs[j], val))
+		denominator := func(index frontend.Variable, rowValues []frontend.Variable) frontend.Variable {
+			encodedRow := index
+			for j, columnValue := range rowValues {
+				encodedRow = api.Add(encodedRow, api.Mul(columnWeights[j], columnValue))
 			}
-			return api.Sub(ch, v)
+			return api.Sub(challenge, encodedRow)
 		}
-		left := frontend.Variable(0)
+		// 4. Equate the table and query log-derivative sums.
+		tableSum := frontend.Variable(0)
 		for r, row := range t.rows {
-			left = api.Add(left, api.DivUnchecked(counts[r], encode(r, row)))
+			tableSum = api.Add(tableSum, api.DivUnchecked(counts[r], denominator(r, row)))
 		}
-		dens := make([]frontend.Variable, len(t.indices))
+		queryDenominators := make([]frontend.Variable, len(t.indices))
 		for i := range t.indices {
-			dens[i] = encode(t.indices[i], t.results[i])
+			queryDenominators[i] = denominator(t.indices[i], t.results[i])
 		}
-		right := frontend.Variable(0)
-		if bi, ok := api.(frontend.BatchInverter); ok {
-			for _, inv := range bi.BatchInvert(dens) {
-				right = api.Add(right, inv)
+		querySum := frontend.Variable(0)
+		if batchInverter, ok := api.(frontend.BatchInverter); ok {
+			for _, inverse := range batchInverter.BatchInvert(queryDenominators) {
+				querySum = api.Add(querySum, inverse)
 			}
 		} else {
-			for _, d := range dens {
-				right = api.Add(right, api.Inverse(d))
+			for _, queryDenominator := range queryDenominators {
+				querySum = api.Add(querySum, api.Inverse(queryDenominator))
 			}
 		}
-		api.AssertIsEqual(left, right)
+		api.AssertIsEqual(tableSum, querySum)
 		return nil
-	}, toCommit...)
+	}, committedValues...)
 	return nil
 }
 
@@ -127,17 +127,17 @@ func p256RowLookupHint(_ *big.Int, inputs, outputs []*big.Int) error {
 	if len(inputs) < 3 {
 		return errors.New("missing lookup header")
 	}
-	nbRows, nbCols := int(inputs[1].Int64()), int(inputs[2].Int64())
-	if len(outputs) != nbCols || len(inputs) != 3+nbRows*nbCols {
+	rowCount, columnCount := int(inputs[1].Int64()), int(inputs[2].Int64())
+	if len(outputs) != columnCount || len(inputs) != 3+rowCount*columnCount {
 		return errors.New("lookup shape mismatch")
 	}
 	for _, out := range outputs {
 		out.SetUint64(0)
 	}
-	if !inputs[0].IsInt64() || inputs[0].Int64() >= int64(nbRows) {
+	if !inputs[0].IsInt64() || inputs[0].Int64() >= int64(rowCount) {
 		return nil
 	}
-	row := inputs[3+int(inputs[0].Int64())*nbCols:]
+	row := inputs[3+int(inputs[0].Int64())*columnCount:]
 	for j := range outputs {
 		outputs[j].Set(row[j])
 	}
@@ -157,4 +157,8 @@ func p256RowCountHint(_ *big.Int, inputs, outputs []*big.Int) error {
 		}
 	}
 	return nil
+}
+
+func init() {
+	solver.RegisterHint(p256RowLookupHint, p256RowCountHint)
 }

@@ -25,6 +25,7 @@ import (
 )
 
 type fpElement = emfield.Element
+
 type frElement = emfield.Element
 
 var T = emfield.T
@@ -34,16 +35,12 @@ type point struct {
 }
 
 type curve struct {
-	api frontend.API
-	lay emfield.Layout
-	fp  *emfield.Field
-	fr  *emfield.Field
-	a   *fpElement
-	b   *fpElement
-}
-
-func init() {
-	solver.RegisterHint(p256RatioHint, p256TangentHint, p256AddHint)
+	api    frontend.API
+	layout emfield.Layout
+	fp     *emfield.Field
+	fr     *emfield.Field
+	a      *fpElement
+	b      *fpElement
 }
 
 func newCurve(api frontend.API) *curve {
@@ -52,21 +49,17 @@ func newCurve(api frontend.API) *curve {
 
 func newCurveFor(api frontend.API, lookups bool) *curve {
 	params := elliptic.P256().Params()
-	lay := emfield.LayoutFor(lookups)
-	fr := emfield.NewFor(api, params.N, lay)
-	fp := emfield.NewFor(api, params.P, lay)
+	layout := emfield.LayoutFor(lookups)
+	fr := emfield.NewFor(api, params.N, layout)
+	fp := emfield.NewFor(api, params.P, layout)
 	return &curve{
-		api: api,
-		lay: lay,
-		fp:  fp,
-		fr:  fr,
-		a:   fp.Const(new(big.Int).Sub(params.P, big.NewInt(3))),
-		b:   fp.Const(params.B),
+		api:    api,
+		layout: layout,
+		fp:     fp,
+		fr:     fr,
+		a:      fp.Const(new(big.Int).Sub(params.P, big.NewInt(3))),
+		b:      fp.Const(params.B),
 	}
-}
-
-func (c *curve) neg(p *point) *point {
-	return &point{X: p.X, Y: c.fp.Neg(p.Y)}
 }
 
 func (c *curve) assertOnCurve(p *point) {
@@ -74,38 +67,51 @@ func (c *curve) assertOnCurve(p *point) {
 	c.fp.AssertZero(T(1, x2, p.X), T(1, c.a, p.X), T(1, c.b), T(-1, p.Y, p.Y))
 }
 
-func (c *curve) slope(fn solver.Hint, nbOutputs int, natives []frontend.Variable, elems ...*fpElement) []*fpElement {
-	return c.fp.HintBalanced(fn, nbOutputs, natives, elems...)
+func (c *curve) assertEqual(p, q *point) {
+	c.fp.AssertZero(T(1, p.X), T(-1, q.X))
+	c.fp.AssertZero(T(1, p.Y), T(-1, q.Y))
 }
 
-func (c *curve) ratio(num, den *fpElement) *fpElement {
-	lambda := c.slope(p256RatioHint, 1, nil, num, den)[0]
-	c.fp.AssertZero(T(1, lambda, den), T(-1, num))
-	return lambda
+func (c *curve) neg(p *point) *point {
+	return &point{X: p.X, Y: c.fp.Neg(p.Y)}
 }
 
-func (c *curve) tangent(p *point) *fpElement {
-	lambda := c.slope(p256TangentHint, 1, nil, p.X, p.Y)[0]
-	c.fp.AssertZero(T(2, lambda, p.Y), T(-3, p.X, p.X), T(-1, c.a))
-	return lambda
-}
-
+// add uses incomplete affine addition; callers must establish distinct x-coordinates.
 func (c *curve) add(p, q *point) *point {
 	fp := c.fp
-	s := fp.Hint(p256AddHint, 2, nil, p.X, p.Y, q.X, q.Y)
-	dx := fp.Sub(q.X, p.X)
-	dy := fp.Sub(q.Y, p.Y)
-	dx2 := fp.Lazy(T(1, dx, dx))
-	fp.AssertZero(T(1, fp.Lin([]int64{1, 1, 1}, s[0], p.X, q.X), dx2), T(-1, dy, dy))
-	fp.AssertZero(T(1, dy, fp.Sub(s[0], p.X)), T(1, fp.Add(s[1], p.Y), dx))
-	return &point{X: s[0], Y: s[1]}
+	coordinates := fp.Hint(p256AddHint, 2, nil, p.X, p.Y, q.X, q.Y)
+	xDifference := fp.Sub(q.X, p.X)
+	yDifference := fp.Sub(q.Y, p.Y)
+	xDifferenceSquared := fp.Lazy(T(1, xDifference, xDifference))
+	sumX, sumY := coordinates[0], coordinates[1]
+	xCoordinateSum := fp.Lin([]int64{1, 1, 1}, sumX, p.X, q.X)
+	fp.AssertZero(T(1, xCoordinateSum, xDifferenceSquared), T(-1, yDifference, yDifference))
+	sumXDifference := fp.Sub(sumX, p.X)
+	sumYPlusInputY := fp.Add(sumY, p.Y)
+	fp.AssertZero(T(1, yDifference, sumXDifference), T(1, sumYPlusInputY, xDifference))
+	return &point{X: coordinates[0], Y: coordinates[1]}
 }
 
 func (c *curve) addReducing(p, q *point, reduceX, reduceY bool) *point {
-	lambda := c.ratio(c.fp.Sub(q.Y, p.Y), c.fp.Sub(q.X, p.X))
-	x := c.evalOrLazy(reduceX, T(1, lambda, lambda), T(-1, p.X), T(-1, q.X))
-	y := c.evalOrLazy(reduceY, T(1, lambda, c.fp.Sub(p.X, x)), T(-1, p.Y))
+	yDifference := c.fp.Sub(q.Y, p.Y)
+	xDifference := c.fp.Sub(q.X, p.X)
+	slope := c.ratio(yDifference, xDifference)
+	x := c.evalOrLazy(reduceX, T(1, slope, slope), T(-1, p.X), T(-1, q.X))
+	y := c.evalOrLazy(reduceY, T(1, slope, c.fp.Sub(p.X, x)), T(-1, p.Y))
 	return &point{X: x, Y: y}
+}
+
+func (c *curve) triple(p *point) *point {
+	tangentSlope := c.tangent(p)
+	doubledX := c.evalOrLazy(false, T(1, tangentSlope, tangentSlope), T(-2, p.X))
+	returnSlope := c.fp.Sub(c.ratio(c.fp.MulConst(p.Y, 2), c.fp.Sub(p.X, doubledX)), tangentSlope)
+	x := c.fp.Eval(T(1, returnSlope, returnSlope), T(-1, p.X), T(-1, doubledX))
+	y := c.fp.Eval(T(1, returnSlope, c.fp.Sub(p.X, x)), T(-1, p.Y))
+	return &point{X: x, Y: y}
+}
+
+func (c *curve) selectPoint(b frontend.Variable, p, q *point) *point {
+	return &point{X: c.fp.Select(b, p.X, q.X), Y: c.fp.Select(b, p.Y, q.Y)}
 }
 
 func (c *curve) evalOrLazy(reduce bool, terms ...emfield.Term) *fpElement {
@@ -115,22 +121,22 @@ func (c *curve) evalOrLazy(reduce bool, terms ...emfield.Term) *fpElement {
 	return c.fp.Lazy(terms...)
 }
 
-func (c *curve) triple(p *point) *point {
-	lambda1 := c.tangent(p)
-	x2 := c.evalOrLazy(false, T(1, lambda1, lambda1), T(-2, p.X))
-	lambda2 := c.fp.Sub(c.ratio(c.fp.MulConst(p.Y, 2), c.fp.Sub(p.X, x2)), lambda1)
-	x := c.fp.Eval(T(1, lambda2, lambda2), T(-1, p.X), T(-1, x2))
-	y := c.fp.Eval(T(1, lambda2, c.fp.Sub(p.X, x)), T(-1, p.Y))
-	return &point{X: x, Y: y}
+func (c *curve) ratio(numerator, denominator *fpElement) *fpElement {
+	slope := c.hintSlope(p256RatioHint, 1, nil, numerator, denominator)[0]
+	c.fp.AssertZero(T(1, slope, denominator), T(-1, numerator))
+	return slope
 }
 
-func (c *curve) selectPoint(b frontend.Variable, p, q *point) *point {
-	return &point{X: c.fp.Select(b, p.X, q.X), Y: c.fp.Select(b, p.Y, q.Y)}
+func (c *curve) tangent(p *point) *fpElement {
+	slope := c.hintSlope(p256TangentHint, 1, nil, p.X, p.Y)[0]
+	c.fp.AssertZero(T(2, slope, p.Y), T(-3, p.X, p.X), T(-1, c.a))
+	return slope
 }
 
-func (c *curve) assertEqual(p, q *point) {
-	c.fp.AssertZero(T(1, p.X), T(-1, q.X))
-	c.fp.AssertZero(T(1, p.Y), T(-1, q.Y))
+// hintSlope returns bounded candidate slopes. Each caller adds the equation
+// that ties the hinted slope to its input coordinates.
+func (c *curve) hintSlope(fn solver.Hint, nbOutputs int, natives []frontend.Variable, elems ...*fpElement) []*fpElement {
+	return c.fp.HintBalanced(fn, nbOutputs, natives, elems...)
 }
 
 func p256RatioHint(q *big.Int, inputs, outputs []*big.Int) error {
@@ -165,4 +171,8 @@ func p256TangentHint(q *big.Int, inputs, outputs []*big.Int) error {
 		out[0].Set(modRatio(p, num, new(big.Int).Lsh(in[1], 1)))
 		return nil
 	})
+}
+
+func init() {
+	solver.RegisterHint(p256RatioHint, p256TangentHint, p256AddHint)
 }

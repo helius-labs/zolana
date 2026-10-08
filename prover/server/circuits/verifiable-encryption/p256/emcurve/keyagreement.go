@@ -15,55 +15,75 @@ type KeyAgreement struct {
 	SharedHi    frontend.Variable
 }
 
-func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [65]frontend.Variable) KeyAgreement {
-	return AgreeKeyFor(api, ephemeralSk, recipientPk, true)
+// AgreeKey computes packed key-agreement outputs using lookup range checks.
+// Callers must constrain ephemeralSecretKey to bytes before packing its limbs.
+func AgreeKey(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable) KeyAgreement {
+	return AgreeKeyFor(api, ephemeralSecretKey, recipientPubkey, true)
 }
 
-func AgreeKeyFor(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [65]frontend.Variable, lookups bool) KeyAgreement {
+// AgreeKeyFor selects lookup or bit-based range checks; it has the same
+// byte-input precondition as AgreeKey.
+func AgreeKeyFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable, lookups bool) KeyAgreement {
 	c := newCurveFor(api, lookups)
-	limbBits := c.lay.LimbBits
-	api.AssertIsEqual(recipientPk[0], uncompressedPrefix)
-	rc := c.rangeChecker()
-	for _, b := range recipientPk[1:] {
-		rc.Check(b, 8)
+	limbBits := c.layout.LimbBits
+	// 1. Validate the recipient encoding and constrain its canonical curve point.
+	api.AssertIsEqual(recipientPubkey[0], uncompressedPrefix)
+	rangeChecker := c.rangeChecker()
+	for _, recipientByte := range recipientPubkey[1:] {
+		rangeChecker.Check(recipientByte, 8)
 	}
-	recipient := &point{X: c.fp.Reduced(c.fieldLimbs(recipientPk[1:33])), Y: c.fp.Reduced(c.fieldLimbs(recipientPk[33:65]))}
+	recipientXBytes := recipientPubkey[1:33]
+	recipientYBytes := recipientPubkey[33:65]
+	recipient := &point{
+		X: c.fp.Reduced(c.fieldLimbs(recipientXBytes)),
+		Y: c.fp.Reduced(c.fieldLimbs(recipientYBytes)),
+	}
 	c.fp.AssertCanonical(recipient.X)
 	c.fp.AssertCanonical(recipient.Y)
 	c.assertOnCurve(recipient)
-	_, recipientParity := c.splitLowBits(recipientPk[64], 1, 8)
+	_, recipientParity := c.splitLowBits(recipientPubkey[64], 1, 8)
 
-	var result KeyAgreement
-	result.RecipientLo = api.Add(api.Mul(api.Add(2, recipientParity), pow2(240)), bigEndianSum(api, recipientPk[1:31]))
-	result.RecipientHi = bigEndianSum(api, recipientPk[31:33])
+	// 2. Pack the recipient with its compressed-point prefix.
+	var agreement KeyAgreement
+	compressedPrefix := api.Add(2, recipientParity)
+	weightedPrefix := api.Mul(compressedPrefix, pow2(240))
+	leadingRecipientX := bigEndianSum(api, recipientPubkey[1:31])
+	agreement.RecipientLo = api.Add(weightedPrefix, leadingRecipientX)
+	agreement.RecipientHi = bigEndianSum(api, recipientPubkey[31:33])
 
-	scalar := c.fr.FromLimbs(c.fieldLimbs(ephemeralSk[:]))
+	// 3. Constrain the shared point and derive the ephemeral public point.
+	scalar := c.fr.FromLimbs(c.fieldLimbs(ephemeralSecretKey[:]))
 	shared := c.scalarMulChecked(recipient, scalar)
 
 	ephemeral := c.scalarMulBase(scalar)
-	result.EphemeralLo, result.EphemeralHi = c.compressedPacking(c.canonicalLimbs(ephemeral.X), c.canonicalLimbs(ephemeral.Y), limbBits)
+	ephemeralXLimbs := c.canonicalLimbs(ephemeral.X)
+	ephemeralYLimbs := c.canonicalLimbs(ephemeral.Y)
+	agreement.EphemeralLo, agreement.EphemeralHi = c.compressedPacking(ephemeralXLimbs, ephemeralYLimbs, limbBits)
 
+	// 4. Pack the canonical shared x-coordinate as 31 bytes plus one byte.
 	sharedX := c.canonicalLimbs(shared.X)
 	high, low := c.splitLowBits(sharedX[0], 8, limbBits)
-	result.SharedLo = packAbove(api, high, sharedX, 8, limbBits)
-	result.SharedHi = low
-	return result
+	agreement.SharedLo = packAbove(api, high, sharedX, 8, limbBits)
+	agreement.SharedHi = low
+	return agreement
 }
 
 func (c *curve) fieldLimbs(bytes []frontend.Variable) []frontend.Variable {
 	api := c.api
-	perLimb := c.lay.LimbBits / 8
+	bytesPerLimb := c.layout.LimbBits / 8
 	var limbs []frontend.Variable
-	for end := len(bytes); end > 0; end -= perLimb {
-		limbs = append(limbs, bigEndianSum(api, bytes[max(0, end-perLimb):end]))
+	for end := len(bytes); end > 0; end -= bytesPerLimb {
+		start := max(0, end-bytesPerLimb)
+		limbBytes := bytes[start:end]
+		limbs = append(limbs, bigEndianSum(api, limbBytes))
 	}
 	return limbs
 }
 
 func bigEndianSum(api frontend.API, bytes []frontend.Variable) frontend.Variable {
 	sum := frontend.Variable(0)
-	for _, b := range bytes {
-		sum = api.Add(api.Mul(sum, 256), b)
+	for _, byteValue := range bytes {
+		sum = api.Add(api.Mul(sum, 256), byteValue)
 	}
 	return sum
 }
@@ -76,10 +96,15 @@ func packAbove(api frontend.API, lowLimbHigh frontend.Variable, limbs []frontend
 	return sum
 }
 
+// compressedPacking encodes (2 + y parity) || x as a 31-byte field and a
+// two-byte field. Its inputs must already be canonical coordinate limbs.
 func (c *curve) compressedPacking(xLimbs, yLimbs []frontend.Variable, limbBits int) (lo, hi frontend.Variable) {
 	api := c.api
 	_, parity := c.splitLowBits(yLimbs[0], 1, limbBits)
 	high, low := c.splitLowBits(xLimbs[0], 16, limbBits)
-	lo = api.Add(api.Mul(api.Add(2, parity), pow2(240)), packAbove(api, high, xLimbs, 16, limbBits))
+	compressedPrefix := api.Add(2, parity)
+	weightedPrefix := api.Mul(compressedPrefix, pow2(240))
+	leadingX := packAbove(api, high, xLimbs, 16, limbBits)
+	lo = api.Add(weightedPrefix, leadingX)
 	return lo, low
 }

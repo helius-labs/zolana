@@ -17,9 +17,7 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/multicommit"
 )
 
 type Layout struct {
@@ -63,10 +61,6 @@ func layoutOf(header []*big.Int) (Layout, error) {
 	return l, nil
 }
 
-func init() {
-	solver.RegisterHint(countHint, decomposeHint)
-}
-
 type kvStore interface {
 	SetKeyValue(key, value any)
 	GetKeyValue(key any) any
@@ -84,14 +78,14 @@ func pow2(n int) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), uint(n))
 }
 
-func (l Layout) reducedWidths(modBits int) []int {
+func (l Layout) reducedWidths(modulusBits int) []int {
 	widths := make([]int, l.NbLimbs)
-	rest := modBits
+	remainingBits := modulusBits
 	for i := range widths {
-		widths[i] = min(l.LimbBits, rest)
-		rest -= widths[i]
+		widths[i] = min(l.LimbBits, remainingBits)
+		remainingBits -= widths[i]
 	}
-	if rest > 0 {
+	if remainingBits > 0 {
 		panic("limbs too narrow for the modulus")
 	}
 	return widths
@@ -122,19 +116,19 @@ func (l Layout) nbPiecesAll(widths []int) int {
 	return n
 }
 
-func (l Layout) writePieces(out []*big.Int, v *big.Int, widths []int) []*big.Int {
-	tmp := new(big.Int).Set(v)
+func (l Layout) writePieces(outputs []*big.Int, value *big.Int, widths []int) []*big.Int {
+	remainingValue := new(big.Int).Set(value)
 	mask := new(big.Int).Sub(pow2(l.PieceBits), big.NewInt(1))
-	for _, w := range widths {
-		limb := new(big.Int).And(tmp, new(big.Int).Sub(pow2(w), big.NewInt(1)))
-		tmp.Rsh(tmp, uint(w))
-		for j := 0; j < l.nbPieces(w); j++ {
-			out[0].And(limb, mask)
+	for _, limbWidth := range widths {
+		limb := new(big.Int).And(remainingValue, new(big.Int).Sub(pow2(limbWidth), big.NewInt(1)))
+		remainingValue.Rsh(remainingValue, uint(limbWidth))
+		for j := 0; j < l.nbPieces(limbWidth); j++ {
+			outputs[0].And(limb, mask)
 			limb.Rsh(limb, uint(l.PieceBits))
-			out = out[1:]
+			outputs = outputs[1:]
 		}
 	}
-	return out
+	return outputs
 }
 
 func (l Layout) recomposePieces(pieces []*big.Int, widths []int) *big.Int {
@@ -148,198 +142,4 @@ func (l Layout) recomposePieces(pieces []*big.Int, widths []int) *big.Int {
 		shift += l.LimbBits
 	}
 	return v
-}
-
-type RangeChecker struct {
-	api     frontend.API
-	lay     Layout
-	queries []frontend.Variable
-	partial map[int][]frontend.Variable
-}
-
-type rangeCheckerKey struct {
-	lookups   bool
-	pieceBits int
-}
-
-func NewRangeChecker(api frontend.API) *RangeChecker {
-	return NewRangeCheckerFor(api, LookupLayout)
-}
-
-func NewRangeCheckerFor(api frontend.API, lay Layout) *RangeChecker {
-	kv := store(api)
-	key := rangeCheckerKey{lay.Lookups, lay.PieceBits}
-	if rc, ok := kv.GetKeyValue(key).(*RangeChecker); ok {
-		return rc
-	}
-	rc := &RangeChecker{api: api, lay: lay}
-	kv.SetKeyValue(key, rc)
-	if lay.Lookups {
-		api.Compiler().Defer(rc.build)
-	}
-	return rc
-}
-
-func (rc *RangeChecker) Layout() Layout {
-	return rc.lay
-}
-
-func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
-	if !rc.lay.Lookups {
-		checkBits(rc.api, v, bits)
-		return
-	}
-	pieceBits := rc.lay.PieceBits
-	switch {
-	case bits <= 0:
-		rc.api.AssertIsEqual(v, 0)
-	case bits == 1:
-		rc.api.AssertIsBoolean(v)
-	case bits < pieceBits:
-		if rc.partial == nil {
-			rc.partial = map[int][]frontend.Variable{}
-		}
-		rc.partial[bits] = append(rc.partial[bits], v)
-	case bits == pieceBits:
-		rc.queries = append(rc.queries, v)
-	default:
-		pieces, err := rc.api.Compiler().NewHint(decomposeHint, rc.lay.nbPieces(bits), bits, pieceBits, v)
-		if err != nil {
-			panic(err)
-		}
-		rc.api.AssertIsEqual(v, rc.Compose(pieces, bits))
-	}
-}
-
-func (rc *RangeChecker) Compose(pieces []frontend.Variable, width int) frontend.Variable {
-	l := rc.lay
-	if len(pieces) != l.nbPieces(width) {
-		panic("piece count mismatch")
-	}
-	sum := frontend.Variable(0)
-	for j, piece := range pieces {
-		rc.Check(piece, min(l.PieceBits, width-j*l.PieceBits))
-		sum = rc.api.Add(sum, rc.api.Mul(piece, pow2(j*l.PieceBits)))
-	}
-	return sum
-}
-
-const tagSeparationLog = 20
-
-func (rc *RangeChecker) build(api frontend.API) error {
-	pieceBits := rc.lay.PieceBits
-	type tagged struct {
-		width   int
-		queries []frontend.Variable
-	}
-	var tags []tagged
-	for w := 2; w < pieceBits; w++ {
-		vs := rc.partial[w]
-		if len(vs) > 1<<w {
-			tags = append(tags, tagged{width: w, queries: vs})
-			continue
-		}
-		for _, v := range vs {
-			rc.queries = append(rc.queries, v, api.Mul(v, pow2(pieceBits-w)))
-		}
-	}
-	if len(rc.queries) == 0 && len(tags) == 0 {
-		return nil
-	}
-	total := len(rc.queries) + 1<<pieceBits
-	for _, tg := range tags {
-		total += len(tg.queries) + 1<<tg.width
-	}
-	if total >= 1<<tagSeparationLog {
-		panic("too many range-check queries for the tag separation")
-	}
-	tableLen := 1 << pieceBits
-	inputs := append([]frontend.Variable{tableLen}, rc.queries...)
-	counts, err := api.Compiler().NewHint(countHint, tableLen, inputs...)
-	if err != nil {
-		return err
-	}
-	toCommit := append(append([]frontend.Variable{}, rc.queries...), counts...)
-	tagCounts := make([][]frontend.Variable, len(tags))
-	for i, tg := range tags {
-		inputs := append([]frontend.Variable{1 << tg.width}, tg.queries...)
-		if tagCounts[i], err = api.Compiler().NewHint(countHint, 1<<tg.width, inputs...); err != nil {
-			return err
-		}
-		toCommit = append(append(toCommit, tg.queries...), tagCounts[i]...)
-	}
-	multicommit.WithCommitment(api, func(api frontend.API, ch frontend.Variable) error {
-		alpha := ch
-		if len(tags) > 0 {
-			for i := 0; i < tagSeparationLog; i++ {
-				alpha = api.Mul(alpha, alpha)
-			}
-		}
-		left := frontend.Variable(0)
-		for i, m := range counts {
-			left = api.Add(left, api.DivUnchecked(m, api.Sub(ch, i)))
-		}
-		var dens []frontend.Variable
-		for _, q := range rc.queries {
-			dens = append(dens, api.Sub(ch, q))
-		}
-		for i, tg := range tags {
-			shift := api.Mul(alpha, tg.width)
-			for v, m := range tagCounts[i] {
-				left = api.Add(left, api.DivUnchecked(m, api.Sub(ch, api.Add(v, shift))))
-			}
-			for _, q := range tg.queries {
-				dens = append(dens, api.Sub(ch, api.Add(q, shift)))
-			}
-		}
-		var invs []frontend.Variable
-		if bi, ok := api.(frontend.BatchInverter); ok {
-			invs = bi.BatchInvert(dens)
-		} else {
-			invs = make([]frontend.Variable, len(dens))
-			for i := range dens {
-				invs[i] = api.Inverse(dens[i])
-			}
-		}
-		right := frontend.Variable(0)
-		for _, inv := range invs {
-			right = api.Add(right, inv)
-		}
-		api.AssertIsEqual(left, right)
-		return nil
-	}, toCommit...)
-	return nil
-}
-
-func countHint(_ *big.Int, inputs, outputs []*big.Int) error {
-	if len(inputs) < 1 || !inputs[0].IsInt64() || int(inputs[0].Int64()) != len(outputs) {
-		return errors.New("table length mismatch")
-	}
-	for _, out := range outputs {
-		out.SetUint64(0)
-	}
-	n := big.NewInt(int64(len(outputs)))
-	for _, q := range inputs[1:] {
-		if q.Cmp(n) < 0 {
-			outputs[q.Int64()].Add(outputs[q.Int64()], big.NewInt(1))
-		}
-	}
-	return nil
-}
-
-func decomposeHint(_ *big.Int, inputs, outputs []*big.Int) error {
-	if len(inputs) != 3 {
-		return errors.New("expecting width, piece width and value")
-	}
-	width, piece := int(inputs[0].Int64()), int(inputs[1].Int64())
-	if (width+piece-1)/piece != len(outputs) {
-		return errors.New("output count mismatch")
-	}
-	tmp := new(big.Int).Set(inputs[2])
-	mask := new(big.Int).Sub(pow2(piece), big.NewInt(1))
-	for _, out := range outputs {
-		out.And(tmp, mask)
-		tmp.Rsh(tmp, uint(piece))
-	}
-	return nil
 }

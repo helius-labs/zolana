@@ -21,41 +21,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-func init() {
-	solver.RegisterHint(modulusGapHint)
-}
-
-func (f *Field) AssertCanonical(e *Element) {
-	if !e.IsReduced(f.widths) {
-		panic("canonical check needs a reduced element")
-	}
-	if f.assertBelowModulusLimbwise(e) {
-		return
-	}
-	inputs := f.hintInputs(nil, []*Element{e})
-	pieces, err := f.api.Compiler().NewHint(modulusGapHint, f.lay.nbPiecesAll(f.widths)+1, inputs...)
-	if err != nil {
-		panic(err)
-	}
-	gap, rest := f.fromPieces(pieces, f.widths)
-	carry := rest[0]
-	f.api.AssertIsBoolean(carry)
-	m := new(big.Int).Sub(f.mod, big.NewInt(1))
-	nbLimbs, limbBits := f.lay.NbLimbs, f.lay.LimbBits
-	split := (nbLimbs + 1) / 2
-	low := new(big.Int).And(m, new(big.Int).Sub(pow2(split*limbBits), big.NewInt(1)))
-	high := new(big.Int).Rsh(m, uint(split*limbBits))
-	part := func(from, to int) frontend.Variable {
-		sum := frontend.Variable(0)
-		for i := from; i < to; i++ {
-			sum = f.api.Add(sum, f.api.Mul(f.api.Add(e.limbs[i], gap.limbs[i]), pow2((i-from)*limbBits)))
-		}
-		return sum
-	}
-	f.api.AssertIsEqual(part(0, split), f.api.Add(low, f.api.Mul(carry, pow2(split*limbBits))))
-	f.api.AssertIsEqual(f.api.Add(part(split, nbLimbs), carry), high)
-}
-
 type limbKind int
 
 const (
@@ -65,53 +30,87 @@ const (
 	limbBelowAllOnes
 )
 
+func (f *Field) AssertCanonical(e *Element) {
+	if !e.IsReduced(f.widths) {
+		panic("canonical check needs a reduced element")
+	}
+	// 1. Prefer a direct limb comparison when the modulus shape supports it.
+	if f.assertBelowModulusLimbwise(e) {
+		return
+	}
+	// 2. Otherwise hint the nonnegative gap to modulus - 1 and bound its limbs.
+	inputs := f.hintInputs(nil, []*Element{e})
+	pieces, err := f.api.Compiler().NewHint(modulusGapHint, f.layout.nbPiecesAll(f.widths)+1, inputs...)
+	if err != nil {
+		panic(err)
+	}
+	gap, rest := f.fromPieces(pieces, f.widths)
+	carry := rest[0]
+	f.api.AssertIsBoolean(carry)
+	// 3. Require element + gap = modulus - 1 using a bounded carry between halves.
+	maximumCanonicalValue := new(big.Int).Sub(f.mod, big.NewInt(1))
+	nbLimbs, limbBits := f.layout.NbLimbs, f.layout.LimbBits
+	lowLimbCount := (nbLimbs + 1) / 2
+	maximumLow := new(big.Int).And(maximumCanonicalValue, new(big.Int).Sub(pow2(lowLimbCount*limbBits), big.NewInt(1)))
+	maximumHigh := new(big.Int).Rsh(maximumCanonicalValue, uint(lowLimbCount*limbBits))
+	sumPart := func(from, to int) frontend.Variable {
+		sum := frontend.Variable(0)
+		for i := from; i < to; i++ {
+			sum = f.api.Add(sum, f.api.Mul(f.api.Add(e.limbs[i], gap.limbs[i]), pow2((i-from)*limbBits)))
+		}
+		return sum
+	}
+	f.api.AssertIsEqual(sumPart(0, lowLimbCount), f.api.Add(maximumLow, f.api.Mul(carry, pow2(lowLimbCount*limbBits))))
+	f.api.AssertIsEqual(f.api.Add(sumPart(lowLimbCount, nbLimbs), carry), maximumHigh)
+}
+
 func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 	api := f.api
-	n := len(f.widths)
-	c := f.lay.decompose(new(big.Int).Sub(f.mod, big.NewInt(1)), n)
-	kinds := make([]limbKind, n)
+	limbCount := len(f.widths)
+	maximumLimbs := f.layout.decompose(new(big.Int).Sub(f.mod, big.NewInt(1)), limbCount)
+	kinds := make([]limbKind, limbCount)
 	for i, w := range f.widths {
 		full := new(big.Int).Sub(pow2(w), big.NewInt(1))
 		switch {
-		case c[i].Cmp(full) == 0:
+		case maximumLimbs[i].Cmp(full) == 0:
 			kinds[i] = limbAllOnes
-		case c[i].Sign() == 0:
+		case maximumLimbs[i].Sign() == 0:
 			kinds[i] = limbZero
-		case c[i].Cmp(big.NewInt(1)) == 0:
+		case maximumLimbs[i].Cmp(big.NewInt(1)) == 0:
 			kinds[i] = limbOne
-		case i == 0 && new(big.Int).Add(c[i], big.NewInt(1)).Cmp(full) == 0:
+		case i == 0 && new(big.Int).Add(maximumLimbs[i], big.NewInt(1)).Cmp(full) == 0:
 			kinds[i] = limbBelowAllOnes
 		default:
 			return false
 		}
 	}
-	v := e.limbs
-	var tight frontend.Variable = 1
-	for i := n - 1; i >= 0; {
+	limbs := e.limbs
+	var matchesHigherLimbs frontend.Variable = 1
+	for i := limbCount - 1; i >= 0; {
 		switch kinds[i] {
 		case limbAllOnes, limbZero:
 			kind := kinds[i]
 			sum := frontend.Variable(0)
 			for ; i >= 0 && kinds[i] == kind; i-- {
 				if kind == limbAllOnes {
-					sum = api.Add(sum, api.Sub(c[i], v[i]))
+					sum = api.Add(sum, api.Sub(maximumLimbs[i], limbs[i]))
 				} else {
-					sum = api.Add(sum, v[i])
+					sum = api.Add(sum, limbs[i])
 				}
 			}
 			if kind == limbAllOnes {
-				tight = api.Mul(tight, api.IsZero(sum))
+				matchesHigherLimbs = api.Mul(matchesHigherLimbs, api.IsZero(sum))
 			} else {
-				api.AssertIsEqual(api.Mul(tight, sum), 0)
+				api.AssertIsEqual(api.Mul(matchesHigherLimbs, sum), 0)
 			}
 		case limbOne:
-			a := api.Mul(tight, v[i])
-			api.AssertIsEqual(api.Mul(a, api.Sub(v[i], 1)), 0)
-			tight = a
+			selectedLimb := api.Mul(matchesHigherLimbs, limbs[i])
+			api.AssertIsEqual(api.Mul(selectedLimb, api.Sub(limbs[i], 1)), 0)
+			matchesHigherLimbs = selectedLimb
 			i--
 		case limbBelowAllOnes:
 			full := new(big.Int).Sub(pow2(f.widths[i]), big.NewInt(1))
-			api.AssertIsEqual(api.Mul(tight, api.IsZero(api.Sub(full, v[i]))), 0)
+			api.AssertIsEqual(api.Mul(matchesHigherLimbs, api.IsZero(api.Sub(full, limbs[i]))), 0)
 			i--
 		}
 	}
@@ -144,14 +143,18 @@ func modulusGapHint(q *big.Int, inputs, outputs []*big.Int) error {
 	if gap.Sign() < 0 {
 		gap.SetInt64(0)
 	}
-	lay, err := layoutOf(inputs)
+	layout, err := layoutOf(inputs)
 	if err != nil {
 		return err
 	}
-	split := uint(((lay.NbLimbs + 1) / 2) * lay.LimbBits)
+	split := uint(((layout.NbLimbs + 1) / 2) * layout.LimbBits)
 	mask := new(big.Int).Sub(pow2(int(split)), big.NewInt(1))
 	lowSum := new(big.Int).And(value, mask)
 	lowSum.Add(lowSum, new(big.Int).And(gap, mask))
 	outputs[len(outputs)-1].Rsh(lowSum, split)
 	return nil
+}
+
+func init() {
+	solver.RegisterHint(modulusGapHint)
 }

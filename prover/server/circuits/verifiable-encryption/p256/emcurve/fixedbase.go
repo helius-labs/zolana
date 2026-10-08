@@ -26,25 +26,14 @@ import (
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
 
-func init() {
-	solver.RegisterHint(p256CombRecodeHint, p256CombChainHint, p256XEqualHint, p256UnifiedSlopeHint)
-}
-
-func combWindowFor(lay emfield.Layout) int {
-	if lay.Lookups {
-		return 5
-	}
-	return 8
-}
-
 type combAffine struct {
 	x, y *big.Int
 }
 
 type combData struct {
-	w, nw, n, tw int
-	windows      [][][2]*big.Int
-	topEven      [][2]*big.Int
+	windowBits, windowCount, scalarBits, topWindowBits int
+	windows                                            [][][2]*big.Int
+	topEven                                            [][2]*big.Int
 }
 
 var (
@@ -52,146 +41,85 @@ var (
 	combCached = map[int]*combData{}
 )
 
-func p256Comb(w int) *combData {
-	combMu.Lock()
-	defer combMu.Unlock()
-	if d, ok := combCached[w]; ok {
-		return d
-	}
-	params := elliptic.P256().Params()
-	a := new(big.Int).Sub(params.P, big.NewInt(3))
-	d, err := computeCombData(params.Gx, params.Gy, a, params.P, params.N, w)
+func (c *curve) scalarMulBase(scalar *frElement) *point {
+	// 1. Constrain the parity bit and signed-window recoding of the scalar.
+	table := p256Comb(combWindowFor(c.layout))
+	api := c.api
+	bits, err := api.Compiler().NewHint(p256CombRecodeHint, 1+table.scalarBits, c.limbHintInputs(scalar.Limbs())...)
 	if err != nil {
-		panic(fmt.Sprintf("comb data: %v", err))
+		panic(fmt.Sprintf("recode hint: %v", err))
 	}
-	combCached[w] = d
-	return d
-}
+	for _, b := range bits {
+		api.AssertIsBoolean(b)
+	}
+	parityBit := bits[0]
+	recodedBits := bits[1:]
+	recodedScalar := c.scalarFromBits(recodedBits)
+	c.fr.AssertZero(T(2, recodedScalar), T(1, c.fr.Bounded([]frontend.Variable{parityBit}, []int{1})), T(-1, scalar), T(-1, c.fr.Const(pow2(table.scalarBits))))
 
-func combNeg(p *combAffine, prime *big.Int) *combAffine {
-	return &combAffine{x: p.x, y: new(big.Int).Sub(prime, p.y)}
-}
+	// 2. Select each constant window point and fold the parity correction into the top window.
+	windowBits, windowCount := table.windowBits, table.windowCount
+	windowPoints := make([]*point, windowCount)
+	for t := 0; t < windowCount-1; t++ {
+		start := t * windowBits
+		end := start + windowBits
+		windowPoints[t] = c.combSelect(table.windows[t], recodedBits[start:end], true)
+	}
+	stacked := append(append([][2]*big.Int{}, table.topEven...), table.windows[windowCount-1]...)
+	topBits := append(append([]frontend.Variable{}, recodedBits[(windowCount-1)*windowBits:]...), parityBit)
+	windowPoints[windowCount-1] = c.combSelect(stacked, topBits, false)
 
-func combAdd(p, q *combAffine, prime *big.Int) (*combAffine, error) {
-	dx := new(big.Int).Sub(q.x, p.x)
-	dx.Mod(dx, prime)
-	if dx.Sign() == 0 {
-		return nil, errors.New("x-coordinate collision in comb table computation")
-	}
-	dx.ModInverse(dx, prime)
-	lam := new(big.Int).Sub(q.y, p.y)
-	lam.Mul(lam, dx).Mod(lam, prime)
-	xr := new(big.Int).Mul(lam, lam)
-	xr.Sub(xr, p.x).Sub(xr, q.x).Mod(xr, prime)
-	yr := new(big.Int).Sub(p.x, xr)
-	yr.Mul(yr, lam).Sub(yr, p.y).Mod(yr, prime)
-	return &combAffine{x: xr, y: yr}, nil
-}
-
-func combDouble(p *combAffine, a, prime *big.Int) (*combAffine, error) {
-	if p.y.Sign() == 0 {
-		return nil, errors.New("doubling a 2-torsion point in comb table computation")
-	}
-	den := new(big.Int).Lsh(p.y, 1)
-	den.Mod(den, prime)
-	den.ModInverse(den, prime)
-	lam := new(big.Int).Mul(p.x, p.x)
-	lam.Mul(lam, big.NewInt(3)).Add(lam, a)
-	lam.Mul(lam, den).Mod(lam, prime)
-	xr := new(big.Int).Mul(lam, lam)
-	xr.Sub(xr, p.x).Sub(xr, p.x).Mod(xr, prime)
-	yr := new(big.Int).Sub(p.x, xr)
-	yr.Mul(yr, lam).Sub(yr, p.y).Mod(yr, prime)
-	return &combAffine{x: xr, y: yr}, nil
-}
-
-func computeCombData(gx, gy, a, prime, r *big.Int, w int) (*combData, error) {
-	n := r.BitLen()
-	nw := (n + w - 1) / w
-	tw := n - w*(nw-1)
-	for t := nw - 2; t >= 1; t-- {
-		if new(big.Int).Lsh(big.NewInt(1), uint(w*(t+1))).Cmp(r) > 0 {
-			return nil, errors.New("only the top window may reach the group order")
-		}
-	}
-	G := &combAffine{x: new(big.Int).Set(gx), y: new(big.Int).Set(gy)}
-	windows := make([][][2]*big.Int, nw)
-	Bt := G
-	var err error
-	for t := 0; t < nw; t++ {
-		if t > 0 {
-			for k := 0; k < w; k++ {
-				if Bt, err = combDouble(Bt, a, prime); err != nil {
-					return nil, err
-				}
-			}
-		}
-		width := w
-		if t == nw-1 {
-			width = tw
-		}
-		D, err := combDouble(Bt, a, prime)
-		if err != nil {
-			return nil, err
-		}
-		half := 1 << (width - 1)
-		odd := make([]*combAffine, half)
-		odd[0] = Bt
-		for m := 1; m < half; m++ {
-			if odd[m], err = combAdd(odd[m-1], D, prime); err != nil {
-				return nil, err
-			}
-		}
-		tab := make([][2]*big.Int, 1<<width)
-		for j := range tab {
-			d := 2*j - (1 << width) + 1
-			var pt *combAffine
-			if d > 0 {
-				pt = odd[(d-1)/2]
-			} else {
-				pt = combNeg(odd[(-d-1)/2], prime)
-			}
-			tab[j] = [2]*big.Int{pt.x, pt.y}
-		}
-		windows[t] = tab
-	}
-	negG := combNeg(G, prime)
-	topEven := make([][2]*big.Int, 1<<tw)
-	for j := range topEven {
-		q := &combAffine{x: windows[nw-1][j][0], y: windows[nw-1][j][1]}
-		s, err := combAdd(q, negG, prime)
-		if err != nil {
-			return nil, fmt.Errorf("parity-fold table: %w", err)
-		}
-		topEven[j] = [2]*big.Int{s.x, s.y}
-	}
-	return &combData{w: w, nw: nw, n: n, tw: tw, windows: windows, topEven: topEven}, nil
-}
-
-func oneHot(api frontend.API, bs []frontend.Variable) []frontend.Variable {
-	flags := []frontend.Variable{1}
-	for _, b := range bs {
-		next := make([]frontend.Variable, 2*len(flags))
-		if len(flags) == 1 {
-			next[0] = api.Sub(1, b)
-			next[1] = b
+	// 3. Check the addition chain while deferring intermediate y-coordinates.
+	fp := c.fp
+	zero := fp.Const(big.NewInt(0))
+	x := windowPoints[0].X
+	previousSlope, previousWindowX, previousWindowY := zero, windowPoints[0].X, fp.Neg(windowPoints[0].Y)
+	for t := 1; t < windowCount-1; t++ {
+		windowPoint := windowPoints[t]
+		slope := c.hintSlope(p256CombChainHint, 1, nil, previousSlope, x, previousWindowX, previousWindowY, windowPoint.X, windowPoint.Y)[0]
+		if t == 1 {
+			fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(-1, windowPoint.Y), T(1, windowPoints[0].Y))
 		} else {
-			for j := range flags {
-				hi := api.Mul(flags[j], b)
-				next[j] = api.Sub(flags[j], hi)
-				next[j+len(flags)] = hi
-			}
+			fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, windowPoint.Y), T(-1, previousWindowY))
 		}
-		flags = next
+		x = fp.Lazy(T(1, slope, slope), T(-1, x), T(-1, windowPoint.X))
+		previousSlope, previousWindowX, previousWindowY = slope, windowPoint.X, windowPoint.Y
 	}
-	return flags
+	// 4. Recover the accumulated point and add the top window with a doubling-aware check.
+	x = fp.Eval(T(1, x))
+	y := fp.Eval(T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, previousWindowY))
+	return c.completeAdd(&point{X: x, Y: y}, windowPoints[windowCount-1])
 }
 
-func (c *curve) combSelect(table [][2]*big.Int, bs []frontend.Variable, packY bool) *point {
-	nbLimbs := c.lay.NbLimbs
-	limbBits := c.lay.LimbBits
-	w := len(bs)
-	if len(table) != 1<<w {
+// completeAdd handles distinct points and doubling, but rejects inverse
+// points: when x-coordinates match, it also requires matching y-coordinates.
+func (c *curve) completeAdd(p, q *point) *point {
+	fp, api := c.fp, c.api
+	inputs := c.limbHintInputs(append(append([]frontend.Variable{}, p.X.Limbs()...), q.X.Limbs()...))
+	hinted, err := api.Compiler().NewHint(p256XEqualHint, 2, inputs...)
+	if err != nil {
+		panic(err)
+	}
+	sameX, inverseDifferenceProduct := hinted[0], hinted[1]
+	api.AssertIsBoolean(sameX)
+	api.AssertIsEqual(api.Mul(c.distinctProduct(p.X, q.X), inverseDifferenceProduct), api.Sub(1, sameX))
+	sameXElement := fp.Bounded([]frontend.Variable{sameX}, []int{1})
+	xDifference := fp.Sub(q.X, p.X)
+	yDifference := fp.Sub(q.Y, p.Y)
+	fp.AssertZero(T(1, sameXElement, xDifference))
+	fp.AssertZero(T(1, sameXElement, yDifference))
+	slope := c.hintSlope(p256UnifiedSlopeHint, 1, nil, p.X, p.Y, q.X, q.Y)[0]
+	fp.AssertZero(T(1, slope, xDifference), T(2, slope, sameXElement, p.Y), T(-3, sameXElement, p.X, p.X), T(-1, sameXElement, c.a), T(-1, yDifference))
+	x := fp.Eval(T(1, slope, slope), T(-1, p.X), T(-1, q.X))
+	y := fp.Eval(T(1, slope, fp.Sub(p.X, x)), T(-1, p.Y))
+	return &point{X: x, Y: y}
+}
+
+func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable, packY bool) *point {
+	nbLimbs := c.layout.NbLimbs
+	limbBits := c.layout.LimbBits
+	selectorBitCount := len(selectorBits)
+	if len(table) != 1<<selectorBitCount {
 		panic("table size mismatch")
 	}
 	oneHotCost := func(k int) int {
@@ -200,151 +128,227 @@ func (c *curve) combSelect(table [][2]*big.Int, bs []frontend.Variable, packY bo
 		}
 		return 1<<k - 2
 	}
-	rb, best := 0, oneHotCost(w)
-	for cand := 1; cand <= w; cand++ {
-		if cost := oneHotCost(cand) + oneHotCost(w-cand) + (1<<cand)*2*nbLimbs; cost < best {
-			best, rb = cost, cand
+	rowBitCount, bestCost := 0, oneHotCost(selectorBitCount)
+	for candidateRowBits := 1; candidateRowBits <= selectorBitCount; candidateRowBits++ {
+		if cost := oneHotCost(candidateRowBits) + oneHotCost(selectorBitCount-candidateRowBits) + (1<<candidateRowBits)*2*nbLimbs; cost < bestCost {
+			bestCost, rowBitCount = cost, candidateRowBits
 		}
 	}
-	rows := oneHot(c.api, bs[:rb])
-	cols := oneHot(c.api, bs[rb:])
+	rowSelectors := oneHot(c.api, selectorBits[:rowBitCount])
+	columnSelectors := oneHot(c.api, selectorBits[rowBitCount:])
 	mask := new(big.Int).Sub(pow2(limbBits), big.NewInt(1))
 	limb := func(v *big.Int, i int) *big.Int {
 		return new(big.Int).And(new(big.Int).Rsh(v, uint(limbBits*i)), mask)
 	}
-	sel := func(value func(e int) *big.Int) frontend.Variable {
-		inner := make([]frontend.Variable, len(rows))
-		for i := range rows {
+	selectCoordinate := func(value func(e int) *big.Int) frontend.Variable {
+		inner := make([]frontend.Variable, len(rowSelectors))
+		for i := range rowSelectors {
 			sum := frontend.Variable(0)
-			for j := range cols {
-				sum = c.api.Add(sum, c.api.Mul(cols[j], value(i+(j<<rb))))
+			for j := range columnSelectors {
+				sum = c.api.Add(sum, c.api.Mul(columnSelectors[j], value(i+(j<<rowBitCount))))
 			}
 			inner[i] = sum
 		}
-		if len(rows) == 1 {
+		if len(rowSelectors) == 1 {
 			return inner[0]
 		}
 		sum := frontend.Variable(0)
-		for i := range rows {
-			sum = c.api.Add(sum, c.api.Mul(rows[i], inner[i]))
+		for i := range rowSelectors {
+			sum = c.api.Add(sum, c.api.Mul(rowSelectors[i], inner[i]))
 		}
 		return sum
 	}
-	xs := make([]frontend.Variable, nbLimbs)
-	ys := make([]frontend.Variable, nbLimbs)
+	xLimbs := make([]frontend.Variable, nbLimbs)
+	yLimbs := make([]frontend.Variable, nbLimbs)
 	for l := 0; l < nbLimbs; l++ {
-		xs[l] = sel(func(e int) *big.Int { return limb(table[e][0], l) })
+		xLimbs[l] = selectCoordinate(func(e int) *big.Int { return limb(table[e][0], l) })
 	}
 	if !packY {
 		for l := 0; l < nbLimbs; l++ {
-			ys[l] = sel(func(e int) *big.Int { return limb(table[e][1], l) })
+			yLimbs[l] = selectCoordinate(func(e int) *big.Int { return limb(table[e][1], l) })
 		}
-		return &point{X: c.fp.Reduced(xs), Y: c.fp.Reduced(ys)}
+		return &point{X: c.fp.Reduced(xLimbs), Y: c.fp.Reduced(yLimbs)}
 	}
 	widths := c.fp.ReducedWidths()
-	lo, hi := make([]*big.Int, nbLimbs), make([]*big.Int, nbLimbs)
+	lowerBounds, upperBounds := make([]*big.Int, nbLimbs), make([]*big.Int, nbLimbs)
 	for g := 0; g < nbLimbs; g++ {
-		ys[g], lo[g], hi[g] = 0, new(big.Int), new(big.Int)
+		yLimbs[g], lowerBounds[g], upperBounds[g] = 0, new(big.Int), new(big.Int)
 		if g%packedYGroup != 0 {
 			continue
 		}
 		end := min(g+packedYGroup, nbLimbs)
 		mask := new(big.Int).Sub(pow2(limbBits*(end-g)), big.NewInt(1))
-		ys[g] = sel(func(e int) *big.Int {
+		yLimbs[g] = selectCoordinate(func(e int) *big.Int {
 			return new(big.Int).And(new(big.Int).Rsh(table[e][1], uint(limbBits*g)), mask)
 		})
 		bits := 0
-		for _, w := range widths[g:end] {
-			bits += w
+		for _, limbWidth := range widths[g:end] {
+			bits += limbWidth
 		}
-		hi[g].Sub(pow2(bits), big.NewInt(1))
+		upperBounds[g].Sub(pow2(bits), big.NewInt(1))
 	}
-	return &point{X: c.fp.Reduced(xs), Y: c.fp.WithBounds(ys, lo, hi)}
+	return &point{X: c.fp.Reduced(xLimbs), Y: c.fp.WithBounds(yLimbs, lowerBounds, upperBounds)}
 }
 
-func (c *curve) scalarMulBase(s *frElement) *point {
-	d := p256Comb(combWindowFor(c.lay))
-	api := c.api
-	bits, err := api.Compiler().NewHint(p256CombRecodeHint, 1+d.n, c.limbHintInputs(s.Limbs())...)
-	if err != nil {
-		panic(fmt.Sprintf("recode hint: %v", err))
-	}
-	for _, b := range bits {
-		api.AssertIsBoolean(b)
-	}
-	b0 := bits[0]
-	cbits := bits[1:]
-	cEl := c.scalarFromBits(cbits)
-	c.fr.AssertZero(T(2, cEl), T(1, c.fr.Bounded([]frontend.Variable{b0}, []int{1})), T(-1, s), T(-1, c.fr.Const(pow2(d.n))))
-
-	w, nw := d.w, d.nw
-	tPts := make([]*point, nw)
-	for t := 0; t < nw-1; t++ {
-		tPts[t] = c.combSelect(d.windows[t], cbits[t*w:(t+1)*w], true)
-	}
-	stacked := append(append([][2]*big.Int{}, d.topEven...), d.windows[nw-1]...)
-	topBits := append(append([]frontend.Variable{}, cbits[(nw-1)*w:]...), b0)
-	tPts[nw-1] = c.combSelect(stacked, topBits, false)
-
-	fp := c.fp
-	zero := fp.Const(big.NewInt(0))
-	x := tPts[0].X
-	lamPrev, xTPrev, yTPrev := zero, tPts[0].X, fp.Neg(tPts[0].Y)
-	for t := 1; t < nw-1; t++ {
-		cur := tPts[t]
-		lam := c.slope(p256CombChainHint, 1, nil, lamPrev, x, xTPrev, yTPrev, cur.X, cur.Y)[0]
-		if t == 1 {
-			fp.AssertZero(T(1, lam, fp.Sub(cur.X, x)), T(-1, cur.Y), T(1, tPts[0].Y))
+func oneHot(api frontend.API, selectorBits []frontend.Variable) []frontend.Variable {
+	flags := []frontend.Variable{1}
+	for _, bit := range selectorBits {
+		next := make([]frontend.Variable, 2*len(flags))
+		if len(flags) == 1 {
+			next[0] = api.Sub(1, bit)
+			next[1] = bit
 		} else {
-			fp.AssertZero(T(1, lam, fp.Sub(cur.X, x)), T(1, lamPrev, fp.Sub(xTPrev, x)), T(-1, cur.Y), T(-1, yTPrev))
+			for j := range flags {
+				selectedHigh := api.Mul(flags[j], bit)
+				next[j] = api.Sub(flags[j], selectedHigh)
+				next[j+len(flags)] = selectedHigh
+			}
 		}
-		x = fp.Lazy(T(1, lam, lam), T(-1, x), T(-1, cur.X))
-		lamPrev, xTPrev, yTPrev = lam, cur.X, cur.Y
+		flags = next
 	}
-	x = fp.Eval(T(1, x))
-	y := fp.Eval(T(1, lamPrev, fp.Sub(xTPrev, x)), T(-1, yTPrev))
-	return c.completeAdd(&point{X: x, Y: y}, tPts[nw-1])
+	return flags
 }
 
-func (c *curve) completeAdd(p, q *point) *point {
-	fp, api := c.fp, c.api
-	inputs := c.limbHintInputs(append(append([]frontend.Variable{}, p.X.Limbs()...), q.X.Limbs()...))
-	hinted, err := api.Compiler().NewHint(p256XEqualHint, 2, inputs...)
-	if err != nil {
-		panic(err)
+func combWindowFor(layout emfield.Layout) int {
+	if layout.Lookups {
+		return 5
 	}
-	equal, inv := hinted[0], hinted[1]
-	api.AssertIsBoolean(equal)
-	api.AssertIsEqual(api.Mul(c.distinctProduct(p.X, q.X), inv), api.Sub(1, equal))
-	eq := fp.Bounded([]frontend.Variable{equal}, []int{1})
-	dx := fp.Sub(q.X, p.X)
-	dy := fp.Sub(q.Y, p.Y)
-	fp.AssertZero(T(1, eq, dx))
-	fp.AssertZero(T(1, eq, dy))
-	lam := c.slope(p256UnifiedSlopeHint, 1, nil, p.X, p.Y, q.X, q.Y)[0]
-	fp.AssertZero(T(1, lam, dx), T(2, lam, eq, p.Y), T(-3, eq, p.X, p.X), T(-1, eq, c.a), T(-1, dy))
-	x := fp.Eval(T(1, lam, lam), T(-1, p.X), T(-1, q.X))
-	y := fp.Eval(T(1, lam, fp.Sub(p.X, x)), T(-1, p.Y))
-	return &point{X: x, Y: y}
+	return 8
+}
+
+func p256Comb(windowBits int) *combData {
+	combMu.Lock()
+	defer combMu.Unlock()
+	if table, ok := combCached[windowBits]; ok {
+		return table
+	}
+	params := elliptic.P256().Params()
+	a := new(big.Int).Sub(params.P, big.NewInt(3))
+	table, err := computeCombData(params.Gx, params.Gy, a, params.P, params.N, windowBits)
+	if err != nil {
+		panic(fmt.Sprintf("comb data: %v", err))
+	}
+	combCached[windowBits] = table
+	return table
+}
+
+func computeCombData(gx, gy, a, prime, groupOrder *big.Int, windowBits int) (*combData, error) {
+	scalarBits := groupOrder.BitLen()
+	windowCount := (scalarBits + windowBits - 1) / windowBits
+	topWindowBits := scalarBits - windowBits*(windowCount-1)
+	for t := windowCount - 2; t >= 1; t-- {
+		if new(big.Int).Lsh(big.NewInt(1), uint(windowBits*(t+1))).Cmp(groupOrder) > 0 {
+			return nil, errors.New("only the top window may reach the group order")
+		}
+	}
+	generator := &combAffine{x: new(big.Int).Set(gx), y: new(big.Int).Set(gy)}
+	windows := make([][][2]*big.Int, windowCount)
+	windowBase := generator
+	var err error
+	for t := 0; t < windowCount; t++ {
+		if t > 0 {
+			for k := 0; k < windowBits; k++ {
+				if windowBase, err = combDouble(windowBase, a, prime); err != nil {
+					return nil, err
+				}
+			}
+		}
+		width := windowBits
+		if t == windowCount-1 {
+			width = topWindowBits
+		}
+		windowStep, err := combDouble(windowBase, a, prime)
+		if err != nil {
+			return nil, err
+		}
+		positiveCount := 1 << (width - 1)
+		odd := make([]*combAffine, positiveCount)
+		odd[0] = windowBase
+		for m := 1; m < positiveCount; m++ {
+			if odd[m], err = combAdd(odd[m-1], windowStep, prime); err != nil {
+				return nil, err
+			}
+		}
+		windowPoints := make([][2]*big.Int, 1<<width)
+		for j := range windowPoints {
+			signedDigit := 2*j - (1 << width) + 1
+			var multiple *combAffine
+			if signedDigit > 0 {
+				multiple = odd[(signedDigit-1)/2]
+			} else {
+				multiple = combNeg(odd[(-signedDigit-1)/2], prime)
+			}
+			windowPoints[j] = [2]*big.Int{multiple.x, multiple.y}
+		}
+		windows[t] = windowPoints
+	}
+	negatedGenerator := combNeg(generator, prime)
+	topEven := make([][2]*big.Int, 1<<topWindowBits)
+	for j := range topEven {
+		q := &combAffine{x: windows[windowCount-1][j][0], y: windows[windowCount-1][j][1]}
+		evenPoint, err := combAdd(q, negatedGenerator, prime)
+		if err != nil {
+			return nil, fmt.Errorf("parity-fold table: %w", err)
+		}
+		topEven[j] = [2]*big.Int{evenPoint.x, evenPoint.y}
+	}
+	return &combData{windowBits: windowBits, windowCount: windowCount, scalarBits: scalarBits, topWindowBits: topWindowBits, windows: windows, topEven: topEven}, nil
+}
+
+func combNeg(p *combAffine, prime *big.Int) *combAffine {
+	return &combAffine{x: p.x, y: new(big.Int).Sub(prime, p.y)}
+}
+
+func combAdd(p, q *combAffine, prime *big.Int) (*combAffine, error) {
+	inverseXDifference := new(big.Int).Sub(q.x, p.x)
+	inverseXDifference.Mod(inverseXDifference, prime)
+	if inverseXDifference.Sign() == 0 {
+		return nil, errors.New("x-coordinate collision in comb table computation")
+	}
+	inverseXDifference.ModInverse(inverseXDifference, prime)
+	slope := new(big.Int).Sub(q.y, p.y)
+	slope.Mul(slope, inverseXDifference).Mod(slope, prime)
+	sumX := new(big.Int).Mul(slope, slope)
+	sumX.Sub(sumX, p.x).Sub(sumX, q.x).Mod(sumX, prime)
+	sumY := new(big.Int).Sub(p.x, sumX)
+	sumY.Mul(sumY, slope).Sub(sumY, p.y).Mod(sumY, prime)
+	return &combAffine{x: sumX, y: sumY}, nil
+}
+
+func combDouble(p *combAffine, a, prime *big.Int) (*combAffine, error) {
+	if p.y.Sign() == 0 {
+		return nil, errors.New("doubling a 2-torsion point in comb table computation")
+	}
+	inverseDenominator := new(big.Int).Lsh(p.y, 1)
+	inverseDenominator.Mod(inverseDenominator, prime)
+	inverseDenominator.ModInverse(inverseDenominator, prime)
+	slope := new(big.Int).Mul(p.x, p.x)
+	slope.Mul(slope, big.NewInt(3)).Add(slope, a)
+	slope.Mul(slope, inverseDenominator).Mod(slope, prime)
+	doubledX := new(big.Int).Mul(slope, slope)
+	doubledX.Sub(doubledX, p.x).Sub(doubledX, p.x).Mod(doubledX, prime)
+	doubledY := new(big.Int).Sub(p.x, doubledX)
+	doubledY.Mul(doubledY, slope).Sub(doubledY, p.y).Mod(doubledY, prime)
+	return &combAffine{x: doubledX, y: doubledY}, nil
 }
 
 func p256CombRecodeHint(_ *big.Int, inputs, outputs []*big.Int) error {
 	if len(outputs) < 2 {
 		return errors.New("expecting at least two outputs")
 	}
-	s := limbHintValue(inputs)
-	n := len(outputs) - 1
-	s.Mod(s, GroupOrder())
-	b0 := s.Bit(0)
-	kp := new(big.Int).Set(s)
-	if b0 == 0 {
-		kp.Add(kp, big.NewInt(1))
+	scalar := limbHintValue(inputs)
+	scalarBits := len(outputs) - 1
+	scalar.Mod(scalar, GroupOrder())
+	parity := scalar.Bit(0)
+	oddScalar := new(big.Int).Set(scalar)
+	if parity == 0 {
+		oddScalar.Add(oddScalar, big.NewInt(1))
 	}
-	cv := new(big.Int).Lsh(big.NewInt(1), uint(n))
-	cv.Sub(cv, big.NewInt(1)).Add(cv, kp).Rsh(cv, 1)
-	outputs[0].SetUint64(uint64(b0))
-	for i := 0; i < n; i++ {
-		outputs[1+i].SetUint64(uint64(cv.Bit(i)))
+	recodedScalar := new(big.Int).Lsh(big.NewInt(1), uint(scalarBits))
+	recodedScalar.Sub(recodedScalar, big.NewInt(1)).Add(recodedScalar, oddScalar).Rsh(recodedScalar, 1)
+	outputs[0].SetUint64(uint64(parity))
+	for i := 0; i < scalarBits; i++ {
+		outputs[1+i].SetUint64(uint64(recodedScalar.Bit(i)))
 	}
 	return nil
 }
@@ -409,4 +413,8 @@ func p256UnifiedSlopeHint(q *big.Int, inputs, outputs []*big.Int) error {
 		out[0].Set(modRatio(p, new(big.Int).Sub(in[3], in[1]), new(big.Int).Sub(in[2], in[0])))
 		return nil
 	})
+}
+
+func init() {
+	solver.RegisterHint(p256CombRecodeHint, p256CombChainHint, p256XEqualHint, p256UnifiedSlopeHint)
 }

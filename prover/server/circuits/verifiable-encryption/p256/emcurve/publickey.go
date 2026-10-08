@@ -21,33 +21,35 @@ type SelfKeyAgreement struct {
 
 // AssertBytes range-checks every value to 8 bits on the shared lookup table.
 func AssertBytes(api frontend.API, bytes []frontend.Variable) {
-	rc := newCurve(api).rangeChecker()
-	for _, b := range bytes {
-		rc.Check(b, 8)
+	rangeChecker := newCurve(api).rangeChecker()
+	for _, byteValue := range bytes {
+		rangeChecker.Check(byteValue, 8)
 	}
 }
 
 // DerivePublicKey range-checks the big-endian secret key bytes, refuses a
 // scalar that is zero modulo the group order and derives the public point.
-func DerivePublicKey(api frontend.API, sk [32]frontend.Variable) PublicKey {
+func DerivePublicKey(api frontend.API, secretKeyBytes [32]frontend.Variable) PublicKey {
 	c := newCurve(api)
-	AssertBytes(api, sk[:])
-	scalar := c.fr.FromLimbs(c.fieldLimbs(sk[:]))
+	// 1. Constrain the input bytes and reject a scalar with zero residue.
+	AssertBytes(api, secretKeyBytes[:])
+	scalar := c.fr.FromLimbs(c.fieldLimbs(secretKeyBytes[:]))
 	c.assertNonZeroResidue(scalar)
-	p := c.scalarMulBase(scalar)
-	key := PublicKey{scalar: scalar, xLimbs: c.canonicalLimbs(p.X), yLimbs: c.canonicalLimbs(p.Y)}
-	copy(key.x[:], c.toBytes(p.X))
+	// 2. Derive the public point and retain its canonical coordinates for reuse.
+	publicPoint := c.scalarMulBase(scalar)
+	key := PublicKey{scalar: scalar, xLimbs: c.canonicalLimbs(publicPoint.X), yLimbs: c.canonicalLimbs(publicPoint.Y)}
+	copy(key.x[:], c.toBytes(publicPoint.X))
 	return key
 }
 
 func (k PublicKey) Packed(api frontend.API) (lo, hi frontend.Variable) {
 	c := newCurve(api)
-	return c.compressedPacking(k.xLimbs, k.yLimbs, c.lay.LimbBits)
+	return c.compressedPacking(k.xLimbs, k.yLimbs, c.layout.LimbBits)
 }
 
 func (k PublicKey) Compressed(api frontend.API) [33]frontend.Variable {
 	c := newCurve(api)
-	_, parity := c.splitLowBits(k.yLimbs[0], 1, c.lay.LimbBits)
+	_, parity := c.splitLowBits(k.yLimbs[0], 1, c.layout.LimbBits)
 	var compressed [33]frontend.Variable
 	compressed[0] = api.Add(2, parity)
 	copy(compressed[1:], k.x[:])
@@ -60,11 +62,14 @@ func (k PublicKey) Compressed(api frontend.API) [33]frontend.Variable {
 // ladder, whose distinct-x guards refuse s = +-1 and s = +-3.
 func SelfAgreeKey(api frontend.API, key PublicKey) SelfKeyAgreement {
 	c := newCurve(api)
-	shared := c.scalarMulBase(c.fr.Eval(T(1, key.scalar, key.scalar)))
-	var result SelfKeyAgreement
-	copy(result.SharedX[:], c.toBytes(shared.X))
-	result.PublicKey = key.Compressed(api)
-	return result
+	// 1. Compute the self-agreement point [s²]G using the fixed-base table.
+	squaredScalar := c.fr.Eval(T(1, key.scalar, key.scalar))
+	shared := c.scalarMulBase(squaredScalar)
+	// 2. Return canonical shared-x bytes and the compressed public key.
+	var agreement SelfKeyAgreement
+	copy(agreement.SharedX[:], c.toBytes(shared.X))
+	agreement.PublicKey = key.Compressed(api)
+	return agreement
 }
 
 func (c *curve) assertNonZeroResidue(s *frElement) {

@@ -25,55 +25,57 @@ type part struct {
 	e    *Element
 }
 
+// Element tracks circuit limbs and compile-time bounds for their integer values.
+// Bounds are metadata; constructors such as Bounded and Reduced do not prove them.
 type Element struct {
-	limbs    []frontend.Variable
-	lo, hi   []*big.Int
-	vlo, vhi *big.Int
-	parts    []part
+	limbs              []frontend.Variable
+	lo, hi             []*big.Int
+	valueMin, valueMax *big.Int
+	parts              []part
 }
 
 type Field struct {
-	api     frontend.API
-	lay     Layout
-	mod     *big.Int
-	modBits int
-	widths  []int
-	modLim  []*big.Int
-	rc      *RangeChecker
-	plain   *plainState
+	api          frontend.API
+	layout       Layout
+	mod          *big.Int
+	modulusBits  int
+	widths       []int
+	modulusLimbs []*big.Int
+	rc           *RangeChecker
+	arithmetic   *arithmeticState
 }
 
 type fieldKey struct {
-	mod string
-	lay Layout
+	mod    string
+	layout Layout
 }
 
 func New(api frontend.API, modulus *big.Int) *Field {
 	return NewFor(api, modulus, LookupLayout)
 }
 
-func NewFor(api frontend.API, modulus *big.Int, lay Layout) *Field {
+func NewFor(api frontend.API, modulus *big.Int, layout Layout) *Field {
 	kv := store(api)
-	key := fieldKey{modulus.String(), lay}
+	key := fieldKey{modulus.String(), layout}
 	if f, ok := kv.GetKeyValue(key).(*Field); ok {
 		return f
 	}
 	f := &Field{
-		api:     api,
-		lay:     lay,
-		mod:     new(big.Int).Set(modulus),
-		modBits: modulus.BitLen(),
-		widths:  lay.reducedWidths(modulus.BitLen()),
-		rc:      NewRangeCheckerFor(api, lay),
+		api:         api,
+		layout:      layout,
+		mod:         new(big.Int).Set(modulus),
+		modulusBits: modulus.BitLen(),
+		widths:      layout.reducedWidths(modulus.BitLen()),
+		rc:          NewRangeCheckerFor(api, layout),
 	}
-	f.modLim = lay.decompose(f.mod, lay.NbLimbs)
+	f.modulusLimbs = layout.decompose(f.mod, layout.NbLimbs)
 	kv.SetKeyValue(key, f)
-	f.plain = newPlainState(f)
+	f.arithmetic = newArithmeticState(f)
 	return f
 }
 
 func (f *Field) Layout() Layout {
-	return f.lay
+	return f.layout
 }
 
 func (f *Field) Modulus() *big.Int {
@@ -84,18 +86,18 @@ func (f *Field) RangeChecker() *RangeChecker {
 	return f.rc
 }
 
-func (l Layout) decompose(v *big.Int, n int) []*big.Int {
-	out := make([]*big.Int, n)
-	tmp := new(big.Int).Set(v)
+func (l Layout) decompose(value *big.Int, limbCount int) []*big.Int {
+	limbs := make([]*big.Int, limbCount)
+	remainingValue := new(big.Int).Set(value)
 	mask := new(big.Int).Sub(pow2(l.LimbBits), big.NewInt(1))
-	for i := range out {
-		out[i] = new(big.Int).And(tmp, mask)
-		tmp.Rsh(tmp, uint(l.LimbBits))
+	for i := range limbs {
+		limbs[i] = new(big.Int).And(remainingValue, mask)
+		remainingValue.Rsh(remainingValue, uint(l.LimbBits))
 	}
-	if tmp.Sign() != 0 {
+	if remainingValue.Sign() != 0 {
 		panic("value does not fit the limbs")
 	}
-	return out
+	return limbs
 }
 
 func (l Layout) recompose(limbs []*big.Int) *big.Int {
@@ -108,19 +110,16 @@ func (l Layout) recompose(limbs []*big.Int) *big.Int {
 
 func (f *Field) Const(v *big.Int) *Element {
 	r := new(big.Int).Mod(v, f.mod)
-	limbs := f.lay.decompose(r, f.lay.NbLimbs)
-	e := &Element{limbs: make([]frontend.Variable, f.lay.NbLimbs), lo: limbs, hi: limbs, vlo: r, vhi: r}
+	limbs := f.layout.decompose(r, f.layout.NbLimbs)
+	e := &Element{limbs: make([]frontend.Variable, f.layout.NbLimbs), lo: limbs, hi: limbs, valueMin: r, valueMax: r}
 	for i := range limbs {
 		e.limbs[i] = limbs[i]
 	}
 	return e
 }
 
+// Bounded attaches known unsigned bounds; the caller must establish them in the circuit.
 func (f *Field) Bounded(limbs []frontend.Variable, widths []int) *Element {
-	return f.bounded(limbs, widths)
-}
-
-func (f *Field) bounded(limbs []frontend.Variable, widths []int) *Element {
 	if len(limbs) != len(widths) {
 		panic("limb count mismatch")
 	}
@@ -129,10 +128,10 @@ func (f *Field) bounded(limbs []frontend.Variable, widths []int) *Element {
 	for i, w := range widths {
 		e.lo[i] = new(big.Int)
 		e.hi[i] = new(big.Int).Sub(pow2(w), big.NewInt(1))
-		total = i*f.lay.LimbBits + w
+		total = i*f.layout.LimbBits + w
 	}
-	e.vlo = new(big.Int)
-	e.vhi = new(big.Int).Sub(pow2(total), big.NewInt(1))
+	e.valueMin = new(big.Int)
+	e.valueMax = new(big.Int).Sub(pow2(total), big.NewInt(1))
 	return e
 }
 
@@ -140,13 +139,13 @@ func (f *Field) WithBounds(limbs []frontend.Variable, lo, hi []*big.Int) *Elemen
 	if len(limbs) != len(lo) || len(limbs) != len(hi) {
 		panic("limb count mismatch")
 	}
-	e := &Element{limbs: limbs, lo: lo, hi: hi, vlo: new(big.Int), vhi: new(big.Int)}
+	e := &Element{limbs: limbs, lo: lo, hi: hi, valueMin: new(big.Int), valueMax: new(big.Int)}
 	for i := range limbs {
 		if lo[i].Cmp(hi[i]) > 0 {
 			panic("empty limb interval")
 		}
-		e.vlo.Add(e.vlo, new(big.Int).Lsh(lo[i], uint(f.lay.LimbBits*i)))
-		e.vhi.Add(e.vhi, new(big.Int).Lsh(hi[i], uint(f.lay.LimbBits*i)))
+		e.valueMin.Add(e.valueMin, new(big.Int).Lsh(lo[i], uint(f.layout.LimbBits*i)))
+		e.valueMax.Add(e.valueMax, new(big.Int).Lsh(hi[i], uint(f.layout.LimbBits*i)))
 	}
 	return e
 }
@@ -155,10 +154,12 @@ func (f *Field) ReducedWidths() []int {
 	return append([]int{}, f.widths...)
 }
 
+// Reduced attaches the field layout bounds without adding range constraints.
 func (f *Field) Reduced(limbs []frontend.Variable) *Element {
-	return f.bounded(limbs, f.widths)
+	return f.Bounded(limbs, f.widths)
 }
 
+// FromLimbs range-checks each limb before attaching the field layout bounds.
 func (f *Field) FromLimbs(limbs []frontend.Variable) *Element {
 	for i, l := range limbs {
 		f.rc.Check(l, f.widths[i])
@@ -168,12 +169,12 @@ func (f *Field) FromLimbs(limbs []frontend.Variable) *Element {
 
 func (f *Field) fromPieces(pieces []frontend.Variable, widths []int) (*Element, []frontend.Variable) {
 	limbs := make([]frontend.Variable, len(widths))
-	for i, w := range widths {
-		n := f.lay.nbPieces(w)
-		limbs[i] = f.rc.Compose(pieces[:n], w)
-		pieces = pieces[n:]
+	for i, limbWidth := range widths {
+		pieceCount := f.layout.nbPieces(limbWidth)
+		limbs[i] = f.rc.Compose(pieces[:pieceCount], limbWidth)
+		pieces = pieces[pieceCount:]
 	}
-	return f.bounded(limbs, widths), pieces
+	return f.Bounded(limbs, widths), pieces
 }
 
 func (e *Element) Limbs() []frontend.Variable {
@@ -192,40 +193,40 @@ func (e *Element) IsReduced(widths []int) bool {
 	return true
 }
 
-func (f *Field) Lin(coefs []int64, elems ...*Element) *Element {
-	if len(coefs) != len(elems) {
+func (f *Field) Lin(coefficients []int64, elements ...*Element) *Element {
+	if len(coefficients) != len(elements) {
 		panic("coefficient count mismatch")
 	}
-	n := 0
-	for _, e := range elems {
-		n = max(n, len(e.limbs))
+	limbCount := 0
+	for _, e := range elements {
+		limbCount = max(limbCount, len(e.limbs))
 	}
-	r := &Element{limbs: make([]frontend.Variable, n), lo: make([]*big.Int, n), hi: make([]*big.Int, n), vlo: new(big.Int), vhi: new(big.Int)}
-	for i := range r.limbs {
-		r.limbs[i] = 0
-		r.lo[i] = new(big.Int)
-		r.hi[i] = new(big.Int)
+	combination := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
+	for i := range combination.limbs {
+		combination.limbs[i] = 0
+		combination.lo[i] = new(big.Int)
+		combination.hi[i] = new(big.Int)
 	}
-	for k, e := range elems {
-		c := big.NewInt(coefs[k])
-		r.parts = append(r.parts, part{coef: c, e: e})
+	for k, e := range elements {
+		coefficient := big.NewInt(coefficients[k])
+		combination.parts = append(combination.parts, part{coef: coefficient, e: e})
 		for i := range e.limbs {
-			r.limbs[i] = f.api.Add(r.limbs[i], f.api.Mul(e.limbs[i], c))
-			a, b := new(big.Int).Mul(e.lo[i], c), new(big.Int).Mul(e.hi[i], c)
-			if c.Sign() < 0 {
-				a, b = b, a
+			combination.limbs[i] = f.api.Add(combination.limbs[i], f.api.Mul(e.limbs[i], coefficient))
+			scaledMin, scaledMax := new(big.Int).Mul(e.lo[i], coefficient), new(big.Int).Mul(e.hi[i], coefficient)
+			if coefficient.Sign() < 0 {
+				scaledMin, scaledMax = scaledMax, scaledMin
 			}
-			r.lo[i].Add(r.lo[i], a)
-			r.hi[i].Add(r.hi[i], b)
+			combination.lo[i].Add(combination.lo[i], scaledMin)
+			combination.hi[i].Add(combination.hi[i], scaledMax)
 		}
-		a, b := new(big.Int).Mul(e.vlo, c), new(big.Int).Mul(e.vhi, c)
-		if c.Sign() < 0 {
-			a, b = b, a
+		scaledMin, scaledMax := new(big.Int).Mul(e.valueMin, coefficient), new(big.Int).Mul(e.valueMax, coefficient)
+		if coefficient.Sign() < 0 {
+			scaledMin, scaledMax = scaledMax, scaledMin
 		}
-		r.vlo.Add(r.vlo, a)
-		r.vhi.Add(r.vhi, b)
+		combination.valueMin.Add(combination.valueMin, scaledMin)
+		combination.valueMax.Add(combination.valueMax, scaledMax)
 	}
-	return r
+	return combination
 }
 
 func (f *Field) Add(a, b *Element) *Element {
@@ -244,25 +245,25 @@ func (f *Field) MulConst(a *Element, c int64) *Element {
 	return f.Lin([]int64{c}, a)
 }
 
-func (f *Field) Select(b frontend.Variable, x, y *Element) *Element {
-	n := max(len(x.limbs), len(y.limbs))
-	r := &Element{limbs: make([]frontend.Variable, n), lo: make([]*big.Int, n), hi: make([]*big.Int, n)}
+func (f *Field) Select(selector frontend.Variable, x, y *Element) *Element {
+	limbCount := max(len(x.limbs), len(y.limbs))
+	selected := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount)}
 	limb := func(e *Element, i int) (frontend.Variable, *big.Int, *big.Int) {
 		if i < len(e.limbs) {
 			return e.limbs[i], e.lo[i], e.hi[i]
 		}
 		return 0, new(big.Int), new(big.Int)
 	}
-	for i := range r.limbs {
-		xv, xl, xh := limb(x, i)
-		yv, yl, yh := limb(y, i)
-		r.limbs[i] = f.api.Select(b, xv, yv)
-		r.lo[i] = minInt(xl, yl)
-		r.hi[i] = maxInt(xh, yh)
+	for i := range selected.limbs {
+		xValue, xMin, xMax := limb(x, i)
+		yValue, yMin, yMax := limb(y, i)
+		selected.limbs[i] = f.api.Select(selector, xValue, yValue)
+		selected.lo[i] = minInt(xMin, yMin)
+		selected.hi[i] = maxInt(xMax, yMax)
 	}
-	r.vlo = minInt(x.vlo, y.vlo)
-	r.vhi = maxInt(x.vhi, y.vhi)
-	return r
+	selected.valueMin = minInt(x.valueMin, y.valueMin)
+	selected.valueMax = maxInt(x.valueMax, y.valueMax)
+	return selected
 }
 
 func minInt(a, b *big.Int) *big.Int {
@@ -284,8 +285,8 @@ func absMax(lo, hi *big.Int) *big.Int {
 }
 
 func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []frontend.Variable {
-	inputs := f.lay.header()
-	for _, l := range f.modLim {
+	inputs := f.layout.header()
+	for _, l := range f.modulusLimbs {
 		inputs = append(inputs, l)
 	}
 	inputs = append(inputs, len(natives))
@@ -298,14 +299,14 @@ func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []fron
 }
 
 func (f *Field) Hint(fn func(*big.Int, []*big.Int, []*big.Int) error, nbOutputs int, natives []frontend.Variable, elems ...*Element) []*Element {
-	per := f.lay.nbPiecesAll(f.widths)
-	pieces, err := f.api.Compiler().NewHint(fn, nbOutputs*per, f.hintInputs(natives, elems)...)
+	piecesPerElement := f.layout.nbPiecesAll(f.widths)
+	pieces, err := f.api.Compiler().NewHint(fn, nbOutputs*piecesPerElement, f.hintInputs(natives, elems)...)
 	if err != nil {
 		panic(fmt.Sprintf("field hint: %v", err))
 	}
-	out := make([]*Element, nbOutputs)
-	for i := range out {
-		out[i], pieces = f.fromPieces(pieces, f.widths)
+	elements := make([]*Element, nbOutputs)
+	for i := range elements {
+		elements[i], pieces = f.fromPieces(pieces, f.widths)
 	}
-	return out
+	return elements
 }

@@ -7,6 +7,161 @@ import (
 
 type poly []*big.Int
 
+type crtBasis struct {
+	forms   [][]*big.Int
+	combine [][]*big.Int
+}
+
+func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermonde func(degree int) [][]*big.Int) *crtBasis {
+	factors := factorSquarefree(f, nativeModulus)
+	total := 0
+	for _, g := range factors {
+		total += 2*polyDeg(g) - 1
+	}
+	if total >= 2*limbCount-1 {
+		return nil
+	}
+	basis := &crtBasis{combine: make([][]*big.Int, limbCount)}
+	for j := range basis.combine {
+		basis.combine[j] = make([]*big.Int, total)
+		for k := range basis.combine[j] {
+			basis.combine[j][k] = new(big.Int)
+		}
+	}
+	offset := 0
+	for _, g := range factors {
+		factorDegree := polyDeg(g)
+		residues := residueColumns(limbCount, g, nativeModulus)
+		points := 2*factorDegree - 1
+		for s := 0; s < points; s++ {
+			x := big.NewInt(evalPoint(s))
+			form := make([]*big.Int, limbCount)
+			for i := range form {
+				form[i] = new(big.Int)
+				power := big.NewInt(1)
+				for t := 0; t < factorDegree; t++ {
+					form[i].Add(form[i], new(big.Int).Mul(power, residues[i][t]))
+					power.Mul(power, x)
+				}
+				form[i].Mod(form[i], nativeModulus)
+			}
+			basis.forms = append(basis.forms, form)
+		}
+		cofactor, _ := polyDivMod(f, g, nativeModulus)
+		inv := polyPowMod(cofactor, new(big.Int).Sub(new(big.Int).Exp(nativeModulus, big.NewInt(int64(factorDegree)), nil), big.NewInt(2)), g, nativeModulus)
+		idempotent := polyMod(polyMul(cofactor, inv, nativeModulus), f, nativeModulus)
+		interpolation := inverseVandermonde(points - 1)
+		for c := 0; c < points; c++ {
+			monomial := make(poly, c+1)
+			for j := range monomial {
+				monomial[j] = new(big.Int)
+			}
+			monomial[c].SetInt64(1)
+			lifted := polyMod(polyMul(idempotent, polyMod(monomial, g, nativeModulus), nativeModulus), f, nativeModulus)
+			for j := 0; j < limbCount && j < len(lifted); j++ {
+				for s := 0; s < points; s++ {
+					basis.combine[j][offset+s].Add(basis.combine[j][offset+s], new(big.Int).Mul(lifted[j], interpolation[c][s]))
+				}
+			}
+		}
+		offset += points
+	}
+	for j := range basis.combine {
+		for k := range basis.combine[j] {
+			basis.combine[j][k].Mod(basis.combine[j][k], nativeModulus)
+		}
+	}
+	return basis
+}
+
+func (b *crtBasis) foldedProduct(x, y []*big.Int, q *big.Int) []*big.Int {
+	w := make([]*big.Int, len(b.forms))
+	for k, form := range b.forms {
+		l, r := new(big.Int), new(big.Int)
+		for i, c := range form {
+			if i < len(x) {
+				l.Add(l, new(big.Int).Mul(c, x[i]))
+			}
+			if i < len(y) {
+				r.Add(r, new(big.Int).Mul(c, y[i]))
+			}
+		}
+		w[k] = l.Mul(l, r).Mod(l, q)
+	}
+	out := make([]*big.Int, len(b.combine))
+	for j, row := range b.combine {
+		out[j] = new(big.Int)
+		for k, c := range row {
+			out[j].Add(out[j], new(big.Int).Mul(c, w[k]))
+		}
+		out[j].Mod(out[j], q)
+	}
+	return out
+}
+
+func residueColumns(coefficientCount int, g poly, q *big.Int) [][]*big.Int {
+	factorDegree := polyDeg(g)
+	columns := make([][]*big.Int, coefficientCount)
+	for i := range columns {
+		monomial := make(poly, i+1)
+		for j := range monomial {
+			monomial[j] = new(big.Int)
+		}
+		monomial[i].SetInt64(1)
+		residue := polyMod(monomial, g, q)
+		columns[i] = make([]*big.Int, factorDegree)
+		for t := range columns[i] {
+			columns[i][t] = new(big.Int)
+			if t < len(residue) {
+				columns[i][t].Set(residue[t])
+			}
+		}
+	}
+	return columns
+}
+
+func factorSquarefree(f poly, q *big.Int) []poly {
+	var out []poly
+	x := poly{new(big.Int), big.NewInt(1)}
+	h := x
+	rest := polyMonic(f, q)
+	for d := 1; 2*d <= polyDeg(rest); d++ {
+		h = polyPowMod(h, q, rest, q)
+		g := polyGcd(rest, polySub(h, x, q), q)
+		if polyDeg(g) > 0 {
+			out = append(out, splitEqualDegree(g, d, q)...)
+			rest, _ = polyDivMod(rest, g, q)
+			rest = polyMonic(rest, q)
+			h = polyMod(h, rest, q)
+		}
+	}
+	if polyDeg(rest) > 0 {
+		out = append(out, rest)
+	}
+	return out
+}
+
+func splitEqualDegree(g poly, d int, q *big.Int) []poly {
+	if polyDeg(g) == d {
+		return []poly{g}
+	}
+	e := new(big.Int).Exp(q, big.NewInt(int64(d)), nil)
+	e.Sub(e, big.NewInt(1)).Rsh(e, 1)
+	rng := rand.New(rand.NewSource(1))
+	for {
+		a := make(poly, polyDeg(g))
+		for i := range a {
+			a[i] = new(big.Int).Rand(rng, q)
+		}
+		b := polyPowMod(polyTrim(a), e, g, q)
+		u := polyGcd(g, polySub(b, poly{big.NewInt(1)}, q), q)
+		if k := polyDeg(u); k > 0 && k < polyDeg(g) {
+			v, _ := polyDivMod(g, u, q)
+			return append(splitEqualDegree(u, d, q), splitEqualDegree(polyMonic(v, q), d, q)...)
+		}
+	}
+}
+
 func polyTrim(a poly) poly {
 	for len(a) > 0 && a[len(a)-1].Sign() == 0 {
 		a = a[:len(a)-1]
@@ -58,27 +213,27 @@ func polyMul(a, b poly, q *big.Int) poly {
 }
 
 func polyDivMod(a, m poly, q *big.Int) (poly, poly) {
-	r := polyReduce(a, q)
+	remainder := polyReduce(a, q)
 	m = polyTrim(m)
-	inv := new(big.Int).ModInverse(m[len(m)-1], q)
-	var quo poly
-	if len(r) >= len(m) {
-		quo = make(poly, len(r)-len(m)+1)
-		for i := range quo {
-			quo[i] = new(big.Int)
+	inverseLeadingCoefficient := new(big.Int).ModInverse(m[len(m)-1], q)
+	var quotient poly
+	if len(remainder) >= len(m) {
+		quotient = make(poly, len(remainder)-len(m)+1)
+		for i := range quotient {
+			quotient[i] = new(big.Int)
 		}
 	}
-	for len(r) >= len(m) {
-		c := new(big.Int).Mul(r[len(r)-1], inv)
+	for len(remainder) >= len(m) {
+		c := new(big.Int).Mul(remainder[len(remainder)-1], inverseLeadingCoefficient)
 		c.Mod(c, q)
-		shift := len(r) - len(m)
-		quo[shift].Set(c)
+		shift := len(remainder) - len(m)
+		quotient[shift].Set(c)
 		for i, mi := range m {
-			r[shift+i].Sub(r[shift+i], new(big.Int).Mul(c, mi)).Mod(r[shift+i], q)
+			remainder[shift+i].Sub(remainder[shift+i], new(big.Int).Mul(c, mi)).Mod(remainder[shift+i], q)
 		}
-		r = polyTrim(r)
+		remainder = polyTrim(remainder)
 	}
-	return polyTrim(quo), r
+	return polyTrim(quotient), remainder
 }
 
 func polyMod(a, m poly, q *big.Int) poly {
@@ -115,159 +270,4 @@ func polyGcd(a, b poly, q *big.Int) poly {
 		a, b = b, polyMod(a, b, q)
 	}
 	return polyMonic(a, q)
-}
-
-func factorSquarefree(f poly, q *big.Int) []poly {
-	var out []poly
-	x := poly{new(big.Int), big.NewInt(1)}
-	h := x
-	rest := polyMonic(f, q)
-	for d := 1; 2*d <= polyDeg(rest); d++ {
-		h = polyPowMod(h, q, rest, q)
-		g := polyGcd(rest, polySub(h, x, q), q)
-		if polyDeg(g) > 0 {
-			out = append(out, splitEqualDegree(g, d, q)...)
-			rest, _ = polyDivMod(rest, g, q)
-			rest = polyMonic(rest, q)
-			h = polyMod(h, rest, q)
-		}
-	}
-	if polyDeg(rest) > 0 {
-		out = append(out, rest)
-	}
-	return out
-}
-
-func splitEqualDegree(g poly, d int, q *big.Int) []poly {
-	if polyDeg(g) == d {
-		return []poly{g}
-	}
-	e := new(big.Int).Exp(q, big.NewInt(int64(d)), nil)
-	e.Sub(e, big.NewInt(1)).Rsh(e, 1)
-	rng := rand.New(rand.NewSource(1))
-	for {
-		a := make(poly, polyDeg(g))
-		for i := range a {
-			a[i] = new(big.Int).Rand(rng, q)
-		}
-		b := polyPowMod(polyTrim(a), e, g, q)
-		u := polyGcd(g, polySub(b, poly{big.NewInt(1)}, q), q)
-		if k := polyDeg(u); k > 0 && k < polyDeg(g) {
-			v, _ := polyDivMod(g, u, q)
-			return append(splitEqualDegree(u, d, q), splitEqualDegree(polyMonic(v, q), d, q)...)
-		}
-	}
-}
-
-type crtBasis struct {
-	forms   [][]*big.Int
-	combine [][]*big.Int
-}
-
-func residueColumns(n int, g poly, q *big.Int) [][]*big.Int {
-	e := polyDeg(g)
-	cols := make([][]*big.Int, n)
-	for i := range cols {
-		mono := make(poly, i+1)
-		for j := range mono {
-			mono[j] = new(big.Int)
-		}
-		mono[i].SetInt64(1)
-		r := polyMod(mono, g, q)
-		cols[i] = make([]*big.Int, e)
-		for t := range cols[i] {
-			cols[i][t] = new(big.Int)
-			if t < len(r) {
-				cols[i][t].Set(r[t])
-			}
-		}
-	}
-	return cols
-}
-
-func newCRTBasis(f poly, n int, q *big.Int, vinv func(degree int) [][]*big.Int) *crtBasis {
-	factors := factorSquarefree(f, q)
-	total := 0
-	for _, g := range factors {
-		total += 2*polyDeg(g) - 1
-	}
-	if total >= 2*n-1 {
-		return nil
-	}
-	b := &crtBasis{combine: make([][]*big.Int, n)}
-	for j := range b.combine {
-		b.combine[j] = make([]*big.Int, total)
-		for k := range b.combine[j] {
-			b.combine[j][k] = new(big.Int)
-		}
-	}
-	offset := 0
-	for _, g := range factors {
-		e := polyDeg(g)
-		res := residueColumns(n, g, q)
-		points := 2*e - 1
-		for s := 0; s < points; s++ {
-			x := big.NewInt(evalPoint(s))
-			form := make([]*big.Int, n)
-			for i := range form {
-				form[i] = new(big.Int)
-				pw := big.NewInt(1)
-				for t := 0; t < e; t++ {
-					form[i].Add(form[i], new(big.Int).Mul(pw, res[i][t]))
-					pw.Mul(pw, x)
-				}
-				form[i].Mod(form[i], q)
-			}
-			b.forms = append(b.forms, form)
-		}
-		cofactor, _ := polyDivMod(f, g, q)
-		inv := polyPowMod(cofactor, new(big.Int).Sub(new(big.Int).Exp(q, big.NewInt(int64(e)), nil), big.NewInt(2)), g, q)
-		idem := polyMod(polyMul(cofactor, inv, q), f, q)
-		v := vinv(points - 1)
-		for c := 0; c < points; c++ {
-			mono := make(poly, c+1)
-			for j := range mono {
-				mono[j] = new(big.Int)
-			}
-			mono[c].SetInt64(1)
-			lifted := polyMod(polyMul(idem, polyMod(mono, g, q), q), f, q)
-			for j := 0; j < n && j < len(lifted); j++ {
-				for s := 0; s < points; s++ {
-					b.combine[j][offset+s].Add(b.combine[j][offset+s], new(big.Int).Mul(lifted[j], v[c][s]))
-				}
-			}
-		}
-		offset += points
-	}
-	for j := range b.combine {
-		for k := range b.combine[j] {
-			b.combine[j][k].Mod(b.combine[j][k], q)
-		}
-	}
-	return b
-}
-
-func (b *crtBasis) foldedProduct(x, y []*big.Int, q *big.Int) []*big.Int {
-	w := make([]*big.Int, len(b.forms))
-	for k, form := range b.forms {
-		l, r := new(big.Int), new(big.Int)
-		for i, c := range form {
-			if i < len(x) {
-				l.Add(l, new(big.Int).Mul(c, x[i]))
-			}
-			if i < len(y) {
-				r.Add(r, new(big.Int).Mul(c, y[i]))
-			}
-		}
-		w[k] = l.Mul(l, r).Mod(l, q)
-	}
-	out := make([]*big.Int, len(b.combine))
-	for j, row := range b.combine {
-		out[j] = new(big.Int)
-		for k, c := range row {
-			out[j].Add(out[j], new(big.Int).Mul(c, w[k]))
-		}
-		out[j].Mod(out[j], q)
-	}
-	return out
 }

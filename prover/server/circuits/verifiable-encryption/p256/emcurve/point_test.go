@@ -1,12 +1,22 @@
+// Tested invariants and diagnostics:
+//
+//  1. Coordinate bytes are canonical and reject a noncanonical encoding.
+//  2. Canonical limb checks accept values below the modulus and reject values at or
+//     above it.
+//  3. Forged output-byte splits are rejected.
+//  4. ECDH reduces scalars and rejects infinity and the documented exceptional
+//     scalars.
 package emcurve
 
 import (
 	"crypto/ecdh"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
+	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/math/emulated"
@@ -14,6 +24,80 @@ import (
 
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
+
+// Invariant 1: Coordinate bytes are canonical and reject a noncanonical encoding.
+func TestFpBytesAreCanonical(t *testing.T) {
+	assert := test.NewAssert(t)
+	p := emulated.P256Fp{}.Modulus()
+	x := big.NewInt(0x1234_5678)
+	shifted := new(big.Int).Add(x, p)
+	if shifted.BitLen() > 256 {
+		t.Fatalf("x + p must fit 256 bits for the test to mean anything")
+	}
+	circuit := &fpBytesCircuit{Limbs: make([]frontend.Variable, emfield.LookupLayout.NbLimbs)}
+	assert.ProverSucceeded(circuit, fpBytesWitness(x, x), test.WithCurves(ecc.BN254))
+	assert.ProverFailed(circuit, fpBytesWitness(shifted, x), test.WithCurves(ecc.BN254))
+	assert.ProverFailed(circuit, fpBytesWitness(shifted, shifted), test.WithCurves(ecc.BN254))
+}
+
+// Invariant 2: Canonical limb checks accept values below the modulus and reject values at or above it.
+func TestLimbsBelowModulus(t *testing.T) {
+	cs := compile(t, &belowModulusCircuit{Limbs: make([]frontend.Variable, emfield.LookupLayout.NbLimbs)})
+	p := emulated.P256Fp{}.Modulus()
+	for _, row := range []struct {
+		value  *big.Int
+		accept bool
+	}{
+		{big.NewInt(0), true},
+		{new(big.Int).Sub(p, big.NewInt(1)), true},
+		{p, false},
+		{new(big.Int).Sub(pow2(256), big.NewInt(1)), false},
+	} {
+		witness, err := frontend.NewWitness(&belowModulusCircuit{Limbs: fieldLimbValues(row.value)}, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.IsSolved(witness); (err == nil) != row.accept {
+			t.Fatalf("value %x: accept=%v err=%v", row.value, row.accept, err)
+		}
+	}
+}
+
+// Invariant 3: Forged output-byte splits are rejected.
+func TestOutputBytesRejectForgedSplit(t *testing.T) {
+	cs := compile(t, &generatorCircuit{})
+	witness, _ := frontend.NewWitness(generatorWitnessFor(t, mergeScalar), ecc.BN254.ScalarField())
+	forged := solver.OverrideHint(solver.GetHintID(p256LimbBytesHint), func(q *big.Int, in, out []*big.Int) error {
+		if err := p256LimbBytesHint(q, in, out); err != nil {
+			return err
+		}
+		last := len(out) - 1
+		if out[last-1].Sign() > 0 {
+			out[last-1].Sub(out[last-1], big.NewInt(1))
+			out[last].Add(out[last], big.NewInt(256))
+		}
+		return nil
+	})
+	err := cs.IsSolved(witness, forged)
+	if err == nil || !strings.Contains(err.Error(), "is not satisfied") {
+		t.Fatalf("forged byte split: %v", err)
+	}
+}
+
+// Invariant 4: ECDH reduces scalars and rejects infinity and the documented exceptional scalars.
+func TestECDHRefusesInfinityAndReducesScalars(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdhCircuit{NoLookups: noLookups})
+		peer := peerKey(t).PublicKey()
+		for _, row := range scalarRows(t) {
+			t.Run(row.name, func(t *testing.T) {
+				row.check(t, cs, row.ecdhWitness(t, peer), true)
+			})
+		}
+	})
+}
+
+// Test circuits and shared helpers.
 
 type fpBytesCircuit struct {
 	Limbs []frontend.Variable
@@ -36,20 +120,6 @@ func fpBytesWitness(value *big.Int, bytes *big.Int) *fpBytesCircuit {
 		w.Bytes[i] = raw[i]
 	}
 	return &w
-}
-
-func TestFpBytesAreCanonical(t *testing.T) {
-	assert := test.NewAssert(t)
-	p := emulated.P256Fp{}.Modulus()
-	x := big.NewInt(0x1234_5678)
-	shifted := new(big.Int).Add(x, p)
-	if shifted.BitLen() > 256 {
-		t.Fatalf("x + p must fit 256 bits for the test to mean anything")
-	}
-	circuit := &fpBytesCircuit{Limbs: make([]frontend.Variable, emfield.LookupLayout.NbLimbs)}
-	assert.ProverSucceeded(circuit, fpBytesWitness(x, x), test.WithCurves(ecc.BN254))
-	assert.ProverFailed(circuit, fpBytesWitness(shifted, x), test.WithCurves(ecc.BN254))
-	assert.ProverFailed(circuit, fpBytesWitness(shifted, shifted), test.WithCurves(ecc.BN254))
 }
 
 type generatorCircuit struct {
@@ -194,29 +264,6 @@ func (r scalarRow) check(t *testing.T, cs constraint.ConstraintSystem, assignmen
 	}
 }
 
-func TestGeneratorRefusesInfinityAndReducesScalars(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &generatorCircuit{NoLookups: noLookups})
-		for _, row := range scalarRows(t) {
-			t.Run(row.name, func(t *testing.T) {
-				row.check(t, cs, row.generatorWitness(t), false)
-			})
-		}
-	})
-}
-
-func TestECDHRefusesInfinityAndReducesScalars(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdhCircuit{NoLookups: noLookups})
-		peer := peerKey(t).PublicKey()
-		for _, row := range scalarRows(t) {
-			t.Run(row.name, func(t *testing.T) {
-				row.check(t, cs, row.ecdhWitness(t, peer), true)
-			})
-		}
-	})
-}
-
 func peerKey(t *testing.T) *ecdh.PrivateKey {
 	t.Helper()
 	seed := make([]byte, 32)
@@ -228,4 +275,14 @@ func peerKey(t *testing.T) *ecdh.PrivateKey {
 		t.Fatalf("peer key: %v", err)
 	}
 	return key
+}
+
+type belowModulusCircuit struct {
+	Limbs []frontend.Variable
+}
+
+func (c *belowModulusCircuit) Define(api frontend.API) error {
+	cv := newCurve(api)
+	cv.canonicalLimbs(cv.fp.FromLimbs(c.Limbs))
+	return nil
 }

@@ -26,21 +26,267 @@ import (
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
 
-func init() {
-	solver.RegisterHint(p256DecomposeScalarHint, p256ScalarMulHint, p256ImplicitChordHint, p256ImplicitSecondSlopeHint, p256HalfTangentHint)
-}
-
 const (
 	halfScalarBits = 129
 	packedYGroup   = 3
 )
 
-func (c *curve) nativeValue(e *fpElement) frontend.Variable {
-	sum := frontend.Variable(0)
-	for i, l := range e.Limbs() {
-		sum = c.api.Add(sum, c.api.Mul(l, pow2(c.lay.LimbBits*i)))
+func (c *curve) scalarMulChecked(inputPoint *point, scalar *frElement) *point {
+	fr, fp, api := c.fr, c.fp, c.api
+	// 1. Constrain the signed rational decomposition and its nonzero denominator.
+	decomposition, err := api.Compiler().NewHint(p256DecomposeScalarHint, 1+2*halfScalarBits, c.limbHintInputs(scalar.Limbs())...)
+	if err != nil {
+		panic(fmt.Sprintf("decompose hint: %v", err))
 	}
-	return sum
+	for _, b := range decomposition {
+		api.AssertIsBoolean(b)
+	}
+	negateResult := decomposition[0]
+	numeratorBits := decomposition[1 : 1+halfScalarBits]
+	denominatorBits := decomposition[1+halfScalarBits:]
+	numerator := c.scalarFromBits(numeratorBits)
+	denominator := c.scalarFromBits(denominatorBits)
+	signedDenominator := fr.Select(negateResult, fr.Neg(denominator), denominator)
+	fr.AssertZero(T(1, scalar, signedDenominator), T(1, numerator))
+	api.AssertIsDifferent(api.Add(denominatorBits[0], denominatorBits[1], denominatorBits[2:]...), 0)
+
+	// 2. Obtain a candidate product and constrain it to the curve.
+	hinted := fp.Hint(p256ScalarMulHint, 2, nil, inputPoint.X, inputPoint.Y, scalar)
+	product := &point{X: hinted[0], Y: hinted[1]}
+	c.assertOnCurve(product)
+
+	// 3. Build signed multiples and reject the exceptional x-coordinate collisions.
+	tripledInput := c.triple(inputPoint)
+	signedProduct := &point{X: product.X, Y: fp.Select(negateResult, fp.Neg(product.Y), product.Y)}
+	tripledProduct := c.triple(signedProduct)
+	c.assertDistinctX(product.X, inputPoint.X)
+	c.assertDistinctX(product.X, tripledInput.X)
+	c.assertDistinctX(tripledProduct.X, inputPoint.X)
+	negatedInput := c.neg(inputPoint)
+	negatedProduct := c.neg(signedProduct)
+
+	// 4. Build the joint multiplication table and select entries two bits at a time.
+	acc := c.add(inputPoint, signedProduct)
+	tripledInputPlusTripledProduct := c.add(tripledInput, tripledProduct)
+	tripledInputPlusProduct := c.add(tripledInput, signedProduct)
+	inputPlusTripledProduct := c.add(inputPoint, tripledProduct)
+	inputMinusProduct := c.add(negatedProduct, inputPoint)
+	negatedTripledProduct := c.neg(tripledProduct)
+	slots := []*point{
+		tripledInputPlusTripledProduct,
+		c.add(inputPoint, negatedTripledProduct),
+		c.add(tripledInput, negatedProduct),
+		acc,
+		inputPlusTripledProduct,
+		c.add(tripledInput, negatedTripledProduct),
+		inputMinusProduct,
+		tripledInputPlusProduct,
+	}
+	decompositionBits := halfScalarBits + 1
+	halfTangentSlopes := make([]frontend.Variable, len(slots))
+	for i, slot := range slots {
+		halfTangentSlopes[i] = c.nativeValue(c.halfTangentSlope(slot))
+	}
+	lookup := func(i int, natives []frontend.Variable) (*point, frontend.Variable) {
+		return c.muxSlot(slots, natives, numeratorBits[i], denominatorBits[i], numeratorBits[i-1], denominatorBits[i-1])
+	}
+	if c.layout.Lookups {
+		lookup = c.packedTableLookup(slots, halfTangentSlopes, numeratorBits, denominatorBits)
+	}
+	// 5. Check the ladder relation, then account for the two low bits.
+	for i := decompositionBits - 2; i > 2; i -= 2 {
+		selectedPoint, halfTangentSlope := lookup(i, halfTangentSlopes)
+		acc = c.quadrupleAndAddLazy(acc, selectedPoint, halfTangentSlope)
+	}
+	last, _ := lookup(2, nil)
+	acc = c.quadrupleAndAddLazy(acc, c.guardedAdd(last, tripledProduct), nil)
+	acc = &point{X: fp.Eval(T(1, acc.X)), Y: acc.Y}
+
+	acc = c.selectPoint(numeratorBits[0], acc, c.guardedAddReducing(negatedInput, acc, true, false))
+	acc = c.selectPoint(denominatorBits[0], acc, c.guardedAddReducing(negatedProduct, acc, false, false))
+	// 6. Require the final relation to bind the hinted product to the input scalar.
+	c.assertEqual(acc, tripledProduct)
+	return product
+}
+
+func (c *curve) quadrupleAndAddLazy(accumulator, selectedPoint *point, halfSlope frontend.Variable) *point {
+	fp := c.fp
+	tangentSlope := c.tangent(accumulator)
+	doubledX := fp.Lazy(T(1, tangentSlope, tangentSlope), T(-2, accumulator.X))
+	doubledY := fp.Lazy(T(1, tangentSlope, fp.Sub(accumulator.X, doubledX)), T(-1, accumulator.Y))
+	xDifference := fp.Sub(selectedPoint.X, doubledX)
+	chordSlope := c.hintSlope(p256ImplicitChordHint, 1, nil, tangentSlope, accumulator.X, doubledX, accumulator.Y, selectedPoint.X, selectedPoint.Y)[0]
+	fp.AssertZero(T(1, chordSlope, xDifference), T(-1, selectedPoint.Y), T(1, doubledY))
+	if halfSlope != nil {
+		c.assertDistinctSlope(tangentSlope, halfSlope)
+	} else {
+		xSum := fp.Add(doubledX, selectedPoint.X)
+		fp.AssertZero(T(1, chordSlope, fp.Add(doubledY, selectedPoint.Y)), T(-1, xSum, xSum), T(1, doubledX, selectedPoint.X), T(-1, c.a))
+	}
+	intermediateX := fp.Lazy(T(1, chordSlope, chordSlope), T(-1, doubledX), T(-1, selectedPoint.X))
+	secondSlope := c.hintSlope(p256ImplicitSecondSlopeHint, 1, nil, tangentSlope, accumulator.X, doubledX, accumulator.Y, intermediateX)[0]
+	fp.AssertZero(T(1, secondSlope, fp.Sub(intermediateX, doubledX)), T(2, chordSlope, xDifference), T(-2, selectedPoint.Y))
+	sumX := fp.Lazy(T(1, secondSlope, fp.Lin([]int64{1, 2}, secondSlope, chordSlope)), T(1, selectedPoint.X))
+	sumY := fp.Lazy(T(1, fp.Add(chordSlope, secondSlope), fp.Sub(sumX, doubledX)), T(1, chordSlope, xDifference), T(-1, selectedPoint.Y))
+	return &point{X: sumX, Y: sumY}
+}
+
+func (c *curve) guardedAdd(p, q *point) *point {
+	c.assertDistinctX(p.X, q.X)
+	return c.add(p, q)
+}
+
+func (c *curve) guardedAddReducing(p, q *point, reduceX, reduceY bool) *point {
+	c.assertDistinctX(p.X, q.X)
+	return c.addReducing(p, q, reduceX, reduceY)
+}
+
+func (c *curve) scalarFromBits(bits []frontend.Variable) *frElement {
+	var limbs []frontend.Variable
+	var widths []int
+	for i := 0; i < len(bits); i += c.layout.LimbBits {
+		end := min(len(bits), i+c.layout.LimbBits)
+		chunk := bits[i:end]
+		limbs = append(limbs, c.api.FromBinary(chunk...))
+		widths = append(widths, len(chunk))
+	}
+	return c.fr.Bounded(limbs, widths)
+}
+
+func (c *curve) packedTableLookup(slots []*point, halfTangentSlopes []frontend.Variable, numeratorBits, denominatorBits []frontend.Variable) func(i int, natives []frontend.Variable) (*point, frontend.Variable) {
+	api, fp := c.api, c.fp
+	widths := fp.ReducedWidths()
+	nbLimbs := len(widths)
+	packedYCount := (nbLimbs + packedYGroup - 1) / packedYGroup
+	table := newRowTable(api, nbLimbs+packedYCount+1)
+	for idx := 0; idx < 16; idx++ {
+		slotIndex := idx
+		if idx >= 8 {
+			slotIndex = 15 - idx
+		}
+		slot := slots[slotIndex]
+		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
+			panic("table points must be reduced")
+		}
+		y := slot.Y
+		if idx&1 == 0 {
+			y = fp.Neg(y)
+		}
+		row := append(append([]frontend.Variable{}, slot.X.Limbs()...), c.packedY(y)...)
+		table.insert(append(row, halfTangentSlopes[slotIndex]))
+	}
+	return func(i int, _ []frontend.Variable) (*point, frontend.Variable) {
+		selector := api.Add(numeratorBits[i], api.Mul(denominatorBits[i], 2), api.Mul(numeratorBits[i-1], 4), api.Mul(denominatorBits[i-1], 8))
+		columns := table.lookup(selector)
+		packedYEnd := nbLimbs + packedYCount
+		xLimbs := columns[:nbLimbs]
+		packedYLimbs := columns[nbLimbs:packedYEnd]
+		halfTangentSlope := columns[packedYEnd]
+		return &point{X: fp.Reduced(xLimbs), Y: c.unpackedY(packedYLimbs)}, halfTangentSlope
+	}
+}
+
+func (c *curve) muxSlot(slots []*point, natives []frontend.Variable, b0, b1, b2, b3 frontend.Variable) (*point, frontend.Variable) {
+	api, fp := c.api, c.fp
+	widths := fp.ReducedWidths()
+	for _, slot := range slots {
+		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
+			panic("table points must be reduced")
+		}
+	}
+	selectorBits := []frontend.Variable{api.Xor(b0, b3), api.Xor(b1, b3), api.Xor(b2, b3)}
+	mux := func(column func(int) []frontend.Variable) []frontend.Variable {
+		level := make([][]frontend.Variable, len(slots))
+		for i := range slots {
+			level[i] = column(i)
+		}
+		for _, bit := range selectorBits {
+			next := make([][]frontend.Variable, len(level)/2)
+			for j := range next {
+				next[j] = make([]frontend.Variable, len(level[2*j]))
+				for l := range next[j] {
+					next[j][l] = api.Select(bit, level[2*j+1][l], level[2*j][l])
+				}
+			}
+			level = next
+		}
+		return level[0]
+	}
+	xLimbs := mux(func(i int) []frontend.Variable {
+		if natives == nil {
+			return slots[i].X.Limbs()
+		}
+		return append(append([]frontend.Variable{}, slots[i].X.Limbs()...), natives[i])
+	})
+	var native frontend.Variable
+	if natives != nil {
+		native, xLimbs = xLimbs[len(xLimbs)-1], xLimbs[:len(xLimbs)-1]
+	}
+	packedYLimbs := mux(func(i int) []frontend.Variable { return c.packedY(slots[i].Y) })
+	sign := api.Sub(api.Mul(b0, 2), 1)
+	for g := range packedYLimbs {
+		packedYLimbs[g] = api.Mul(sign, packedYLimbs[g])
+	}
+	return &point{X: fp.Reduced(xLimbs), Y: c.unpackedY(packedYLimbs)}, native
+}
+
+func (c *curve) packedY(y *fpElement) []frontend.Variable {
+	api := c.api
+	limbs := y.Limbs()
+	var packedLimbs []frontend.Variable
+	for g := 0; g < len(limbs); g += packedYGroup {
+		sum := frontend.Variable(0)
+		for j := g; j < min(g+packedYGroup, len(limbs)); j++ {
+			sum = api.Add(sum, api.Mul(limbs[j], pow2(c.layout.LimbBits*(j-g))))
+		}
+		packedLimbs = append(packedLimbs, sum)
+	}
+	return packedLimbs
+}
+
+func (c *curve) unpackedY(packed []frontend.Variable) *fpElement {
+	widths := c.fp.ReducedWidths()
+	limbCount := len(widths)
+	yLimbs := make([]frontend.Variable, limbCount)
+	lowerBounds, upperBounds := make([]*big.Int, limbCount), make([]*big.Int, limbCount)
+	for j := range yLimbs {
+		yLimbs[j] = 0
+		lowerBounds[j], upperBounds[j] = new(big.Int), new(big.Int)
+		if j%packedYGroup != 0 {
+			continue
+		}
+		bits := 0
+		for _, w := range widths[j:min(j+packedYGroup, limbCount)] {
+			bits += w
+		}
+		yLimbs[j] = packed[j/packedYGroup]
+		upperBounds[j].Sub(pow2(bits), big.NewInt(1))
+		lowerBounds[j].Neg(upperBounds[j])
+	}
+	return c.fp.WithBounds(yLimbs, lowerBounds, upperBounds)
+}
+
+func (c *curve) halfTangentSlope(t *point) *fpElement {
+	fp := c.fp
+	lambda := c.hintSlope(p256HalfTangentHint, 1, nil, t.X, t.Y)[0]
+	square := fp.Lazy(T(1, lambda, lambda))
+	fp.AssertZero(T(1, square, square), T(-6, square, t.X), T(-8, lambda, t.Y), T(-3, t.X, t.X), T(-4, c.a))
+	return lambda
+}
+
+func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) {
+	api := c.api
+	p := c.fp.Modulus()
+	pp := new(big.Int).Mul(p, p)
+	value := c.nativeValue(lambda)
+	factor := func(d frontend.Variable) frontend.Variable {
+		return api.Mul(d, api.Sub(api.Mul(d, d), pp))
+	}
+	api.AssertIsDifferent(api.Mul(factor(api.Sub(value, other)), factor(api.Add(value, other))), 0)
+}
+
+func (c *curve) assertDistinctX(p, q *fpElement) {
+	c.api.AssertIsDifferent(c.distinctProduct(p, q), 0)
 }
 
 func (c *curve) distinctProduct(p, q *fpElement) frontend.Variable {
@@ -53,136 +299,34 @@ func (c *curve) distinctProduct(p, q *fpElement) frontend.Variable {
 	return c.api.Mul(c.api.Mul(diff, c.api.Sub(diff, modulus)), c.api.Add(diff, modulus))
 }
 
-func (c *curve) assertDistinctX(p, q *fpElement) {
-	c.api.AssertIsDifferent(c.distinctProduct(p, q), 0)
-}
-
-func (c *curve) quadrupleAndAddLazy(a, t *point, halfSlope frontend.Variable) *point {
-	fp := c.fp
-	lambda0 := c.tangent(a)
-	xD := fp.Lazy(T(1, lambda0, lambda0), T(-2, a.X))
-	yD := fp.Lazy(T(1, lambda0, fp.Sub(a.X, xD)), T(-1, a.Y))
-	tMinusD := fp.Sub(t.X, xD)
-	lambda1 := c.slope(p256ImplicitChordHint, 1, nil, lambda0, a.X, xD, a.Y, t.X, t.Y)[0]
-	fp.AssertZero(T(1, lambda1, tMinusD), T(-1, t.Y), T(1, yD))
-	if halfSlope != nil {
-		c.assertDistinctSlope(lambda0, halfSlope)
-	} else {
-		xSum := fp.Add(xD, t.X)
-		fp.AssertZero(T(1, lambda1, fp.Add(yD, t.Y)), T(-1, xSum, xSum), T(1, xD, t.X), T(-1, c.a))
+func (c *curve) nativeValue(e *fpElement) frontend.Variable {
+	sum := frontend.Variable(0)
+	for i, l := range e.Limbs() {
+		sum = c.api.Add(sum, c.api.Mul(l, pow2(c.layout.LimbBits*i)))
 	}
-	x2 := fp.Lazy(T(1, lambda1, lambda1), T(-1, xD), T(-1, t.X))
-	mu := c.slope(p256ImplicitSecondSlopeHint, 1, nil, lambda0, a.X, xD, a.Y, x2)[0]
-	fp.AssertZero(T(1, mu, fp.Sub(x2, xD)), T(2, lambda1, tMinusD), T(-2, t.Y))
-	x3 := fp.Lazy(T(1, mu, fp.Lin([]int64{1, 2}, mu, lambda1)), T(1, t.X))
-	y3 := fp.Lazy(T(1, fp.Add(lambda1, mu), fp.Sub(x3, xD)), T(1, lambda1, tMinusD), T(-1, t.Y))
-	return &point{X: x3, Y: y3}
-}
-
-func (c *curve) guardedAdd(p, q *point) *point {
-	c.assertDistinctX(p.X, q.X)
-	return c.add(p, q)
-}
-
-func (c *curve) scalarMulChecked(q *point, s *frElement) *point {
-	fr, fp, api := c.fr, c.fp, c.api
-	decomposition, err := api.Compiler().NewHint(p256DecomposeScalarHint, 1+2*halfScalarBits, c.limbHintInputs(s.Limbs())...)
-	if err != nil {
-		panic(fmt.Sprintf("decompose hint: %v", err))
-	}
-	for _, b := range decomposition {
-		api.AssertIsBoolean(b)
-	}
-	sign := decomposition[0]
-	s1bits := decomposition[1 : 1+halfScalarBits]
-	s2bits := decomposition[1+halfScalarBits:]
-	s1 := c.scalarFromBits(s1bits)
-	s2 := c.scalarFromBits(s2bits)
-	fr.AssertZero(T(1, s, fr.Select(sign, fr.Neg(s2), s2)), T(1, s1))
-	api.AssertIsDifferent(api.Add(s2bits[0], s2bits[1], s2bits[2:]...), 0)
-
-	hinted := fp.Hint(p256ScalarMulHint, 2, nil, q.X, q.Y, s)
-	r := &point{X: hinted[0], Y: hinted[1]}
-	c.assertOnCurve(r)
-
-	q3 := c.triple(q)
-	rSigned := &point{X: r.X, Y: fp.Select(sign, fp.Neg(r.Y), r.Y)}
-	r3 := c.triple(rSigned)
-	c.assertDistinctX(r.X, q.X)
-	c.assertDistinctX(r.X, q3.X)
-	c.assertDistinctX(r3.X, q.X)
-	negQ := c.neg(q)
-	negR := c.neg(rSigned)
-
-	acc := c.add(q, rSigned)
-	t1 := c.add(q3, r3)
-	t2 := acc
-	t3 := c.add(q3, rSigned)
-	t4 := c.add(q, r3)
-	t12 := c.add(negR, q)
-	negR3 := c.neg(r3)
-	slots := []*point{t1, c.add(q, negR3), c.add(q3, negR), t2, t4, c.add(q3, negR3), t12, t3}
-	nbits := halfScalarBits + 1
-	halves := make([]frontend.Variable, len(slots))
-	for i, slot := range slots {
-		halves[i] = c.nativeValue(c.halfTangentSlope(slot))
-	}
-	lookup := func(i int, natives []frontend.Variable) (*point, frontend.Variable) {
-		return c.muxSlot(slots, natives, s1bits[i], s2bits[i], s1bits[i-1], s2bits[i-1])
-	}
-	if c.lay.Lookups {
-		lookup = c.packedTableLookup(slots, halves, s1bits, s2bits)
-	}
-	for i := nbits - 2; i > 2; i -= 2 {
-		t, half := lookup(i, halves)
-		acc = c.quadrupleAndAddLazy(acc, t, half)
-	}
-	last, _ := lookup(2, nil)
-	acc = c.quadrupleAndAddLazy(acc, c.guardedAdd(last, r3), nil)
-	acc = &point{X: fp.Eval(T(1, acc.X)), Y: acc.Y}
-
-	acc = c.selectPoint(s1bits[0], acc, c.guardedAddReducing(negQ, acc, true, false))
-	acc = c.selectPoint(s2bits[0], acc, c.guardedAddReducing(negR, acc, false, false))
-	c.assertEqual(acc, r3)
-	return r
-}
-
-func (c *curve) guardedAddReducing(p, q *point, reduceX, reduceY bool) *point {
-	c.assertDistinctX(p.X, q.X)
-	return c.addReducing(p, q, reduceX, reduceY)
-}
-
-func (c *curve) scalarFromBits(bits []frontend.Variable) *frElement {
-	var limbs []frontend.Variable
-	var widths []int
-	for i := 0; i < len(bits); i += c.lay.LimbBits {
-		chunk := bits[i:min(len(bits), i+c.lay.LimbBits)]
-		limbs = append(limbs, c.api.FromBinary(chunk...))
-		widths = append(widths, len(chunk))
-	}
-	return c.fr.Bounded(limbs, widths)
+	return sum
 }
 
 func p256DecomposeScalarHint(_ *big.Int, inputs []*big.Int, outputs []*big.Int) error {
 	if len(outputs) != 1+2*halfScalarBits {
 		return errors.New("expecting the sign and bit outputs")
 	}
-	s := limbHintValue(inputs)
-	n := GroupOrder()
-	res := lattice.NewReconstructor(n).RationalReconstruct(s.Mod(s, n))
-	x, z := new(big.Int).Set(res[0]), new(big.Int).Set(res[1])
-	if x.Sign() < 0 {
-		x.Neg(x)
-		z.Neg(z)
+	scalar := limbHintValue(inputs)
+	groupOrder := GroupOrder()
+	fraction := lattice.NewReconstructor(groupOrder).RationalReconstruct(scalar.Mod(scalar, groupOrder))
+	numerator, denominator := new(big.Int).Set(fraction[0]), new(big.Int).Set(fraction[1])
+	if numerator.Sign() < 0 {
+		numerator.Neg(numerator)
+		denominator.Neg(denominator)
 	}
 	outputs[0].SetUint64(0)
-	if z.Sign() > 0 {
+	if denominator.Sign() > 0 {
 		outputs[0].SetUint64(1)
 	}
-	z.Abs(z)
+	denominator.Abs(denominator)
 	for i := 0; i < halfScalarBits; i++ {
-		outputs[1+i].SetUint64(uint64(x.Bit(i)))
-		outputs[1+halfScalarBits+i].SetUint64(uint64(z.Bit(i)))
+		outputs[1+i].SetUint64(uint64(numerator.Bit(i)))
+		outputs[1+halfScalarBits+i].SetUint64(uint64(denominator.Bit(i)))
 	}
 	return nil
 }
@@ -208,13 +352,13 @@ func implicitDoubledY(p *big.Int, lambda0, xA, xD, yA *big.Int) *big.Int {
 	return y.Mod(y, p)
 }
 
-func modRatio(p, num, den *big.Int) *big.Int {
-	d := new(big.Int).Mod(den, p)
-	if d.Sign() == 0 {
+func modRatio(p, numerator, denominator *big.Int) *big.Int {
+	inverseDenominator := new(big.Int).Mod(denominator, p)
+	if inverseDenominator.Sign() == 0 {
 		return new(big.Int)
 	}
-	d.ModInverse(d, p)
-	return d.Mul(d, num).Mod(d, p)
+	inverseDenominator.ModInverse(inverseDenominator, p)
+	return inverseDenominator.Mul(inverseDenominator, numerator).Mod(inverseDenominator, p)
 }
 
 func p256ImplicitChordHint(q *big.Int, inputs, outputs []*big.Int) error {
@@ -239,134 +383,6 @@ func p256ImplicitSecondSlopeHint(q *big.Int, inputs, outputs []*big.Int) error {
 	})
 }
 
-func (c *curve) packedY(y *fpElement) []frontend.Variable {
-	api := c.api
-	limbs := y.Limbs()
-	var out []frontend.Variable
-	for g := 0; g < len(limbs); g += packedYGroup {
-		sum := frontend.Variable(0)
-		for j := g; j < min(g+packedYGroup, len(limbs)); j++ {
-			sum = api.Add(sum, api.Mul(limbs[j], pow2(c.lay.LimbBits*(j-g))))
-		}
-		out = append(out, sum)
-	}
-	return out
-}
-
-func (c *curve) unpackedY(packed []frontend.Variable) *fpElement {
-	widths := c.fp.ReducedWidths()
-	n := len(widths)
-	ys := make([]frontend.Variable, n)
-	lo, hi := make([]*big.Int, n), make([]*big.Int, n)
-	for j := range ys {
-		ys[j] = 0
-		lo[j], hi[j] = new(big.Int), new(big.Int)
-		if j%packedYGroup != 0 {
-			continue
-		}
-		bits := 0
-		for _, w := range widths[j:min(j+packedYGroup, n)] {
-			bits += w
-		}
-		ys[j] = packed[j/packedYGroup]
-		hi[j].Sub(pow2(bits), big.NewInt(1))
-		lo[j].Neg(hi[j])
-	}
-	return c.fp.WithBounds(ys, lo, hi)
-}
-
-func (c *curve) packedTableLookup(slots []*point, halves []frontend.Variable, s1bits, s2bits []frontend.Variable) func(i int, natives []frontend.Variable) (*point, frontend.Variable) {
-	api, fp := c.api, c.fp
-	widths := fp.ReducedWidths()
-	nbLimbs := len(widths)
-	nbPacked := (nbLimbs + packedYGroup - 1) / packedYGroup
-	table := newRowTable(api, nbLimbs+nbPacked+1)
-	for idx := 0; idx < 16; idx++ {
-		sx := idx
-		if idx >= 8 {
-			sx = 15 - idx
-		}
-		slot := slots[sx]
-		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
-			panic("table points must be reduced")
-		}
-		y := slot.Y
-		if idx&1 == 0 {
-			y = fp.Neg(y)
-		}
-		row := append(append([]frontend.Variable{}, slot.X.Limbs()...), c.packedY(y)...)
-		table.insert(append(row, halves[sx]))
-	}
-	return func(i int, _ []frontend.Variable) (*point, frontend.Variable) {
-		selector := api.Add(s1bits[i], api.Mul(s2bits[i], 2), api.Mul(s1bits[i-1], 4), api.Mul(s2bits[i-1], 8))
-		cols := table.lookup(selector)
-		return &point{X: fp.Reduced(cols[:nbLimbs]), Y: c.unpackedY(cols[nbLimbs : nbLimbs+nbPacked])}, cols[nbLimbs+nbPacked]
-	}
-}
-
-func (c *curve) muxSlot(slots []*point, natives []frontend.Variable, b0, b1, b2, b3 frontend.Variable) (*point, frontend.Variable) {
-	api, fp := c.api, c.fp
-	widths := fp.ReducedWidths()
-	for _, slot := range slots {
-		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
-			panic("table points must be reduced")
-		}
-	}
-	sel := []frontend.Variable{api.Xor(b0, b3), api.Xor(b1, b3), api.Xor(b2, b3)}
-	mux := func(column func(int) []frontend.Variable) []frontend.Variable {
-		level := make([][]frontend.Variable, len(slots))
-		for i := range slots {
-			level[i] = column(i)
-		}
-		for _, bit := range sel {
-			next := make([][]frontend.Variable, len(level)/2)
-			for j := range next {
-				next[j] = make([]frontend.Variable, len(level[2*j]))
-				for l := range next[j] {
-					next[j][l] = api.Select(bit, level[2*j+1][l], level[2*j][l])
-				}
-			}
-			level = next
-		}
-		return level[0]
-	}
-	xs := mux(func(i int) []frontend.Variable {
-		if natives == nil {
-			return slots[i].X.Limbs()
-		}
-		return append(append([]frontend.Variable{}, slots[i].X.Limbs()...), natives[i])
-	})
-	var native frontend.Variable
-	if natives != nil {
-		native, xs = xs[len(xs)-1], xs[:len(xs)-1]
-	}
-	packed := mux(func(i int) []frontend.Variable { return c.packedY(slots[i].Y) })
-	sign := api.Sub(api.Mul(b0, 2), 1)
-	for g := range packed {
-		packed[g] = api.Mul(sign, packed[g])
-	}
-	return &point{X: fp.Reduced(xs), Y: c.unpackedY(packed)}, native
-}
-
-func (c *curve) halfTangentSlope(t *point) *fpElement {
-	fp := c.fp
-	lambda := c.slope(p256HalfTangentHint, 1, nil, t.X, t.Y)[0]
-	square := fp.Lazy(T(1, lambda, lambda))
-	fp.AssertZero(T(1, square, square), T(-6, square, t.X), T(-8, lambda, t.Y), T(-3, t.X, t.X), T(-4, c.a))
-	return lambda
-}
-
-func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) {
-	api := c.api
-	p := c.fp.Modulus()
-	pp := new(big.Int).Mul(p, p)
-	value := c.nativeValue(lambda)
-	factor := func(d frontend.Variable) frontend.Variable {
-		return api.Mul(d, api.Sub(api.Mul(d, d), pp))
-	}
-	api.AssertIsDifferent(api.Mul(factor(api.Sub(value, other)), factor(api.Add(value, other))), 0)
-}
-
 func p256HalfTangentHint(q *big.Int, inputs, outputs []*big.Int) error {
 	return emfield.Unwrap(q, inputs, outputs, func(p *big.Int, _, in, out []*big.Int) error {
 		if len(in) != 2 || len(out) != 1 {
@@ -385,4 +401,8 @@ func p256HalfTangentHint(q *big.Int, inputs, outputs []*big.Int) error {
 		out[0].Set(modRatio(p, num, new(big.Int).Lsh(&y, 1)))
 		return nil
 	})
+}
+
+func init() {
+	solver.RegisterHint(p256DecomposeScalarHint, p256ScalarMulHint, p256ImplicitChordHint, p256ImplicitSecondSlopeHint, p256HalfTangentHint)
 }
