@@ -10,7 +10,7 @@ use crate::{
 const API_KEY: &str = "api-key";
 const REDACTED: &str = "redacted";
 /// Where a Helius RPC host serves the indexer and the prover.
-pub const ZOLANA_GATEWAY_PATH: &str = "/v1/zolana";
+const ZOLANA_GATEWAY_PATH: &str = "/v1/zolana";
 const HELIUS_RPC_DOMAIN: &str = "helius-rpc.com";
 
 /// A prover base URL. Request paths go before its query, so every query
@@ -34,9 +34,10 @@ impl ProverEndpoint {
     /// `/prove` and `/prove/status` and has no indexed route.
     pub(crate) fn is_gateway(&self) -> bool {
         self.base.as_ref().is_some_and(|url| {
-            let helius = url
-                .host_str()
-                .is_some_and(|host| host == HELIUS_RPC_DOMAIN || host.ends_with(".helius-rpc.com"));
+            let helius = url.host_str().is_some_and(|host| {
+                host.strip_suffix(HELIUS_RPC_DOMAIN)
+                    .is_some_and(|subdomain| subdomain.is_empty() || subdomain.ends_with('.'))
+            });
             helius && url.path().trim_end_matches('/') == ZOLANA_GATEWAY_PATH
         })
     }
@@ -173,6 +174,18 @@ mod tests {
             url("https://prover.invalid?token=x", PROVE_PATH),
             "https://prover.invalid/prove?token=x"
         );
+    }
+
+    #[test]
+    fn only_a_helius_rpc_host_is_the_gateway() {
+        let gateway = |url: &str| ProverEndpoint::parse(url).is_gateway();
+        assert!(gateway("https://helius-rpc.com/v1/zolana"));
+        assert!(gateway(
+            "https://beta-devnet.helius-rpc.com/v1/zolana/?api-key=k"
+        ));
+        assert!(!gateway("https://evilhelius-rpc.com/v1/zolana"));
+        assert!(!gateway("https://helius-rpc.com.evil.invalid/v1/zolana"));
+        assert!(!gateway("https://beta-devnet.helius-rpc.com/?api-key=k"));
     }
 
     #[test]

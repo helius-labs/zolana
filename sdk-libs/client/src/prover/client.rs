@@ -246,6 +246,8 @@ impl Default for AsyncProverClient {
 }
 
 impl ProverClient {
+    /// The Helius gateway has no indexed route, so on it
+    /// [`ProofDataSource::Prover`] fails every indexed proof.
     #[must_use]
     pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
         self.proof_data_source = source;
@@ -944,6 +946,8 @@ fn wait_or_timeout(
 }
 
 impl AsyncProverClient {
+    /// The Helius gateway has no indexed route, so on it
+    /// [`ProofDataSource::Prover`] fails every indexed proof.
     #[must_use]
     pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
         self.proof_data_source = source;
@@ -2842,7 +2846,10 @@ mod tests {
         let refused = ProverClient::new("https://beta-devnet.helius-rpc.com/v1/zolana".into())
             .with_proof_data_source(ProofDataSource::Prover)
             .prove_indexed(&request);
-        assert!(matches!(refused, Err(ClientError::Prover(_))));
+        let Err(ClientError::Prover(message)) = refused else {
+            panic!("the gateway refuses an indexed proof before sending it");
+        };
+        assert!(message.contains("no indexed prove route"), "{message}");
         assert_eq!(
             ProverClient::new("https://prover.example/v1/zolana".into()).proof_data_source(),
             ProofDataSource::Prover
