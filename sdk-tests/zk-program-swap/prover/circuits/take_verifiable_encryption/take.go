@@ -54,6 +54,6 @@ func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable 
 	copy(plaintext[0:8], ve.FieldToBytesBE(api, c.Core.Order.DestinationAmount, 8))
 	copy(plaintext[8:40], ve.FieldToBytesBE(api, c.Core.Order.DestinationAsset, 32))
 	copy(plaintext[40:72], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 32))
-	ciphertext := aes.CTREncrypt(api, key, nonce, plaintext[:])
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext[:])
 	return gnarksdk.HashBytes(api, ciphertext)
 }

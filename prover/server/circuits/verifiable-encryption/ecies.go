@@ -76,7 +76,7 @@ func (e Envelope) Encrypt(api frontend.API) Encrypted {
 	sharedSecret := gadget.PoseidonHash(api, sharedSecretPreimage)
 
 	key, nonce := KeySchedule(api, sharedSecret, e.KdfInfo)
-	ciphertext := aes.CTREncrypt(api, key, nonce, e.Plaintext)
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, e.Plaintext)
 
 	return Encrypted{
 		RecipientLo:  keyAgreement.RecipientLo,

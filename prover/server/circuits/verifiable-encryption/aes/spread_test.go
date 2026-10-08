@@ -25,7 +25,7 @@ type roundKeysCtrCircuit struct {
 }
 
 func (c *roundKeysCtrCircuit) Define(api frontend.API) error {
-	ciphertext := CTREncrypt(api, c.Key, c.Nonce, c.Plaintext)
+	ciphertext := NewCipher(api, c.Key).CTREncrypt(c.Nonce, c.Plaintext)
 	for i := range ciphertext {
 		api.AssertIsEqual(ciphertext[i], c.Ciphertext[i])
 	}
@@ -92,7 +92,7 @@ type pathCtrCircuit struct {
 }
 
 func (c *pathCtrCircuit) Define(api frontend.API) error {
-	ciphertext := CTREncrypt(api, c.Key, c.Nonce, c.Plaintext)
+	ciphertext := NewCipher(api, c.Key).CTREncrypt(c.Nonce, c.Plaintext)
 	for i := range ciphertext {
 		api.AssertIsEqual(ciphertext[i], c.Ciphertext[i])
 	}
@@ -200,7 +200,7 @@ type sharedTablesCircuit struct {
 
 func (c *sharedTablesCircuit) Define(api frontend.API) error {
 	for s := 0; s < c.streams; s++ {
-		ciphertext := CTREncrypt(api, c.Key, c.Nonce, c.Plaintext[:])
+		ciphertext := NewCipher(api, c.Key).CTREncrypt(c.Nonce, c.Plaintext[:])
 		for i := range ciphertext {
 			api.AssertIsEqual(ciphertext[i], c.Ciphertext[i])
 		}

@@ -59,7 +59,7 @@ func (s successorCounters) encrypt(api frontend.API, txViewingKey p256.PublicKey
 			plaintext = append(plaintext, api.FromBinary(bits[j*8:(j+1)*8]...))
 		}
 	}
-	ciphertext := aes.CTREncrypt(api, key, nonce, plaintext)
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
 	disclosure := counterConstants([]byte(CountersDisclosureDomain))
 	disclosure = append(disclosure, salt[:]...)
 	disclosure = append(disclosure, compressed[:]...)

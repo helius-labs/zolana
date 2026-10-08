@@ -28,7 +28,7 @@ func (c *reusableCipherCircuit) Define(api frontend.API) error {
 		if c.reuse {
 			ciphertext = cipher.CTREncrypt(c.Nonce[stream], c.Plaintext[stream][:])
 		} else {
-			ciphertext = CTREncrypt(api, c.Key, c.Nonce[stream], c.Plaintext[stream][:])
+			ciphertext = NewCipher(api, c.Key).CTREncrypt(c.Nonce[stream], c.Plaintext[stream][:])
 		}
 		for i, b := range ciphertext {
 			api.AssertIsEqual(b, c.Ciphertext[stream][i])

@@ -14,7 +14,7 @@
 //!                          eph_pk_lo, eph_pk_hi,
 //!                          auditor_pk_lo, auditor_pk_hi)     -- ve.Envelope.Encrypt
 //! ciphertext    = AES-256-CTR(KeySchedule(shared_secret, AUDIT_ENC_INFO),
-//!                             tx_viewing_sk)                 -- ve.KeySchedule + aes.CTREncrypt
+//!                             tx_viewing_sk)                 -- ve.KeySchedule + (*aes.Cipher).CTREncrypt
 //! ```
 //!
 //! `packSharedX` and `packCompressedPoint` in
