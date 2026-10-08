@@ -141,7 +141,9 @@ func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
 	if value == 0 {
 		return s.keys.bytes[position]
 	}
-	sum := s.keys.tables.api.Add(s.keys.spreadBytes[position], s.keys.tables.spreadConstant(value))
+	spreadKeyByte := s.keys.spreadBytes[position]
+	spreadCounterByte := s.keys.tables.spreadConstant(value)
+	sum := s.keys.tables.api.Add(spreadKeyByte, spreadCounterByte)
 	return s.keys.tables.xorBytes([]frontend.Variable{sum})[0]
 }
 
@@ -167,19 +169,25 @@ func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *r
 		spreadRoundKeyBytes[i] = t.spreadByte(key[i])
 	}
 	for i := aes256KeyBytes; i < aes256RoundBytes; i += wordBytes {
+		previousWordStart := i - wordBytes
 		var mixed [wordBytes]frontend.Variable
 		switch i % aes256KeyBytes {
 		case 0:
 			for j := range mixed {
-				mixed[j] = t.substitute(sboxRegion, roundKeyBytes[i-wordBytes+(j+1)%wordBytes])
+				rotatedByteIndex := (j + 1) % wordBytes
+				previousByte := roundKeyBytes[previousWordStart+rotatedByteIndex]
+				mixed[j] = t.substitute(sboxRegion, previousByte)
 			}
-			mixed[0] = api.Add(mixed[0], t.spreadConstant(roundConstants[i/aes256KeyBytes]))
+			roundConstant := roundConstants[i/aes256KeyBytes]
+			spreadRoundConstant := t.spreadConstant(roundConstant)
+			mixed[0] = api.Add(mixed[0], spreadRoundConstant)
 		case 16:
 			for j := range mixed {
-				mixed[j] = t.substitute(sboxRegion, roundKeyBytes[i-wordBytes+j])
+				previousByte := roundKeyBytes[previousWordStart+j]
+				mixed[j] = t.substitute(sboxRegion, previousByte)
 			}
 		default:
-			copy(mixed[:], spreadRoundKeyBytes[i-wordBytes:i])
+			copy(mixed[:], spreadRoundKeyBytes[previousWordStart:i])
 		}
 		sums := make([]frontend.Variable, wordBytes)
 		for j := range sums {
@@ -202,7 +210,8 @@ func (k *roundKeys) addRoundKey(spreadBytes []frontend.Variable, offset int) []f
 }
 
 func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
-	return k.tables.decodeXorBytes(k.columnSum(round, column, state, 0, 1, 2, 3), wordBytes)
+	spreadColumnSum := k.columnSum(round, column, state, 0, 1, 2, 3)
+	return k.tables.decodeXorBytes(spreadColumnSum, wordBytes)
 }
 
 var columnSources = [wordBytes][wordBytes]int{
@@ -215,7 +224,9 @@ var columnSources = [wordBytes][wordBytes]int{
 func (k *roundKeys) columnSum(round, column int, state *[blockBytes]frontend.Variable, regions ...int) frontend.Variable {
 	sum := k.word(round, column)
 	for _, region := range regions {
-		sum = k.tables.api.Add(sum, k.tables.substitute(region, state[columnSources[column][region]]))
+		stateByteIndex := columnSources[column][region]
+		spreadContribution := k.tables.substitute(region, state[stateByteIndex])
+		sum = k.tables.api.Add(sum, spreadContribution)
 	}
 	return sum
 }
@@ -273,15 +284,20 @@ func newSpreadTables(api frontend.API) *spreadTables {
 	t.substitution = logderivlookup.New(api)
 	for region := 0; region < sboxRegion; region++ {
 		for a := 0; a < tableRegionSize; a++ {
-			t.substitution.Insert(spreadValue(uint64(substitutionWords[region][a]), bitsPerByte*wordBytes, chunkLaneBase))
+			substitutionWord := substitutionWords[region][a]
+			spreadWord := spreadValue(uint64(substitutionWord), bitsPerByte*wordBytes, chunkLaneBase)
+			t.substitution.Insert(spreadWord)
 		}
 	}
 	for a := 0; a < tableRegionSize; a++ {
-		t.substitution.Insert(spreadValue(uint64(sbox0[a]), bitsPerByte, chunkLaneBase))
+		substitutedByte := sbox0[a]
+		spreadSubstitutedByte := spreadValue(uint64(substitutedByte), bitsPerByte, chunkLaneBase)
+		t.substitution.Insert(spreadSubstitutedByte)
 	}
 	t.bytes = logderivlookup.New(api)
 	for a := 0; a < tableRegionSize; a++ {
-		t.bytes.Insert(spreadValue(uint64(a), bitsPerByte, chunkLaneBase))
+		spreadByte := spreadValue(uint64(a), bitsPerByte, chunkLaneBase)
+		t.bytes.Insert(spreadByte)
 	}
 	t.chunks = logderivlookup.New(api)
 	for c := 0; c < chunkRadix; c++ {
@@ -308,7 +324,9 @@ func (t *spreadTables) xorBytes(sums []frontend.Variable) []frontend.Variable {
 	out := make([]frontend.Variable, 0, len(sums))
 	for start := 0; start < len(sums); start += wordBytes {
 		end := min(start+wordBytes, len(sums))
-		out = append(out, t.decodeXorBytes(t.word(sums[start:end]), end-start)...)
+		spreadWordSum := t.word(sums[start:end])
+		decodedBytes := t.decodeXorBytes(spreadWordSum, end-start)
+		out = append(out, decodedBytes...)
 	}
 	return out
 }
@@ -336,7 +354,9 @@ func (t *spreadTables) decodeXorBytes(spreadSum frontend.Variable, byteCount int
 	t.api.AssertIsEqual(spreadSum, recomposed)
 	nibbles := t.chunks.Lookup(chunks...)
 	for j := range out {
-		out[j] = t.api.Add(nibbles[2*j], t.api.Mul(nibbles[2*j+1], 16))
+		lowNibble := nibbles[2*j]
+		highNibble := nibbles[2*j+1]
+		out[j] = t.api.Add(lowNibble, t.api.Mul(highNibble, 16))
 	}
 	return out
 }
