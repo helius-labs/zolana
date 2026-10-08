@@ -67,7 +67,7 @@ def template(config):
     return body
 
 
-# The administrator can decrypt the seed and is the trust root.
+# Only a logged PutKeyPolicy lifts the denies.
 def key_policy(account, *statements):
     return aws_stack.document(
         [
@@ -83,23 +83,7 @@ def key_policy(account, *statements):
     )
 
 
-def attested_decrypt(host_role, pcrs):
-    return {
-        "Sid": "AttestedEnclave",
-        "Effect": "Allow",
-        "Principal": {"AWS": host_role},
-        "Action": "kms:Decrypt",
-        "Resource": "*",
-        "Condition": {
-            "StringEqualsIgnoreCase": {
-                f"kms:RecipientAttestation:{name}": pcrs[name] for name in PCRS
-            }
-        },
-    }
-
-
-# Decrypt needs every PCR, and no principal may wrap a seed it chose.
-def sealed(pcrs):
+def sealed():
     return [
         {
             "Sid": "SealedSeed",
@@ -110,9 +94,38 @@ def sealed(pcrs):
                 "kms:ReEncrypt*",
                 "kms:GenerateDataKey",
                 "kms:GenerateDataKeyPair*",
-                "kms:GenerateDataKeyWithoutPlaintext",
             ],
             "Resource": "*",
+        },
+    ]
+
+
+# Until deploy binds the PCRs no attestation decrypts.
+def unbound():
+    return [
+        {
+            "Sid": "UnboundDecrypt",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": "kms:Decrypt",
+            "Resource": "*",
+        }
+    ]
+
+
+def attested(host_role, pcrs):
+    return [
+        {
+            "Sid": "AttestedEnclave",
+            "Effect": "Allow",
+            "Principal": {"AWS": host_role},
+            "Action": "kms:Decrypt",
+            "Resource": "*",
+            "Condition": {
+                "StringEqualsIgnoreCase": {
+                    f"kms:RecipientAttestation:{name}": pcrs[name] for name in PCRS
+                }
+            },
         },
         *(
             {
@@ -155,7 +168,7 @@ def create_kms_key(aws, name, account):
         "kms",
         "create-key",
         Description=f"{name} HPKE seed",
-        Policy=json.dumps(key_policy(account)),
+        Policy=json.dumps(key_policy(account, *sealed(), *unbound())),
         Tags=[{"TagKey": OWNER["Key"], "TagValue": OWNER["Value"]}],
     )["KeyMetadata"]
     try:
@@ -176,34 +189,32 @@ def delete_kms_key(aws, key):
     aws.call("kms", "schedule-key-deletion", KeyId=key, PendingWindowInDays=7)
 
 
+# The PCRs are bound before any seed is generated.
 def release_seed(aws, out, key, pcrs):
-    account = key.split(":")[4]
-
-    def put_policy(*statements):
-        aws.call(
-            "kms",
-            "put-key-policy",
-            KeyId=key,
-            PolicyName="default",
-            Policy=json.dumps(key_policy(account, *statements)),
+    aws.call(
+        "kms",
+        "put-key-policy",
+        KeyId=key,
+        PolicyName="default",
+        Policy=json.dumps(
+            key_policy(key.split(":")[4], *sealed(), *attested(out["HostRole"], pcrs))
+        ),
+    )
+    if gpu.object_exists(aws, out["Bucket"], SEED_OBJECT):
+        return
+    blob = aws.call(
+        "kms", "generate-data-key-without-plaintext", KeyId=key, KeySpec="AES_256"
+    )["CiphertextBlob"]
+    with tempfile.TemporaryDirectory() as directory:
+        seed = Path(directory) / "hpke-seed.bin"
+        seed.write_bytes(base64.b64decode(blob))
+        aws.command(
+            "s3",
+            "cp",
+            str(seed),
+            f"s3://{out['Bucket']}/{SEED_OBJECT}",
+            "--only-show-errors",
         )
-
-    if not gpu.object_exists(aws, out["Bucket"], SEED_OBJECT):
-        put_policy()
-        blob = aws.call(
-            "kms", "generate-data-key-without-plaintext", KeyId=key, KeySpec="AES_256"
-        )["CiphertextBlob"]
-        with tempfile.TemporaryDirectory() as directory:
-            seed = Path(directory) / "hpke-seed.bin"
-            seed.write_bytes(base64.b64decode(blob))
-            aws.command(
-                "s3",
-                "cp",
-                str(seed),
-                f"s3://{out['Bucket']}/{SEED_OBJECT}",
-                "--only-show-errors",
-            )
-    put_policy(attested_decrypt(out["HostRole"], pcrs), *sealed(pcrs))
 
 
 def enclave_size(described):

@@ -18,7 +18,8 @@ An image built without the KMS key source draws a new HPKE key at each boot inst
 It listens on enclave loopback only and runs without an API key.
 
 The KMS key policy grants `kms:*` to the account root, so every IAM principal of the account that may call `kms:PutKeyPolicy` is a trust root.
-The policy denies every principal a decrypt without the measured PCRs and any call that wraps a new seed.
+From creation the policy denies every decrypt and any call that wraps a chosen plaintext.
+Deploy replaces the decrypt deny with one that admits only an enclave with the measured PCRs.
 A trust root can lift those denials only by rewriting the policy, and CloudTrail records that call.
 
 The parent instance runs the enclave and carries traffic it cannot read.
@@ -35,12 +36,12 @@ The operator creates the KMS key, builds and pushes the image with its ARN, meas
 ## Shared key
 
 All enclaves of a deployment hold the same HPKE key, so the gateway can spread requests over them and a client can pin the key.
-`kms-key` creates one symmetric KMS key per deployment under `alias/zolana-nitro-NAME`, with a policy that grants only the administrator.
+`kms-key` creates one symmetric KMS key per deployment under `alias/zolana-nitro-NAME`, sealed from creation.
 The image carries the key ARN in `/etc/zolana-nitro/kms-key`, and `measure` reads it back with the PCRs.
 Deploy refuses an image that names another key or measurements of another image.
-When the stack bucket holds no seed, it resets the key policy to the administrator, calls `GenerateDataKeyWithoutPlaintext` and stores the encrypted 32 byte seed at `install/hpke-seed.bin`.
-It then writes the key policy.
-That policy lets the host role call `kms:Decrypt` only when the request carries an attestation whose PCR0, PCR1 and PCR2 equal the values from `measure`, and it denies new seeds from then on.
+It first writes the key policy that lets the host role call `kms:Decrypt` only when the request carries an attestation whose PCR0, PCR1 and PCR2 equal the values from `measure`, and denies every other attestation.
+When the stack bucket holds no seed, it then calls `GenerateDataKeyWithoutPlaintext` and stores the encrypted 32 byte seed at `install/hpke-seed.bin`.
+The seed never exists under a policy that releases it to another image.
 The deployment never handles the plaintext seed.
 
 At boot each enclave connects to the parent on vsock CID 3, port 8200.
@@ -48,7 +49,8 @@ The `zolana-kms` service answers with one JSON line that holds the ciphertext an
 The enclave asks KMS to decrypt with its attestation document, so KMS encrypts the seed to a key that exists only inside that enclave.
 The parent relays that answer without being able to read it.
 The enclave fails to start when any step fails.
-A parent that feeds another ciphertext gets a refusal from KMS, because the key ARN comes from the measured image.
+A ciphertext under another key gets a refusal from KMS, because the key ARN comes from the measured image.
+A fresh ciphertext under the same key yields another HPKE key, and deploy and a client pin refuse it.
 
 ## How it works
 

@@ -477,37 +477,75 @@ class AttestationTests(unittest.TestCase):
 
 
 class KmsTests(unittest.TestCase):
-    def test_key_policy_releases_the_seed_only_to_the_measured_enclave(self):
+    def test_attested_policy_releases_the_seed_only_to_the_measured_enclave(self):
+        allow, *denies = aws_nitro.attested(HOST_ROLE, PCR)
         self.assertEqual(
-            aws_nitro.key_policy(
-                "558215002830", aws_nitro.attested_decrypt(HOST_ROLE, PCR)
-            ),
+            allow,
             {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Sid": "Administrator",
-                        "Effect": "Allow",
-                        "Principal": {"AWS": "arn:aws:iam::558215002830:root"},
-                        "Action": "kms:*",
-                        "Resource": "*",
-                    },
-                    {
-                        "Sid": "AttestedEnclave",
-                        "Effect": "Allow",
-                        "Principal": {"AWS": HOST_ROLE},
-                        "Action": "kms:Decrypt",
-                        "Resource": "*",
-                        "Condition": {
-                            "StringEqualsIgnoreCase": {
-                                "kms:RecipientAttestation:PCR0": PCR["PCR0"],
-                                "kms:RecipientAttestation:PCR1": PCR["PCR1"],
-                                "kms:RecipientAttestation:PCR2": PCR["PCR2"],
-                            }
-                        },
-                    },
-                ],
+                "Sid": "AttestedEnclave",
+                "Effect": "Allow",
+                "Principal": {"AWS": HOST_ROLE},
+                "Action": "kms:Decrypt",
+                "Resource": "*",
+                "Condition": {
+                    "StringEqualsIgnoreCase": {
+                        f"kms:RecipientAttestation:{name}": PCR[name]
+                        for name in host.PCRS
+                    }
+                },
             },
+        )
+        self.assertEqual(
+            [
+                (
+                    deny["Sid"],
+                    deny["Effect"],
+                    deny["Principal"],
+                    deny["Action"],
+                    deny["Condition"],
+                )
+                for deny in denies
+            ],
+            [
+                (
+                    f"Attested{name}",
+                    "Deny",
+                    "*",
+                    "kms:Decrypt",
+                    {
+                        "StringNotEqualsIgnoreCase": {
+                            f"kms:RecipientAttestation:{name}": PCR[name]
+                        }
+                    },
+                )
+                for name in host.PCRS
+            ],
+        )
+
+    def test_new_keys_deny_wrapping_and_every_decrypt(self):
+        self.assertEqual(
+            aws_nitro.sealed() + aws_nitro.unbound(),
+            [
+                {
+                    "Sid": "SealedSeed",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": [
+                        "kms:Encrypt",
+                        "kms:ReEncrypt*",
+                        "kms:GenerateDataKey",
+                        "kms:GenerateDataKeyPair*",
+                    ],
+                    "Resource": "*",
+                },
+                {
+                    "Sid": "UnboundDecrypt",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "kms:Decrypt",
+                    "Resource": "*",
+                },
+            ],
         )
 
     def owned(self, aws, state="Enabled", tags=None):
@@ -563,7 +601,10 @@ class KmsTests(unittest.TestCase):
             aws_nitro.create_kms_key(aws, "zolana-nitro-test", "558215002830")
         created = dict(calls)["create-key"]
         self.assertEqual(
-            json.loads(created["Policy"]), aws_nitro.key_policy("558215002830")
+            json.loads(created["Policy"]),
+            aws_nitro.key_policy(
+                "558215002830", *aws_nitro.sealed(), *aws_nitro.unbound()
+            ),
         )
         self.assertEqual(
             created["Tags"], [{"TagKey": "zolana-tool", "TagValue": "nitro-deploy"}]
@@ -603,55 +644,34 @@ class KmsTests(unittest.TestCase):
             resume(dict(PCR, enclaves=2), self.expected(), seed=seed, aws=aws)
         return operations, uploads
 
-    def test_deploy_seeds_once_then_seals_the_policy(self):
+    def test_deploy_binds_the_pcrs_before_the_seed_and_never_reopens(self):
+        sealed_policy = aws_nitro.key_policy(
+            "558215002830",
+            *aws_nitro.sealed(),
+            *aws_nitro.attested(HOST_ROLE, PCR),
+        )
         operations, uploads = self.kms_deploy(seed=False)
         self.assertEqual(
             [name for name, _ in operations if name != "get-secret-value"],
-            ["put-key-policy", "generate-data-key-without-plaintext", "put-key-policy"],
+            ["put-key-policy", "generate-data-key-without-plaintext"],
         )
-        unsealed, policy = (
-            parameters for name, parameters in operations if name == "put-key-policy"
-        )
-        self.assertEqual(
-            json.loads(unsealed["Policy"]), aws_nitro.key_policy("558215002830")
-        )
+        policy = dict(operations)["put-key-policy"]
         self.assertEqual(policy["KeyId"], KMS_KEY)
-        self.assertEqual(
-            json.loads(policy["Policy"]),
-            aws_nitro.key_policy(
-                "558215002830",
-                aws_nitro.attested_decrypt(HOST_ROLE, PCR),
-                *aws_nitro.sealed(PCR),
-            ),
-        )
+        self.assertEqual(json.loads(policy["Policy"]), sealed_policy)
         self.assertEqual(
             dict(operations)["generate-data-key-without-plaintext"],
             {"KeyId": KMS_KEY, "KeySpec": "AES_256"},
         )
         self.assertEqual(uploads, [(b"blob", "s3://b/" + host.SEED_OBJECT)])
         operations, uploads = self.kms_deploy(seed=True)
-        names = [name for name, _ in operations]
-        self.assertIn("put-key-policy", names)
-        self.assertNotIn("generate-data-key-without-plaintext", names)
-        self.assertEqual(uploads, [])
-
-    def test_sealed_policy_denies_wrapping_and_unattested_decrypt(self):
-        wrap, *decrypt = aws_nitro.sealed(PCR)
-        self.assertEqual(wrap["Effect"], "Deny")
-        self.assertEqual(wrap["Principal"], "*")
-        self.assertNotIn("kms:Decrypt", wrap["Action"])
-        self.assertIn("kms:GenerateDataKeyWithoutPlaintext", wrap["Action"])
         self.assertEqual(
-            [statement["Condition"] for statement in decrypt],
-            [
-                {
-                    "StringNotEqualsIgnoreCase": {
-                        f"kms:RecipientAttestation:{name}": PCR[name]
-                    }
-                }
-                for name in host.PCRS
-            ],
+            [name for name, _ in operations if name != "get-secret-value"],
+            ["put-key-policy"],
         )
+        self.assertEqual(
+            json.loads(dict(operations)["put-key-policy"]["Policy"]), sealed_policy
+        )
+        self.assertEqual(uploads, [])
 
     def test_deploy_refuses_pcrs_of_another_image(self):
         with (
