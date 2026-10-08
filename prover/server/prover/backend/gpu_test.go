@@ -73,7 +73,7 @@ func TestGPUBackendTransfer(t *testing.T) {
 	if err = Initialize(); err != nil {
 		t.Fatal(err)
 	}
-	before := testutil.ToFloat64(gpuCache.WithLabelValues("miss"))
+	before := testutil.ToFloat64(engineCache.WithLabelValues("miss"))
 	proof, err := prove(system.ConstraintSystem, system.ProvingKey, full)
 	if err != nil {
 		t.Fatal(err)
@@ -85,10 +85,10 @@ func TestGPUBackendTransfer(t *testing.T) {
 	if err = groth16.Verify(proof, system.VerifyingKey, public); err != nil {
 		t.Fatal(err)
 	}
-	if testutil.ToFloat64(gpuCache.WithLabelValues("miss")) != before+1 {
+	if testutil.ToFloat64(engineCache.WithLabelValues("miss")) != before+1 {
 		t.Fatal("cache metric did not observe proof")
 	}
-	if testutil.ToFloat64(gpuMemory) <= 0 || testutil.ToFloat64(gpuKeys) != 1 {
+	if testutil.ToFloat64(engineMemory) <= 0 || testutil.ToFloat64(engineKeys) != 1 {
 		t.Fatal("GPU resources not observed")
 	}
 }
