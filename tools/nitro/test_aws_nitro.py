@@ -1413,9 +1413,17 @@ class ImageTests(unittest.TestCase):
         self.assertNotIn("PROVER_API_KEY", ENTRYPOINT)
         self.assertNotIn("0.0.0.0", ENTRYPOINT)
         self.assertIn("ip link set lo up", ENTRYPOINT)
-        bases = re.findall(
-            r"^FROM (\S+)", (SERVER / "Dockerfile.nitro").read_text(), re.M
-        )
+        dockerfile = (SERVER / "Dockerfile.nitro").read_text()
+        stages = re.findall(r"^FROM \S+ AS (\S+)$", dockerfile, re.M)
+        arms = re.search(r"case \$BACKEND in (.+?) esac", dockerfile).group(1)
+        backends = re.findall(r"([\w-]+)\)", arms)
+        self.assertEqual(backends, ["gnark", "aeglos-cpu"])
+        self.assertTrue(all(backend in stages for backend in backends))
+        bases = [
+            base
+            for base in re.findall(r"^FROM (\S+)", dockerfile, re.M)
+            if base not in stages and base != "${BACKEND}"
+        ]
         self.assertEqual(len(bases), 2)
         self.assertTrue(
             all(re.search(r"@sha256:[0-9a-f]{64}$", base) for base in bases)

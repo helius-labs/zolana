@@ -46,7 +46,7 @@ workers before closing the backend.
 
 The `aeglos-cpu` backend needs no GPU, so a TEE prover on it attests no GPU
 evidence. `build-aeglos.sh` builds it when it gets `cpu` in place of the CUDA
-architecture.
+architecture, and `Dockerfile.nitro` builds it with `BACKEND=aeglos-cpu`.
 `AEGLOS_CPU_THREADS` sets the engine workers, and unset takes every logical CPU.
 `AEGLOS_CPU_FAMILY` pins the arithmetic to `scalar`, `avx512f`, `ifma256` or
 `ifma512`, and startup fails on a host without it. Unset or `auto` follows
