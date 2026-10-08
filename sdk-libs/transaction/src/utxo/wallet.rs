@@ -33,6 +33,18 @@ impl WalletUtxo {
     pub fn tree_id(&self) -> u16 {
         self.tree_id
     }
+
+    /// Whether the default-ring circuit can spend it. A ring-bound UTXO's
+    /// commitment covers its ring, which that circuit does not.
+    pub fn is_default_ring_spendable(&self) -> bool {
+        self.utxo.ring_program_id.is_none() && self.ring_data_hash.is_none()
+    }
+
+    /// No ring binding and no attached data: the only UTXOs a split or a merge
+    /// takes, since their spend input drops the committed data hashes.
+    pub fn is_plain(&self) -> bool {
+        self.is_default_ring_spendable() && self.data_hash.is_none() && self.utxo.data.is_empty()
+    }
 }
 
 /// A field move, never a recomputation. `utxo_hash` and `nullifier` are the

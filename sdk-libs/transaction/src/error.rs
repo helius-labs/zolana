@@ -155,6 +155,9 @@ pub enum TransactionError {
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 
+    #[error("a spend needs a positive amount")]
+    ZeroSpendAmount,
+
     #[error("no spendable balance of {asset}")]
     NoSpendableBalance { asset: Address },
 

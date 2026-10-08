@@ -322,12 +322,9 @@ impl ConfidentialTransaction {
     }
 
     /// Withdraw `amount` of `asset` to the public account `recipient` and
-    /// return the settlement accounts the `transact` instruction takes for it.
-    ///
-    /// SOL goes to `recipient` itself. An SPL mint goes to `recipient`'s
-    /// associated token account under `token_program`, the mint's token
-    /// program, which must be `None` for SOL; that account must exist when
-    /// the transaction lands.
+    /// return the settlement accounts the `transact` instruction takes for it,
+    /// as [`withdrawal_settlement`] derives them. The token account of an SPL
+    /// withdrawal must exist when the transaction lands.
     pub fn withdraw_to(
         &mut self,
         asset: Address,
@@ -335,27 +332,53 @@ impl ConfidentialTransaction {
         recipient: Address,
         token_program: Option<Address>,
     ) -> Result<TransactInterfaceTransferAccounts, TransactionError> {
-        if asset == SOL_MINT {
-            if let Some(token_program) = token_program {
-                return Err(TransactionError::UnexpectedSolTokenProgram { token_program });
+        let (target, accounts) = withdrawal_settlement(asset, recipient, token_program)?;
+        match target {
+            SettlementTarget::Sol { user_sol_account } => {
+                self.withdraw_sol(amount, user_sol_account)?
             }
-            self.withdraw_sol(amount, recipient)?;
-            return Ok(TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient },
-            ));
-        }
-        let token_program =
-            token_program.ok_or(TransactionError::MissingSplTokenProgram { mint: asset })?;
-        let user_token_account =
-            pda::associated_token_address_with_program(&recipient, &asset, &token_program);
-        self.withdraw(asset, amount, user_token_account)?;
-        Ok(TransactInterfaceTransferAccounts::SplWithdrawal(
-            TransactSplWithdrawalAccounts {
-                mint: asset,
-                spl_interface: pda::spl_interface(&asset),
-                user_token_account,
-                token_program,
-            },
-        ))
+            SettlementTarget::Spl { user_spl_token } => {
+                self.withdraw(asset, amount, user_spl_token)?
+            }
+        };
+        Ok(accounts)
     }
+}
+
+/// Where a withdrawal of `asset` to the public account `recipient` settles,
+/// and the settlement accounts the `transact` instruction takes for it. SOL
+/// goes to `recipient` itself. An SPL mint goes to `recipient`'s associated
+/// token account under `token_program`, the mint's token program, which must
+/// be `None` for SOL.
+pub fn withdrawal_settlement(
+    asset: Address,
+    recipient: Address,
+    token_program: Option<Address>,
+) -> Result<(SettlementTarget, TransactInterfaceTransferAccounts), TransactionError> {
+    if asset == SOL_MINT {
+        if let Some(token_program) = token_program {
+            return Err(TransactionError::UnexpectedSolTokenProgram { token_program });
+        }
+        return Ok((
+            SettlementTarget::Sol {
+                user_sol_account: recipient,
+            },
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
+        ));
+    }
+    let token_program =
+        token_program.ok_or(TransactionError::MissingSplTokenProgram { mint: asset })?;
+    let user_token_account =
+        pda::associated_token_address_with_program(&recipient, &asset, &token_program);
+    Ok((
+        SettlementTarget::Spl {
+            user_spl_token: user_token_account,
+        },
+        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint: asset,
+            spl_interface: pda::spl_interface(&asset),
+            user_token_account,
+            token_program,
+        }),
+    ))
 }

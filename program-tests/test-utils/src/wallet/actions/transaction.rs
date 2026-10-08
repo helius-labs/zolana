@@ -7,16 +7,16 @@ use zolana_interface::{
     SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{shielded::ShieldedAddress, NullifierKey, ShieldedKeypair};
-use zolana_program::instruction::{
-    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
-};
+use zolana_program::instruction::TransactInterfaceTransferAccounts;
 use zolana_transaction::{
     instructions::{
         merge::{MergeProofInputs, MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
-        transact::{ConfidentialTransaction, SettlementTarget, SppProofInputs, MAX_SPEND_INPUTS},
+        transact::{
+            withdrawal_settlement, ConfidentialTransaction, SettlementTarget, SppProofInputs,
+        },
     },
     keys::LocalShieldedKeys,
-    Address, TransactionError, WalletUtxo, SOL_MINT,
+    select_spend, Address, TransactionError, WalletUtxo, SOL_MINT,
 };
 
 use crate::wallet::{ApprovalRequest, SyncWalletAuthority, Wallet, WalletAuthority};
@@ -187,7 +187,11 @@ fn create_transfer_with_recipient<R>(
     recipient: Option<ResolvedAddress>,
     spl_token_program: Option<Pubkey>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset, is_default_ring_spendable)?;
+    let tree = resolve_spend_tree(
+        request.wallet,
+        request.asset,
+        WalletUtxo::is_default_ring_spendable,
+    )?;
     let Some(recipient) = recipient else {
         let withdrawal = create_withdrawal(WithdrawalParams {
             wallet: request.wallet,
@@ -212,7 +216,7 @@ fn create_transfer_with_recipient<R>(
         &[tree],
         request.asset,
         request.amount,
-        is_default_ring_spendable,
+        WalletUtxo::is_default_ring_spendable,
     )?;
     Ok(CreatedTransfer {
         transaction: UnsignedPrivateTransaction {
@@ -345,7 +349,7 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
     }
     let tree = match request.input {
         Some(hash) => named_input_tree(request.wallet, request.asset, hash)?,
-        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+        None => resolve_spend_tree(request.wallet, request.asset, WalletUtxo::is_plain)?,
     };
 
     let (input, per_output_amount) = select_split_utxo(
@@ -419,7 +423,7 @@ fn select_split_utxo(
                     // Apply the full eligibility predicate before picking the
                     // largest, so a large ring-bound or data-carrying utxo never
                     // shadows a smaller plain candidate that could actually split.
-                    && is_plain_utxo(entry)
+                    && entry.is_plain()
             }) {
                 if largest_plain.is_none_or(|best| entry.utxo.amount > best.utxo.amount) {
                     largest_plain = Some(entry);
@@ -453,7 +457,7 @@ fn select_split_utxo(
     if candidate.utxo.ring_program_id.is_some() {
         return Err(ClientError::SplitInputRingMismatch { hash });
     }
-    if !is_plain_utxo(candidate) {
+    if !candidate.is_plain() {
         return Err(ClientError::SplitInputHasData { hash });
     }
 
@@ -497,7 +501,7 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
     // reasons; auto-sweep resolves the tree over the eligible (plain) utxos.
     let tree = match request.inputs.as_ref().and_then(|hashes| hashes.first()) {
         Some(&hash) => named_input_tree(request.wallet, request.asset, hash)?,
-        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+        None => resolve_spend_tree(request.wallet, request.asset, WalletUtxo::is_plain)?,
     };
     let inputs = select_merge_inputs(request.wallet, tree, request.asset, request.inputs)?;
     let num_inputs = inputs.len();
@@ -553,76 +557,19 @@ pub fn select_input_utxos_sync<A: SyncWalletAuthority + ?Sized>(
 fn unsigned_input_utxos(
     request: SpendInputParams<'_>,
 ) -> Result<(Vec<Address>, Vec<WalletUtxo>), ClientError> {
-    // Mirrors the TS eligibility, a default note carrying ring data proves on
-    // no rail.
-    let eligible =
-        |entry: &WalletUtxo| is_default_ring_spendable(entry) && entry.ring_data_hash.is_none();
-    let mut selected =
-        select_bounded_inputs(request.wallet, request.asset, request.amount, eligible)?;
+    let mut selected = select_spend(request.wallet.unspent(), request.asset, request.amount)?;
     let mut trees = Vec::new();
     for entry in &selected {
         if !trees.contains(&pda::tree(entry.tree_id())) {
             trees.push(pda::tree(entry.tree_id()));
         }
     }
-    if trees.len() > MAX_INPUT_TREES {
-        return Err(ClientError::AmbiguousTree {
-            asset: request.asset,
-            tree_count: trees.len(),
-        });
-    }
     selected.sort_by_key(|entry| {
         trees
             .iter()
             .position(|tree| *tree == pda::tree(entry.tree_id()))
     });
-    let inputs = selected.into_iter().cloned().collect();
-    Ok((trees, inputs))
-}
-
-/// Largest first, a fragmented balance covers with the fewest notes. Candidates
-/// come from every eligible tree, so a balance that straddles a tree rollover
-/// still covers. Tree limits apply to the selected notes.
-fn select_bounded_inputs(
-    wallet: &Wallet,
-    asset: Address,
-    amount: u64,
-    eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Vec<&WalletUtxo>, ClientError> {
-    // Zero selects a note whose whole change would cross the ring boundary.
-    if amount == 0 {
-        return Err(ClientError::ZeroSpendAmount);
-    }
-    let mut candidates: Vec<&WalletUtxo> = wallet
-        .unspent()
-        .filter(|entry| entry.utxo.asset.asset == asset && entry.utxo.amount > 0 && eligible(entry))
-        .collect();
-    candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
-    let mut total = 0u64;
-    for entry in &candidates {
-        total = total
-            .checked_add(entry.utxo.amount)
-            .ok_or(ClientError::SelectedBalanceOverflow)?;
-    }
-    let mut selected = Vec::new();
-    let mut available = 0u64;
-    for entry in candidates.iter().copied().take(MAX_SPEND_INPUTS) {
-        selected.push(entry);
-        available += entry.utxo.amount;
-        if available >= amount {
-            return Ok(selected);
-        }
-    }
-    if total >= amount {
-        return Err(ClientError::TooManyInputs {
-            got: candidates.len(),
-            max: MAX_SPEND_INPUTS,
-        });
-    }
-    Err(ClientError::InsufficientBalance {
-        requested: amount,
-        available: total,
-    })
+    Ok((trees, selected))
 }
 
 fn validate_input_keys(
@@ -638,25 +585,6 @@ fn validate_input_keys(
         }
     }
     Ok(inputs)
-}
-
-/// A ring-bound utxo's commitment covers its ring, the default-ring circuit
-/// does not.
-pub fn is_default_ring_spendable(entry: &WalletUtxo) -> bool {
-    entry.utxo.ring_program_id.is_none()
-}
-
-/// Whether a wallet utxo is plain: no ring binding and no attached data. Only
-/// plain utxos are mergeable or splittable; building a spend input drops the
-/// utxo's committed data hashes, which would desync the commitment from the tree
-/// otherwise. Option semantics: a `Some(_)` hash counts as data regardless of the
-/// hash value. Public so the CLI's `utxos` listing classifies `kind` with the
-/// exact predicate split/merge enforce, and the two cannot drift.
-pub fn is_plain_utxo(entry: &WalletUtxo) -> bool {
-    is_default_ring_spendable(entry)
-        && entry.ring_data_hash.is_none()
-        && entry.data_hash.is_none()
-        && entry.utxo.data.is_empty()
 }
 
 /// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
@@ -680,7 +608,7 @@ fn select_merge_inputs(
                     entry.utxo.asset.asset == asset
                         && entry.utxo.amount > 0
                         && pda::tree(entry.tree_id()) == tree
-                        && is_plain_utxo(entry)
+                        && entry.is_plain()
                 })
                 .collect();
             // Smallest first: a sweep clears dust and leaves large utxos intact.
@@ -944,32 +872,7 @@ fn withdrawal_target(
     asset: Address,
     spl_token_program: Option<Pubkey>,
 ) -> Result<(SettlementTarget, TransactInterfaceTransferAccounts), ClientError> {
-    if asset == SOL_MINT {
-        return Ok((
-            SettlementTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.to_bytes()),
-            },
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
-        ));
-    }
-
-    let mint = Pubkey::new_from_array(asset.to_bytes());
-    let token_program =
-        spl_token_program.ok_or(TransactionError::MissingSplTokenProgram { mint })?;
-    let user_spl_token =
-        pda::associated_token_address_with_program(&recipient, &mint, &token_program);
-    let vault = pda::spl_interface(&mint);
-    Ok((
-        SettlementTarget::Spl {
-            user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
-        },
-        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
-            mint,
-            spl_interface: vault,
-            user_token_account: user_spl_token,
-            token_program,
-        }),
-    ))
+    Ok(withdrawal_settlement(asset, recipient, spl_token_program)?)
 }
 
 fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
@@ -1015,18 +918,18 @@ fn select_withdrawal_inputs(
         .first()
         .copied()
         .ok_or(TransactionError::NoInterfaceTransfers)?;
-    let tree = resolve_spend_tree(wallet, first_asset, is_default_ring_spendable)?;
+    let tree = resolve_spend_tree(wallet, first_asset, WalletUtxo::is_default_ring_spendable)?;
     let mut inputs = Vec::new();
 
     for (asset, amount) in required {
-        let asset_tree = resolve_spend_tree(wallet, *asset, is_default_ring_spendable)?;
+        let asset_tree = resolve_spend_tree(wallet, *asset, WalletUtxo::is_default_ring_spendable)?;
         if asset_tree != tree {
             let hash = wallet
                 .unspent()
                 .find(|entry| {
                     entry.utxo.asset.asset == *asset
                         && pda::tree(entry.tree_id()) == asset_tree
-                        && is_default_ring_spendable(entry)
+                        && entry.is_default_ring_spendable()
                 })
                 .map(|entry| entry.utxo_hash)
                 .ok_or(ClientError::InsufficientBalance {
@@ -1044,7 +947,7 @@ fn select_withdrawal_inputs(
             &[tree],
             *asset,
             *amount,
-            is_default_ring_spendable,
+            WalletUtxo::is_default_ring_spendable,
         )?);
     }
 
@@ -1170,8 +1073,10 @@ mod tests {
     use solana_account::Account;
     use solana_signature::Signature;
     use zolana_keypair::{ShieldedKeypair, SigningKey};
+    use zolana_program::instruction::{TransactSolTransferAccounts, TransactSplWithdrawalAccounts};
     use zolana_transaction::{
-        instructions::transact::SettlementTransfer, AssetRegistry, Data, DataRecord, Utxo,
+        instructions::transact::{SettlementTransfer, MAX_SPEND_INPUTS},
+        AssetRegistry, Data, DataRecord, Utxo,
     };
 
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
@@ -1529,7 +1434,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 1,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 })
                 .collect(),
         }));
@@ -1548,7 +1453,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 0,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             }],
         }));
         assert!(matches!(
@@ -1566,7 +1471,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             })
             .collect();
 
@@ -1593,7 +1498,7 @@ mod tests {
                 recipient,
                 asset: SOL_MINT,
                 amount: u64::MAX,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             }],
         })
         .expect("full-u64 withdrawal");
@@ -1625,13 +1530,13 @@ mod tests {
                     recipient: user,
                     asset: SOL_MINT,
                     amount: 6,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 },
                 WithdrawalLeg {
                     recipient: relayer,
                     asset: SOL_MINT,
                     amount: 2,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 },
             ],
         })
@@ -1724,7 +1629,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 3,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
@@ -1759,13 +1664,13 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 6,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 5,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 },
             ],
         }));
@@ -1803,7 +1708,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 3,
-                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                    spl_token_program: None,
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
@@ -1836,7 +1741,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             }],
         })
         .expect("withdrawal")
@@ -1881,7 +1786,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             }],
         })
         .unwrap()
@@ -1909,7 +1814,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 8,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             }],
         })
         .expect("tree with enough balance");
@@ -1923,8 +1828,8 @@ mod tests {
         let sender = ShieldedKeypair::new_p256().unwrap();
         let wallet = wallet_with_sol(sender, 10);
 
-        let tree =
-            resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable).expect("infer tree");
+        let tree = resolve_spend_tree(&wallet, SOL_MINT, WalletUtxo::is_default_ring_spendable)
+            .expect("infer tree");
 
         assert_eq!(tree, test_tree());
     }
@@ -1937,10 +1842,11 @@ mod tests {
         second.tree_id = SECOND_TREE_ID;
         wallet.utxos.push(second);
 
-        let error = match resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable) {
-            Err(error) => error,
-            Ok(_) => panic!("expected ambiguous tree error"),
-        };
+        let error =
+            match resolve_spend_tree(&wallet, SOL_MINT, WalletUtxo::is_default_ring_spendable) {
+                Err(error) => error,
+                Ok(_) => panic!("expected ambiguous tree error"),
+            };
 
         assert!(matches!(
             error,
@@ -1963,7 +1869,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: None,
             }],
         })
         .expect("withdrawal");
@@ -2221,7 +2127,7 @@ mod tests {
             &[test_tree()],
             SOL_MINT,
             10,
-            is_default_ring_spendable,
+            WalletUtxo::is_default_ring_spendable,
         )
         .unwrap();
 
@@ -2471,7 +2377,7 @@ mod tests {
             &[test_tree()],
             SOL_MINT,
             10,
-            is_default_ring_spendable,
+            WalletUtxo::is_default_ring_spendable,
         )
         .expect("a plain utxo covers the amount");
         assert_eq!(selected.len(), 1);
@@ -2485,7 +2391,7 @@ mod tests {
                 &[test_tree()],
                 SOL_MINT,
                 50,
-                is_default_ring_spendable
+                WalletUtxo::is_default_ring_spendable
             ),
             Err(ClientError::InsufficientBalance {
                 requested: 50,
@@ -2535,10 +2441,12 @@ mod tests {
                 },
                 &keypair
             ),
-            Err(ClientError::InsufficientBalance {
-                requested: 50,
-                available: 25
-            })
+            Err(ClientError::Transaction(
+                TransactionError::InsufficientBalance {
+                    requested: 50,
+                    available: 25
+                }
+            ))
         ));
     }
 
@@ -2695,7 +2603,8 @@ mod tests {
                     asset: SOL_MINT,
                     amount: u64::try_from(MAX_INPUT_TREES).unwrap() * 10 + 1,
                 }, &keypair),
-            Err(ClientError::AmbiguousTree { tree_count, .. }) if tree_count == MAX_INPUT_TREES + 1
+            Err(ClientError::Transaction(TransactionError::TooManyInputTrees { got, max }))
+                if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
 
@@ -2732,10 +2641,12 @@ mod tests {
                 },
                 &keypair
             ),
-            Err(ClientError::InsufficientBalance {
-                requested: 60,
-                available: 20
-            })
+            Err(ClientError::Transaction(
+                TransactionError::InsufficientBalance {
+                    requested: 60,
+                    available: 20
+                }
+            ))
         ));
     }
 
@@ -2797,7 +2708,7 @@ mod tests {
                 },
                 &keypair
             ),
-            Err(ClientError::ZeroSpendAmount)
+            Err(ClientError::Transaction(TransactionError::ZeroSpendAmount))
         ));
     }
 
@@ -2821,7 +2732,8 @@ mod tests {
         );
         assert!(matches!(
             error,
-            Err(ClientError::TooManyInputs { got, max }) if got == widest + 1 && max == widest
+            Err(ClientError::Transaction(TransactionError::SpendNeedsMerge { max_inputs, .. }))
+                if max_inputs == widest
         ));
     }
 
@@ -2836,7 +2748,7 @@ mod tests {
         let ring_bound = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
         bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
 
-        let tree = resolve_spend_tree(&wallet, SOL_MINT, is_plain_utxo)
+        let tree = resolve_spend_tree(&wallet, SOL_MINT, WalletUtxo::is_plain)
             .expect("the ring utxo on another tree must not block a plain input_utxo");
 
         assert_eq!(tree, test_tree());
@@ -2847,7 +2759,7 @@ mod tests {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
 
-        let tree = resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable)
+        let tree = resolve_spend_tree(&wallet, SOL_MINT, WalletUtxo::is_default_ring_spendable)
             .expect("a ring balance on another tree must not make the input_utxo ambiguous");
 
         assert_eq!(tree, test_tree());

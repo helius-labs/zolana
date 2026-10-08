@@ -28,7 +28,7 @@ pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_M
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, rebuild_merge, verify_owned, verify_spendable, DecryptionResult,
-    MergeRebuild, SpendableDecryptionResult,
+    MergeRebuild, OwnedUtxos, SpendableDecryptionResult,
 };
 pub use error::TransactionError;
 pub use history::{HistoryEntry, HistoryKind, WalletHistory};
@@ -38,7 +38,7 @@ pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
     TransactionKeyRequest,
 };
-pub use selection::{is_default_ring_spendable, is_plain_utxo};
+pub use selection::{select_spend, select_spend_excluding, spend_tree};
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };

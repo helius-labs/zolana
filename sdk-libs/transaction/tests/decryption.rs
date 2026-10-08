@@ -247,16 +247,15 @@ fn owned_utxos_keep_the_spent_ones_and_derive_their_nullifiers_again() {
         ..Default::default()
     };
 
+    let owned = verify_owned(&owner, &decrypted).unwrap();
+    assert_eq!(owned.utxos, vec![spent.clone(), unspent.clone()]);
+    assert_eq!(owned.spent, HashSet::from([spent.nullifier]));
+    let spendable = verify_spendable(&owner, &decrypted).unwrap();
+    assert_eq!(owned.spendable(), spendable);
     assert_eq!(
-        verify_owned(&owner, &decrypted).unwrap(),
-        vec![spent, unspent.clone()]
+        spendable.utxos().cloned().collect::<Vec<_>>(),
+        vec![unspent]
     );
-    let spendable: Vec<_> = verify_spendable(&owner, &decrypted)
-        .unwrap()
-        .utxos()
-        .cloned()
-        .collect();
-    assert_eq!(spendable, vec![unspent]);
 }
 
 #[test]

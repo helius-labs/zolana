@@ -171,21 +171,31 @@ pub fn verify_spendable<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     decrypted: &DecryptionResult,
 ) -> Result<SpendableDecryptionResult, TransactionError> {
-    Ok(SpendableDecryptionResult::from_owned(
-        &verify_owned(shielded_keys, decrypted)?,
-        decrypted,
-    ))
+    Ok(verify_owned(shielded_keys, decrypted)?.spendable())
 }
 
-impl SpendableDecryptionResult {
-    /// [`verify_spendable`] from the UTXOs [`verify_owned`] returned for
-    /// `decrypted`, for a caller that keeps those too: it leaves out the
-    /// spent ones without asking the key holder again.
-    pub fn from_owned(owned: &[WalletUtxo], decrypted: &DecryptionResult) -> Self {
+/// The UTXOs a wallet owns among a [`DecryptionResult`], spent or not, as
+/// [`verify_owned`] returns them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OwnedUtxos {
+    /// In the order the [`DecryptionResult`] holds them.
+    pub utxos: Vec<WalletUtxo>,
+    /// The nullifiers of the spent ones.
+    pub spent: HashSet<[u8; 32]>,
+    /// As on [`DecryptionResult`].
+    pub unknown_asset_ids: BTreeSet<u64>,
+    /// As on [`DecryptionResult`].
+    pub unknown_mints: BTreeSet<Address>,
+}
+
+impl OwnedUtxos {
+    /// The unspent ones, as [`verify_spendable`] returns them, for a caller
+    /// that keeps the spent ones too: it asks the key holder nothing more.
+    pub fn spendable(&self) -> SpendableDecryptionResult {
         let mut by_mint: HashMap<Address, AssetBalance> = HashMap::new();
         let mut utxos_with_data = Vec::new();
-        for wallet_utxo in owned {
-            if decrypted.spent_nullifiers.contains(&wallet_utxo.nullifier) {
+        for wallet_utxo in &self.utxos {
+            if self.spent.contains(&wallet_utxo.nullifier) {
                 continue;
             }
             let wallet_utxo = wallet_utxo.clone();
@@ -229,21 +239,20 @@ impl SpendableDecryptionResult {
         SpendableDecryptionResult {
             balances: Balances { assets: balances },
             utxos_with_data,
-            unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
-            unknown_mints: decrypted.unknown_mints.clone(),
+            unknown_asset_ids: self.unknown_asset_ids.clone(),
+            unknown_mints: self.unknown_mints.clone(),
         }
     }
 }
 
-/// The UTXOs of `decrypted` this wallet owns, spent or not, in the order it
-/// holds them. Each commitment is recomputed from the decoded fields and must
-/// match the published one; a commitment counts once, and every nullifier is
-/// derived again rather than taken from `decrypted`. [`verify_spendable`] is
-/// this without the spent ones.
+/// The UTXOs of `decrypted` this wallet owns, spent or not. Each commitment is
+/// recomputed from the decoded fields and must match the published one; a
+/// commitment counts once, and every nullifier is derived again rather than
+/// taken from `decrypted`. [`verify_spendable`] is this without the spent ones.
 pub fn verify_owned<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     decrypted: &DecryptionResult,
-) -> Result<Vec<WalletUtxo>, TransactionError> {
+) -> Result<OwnedUtxos, TransactionError> {
     let address = shielded_keys.address()?;
     let mut claimed = HashSet::new();
     let mut verified = Vec::new();
@@ -269,7 +278,17 @@ pub fn verify_owned<K: ShieldedKeys + ?Sized>(
         }
     }
     assign_nullifiers(shielded_keys, &mut verified)?;
-    Ok(verified)
+    let spent = verified
+        .iter()
+        .map(|utxo| utxo.nullifier)
+        .filter(|nullifier| decrypted.spent_nullifiers.contains(nullifier))
+        .collect();
+    Ok(OwnedUtxos {
+        utxos: verified,
+        spent,
+        unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
+        unknown_mints: decrypted.unknown_mints.clone(),
+    })
 }
 
 /// One slot's decoded contents. `data_hash` and `ring_data_hash` are the ones

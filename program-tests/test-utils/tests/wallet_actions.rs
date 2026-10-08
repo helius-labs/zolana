@@ -523,7 +523,7 @@ fn async_authority_invokes_approval_without_p256_signing() {
             recipient: Pubkey::new_unique(),
             asset: SOL_MINT,
             amount: 60,
-            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+            spl_token_program: None,
         }],
     })
     .expect("created")

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use zolana_client::{
@@ -16,7 +14,7 @@ use zolana_transaction::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::ConfidentialTransaction,
     },
-    is_default_ring_spendable, is_plain_utxo, Address, WalletUtxo, SOL_MINT,
+    select_spend, spend_tree, Address, WalletUtxo, SOL_MINT,
 };
 use zolana_user_registry_interface::user_record_pda;
 
@@ -64,9 +62,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;
 
-    let inputs = ctx
-        .spendable
-        .select_spend(asset, opts.amount, &HashSet::new())?;
+    let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
     let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
         Some(registered) => {
@@ -109,9 +105,9 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         .filter(|entry| entry.utxo.asset.asset == asset)
     {
         count += 1;
-        let kind = if !is_default_ring_spendable(entry) {
+        let kind = if !entry.is_default_ring_spendable() {
             "ring"
-        } else if !is_plain_utxo(entry) {
+        } else if !entry.is_plain() {
             "data"
         } else {
             "plain"
@@ -183,20 +179,24 @@ fn split_input(
             .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
             .ok_or_else(|| anyhow::anyhow!("utxo {} is not spendable", hex::encode(hash)))?,
         None => {
-            let tree = pda::tree(ctx.spendable.spend_tree(asset, is_plain_utxo)?);
+            let tree = pda::tree(spend_tree(
+                ctx.spendable.utxos(),
+                asset,
+                WalletUtxo::is_plain,
+            )?);
             ctx.spendable
                 .utxos()
                 .filter(|entry| {
                     entry.utxo.asset.asset == asset
                         && pda::tree(entry.tree_id()) == tree
-                        && is_plain_utxo(entry)
+                        && entry.is_plain()
                         && entry.utxo.amount % parts == 0
                 })
                 .max_by_key(|entry| entry.utxo.amount)
                 .ok_or_else(|| anyhow::anyhow!("no plain utxo divides into {parts} parts"))?
         }
     };
-    if !is_plain_utxo(entry) {
+    if !entry.is_plain() {
         bail!(
             "utxo {} carries a ring or data",
             hex::encode(entry.utxo_hash)
@@ -315,14 +315,18 @@ fn merge_inputs(
     hashes: &[[u8; 32]],
 ) -> Result<(Address, Vec<WalletUtxo>)> {
     if hashes.is_empty() {
-        let tree = pda::tree(ctx.spendable.spend_tree(asset, is_plain_utxo)?);
+        let tree = pda::tree(spend_tree(
+            ctx.spendable.utxos(),
+            asset,
+            WalletUtxo::is_plain,
+        )?);
         let mut candidates: Vec<&WalletUtxo> = ctx
             .spendable
             .utxos()
             .filter(|entry| {
                 entry.utxo.asset.asset == asset
                     && pda::tree(entry.tree_id()) == tree
-                    && is_plain_utxo(entry)
+                    && entry.is_plain()
             })
             .collect();
         candidates.sort_by_key(|entry| entry.utxo.amount);
@@ -345,7 +349,7 @@ fn merge_inputs(
             .utxos()
             .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == *hash)
             .ok_or_else(|| anyhow::anyhow!("utxo {} is not spendable", hex::encode(hash)))?;
-        if !is_plain_utxo(entry) {
+        if !entry.is_plain() {
             bail!("utxo {} carries a ring or data", hex::encode(hash));
         }
         if selected

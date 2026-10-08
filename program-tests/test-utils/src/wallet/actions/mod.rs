@@ -22,8 +22,7 @@ pub use transaction::{
 };
 pub use transaction::{
     create_merge, create_split, create_transfer, create_transfer_sync, create_withdrawal,
-    is_default_ring_spendable, is_plain_utxo, select_input_utxos, select_input_utxos_sync,
-    CreatedMerge, CreatedSplit, CreatedTransfer, CreatedWithdrawal, MergeParams,
-    SelectedSpendInputs, SpendInputParams, SplitParams, TransferParams, TransferRecipient,
-    UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
+    select_input_utxos, select_input_utxos_sync, CreatedMerge, CreatedSplit, CreatedTransfer,
+    CreatedWithdrawal, MergeParams, SelectedSpendInputs, SpendInputParams, SplitParams,
+    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
 };

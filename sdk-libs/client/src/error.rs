@@ -84,9 +84,6 @@ pub enum ClientError {
     #[error("transaction failed: {0}")]
     TransactionFailed(String),
 
-    #[error("input_utxo amount must be greater than zero")]
-    ZeroSpendAmount,
-
     #[error("too many inputs: got {got}, shape holds at most {max}")]
     TooManyInputs { got: usize, max: usize },
 

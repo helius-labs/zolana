@@ -21,8 +21,8 @@ use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
-    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
-    SpendableDecryptionResult, WalletHistory, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, OwnedUtxos, ShieldedKeys,
+    SpendableDecryptionResult, WalletHistory, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -79,10 +79,10 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
     ) -> Result<WalletHistory, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(WalletHistory {
-            utxos: fetched.owned,
+            utxos: fetched.owned.utxos,
             transactions: fetched.transactions,
-            unknown_asset_ids: fetched.decrypted.unknown_asset_ids,
-            unknown_mints: fetched.decrypted.unknown_mints,
+            unknown_asset_ids: fetched.owned.unknown_asset_ids,
+            unknown_mints: fetched.owned.unknown_mints,
             view_tags: fetched.tags.into_iter().collect(),
         })
     }
@@ -101,7 +101,7 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
             decrypted.extend(self.keys, &batch, self.assets)?;
             transactions.append(&mut batch);
             let owned = verify_owned(self.keys, &decrypted)?;
-            let spendable = SpendableDecryptionResult::from_owned(&owned, &decrypted);
+            let spendable = owned.spendable();
             // The spends of a UTXO queried in an earlier round are fetched.
             let nullifiers: Vec<_> = spendable
                 .utxos()
@@ -113,7 +113,6 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
                 return Ok(Fetched {
                     tags,
                     transactions,
-                    decrypted,
                     owned,
                     spendable,
                 });
@@ -184,9 +183,8 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
 struct Fetched {
     tags: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
-    decrypted: DecryptionResult,
     /// The final round's [`verify_owned`], spent UTXOs included.
-    owned: Vec<WalletUtxo>,
+    owned: OwnedUtxos,
     spendable: SpendableDecryptionResult,
 }
 
