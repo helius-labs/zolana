@@ -53,6 +53,26 @@ architecture, and `Dockerfile.nitro` builds it with `BACKEND=aeglos-cpu`.
 CPUID. `AEGLOS_MEMORY_LIMIT_BYTES` caps the native allocations of the CPU engine
 too, and unset takes 90% of physical memory.
 
+Both Aeglos backends prove concurrent requests for one proving key in one
+`ProveBatch` call. Each request builds its own witness in Go, and the engine
+solves and proves the batch together. The first request for a key opens a batch.
+The batch closes when it holds `--batch-max` requests, or when `--batch-window`
+has passed and the engine is free. Requests that arrive while the engine runs
+join the open batch. The window defaults to zero, so a request at an idle engine
+proves at once and batches form only under load. The engine rejects a batch as
+a whole, so a failed batch proves each request alone and a request gets only
+its own proof or error. A request whose witness Gnark cannot solve fails before
+it reaches the engine again, because every failed proof evicts a prepared key.
+A circuit with commitments bypasses batching, because `ProveBatch` rejects it.
+`--batch-max 1` proves every request alone. Each request in a batch holds its
+admission permit from `--transfer-concurrency` or `PROVER_SYNC_CONCURRENCY`. The
+next batch collects while one proves, so full batches need twice `--batch-max`
+permits. Each batch size prepares its own key in the engine and holds its own
+memory. Request timing shows the wait for the batch and the engine as `batch`
+and the engine call as `prove`, and a request of a failed batch adds `retry`.
+With batching the engine admission stage stays near zero. Metrics count the
+proofs per batch and the failed batches.
+
 The existing metrics endpoint exposes backend stage durations, cache hits and
 misses, cached key count, allocated device bytes, and errors. Stage durations
 overlap. Total duration covers backend admission and proof execution. It excludes
