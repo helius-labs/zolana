@@ -29,7 +29,7 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
-        tee::TeePolicy,
+        tee::{TeeError, TeePolicy},
         AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
     },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
@@ -55,73 +55,92 @@ pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 /// An indexer client a [`ZolanaClient`] is built over. It fixes the client's
 /// mode, blocking for [`ZolanaIndexer`] and `async` for [`AsyncZolanaIndexer`],
 /// and names the prover client of the same kind. Sealed.
-pub trait Indexer: sealed::Sealed + Sized {
+pub trait Indexer: sealed::Sealed {
     type ProverClient;
-
-    fn from_url(url: &str) -> Self;
-    fn prover_client(url: String) -> Self::ProverClient;
-    fn proof_data_source(prover: &Self::ProverClient) -> ProofDataSource;
-    fn with_proof_data_source(
-        prover: Self::ProverClient,
-        source: ProofDataSource,
-    ) -> Self::ProverClient;
-    fn with_tee(prover: Self::ProverClient, policy: TeePolicy) -> Self::ProverClient;
-}
-
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for crate::indexer::ZolanaIndexer {}
-    impl Sealed for crate::indexer::AsyncZolanaIndexer {}
 }
 
 impl Indexer for ZolanaIndexer {
     type ProverClient = ProverClient;
-
-    fn from_url(url: &str) -> ZolanaIndexer {
-        ZolanaIndexer::new(url)
-    }
-
-    fn prover_client(url: String) -> ProverClient {
-        ProverClient::new(url)
-    }
-
-    fn proof_data_source(prover: &ProverClient) -> ProofDataSource {
-        prover.proof_data_source()
-    }
-
-    fn with_proof_data_source(prover: ProverClient, source: ProofDataSource) -> ProverClient {
-        prover.with_proof_data_source(source)
-    }
-
-    fn with_tee(prover: ProverClient, policy: TeePolicy) -> ProverClient {
-        prover.with_tee(policy)
-    }
 }
 
 impl Indexer for AsyncZolanaIndexer {
     type ProverClient = AsyncProverClient;
+}
 
-    fn from_url(url: &str) -> AsyncZolanaIndexer {
-        AsyncZolanaIndexer::new(url)
+mod sealed {
+    use super::{
+        AsyncProverClient, AsyncZolanaIndexer, Indexer, ProofDataSource, ProverClient, TeePolicy,
+        ZolanaIndexer,
+    };
+
+    type ProverOf<I> = <I as Indexer>::ProverClient;
+
+    /// What [`super::ZolanaClient`] does with its indexer and prover kind,
+    /// out of the public API.
+    pub trait Sealed: Sized {
+        fn from_url(url: &str) -> Self;
+        fn prover_client(url: String) -> ProverOf<Self>
+        where
+            Self: Indexer;
+        fn proof_data_source(prover: &ProverOf<Self>) -> ProofDataSource
+        where
+            Self: Indexer;
+        fn with_proof_data_source(
+            prover: ProverOf<Self>,
+            source: ProofDataSource,
+        ) -> ProverOf<Self>
+        where
+            Self: Indexer;
+        fn with_tee(prover: ProverOf<Self>, policy: TeePolicy) -> ProverOf<Self>
+        where
+            Self: Indexer;
     }
 
-    fn prover_client(url: String) -> AsyncProverClient {
-        AsyncProverClient::new(url)
+    impl Sealed for ZolanaIndexer {
+        fn from_url(url: &str) -> Self {
+            ZolanaIndexer::new(url)
+        }
+
+        fn prover_client(url: String) -> ProverClient {
+            ProverClient::new(url)
+        }
+
+        fn proof_data_source(prover: &ProverClient) -> ProofDataSource {
+            prover.proof_data_source()
+        }
+
+        fn with_proof_data_source(prover: ProverClient, source: ProofDataSource) -> ProverClient {
+            prover.with_proof_data_source(source)
+        }
+
+        fn with_tee(prover: ProverClient, policy: TeePolicy) -> ProverClient {
+            prover.with_tee(policy)
+        }
     }
 
-    fn proof_data_source(prover: &AsyncProverClient) -> ProofDataSource {
-        prover.proof_data_source()
-    }
+    impl Sealed for AsyncZolanaIndexer {
+        fn from_url(url: &str) -> Self {
+            AsyncZolanaIndexer::new(url)
+        }
 
-    fn with_proof_data_source(
-        prover: AsyncProverClient,
-        source: ProofDataSource,
-    ) -> AsyncProverClient {
-        prover.with_proof_data_source(source)
-    }
+        fn prover_client(url: String) -> AsyncProverClient {
+            AsyncProverClient::new(url)
+        }
 
-    fn with_tee(prover: AsyncProverClient, policy: TeePolicy) -> AsyncProverClient {
-        prover.with_tee(policy)
+        fn proof_data_source(prover: &AsyncProverClient) -> ProofDataSource {
+            prover.proof_data_source()
+        }
+
+        fn with_proof_data_source(
+            prover: AsyncProverClient,
+            source: ProofDataSource,
+        ) -> AsyncProverClient {
+            prover.with_proof_data_source(source)
+        }
+
+        fn with_tee(prover: AsyncProverClient, policy: TeePolicy) -> AsyncProverClient {
+            prover.with_tee(policy)
+        }
     }
 }
 
@@ -261,15 +280,17 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     }
 
     /// Send proofs only to a prover server that attests to `policy`; see
-    /// [`ProverClient::with_tee`]. A prover from [`Self::with_prover`] is used
-    /// as given: when it is a prover client, set the policy on it.
-    #[must_use]
-    pub fn with_prover_tee(mut self, policy: TeePolicy) -> Self {
-        self.prover = match self.prover {
+    /// [`ProverClient::with_tee`].
+    ///
+    /// Fails with [`TeeError::CustomProver`] on a client built by
+    /// [`Self::with_prover`]: that prover is used as given, so a prover client
+    /// passed there takes its policy from its own `with_tee`.
+    pub fn with_prover_tee(self, policy: TeePolicy) -> Result<Self, ClientError> {
+        let prover = match self.prover {
             ProverBackend::Server(prover) => ProverBackend::Server(I::with_tee(prover, policy)),
-            custom => custom,
+            ProverBackend::Custom(_) => return Err(TeeError::CustomProver.into()),
         };
-        self
+        Ok(Self { prover, ..self })
     }
 
     pub fn rpc(&self) -> &R {

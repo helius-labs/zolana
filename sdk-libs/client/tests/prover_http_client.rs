@@ -392,3 +392,24 @@ async fn an_async_tee_client_attests_through_the_client() {
     assert!(matches!(error, ClientError::Tee(_)), "{error}");
     assert_only_attested(&requests.lock().unwrap());
 }
+
+/// Never answers, as a transport that ignores [`HttpRequest::timeout`].
+#[derive(Debug)]
+struct HungClient;
+
+impl HttpClient for HungClient {
+    fn send<'a>(&'a self, _request: HttpRequest) -> HttpFuture<'a> {
+        Box::pin(std::future::pending())
+    }
+}
+
+/// The client keeps each request's bound itself, whatever the transport does.
+#[tokio::test]
+async fn a_hung_client_is_cut_off_at_the_proof_timeout() {
+    let error = AsyncProverClient::with_client(PROVER_URL.to_string(), HungClient)
+        .with_proof_timeout(Duration::from_millis(20))
+        .prove(&IN_RESPONSE)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("no response within"), "{error}");
+}

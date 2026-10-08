@@ -175,9 +175,10 @@ pub struct HttpRequest {
 }
 
 impl HttpRequest {
-    pub fn get(url: impl Into<String>) -> Self {
+    /// A `method` request to `url` with no headers and no body.
+    pub fn new(method: Method, url: impl Into<String>) -> Self {
         Self {
-            method: Method::GET,
+            method,
             url: url.into(),
             headers: HeaderMap::new(),
             body: Zeroizing::new(Vec::new()),
@@ -186,18 +187,18 @@ impl HttpRequest {
         }
     }
 
+    pub fn get(url: impl Into<String>) -> Self {
+        Self::new(Method::GET, url)
+    }
+
     /// A `POST` of `body`, a JSON document, to `url`.
     pub fn post_json(url: impl Into<String>, body: Vec<u8>) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        Self {
-            method: Method::POST,
-            url: url.into(),
-            headers,
-            body: Zeroizing::new(body),
-            timeout: None,
-            body_limit: None,
-        }
+        let mut request = Self::new(Method::POST, url);
+        request
+            .headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        request.body = Zeroizing::new(body);
+        request
     }
 
     pub fn with_header(mut self, name: HeaderName, value: HeaderValue) -> Self {
@@ -314,7 +315,6 @@ fn response_lost(error: reqwest::Error) -> ApiError {
     ApiError::ResponseLost(Box::new(error))
 }
 
-#[derive(Debug)]
 pub enum ApiError {
     Request(reqwest::Error),
     /// A custom [`HttpClient`] or [`BlockingHttpClient`] failed before it had
@@ -360,6 +360,17 @@ impl fmt::Display for ApiError {
             }
         };
         formatter.write_str(&redact_api_key(&text))
+    }
+}
+
+/// The variant's text, `api-key` masked as in [`Display`](fmt::Display): an
+/// `unwrap` or a `{:?}` log prints this too.
+impl fmt::Debug for ApiError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("ApiError")
+            .field(&format_args!("{self}"))
+            .finish()
     }
 }
 
@@ -1065,6 +1076,10 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "failed to read response body: reset reading https://gw.test/v1?api-key=redacted"
+        );
+        assert_eq!(
+            format!("{error:?}"),
+            "ApiError(failed to read response body: reset reading https://gw.test/v1?api-key=redacted)"
         );
         assert_eq!(
             ApiError::HttpClient("offline".into()).to_string(),

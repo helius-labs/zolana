@@ -21,8 +21,11 @@ use zolana_client::{
     client::{AsyncZolanaClient, SignedPrivateTransaction, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
-        transact::assemble, witness::WitnessReader, AsyncProverClient, Proof, ProofCompressed,
-        ProveRequest, Prover, ProverClient, TransferInput, TransferInputs,
+        tee::{TeeError, TeePolicy},
+        transact::assemble,
+        witness::WitnessReader,
+        AsyncProverClient, Proof, ProofCompressed, ProveRequest, Prover, ProverClient,
+        TransferInput, TransferInputs,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, IndexerPollConfig, IndexerRpcConfig, Rpc,
@@ -427,6 +430,32 @@ async fn with_prover_replaces_the_prover_server_when_async() {
         .await;
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
+}
+
+/// A TEE policy set on the client cannot reach a custom prover, so setting
+/// one fails rather than leaving that prover unattested.
+#[test]
+fn a_prover_tee_policy_refuses_a_custom_prover() {
+    let policy = TeePolicy::from_json(include_str!(
+        "../../../prover/tee/testdata/probe_policy.json"
+    ))
+    .expect("the probe policy");
+    let custom = ZolanaClient::with_prover(
+        MockSubmitRpc::new(Signature::default()),
+        ZolanaIndexer::new("http://127.0.0.1:1"),
+        RecordingProver::default(),
+    );
+    assert!(matches!(
+        custom.with_prover_tee(policy.clone()),
+        Err(ClientError::Tee(TeeError::CustomProver))
+    ));
+    let server: ZolanaClient<_> = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        "http://127.0.0.1:1",
+        "http://127.0.0.1:2",
+    )
+    .expect("loopback URLs");
+    assert!(server.with_prover_tee(policy).is_ok());
 }
 
 /// A prover given for one submission proves it in place of the client's own

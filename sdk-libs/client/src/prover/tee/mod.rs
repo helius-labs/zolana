@@ -47,6 +47,8 @@ pub enum TeeError {
     NoDefaultDeployment,
     #[error("prover client has no TEE policy")]
     NoPolicy,
+    #[error("a custom prover takes no TEE policy from the client, set it on the prover")]
+    CustomProver,
     #[error("TEE policy is malformed, {0}")]
     Policy(String),
     #[error("attestation is malformed, {0}")]

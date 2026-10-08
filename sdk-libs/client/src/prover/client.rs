@@ -20,7 +20,8 @@ use serde::Deserialize;
 use tokio::time::sleep as async_sleep;
 use zeroize::Zeroizing;
 use zolana_api::{
-    ApiError, BlockingHttpClient, BlockingRuntime, HttpClient, HttpRequest, OnBlockingPool,
+    ApiError, BlockingHttpClient, BlockingRuntime, HttpClient, HttpRequest, HttpResponse,
+    OnBlockingPool,
 };
 
 use crate::{
@@ -126,7 +127,7 @@ const ATTESTATION_RETRY_AFTER_CAP_SECS: u64 = 30;
 // Generous bound so a slow cold prove never hangs the client forever; the server
 // caps sync work at 120–180s depending on circuit, so a clean timeout returns
 // well before this.
-pub(crate) const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
+const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Per-request bound on a status poll.
 ///
@@ -231,6 +232,8 @@ pub struct AsyncProverClient {
     endpoint: ProverEndpoint,
     http: Arc<dyn HttpClient>,
     async_poll: AsyncPollConfig,
+    /// Bound on each proof request, set on the request for every transport.
+    proof_timeout: Duration,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
     proof_data_source: ProofDataSource,
@@ -303,6 +306,12 @@ impl ProverClient {
     /// Override the async-proof polling config (see [`AsyncPollConfig`]).
     pub fn with_async_poll_config(mut self, config: AsyncPollConfig) -> Self {
         self.client = self.client.with_async_poll_config(config);
+        self
+    }
+
+    /// Bound each proof request; see [`AsyncProverClient::with_proof_timeout`].
+    pub fn with_proof_timeout(mut self, timeout: Duration) -> Self {
+        self.client = self.client.with_proof_timeout(timeout);
         self
     }
 
@@ -651,6 +660,7 @@ impl AsyncProverClient {
             endpoint,
             http: Arc::new(http),
             async_poll: AsyncPollConfig::default(),
+            proof_timeout: Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS),
             delivery: Delivery::InResponse,
             tee: None,
         }
@@ -688,6 +698,15 @@ impl AsyncProverClient {
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
     pub fn with_async_poll_config(mut self, config: AsyncPollConfig) -> Self {
         self.async_poll = config;
+        self
+    }
+
+    /// Bound each proof request, 600 s by default. The bound rides on every
+    /// proof request and the client enforces it, so it applies over an HTTP
+    /// client's own timeout: set it here, for example for a slow route such
+    /// as Tor.
+    pub fn with_proof_timeout(mut self, timeout: Duration) -> Self {
+        self.proof_timeout = timeout;
         self
     }
 
@@ -801,12 +820,26 @@ impl AsyncProverClient {
         let recipient = self.recipient().await.map_err(CallError::Refused)?;
         let mut prepared = call.prepare(recipient)?;
         let response = self
-            .http
-            .send(prepared.request(call)?)
+            .send_http(prepared.request(call))
             .await
             .map_err(CallError::transport)?;
         let is_encrypted = TeeSession::is_encrypted(&response.headers);
         prepared.finish(response.status, is_encrypted, &response.body)
+    }
+
+    /// Send `request` and give up at its deadline whatever the transport does:
+    /// a custom [`HttpClient`] may not honour [`HttpRequest::timeout`].
+    async fn send_http(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
+        let Some(timeout) = request.timeout else {
+            return self.http.send(request).await;
+        };
+        tokio::time::timeout(timeout, self.http.send(request))
+            .await
+            .unwrap_or_else(|_| {
+                Err(ApiError::HttpClient(
+                    format!("no response within {} s", timeout.as_secs()).into(),
+                ))
+            })
     }
 
     async fn recipient(&self) -> Result<Option<Recipient<'_>>, ClientError> {
@@ -836,7 +869,7 @@ impl AsyncProverClient {
             let request = HttpRequest::get(self.endpoint.attestation_url(&nonce)?)
                 .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .with_body_limit(MAX_ATTESTATION_BYTES);
-            let response = match self.http.send(request).await {
+            let response = match self.send_http(request).await {
                 Ok(response) => response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
@@ -916,7 +949,10 @@ impl AsyncProverClient {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match self.call(Call::post(url, body, delivery)).await {
+            match self
+                .call(Call::post(url, body, delivery, self.proof_timeout))
+                .await
+            {
                 Ok((status, _))
                     if status == StatusCode::TOO_MANY_REQUESTS
                         && delivery == Delivery::Queued

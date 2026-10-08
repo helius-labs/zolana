@@ -48,7 +48,7 @@ pub(super) fn client(
         network.prover_url.clone(),
     )?;
     Ok(match &network.prover_tee {
-        Some(policy) => client.with_prover_tee(policy.clone()),
+        Some(policy) => client.with_prover_tee(policy.clone())?,
         None => client,
     })
 }
