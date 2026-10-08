@@ -66,9 +66,10 @@ func (c *Cipher) CTREncrypt(nonceBytes [12]frontend.Variable, plaintext []fronte
 
 	// 4. Encrypt each plaintext block, including a partial tail.
 	ciphertext := make([]frontend.Variable, 0, len(plaintext))
-	for offset, block := 0, 0; offset < len(plaintext); offset, block = offset+blockBytes, block+1 {
+	for offset := 0; offset < len(plaintext); offset += blockBytes {
 		end := min(offset+blockBytes, len(plaintext))
-		ciphertext = append(ciphertext, stream.encryptBlock(uint32(block+ctrFirstCounter), plaintext[offset:end])...)
+		counter := uint32(offset/blockBytes + ctrFirstCounter)
+		ciphertext = append(ciphertext, stream.encryptBlock(counter, plaintext[offset:end])...)
 	}
 	return ciphertext
 }
@@ -103,7 +104,7 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 			position := len(s.nonceState) + counterByteIndex
 			state[position] = s.counterByte(position, counterByte)
 		}
-		for column := 1; column < wordBytes; column++ {
+		for column := 1; column < columnsPerBlock; column++ {
 			start := column * wordBytes
 			end := start + wordBytes
 			copy(s.firstRound[start:end], s.keys.roundColumn(1, column, &state))
@@ -122,7 +123,7 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 	// 4. Apply AES rounds 2 through 13.
 	for round := 2; round < aes256Rounds; round++ {
 		var next [blockBytes]frontend.Variable
-		for column := 0; column < wordBytes; column++ {
+		for column := 0; column < columnsPerBlock; column++ {
 			start := column * wordBytes
 			end := start + wordBytes
 			copy(next[start:end], s.keys.roundColumn(round, column, &state))
@@ -131,10 +132,11 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 	}
 
 	// 5. Apply the final AES round and XOR with the plaintext.
+	spreadFinalRoundKey := s.keys.spreadBytes[aes256Rounds*blockBytes:]
 	sums := make([]frontend.Variable, len(spreadPlaintext))
 	for i := range sums {
 		spreadSubstitutedByte := t.substitute(sboxRegion, state[byteOrder[i]])
-		spreadRoundKeyByte := s.keys.spreadBytes[aes256Rounds*blockBytes+i]
+		spreadRoundKeyByte := spreadFinalRoundKey[i]
 		sums[i] = t.api.Add(spreadSubstitutedByte, spreadRoundKeyByte, spreadPlaintext[i])
 	}
 	return t.xorBytes(sums)
@@ -172,13 +174,19 @@ func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *r
 		spreadRoundKeyBytes[i] = t.spreadByte(key[i])
 	}
 	for i := aes256KeyBytes; i < aes256RoundBytes; i += wordBytes {
-		previousWordStart := i - wordBytes
+		previousWordBytes := roundKeyBytes[i-wordBytes : i]
+		spreadPreviousWordBytes := spreadRoundKeyBytes[i-wordBytes : i]
+		earlierWordStart := i - aes256KeyBytes
+		spreadEarlierWordBytes := spreadRoundKeyBytes[earlierWordStart : earlierWordStart+wordBytes]
+		currentWordBytes := roundKeyBytes[i : i+wordBytes]
+		spreadCurrentWordBytes := spreadRoundKeyBytes[i : i+wordBytes]
+
 		var mixed [wordBytes]frontend.Variable
 		switch i % aes256KeyBytes {
 		case 0:
 			for j := range mixed {
 				rotatedByteIndex := (j + 1) % wordBytes
-				previousByte := roundKeyBytes[previousWordStart+rotatedByteIndex]
+				previousByte := previousWordBytes[rotatedByteIndex]
 				mixed[j] = t.substitute(sboxRegion, previousByte)
 			}
 			roundConstant := roundConstants[i/aes256KeyBytes]
@@ -186,19 +194,19 @@ func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *r
 			mixed[0] = api.Add(mixed[0], spreadRoundConstant)
 		case 16:
 			for j := range mixed {
-				previousByte := roundKeyBytes[previousWordStart+j]
+				previousByte := previousWordBytes[j]
 				mixed[j] = t.substitute(sboxRegion, previousByte)
 			}
 		default:
-			copy(mixed[:], spreadRoundKeyBytes[previousWordStart:i])
+			copy(mixed[:], spreadPreviousWordBytes)
 		}
 		sums := make([]frontend.Variable, wordBytes)
 		for j := range sums {
-			sums[j] = api.Add(spreadRoundKeyBytes[i-aes256KeyBytes+j], mixed[j])
+			sums[j] = api.Add(spreadEarlierWordBytes[j], mixed[j])
 		}
-		copy(roundKeyBytes[i:i+wordBytes], t.xorBytes(sums))
-		for j := 0; j < wordBytes; j++ {
-			spreadRoundKeyBytes[i+j] = t.spreadByte(roundKeyBytes[i+j])
+		copy(currentWordBytes, t.xorBytes(sums))
+		for j, roundKeyByte := range currentWordBytes {
+			spreadCurrentWordBytes[j] = t.spreadByte(roundKeyByte)
 		}
 	}
 	return &roundKeys{tables: t, spreadBytes: spreadRoundKeyBytes, bytes: roundKeyBytes}
@@ -217,7 +225,7 @@ func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.V
 	return k.tables.decodeXorBytes(spreadColumnSum, wordBytes)
 }
 
-var columnSources = [wordBytes][wordBytes]int{
+var columnSources = [columnsPerBlock][wordBytes]int{
 	{0, 5, 10, 15},
 	{4, 9, 14, 3},
 	{8, 13, 2, 7},
@@ -245,6 +253,7 @@ const (
 	chunkRadix       = 1296
 	bitsPerByte      = 8
 	wordBytes        = 4
+	columnsPerBlock  = blockBytes / wordBytes
 	tableRegionSize  = 256
 	sboxRegion       = 4
 	substitutionSize = 5 * tableRegionSize
@@ -281,8 +290,11 @@ func sharedSpreadTables(api frontend.API) *spreadTables {
 
 func newSpreadTables(api frontend.API) *spreadTables {
 	t := &spreadTables{api: api}
+	// Packed bytes have weights 1, 6^8, 6^16, and 6^24.
+	spreadBase := big.NewInt(chunkLaneBase)
 	for j := range t.byteWeights {
-		t.byteWeights[j] = spreadValue(1<<uint(bitsPerByte*j), bitsPerByte*wordBytes, chunkLaneBase)
+		exponent := big.NewInt(int64(bitsPerByte * j))
+		t.byteWeights[j] = new(big.Int).Exp(spreadBase, exponent, nil)
 	}
 	t.substitution = logderivlookup.New(api)
 	for region := 0; region < sboxRegion; region++ {
