@@ -1,5 +1,5 @@
-//! Which UTXOs a spend takes: largest first, one tree, bounded by the widest
-//! automatic shape, leaving out excluded and zero-amount UTXOs.
+//! Which UTXOs a spend takes: largest first, one tree, at most
+//! `MAX_SPEND_INPUTS`, leaving out excluded and zero-amount UTXOs.
 mod common;
 
 use std::collections::HashSet;
@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use zolana_transaction::{
-    error::TransactionError, instructions::transact::auto_shapes, is_plain_utxo, AssetBalance,
+    error::TransactionError, instructions::transact::MAX_SPEND_INPUTS, is_plain_utxo, AssetBalance,
     Balances, Mint, SpendableDecryptionResult, WalletUtxo,
 };
 
@@ -40,7 +40,7 @@ fn amounts(utxos: &[WalletUtxo]) -> Vec<u64> {
 }
 
 #[test]
-fn takes_the_largest_notes_of_the_asset_until_the_amount_is_covered() {
+fn takes_the_largest_utxos_of_the_asset_until_the_amount_is_covered() {
     let owner = keypair(1);
     let wallet = spendable(vec![
         wallet_utxo(&owner, Mint::SOL, 20, 0, 1),
@@ -66,7 +66,7 @@ fn takes_the_largest_notes_of_the_asset_until_the_amount_is_covered() {
 }
 
 #[test]
-fn leaves_out_excluded_notes() {
+fn leaves_out_excluded_utxos() {
     let owner = keypair(1);
     let utxos = vec![
         wallet_utxo(&owner, Mint::SOL, 50, 0, 1),
@@ -91,7 +91,7 @@ fn leaves_out_excluded_notes() {
 }
 
 #[test]
-fn leaves_out_zero_amount_notes() {
+fn leaves_out_zero_amount_utxos() {
     let owner = keypair(1);
     // A zero-amount UTXO on another tree does not split the balance.
     let wallet = spendable(vec![
@@ -122,7 +122,7 @@ fn leaves_out_zero_amount_notes() {
 }
 
 #[test]
-fn spends_one_tree_of_default_ring_notes() {
+fn spends_one_tree_of_default_ring_utxos() {
     let owner = keypair(1);
     let mut ring_bound = wallet_utxo(&owner, Mint::SOL, 1_000, 0, 3);
     ring_bound.utxo.ring_program_id = Some(Address::new_from_array([9; 32]));
@@ -151,10 +151,9 @@ fn spends_one_tree_of_default_ring_notes() {
 }
 
 #[test]
-fn needs_a_merge_beyond_the_widest_shape() {
+fn needs_a_merge_beyond_max_spend_inputs() {
     let owner = keypair(1);
-    let max_inputs = auto_shapes().map(|shape| shape.n_inputs()).max().unwrap();
-    let count = u8::try_from(max_inputs + 1).unwrap();
+    let count = u8::try_from(MAX_SPEND_INPUTS + 1).unwrap();
     let wallet = spendable(
         (1..=count)
             .map(|nonce| wallet_utxo(&owner, Mint::SOL, 10, 0, nonce))
@@ -163,15 +162,17 @@ fn needs_a_merge_beyond_the_widest_shape() {
     let amount = 10 * u64::from(count);
     assert_eq!(
         wallet.select_spend(Mint::SOL.asset, amount, &HashSet::new()),
-        Err(TransactionError::SpendNeedsMerge { amount, max_inputs })
+        Err(TransactionError::SpendNeedsMerge {
+            amount,
+            max_inputs: MAX_SPEND_INPUTS
+        })
     );
 }
 
 #[test]
-fn a_merge_is_reported_even_when_excluded_notes_would_cover_the_amount() {
+fn a_merge_is_reported_even_when_excluded_utxos_would_cover_the_amount() {
     let owner = keypair(1);
-    let max_inputs = auto_shapes().map(|shape| shape.n_inputs()).max().unwrap();
-    let count = u8::try_from(max_inputs + 1).unwrap();
+    let count = u8::try_from(MAX_SPEND_INPUTS + 1).unwrap();
     let large = wallet_utxo(&owner, Mint::SOL, 100, 0, count + 1);
     let excluded = HashSet::from([large.nullifier]);
     let mut utxos: Vec<_> = (1..=count)
@@ -182,7 +183,10 @@ fn a_merge_is_reported_even_when_excluded_notes_would_cover_the_amount() {
     let amount = 10 * u64::from(count);
     assert_eq!(
         wallet.select_spend(Mint::SOL.asset, amount, &excluded),
-        Err(TransactionError::SpendNeedsMerge { amount, max_inputs })
+        Err(TransactionError::SpendNeedsMerge {
+            amount,
+            max_inputs: MAX_SPEND_INPUTS
+        })
     );
 
     // With every UTXO excluded, nothing is left: the excluded UTXOs are needed.
