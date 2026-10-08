@@ -148,6 +148,7 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    The image names its backend in `/etc/zolana-nitro/backend`, and the entrypoint gives half of the prover memory to the Aeglos engine.
    A batch collects while the previous one proves, so full batches of the default `--batch-max 4` need `CONCURRENCY=8`.
    A test image from a local Aeglos checkout takes the extracted tree as `aeglos_source` and `--build-arg AEGLOS_UNPINNED=1`.
+   `--build-arg REQUEST_TIMING=on` lets a client that sends `X-Prover-Timing: true` read the prover's stage timings from response headers outside the encryption.
 
 3. Resolve the pushed digest.
    The digest, not the tag, identifies the image from here on.
