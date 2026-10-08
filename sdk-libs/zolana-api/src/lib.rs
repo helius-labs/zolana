@@ -162,7 +162,8 @@ pub struct HttpRequest {
     pub url: String,
     pub headers: HeaderMap,
     /// Empty for a `GET`. Wiped on drop: a proof request's body carries the
-    /// proof inputs.
+    /// proof inputs. Only this buffer is wiped; a transport that moves it on,
+    /// as the `reqwest` clients do, keeps buffers of its own.
     pub body: Zeroizing<Vec<u8>>,
     /// The caller's bound on the whole request, for a client that can keep
     /// one; the `reqwest` clients do. Without it the client's own bound

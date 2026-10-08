@@ -224,7 +224,8 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
 /// `solana_rpc_client`'s blocking `RpcClient` drives its nonblocking one.
 pub struct ProverClient {
     client: AsyncProverClient,
-    runtime: BlockingRuntime,
+    /// Shared with the indexer of a client built by `ZolanaClient::from_urls`.
+    runtime: Arc<BlockingRuntime>,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -629,9 +630,15 @@ impl AsyncProverClient {
     /// This client for blocking callers, run on a Tokio runtime of its own.
     /// As with `ZolanaApi::into_blocking`, give it an HTTP client of its own.
     pub fn into_blocking(self) -> ProverClient {
+        self.into_blocking_on(Arc::new(BlockingRuntime::new()))
+    }
+
+    /// This client for blocking callers, run on `runtime`, which the caller
+    /// builds both its clients on.
+    pub(crate) fn into_blocking_on(self, runtime: Arc<BlockingRuntime>) -> ProverClient {
         ProverClient {
             client: self,
-            runtime: BlockingRuntime::new(),
+            runtime,
         }
     }
 
@@ -917,6 +924,7 @@ impl AsyncProverClient {
             key,
         } = request;
         let url = route.url(&self.endpoint, key)?;
+        crate::prover::timing::note(0, "prover_request_bytes", body.len());
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body, delivery).await?;

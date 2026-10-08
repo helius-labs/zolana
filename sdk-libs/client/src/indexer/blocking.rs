@@ -55,6 +55,12 @@ impl ZolanaIndexer {
         self.indexer.api()
     }
 
+    /// The runtime this indexer's calls run on, for a prover client built
+    /// beside it.
+    pub(crate) fn runtime(&self) -> Arc<BlockingRuntime> {
+        Arc::clone(&self.runtime)
+    }
+
     pub(crate) fn async_indexer(&self) -> &AsyncZolanaIndexer {
         &self.indexer
     }

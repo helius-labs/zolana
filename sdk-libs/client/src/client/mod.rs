@@ -78,8 +78,9 @@ mod sealed {
     /// What [`super::ZolanaClient`] does with its indexer and prover kind,
     /// out of the public API.
     pub trait Sealed: Sized {
-        fn from_url(url: &str) -> Self;
-        fn prover_client(url: String) -> ProverOf<Self>
+        /// The indexer and prover clients at these URLs, on one runtime when
+        /// they block.
+        fn from_urls(indexer_url: &str, prover_url: String) -> (Self, ProverOf<Self>)
         where
             Self: Indexer;
         fn proof_data_source(prover: &ProverOf<Self>) -> ProofDataSource
@@ -97,12 +98,10 @@ mod sealed {
     }
 
     impl Sealed for ZolanaIndexer {
-        fn from_url(url: &str) -> Self {
-            ZolanaIndexer::new(url)
-        }
-
-        fn prover_client(url: String) -> ProverClient {
-            ProverClient::new(url)
+        fn from_urls(indexer_url: &str, prover_url: String) -> (Self, ProverClient) {
+            let indexer = ZolanaIndexer::new(indexer_url);
+            let prover = AsyncProverClient::new(prover_url).into_blocking_on(indexer.runtime());
+            (indexer, prover)
         }
 
         fn proof_data_source(prover: &ProverClient) -> ProofDataSource {
@@ -119,12 +118,11 @@ mod sealed {
     }
 
     impl Sealed for AsyncZolanaIndexer {
-        fn from_url(url: &str) -> Self {
-            AsyncZolanaIndexer::new(url)
-        }
-
-        fn prover_client(url: String) -> AsyncProverClient {
-            AsyncProverClient::new(url)
+        fn from_urls(indexer_url: &str, prover_url: String) -> (Self, AsyncProverClient) {
+            (
+                AsyncZolanaIndexer::new(indexer_url),
+                AsyncProverClient::new(prover_url),
+            )
         }
 
         fn proof_data_source(prover: &AsyncProverClient) -> ProofDataSource {
@@ -223,11 +221,8 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
     ) -> Self {
-        Self::new(
-            rpc,
-            I::from_url(indexer_url.as_ref()),
-            I::prover_client(prover_url.into()),
-        )
+        let (indexer, prover) = I::from_urls(indexer_url.as_ref(), prover_url.into());
+        Self::new(rpc, indexer, prover)
     }
 
     fn build(rpc: R, indexer: I, prover: ProverBackend<I::ProverClient>) -> Self {
