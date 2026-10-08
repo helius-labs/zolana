@@ -191,6 +191,11 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     /// Build the indexer and prover clients from their URLs. Both must be
     /// https, or http to loopback: the indexer answers with the wallet's UTXO
     /// set and the prover is sent every proof input.
+    ///
+    /// No argument names the mode, and Rust does not infer a default type
+    /// parameter, so name it: `ZolanaClient::<_>::from_urls(..)` builds the
+    /// blocking client and `AsyncZolanaClient::from_urls(..)` the `async` one,
+    /// unless the binding's type already says which.
     pub fn from_urls(
         rpc: R,
         indexer_url: impl AsRef<str>,

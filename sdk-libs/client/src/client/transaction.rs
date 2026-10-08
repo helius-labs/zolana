@@ -90,18 +90,12 @@ impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
     /// blockhash lifetime and the transaction was rejected at submission,
     /// having already paid for the sync and the proof: an 80-worker run lost
     /// 297 of 337 transfers to "Blockhash not found".
-    ///
-    /// `R: Sync` because the two proof fetches share the indexer across scoped
-    /// threads.
     pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
         authority: &dyn ProofAuthority,
-    ) -> Result<VersionedMessage, ClientError>
-    where
-        R: Sync,
-    {
+    ) -> Result<VersionedMessage, ClientError> {
         let Some(server) = self.indexed_prover() else {
             return self.finish_submission_unsigned_sync_with_prover(
                 signed,
@@ -145,10 +139,7 @@ impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
         fee_payer: Address,
         authority: &dyn ProofAuthority,
         prover: &dyn Prover,
-    ) -> Result<VersionedMessage, ClientError>
-    where
-        R: Sync,
-    {
+    ) -> Result<VersionedMessage, ClientError> {
         let owner_signers = submission_owner_signers(signed, fee_payer)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         // The overlap this used to hand-roll lives in the reader now, which

@@ -637,6 +637,12 @@ impl BlockingZolanaApi {
         &self.api
     }
 
+    /// The API and the runtime it runs on, for a blocking client built over
+    /// this one's async calls, such as `zolana-client`'s blocking indexer.
+    pub fn into_parts(self) -> (ZolanaApi, Arc<BlockingRuntime>) {
+        (self.api, self.runtime)
+    }
+
     pub fn base_path(&self) -> &str {
         self.api.base_path()
     }
