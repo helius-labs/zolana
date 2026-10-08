@@ -11,16 +11,11 @@ on:
       - "sdk-tests/client/typescript/**"
       - "package.json"
       - "package-lock.json"
+  # No paths-ignore here: "async prover / transfer queue" is a required check,
+  # and a workflow that never triggers leaves it "Expected" forever. The
+  # changes job applies the same ignore list, so a skipped job still reports.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - "**/*.md"
-      - "LICENSE*"
-      - ".gitignore"
-      - "sdk-libs/ts/**"
-      - "sdk-tests/client/typescript/**"
-      - "package.json"
-      - "package-lock.json"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,10 +25,35 @@ permissions:
   contents: read
 
 jobs:
-  transfer-queue:
-    name: async prover / transfer queue
+  changes:
+    name: async prover / changes
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: filter
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo run=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ignored='^(.*\.md|LICENSE[^/]*|\.gitignore|sdk-libs/ts/.*|sdk-tests/client/typescript/.*|package\.json|package-lock\.json)$'
+          if git diff --name-only --no-renames HEAD^1 HEAD | grep -vE "$ignored" > /dev/null; then
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
+  transfer-queue:
+    name: async prover / transfer queue
+    needs: changes
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.run == 'true'
     timeout-minutes: 30
     services:
       redis:
