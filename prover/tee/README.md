@@ -33,7 +33,7 @@ In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `Z
 Without a policy the clients send plaintext requests, which the server still accepts.
 
 The SDK pins no default deployment, so TEE stays opt-in.
-`deployments/` holds the pins of the running provers, `phala-h200.json` for the H200 prover at `https://c136c4c5254f510afbbecb9b4a5c894f62838fef-3001.dstack-pha-usc2.phala.network` and `nitro-c6a.json` for the Nitro prover at `https://drtgdivq3b3nz.cloudfront.net`.
+`deployments/nitro-c7a.json` pins the running prover, an AWS Nitro c7a.24xlarge enclave at `https://d3psb33kf6y5qv.cloudfront.net`.
 Load a pin with `TeePolicy::from_file_json` in Rust or `teePolicyFromJson(pin.deployment)` in TypeScript, and give the client the prover URL with its `api-key` query parameter.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
