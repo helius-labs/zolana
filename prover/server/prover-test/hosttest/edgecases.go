@@ -48,6 +48,29 @@ func EdgeCaseScalars() []NamedScalar {
 	}
 }
 
+// LadderExceptionalScalars are the ephemeral residues the P-256 variable-base
+// ladder refuses for every recipient: R = [s]Q collides with its distinct-x
+// guards (R vs Q, R vs 3Q, 3R vs Q) exactly when s is +-1, +-3 or +-1/3.
+func LadderExceptionalScalars() []*big.Int {
+	n := groupOrder()
+	third := new(big.Int).ModInverse(big.NewInt(3), n)
+	var out []*big.Int
+	for _, s := range []*big.Int{big.NewInt(1), big.NewInt(3), third} {
+		out = append(out, s, new(big.Int).Sub(n, s))
+	}
+	return out
+}
+
+func IsLadderExceptional(scalar *big.Int) bool {
+	reduced := new(big.Int).Mod(scalar, groupOrder())
+	for _, e := range LadderExceptionalScalars() {
+		if reduced.Cmp(e) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func EdgeCaseKeys() []NamedKeys {
 	n := groupOrder()
 	defaults := DefaultKeys()
