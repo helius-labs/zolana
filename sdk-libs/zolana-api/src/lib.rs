@@ -8,7 +8,8 @@
 //! blocking pool. The `zolana-client` prover clients use the same traits.
 
 use std::{
-    borrow::Cow, error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration,
+    borrow::Cow, error::Error as StdError, fmt, future::Future, io::Read, pin::Pin, sync::Arc,
+    time::Duration,
 };
 
 use reqwest::{
@@ -44,6 +45,10 @@ pub use zolana_indexer_api::{
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
+/// `reqwest::blocking::Client`'s default bound, which [`BlockingZolanaApi`]
+/// kept before it ran on [`ZolanaApi`]: a hung indexer fails a blocking call
+/// rather than holding its thread.
+const BLOCKING_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_ID: &str = "test-account";
 
 #[derive(Clone, Debug)]
@@ -163,6 +168,10 @@ pub struct HttpRequest {
     /// one; the `reqwest` clients do. Without it the client's own bound
     /// applies.
     pub timeout: Option<Duration>,
+    /// The longest body the caller accepts. A client may stop reading one
+    /// byte past it, as the `reqwest` clients do, so an oversized answer
+    /// cannot exhaust memory; the caller rejects the longer body.
+    pub body_limit: Option<usize>,
 }
 
 impl HttpRequest {
@@ -173,6 +182,7 @@ impl HttpRequest {
             headers: HeaderMap::new(),
             body: Zeroizing::new(Vec::new()),
             timeout: None,
+            body_limit: None,
         }
     }
 
@@ -186,6 +196,7 @@ impl HttpRequest {
             headers,
             body: Zeroizing::new(body),
             timeout: None,
+            body_limit: None,
         }
     }
 
@@ -196,6 +207,11 @@ impl HttpRequest {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_body_limit(mut self, limit: usize) -> Self {
+        self.body_limit = Some(limit);
         self
     }
 }
@@ -209,6 +225,7 @@ impl fmt::Debug for HttpRequest {
             .field("headers", &self.headers.keys().collect::<Vec<_>>())
             .field("body_len", &self.body.len())
             .field("timeout", &self.timeout)
+            .field("body_limit", &self.body_limit)
             .finish()
     }
 }
@@ -231,18 +248,25 @@ impl HttpClient for reqwest::Client {
                 headers,
                 mut body,
                 timeout,
+                body_limit,
             } = request;
-            let mut builder = self
-                .request(method, url)
-                .headers(headers)
-                .body(std::mem::take(&mut *body));
+            let mut builder = self.request(method, url).headers(headers);
+            if !body.is_empty() {
+                builder = builder.body(std::mem::take(&mut *body));
+            }
             if let Some(timeout) = timeout {
                 builder = builder.timeout(timeout);
             }
-            let response = builder.send().await?;
+            let mut response = builder.send().await?;
             let status = response.status();
             let headers = response.headers().clone();
-            let body = response.bytes().await.map_err(response_lost)?.to_vec();
+            let mut body = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(response_lost)? {
+                body.extend_from_slice(&chunk);
+                if body_limit.is_some_and(|limit| body.len() > limit) {
+                    break;
+                }
+            }
             Ok(HttpResponse {
                 status,
                 headers,
@@ -260,18 +284,24 @@ impl BlockingHttpClient for reqwest::blocking::Client {
             headers,
             mut body,
             timeout,
+            body_limit,
         } = request;
-        let mut builder = self
-            .request(method, url)
-            .headers(headers)
-            .body(std::mem::take(&mut *body));
+        let mut builder = self.request(method, url).headers(headers);
+        if !body.is_empty() {
+            builder = builder.body(std::mem::take(&mut *body));
+        }
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
         let response = builder.send()?;
         let status = response.status();
         let headers = response.headers().clone();
-        let body = response.bytes().map_err(response_lost)?.to_vec();
+        let mut body = Vec::new();
+        let limit = body_limit.map_or(u64::MAX, |limit| limit as u64 + 1);
+        response
+            .take(limit)
+            .read_to_end(&mut body)
+            .map_err(|error| ApiError::ResponseLost(Box::new(error)))?;
         Ok(HttpResponse {
             status,
             headers,
@@ -396,6 +426,10 @@ impl ZolanaApi {
     }
 
     /// This API for blocking callers, run on a Tokio runtime of its own.
+    ///
+    /// Give it an HTTP client of its own: a `reqwest` connection is served by
+    /// the runtime that opened it, and this one runs only during a call, so a
+    /// clone of its client used from another runtime can hang.
     pub fn into_blocking(self) -> BlockingZolanaApi {
         BlockingZolanaApi {
             api: self,
@@ -574,7 +608,11 @@ impl ZolanaApi {
 
 impl BlockingZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
-        ZolanaApi::new(url).into_blocking()
+        let client = reqwest::Client::builder()
+            .timeout(BLOCKING_REQUEST_TIMEOUT)
+            .build()
+            .expect("failed to build HTTP client");
+        ZolanaApi::with_client(url, client).into_blocking()
     }
 
     /// Send through `client`, run on the runtime's blocking pool. An async

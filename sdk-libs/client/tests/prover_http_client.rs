@@ -14,8 +14,8 @@ use zeroize::Zeroizing;
 use zolana_api::{ApiError, BlockingHttpClient, HttpClient, HttpFuture, HttpRequest, HttpResponse};
 use zolana_client::{
     prover::{
-        known_proving_keys, AsyncProverClient, Delivery, ExpectedProvingKey, ProveRequest,
-        ProverClient,
+        known_proving_keys, tee::TeePolicy, AsyncProverClient, Delivery, ExpectedProvingKey,
+        ProveRequest, ProverClient,
     },
     ClientError, Prover,
 };
@@ -347,4 +347,48 @@ async fn an_async_lost_proof_response_is_not_resubmitted() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_proof_post(&requests[0], "x-sync");
+}
+
+fn tee_policy() -> TeePolicy {
+    TeePolicy::from_json(include_str!(
+        "../../../prover/tee/testdata/probe_policy.json"
+    ))
+    .expect("the probe policy")
+}
+
+/// A client that requires a TEE attests through the custom client too, and
+/// sends no proof input to a prover whose attestation does not verify.
+fn assert_only_attested(requests: &[HttpRequest]) {
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, Method::GET);
+    assert!(
+        requests[0]
+            .url
+            .starts_with("https://gateway.invalid/v1/zolana/tee/v1/attestation?"),
+        "{}",
+        requests[0].url
+    );
+}
+
+#[test]
+fn a_tee_client_attests_through_the_client() {
+    let (client, requests) = FakeClient::answering(vec![Ok((200, json!({ "quote": "00" })))]);
+    let error = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .with_tee(tee_policy())
+        .prove(&IN_RESPONSE)
+        .unwrap_err();
+    assert!(matches!(error, ClientError::Tee(_)), "{error}");
+    assert_only_attested(&requests.lock().unwrap());
+}
+
+#[tokio::test]
+async fn an_async_tee_client_attests_through_the_client() {
+    let (client, requests) = FakeClient::answering(vec![Ok((200, json!({ "quote": "00" })))]);
+    let error = AsyncProverClient::with_client(PROVER_URL.to_string(), client)
+        .with_tee(tee_policy())
+        .prove(&IN_RESPONSE)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ClientError::Tee(_)), "{error}");
+    assert_only_attested(&requests.lock().unwrap());
 }

@@ -261,8 +261,8 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     }
 
     /// Send proofs only to a prover server that attests to `policy`; see
-    /// [`ProverClient::with_tee`]. A prover from [`Self::with_prover`] never
-    /// reaches a server, so this does not apply to it.
+    /// [`ProverClient::with_tee`]. A prover from [`Self::with_prover`] is used
+    /// as given: when it is a prover client, set the policy on it.
     #[must_use]
     pub fn with_prover_tee(mut self, policy: TeePolicy) -> Self {
         self.prover = match self.prover {

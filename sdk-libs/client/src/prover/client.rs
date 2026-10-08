@@ -33,7 +33,7 @@ use crate::{
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
-        tee::{AttestedProver, TeeError, TeePolicy, TeeSession},
+        tee::{AttestedProver, TeeError, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES},
     },
 };
 
@@ -618,6 +618,7 @@ impl AsyncProverClient {
     }
 
     /// This client for blocking callers, run on a Tokio runtime of its own.
+    /// As with `ZolanaApi::into_blocking`, give it an HTTP client of its own.
     pub fn into_blocking(self) -> ProverClient {
         ProverClient {
             client: self,
@@ -826,15 +827,15 @@ impl AsyncProverClient {
     }
 
     /// Retries a transport failure and a busy or unavailable answer, each try
-    /// with a fresh nonce. The whole answer is read before its size is
-    /// checked: a custom [`HttpClient`] hands over complete bodies.
+    /// with a fresh nonce.
     async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
         let mut attempt = 0;
         loop {
             attempt += 1;
             let nonce = TeeSession::nonce()?;
             let request = HttpRequest::get(self.endpoint.attestation_url(&nonce)?)
-                .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS));
+                .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .with_body_limit(MAX_ATTESTATION_BYTES);
             let response = match self.http.send(request).await {
                 Ok(response) => response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
@@ -1232,7 +1233,7 @@ mod tests {
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
-    use crate::prover::tee::{NitroFixture, MAX_ATTESTATION_BYTES};
+    use crate::prover::tee::NitroFixture;
 
     #[test]
     fn proxy_urls_require_an_explicit_supported_scheme() {
