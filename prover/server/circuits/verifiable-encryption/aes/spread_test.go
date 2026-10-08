@@ -13,6 +13,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
+
+	"zolana/prover/prover-test/hintattack"
 )
 
 type roundKeysCtrCircuit struct {
@@ -157,6 +159,8 @@ func TestCompiledSpreadCTRRejectsForgedLaneChunks(t *testing.T) {
 	if err := cs.IsSolved(witness); err != nil {
 		t.Fatal(err)
 	}
+	hintattack.SubstituteOutOfRangeLookups(t, cs, 0)
+	skipMissing := hintattack.SkipMissingLookupQueries(t)
 	forgeries := map[string]func(field *big.Int, chunks []*big.Int){
 		"lane chunk borrowed from its upper neighbour": func(field *big.Int, chunks []*big.Int) {
 			chunks[0].Add(chunks[0], big.NewInt(chunkRadix))
@@ -180,9 +184,9 @@ func TestCompiledSpreadCTRRejectsForgedLaneChunks(t *testing.T) {
 			forge(field, outputs)
 			return nil
 		}
-		if cs.IsSolved(witness, solver.OverrideHint(solver.GetHintID(laneChunksHint), forged)) == nil {
-			t.Fatalf("%s: forged lane chunks accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			hintattack.RequireConstraintRejection(t, cs.IsSolved(witness, solver.OverrideHint(solver.GetHintID(laneChunksHint), forged), skipMissing))
+		})
 	}
 }
 

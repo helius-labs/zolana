@@ -3,12 +3,14 @@ package aes
 import (
 	stdaes "crypto/aes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	cs_bn254 "github.com/consensys/gnark/constraint/bn254"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
@@ -166,7 +168,7 @@ func (c *laneRecompositionCircuit) Define(api frontend.API) error {
 	// isolated lane check. Sum=1 fixes the expected byte to one.
 	api.AssertIsEqual(t.spreadByte(c.Sum), t.spreadConstant(1))
 	api.AssertIsEqual(t.substitute(sboxRegion, c.Sum), t.spreadConstant(sbox0[1]))
-	api.AssertIsEqual(t.laneParityBytes(c.Sum, 1)[0], c.Byte)
+	api.AssertIsEqual(t.decodeXorBytes(c.Sum, 1)[0], c.Byte)
 	return nil
 }
 
@@ -193,4 +195,47 @@ func TestLaneChunksMustRecomposeTheirInput(t *testing.T) {
 		return nil
 	}
 	hintattack.RequireConstraintRejection(t, cs.IsSolved(bad, solver.OverrideHint(solver.GetHintID(laneChunksHint), forge)))
+}
+
+func TestCTRRejectsForgedKeyByteSpread(t *testing.T) {
+	const n = 16
+	cs := compilePath(t, n)
+	key, nonce, plain := ctrPattern(32, 0xa5), ctrPattern(12, 0x5a), ctrPattern(n, 7)
+	flipped := slices.Clone(key)
+	flipped[0] ^= 1
+	assignment := func(k []byte) *pathCtrCircuit {
+		w := &pathCtrCircuit{Plaintext: toVariables(plain), Ciphertext: toVariables(hostCtr(t, flipped, nonce, plain))}
+		copy(w.Key[:], toVariables(k))
+		copy(w.Nonce[:], toVariables(nonce))
+		return w
+	}
+	solve := func(w *pathCtrCircuit, opts ...solver.Option) error {
+		witness, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cs.IsSolved(witness, opts...)
+	}
+	if err := solve(assignment(flipped)); err != nil {
+		t.Fatal(err)
+	}
+	failingConstraint := func(err error) int {
+		var unsatisfied *cs_bn254.UnsatisfiedConstraintError
+		if !errors.As(err, &unsatisfied) {
+			t.Fatalf("stopped outside a constraint: %v", err)
+		}
+		return unsatisfied.CID
+	}
+	control := solve(assignment(key))
+	hintattack.RequireConstraintRejection(t, control)
+
+	forged := hintattack.ForgeLookupResult(t, cs, tableRegionSize)
+	attack := solve(assignment(key), hintattack.SkipMissingLookupQueries(t))
+	hintattack.RequireConstraintRejection(t, attack)
+	if forged.Load() != 1 {
+		t.Fatalf("forged %d lookups, want exactly one", forged.Load())
+	}
+	if failingConstraint(attack) <= failingConstraint(control) {
+		t.Fatalf("forged run failed at constraint %d, not after the ciphertext check at %d", failingConstraint(attack), failingConstraint(control))
+	}
 }
