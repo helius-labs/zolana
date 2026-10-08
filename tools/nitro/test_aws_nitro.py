@@ -38,6 +38,7 @@ KMS_KEY = (
 )
 HOST_ROLE = "arn:aws:iam::558215002830:role/zolana-nitro-test-HostRole"
 HPKE = "ab" * 32
+CONTEXT = "5" * 64
 ENCLAVES = [
     {"cpus": [*range(1, 24), *range(49, 72)], "memory_mib": 92546},
     {"cpus": [*range(24, 48), *range(72, 96)], "memory_mib": 92658},
@@ -85,7 +86,7 @@ def routes(indexer=""):
     return outcome.returncode, outcome.stdout, outcome.stderr
 
 
-def resume(parent, expected=None, seed=True, aws=None):
+def resume(parent, expected=None, seed=True, aws=None, missing=()):
     if aws is None:
         aws = Mock()
         aws.call.return_value = {"SecretString": "secret"}
@@ -116,7 +117,9 @@ def resume(parent, expected=None, seed=True, aws=None):
             patch.object(
                 aws_nitro.gpu,
                 "object_exists",
-                side_effect=lambda _aws, _bucket, key: seed or key != host.SEED_OBJECT,
+                side_effect=lambda _aws, _bucket, key: (
+                    (seed or key != host.SEED_OBJECT) and key not in missing
+                ),
             ),
             patch.object(aws_nitro, "offered_key", return_value=HPKE),
             patch.object(aws_nitro.gpu, "check_gateway"),
@@ -478,7 +481,7 @@ class AttestationTests(unittest.TestCase):
 
 class KmsTests(unittest.TestCase):
     def test_attested_policy_releases_the_seed_only_to_the_measured_enclave(self):
-        allow, *denies = aws_nitro.attested(HOST_ROLE, PCR)
+        allow, *denies, _context = aws_nitro.attested(HOST_ROLE, PCR, CONTEXT)
         self.assertEqual(
             allow,
             {
@@ -491,7 +494,8 @@ class KmsTests(unittest.TestCase):
                     "StringEqualsIgnoreCase": {
                         f"kms:RecipientAttestation:{name}": PCR[name]
                         for name in host.PCRS
-                    }
+                    },
+                    "StringEquals": {"kms:EncryptionContext:zolana-seed": CONTEXT},
                 },
             },
         )
@@ -617,18 +621,24 @@ class KmsTests(unittest.TestCase):
     def expected(self, image_key=KMS_KEY):
         return dict(PCR, kms_key=image_key, image=IMAGE)
 
-    def kms_deploy(self, seed):
+    def kms_deploy(self, seed, policy, grants=(), missing=()):
         operations, uploads = [], []
 
         def call(service, operation, **parameters):
             operations.append((operation, parameters))
             if operation == "generate-data-key-without-plaintext":
                 return {"CiphertextBlob": base64.b64encode(b"blob").decode()}
+            if operation == "get-key-policy":
+                return {"Policy": json.dumps(policy)}
+            if operation == "list-grants":
+                return {"Grants": list(grants)}
             return {"SecretString": "secret"}
 
         def command(*args, **kwargs):
-            if args[:2] == ("s3", "cp") and args[2].endswith("hpke-seed.bin"):
+            if args[:2] == ("s3", "cp") and "hpke-seed" in args[2]:
                 uploads.append((Path(args[2]).read_bytes(), args[3]))
+            if args[:2] == ("s3", "rm"):
+                operations.append(("s3 rm", args[2]))
 
         aws = Mock()
         aws.call.side_effect = call
@@ -641,37 +651,173 @@ class KmsTests(unittest.TestCase):
                 return_value=subprocess.CompletedProcess([], 0),
             ),
         ):
-            resume(dict(PCR, enclaves=2), self.expected(), seed=seed, aws=aws)
+            resume(
+                dict(PCR, enclaves=2),
+                self.expected(),
+                seed=seed,
+                aws=aws,
+                missing=missing,
+            )
         return operations, uploads
 
-    def test_deploy_binds_the_pcrs_before_the_seed_and_never_reopens(self):
-        sealed_policy = aws_nitro.key_policy(
-            "558215002830",
-            *aws_nitro.sealed(),
-            *aws_nitro.attested(HOST_ROLE, PCR),
+    def kms_names(self, operations):
+        return [
+            name
+            for name, _ in operations
+            if name not in ("get-secret-value", "get-key-policy", "list-grants")
+        ]
+
+    def test_deploy_binds_an_immutable_policy_then_seeds_fresh(self):
+        created = aws_nitro.key_policy(
+            "558215002830", *aws_nitro.sealed(), *aws_nitro.unbound()
         )
-        operations, uploads = self.kms_deploy(seed=False)
-        self.assertEqual(
-            [name for name, _ in operations if name != "get-secret-value"],
-            ["put-key-policy", "generate-data-key-without-plaintext"],
-        )
-        policy = dict(operations)["put-key-policy"]
-        self.assertEqual(policy["KeyId"], KMS_KEY)
-        self.assertEqual(json.loads(policy["Policy"]), sealed_policy)
-        self.assertEqual(
-            dict(operations)["generate-data-key-without-plaintext"],
-            {"KeyId": KMS_KEY, "KeySpec": "AES_256"},
-        )
-        self.assertEqual(uploads, [(b"blob", "s3://b/" + host.SEED_OBJECT)])
-        operations, uploads = self.kms_deploy(seed=True)
-        self.assertEqual(
-            [name for name, _ in operations if name != "get-secret-value"],
-            ["put-key-policy"],
-        )
-        self.assertEqual(
-            json.loads(dict(operations)["put-key-policy"]["Policy"]), sealed_policy
-        )
+        contexts = set()
+        for seed in (False, True):
+            with self.subTest(seed=seed):
+                operations, uploads = self.kms_deploy(seed=seed, policy=created)
+                self.assertEqual(
+                    self.kms_names(operations),
+                    [
+                        "s3 rm",
+                        "s3 rm",
+                        "put-key-policy",
+                        "generate-data-key-without-plaintext",
+                    ],
+                )
+                put = dict(operations)["put-key-policy"]
+                policy = json.loads(put["Policy"])
+                context = aws_nitro.bound_context(policy)
+                self.assertRegex(context, "^[0-9a-f]{64}$")
+                contexts.add(context)
+                self.assertEqual(
+                    policy,
+                    aws_nitro.bound_policy("558215002830", HOST_ROLE, PCR, context),
+                )
+                self.assertIs(put["BypassPolicyLockoutSafetyCheck"], True)
+                self.assertEqual(
+                    dict(operations)["generate-data-key-without-plaintext"][
+                        "EncryptionContext"
+                    ],
+                    {"zolana-seed": context},
+                )
+                self.assertEqual(
+                    uploads,
+                    [
+                        (context.encode(), "s3://b/" + host.SEED_CONTEXT_OBJECT),
+                        (b"blob", "s3://b/" + host.SEED_OBJECT),
+                    ],
+                )
+        self.assertEqual(len(contexts), 2)
+
+    def test_resume_keeps_the_bound_context_and_its_seed(self):
+        bound = aws_nitro.bound_policy("558215002830", HOST_ROLE, PCR, CONTEXT)
+        operations, uploads = self.kms_deploy(seed=True, policy=bound)
+        self.assertEqual(self.kms_names(operations), [])
         self.assertEqual(uploads, [])
+        operations, uploads = self.kms_deploy(seed=False, policy=bound)
+        self.assertEqual(
+            self.kms_names(operations), ["generate-data-key-without-plaintext"]
+        )
+        self.assertEqual(
+            dict(operations)["generate-data-key-without-plaintext"][
+                "EncryptionContext"
+            ],
+            {"zolana-seed": CONTEXT},
+        )
+        self.assertEqual(
+            [target for _, target in uploads],
+            ["s3://b/" + host.SEED_CONTEXT_OBJECT, "s3://b/" + host.SEED_OBJECT],
+        )
+
+    def test_resume_restores_a_missing_context_without_a_new_seed(self):
+        bound = aws_nitro.bound_policy("558215002830", HOST_ROLE, PCR, CONTEXT)
+        operations, uploads = self.kms_deploy(
+            seed=True, policy=bound, missing=(host.SEED_CONTEXT_OBJECT,)
+        )
+        self.assertEqual(self.kms_names(operations), [])
+        self.assertEqual(
+            uploads, [(CONTEXT.encode(), "s3://b/" + host.SEED_CONTEXT_OBJECT)]
+        )
+
+    def test_bind_refuses_a_key_with_grants(self):
+        created = aws_nitro.key_policy(
+            "558215002830", *aws_nitro.sealed(), *aws_nitro.unbound()
+        )
+        with self.assertRaisesRegex(RuntimeError, "grants"):
+            self.kms_deploy(seed=True, policy=created, grants=[{"GrantId": "g"}])
+
+    def test_deploy_refuses_a_key_bound_to_another_policy(self):
+        for other in (
+            aws_nitro.bound_policy(
+                "558215002830", HOST_ROLE, dict(PCR, PCR0="f" * 96), CONTEXT
+            ),
+            aws_nitro.key_policy("558215002830", *aws_nitro.sealed()),
+        ):
+            with (
+                self.subTest(other=other),
+                self.assertRaisesRegex(RuntimeError, "bound to another policy"),
+            ):
+                self.kms_deploy(seed=True, policy=other)
+
+    def test_bound_policy_leaves_no_way_to_widen_it(self):
+        operator, seeding, *rest = aws_nitro.bound_policy(
+            "558215002830", HOST_ROLE, PCR, CONTEXT
+        )["Statement"]
+        root = {"AWS": "arn:aws:iam::558215002830:root"}
+        self.assertEqual(operator["Principal"], root)
+        for action in (
+            "kms:*",
+            "kms:PutKeyPolicy",
+            "kms:CreateGrant",
+            "kms:Decrypt",
+            "kms:Encrypt",
+            "kms:GenerateDataKey",
+            "kms:GenerateDataKeyWithoutPlaintext",
+        ):
+            self.assertNotIn(action, operator["Action"])
+        self.assertEqual(
+            seeding,
+            {
+                "Sid": "BoundSeed",
+                "Effect": "Allow",
+                "Principal": root,
+                "Action": "kms:GenerateDataKeyWithoutPlaintext",
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {"kms:EncryptionContext:zolana-seed": CONTEXT}
+                },
+            },
+        )
+        self.assertEqual(
+            rest, aws_nitro.attested(HOST_ROLE, PCR, CONTEXT) + aws_nitro.sealed()
+        )
+
+    def test_decrypt_under_any_other_context_is_denied_over_grants(self):
+        deny = aws_nitro.attested(HOST_ROLE, PCR, CONTEXT)[-1]
+        self.assertEqual(
+            deny,
+            {
+                "Sid": "AttestedContext",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "kms:Decrypt",
+                "Resource": "*",
+                "Condition": {
+                    "StringNotEquals": {"kms:EncryptionContext:zolana-seed": CONTEXT}
+                },
+            },
+        )
+
+    def test_bound_context_reads_none_from_an_older_policy(self):
+        older = aws_nitro.key_policy(
+            "558215002830",
+            {"Sid": "AttestedEnclave", "Condition": {"StringEqualsIgnoreCase": {}}},
+        )
+        self.assertIsNone(aws_nitro.bound_context(older))
+
+    def test_seed_context_key_matches_the_enclave(self):
+        source = (SERVER / "tee/nitro_kms.go").read_text()
+        self.assertIn(f'seedContextKey = "{host.SEED_CONTEXT_KEY}"', source)
 
     def test_deploy_refuses_pcrs_of_another_image(self):
         with (
@@ -1090,7 +1236,7 @@ class KmsConfigTests(unittest.TestCase):
     }
 
     def test_message_is_one_json_line_without_key_or_region(self):
-        line = host.kms_config(b"\x00\xffblob", self.CREDENTIALS)
+        line = host.kms_config(b"\x00\xffblob", CONTEXT, self.CREDENTIALS)
         self.assertTrue(line.endswith(b"\n"))
         self.assertEqual(line.count(b"\n"), 1)
         self.assertEqual(
@@ -1100,10 +1246,11 @@ class KmsConfigTests(unittest.TestCase):
                 ("access_key_id", "ASIAEXAMPLE"),
                 ("secret_access_key", "secret-key"),
                 ("session_token", "session-token"),
+                ("seed_context", CONTEXT),
             ],
         )
         with self.assertRaisesRegex(ValueError, "limit"):
-            host.kms_config(b"x" * host.KMS_LIMIT, self.CREDENTIALS)
+            host.kms_config(b"x" * host.KMS_LIMIT, CONTEXT, self.CREDENTIALS)
 
     def opener(self, answers, requests):
         def opener(request, timeout):
@@ -1162,7 +1309,7 @@ class KmsConfigTests(unittest.TestCase):
         def message():
             fetched.append(None)
             return host.kms_config(
-                b"blob", dict(self.CREDENTIALS, Token=str(len(fetched)))
+                b"blob", CONTEXT, dict(self.CREDENTIALS, Token=str(len(fetched)))
             )
 
         tokens = [

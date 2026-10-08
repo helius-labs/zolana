@@ -17,10 +17,13 @@ The prover runs with `--tee nitro` and derives its HPKE key from a seed that KMS
 An image built without the KMS key source draws a new HPKE key at each boot instead.
 It listens on enclave loopback only and runs without an API key.
 
-The KMS key policy grants `kms:*` to the account root, so every IAM principal of the account that may call `kms:PutKeyPolicy` is a trust root.
-From creation the policy denies every decrypt and any call that wraps a chosen plaintext.
-Deploy replaces the decrypt deny with one that admits only an enclave with the measured PCRs.
-A trust root can lift those denials only by rewriting the policy, and CloudTrail records that call.
+From creation the KMS key policy denies every decrypt and any call that wraps a chosen plaintext.
+Deploy replaces it once with a policy that admits only an enclave with the measured PCRs and a random encryption context drawn at that moment, and grants no principal of the account `kms:PutKeyPolicy` or `kms:CreateGrant`.
+From then on no principal of the account, administrators included, can read the seed, wrap one it knows, or change the policy.
+Between `kms-key` and that deploy the account root still holds `kms:*`, but a ciphertext made then lacks the bind's encryption context, and the bound policy denies every decrypt under another context, grants included.
+Deploy also refuses to bind a key that carries a grant.
+The trust root is AWS KMS, AWS Support for a key no principal can manage, the Nitro hardware and the operator during the deploy that binds the key.
+A client cannot read the key policy, so it relies on the operator's deploy for this guarantee.
 
 The parent instance runs the enclave and carries traffic it cannot read.
 It is an Amazon Linux 2023 EC2 instance with enclaves enabled.
@@ -39,18 +42,20 @@ All enclaves of a deployment hold the same HPKE key, so the gateway can spread r
 `kms-key` creates one symmetric KMS key per deployment under `alias/zolana-nitro-NAME`, sealed from creation.
 The image carries the key ARN in `/etc/zolana-nitro/kms-key`, and `measure` reads it back with the PCRs.
 Deploy refuses an image that names another key or measurements of another image.
-It first writes the key policy that lets the host role call `kms:Decrypt` only when the request carries an attestation whose PCR0, PCR1 and PCR2 equal the values from `measure`, and denies every other attestation.
-When the stack bucket holds no seed, it then calls `GenerateDataKeyWithoutPlaintext` and stores the encrypted 32 byte seed at `install/hpke-seed.bin`.
-The seed never exists under a policy that releases it to another image.
+On a key still sealed from creation it deletes any stored seed and writes the bound policy.
+That policy lets the host role call `kms:Decrypt` only when the request carries an attestation whose PCR0, PCR1 and PCR2 equal the values from `measure`, and the encryption context `zolana-seed` equals the value drawn for the bind.
+It then calls `GenerateDataKeyWithoutPlaintext` under that context and stores the encrypted 32 byte seed at `install/hpke-seed.bin` and the context at `install/hpke-seed-context`.
+A resume keeps a key that already holds the bound policy, restores a missing context object, regenerates a missing seed under the same context, and refuses any other policy.
 The deployment never handles the plaintext seed.
 
 At boot each enclave connects to the parent on vsock CID 3, port 8200.
-The `zolana-kms` service answers with one JSON line that holds the ciphertext and fresh instance role credentials from IMDSv2, then closes.
+The `zolana-kms` service answers with one JSON line that holds the ciphertext, its encryption context and fresh instance role credentials from IMDSv2, then closes.
 The enclave asks KMS to decrypt with its attestation document, so KMS encrypts the seed to a key that exists only inside that enclave.
 The parent relays that answer without being able to read it.
 The enclave fails to start when any step fails.
 A ciphertext under another key gets a refusal from KMS, because the key ARN comes from the measured image.
-A fresh ciphertext under the same key yields another HPKE key, and deploy and a client pin refuse it.
+A fresh ciphertext under the same key yields another HPKE key nobody knows.
+Deploy refuses enclaves that attest different keys, and a client that pins the key refuses it.
 
 ## How it works
 
@@ -150,7 +155,7 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
 
 5. Deploy with the measured PCRs.
    The command refuses an image whose `kms_key` is not the key of `NAME`.
-   It creates the stack, stores the encrypted seed, writes the key policy for the PCRs of `pcrs.json`, installs the host through SSM, builds the EIF and starts the enclaves.
+   It creates the stack, binds the key policy to the PCRs of `pcrs.json`, stores a fresh encrypted seed, installs the host through SSM, builds the EIF and starts the enclaves.
    It waits for readiness and checks that CloudFront refuses a request without the key.
    It fails with `MEASUREMENT MISMATCH` when the PCRs the parent built differ from `pcrs.json`, and the deployment stays unfinished.
    It then reads the offered HPKE key twice per enclave through the gateway and refuses the deployment unless every answer names the same key.
@@ -213,6 +218,7 @@ Measure and pin the pushed digest, never the commit.
 
 The image names one KMS key, so build one image per deployment, after `kms-key`.
 The key policy names the PCRs of one image.
+Nobody can change a bound policy, so a deploy that binds the wrong PCRs or host role leaves the key unusable, and only a deployment under a new name recovers.
 An enclave of any other image gets a refusal from KMS and does not start.
 
 An image without the KMS key source draws a new HPKE key at each enclave start.

@@ -46,8 +46,11 @@ UNITS = Path("/etc/systemd/system")
 ARTIFACTS = Path("/var/lib/zolana-nitro/artifacts")
 LAYOUT = ROOT / "enclaves.json"
 SEED = ROOT / "hpke-seed.bin"
+SEED_CONTEXT = ROOT / "hpke-seed-context"
 MEASUREMENTS = "install/measurements.json"
 SEED_OBJECT = "install/hpke-seed.bin"
+SEED_CONTEXT_OBJECT = "install/hpke-seed-context"
+SEED_CONTEXT_KEY = "zolana-seed"
 PCRS = ("PCR0", "PCR1", "PCR2")
 # PCRs change with the nitro-cli release.
 NITRO_CLI = "1.5.0-0.amzn2023"
@@ -371,7 +374,7 @@ def role_credentials(opener=urllib.request.urlopen):
     return record
 
 
-def kms_config(ciphertext, credentials):
+def kms_config(ciphertext, seed_context, credentials):
     line = (
         json.dumps(
             {
@@ -379,6 +382,7 @@ def kms_config(ciphertext, credentials):
                 "access_key_id": credentials["AccessKeyId"],
                 "secret_access_key": credentials["SecretAccessKey"],
                 "session_token": credentials["Token"],
+                "seed_context": seed_context,
             }
         )
         + "\n"
@@ -524,8 +528,9 @@ def install(config):
     if len(nodes) > 1 and not shared_key:
         print("The image draws a boot key, running one enclave", flush=True)
     if shared_key:
-        s3_copy(config, f"s3://{outputs['Bucket']}/{SEED_OBJECT}", str(SEED))
-        SEED.chmod(0o644)
+        for name, path in ((SEED_OBJECT, SEED), (SEED_CONTEXT_OBJECT, SEED_CONTEXT)):
+            s3_copy(config, f"s3://{outputs['Bucket']}/{name}", str(path))
+            path.chmod(0o644)
     write(LAYOUT, json.dumps(enclaves, indent=2))
     record = ROOT / "measurements.json"
     measured = build_eif(image, ROOT / "prover.eif")
@@ -594,13 +599,18 @@ def main(argv):
         supervise(json.loads(LAYOUT.read_text()), int(rest[0]))
     elif action == "kms":
         ciphertext = SEED.read_bytes()
+        seed_context = SEED_CONTEXT.read_text().strip()
         cids = {
             FIRST_CID + index for index in range(len(json.loads(LAYOUT.read_text())))
         }
         listener = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
         listener.bind((PARENT_CID, KMS_PORT))
         listener.listen()
-        serve_kms(listener, cids, lambda: kms_config(ciphertext, role_credentials()))
+        serve_kms(
+            listener,
+            cids,
+            lambda: kms_config(ciphertext, seed_context, role_credentials()),
+        )
     else:
         os.umask(0o077)
         with (ROOT / "install.lock").open("w") as lock:

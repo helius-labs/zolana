@@ -23,6 +23,8 @@ from aws_nitro_host import (  # noqa: E402
     MEASUREMENTS,
     PCRS,
     ROOT,
+    SEED_CONTEXT_KEY,
+    SEED_CONTEXT_OBJECT,
     SEED_OBJECT,
     image_files,
 )
@@ -67,7 +69,6 @@ def template(config):
     return body
 
 
-# Only a logged PutKeyPolicy lifts the denies.
 def key_policy(account, *statements):
     return aws_stack.document(
         [
@@ -113,7 +114,46 @@ def unbound():
     ]
 
 
-def attested(host_role, pcrs):
+# Without PutKeyPolicy or CreateGrant no principal of the account can widen the bound policy.
+def bound_policy(account, host_role, pcrs, seed_context):
+    return aws_stack.document(
+        [
+            {
+                "Sid": "Operator",
+                "Effect": "Allow",
+                "Principal": {"AWS": f"arn:aws:iam::{account}:root"},
+                "Action": [
+                    "kms:DescribeKey",
+                    "kms:GetKeyPolicy",
+                    "kms:ListResourceTags",
+                    "kms:CreateAlias",
+                    "kms:DeleteAlias",
+                    "kms:ScheduleKeyDeletion",
+                    "kms:CancelKeyDeletion",
+                    "kms:EnableKey",
+                ],
+                "Resource": "*",
+            },
+            {
+                "Sid": "BoundSeed",
+                "Effect": "Allow",
+                "Principal": {"AWS": f"arn:aws:iam::{account}:root"},
+                "Action": "kms:GenerateDataKeyWithoutPlaintext",
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {
+                        f"kms:EncryptionContext:{SEED_CONTEXT_KEY}": seed_context
+                    }
+                },
+            },
+            *attested(host_role, pcrs, seed_context),
+            *sealed(),
+        ]
+    )
+
+
+# A ciphertext made before the bind lacks the bind's random context and stays sealed.
+def attested(host_role, pcrs, seed_context):
     return [
         {
             "Sid": "AttestedEnclave",
@@ -124,7 +164,10 @@ def attested(host_role, pcrs):
             "Condition": {
                 "StringEqualsIgnoreCase": {
                     f"kms:RecipientAttestation:{name}": pcrs[name] for name in PCRS
-                }
+                },
+                "StringEquals": {
+                    f"kms:EncryptionContext:{SEED_CONTEXT_KEY}": seed_context
+                },
             },
         },
         *(
@@ -142,6 +185,18 @@ def attested(host_role, pcrs):
             }
             for name in PCRS
         ),
+        {
+            "Sid": "AttestedContext",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": "kms:Decrypt",
+            "Resource": "*",
+            "Condition": {
+                "StringNotEquals": {
+                    f"kms:EncryptionContext:{SEED_CONTEXT_KEY}": seed_context
+                }
+            },
+        },
     ]
 
 
@@ -189,32 +244,72 @@ def delete_kms_key(aws, key):
     aws.call("kms", "schedule-key-deletion", KeyId=key, PendingWindowInDays=7)
 
 
-# The PCRs are bound before any seed is generated.
-def release_seed(aws, out, key, pcrs):
-    aws.call(
-        "kms",
-        "put-key-policy",
-        KeyId=key,
-        PolicyName="default",
-        Policy=json.dumps(
-            key_policy(key.split(":")[4], *sealed(), *attested(out["HostRole"], pcrs))
-        ),
-    )
-    if gpu.object_exists(aws, out["Bucket"], SEED_OBJECT):
-        return
-    blob = aws.call(
-        "kms", "generate-data-key-without-plaintext", KeyId=key, KeySpec="AES_256"
-    )["CiphertextBlob"]
+def bound_context(policy):
+    for statement in policy["Statement"]:
+        if statement.get("Sid") == "AttestedEnclave":
+            return (
+                statement.get("Condition", {})
+                .get("StringEquals", {})
+                .get(f"kms:EncryptionContext:{SEED_CONTEXT_KEY}")
+            )
+    return None
+
+
+def put_object(aws, bucket, name, body):
     with tempfile.TemporaryDirectory() as directory:
-        seed = Path(directory) / "hpke-seed.bin"
-        seed.write_bytes(base64.b64decode(blob))
+        path = Path(directory) / Path(name).name
+        path.write_bytes(body)
         aws.command(
-            "s3",
-            "cp",
-            str(seed),
-            f"s3://{out['Bucket']}/{SEED_OBJECT}",
-            "--only-show-errors",
+            "s3", "cp", str(path), f"s3://{bucket}/{name}", "--only-show-errors"
         )
+
+
+def release_seed(aws, out, key, pcrs):
+    account, bucket = key.split(":")[4], out["Bucket"]
+    current = json.loads(
+        aws.call("kms", "get-key-policy", KeyId=key, PolicyName="default")["Policy"]
+    )
+    seed_context = bound_context(current)
+    if seed_context and current == bound_policy(
+        account, out["HostRole"], pcrs, seed_context
+    ):
+        if gpu.object_exists(aws, bucket, SEED_OBJECT):
+            if not gpu.object_exists(aws, bucket, SEED_CONTEXT_OBJECT):
+                put_object(aws, bucket, SEED_CONTEXT_OBJECT, seed_context.encode())
+            return
+    elif "UnboundDecrypt" in {
+        statement.get("Sid") for statement in current["Statement"]
+    }:
+        if aws.call("kms", "list-grants", KeyId=key)["Grants"]:
+            raise RuntimeError(
+                "The KMS key carries grants. Revoke them or deploy under a new name"
+            )
+        for name in (SEED_OBJECT, SEED_CONTEXT_OBJECT):
+            aws.command("s3", "rm", f"s3://{bucket}/{name}", "--only-show-errors")
+        seed_context = secrets.token_hex(32)
+        aws.call(
+            "kms",
+            "put-key-policy",
+            KeyId=key,
+            PolicyName="default",
+            Policy=json.dumps(
+                bound_policy(account, out["HostRole"], pcrs, seed_context)
+            ),
+            BypassPolicyLockoutSafetyCheck=True,
+        )
+    else:
+        raise RuntimeError(
+            "The KMS key is bound to another policy. Deploy under a new name"
+        )
+    blob = aws.call(
+        "kms",
+        "generate-data-key-without-plaintext",
+        KeyId=key,
+        KeySpec="AES_256",
+        EncryptionContext={SEED_CONTEXT_KEY: seed_context},
+    )["CiphertextBlob"]
+    put_object(aws, bucket, SEED_CONTEXT_OBJECT, seed_context.encode())
+    put_object(aws, bucket, SEED_OBJECT, base64.b64decode(blob))
 
 
 def enclave_size(described):
