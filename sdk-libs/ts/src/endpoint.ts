@@ -13,6 +13,36 @@ export const LOCALNET_PHOTON_ENDPOINT = "http://127.0.0.1:8784";
 // ::1 and miss a validator listening on IPv4.
 export const LOCALNET_PROVER_ENDPOINT = "http://127.0.0.1:3001";
 
+/** Where a Helius RPC host serves the indexer and the prover. */
+export const ZOLANA_GATEWAY_PATH = "/v1/zolana";
+
+const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
+
+/**
+ * Whether `url` is the Helius gateway's zolana namespace on a
+ * `*.helius-rpc.com` host. It serves the indexer at `/v1/zolana/<method>` and
+ * proofs only at the key-less `/v1/zolana/prove` and `/v1/zolana/prove/status`,
+ * with no indexed route.
+ */
+export function isZolanaGateway(url: URL): boolean {
+  return (
+    HELIUS_RPC_HOST.test(url.hostname) && url.pathname.replace(/\/+$/u, "") === ZOLANA_GATEWAY_PATH
+  );
+}
+
+/** A Helius RPC root URL as its zolana namespace, query kept; any other URL unchanged. */
+function zolanaServiceUrl(rpc: string | URL): string | URL {
+  let url: URL;
+  try {
+    url = new URL(rpc);
+  } catch {
+    return rpc;
+  }
+  if (!HELIUS_RPC_HOST.test(url.hostname) || url.pathname.replace(/\/+$/u, "") !== "") return rpc;
+  url.pathname = ZOLANA_GATEWAY_PATH;
+  return url;
+}
+
 /** The routing fields of `ZolanaClientConfig`, which is what resolution reads. */
 export interface ClientEndpointConfig {
   readonly solanaRpcUrl?: string | URL | undefined;
@@ -35,7 +65,8 @@ export interface ResolvedClientEndpoints {
  * Resolves a config into one URL per service.
  *
  * Each service takes the URL named for it, else `solanaRpcUrl`, else its local
- * default. Resolution lives here alone so the local defaults and the named URLs
+ * default. A Helius RPC root lends the indexer and the prover its `/v1/zolana`
+ * namespace. Resolution lives here alone so the local defaults and the named URLs
  * cannot disagree about where a service ended up.
  */
 export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedClientEndpoints {
@@ -51,7 +82,7 @@ export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedCli
     }
     // Without an RPC URL to inherit, the local port is the only sensible answer.
     if (input.solanaRpcUrl !== undefined) {
-      return { url: input.solanaRpcUrl, field: "solanaRpcUrl" };
+      return { url: zolanaServiceUrl(input.solanaRpcUrl), field: "solanaRpcUrl" };
     }
     return { url: localDefault, field: namedField };
   };

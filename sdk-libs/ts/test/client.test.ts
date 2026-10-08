@@ -434,6 +434,25 @@ describe("ZolanaClient", () => {
     }
   });
 
+  it("fetches proof data on the client for a prover on the Helius gateway", () => {
+    for (const config of [
+      { solanaRpcUrl: "https://beta-devnet.helius-rpc.com/?api-key=k" },
+      {
+        solanaRpcUrl: RPC_URL,
+        proverUrl: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+      },
+    ]) {
+      expect(new ZolanaClient(config).proofDataSource).toBe("client");
+      expect(() => new ZolanaClient({ ...config, proofDataSource: "prover" })).toThrow(
+        expect.objectContaining({
+          code: "CLIENT_INVALID_CONFIG",
+          details: { field: "proofDataSource" },
+        }),
+      );
+    }
+    expect(new ZolanaClient({ solanaRpcUrl: RPC_URL }).proofDataSource).toBe("prover");
+  });
+
   it("allows plaintext non-loopback URLs only when asked explicitly", () => {
     // The escape hatch for a transport that is already private -- an indexer
     // inside a VPC, TLS terminated elsewhere. It has to be opt-in, so running a
