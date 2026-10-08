@@ -40,6 +40,7 @@ fi
 
 concurrency=$(cat /etc/zolana-nitro/concurrency)
 export PROVER_SYNC_CONCURRENCY="$concurrency"
+[ ! -f /etc/zolana-nitro/request-timing ] || export PROVER_REQUEST_TIMING=true
 set -- start --require-optimized-build --server-only --auto-download --preload-keys none \
     --keys-dir /proving-keys --prover-address 127.0.0.1:3001 --metrics-address 127.0.0.1:9998 \
     --tee nitro --transfer-concurrency "$concurrency" \

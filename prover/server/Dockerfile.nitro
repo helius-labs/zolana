@@ -29,8 +29,10 @@ ARG INDEXER_URL=
 ARG CONCURRENCY=2
 ARG KEY_SOURCE=boot
 ARG KMS_KEY_ARN=
+ARG REQUEST_TIMING=
 RUN mkdir /out \
     && case $BACKEND in gnark) ;; aeglos-cpu) echo "$BACKEND" > /out/backend ;; *) echo "BACKEND must be gnark or aeglos-cpu" >&2; exit 1 ;; esac \
+    && case $REQUEST_TIMING in "") ;; on) echo on > /out/request-timing ;; *) echo "REQUEST_TIMING must be empty or on" >&2; exit 1 ;; esac \
     && case $CONCURRENCY in [1-9] | [1-9][0-9]) ;; *) echo "CONCURRENCY must be 1 to 99" >&2; exit 1 ;; esac \
     && echo "$CONCURRENCY" > /out/concurrency \
     && case $KEY_SOURCE in \
