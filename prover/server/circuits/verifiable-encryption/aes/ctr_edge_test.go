@@ -112,12 +112,12 @@ func (c *counterSequenceCircuit) Define(api frontend.API) error {
 		nonce[i] = keys.tables.spreadByte(b)
 	}
 	stream := &ctrStream{keys: keys, nonceState: keys.addRoundKey(nonce, 0), cachedHigh: -1}
-	mask := make([]frontend.Variable, 16)
-	for i := range mask {
-		mask[i] = 0
+	plaintextBytes := make([]frontend.Variable, 16)
+	for i := range plaintextBytes {
+		plaintextBytes[i] = 0
 	}
 	for j, counter := range c.counters {
-		for i, b := range keys.finalRound(stream.keystreamState(counter), mask) {
+		for i, b := range stream.encryptBlock(counter, plaintextBytes) {
 			api.AssertIsEqual(b, c.Ciphertext[j*16+i])
 		}
 	}

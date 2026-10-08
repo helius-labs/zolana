@@ -63,17 +63,11 @@ func (c *Cipher) CTREncrypt(nonceBytes [12]frontend.Variable, plaintext []fronte
 	// 3. Apply the initial round key to the nonce and initialize the stream.
 	stream := &ctrStream{keys: keys, nonceState: keys.addRoundKey(spreadNonce, 0), cachedHigh: -1}
 
-	// 4. Constrain and spread each plaintext block, including a partial tail.
+	// 4. Encrypt each plaintext block, including a partial tail.
 	ciphertext := make([]frontend.Variable, 0, len(plaintext))
 	for offset, block := 0, 0; offset < len(plaintext); offset, block = offset+blockBytes, block+1 {
 		end := min(offset+blockBytes, len(plaintext))
-		masks := make([]frontend.Variable, end-offset)
-		for i := range masks {
-			masks[i] = t.spreadByte(plaintext[offset+i])
-		}
-
-		// 5. Encrypt nonce || counter and XOR the keystream with the plaintext.
-		ciphertext = append(ciphertext, keys.finalRound(stream.keystreamState(uint32(block+ctrFirstCounter)), masks)...)
+		ciphertext = append(ciphertext, stream.encryptBlock(uint32(block+ctrFirstCounter), plaintext[offset:end])...)
 	}
 	return ciphertext
 }
@@ -86,30 +80,50 @@ type ctrStream struct {
 	columnZero frontend.Variable
 }
 
-func (s *ctrStream) keystreamState(counter uint32) [blockBytes]frontend.Variable {
-	s.refreshFirstRound(counter)
+// encryptBlock returns ciphertext for up to one block of plaintext.
+func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Variable) []frontend.Variable {
+	// 1. Constrain and spread the plaintext bytes.
 	t := s.keys.tables
+	spreadPlaintext := make([]frontend.Variable, len(plaintextBytes))
+	for i, value := range plaintextBytes {
+		spreadPlaintext[i] = t.spreadByte(value)
+	}
+
+	// 2. Refresh cached first-round columns when the upper counter bytes change.
+	high := int64(counter >> byteLanes)
+	if high != s.cachedHigh {
+		s.cachedHigh = high
+		var state [blockBytes]frontend.Variable
+		copy(state[:12], s.nonceState)
+		for position := 12; position < 15; position++ {
+			state[position] = s.counterByte(position, byte(counter>>uint(byteLanes*(15-position))))
+		}
+		for column := 1; column < wordBytes; column++ {
+			copy(s.firstRound[column*wordBytes:(column+1)*wordBytes], s.keys.roundColumn(1, column, &state))
+		}
+		s.columnZero = s.keys.columnSum(1, 0, &state, 0, 1, 2)
+	}
+
+	// 3. Complete the first round using the current low counter byte.
 	last := s.counterByte(15, byte(counter))
 	state := s.firstRound
 	copy(state[:wordBytes], t.laneParityBytes(t.api.Add(s.columnZero, t.substitute(3, last)), wordBytes))
-	return s.keys.middleRounds(state, 2)
-}
 
-func (s *ctrStream) refreshFirstRound(counter uint32) {
-	high := int64(counter >> byteLanes)
-	if high == s.cachedHigh {
-		return
+	// 4. Apply AES rounds 2 through 13.
+	for round := 2; round < aes256Rounds; round++ {
+		var next [blockBytes]frontend.Variable
+		for column := 0; column < wordBytes; column++ {
+			copy(next[column*wordBytes:(column+1)*wordBytes], s.keys.roundColumn(round, column, &state))
+		}
+		state = next
 	}
-	s.cachedHigh = high
-	var state [blockBytes]frontend.Variable
-	copy(state[:12], s.nonceState)
-	for position := 12; position < 15; position++ {
-		state[position] = s.counterByte(position, byte(counter>>uint(byteLanes*(15-position))))
+
+	// 5. Apply the final AES round and XOR with the plaintext.
+	sums := make([]frontend.Variable, len(spreadPlaintext))
+	for i := range sums {
+		sums[i] = t.api.Add(t.substitute(sboxRegion, state[byteOrder[i]]), s.keys.spread[aes256Rounds*blockBytes+i], spreadPlaintext[i])
 	}
-	for column := 1; column < wordBytes; column++ {
-		copy(s.firstRound[column*wordBytes:(column+1)*wordBytes], s.keys.roundColumn(1, column, &state))
-	}
-	s.columnZero = s.keys.columnSum(1, 0, &state, 0, 1, 2)
+	return t.xorBytes(sums)
 }
 
 func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
@@ -169,26 +183,6 @@ func (k *roundKeys) addRoundKey(spreadBytes []frontend.Variable, offset int) []f
 		sums[i] = k.tables.api.Add(spreadBytes[i], k.spread[offset+i])
 	}
 	return k.tables.xorBytes(sums)
-}
-
-func (k *roundKeys) middleRounds(state [blockBytes]frontend.Variable, first int) [blockBytes]frontend.Variable {
-	for round := first; round < aes256Rounds; round++ {
-		var next [blockBytes]frontend.Variable
-		for column := 0; column < wordBytes; column++ {
-			copy(next[column*wordBytes:(column+1)*wordBytes], k.roundColumn(round, column, &state))
-		}
-		state = next
-	}
-	return state
-}
-
-func (k *roundKeys) finalRound(state [blockBytes]frontend.Variable, masks []frontend.Variable) []frontend.Variable {
-	t := k.tables
-	sums := make([]frontend.Variable, len(masks))
-	for i := range sums {
-		sums[i] = t.api.Add(t.substitute(sboxRegion, state[byteOrder[i]]), k.spread[aes256Rounds*blockBytes+i], masks[i])
-	}
-	return t.xorBytes(sums)
 }
 
 func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
