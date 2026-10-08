@@ -1,20 +1,36 @@
 # Build context is the repository root.
-FROM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS builder
+# BACKEND=aeglos-cpu needs the aeglos_source build context.
+ARG BACKEND=gnark
+
+FROM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS source
 
 WORKDIR /app
 COPY prover/server/go.mod prover/server/go.sum ./
 RUN go mod download && go mod verify
 COPY prover/server/ ./
 
+FROM source AS gnark
 ARG GOAMD64
 ARG PROVER_PGO
 RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local/bin/light-prover
 
+FROM source AS aeglos-cpu
+RUN apk add --no-cache bash=5.3.9-r1 g++=15.2.0-r5 make=4.4.1-r4 musl-dev=1.2.6-r2
+ARG GOAMD64
+ARG AEGLOS_UNPINNED
+RUN --mount=type=bind,from=aeglos_source,target=/tmp/aeglos-source \
+    GOAMD64="$GOAMD64" AEGLOS_UNPINNED="$AEGLOS_UNPINNED" PROVER_EXTLDFLAGS=-static \
+    ./build-aeglos.sh /tmp/aeglos-source cpu /usr/local/bin/light-prover
+
+FROM ${BACKEND} AS builder
+
+ARG BACKEND
 ARG INDEXER_URL=
 ARG CONCURRENCY=2
 ARG KEY_SOURCE=boot
 ARG KMS_KEY_ARN=
 RUN mkdir /out \
+    && case $BACKEND in gnark) ;; aeglos-cpu) echo "$BACKEND" > /out/backend ;; *) echo "BACKEND must be gnark or aeglos-cpu" >&2; exit 1 ;; esac \
     && case $CONCURRENCY in [1-9] | [1-9][0-9]) ;; *) echo "CONCURRENCY must be 1 to 99" >&2; exit 1 ;; esac \
     && echo "$CONCURRENCY" > /out/concurrency \
     && case $KEY_SOURCE in \
