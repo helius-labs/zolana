@@ -1,3 +1,14 @@
+// Tested invariants (shared with publickey_external_test.go):
+//
+//  1. Public-key derivation reduces scalars modulo the group order and rejects zero
+//     residues.
+//  2. Self-agreement matches host ECDH, including edge scalars, and rejects an altered
+//     shared x-coordinate.
+//  3. Self-agreement reduces scalars modulo the group order and rejects zero residues at
+//     the order boundaries.
+//  4. Self-agreement scalar inputs are constrained to bytes, including under forged
+//     range-check hints.
+//  5. Self-agreement rejects forged scalar-multiplication reports and mutated hints.
 package p256
 
 import (
@@ -8,47 +19,94 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
+	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/consensys/gnark/std/math/emulated"
-	"github.com/consensys/gnark/test"
+
+	"zolana/prover/prover-test/hintattack"
 )
 
-type fpBytesCircuit struct {
-	Limbs [4]frontend.Variable
-	Bytes [32]frontend.Variable `gnark:",public"`
-}
-
-func (c *fpBytesCircuit) Define(api frontend.API) error {
-	elem := emulated.Element[emulated.P256Fp]{Limbs: c.Limbs[:]}
-	got, _ := canonicalFpBytes(api, newAgreementField(api), &elem)
-	assertBytesEqual(api, got[:], c.Bytes[:])
-	return nil
-}
-
-func fpBytesWitness(value *big.Int, bytes *big.Int) *fpBytesCircuit {
-	var w fpBytesCircuit
-	mask := new(big.Int).SetUint64(^uint64(0))
-	for i := range w.Limbs {
-		limb := new(big.Int).Rsh(value, uint(64*i))
-		w.Limbs[i] = limb.And(limb, mask)
+// Invariant 1: Public-key derivation reduces scalars modulo the group order and rejects zero residues.
+func TestPublicKeyRefusesInfinityAndReducesScalars(t *testing.T) {
+	cs := compile(t, &publicKeyCircuit{})
+	for _, row := range scalarRows(t) {
+		t.Run(row.name, func(t *testing.T) {
+			row.check(t, cs, row.publicKeyWitness(t))
+		})
 	}
-	setBytes(w.Bytes[:], bytes.FillBytes(make([]byte, 32)))
-	return &w
 }
 
-func TestFpBytesAreCanonical(t *testing.T) {
-	assert := test.NewAssert(t)
-	p := emulated.P256Fp{}.Modulus()
-	x := big.NewInt(0x1234_5678)
-	shifted := new(big.Int).Add(x, p)
-	if shifted.BitLen() > 256 {
-		t.Fatalf("x + p must fit 256 bits for the test to mean anything")
+// Invariant 2: Self-agreement matches host ECDH, including edge scalars, and rejects an altered shared x-coordinate.
+func TestSelfAgreeKeyMatchesHost(t *testing.T) {
+	cs := compile(t, &selfAgreementCircuit{})
+	seed := new(big.Int).SetBytes([]byte("a counters disclosure secret key"))
+	row := scalarRow{name: "random", scalar: seed, reduced: new(big.Int).Mod(seed, elliptic.P256().Params().N)}
+	row.check(t, cs, row.selfAgreementWitness(t))
+	tampered := row.selfAgreementWitness(t)
+	tampered.SharedX[31] = (int(tampered.SharedX[31].(int)) + 1) % 256
+	witness, err := frontend.NewWitness(tampered, ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
 	}
-	assert.ProverSucceeded(&fpBytesCircuit{}, fpBytesWitness(x, x), test.WithCurves(ecc.BN254))
-	assert.ProverSucceeded(&fpBytesCircuit{}, fpBytesWitness(shifted, x), test.WithCurves(ecc.BN254))
-	assert.ProverFailed(&fpBytesCircuit{}, fpBytesWitness(shifted, shifted), test.WithCurves(ecc.BN254))
+	if cs.IsSolved(witness) == nil {
+		t.Fatal("tampered shared x accepted")
+	}
 }
+
+// Invariant 3: Self-agreement reduces scalars modulo the group order and rejects zero residues at the order boundaries.
+func TestSelfAgreeKeyRefusesInfinityAndReducesScalars(t *testing.T) {
+	cs := compile(t, &selfAgreementCircuit{})
+	for _, row := range scalarRows(t) {
+		t.Run(row.name, func(t *testing.T) {
+			row.check(t, cs, row.selfAgreementWitness(t))
+		})
+	}
+}
+
+// Invariant 5: Self-agreement rejects forged scalar-multiplication reports and mutated hints.
+func TestSelfAgreeKeyRejectsReportForgery(t *testing.T) {
+	n := elliptic.P256().Params().N
+	cs := compile(t, &selfAgreementCircuit{})
+	for _, row := range []struct {
+		name     string
+		scalar   *big.Int
+		x        *big.Int
+		mirrored bool
+	}{
+		{"off-curve result at scalar minus one", new(big.Int).Sub(n, big.NewInt(1)), new(big.Int).SetBytes([]byte("an x nobody can recompute later!")), false},
+		{"zero x at scalar minus one", new(big.Int).Sub(n, big.NewInt(1)), big.NewInt(0), false},
+		{"off-curve result at scalar one", big.NewInt(1), new(big.Int).SetBytes([]byte("an x nobody can recompute later!")), true},
+		{"zero x at scalar one", big.NewInt(1), big.NewInt(0), true},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			w := scalarRow{scalar: row.scalar, reduced: row.scalar}.selfAgreementWitness(t)
+			setBytes(w.SharedX[:], be32(row.x))
+			if err := solveAgreement(t, cs, w); err == nil {
+				t.Fatal("honest prover produced the forged shared secret")
+			}
+			err := solveAgreement(t, cs, w, forgedHints(t, row.x, row.mirrored)...)
+			if err == nil {
+				t.Fatal("forged shared secret accepted")
+			}
+			t.Logf("rejected: %v", err)
+		})
+	}
+}
+
+// Invariant 5: Self-agreement rejects forged scalar-multiplication reports and mutated hints.
+func TestSelfAgreeKeyRejectsHintAttacks(t *testing.T) {
+	cs := compile(t, &selfAgreementCircuit{})
+	for _, row := range attackScalars() {
+		w := scalarRow{name: row.name, scalar: row.scalar, reduced: row.scalar}.selfAgreementWitness(t)
+		t.Run(row.name, func(t *testing.T) {
+			hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
+				return solveAgreement(t, cs, w, opts...)
+			})
+		})
+	}
+}
+
+// Test circuits and shared helpers.
 
 type publicKeyCircuit struct {
 	Scalar [32]frontend.Variable
@@ -123,20 +181,6 @@ func (r scalarRow) publicKeyWitness(t *testing.T) *publicKeyCircuit {
 	return &w
 }
 
-func (r scalarRow) agreementWitness(t *testing.T, peer *ecdh.PublicKey) *keyAgreementCircuit {
-	t.Helper()
-	if r.reduced != nil {
-		return keyAgreementWitness(t, r.scalar, peer)
-	}
-	var w keyAgreementCircuit
-	setBytes(w.Scalar[:], r.scalar.FillBytes(make([]byte, 32)))
-	setBytes(w.PublicKey[:], peer.Bytes())
-	for i := range w.Expected {
-		w.Expected[i] = 0
-	}
-	return &w
-}
-
 func (r scalarRow) selfAgreementWitness(t *testing.T) *selfAgreementCircuit {
 	t.Helper()
 	var w selfAgreementCircuit
@@ -183,50 +227,6 @@ func (r scalarRow) check(t *testing.T, cs constraint.ConstraintSystem, assignmen
 		t.Fatal("expected the scalar of infinity to be rejected")
 	case r.reduced != nil && err != nil:
 		t.Fatalf("solve: %v", err)
-	}
-}
-
-func TestPublicKeyRefusesInfinityAndReducesScalars(t *testing.T) {
-	cs := compile(t, &publicKeyCircuit{})
-	for _, row := range scalarRows(t) {
-		t.Run(row.name, func(t *testing.T) {
-			row.check(t, cs, row.publicKeyWitness(t))
-		})
-	}
-}
-
-func TestComputeKeyAgreementRefusesInfinityAndReducesScalars(t *testing.T) {
-	cs := compile(t, &keyAgreementCircuit{})
-	peer := peerKey(t).PublicKey()
-	for _, row := range scalarRows(t) {
-		t.Run(row.name, func(t *testing.T) {
-			row.check(t, cs, row.agreementWitness(t, peer))
-		})
-	}
-}
-
-func TestSelfAgreeKeyRefusesInfinityAndReducesScalars(t *testing.T) {
-	cs := compile(t, &selfAgreementCircuit{})
-	for _, row := range scalarRows(t) {
-		t.Run(row.name, func(t *testing.T) {
-			row.check(t, cs, row.selfAgreementWitness(t))
-		})
-	}
-}
-
-func TestSelfAgreeKeyMatchesHost(t *testing.T) {
-	cs := compile(t, &selfAgreementCircuit{})
-	seed := new(big.Int).SetBytes([]byte("a counters disclosure secret key"))
-	row := scalarRow{name: "random", scalar: seed, reduced: new(big.Int).Mod(seed, elliptic.P256().Params().N)}
-	row.check(t, cs, row.selfAgreementWitness(t))
-	tampered := row.selfAgreementWitness(t)
-	tampered.SharedX[31] = (int(tampered.SharedX[31].(int)) + 1) % 256
-	witness, err := frontend.NewWitness(tampered, ecc.BN254.ScalarField())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cs.IsSolved(witness) == nil {
-		t.Fatal("tampered shared x accepted")
 	}
 }
 
