@@ -23,11 +23,11 @@ func attackScalars() []attackScalar {
 	}
 }
 
-func TestAgreeKeyRejectsHintAttacks(t *testing.T) {
-	cs := compile(t, &agreeKeyCircuit{})
+func TestComputeKeyAgreementRejectsHintAttacks(t *testing.T) {
+	cs := compile(t, &keyAgreementCircuit{})
 	peer := agreementPeer(t)
 	for _, row := range attackScalars() {
-		w := agreeKeyWitness(t, row.scalar, peer)
+		w := keyAgreementWitness(t, row.scalar, peer)
 		t.Run(row.name, func(t *testing.T) {
 			hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
 				return solveAgreement(t, cs, w, opts...)

@@ -211,7 +211,7 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     for (byte, value) in ciphertext.iter_mut().zip(0x90u8..) {
         *byte = value;
     }
-    let envelope = merge_envelope_public_elements(&viewing_pk, &ephemeral_pk, &ciphertext).unwrap();
+    let envelope = merge_envelope_public_elements(&viewing_pk, &ephemeral_pk, &ciphertext);
     // The element order `MergeProver::build` hashes; the 1 is the dummy-input
     // policy merge always publishes.
     let mut elements = vec![

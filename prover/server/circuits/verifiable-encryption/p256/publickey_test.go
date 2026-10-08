@@ -123,12 +123,12 @@ func (r scalarRow) publicKeyWitness(t *testing.T) *publicKeyCircuit {
 	return &w
 }
 
-func (r scalarRow) agreementWitness(t *testing.T, peer *ecdh.PublicKey) *agreeKeyCircuit {
+func (r scalarRow) agreementWitness(t *testing.T, peer *ecdh.PublicKey) *keyAgreementCircuit {
 	t.Helper()
 	if r.reduced != nil {
-		return agreeKeyWitness(t, r.scalar, peer)
+		return keyAgreementWitness(t, r.scalar, peer)
 	}
-	var w agreeKeyCircuit
+	var w keyAgreementCircuit
 	setBytes(w.Scalar[:], r.scalar.FillBytes(make([]byte, 32)))
 	setBytes(w.PublicKey[:], peer.Bytes())
 	for i := range w.Expected {
@@ -195,8 +195,8 @@ func TestPublicKeyRefusesInfinityAndReducesScalars(t *testing.T) {
 	}
 }
 
-func TestAgreeKeyRefusesInfinityAndReducesScalars(t *testing.T) {
-	cs := compile(t, &agreeKeyCircuit{})
+func TestComputeKeyAgreementRefusesInfinityAndReducesScalars(t *testing.T) {
+	cs := compile(t, &keyAgreementCircuit{})
 	peer := peerKey(t).PublicKey()
 	for _, row := range scalarRows(t) {
 		t.Run(row.name, func(t *testing.T) {

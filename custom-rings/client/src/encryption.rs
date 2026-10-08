@@ -8,7 +8,7 @@
 //! that must agree bit for bit:
 //!
 //! ```text
-//! dh            = ECDH(eph_sk, auditor_pk).x                 -- p256.AgreeKey
+//! dh            = ECDH(eph_sk, auditor_pk).x                 -- p256.ComputeKeyAgreement
 //! shared_secret = Poseidon(DOM_SEP_CR_SHARED,
 //!                          dh_lo, dh_hi,
 //!                          eph_pk_lo, eph_pk_hi,
@@ -20,20 +20,21 @@
 //! `packSharedX` and `packCompressedPoint` in
 //! `prover/server/circuits/verifiable-encryption/p256/keyagreement.go` are the
 //! source of truth for the packing of `dh` and of the 33-byte compressed keys
-//! into pairs of field elements; [`pack_be`] mirrors them. The
-//! key schedule and the CTR keystream come from
+//! into pairs of field elements; [`pack32_to_2fe`] and [`pack33_to_2fe`] mirror
+//! them. The key schedule and the CTR keystream come from
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
 
 use custom_ring_interface::{
-    AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT,
-    AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS, COMPRESSED_P256_KEY_LEN,
+    pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
+    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS,
+    COMPRESSED_P256_KEY_LEN,
 };
 use num_bigint::BigUint;
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::{pack_be, BN254_SCALAR_MODULUS_BE};
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
@@ -289,7 +290,7 @@ fn apply_disclosure_stream(
     encrypt: bool,
 ) -> Result<[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]> {
     const DOMAIN: u64 = 0x4352_5f4f44;
-    let [lo, hi] = pack_be::<32, 2>(&tx_viewing_key.secret_bytes());
+    let FieldPair { lo, hi } = pack32_to_2fe(&tx_viewing_key.secret_bytes());
     let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
     let mut out = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
     for (index, (field, result)) in fields.into_iter().zip(out.iter_mut()).enumerate() {
@@ -413,7 +414,7 @@ const DOM_SEP_CR_SHARED: u32 = 0x4352_5f53;
 /// Mirrors the shared secret `ve.Envelope.Encrypt` derives: binds the raw ECDH
 /// x-coordinate to both public keys that produced it, so the key schedule input
 /// cannot be replayed under a different key pair. Input order is pinned by
-/// `ve.Envelope.Encrypt` and the packing by `p256.AgreeKey`.
+/// `ve.Envelope.Encrypt` and the packing by `p256.ComputeKeyAgreement`.
 #[must_use]
 pub(crate) struct AuditSharedSecret<'a> {
     pub diffie_hellman_x: &'a [u8; 32],
@@ -429,9 +430,18 @@ struct AuditDecryption<'a> {
 
 impl AuditSharedSecret<'_> {
     pub fn derive(self) -> Result<Zeroizing<[u8; 32]>> {
-        let [dh_lo, dh_hi] = pack_be::<32, 2>(self.diffie_hellman_x);
-        let [eph_lo, eph_hi] = pack_be::<33, 2>(self.ephemeral_key.as_bytes());
-        let [auditor_lo, auditor_hi] = pack_be::<33, 2>(self.auditor_key.as_bytes());
+        let FieldPair {
+            lo: dh_lo,
+            hi: dh_hi,
+        } = pack32_to_2fe(self.diffie_hellman_x);
+        let FieldPair {
+            lo: eph_lo,
+            hi: eph_hi,
+        } = pack33_to_2fe(self.ephemeral_key.as_bytes());
+        let FieldPair {
+            lo: auditor_lo,
+            hi: auditor_hi,
+        } = pack33_to_2fe(self.auditor_key.as_bytes());
         Ok(Zeroizing::new(poseidon(&[
             &right_align(&DOM_SEP_CR_SHARED.to_be_bytes()),
             &dh_lo,

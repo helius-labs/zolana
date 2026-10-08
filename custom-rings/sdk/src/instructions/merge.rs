@@ -456,7 +456,7 @@ impl CustomRingMergeInstruction {
             output_tree,
             ring_program_id: ring.program_id(),
             payer,
-            data: data.body,
+            data: data.merge,
             output_ring_data_hash: data.output_ring_data_hash,
             cache: None,
         }
@@ -515,7 +515,7 @@ mod tests {
         let ring = CustomRing::new(Address::new_from_array([9; 32]));
         let data = MergeRingIxData {
             output_ring_data_hash: [7; 32],
-            body: zolana_interface::instruction::instruction_data::MergeBody {
+            merge: zolana_interface::instruction::instruction_data::MergeBody {
                 cache_slot: None,
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),

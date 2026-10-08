@@ -367,16 +367,27 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
                 return Ok(None);
             };
-            let plaintexts = decrypt_each(shielded_keys, viewing_pubkeys, |viewing_pubkey| {
-                DecryptRequest {
+            let requests: Vec<_> = viewing_pubkeys
+                .into_iter()
+                .map(|viewing_pubkey| DecryptRequest {
                     ciphertext,
                     viewing_pubkey,
                     tx_viewing_pubkey,
                     salt,
                     slot_index,
                     label: DecryptLabel::Utxo,
-                }
-            })?;
+                })
+                .collect();
+            if requests.is_empty() {
+                return Ok(None);
+            }
+            let plaintexts = shielded_keys.decrypt(&requests)?;
+            if plaintexts.len() != requests.len() {
+                return Err(TransactionError::IncompleteDecryption {
+                    got: plaintexts.len(),
+                    want: requests.len(),
+                });
+            }
             for bytes in plaintexts {
                 let utxos = match scheme {
                     EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
@@ -425,20 +436,27 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
     let Ok(tx_viewing_pubkey) = P256Pubkey::from_bytes(output.encrypted.tx_viewing_pk) else {
         return Ok(None);
     };
-    let plaintexts = decrypt_each(
-        shielded_keys,
-        shielded_keys.viewing_public_keys(),
-        |viewing_pubkey| DecryptRequest {
+    let requests: Vec<_> = shielded_keys
+        .viewing_public_keys()
+        .into_iter()
+        .map(|viewing_pubkey| DecryptRequest {
             ciphertext: &output.encrypted.ciphertext,
             viewing_pubkey,
             tx_viewing_pubkey,
             salt: output.encrypted.salt,
             slot_index: 0,
             label: DecryptLabel::RingDeposit,
-        },
-    )?;
-    if plaintexts.is_empty() {
+        })
+        .collect();
+    if requests.is_empty() {
         return Ok(None);
+    }
+    let plaintexts = shielded_keys.decrypt(&requests)?;
+    if plaintexts.len() != requests.len() {
+        return Err(TransactionError::IncompleteDecryption {
+            got: plaintexts.len(),
+            want: requests.len(),
+        });
     }
     let owner_hash = address.owner_hash()?;
     for bytes in plaintexts {
@@ -740,25 +758,6 @@ fn merge_wallet_utxo(
         tx_signature: tx.tx_signature,
         slot_index: 0,
     }))
-}
-
-fn decrypt_each<'a, K: ShieldedKeys + ?Sized>(
-    shielded_keys: &K,
-    viewing_pubkeys: Vec<P256Pubkey>,
-    request: impl Fn(P256Pubkey) -> DecryptRequest<'a>,
-) -> Result<Vec<Vec<u8>>, TransactionError> {
-    let requests: Vec<_> = viewing_pubkeys.into_iter().map(request).collect();
-    if requests.is_empty() {
-        return Ok(Vec::new());
-    }
-    let plaintexts = shielded_keys.decrypt(&requests)?;
-    if plaintexts.len() != requests.len() {
-        return Err(TransactionError::IncompleteDecryption {
-            got: plaintexts.len(),
-            want: requests.len(),
-        });
-    }
-    Ok(plaintexts)
 }
 
 fn assign_nullifiers<K: ShieldedKeys + ?Sized>(

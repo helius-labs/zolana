@@ -186,7 +186,7 @@ pub fn merge_general_event(
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
             let output_data = ring.output_ring_data_hash.to_vec();
-            (ring.body, output_data, [0u8; 33])
+            (ring.merge, output_data, [0u8; 33])
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };

@@ -1,13 +1,14 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import { solInput } from "./helpers/utxos.js";
 import type { Bytes32, OwnerTag } from "../src/interface/index.js";
-import { ShieldedKeypair, poseidon, sha256Bytes } from "../src/keypair/index.js";
+import { ShieldedKeypair, poseidon, randomBlinding, sha256Bytes } from "../src/keypair/index.js";
 import {
   AssetRegistry,
   ConfidentialTransfer,
+  ProofInputUtxo,
   SOL_MINT,
+  Utxo,
   WithdrawalTarget,
   privateTxBlinding,
   privateTxHash,
@@ -20,6 +21,18 @@ import { concat, nonZeroHashChain } from "../src/transaction/internal.js";
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
 // a padding slot attribute the transaction to it.
 const FOREIGN_PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
+
+function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
+  return ProofInputUtxo.fromKeypair(
+    new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount,
+      blinding: randomBlinding(),
+    }),
+    keypair,
+  );
+}
 
 function inlineTag(value: Bytes32): OwnerTag {
   return { kind: "inline", value };

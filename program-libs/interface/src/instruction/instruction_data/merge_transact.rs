@@ -1,8 +1,6 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-use crate::error::ShieldedPoolError;
-
 pub const MERGE_DEFAULT_INPUT_COUNT: usize = 24;
 
 pub const MAX_MERGE_INPUTS: usize = 54;
@@ -142,28 +140,12 @@ pub struct MergeBodyRef<'a> {
 impl MergeBodyRef<'_> {
     /// The instruction carries only the leading nullifiers; the circuit
     /// [`merge_circuit_width`] selects pads the rest with compact padding.
-    pub(crate) fn validate_shape(&self) -> Result<(), ShieldedPoolError> {
+    pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
         if merge_circuit_width(self.nullifiers.len()).is_none() {
-            return Err(ShieldedPoolError::InvalidMergeShape);
+            return Err(wincode::ReadError::Custom("unsupported merge shape"));
         }
         Ok(())
     }
-}
-
-/// Parses a merge view from the whole instruction buffer: trailing bytes, a
-/// malformed encoding and an unsupported nullifier count all fail with
-/// `InvalidMergeShape`.
-pub(crate) fn parse_merge_view<'a, T>(
-    data: &'a [u8],
-    body: impl FnOnce(&T) -> &MergeBodyRef<'a>,
-) -> Result<T, ShieldedPoolError>
-where
-    T: wincode::SchemaRead<'a, RefConfig, Dst = T>,
-{
-    let parsed: T = wincode::config::deserialize_exact(data, RefConfig::new())
-        .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
-    body(&parsed).validate_shape()?;
-    Ok(parsed)
 }
 
 /// Zero-copy view of [`MergeTransactIxData`].
@@ -175,8 +157,10 @@ pub struct MergeTransactIxDataRef<'a> {
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, ShieldedPoolError> {
-        parse_merge_view(data, |ix: &Self| &ix.body)
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
+        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        parsed.body.validate_shape()?;
+        Ok(parsed)
     }
 }
 

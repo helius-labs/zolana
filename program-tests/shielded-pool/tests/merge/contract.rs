@@ -1,10 +1,8 @@
-use borsh::BorshSerialize;
 use shielded_pool_tests::support::{
     fixtures::Pool, merge::write_user_record, transact::write_ring_config_account,
 };
 
 use solana_account::Account;
-use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -15,25 +13,17 @@ use zolana_interface::{
         MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment, MergeTransactIxData,
         MAX_MERGE_INPUTS, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
     },
-    instruction::tag,
     state::{discriminator::RING_CONFIG, RingConfig},
 };
 use zolana_program::instruction::{MergeRing, MergeTransact};
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
 use zolana_tree::TreeAccount;
-use zolana_user_registry_interface::{
-    state::{UserRecord, P256_PUBKEY_LEN},
-    USER_REGISTRY_PROGRAM_ID,
-};
-
-fn sec1_key(prefix: u8) -> [u8; P256_PUBKEY_LEN] {
-    core::array::from_fn(|index| if index == 0 { prefix } else { 7 })
-}
+use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 fn dummy_envelope() -> MergeEnvelope {
     MergeEnvelope {
-        ephemeral_pk: sec1_key(0x02),
+        ephemeral_pk: core::array::from_fn(|index| if index == 0 { 0x02 } else { 7 }),
         ciphertext: [9u8; MERGE_CIPHERTEXT_LEN],
     }
 }
@@ -84,25 +74,6 @@ fn ring_merge_ix_data() -> MergeBody {
 
 fn ring_merge_ix_data_at_input_count(input_count: usize) -> MergeBody {
     merge_ix_data_at_input_count(input_count).body
-}
-
-fn set_registry_viewing_key(
-    rpc: &mut ZolanaProgramTest,
-    record: Address,
-    viewing_pubkey: [u8; P256_PUBKEY_LEN],
-) {
-    let mut account = rpc.svm.get_account(&record).expect("user record");
-    let mut user_record =
-        UserRecord::try_from_account_data(&account.data).expect("decode user record");
-    user_record.viewing_pubkey = viewing_pubkey;
-    account.data = vec![UserRecord::DISCRIMINATOR];
-    user_record
-        .serialize(&mut account.data)
-        .expect("encode user record");
-    account.data.resize(UserRecord::SIZE, 0);
-    rpc.svm
-        .set_account(record, account)
-        .expect("replace registry viewing key");
 }
 
 fn merge_env() -> (ZolanaProgramTest, Pubkey) {
@@ -549,60 +520,6 @@ fn default_rail_merge_rejects_a_payload_without_the_envelope_exactly() {
         .assert_rolled_back_except(&[payer]);
 }
 
-#[test]
-fn default_rail_merge_rejects_a_registry_viewing_key_without_a_compressed_prefix() {
-    let (mut rpc, tree) = merge_env();
-    let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
-    set_registry_viewing_key(&mut rpc, record, sec1_key(0x04));
-    let tree_before = rpc.account_data(&tree).expect("tree data");
-
-    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
-    let error = rpc
-        .create_and_send_default_payer_transaction_with_budget(
-            &[ix],
-            &[],
-            ComputeBudgetConfig::new(1_400_000),
-        )
-        .expect_err("an uncompressed registry viewing key must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidViewingKeyEncoding)
-        .at(0)
-        .assert_litesvm(error);
-    assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);
-    rpc.last_transaction_trace()
-        .expect("rejected transaction trace")
-        .assert_rolled_back_except(&[payer]);
-}
-
-#[test]
-fn default_rail_merge_rejects_an_ephemeral_key_without_a_compressed_prefix() {
-    let (mut rpc, tree) = merge_env();
-    let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
-    let tree_before = rpc.account_data(&tree).expect("tree data");
-
-    let mut data = merge_ix_data(true);
-    data.envelope = MergeEnvelope {
-        ephemeral_pk: sec1_key(0x04),
-        ..dummy_envelope()
-    };
-    let ix = merge_instruction(&rpc, &tree, record, data);
-    let error = rpc
-        .create_and_send_default_payer_transaction_with_budget(
-            &[ix],
-            &[],
-            ComputeBudgetConfig::new(1_400_000),
-        )
-        .expect_err("an uncompressed envelope ephemeral key must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidEphemeralKeyEncoding)
-        .at(0)
-        .assert_litesvm(error);
-    assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);
-    rpc.last_transaction_trace()
-        .expect("rejected transaction trace")
-        .assert_rolled_back_except(&[payer]);
-}
-
 /// SPP-shaped ring merge instruction (as a ring program would CPI it, the
 /// canonical `ring_auth` PDA marked signer).
 fn merge_ring_cpi_instruction(
@@ -776,31 +693,6 @@ fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
             .create_and_send_default_payer_transaction(&[ix], &[])
             .err()
             .unwrap_or_else(|| panic!("a {input_count}-input ring merge must be rejected"));
-        Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
-        rpc.last_transaction_trace()
-            .expect("rejected transaction trace")
-            .assert_rolled_back_except(&[rpc.payer.pubkey()]);
-    }
-}
-
-#[test]
-fn merge_ring_rejects_a_default_rail_payload_exactly() {
-    let (mut rpc, tree) = merge_env();
-    let default_payload = merge_ix_data(true)
-        .serialize()
-        .expect("serialize merge instruction");
-    let mut prefixed = fe(96).to_vec();
-    prefixed.extend_from_slice(&default_payload);
-    for payload in [default_payload, prefixed] {
-        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(96));
-        ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
-        ix.data = [tag::RING_MERGE_TRANSACT]
-            .into_iter()
-            .chain(payload)
-            .collect();
-        let error = rpc
-            .create_and_send_default_payer_transaction(&[ix], &[])
-            .expect_err("a ring merge carrying a default-rail payload must be rejected");
         Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
         rpc.last_transaction_trace()
             .expect("rejected transaction trace")

@@ -50,7 +50,7 @@ impl MergeRing {
 
         let ix_data = MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
-            body: self.data.clone(),
+            merge: self.data.clone(),
         };
         let mut instruction_data = vec![tag::RING_MERGE_TRANSACT];
         instruction_data.extend_from_slice(

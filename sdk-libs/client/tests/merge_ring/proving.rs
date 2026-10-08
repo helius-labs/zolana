@@ -128,7 +128,7 @@ impl MergeRingHarness {
                 commitment: None,
             })
             .expect("merge-ring instruction data")
-            .body
+            .merge
             .nullifiers
             .len();
         assert_eq!(sent, n, "compact padding is left out of the instruction");

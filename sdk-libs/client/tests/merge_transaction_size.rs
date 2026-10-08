@@ -145,14 +145,14 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
             let data = result
                 .ring_instruction_data(zeroed_proof(None))
                 .expect("merge-ring instruction data");
-            let sent_nullifiers = data.body.nullifiers.len();
+            let sent_nullifiers = data.merge.nullifiers.len();
             let instruction = MergeRing {
                 input_tree: tree,
                 output_tree: tree,
                 ring_program_id: ring,
                 payer,
                 output_ring_data_hash: data.output_ring_data_hash,
-                data: data.body,
+                data: data.merge,
                 cache: None,
             }
             .instruction();

@@ -1,7 +1,6 @@
 use wincode::{SchemaRead, SchemaWrite};
 
-use super::merge_transact::{parse_merge_view, MergeBody, MergeBodyRef};
-use crate::error::ShieldedPoolError;
+use super::merge_transact::{MergeBody, MergeBodyRef, RefConfig};
 
 /// `merge_ring` instruction data (spec: SPP `merge_ring`): the shared
 /// [`MergeBody`] plus the output `ring_data_hash` the calling ring program
@@ -12,7 +11,7 @@ use crate::error::ShieldedPoolError;
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeRingIxData {
     pub output_ring_data_hash: [u8; 32],
-    pub body: MergeBody,
+    pub merge: MergeBody,
 }
 
 impl MergeRingIxData {
@@ -29,11 +28,13 @@ impl MergeRingIxData {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeRingIxDataRef<'a> {
     pub output_ring_data_hash: &'a [u8; 32],
-    pub body: MergeBodyRef<'a>,
+    pub merge: MergeBodyRef<'a>,
 }
 
 impl<'a> MergeRingIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, ShieldedPoolError> {
-        parse_merge_view(data, |ix: &Self| &ix.body)
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
+        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        parsed.merge.validate_shape()?;
+        Ok(parsed)
     }
 }

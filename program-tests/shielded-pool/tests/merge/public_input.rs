@@ -1,10 +1,8 @@
-use pinocchio::error::ProgramError;
 use shielded_pool_program::testing::{MergeOwnerBinding, MergeProof, MergeProofInputs};
 use zolana_hasher::hash_chain::{
     create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
 };
 use zolana_interface::{
-    error::ShieldedPoolError,
     instruction::instruction_data::{
         merge_ring::{MergeRingIxData, MergeRingIxDataRef},
         merge_transact::{
@@ -69,7 +67,7 @@ fn ix_bytes() -> Vec<u8> {
 fn ring_ix_bytes() -> Vec<u8> {
     MergeRingIxData {
         output_ring_data_hash: fe(51),
-        body: body(),
+        merge: body(),
     }
     .serialize()
     .expect("serialize merge_ring instruction")
@@ -136,10 +134,11 @@ fn default_rail_folds_owner_and_envelope_after_the_common_prefix() {
 
     let mut preimage = common_prefix(&ix.body);
     preimage.extend([fe(41), fe(42)]);
-    preimage.extend(
-        merge_envelope_public_elements(&viewing_pk, &envelope.ephemeral_pk, &envelope.ciphertext)
-            .expect("envelope elements"),
-    );
+    preimage.extend(merge_envelope_public_elements(
+        &viewing_pk,
+        &envelope.ephemeral_pk,
+        &envelope.ciphertext,
+    ));
     assert_eq!(preimage.len(), 13);
 
     assert_eq!(
@@ -154,7 +153,7 @@ fn ring_rail_folds_ring_binding_after_the_common_prefix() {
     let bytes = ring_ix_bytes();
     let ix = MergeRingIxDataRef::from_bytes(&bytes).expect("parse merge_ring instruction");
 
-    let mut preimage = common_prefix(&ix.body);
+    let mut preimage = common_prefix(&ix.merge);
     preimage.extend([fe(51), fe(52)]);
     assert_eq!(preimage.len(), 9);
 
@@ -163,24 +162,7 @@ fn ring_rail_folds_ring_binding_after_the_common_prefix() {
         output_ring_data_hash: *ix.output_ring_data_hash,
     };
     assert_eq!(
-        MergeProof::new(&ix.body, proof_inputs(binding)).public_input_hash(),
+        MergeProof::new(&ix.merge, proof_inputs(binding)).public_input_hash(),
         Ok(create_hash_chain_4_from_slice(&preimage).expect("flat chain"))
-    );
-}
-
-#[test]
-fn default_rail_rejects_a_registered_viewing_key_without_a_compressed_prefix() {
-    let bytes = ix_bytes();
-    let ix = MergeTransactIxDataRef::from_bytes(&bytes).expect("parse merge instruction");
-
-    assert_eq!(
-        MergeProof::new(
-            &ix.body,
-            proof_inputs(default_binding(&ix, compressed_point(0x04, 0x10)))
-        )
-        .public_input_hash(),
-        Err(ProgramError::from(
-            ShieldedPoolError::InvalidViewingKeyEncoding
-        ))
     );
 }

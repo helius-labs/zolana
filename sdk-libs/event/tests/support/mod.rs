@@ -103,7 +103,7 @@ pub fn merge_ring_ix(
 ) -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash,
-        body: merge_body(output_utxo_hash),
+        merge: merge_body(output_utxo_hash),
     }
 }
 

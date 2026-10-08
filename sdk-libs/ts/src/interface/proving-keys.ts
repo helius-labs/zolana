@@ -14,18 +14,18 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_250.key":
     "aacd3c81c4681acf0eb21e395df4f566738412da158153b1dee7ac83219dc425",
-  "custom_ring_base.key": "57d0684fb4c97e80a9050b7f0a7bd1f155910d6fd03d9becbefb1534c8ddea32",
+  "custom_ring_base.key": "6d0ba2d7bd68665686a303c5ea38a02150f5e3cb100ae2e8fef054185258a073",
   "custom_ring_compressed_policy.key":
-    "0bd07be1336910384f04fdf0b7b0ddd697e9c9dae1bdde27b0a2c853425c5c5c",
+    "5fec8d2a36dd87beba0ee7623a19b062c5584db8e6d7cd678bfcfcff83f27846",
   "custom_ring_delegate_policy.key":
-    "50e8b94c9166795ed64fabe647199bdba307ff100288552d8585b3f1915675e2",
-  "custom_ring_deposit.key": "d6a6459fe75377f4b7f12a86684c428e1656d05ce2a04e93a9e45ea6cc9c1f6f",
-  "custom_ring_policy.key": "95548d2f10f4cc0ddcf2ad4ab7bcb18b0bdd9d6d18684b699bcd0b26a3e468af",
+    "e8067c52ebb9b10fd3e9267a864018e5061a764c3f1172b4d6cef616150659b1",
+  "custom_ring_deposit.key": "653d720e6968a2f92e923afaff518299dcbbb107b3e7d2ec5995e5b087370f3b",
+  "custom_ring_policy.key": "7295d3d20e498b5e1146fb53942dd6a9f85067e26210f1655d60a6dfe03cc454",
   "custom_ring_register_key.key":
-    "2532f45f514ff1ee3ac219acfc2e2ecf17be131cfcedb2180792a53d18cb13a2",
-  "merge_24_1.key": "56f35e557092d0d426b9a9a543b06d665f804e41b4840c90f6a862cd83b8f02e",
-  "merge_54_1.key": "e3d1c0eea815990750d3d221ee4a46116e6e660ffc1ffa9e532d6959a8378b56",
-  "merge_8_1.key": "94ac21036262d03272d30a189ba7946a0960e3e91ebcddbd3f1cf331d35219c3",
+    "4e50b8aa1454059cbe4a5b74bf06ad8ee4dad229840c27e9b538569354bb6b3f",
+  "merge_24_1.key": "01ab18cccecc19766bdca8e2e03df110d446702504ac9abe70b0886465a3cfcf",
+  "merge_54_1.key": "1040cbfaf9f21baef914aaa796bd267a08d867ce464d852b501a9a1deccfa2ae",
+  "merge_8_1.key": "13b9b3298bb2513495acbca4d850be3cc12359419fa7f598ad7a1585a0319900",
   "merge_ring_24_1.key": "ea8333355dac9e997be3a66d79f8f8456a1510c363dcb664521444d13b202937",
   "merge_ring_54_1.key": "8e5bad48b57f87dbc836fa1c14937040cfbd71e0e630d9cef4264ee5f2564a6a",
   "merge_ring_8_1.key": "1b4b8b8debefe87934bc2b4814f10f35f906b3f18927f4a808ba2a1e1615c1bf",

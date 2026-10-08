@@ -1496,6 +1496,7 @@ fn a_ring_merge_rebuilds_from_utxos_held_since_an_earlier_sync() {
         .collect();
     let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, Some([3; 32]));
 
+    // The merge alone decrypts to nothing: its inputs are in the earlier batch.
     assert_eq!(
         decrypt(&owner, std::slice::from_ref(&merge), &assets)
             .unwrap()
@@ -1510,6 +1511,7 @@ fn a_ring_merge_rebuilds_from_utxos_held_since_an_earlier_sync() {
         rebuild_merge(&owner, &merge, &held[..1], &assets).unwrap(),
         MergeRebuild::Pending
     );
+    // A ring deposit is not a merge.
     assert_eq!(
         rebuild_merge(&owner, &earlier[0], &held, &assets).unwrap(),
         MergeRebuild::NotOurs
@@ -1532,6 +1534,7 @@ fn extending_a_result_decrypts_only_the_new_transactions() {
         .extend(&keys, std::slice::from_ref(&merge), &assets)
         .unwrap();
 
+    // Nothing the earlier call covered was decrypted again.
     assert_eq!(keys.decrypt_calls.borrow().len(), earlier_decrypts);
     assert_eq!(
         *keys.merge_calls.borrow(),

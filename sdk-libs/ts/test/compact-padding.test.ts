@@ -1,7 +1,6 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import { solInput } from "./helpers/utxos.js";
 import { bytesToBigInt } from "../src/client/internal.js";
 import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merge.js";
@@ -18,6 +17,7 @@ import {
   ProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
+  Utxo,
   createProofOutput,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
@@ -37,6 +37,18 @@ function field(value: number): Bytes32 {
 
 const UTXO_ROOT = field(1);
 const NULLIFIER_ROOT = field(2);
+
+function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
+  return ProofInputUtxo.fromKeypair(
+    new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount,
+      blinding: randomBlinding(),
+    }),
+    keypair,
+  );
+}
 
 function nonInclusionProof(leaf: Bytes32, treeId: number): NonInclusionProof {
   return {

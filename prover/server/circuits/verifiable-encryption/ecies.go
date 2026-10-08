@@ -63,26 +63,26 @@ func SecretTagValue(tag []byte) *big.Int {
 }
 
 func (e Envelope) Encrypt(api frontend.API) Encrypted {
-	agreement := p256.AgreeKey(api, e.EphemeralSk, e.RecipientPk)
-	secretInputs := []frontend.Variable{
+	keyAgreement := p256.ComputeKeyAgreement(api, e.EphemeralSk, e.RecipientPk)
+	sharedSecretPreimage := []frontend.Variable{
 		SecretTagValue(e.SecretTag),
-		agreement.SharedLo, agreement.SharedHi,
-		agreement.EphemeralLo, agreement.EphemeralHi,
-		agreement.RecipientLo, agreement.RecipientHi,
+		keyAgreement.SharedLo, keyAgreement.SharedHi,
+		keyAgreement.EphemeralLo, keyAgreement.EphemeralHi,
+		keyAgreement.RecipientLo, keyAgreement.RecipientHi,
 	}
 	if e.Context != nil {
-		secretInputs = append(secretInputs, e.Context)
+		sharedSecretPreimage = append(sharedSecretPreimage, e.Context)
 	}
-	sharedSecret := gadget.PoseidonHash(api, secretInputs)
+	sharedSecret := gadget.PoseidonHash(api, sharedSecretPreimage)
 
 	key, nonce := KeySchedule(api, sharedSecret, e.KdfInfo)
 	ciphertext := aes.CTREncrypt(api, key, nonce, e.Plaintext)
 
 	return Encrypted{
-		RecipientLo:  agreement.RecipientLo,
-		RecipientHi:  agreement.RecipientHi,
-		EphemeralLo:  agreement.EphemeralLo,
-		EphemeralHi:  agreement.EphemeralHi,
+		RecipientLo:  keyAgreement.RecipientLo,
+		RecipientHi:  keyAgreement.RecipientHi,
+		EphemeralLo:  keyAgreement.EphemeralLo,
+		EphemeralHi:  keyAgreement.EphemeralHi,
 		SharedSecret: sharedSecret,
 		Ciphertext:   ciphertext,
 	}

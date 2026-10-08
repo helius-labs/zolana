@@ -10,6 +10,212 @@ import (
 )
 
 const (
+	// FIPS 197-upd1, Table 3: AES-256 uses a 32-byte key, 16-byte blocks,
+	// and 14 rounds. Sec. 5.2 expands the key into 15 round keys (240 bytes).
+	// https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197-upd1.pdf
+	aes256KeyBytes   = 32
+	aes256Rounds     = 14
+	aes256RoundBytes = 16 * (aes256Rounds + 1)
+	blockBytes       = 16
+
+	// NIST SP 800-38D, Sec. 7.1, steps 2-3: for a 96-bit nonce,
+	// J0 = nonce || 0x00000001, so inc32(J0) starts encryption at counter 2.
+	// This gadget uses the CTR stream without GCM's authentication tag.
+	// https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-38d.pdf
+	ctrFirstCounter = 2
+	// Counters 2 through 2^32-1 allow 2^32-2 blocks without wrapping,
+	// matching the plaintext limit of 2^39-256 bits in Sec. 5.2.1.
+	maxCtrBlocks = 1<<32 - ctrFirstCounter
+)
+
+// Cipher shares AES-256 key-expansion constraints across CTR streams.
+type Cipher struct {
+	keys *roundKeys
+}
+
+// CTREncrypt encrypts bytes with AES-256-CTR, starting at nonce || 0x00000002.
+// Use NewCipher to share a key expansion across several streams.
+func CTREncrypt(api frontend.API, key [aes256KeyBytes]frontend.Variable, nonceBytes [12]frontend.Variable, plaintext []frontend.Variable) []frontend.Variable {
+	return NewCipher(api, key).CTREncrypt(nonceBytes, plaintext)
+}
+
+// NewCipher constrains the key bytes and expands the key once for this circuit.
+func NewCipher(api frontend.API, key [aes256KeyBytes]frontend.Variable) *Cipher {
+	return &Cipher{keys: expandRoundKeys(api, key)}
+}
+
+// CTREncrypt starts a fresh stream at nonce || 0x00000002 using the expanded key.
+// Distinct messages encrypted with this key require distinct nonces.
+func (c *Cipher) CTREncrypt(nonceBytes [12]frontend.Variable, plaintext []frontend.Variable) []frontend.Variable {
+	// 1. Reject plaintext lengths that would wrap the 32-bit counter.
+	if blocks := (len(plaintext) + blockBytes - 1) / blockBytes; blocks > maxCtrBlocks {
+		panic(fmt.Sprintf("ctr: %d blocks wrap the 32-bit counter, at most %d", blocks, maxCtrBlocks))
+	}
+
+	// 2. Constrain and spread the nonce bytes.
+	keys := c.keys
+	t := keys.tables
+	spreadNonce := make([]frontend.Variable, len(nonceBytes))
+	for i := range nonceBytes {
+		spreadNonce[i] = t.spreadByte(nonceBytes[i])
+	}
+
+	// 3. Apply the initial round key to the nonce and initialize the stream.
+	stream := &ctrStream{keys: keys, nonceState: keys.addRoundKey(spreadNonce, 0), cachedHigh: -1}
+
+	// 4. Constrain and spread each plaintext block, including a partial tail.
+	ciphertext := make([]frontend.Variable, 0, len(plaintext))
+	for offset, block := 0, 0; offset < len(plaintext); offset, block = offset+blockBytes, block+1 {
+		end := min(offset+blockBytes, len(plaintext))
+		masks := make([]frontend.Variable, end-offset)
+		for i := range masks {
+			masks[i] = t.spreadByte(plaintext[offset+i])
+		}
+
+		// 5. Encrypt nonce || counter and XOR the keystream with the plaintext.
+		ciphertext = append(ciphertext, keys.finalRound(stream.keystreamState(uint32(block+ctrFirstCounter)), masks)...)
+	}
+	return ciphertext
+}
+
+type ctrStream struct {
+	keys       *roundKeys
+	nonceState []frontend.Variable
+	cachedHigh int64
+	firstRound [blockBytes]frontend.Variable
+	columnZero frontend.Variable
+}
+
+func (s *ctrStream) keystreamState(counter uint32) [blockBytes]frontend.Variable {
+	s.refreshFirstRound(counter)
+	t := s.keys.tables
+	last := s.counterByte(15, byte(counter))
+	state := s.firstRound
+	copy(state[:wordBytes], t.laneParityBytes(t.api.Add(s.columnZero, t.substitute(3, last)), wordBytes))
+	return s.keys.middleRounds(state, 2)
+}
+
+func (s *ctrStream) refreshFirstRound(counter uint32) {
+	high := int64(counter >> byteLanes)
+	if high == s.cachedHigh {
+		return
+	}
+	s.cachedHigh = high
+	var state [blockBytes]frontend.Variable
+	copy(state[:12], s.nonceState)
+	for position := 12; position < 15; position++ {
+		state[position] = s.counterByte(position, byte(counter>>uint(byteLanes*(15-position))))
+	}
+	for column := 1; column < wordBytes; column++ {
+		copy(s.firstRound[column*wordBytes:(column+1)*wordBytes], s.keys.roundColumn(1, column, &state))
+	}
+	s.columnZero = s.keys.columnSum(1, 0, &state, 0, 1, 2)
+}
+
+func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
+	if value == 0 {
+		return s.keys.compact[position]
+	}
+	sum := s.keys.tables.api.Add(s.keys.spread[position], s.keys.tables.spreadConstant(value))
+	return s.keys.tables.xorBytes([]frontend.Variable{sum})[0]
+}
+
+type roundKeys struct {
+	tables  *spreadTables
+	spread  []frontend.Variable
+	compact []frontend.Variable
+}
+
+var roundConstants = [...]byte{0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36}
+
+func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *roundKeys {
+	t := sharedSpreadTables(api)
+	spread := make([]frontend.Variable, aes256RoundBytes)
+	compact := make([]frontend.Variable, aes256RoundBytes)
+	for i := 0; i < aes256KeyBytes; i++ {
+		compact[i] = key[i]
+		spread[i] = t.spreadByte(key[i])
+	}
+	for i := aes256KeyBytes; i < aes256RoundBytes; i += wordBytes {
+		var mixed [wordBytes]frontend.Variable
+		switch i % aes256KeyBytes {
+		case 0:
+			for j := range mixed {
+				mixed[j] = t.substitute(sboxRegion, compact[i-wordBytes+(j+1)%wordBytes])
+			}
+			mixed[0] = api.Add(mixed[0], t.spreadConstant(roundConstants[i/aes256KeyBytes]))
+		case 16:
+			for j := range mixed {
+				mixed[j] = t.substitute(sboxRegion, compact[i-wordBytes+j])
+			}
+		default:
+			copy(mixed[:], spread[i-wordBytes:i])
+		}
+		sums := make([]frontend.Variable, wordBytes)
+		for j := range sums {
+			sums[j] = api.Add(spread[i-aes256KeyBytes+j], mixed[j])
+		}
+		copy(compact[i:i+wordBytes], t.xorBytes(sums))
+		for j := 0; j < wordBytes; j++ {
+			spread[i+j] = t.spreadByte(compact[i+j])
+		}
+	}
+	return &roundKeys{tables: t, spread: spread, compact: compact}
+}
+
+func (k *roundKeys) addRoundKey(spreadBytes []frontend.Variable, offset int) []frontend.Variable {
+	sums := make([]frontend.Variable, len(spreadBytes))
+	for i := range sums {
+		sums[i] = k.tables.api.Add(spreadBytes[i], k.spread[offset+i])
+	}
+	return k.tables.xorBytes(sums)
+}
+
+func (k *roundKeys) middleRounds(state [blockBytes]frontend.Variable, first int) [blockBytes]frontend.Variable {
+	for round := first; round < aes256Rounds; round++ {
+		var next [blockBytes]frontend.Variable
+		for column := 0; column < wordBytes; column++ {
+			copy(next[column*wordBytes:(column+1)*wordBytes], k.roundColumn(round, column, &state))
+		}
+		state = next
+	}
+	return state
+}
+
+func (k *roundKeys) finalRound(state [blockBytes]frontend.Variable, masks []frontend.Variable) []frontend.Variable {
+	t := k.tables
+	sums := make([]frontend.Variable, len(masks))
+	for i := range sums {
+		sums[i] = t.api.Add(t.substitute(sboxRegion, state[byteOrder[i]]), k.spread[aes256Rounds*blockBytes+i], masks[i])
+	}
+	return t.xorBytes(sums)
+}
+
+func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
+	return k.tables.laneParityBytes(k.columnSum(round, column, state, 0, 1, 2, 3), wordBytes)
+}
+
+var columnSources = [wordBytes][wordBytes]int{
+	{0, 5, 10, 15},
+	{4, 9, 14, 3},
+	{8, 13, 2, 7},
+	{12, 1, 6, 11},
+}
+
+func (k *roundKeys) columnSum(round, column int, state *[blockBytes]frontend.Variable, regions ...int) frontend.Variable {
+	sum := k.word(round, column)
+	for _, region := range regions {
+		sum = k.tables.api.Add(sum, k.tables.substitute(region, state[columnSources[column][region]]))
+	}
+	return sum
+}
+
+func (k *roundKeys) word(round, column int) frontend.Variable {
+	start := round*blockBytes + column*wordBytes
+	return k.tables.word(k.spread[start : start+wordBytes])
+}
+
+const (
 	chunkLaneBase    = 6
 	lanesPerChunk    = 4
 	chunkRadix       = 1296
@@ -20,14 +226,108 @@ const (
 	substitutionSize = 5 * tableRegionSize
 )
 
-const (
-	aes256KeyBytes   = 32
-	aes256Rounds     = 14
-	aes256RoundBytes = 16 * (aes256Rounds + 1)
-	blockBytes       = 16
-)
+type spreadTables struct {
+	api          frontend.API
+	byteWeights  [wordBytes]*big.Int
+	substitution logderivlookup.Table
+	bytes        logderivlookup.Table
+	chunks       logderivlookup.Table
+}
 
-var roundConstants = [...]byte{0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36}
+type compilerStore interface {
+	SetKeyValue(key, value any)
+	GetKeyValue(key any) any
+}
+
+type spreadTablesKey struct{}
+
+func sharedSpreadTables(api frontend.API) *spreadTables {
+	store, shared := api.Compiler().(compilerStore)
+	if shared {
+		if existing, ok := store.GetKeyValue(spreadTablesKey{}).(*spreadTables); ok {
+			return existing
+		}
+	}
+	t := newSpreadTables(api)
+	if shared {
+		store.SetKeyValue(spreadTablesKey{}, t)
+	}
+	return t
+}
+
+func newSpreadTables(api frontend.API) *spreadTables {
+	t := &spreadTables{api: api}
+	for j := range t.byteWeights {
+		t.byteWeights[j] = spreadValue(1<<uint(byteLanes*j), byteLanes*wordBytes, chunkLaneBase)
+	}
+	t.substitution = logderivlookup.New(api)
+	for region := 0; region < sboxRegion; region++ {
+		for a := 0; a < tableRegionSize; a++ {
+			t.substitution.Insert(spreadValue(uint64(substitutionWords[region][a]), byteLanes*wordBytes, chunkLaneBase))
+		}
+	}
+	for a := 0; a < tableRegionSize; a++ {
+		t.substitution.Insert(spreadValue(uint64(sbox0[a]), byteLanes, chunkLaneBase))
+	}
+	t.bytes = logderivlookup.New(api)
+	for a := 0; a < tableRegionSize; a++ {
+		t.bytes.Insert(spreadValue(uint64(a), byteLanes, chunkLaneBase))
+	}
+	t.chunks = logderivlookup.New(api)
+	for c := 0; c < chunkRadix; c++ {
+		t.chunks.Insert(chunkParity(c))
+	}
+	return t
+}
+
+func (t *spreadTables) substitute(region int, index frontend.Variable) frontend.Variable {
+	return t.substitution.Lookup(t.api.Add(index, region*tableRegionSize))[0]
+}
+
+func (t *spreadTables) spreadByte(value frontend.Variable) frontend.Variable {
+	return t.bytes.Lookup(value)[0]
+}
+
+func (t *spreadTables) spreadConstant(value byte) *big.Int {
+	return spreadValue(uint64(value), byteLanes, chunkLaneBase)
+}
+
+func (t *spreadTables) xorBytes(sums []frontend.Variable) []frontend.Variable {
+	out := make([]frontend.Variable, 0, len(sums))
+	for start := 0; start < len(sums); start += wordBytes {
+		end := min(start+wordBytes, len(sums))
+		out = append(out, t.laneParityBytes(t.word(sums[start:end]), end-start)...)
+	}
+	return out
+}
+
+func (t *spreadTables) word(bytes []frontend.Variable) frontend.Variable {
+	var acc frontend.Variable = 0
+	for j, b := range bytes {
+		acc = t.api.Add(acc, t.api.Mul(b, t.byteWeights[j]))
+	}
+	return acc
+}
+
+func (t *spreadTables) laneParityBytes(sum frontend.Variable, n int) []frontend.Variable {
+	out := make([]frontend.Variable, n)
+	chunks, err := t.api.NewHint(laneChunksHint, 2*n, sum)
+	if err != nil {
+		panic(err)
+	}
+	var recomposed frontend.Variable = 0
+	weight := big.NewInt(1)
+	for _, c := range chunks {
+		recomposed = t.api.Add(recomposed, t.api.Mul(c, weight))
+		weight = new(big.Int).Mul(weight, big.NewInt(chunkRadix))
+	}
+	t.api.AssertIsEqual(sum, recomposed)
+	nibbles := t.chunks.Lookup(chunks...)
+	for j := range out {
+		out[j] = t.api.Add(nibbles[2*j], t.api.Mul(nibbles[2*j+1], 16))
+	}
+	return out
+}
 
 func init() {
 	solver.RegisterHint(laneChunksHint)
@@ -68,281 +368,4 @@ func chunkParity(chunk int) int {
 		chunk /= chunkLaneBase
 	}
 	return parity
-}
-
-type spreadTables struct {
-	api          frontend.API
-	byteWeights  [wordBytes]*big.Int
-	substitution logderivlookup.Table
-	bytes        logderivlookup.Table
-	chunks       logderivlookup.Table
-}
-
-func newSpreadTables(api frontend.API) *spreadTables {
-	t := &spreadTables{api: api}
-	for j := range t.byteWeights {
-		t.byteWeights[j] = spreadValue(1<<uint(byteLanes*j), byteLanes*wordBytes, chunkLaneBase)
-	}
-	t.substitution = logderivlookup.New(api)
-	for region := 0; region < sboxRegion; region++ {
-		for a := 0; a < tableRegionSize; a++ {
-			t.substitution.Insert(spreadValue(uint64(substitutionWords[region][a]), byteLanes*wordBytes, chunkLaneBase))
-		}
-	}
-	for a := 0; a < tableRegionSize; a++ {
-		t.substitution.Insert(spreadValue(uint64(sbox0[a]), byteLanes, chunkLaneBase))
-	}
-	t.bytes = logderivlookup.New(api)
-	for a := 0; a < tableRegionSize; a++ {
-		t.bytes.Insert(spreadValue(uint64(a), byteLanes, chunkLaneBase))
-	}
-	t.chunks = logderivlookup.New(api)
-	for c := 0; c < chunkRadix; c++ {
-		t.chunks.Insert(chunkParity(c))
-	}
-	return t
-}
-
-type compilerStore interface {
-	SetKeyValue(key, value any)
-	GetKeyValue(key any) any
-}
-
-type spreadTablesKey struct{}
-
-func sharedSpreadTables(api frontend.API) *spreadTables {
-	store, shared := api.Compiler().(compilerStore)
-	if shared {
-		if existing, ok := store.GetKeyValue(spreadTablesKey{}).(*spreadTables); ok {
-			return existing
-		}
-	}
-	t := newSpreadTables(api)
-	if shared {
-		store.SetKeyValue(spreadTablesKey{}, t)
-	}
-	return t
-}
-
-func (t *spreadTables) substitute(region int, index frontend.Variable) frontend.Variable {
-	return t.substitution.Lookup(t.api.Add(index, region*tableRegionSize))[0]
-}
-
-func (t *spreadTables) spreadByte(value frontend.Variable) frontend.Variable {
-	return t.bytes.Lookup(value)[0]
-}
-
-func (t *spreadTables) spreadConstant(value byte) *big.Int {
-	return spreadValue(uint64(value), byteLanes, chunkLaneBase)
-}
-
-func (t *spreadTables) word(bytes []frontend.Variable) frontend.Variable {
-	var acc frontend.Variable = 0
-	for j, b := range bytes {
-		acc = t.api.Add(acc, t.api.Mul(b, t.byteWeights[j]))
-	}
-	return acc
-}
-
-func (t *spreadTables) laneParityBytes(sum frontend.Variable, n int) []frontend.Variable {
-	out := make([]frontend.Variable, n)
-	chunks, err := t.api.NewHint(laneChunksHint, 2*n, sum)
-	if err != nil {
-		panic(err)
-	}
-	var recomposed frontend.Variable = 0
-	weight := big.NewInt(1)
-	for _, c := range chunks {
-		recomposed = t.api.Add(recomposed, t.api.Mul(c, weight))
-		weight = new(big.Int).Mul(weight, big.NewInt(chunkRadix))
-	}
-	t.api.AssertIsEqual(sum, recomposed)
-	nibbles := t.chunks.Lookup(chunks...)
-	for j := range out {
-		out[j] = t.api.Add(nibbles[2*j], t.api.Mul(nibbles[2*j+1], 16))
-	}
-	return out
-}
-
-func (t *spreadTables) xorBytes(sums []frontend.Variable) []frontend.Variable {
-	out := make([]frontend.Variable, 0, len(sums))
-	for start := 0; start < len(sums); start += wordBytes {
-		end := min(start+wordBytes, len(sums))
-		out = append(out, t.laneParityBytes(t.word(sums[start:end]), end-start)...)
-	}
-	return out
-}
-
-type roundKeys struct {
-	tables  *spreadTables
-	spread  []frontend.Variable
-	compact []frontend.Variable
-}
-
-func (k *roundKeys) word(round, column int) frontend.Variable {
-	start := round*blockBytes + column*wordBytes
-	return k.tables.word(k.spread[start : start+wordBytes])
-}
-
-func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *roundKeys {
-	t := sharedSpreadTables(api)
-	spread := make([]frontend.Variable, aes256RoundBytes)
-	compact := make([]frontend.Variable, aes256RoundBytes)
-	for i := 0; i < aes256KeyBytes; i++ {
-		compact[i] = key[i]
-		spread[i] = t.spreadByte(key[i])
-	}
-	for i := aes256KeyBytes; i < aes256RoundBytes; i += wordBytes {
-		var mixed [wordBytes]frontend.Variable
-		switch i % aes256KeyBytes {
-		case 0:
-			for j := range mixed {
-				mixed[j] = t.substitute(sboxRegion, compact[i-wordBytes+(j+1)%wordBytes])
-			}
-			mixed[0] = api.Add(mixed[0], t.spreadConstant(roundConstants[i/aes256KeyBytes]))
-		case 16:
-			for j := range mixed {
-				mixed[j] = t.substitute(sboxRegion, compact[i-wordBytes+j])
-			}
-		default:
-			copy(mixed[:], spread[i-wordBytes:i])
-		}
-		sums := make([]frontend.Variable, wordBytes)
-		for j := range sums {
-			sums[j] = api.Add(spread[i-aes256KeyBytes+j], mixed[j])
-		}
-		copy(compact[i:i+wordBytes], t.xorBytes(sums))
-		for j := 0; j < wordBytes; j++ {
-			spread[i+j] = t.spreadByte(compact[i+j])
-		}
-	}
-	return &roundKeys{tables: t, spread: spread, compact: compact}
-}
-
-var columnSources = [wordBytes][wordBytes]int{
-	{0, 5, 10, 15},
-	{4, 9, 14, 3},
-	{8, 13, 2, 7},
-	{12, 1, 6, 11},
-}
-
-func (k *roundKeys) columnSum(round, column int, state *[blockBytes]frontend.Variable, regions ...int) frontend.Variable {
-	sum := k.word(round, column)
-	for _, region := range regions {
-		sum = k.tables.api.Add(sum, k.tables.substitute(region, state[columnSources[column][region]]))
-	}
-	return sum
-}
-
-func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
-	return k.tables.laneParityBytes(k.columnSum(round, column, state, 0, 1, 2, 3), wordBytes)
-}
-
-func (k *roundKeys) middleRounds(state [blockBytes]frontend.Variable, first int) [blockBytes]frontend.Variable {
-	for round := first; round < aes256Rounds; round++ {
-		var next [blockBytes]frontend.Variable
-		for column := 0; column < wordBytes; column++ {
-			copy(next[column*wordBytes:(column+1)*wordBytes], k.roundColumn(round, column, &state))
-		}
-		state = next
-	}
-	return state
-}
-
-func (k *roundKeys) finalRound(state [blockBytes]frontend.Variable, masks []frontend.Variable) []frontend.Variable {
-	t := k.tables
-	sums := make([]frontend.Variable, len(masks))
-	for i := range sums {
-		sums[i] = t.api.Add(t.substitute(sboxRegion, state[byteOrder[i]]), k.spread[aes256Rounds*blockBytes+i], masks[i])
-	}
-	return t.xorBytes(sums)
-}
-
-func (k *roundKeys) addRoundKey(spreadBytes []frontend.Variable, offset int) []frontend.Variable {
-	sums := make([]frontend.Variable, len(spreadBytes))
-	for i := range sums {
-		sums[i] = k.tables.api.Add(spreadBytes[i], k.spread[offset+i])
-	}
-	return k.tables.xorBytes(sums)
-}
-
-type ctrStream struct {
-	keys       *roundKeys
-	nonceState []frontend.Variable
-	cachedHigh int64
-	firstRound [blockBytes]frontend.Variable
-	columnZero frontend.Variable
-}
-
-func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
-	if value == 0 {
-		return s.keys.compact[position]
-	}
-	sum := s.keys.tables.api.Add(s.keys.spread[position], s.keys.tables.spreadConstant(value))
-	return s.keys.tables.xorBytes([]frontend.Variable{sum})[0]
-}
-
-func (s *ctrStream) refreshFirstRound(counter uint32) {
-	high := int64(counter >> byteLanes)
-	if high == s.cachedHigh {
-		return
-	}
-	s.cachedHigh = high
-	var state [blockBytes]frontend.Variable
-	copy(state[:12], s.nonceState)
-	for position := 12; position < 15; position++ {
-		state[position] = s.counterByte(position, byte(counter>>uint(byteLanes*(15-position))))
-	}
-	for column := 1; column < wordBytes; column++ {
-		copy(s.firstRound[column*wordBytes:(column+1)*wordBytes], s.keys.roundColumn(1, column, &state))
-	}
-	s.columnZero = s.keys.columnSum(1, 0, &state, 0, 1, 2)
-}
-
-func (s *ctrStream) keystreamState(counter uint32) [blockBytes]frontend.Variable {
-	s.refreshFirstRound(counter)
-	t := s.keys.tables
-	last := s.counterByte(15, byte(counter))
-	state := s.firstRound
-	copy(state[:wordBytes], t.laneParityBytes(t.api.Add(s.columnZero, t.substitute(3, last)), wordBytes))
-	return s.keys.middleRounds(state, 2)
-}
-
-// Cipher holds an expanded AES-256 key for reuse within one circuit.
-// Construct it with NewCipher using that circuit's API.
-type Cipher struct {
-	keys *roundKeys
-}
-
-// NewCipher constrains the key bytes and expands the key once for this circuit.
-func NewCipher(api frontend.API, key [aes256KeyBytes]frontend.Variable) *Cipher {
-	return &Cipher{keys: expandRoundKeys(api, key)}
-}
-
-// CTREncrypt encrypts bytes with AES-256-CTR, starting at nonce || 0x00000002.
-// Use NewCipher to share a key expansion across several streams.
-func CTREncrypt(api frontend.API, key [aes256KeyBytes]frontend.Variable, nonce [12]frontend.Variable, plaintext []frontend.Variable) []frontend.Variable {
-	return NewCipher(api, key).CTREncrypt(nonce, plaintext)
-}
-
-// CTREncrypt starts a fresh stream at nonce || 0x00000002 using the expanded key.
-// Distinct messages encrypted with this key require distinct nonces.
-func (c *Cipher) CTREncrypt(nonce [12]frontend.Variable, plaintext []frontend.Variable) []frontend.Variable {
-	keys := c.keys
-	t := keys.tables
-	spreadNonce := make([]frontend.Variable, len(nonce))
-	for i := range nonce {
-		spreadNonce[i] = t.spreadByte(nonce[i])
-	}
-	stream := &ctrStream{keys: keys, nonceState: keys.addRoundKey(spreadNonce, 0), cachedHigh: -1}
-	ciphertext := make([]frontend.Variable, 0, len(plaintext))
-	for offset, block := 0, 0; offset < len(plaintext); offset, block = offset+blockBytes, block+1 {
-		end := min(offset+blockBytes, len(plaintext))
-		masks := make([]frontend.Variable, end-offset)
-		for i := range masks {
-			masks[i] = t.spreadByte(plaintext[offset+i])
-		}
-		ciphertext = append(ciphertext, keys.finalRound(stream.keystreamState(uint32(block+2)), masks)...)
-	}
-	return ciphertext
 }

@@ -179,7 +179,7 @@ impl<'a> MergeProof<'a> {
                         viewing_pk,
                         envelope.ephemeral_pk,
                         envelope.ciphertext,
-                    )?;
+                    );
                 create_hash_chain_4_from_slice(&[
                     prefix_hash,
                     *signing_pk_field,

@@ -345,7 +345,7 @@ proptest! {
             ),
             Some(ring_data_hash) => {
                 let mut ring = merge_ring_ix(output_utxo_hash, ring_data_hash);
-                ring.body.nullifiers = merge.body.nullifiers;
+                ring.merge.nullifiers = merge.body.nullifiers;
                 (
                     tag::RING_MERGE_TRANSACT,
                     ring.serialize().expect("serialize merge ring"),

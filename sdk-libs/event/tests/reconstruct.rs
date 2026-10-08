@@ -710,7 +710,7 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
     for ring in [false, true] {
         let (tag, bytes, output_data, tx_viewing_pk) = if ring {
             let mut wrapper = merge_ring_ix([0xC0; 32], [0xE0; 32]);
-            wrapper.body.cache_slot = Some(35);
+            wrapper.merge.cache_slot = Some(35);
             (
                 tag::RING_MERGE_TRANSACT,
                 wrapper.serialize().unwrap(),

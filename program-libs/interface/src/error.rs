@@ -183,10 +183,6 @@ pub enum ShieldedPoolError {
     ZeroInputNullifier = 7078,
     #[error("output utxo hash must be nonzero; zero marks compact padding")]
     ZeroOutputUtxoHash = 7079,
-    #[error("viewing key is not a SEC1-compressed P256 point")]
-    InvalidViewingKeyEncoding = 7080,
-    #[error("merge envelope ephemeral key is not a SEC1-compressed P256 point")]
-    InvalidEphemeralKeyEncoding = 7081,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -311,8 +307,6 @@ mod tests {
                 CacheRentRecipientMismatch => 7077,
                 ZeroInputNullifier => 7078,
                 ZeroOutputUtxoHash => 7079,
-                InvalidViewingKeyEncoding => 7080,
-                InvalidEphemeralKeyEncoding => 7081,
             }
         }
 
@@ -397,8 +391,6 @@ mod tests {
             CacheRentRecipientMismatch,
             ZeroInputNullifier,
             ZeroOutputUtxoHash,
-            InvalidViewingKeyEncoding,
-            InvalidEphemeralKeyEncoding,
         ];
         let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {
@@ -410,7 +402,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 80, "variant count drifted");
+        assert_eq!(variants.len(), 78, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

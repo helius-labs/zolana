@@ -1,11 +1,11 @@
 use crate::deposit_audit::{MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN};
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice,
-    primitives::{hash_bytes, pack_be, right_align, PACK_BE_CHUNK_BYTES},
+    primitives::{hash_bytes, right_align, PACK_BE_CHUNK_BYTES},
     HasherError,
 };
 
-use crate::{policy_public_input::key_escrow_elements, COMPRESSED_P256_KEY_LEN};
+use crate::{pack33_to_2fe, policy_public_input::key_escrow_elements, COMPRESSED_P256_KEY_LEN};
 
 /// Binds a disclosure proof to one ring, destination tree and exact SPP deposit
 /// instruction.
@@ -55,8 +55,8 @@ impl DepositPublicInput<'_> {
         if !(1..=MAX_RING_DEPOSIT_AUDIT_SLOTS).contains(&count) || self.ciphertexts.len() != count {
             return Err(HasherError::InvalidNumFields);
         }
-        let [auditor_lo, auditor_hi] = pack_be::<33, 2>(self.auditor_pk);
-        let [ephemeral_lo, ephemeral_hi] = pack_be::<33, 2>(self.eph_pk);
+        let auditor = pack33_to_2fe(self.auditor_pk);
+        let ephemeral = pack33_to_2fe(self.eph_pk);
         let mut chain = [[0; 32]; 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2 + 6];
         chain[0] = right_align(b"CRDP");
         chain[1] = *self.context_hash;
@@ -72,10 +72,10 @@ impl DepositPublicInput<'_> {
         }
         let keys = 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2;
         chain[keys..keys + 4].copy_from_slice(&[
-            auditor_lo,
-            auditor_hi,
-            ephemeral_lo,
-            ephemeral_hi,
+            auditor.lo,
+            auditor.hi,
+            ephemeral.lo,
+            ephemeral.hi,
         ]);
         chain[keys + 4..].copy_from_slice(&key_escrow_elements(self.key_registry_root));
         create_hash_chain_from_slice(&chain)

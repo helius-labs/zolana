@@ -281,7 +281,17 @@ function realInputContexts(
     });
 }
 
-/** Consolidates up to `MAX_MERGE_INPUTS` plain UTXOs of one owner and asset into one. */
+/**
+ * Consolidates up to `MAX_MERGE_INPUTS` plain UTXOs of one owner and asset into one.
+ * The private-transaction blinding and padded slots' nullifiers derive from
+ * the nullifier secret; the builder receives them derived by
+ * `ShieldedKeys.derive`. The output blinding derives from the envelope shared
+ * secret on the default rail, and from the nullifier secret and first
+ * nullifier on the ring rail. The circuit's unused slots are compact
+ * padding: each publishes 0 in place of its derived dummy nullifier, which it
+ * still proves absent, and the instruction leaves it out, so the merge reveals
+ * its real input count. Mirrors Rust `MergeTransaction::new`.
+ */
 export class Merge {
   #prepared: PreparedMerge;
 
@@ -410,26 +420,32 @@ export class Merge {
   }
 
   withExpiry(expiryUnixTs: bigint): this {
-    return this.#rebuild({ expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs") });
+    this.#prepared = new PreparedMerge({
+      inputs: this.#prepared.inputs,
+      output: this.#prepared.output,
+      envelope: this.#prepared.envelope,
+      expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
+      signingPublicKey: this.#prepared.signingPublicKey,
+      nullifierPublicKey: this.#prepared.nullifierPublicKey,
+      dummyNullifiers: this.#prepared.dummyNullifiers(),
+      privateTxBlinding: this.#prepared.privateTxBlinding(),
+      outputTreeId: this.#prepared.outputTreeId,
+    });
+    return this;
   }
 
   /** Mirrors Rust `with_output_tree_id`. */
   withOutputTreeId(outputTreeId: TreeId): this {
-    return this.#rebuild({ outputTreeId: checkedTreeId(outputTreeId) });
-  }
-
-  #rebuild(change: Readonly<{ expiryUnixTs?: bigint; outputTreeId?: TreeId }>): this {
-    const prepared = this.#prepared;
     this.#prepared = new PreparedMerge({
-      inputs: prepared.inputs,
-      output: prepared.output,
-      envelope: prepared.envelope,
-      expiryUnixTs: change.expiryUnixTs ?? prepared.expiryUnixTs,
-      signingPublicKey: prepared.signingPublicKey,
-      nullifierPublicKey: prepared.nullifierPublicKey,
-      dummyNullifiers: prepared.dummyNullifiers(),
-      privateTxBlinding: prepared.privateTxBlinding(),
-      outputTreeId: change.outputTreeId ?? prepared.outputTreeId,
+      inputs: this.#prepared.inputs,
+      output: this.#prepared.output,
+      envelope: this.#prepared.envelope,
+      expiryUnixTs: this.#prepared.expiryUnixTs,
+      signingPublicKey: this.#prepared.signingPublicKey,
+      nullifierPublicKey: this.#prepared.nullifierPublicKey,
+      dummyNullifiers: this.#prepared.dummyNullifiers(),
+      privateTxBlinding: this.#prepared.privateTxBlinding(),
+      outputTreeId: checkedTreeId(outputTreeId),
     });
     return this;
   }

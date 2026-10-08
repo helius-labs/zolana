@@ -573,7 +573,7 @@ impl RealRingMerge {
             output_tree: pool.tree,
             ring_program_id: self.ring_program_id,
             payer: pool.rpc.payer.pubkey(),
-            data: self.data.body.clone(),
+            data: self.data.merge.clone(),
             output_ring_data_hash: self.data.output_ring_data_hash,
             cache: self.cache.map(|cache| CacheWriteAccounts {
                 cache,

@@ -388,34 +388,16 @@ proptest! {
     ) {
         let mut owned = MergeRingIxData {
             output_ring_data_hash: view_tag,
-            body,
+            merge: body,
         };
         if clear_nullifiers {
-            owned.body.nullifiers.clear();
+            owned.merge.nullifiers.clear();
         }
         let bytes = owned.serialize().expect("serialize merge_ring ix");
         prop_assert_eq!(
             MergeRingIxDataRef::from_bytes(&bytes).is_ok(),
             !clear_nullifiers
         );
-    }
-
-    /// A default-rail payload never parses as a ring merge, and a ring payload
-    /// never parses as a default merge, whatever the field values.
-    #[test]
-    fn merge_rails_reject_each_others_payloads(
-        merge in strategies::merge_ix_data(),
-        view_tag in any::<[u8; 32]>(),
-    ) {
-        let default_bytes = merge.serialize().expect("serialize merge ix");
-        prop_assert!(MergeRingIxDataRef::from_bytes(&default_bytes).is_err());
-        let ring_bytes = MergeRingIxData {
-            output_ring_data_hash: view_tag,
-            body: merge.body,
-        }
-        .serialize()
-        .expect("serialize merge_ring ix");
-        prop_assert!(MergeTransactIxDataRef::from_bytes(&ring_bytes).is_err());
     }
 
     /// The deposit decoders enforce their exact-length wire contract: any

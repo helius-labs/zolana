@@ -128,11 +128,28 @@ export class KeyMemo {
     this.#pendingTransactionKeys.clear();
     // Settled, not raced: a rejection in one call must not lose the fresh keys
     // another call already handed out.
-    const [settled, mergeAnswers] = await Promise.all([
-      this.#settleBatches(decrypts, derives, transactionKeys, context),
-      Promise.allSettled(
-        mergeEnvelopes.map(async ([, request]) => this.#keys.decrypt([request], context)),
-      ),
+    const mergeAnswers = Promise.allSettled(
+      mergeEnvelopes.map(async ([, request]) => this.#keys.decrypt([request], context)),
+    );
+    const settled = await Promise.allSettled([
+      decrypts.length === 0
+        ? []
+        : this.#keys.decrypt(
+            decrypts.map(([, request]) => request),
+            context,
+          ),
+      derives.length === 0
+        ? []
+        : this.#keys.derive(
+            derives.map(([, request]) => request),
+            context,
+          ),
+      transactionKeys.length === 0
+        ? []
+        : this.#keys.transactionKeys(
+            transactionKeys.map(([, request]) => request),
+            context,
+          ),
     ]);
     const minted = settled[2].status === "fulfilled" ? settled[2].value : [];
     try {
@@ -148,7 +165,7 @@ export class KeyMemo {
         transactionKeys.length,
         batchMismatch,
       );
-      const envelopes = mergeAnswers.map((answer) => mergeEnvelopeAnswer(answer, context));
+      const envelopes = (await mergeAnswers).map((answer) => mergeEnvelopeAnswer(answer, context));
       plaintexts.forEach((plaintext, index) => {
         const request = decrypts[index];
         if (request !== undefined) this.#decrypted.set(request[0], plaintext);
@@ -169,40 +186,6 @@ export class KeyMemo {
       destroyTransactionKeys(minted);
       throw cause;
     }
-  }
-
-  #settleBatches(
-    decrypts: readonly (readonly [string, DecryptRequest])[],
-    derives: readonly (readonly [string, DeriveRequest])[],
-    transactionKeys: readonly (readonly [string, TransactionKeyRequest])[],
-    context: RequestContext | undefined,
-  ): Promise<
-    [
-      PromiseSettledResult<readonly Uint8Array[]>,
-      PromiseSettledResult<readonly Bytes32[]>,
-      PromiseSettledResult<readonly ViewingKey[]>,
-    ]
-  > {
-    return Promise.allSettled([
-      decrypts.length === 0
-        ? []
-        : this.#keys.decrypt(
-            decrypts.map(([, request]) => request),
-            context,
-          ),
-      derives.length === 0
-        ? []
-        : this.#keys.derive(
-            derives.map(([, request]) => request),
-            context,
-          ),
-      transactionKeys.length === 0
-        ? []
-        : this.#keys.transactionKeys(
-            transactionKeys.map(([, request]) => request),
-            context,
-          ),
-    ]);
   }
 
   destroy(): void {

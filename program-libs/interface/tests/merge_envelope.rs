@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_CIPHERTEXT_LEN,
+    instruction::instruction_data::merge_transact::MERGE_CIPHERTEXT_LEN,
     merge_utils::merge_envelope_public_elements,
 };
 
@@ -34,7 +34,7 @@ fn packs_the_envelope_into_the_four_hand_computed_elements() {
     let ephemeral = point(0x03, 0x50);
     let ciphertext = ciphertext(0x80);
 
-    let elements = merge_envelope_public_elements(&recipient, &ephemeral, &ciphertext).unwrap();
+    let elements = merge_envelope_public_elements(&recipient, &ephemeral, &ciphertext);
 
     assert_eq!(
         elements,
@@ -50,33 +50,15 @@ fn packs_the_envelope_into_the_four_hand_computed_elements() {
 #[test]
 fn the_sec1_parity_reaches_the_low_element() {
     let ciphertext = ciphertext(0);
-    let even =
-        merge_envelope_public_elements(&point(0x02, 1), &point(0x02, 1), &ciphertext).unwrap();
+    let even = merge_envelope_public_elements(&point(0x02, 1), &point(0x02, 1), &ciphertext);
     let odd_recipient =
-        merge_envelope_public_elements(&point(0x03, 1), &point(0x02, 1), &ciphertext).unwrap();
+        merge_envelope_public_elements(&point(0x03, 1), &point(0x02, 1), &ciphertext);
     let odd_ephemeral =
-        merge_envelope_public_elements(&point(0x02, 1), &point(0x03, 1), &ciphertext).unwrap();
+        merge_envelope_public_elements(&point(0x02, 1), &point(0x03, 1), &ciphertext);
     assert_ne!(even.first(), odd_recipient.first());
     assert_eq!(even.get(1), odd_recipient.get(1));
     assert_eq!(even.first(), odd_ephemeral.first());
     assert_ne!(even.get(1), odd_ephemeral.get(1));
-}
-
-#[test]
-fn rejects_a_recipient_or_ephemeral_without_a_compressed_prefix() {
-    let ciphertext = ciphertext(0);
-    for prefix in [0x00, 0x01, 0x04, 0x06, 0x07, 0xff] {
-        assert_eq!(
-            merge_envelope_public_elements(&point(prefix, 1), &point(0x02, 1), &ciphertext),
-            Err(ShieldedPoolError::InvalidViewingKeyEncoding),
-            "recipient prefix {prefix:#04x}"
-        );
-        assert_eq!(
-            merge_envelope_public_elements(&point(0x03, 1), &point(prefix, 1), &ciphertext),
-            Err(ShieldedPoolError::InvalidEphemeralKeyEncoding),
-            "ephemeral prefix {prefix:#04x}"
-        );
-    }
 }
 
 proptest! {
@@ -99,8 +81,7 @@ proptest! {
             &compress(recipient_odd, recipient_x),
             &compress(ephemeral_odd, ephemeral_x),
             &ciphertext,
-        )
-        .unwrap();
+        );
         for element in &elements {
             prop_assert_eq!(element.first(), Some(&0));
             prop_assert!(is_canonical_bn254_scalar_be(element));

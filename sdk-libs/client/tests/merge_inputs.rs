@@ -153,7 +153,7 @@ fn default_merge_instruction_data_rejects_a_proof_without_a_commitment() {
 }
 
 #[test]
-fn merge_proof_inputs_debug_redacts_every_secret() {
+fn merge_proof_inputs_debug_redacts_the_ephemeral_secret() {
     let sender = ShieldedKeypair::new_p256().expect("sender keypair");
     let (_, result) = prove_default_merge(&sender);
     let ephemeral_sk = *result
@@ -162,22 +162,14 @@ fn merge_proof_inputs_debug_redacts_every_secret() {
         .as_ref()
         .expect("envelope inputs")
         .ephemeral_sk;
-    let mut nullifier_secret = [0u8; 32];
-    let secret = sender.nullifier_key.secret();
-    nullifier_secret
-        .get_mut(32 - secret.len()..)
-        .expect("nullifier secret fits a field")
-        .copy_from_slice(&*secret);
 
     let rendered = format!("{result:?}");
     assert!(rendered.contains("<redacted>"));
-    for secret in [ephemeral_sk, nullifier_secret] {
-        for leaked in renderings(&secret) {
-            assert!(
-                !rendered.contains(&leaked),
-                "Debug output leaks a secret as {leaked}"
-            );
-        }
+    for leaked in renderings(&ephemeral_sk) {
+        assert!(
+            !rendered.contains(&leaked),
+            "Debug output leaks the ephemeral secret as {leaked}"
+        );
     }
 }
 

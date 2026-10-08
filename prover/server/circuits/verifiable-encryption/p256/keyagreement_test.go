@@ -16,14 +16,14 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-type agreeKeyCircuit struct {
+type keyAgreementCircuit struct {
 	Scalar    [32]frontend.Variable
 	PublicKey [65]frontend.Variable
 	Expected  [6]frontend.Variable `gnark:",public"`
 }
 
-func (c *agreeKeyCircuit) Define(api frontend.API) error {
-	got := AgreeKey(api, c.Scalar, c.PublicKey)
+func (c *keyAgreementCircuit) Define(api frontend.API) error {
+	got := ComputeKeyAgreement(api, c.Scalar, c.PublicKey)
 	for i, v := range []frontend.Variable{got.RecipientLo, got.RecipientHi, got.EphemeralLo, got.EphemeralHi, got.SharedLo, got.SharedHi} {
 		api.AssertIsEqual(v, c.Expected[i])
 	}
@@ -51,19 +51,19 @@ func (c *scalarMulCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-func (c *agreeKeyCircuit) scalarMulWitness() *scalarMulCircuit {
+func (c *keyAgreementCircuit) scalarMulWitness() *scalarMulCircuit {
 	w := scalarMulCircuit{Scalar: c.Scalar, SharedX: [2]frontend.Variable{c.Expected[4], c.Expected[5]}}
 	copy(w.Point[:], c.PublicKey[1:])
 	return &w
 }
 
-type agreeKeyInputsCircuit struct {
+type keyAgreementInputsCircuit struct {
 	Scalar    [32]frontend.Variable
 	PublicKey [65]frontend.Variable
 }
 
-func (c *agreeKeyInputsCircuit) Define(api frontend.API) error {
-	AgreeKey(api, c.Scalar, c.PublicKey)
+func (c *keyAgreementInputsCircuit) Define(api frontend.API) error {
+	ComputeKeyAgreement(api, c.Scalar, c.PublicKey)
 	return nil
 }
 
@@ -94,9 +94,9 @@ func compressedKey(uncompressed []byte) []byte {
 	return elliptic.MarshalCompressed(elliptic.P256(), x, y)
 }
 
-func agreeKeyWitness(t *testing.T, scalar *big.Int, peer *ecdh.PublicKey) *agreeKeyCircuit {
+func keyAgreementWitness(t *testing.T, scalar *big.Int, peer *ecdh.PublicKey) *keyAgreementCircuit {
 	t.Helper()
-	var w agreeKeyCircuit
+	var w keyAgreementCircuit
 	setBytes(w.Scalar[:], be32(scalar))
 	setBytes(w.PublicKey[:], peer.Bytes())
 	key, err := ecdh.P256().NewPrivateKey(be32(new(big.Int).Mod(scalar, elliptic.P256().Params().N)))
@@ -114,26 +114,26 @@ func agreeKeyWitness(t *testing.T, scalar *big.Int, peer *ecdh.PublicKey) *agree
 	return &w
 }
 
-func inputsWitness(scalar *big.Int, publicKey []byte) *agreeKeyInputsCircuit {
-	var w agreeKeyInputsCircuit
+func inputsWitness(scalar *big.Int, publicKey []byte) *keyAgreementInputsCircuit {
+	var w keyAgreementInputsCircuit
 	setBytes(w.Scalar[:], be32(scalar))
 	setBytes(w.PublicKey[:], publicKey)
 	return &w
 }
 
-func TestAgreeKeyMatchesHostECDH(t *testing.T) {
+func TestComputeKeyAgreementMatchesHostECDH(t *testing.T) {
 	assert := test.NewAssert(t)
 	peer := agreementPeer(t)
 	n := elliptic.P256().Params().N
-	cs := compile(t, &agreeKeyCircuit{})
+	cs := compile(t, &keyAgreementCircuit{})
 	for _, s := range []*big.Int{
 		new(big.Int).SetBytes([]byte("ephemeral scalar for the merge!!")),
 		big.NewInt(2),
 		new(big.Int).Sub(n, big.NewInt(2)),
 		new(big.Int).Add(big.NewInt(0x1234_5678), n),
 	} {
-		w := agreeKeyWitness(t, s, peer)
-		assert.NoError(test.IsSolved(&agreeKeyCircuit{}, w, ecc.BN254.ScalarField()))
+		w := keyAgreementWitness(t, s, peer)
+		assert.NoError(test.IsSolved(&keyAgreementCircuit{}, w, ecc.BN254.ScalarField()))
 		if err := solveAgreement(t, cs, w); err != nil {
 			t.Fatalf("scalar %x: %v", s, err)
 		}
@@ -159,8 +159,8 @@ func uncompressedBytes(x, y *big.Int) []byte {
 	return append(append([]byte{0x04}, be32(x)...), be32(y)...)
 }
 
-func TestAgreeKeyRejectsMalformedInputs(t *testing.T) {
-	cs := compile(t, &agreeKeyInputsCircuit{})
+func TestComputeKeyAgreementRejectsMalformedInputs(t *testing.T) {
+	cs := compile(t, &keyAgreementInputsCircuit{})
 	n := elliptic.P256().Params().N
 	p := elliptic.P256().Params().P
 	scalar := new(big.Int).SetBytes([]byte("ephemeral scalar for the merge!!"))
@@ -269,19 +269,19 @@ func sameYCurvePoint(t *testing.T) (*ecdh.PublicKey, *big.Int) {
 	return nil, nil
 }
 
-func forgedWitness(t *testing.T, peer *ecdh.PublicKey, scalar, x *big.Int) *agreeKeyCircuit {
+func forgedWitness(t *testing.T, peer *ecdh.PublicKey, scalar, x *big.Int) *keyAgreementCircuit {
 	t.Helper()
-	w := agreeKeyWitness(t, scalar, peer)
+	w := keyAgreementWitness(t, scalar, peer)
 	lo, hi := packAgreementBytes(be32(x))
 	w.Expected[4], w.Expected[5] = lo, hi
 	return w
 }
 
-func TestAgreeKeyRejectsReportForgery(t *testing.T) {
+func TestComputeKeyAgreementRejectsReportForgery(t *testing.T) {
 	sameYPeer, sameYX := sameYCurvePoint(t)
 	minusOne := new(big.Int).Sub(elliptic.P256().Params().N, big.NewInt(1))
 	scalarMul := compile(t, &scalarMulCircuit{})
-	agreement := compile(t, &agreeKeyCircuit{})
+	agreement := compile(t, &keyAgreementCircuit{})
 	for _, row := range []struct {
 		name     string
 		peer     *ecdh.PublicKey
@@ -341,8 +341,8 @@ func TestSelfAgreeKeyRejectsReportForgery(t *testing.T) {
 	}
 }
 
-func TestAgreeKeyCommitmentCount(t *testing.T) {
-	cs := compile(t, &agreeKeyCircuit{})
+func TestComputeKeyAgreementCommitmentCount(t *testing.T) {
+	cs := compile(t, &keyAgreementCircuit{})
 	commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
 	if !ok || len(commitments) != 1 {
 		t.Fatalf("want one Groth16 commitment, got %v", cs.GetCommitments())
@@ -351,5 +351,5 @@ func TestAgreeKeyCommitmentCount(t *testing.T) {
 		t.Fatalf("the commitment covers %d public variables", n)
 	}
 	variables := cs.GetNbPublicVariables() + cs.GetNbSecretVariables() + cs.GetNbInternalVariables()
-	t.Logf("AgreeKey constraints %d variables %d", cs.GetNbConstraints(), variables)
+	t.Logf("ComputeKeyAgreement constraints %d variables %d", cs.GetNbConstraints(), variables)
 }

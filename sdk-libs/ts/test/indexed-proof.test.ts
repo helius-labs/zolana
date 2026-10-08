@@ -112,7 +112,15 @@ it.each([
 
 it("binds merge resolution and keeps preparation free of indexer calls", async () => {
   const owner = ShieldedKeypair.generate();
-  const input = solInput(owner, 5n);
+  const input = ProofInputUtxo.fromKeypair(
+    new Utxo({
+      owner: owner.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 5n,
+      blinding: randomBlinding(),
+    }),
+    owner,
+  );
   const prepared = Merge.fromKeypair(owner, [input]).prepare();
   const tree = treeAddress(prepared.inputTreeId);
   const local = prepareMerge(prepared, tree);
@@ -271,7 +279,15 @@ it("refuses an indexed merge whose envelope does not match its rail", async () =
 it("refuses a key holder's merge root at the field modulus as unparsable", async () => {
   const owner = ShieldedKeypair.generate();
   try {
-    const input = solInput(owner, 5n);
+    const input = ProofInputUtxo.fromKeypair(
+      new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: randomBlinding(),
+      }),
+      owner,
+    );
     const prepared = Merge.fromKeypair(owner, [input]).prepare();
     const modulus = checkedBytes(bigintToBytes(BN254_MODULUS, "root"), 32, "root");
     const keys = {

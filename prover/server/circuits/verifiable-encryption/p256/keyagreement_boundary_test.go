@@ -30,8 +30,8 @@ func assignBytes(dst []frontend.Variable, src []byte) {
 	}
 }
 
-func presentedAgreement(ephemeral *ecdh.PrivateKey, presented [65]byte, sharedX []byte) *p256.AgreeKeyCircuit {
-	var w p256.AgreeKeyCircuit
+func presentedAgreement(ephemeral *ecdh.PrivateKey, presented [65]byte, sharedX []byte) *p256.KeyAgreementCircuit {
+	var w p256.KeyAgreementCircuit
 	assignBytes(w.Scalar[:], ephemeral.Bytes())
 	assignBytes(w.PublicKey[:], presented[:])
 	recipientLo, recipientHi := hosttest.PackCompressed(hosttest.CompressP256(presented[:]))
@@ -87,18 +87,18 @@ func requireRangeChecks(t *testing.T, cs constraint.ConstraintSystem, honest fun
 	}
 }
 
-func TestAgreeKeyBoundaryRecipientByteRangeCheck(t *testing.T) {
-	requireRangeChecks(t, p256.Compile(t, &p256.AgreeKeyCircuit{}),
-		func() frontend.Circuit { return p256.AgreeKeyWitness(t, boundaryScalar, boundaryPeer()) },
-		func(w frontend.Circuit) []frontend.Variable { return w.(*p256.AgreeKeyCircuit).PublicKey[:] },
+func TestComputeKeyAgreementBoundaryRecipientByteRangeCheck(t *testing.T) {
+	requireRangeChecks(t, p256.Compile(t, &p256.KeyAgreementCircuit{}),
+		func() frontend.Circuit { return p256.KeyAgreementWitness(t, boundaryScalar, boundaryPeer()) },
+		func(w frontend.Circuit) []frontend.Variable { return w.(*p256.KeyAgreementCircuit).PublicKey[:] },
 		[]carriedByte{{"x byte 5", 5}, {"y byte 40", 40}},
 	)
 }
 
-func TestAgreeKeyBoundaryEphemeralByteRangeCheck(t *testing.T) {
-	requireRangeChecks(t, p256.Compile(t, &p256.AgreeKeyCircuit{}),
-		func() frontend.Circuit { return p256.AgreeKeyWitness(t, boundaryScalar, boundaryPeer()) },
-		func(w frontend.Circuit) []frontend.Variable { return w.(*p256.AgreeKeyCircuit).Scalar[:] },
+func TestComputeKeyAgreementBoundaryEphemeralByteRangeCheck(t *testing.T) {
+	requireRangeChecks(t, p256.Compile(t, &p256.KeyAgreementCircuit{}),
+		func() frontend.Circuit { return p256.KeyAgreementWitness(t, boundaryScalar, boundaryPeer()) },
+		func(w frontend.Circuit) []frontend.Variable { return w.(*p256.KeyAgreementCircuit).Scalar[:] },
 		[]carriedByte{{"scalar byte 5", 5}, {"scalar byte 29", 29}},
 	)
 }
@@ -111,8 +111,8 @@ func TestSelfAgreeKeyBoundaryScalarByteRangeCheck(t *testing.T) {
 	)
 }
 
-func TestAgreeKeyBoundaryNonCanonicalRecipient(t *testing.T) {
-	cs := p256.Compile(t, &p256.AgreeKeyCircuit{})
+func TestComputeKeyAgreementBoundaryNonCanonicalRecipient(t *testing.T) {
+	cs := p256.Compile(t, &p256.KeyAgreementCircuit{})
 	ephemeral := hosttest.DefaultKeys().EphemeralSecret
 	for _, row := range hosttest.NonCanonicalRecipients(t) {
 		t.Run(row.Name, func(t *testing.T) {
@@ -140,11 +140,11 @@ func orderBoundaryScalars() []orderBoundaryScalar {
 	}
 }
 
-func TestAgreeKeyBoundaryScalarAtGroupOrder(t *testing.T) {
-	cs := p256.Compile(t, &p256.AgreeKeyCircuit{})
+func TestComputeKeyAgreementBoundaryScalarAtGroupOrder(t *testing.T) {
+	cs := p256.Compile(t, &p256.KeyAgreementCircuit{})
 	peer := boundaryPeer()
 	t.Run("group order", func(t *testing.T) {
-		w := p256.AgreeKeyWitness(t, big.NewInt(1), peer)
+		w := p256.KeyAgreementWitness(t, big.NewInt(1), peer)
 		assignBytes(w.Scalar[:], scalarBytes(elliptic.P256().Params().N))
 		infinityLo, infinityHi := hosttest.PackCompressed([33]byte{0x02})
 		sharedLo, sharedHi := hosttest.PackShared([32]byte{})
@@ -153,7 +153,7 @@ func TestAgreeKeyBoundaryScalarAtGroupOrder(t *testing.T) {
 	})
 	for _, row := range orderBoundaryScalars() {
 		t.Run(row.name, func(t *testing.T) {
-			w := p256.AgreeKeyWitness(t, row.reduced, peer)
+			w := p256.KeyAgreementWitness(t, row.reduced, peer)
 			assignBytes(w.Scalar[:], scalarBytes(row.raw))
 			if err := p256.SolveAgreement(t, cs, w); err != nil {
 				t.Fatalf("rejected: %v", err)

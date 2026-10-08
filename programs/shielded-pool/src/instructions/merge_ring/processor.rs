@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -14,7 +15,7 @@ use crate::instructions::{
         processor::{process_merge_core, validate_field_elements, MergeCoreAccounts},
         verify::MergeOwnerBinding,
     },
-    shared::{caused_by, check_field_element, check_not_expired},
+    shared::{check_field_element, check_not_expired},
 };
 
 /// Policy-ring analog of `merge_transact`, invoked via CPI from a ring program.
@@ -25,7 +26,7 @@ use crate::instructions::{
 pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeRingIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
-    let merge = &ix.body;
+    let merge = &ix.merge;
     validate_field_elements(merge)?;
     check_field_element(
         ix.output_ring_data_hash,

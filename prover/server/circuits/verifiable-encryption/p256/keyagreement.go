@@ -28,26 +28,29 @@ type (
 
 const uncompressedPrefix = 0x04
 
-func AgreeKey(api frontend.API, ephemeralSk [32]frontend.Variable, recipientPk [65]frontend.Variable) KeyAgreement {
+// ComputeKeyAgreement validates the supplied key material and derives the
+// packed public keys and shared P-256 ECDH x-coordinate.
+func ComputeKeyAgreement(
+	api frontend.API,
+	ephemeralSecretKey [32]frontend.Variable,
+	recipientPubkey [65]frontend.Variable,
+) KeyAgreement {
 	c := newP256Curve(api)
 	fp := newAgreementField(api)
 
-	api.AssertIsEqual(recipientPk[0], uncompressedPrefix)
-	recipient, recipientParity := canonicalRecipient(api, c, fp, recipientPk[1:])
+	api.AssertIsEqual(recipientPubkey[0], uncompressedPrefix)
+	recipient, recipientParity := canonicalRecipient(api, c, fp, recipientPubkey[1:])
 
-	// gnark >= v0.16.4 (GHSA-7fx8-hmgc-82jp) constrains the hinted ScalarMul
-	// output to the curve, and P-256 has prime order, so with a finite on-curve
-	// recipient and a nonzero scalar both products are the honest finite points.
-	ephemeral := DerivePublicKey(api, ephemeralSk)
+	ephemeral := DerivePublicKey(api, ephemeralSecretKey)
 	shared := c.ScalarMul(recipient, ephemeral.scalar)
 
 	sharedX, _ := canonicalFpBytes(api, fp, &shared.X)
 
-	var result KeyAgreement
-	result.RecipientLo, result.RecipientHi = packCompressedPoint(api, recipientParity, recipientPk[1:33])
-	result.EphemeralLo, result.EphemeralHi = ephemeral.Packed(api)
-	result.SharedLo, result.SharedHi = packSharedX(api, sharedX[:])
-	return result
+	var keyAgreement KeyAgreement
+	keyAgreement.RecipientLo, keyAgreement.RecipientHi = packCompressedPoint(api, recipientParity, recipientPubkey[1:33])
+	keyAgreement.EphemeralLo, keyAgreement.EphemeralHi = ephemeral.Packed(api)
+	keyAgreement.SharedLo, keyAgreement.SharedHi = packSharedX(api, sharedX[:])
+	return keyAgreement
 }
 
 // canonicalRecipient decodes a finite, on-curve point from x || y bytes and

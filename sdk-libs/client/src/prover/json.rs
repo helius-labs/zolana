@@ -353,6 +353,7 @@ pub(crate) struct MergeParametersJson {
     pub tree_slots: Vec<TreeSlotJson>,
     #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
+    /// The single mint shared by every real input and the merged output.
     #[serde(rename = "mint")]
     pub mint: String,
     #[serde(flatten)]

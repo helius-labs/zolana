@@ -40,6 +40,9 @@ impl TxIndex {
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
         let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
+            // The index and the decoder share `may_be_merge`, so a site routed
+            // to the merge path is never decoded with a viewing key it has no
+            // ciphertext for.
             if tx.may_be_merge() {
                 merge_sites.push((t, 0));
                 continue;

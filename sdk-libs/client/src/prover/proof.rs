@@ -321,6 +321,8 @@ mod tests {
         assert_eq!(proof.c, [3u8; 32]);
     }
 
+    /// The ring merge circuit has no P256 gadget: a BSB22-committed proof is
+    /// not a ring merge proof.
     #[test]
     fn ring_merge_parts_reject_a_proof_with_a_commitment() {
         let error = proof_with_commitment()

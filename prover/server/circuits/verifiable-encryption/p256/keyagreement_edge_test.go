@@ -11,14 +11,14 @@ import (
 	"zolana/prover/prover-test/hosttest"
 )
 
-func TestAgreeKeyMatchesHostAtEdgeCases(t *testing.T) {
+func TestComputeKeyAgreementMatchesHostAtEdgeCases(t *testing.T) {
 	start := time.Now()
-	cs := p256.Compile(t, &p256.AgreeKeyCircuit{})
+	cs := p256.Compile(t, &p256.KeyAgreementCircuit{})
 	cases := hosttest.EdgeCaseKeys()
 	for _, edge := range cases {
 		t.Run(edge.Name, func(t *testing.T) {
 			scalar := new(big.Int).SetBytes(edge.Keys.EphemeralSecret.Bytes())
-			w := p256.AgreeKeyWitness(t, scalar, edge.Keys.RecipientSecret.PublicKey())
+			w := p256.KeyAgreementWitness(t, scalar, edge.Keys.RecipientSecret.PublicKey())
 			if err := p256.SolveAgreement(t, cs, w); err != nil {
 				t.Fatalf("honest witness rejected: %v", err)
 			}
@@ -39,8 +39,8 @@ func TestSelfAgreeKeyMatchesHostAtEdgeCases(t *testing.T) {
 	t.Logf("%d edge scalars in %v", len(scalars), time.Since(start))
 }
 
-func TestAgreeKeyRejectsInfinityRecipient(t *testing.T) {
-	cs := p256.Compile(t, &p256.AgreeKeyCircuit{})
+func TestComputeKeyAgreementRejectsInfinityRecipient(t *testing.T) {
+	cs := p256.Compile(t, &p256.KeyAgreementCircuit{})
 	n := elliptic.P256().Params().N
 	recipientLo, recipientHi := hosttest.PackCompressed([33]byte{0x02})
 	sharedLo, sharedHi := hosttest.PackShared([32]byte{})
@@ -55,7 +55,7 @@ func TestAgreeKeyRejectsInfinityRecipient(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			keys := hosttest.NewKeys(big.NewInt(1), row.scalar)
 			ephemeralLo, ephemeralHi := keys.EphemeralPacked()
-			var w p256.AgreeKeyCircuit
+			var w p256.KeyAgreementCircuit
 			for i, b := range keys.EphemeralScalar() {
 				w.Scalar[i] = b
 			}

@@ -11,6 +11,7 @@ import (
 const (
 	DomSepSilo  uint32 = 0x544d5349
 	DomSepKey   uint32 = 0x544d534b
+	DomSepKeyHi uint32 = 0x544d534c
 	DomSepNonce uint32 = 0x544d534e
 	// Poseidon accepts at most 16 inputs; the domain and secret use two.
 	maxKdfInfoBytes = 14 * gadget.HashBytesChunkSize
@@ -54,7 +55,7 @@ func KeySchedule(
 		siloed,
 	})
 	keyHi := gadget.PoseidonHash(api, []frontend.Variable{
-		frontend.Variable(uint64(DomSepKey + 1)),
+		frontend.Variable(uint64(DomSepKeyHi)),
 		siloed,
 	})
 

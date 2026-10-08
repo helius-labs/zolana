@@ -39,7 +39,7 @@ impl TreeSlotFields {
 }
 
 /// One spend input. Mirrors txcircuit.Input.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TransferInput {
     pub utxo: ProofInputUtxo,
     pub is_dummy: BigUint,
@@ -67,32 +67,6 @@ pub struct TransferInput {
     pub nullifier_secret: Option<BigUint>,
 }
 
-/// Debug shows whether the nullifier secret is present but never its value.
-impl fmt::Debug for TransferInput {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TransferInput")
-            .field("utxo", &self.utxo)
-            .field("is_dummy", &self.is_dummy)
-            .field("state_path_elements", &self.state_path_elements)
-            .field("state_path_index", &self.state_path_index)
-            .field("nullifier_low_value", &self.nullifier_low_value)
-            .field("nullifier_next_value", &self.nullifier_next_value)
-            .field(
-                "nullifier_low_path_elements",
-                &self.nullifier_low_path_elements,
-            )
-            .field("nullifier_low_path_index", &self.nullifier_low_path_index)
-            .field("tree_slot", &self.tree_slot)
-            .field("nullifier", &self.nullifier)
-            .field("owner_pk_hash", &self.owner_pk_hash)
-            .field(
-                "nullifier_secret",
-                &self.nullifier_secret.as_ref().map(|_| REDACTED),
-            )
-            .finish()
-    }
-}
-
 /// One output. Mirrors txcircuit.Output.
 #[derive(Debug, Clone)]
 pub struct TransferOutput {
@@ -111,7 +85,7 @@ pub struct TransferOutput {
 /// witness reuses [`TransferInput`]/[`TransferOutput`] (assembled the same way as
 /// a transfer); the merge circuit ignores the transfer-only `ownerPkHash`
 /// and per-input `nullifierSecret` (the secret is shared, below).
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MergeInputs {
     pub inputs: Vec<TransferInput>,
     pub output: TransferOutput,
@@ -142,30 +116,6 @@ pub struct MergeInputs {
     pub envelope: Option<MergeEnvelopeInputs>,
 }
 
-/// Debug redacts the shared nullifier secret: it nullifies every UTXO of the
-/// owner, so it must not reach logs.
-impl fmt::Debug for MergeInputs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MergeInputs")
-            .field("inputs", &self.inputs)
-            .field("output", &self.output)
-            .field("tree_slots", &self.tree_slots)
-            .field("output_tree_id", &self.output_tree_id)
-            .field("owner_pk_hash", &self.owner_pk_hash)
-            .field("user_nullifier_pk", &self.user_nullifier_pk)
-            .field("user_nullifier_secret", &REDACTED)
-            .field("external_data_hash", &self.external_data_hash)
-            .field("private_tx_hash", &self.private_tx_hash)
-            .field("allow_dummy_inputs", &self.allow_dummy_inputs)
-            .field("public_input_hash", &self.public_input_hash)
-            .field("output_ring_data_hash", &self.output_ring_data_hash)
-            .field("ring_program_id", &self.ring_program_id)
-            .field("mint", &self.mint)
-            .field("envelope", &self.envelope)
-            .finish()
-    }
-}
-
 #[derive(Clone)]
 pub struct MergeEnvelopeInputs {
     pub viewing_pk: [u8; P256_UNCOMPRESSED_PUBKEY_LEN],
@@ -177,18 +127,8 @@ impl fmt::Debug for MergeEnvelopeInputs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MergeEnvelopeInputs")
             .field("viewing_pk", &self.viewing_pk)
-            .field("ephemeral_sk", &REDACTED)
+            .field("ephemeral_sk", &format_args!("<redacted>"))
             .finish()
-    }
-}
-
-struct Redacted;
-
-const REDACTED: Redacted = Redacted;
-
-impl fmt::Debug for Redacted {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("<redacted>")
     }
 }
 

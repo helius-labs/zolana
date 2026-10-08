@@ -314,7 +314,7 @@ impl Request for PreparedIndexedMerge {
                 body.proof = proof.into_ring_merge_proof()?;
                 Ok(ProvenIndexedMerge::Ring(MergeRingIxData {
                     output_ring_data_hash,
-                    body,
+                    merge: body,
                 }))
             }
             (None, Some(encrypted)) => {

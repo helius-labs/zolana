@@ -115,7 +115,7 @@ impl MergeProofResult {
         }
         Ok(MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
-            body: self.merge_body(proof.into_ring_merge_proof()?),
+            merge: self.merge_body(proof.into_ring_merge_proof()?),
         })
     }
 
@@ -172,7 +172,7 @@ impl MergeRailInputs<'_> {
                     envelope.recipient().as_bytes(),
                     &encrypted.ephemeral_pk,
                     &encrypted.ciphertext,
-                )?);
+                ));
                 (
                     encrypted.output_blinding,
                     MergeRail {

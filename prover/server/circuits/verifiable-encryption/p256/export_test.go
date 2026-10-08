@@ -9,14 +9,14 @@ import (
 )
 
 type (
-	AgreeKeyCircuit      = agreeKeyCircuit
+	KeyAgreementCircuit  = keyAgreementCircuit
 	SelfAgreementCircuit = selfAgreementCircuit
 )
 
 var (
-	Compile         = compile
-	SolveAgreement  = solveAgreement
-	AgreeKeyWitness = agreeKeyWitness
+	Compile             = compile
+	SolveAgreement      = solveAgreement
+	KeyAgreementWitness = keyAgreementWitness
 )
 
 func CheckSelfAgreement(t *testing.T, cs constraint.ConstraintSystem, name string, scalar *big.Int) {
