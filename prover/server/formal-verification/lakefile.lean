@@ -16,6 +16,11 @@ lean_lib FormalVerification {
   -- add library configuration options here
 }
 
+lean_lib VerifiableEncryption {
+  globs := #[.submodules `VerifiableEncryption]
+  moreLeanArgs := #["--tstack=65520", "-DmaxRecDepth=10000", "-DmaxHeartbeats=200000000"]
+}
+
 @[default_target]
 lean_exe «formal-verification» {
   moreLeanArgs := #["--tstack=65520", "-DmaxRecDepth=10000", "-DmaxHeartbeats=200000000"]

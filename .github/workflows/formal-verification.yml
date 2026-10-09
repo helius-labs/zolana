@@ -42,6 +42,13 @@ jobs:
           ./light-prover extract-circuit --output formal-verification/FormalVerification/Circuit.lean --state-tree-height 32 --nullifier-tree-height 40 --batch-size 8
           git diff --exit-code formal-verification/FormalVerification/Circuit.lean
 
+      - name: Extract verifiable-encryption circuits and check for drift
+        run: |
+          cd prover/server
+          ./light-prover extract-ve-circuit --output-dir formal-verification/VerifiableEncryption
+          git diff --exit-code formal-verification/VerifiableEncryption/
+          test -z "$(git status --porcelain formal-verification/VerifiableEncryption/)"
+
       - name: Install Elan
         run: |
           curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
