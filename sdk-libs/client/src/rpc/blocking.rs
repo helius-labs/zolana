@@ -14,7 +14,6 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_transaction::utxo::SppProofInputUtxo;
 
-#[cfg(feature = "indexer-api")]
 use crate::prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 use crate::{error::ClientError, prover::transact::witness::SpendProof};
 
@@ -293,7 +292,6 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     }
 }
 
-#[cfg(feature = "indexer-api")]
 impl<T: Rpc + WitnessReader + Send + Sync + 'static> AsyncWitnessReader for Blocking<T> {
     fn input_witnesses(
         &self,

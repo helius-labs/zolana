@@ -33,7 +33,7 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api"] }
+zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true, features = ["protocol"] }
 zolana-event = { workspace = true }

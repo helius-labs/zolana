@@ -83,7 +83,6 @@ check-all:
     cargo check -p zolana-test-utils --features parallel --all-targets
     # A wallet that brings its own HTTP client links neither crate's reqwest.
     cargo check -p zolana-api -p zolana-client --no-default-features
-    cargo check -p zolana-client --no-default-features --features indexer-api
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon

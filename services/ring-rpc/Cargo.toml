@@ -48,7 +48,7 @@ tower-http = { workspace = true }
 tracing-subscriber = { workspace = true }
 zeroize = { workspace = true }
 zolana-api = { workspace = true, features = ["reqwest"] }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }

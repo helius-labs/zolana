@@ -17,7 +17,6 @@ pub mod timing;
 pub mod transact;
 mod utxo;
 mod verify;
-#[cfg(feature = "indexer-api")]
 pub mod witness;
 
 pub use backend::{Prover, ProverExt};

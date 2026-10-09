@@ -13,17 +13,20 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 /// retried and the caller is handed the last one it saw rather than a bare
 /// timeout.
 ///
-/// A custom HTTP client that fails without a response is retried as a
-/// `reqwest` timeout or connection failure is: it cannot say which it was. A
-/// response lost while reading its body is retried too: every indexer call
-/// is a read.
+/// Every indexer call is a read, so a request that got no usable response is
+/// retried whatever the transport: a `reqwest` timeout, connection failure or
+/// request the connection dropped (such as a pooled keep-alive connection the
+/// server closed), a custom HTTP client that failed without a response, and a
+/// response lost while reading its body.
 ///
 /// The message comes from `ApiError`'s display, which masks the `api-key`.
 pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
         #[cfg(feature = "reqwest")]
-        zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
+        zolana_api::ApiError::Request(error)
+            if error.is_timeout() || error.is_connect() || error.is_request() =>
+        {
             ClientError::IndexerUnavailable(message)
         }
         zolana_api::ApiError::HttpClient(_) | zolana_api::ApiError::ResponseLost(_) => {
@@ -59,6 +62,26 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A connection the server drops before it answers, the way a pooled
+    /// keep-alive connection it closed while idle fails, is a request error
+    /// that is neither a timeout nor a connection failure, and is retried.
+    #[cfg(feature = "reqwest")]
+    #[tokio::test]
+    async fn retries_a_request_the_connection_dropped() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            drop(stream);
+        });
+        let error = reqwest::Client::new().get(url).send().await.unwrap_err();
+        assert!(error.is_request() && !error.is_timeout() && !error.is_connect());
+        assert!(matches!(
+            indexer_error(zolana_api::ApiError::Request(error)),
+            ClientError::IndexerUnavailable(_)
+        ));
+    }
 
     #[test]
     fn preserves_ring_projection_error_codes() {

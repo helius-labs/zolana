@@ -870,7 +870,7 @@ impl AsyncProverClient {
             .await
             .unwrap_or_else(|_| {
                 Err(ApiError::HttpClient(
-                    format!("no response within {} s", timeout.as_secs()).into(),
+                    format!("no response within {:.2} s", timeout.as_secs_f64()).into(),
                 ))
             })
     }

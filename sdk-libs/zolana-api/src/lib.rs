@@ -78,17 +78,23 @@ pub struct BlockingZolanaApi {
     runtime: Arc<BlockingRuntime>,
 }
 
-/// A single-threaded Tokio runtime that runs async clients for blocking
-/// callers. It shuts down in the background when dropped, so a client built or
+/// A Tokio runtime that runs async clients for blocking callers. Its one
+/// worker thread keeps running between calls, as `reqwest::blocking`'s does:
+/// the connection pool's tasks see a keep-alive connection the server closed
+/// while the client sat idle and drop it, so the next call does not reuse a
+/// dead socket. A runtime driven only inside `block_on` would leave them
+/// frozen. It shuts down in the background when dropped, so a client built or
 /// dropped inside another runtime does not panic.
 pub struct BlockingRuntime(Option<tokio::runtime::Runtime>);
 
 impl BlockingRuntime {
     pub fn new() -> Self {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("zolana-blocking-client")
             .enable_all()
             .build()
-            .expect("a current-thread Tokio runtime");
+            .expect("a Tokio runtime");
         Self(Some(runtime))
     }
 
@@ -705,7 +711,7 @@ impl ZolanaApi {
                 .await
                 .unwrap_or_else(|_| {
                     Err(ApiError::HttpClient(
-                        format!("no response within {} s", timeout.as_secs()).into(),
+                        format!("no response within {:.2} s", timeout.as_secs_f64()).into(),
                     ))
                 })?,
             None => send.await?,
@@ -1057,6 +1063,73 @@ mod tests {
     use zolana_indexer_api::{GET_ENCRYPTED_UTXOS_BY_TAGS, GET_MERKLE_PROOFS};
 
     const NO_TRANSACTIONS: &str = r#"{"jsonrpc":"2.0","id":"test-account","result":{"context":{"blockTime":0,"slot":7},"transactions":[]}}"#;
+
+    /// Answers every request on a connection, then closes it `idle` after the
+    /// answer, as a server with a short keep-alive does. Returns its URL and
+    /// the number of connections it accepted.
+    fn closing_server(idle: Duration) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        use std::{
+            io::{BufRead, BufReader, Read, Write},
+            net::TcpListener,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let connections = Arc::new(AtomicUsize::new(0));
+        let accepted = Arc::clone(&connections);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                accepted.fetch_add(1, Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut length = 0;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        if let Some(value) =
+                            line.to_ascii_lowercase().strip_prefix("content-length:")
+                        {
+                            length = value.trim().parse().unwrap();
+                        }
+                        if line == "\r\n" {
+                            break;
+                        }
+                    }
+                    let mut body = vec![0; length];
+                    reader.read_exact(&mut body).unwrap();
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                        NO_TRANSACTIONS.len(),
+                        NO_TRANSACTIONS,
+                    )
+                    .unwrap();
+                    std::thread::sleep(idle);
+                });
+            }
+        });
+        (url, connections)
+    }
+
+    /// The blocking client's runtime keeps running between calls, so a
+    /// pooled connection the server closed while the client sat idle is
+    /// dropped from the pool before the next call, which opens a new one.
+    #[test]
+    fn a_blocking_call_after_the_server_closed_an_idle_connection_succeeds() {
+        let (url, connections) = closing_server(Duration::from_millis(50));
+        let api = BlockingZolanaApi::new(url);
+        for call in 0..4 {
+            if call > 0 {
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            api.get_shielded_transactions_by_signature(SerializableSignature::default())
+                .unwrap_or_else(|error| panic!("call {call}: {error}"));
+        }
+        assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 4);
+    }
 
     /// Answers every request with one status and body, or fails before a
     /// response when `status` is 0, and records the requests it was sent.

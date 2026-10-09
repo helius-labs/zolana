@@ -15,9 +15,8 @@ default = ["reqwest"]
 # links reqwest through `solana-rpc-client`.
 reqwest = ["dep:reqwest", "zolana-api/reqwest"]
 socks = ["reqwest", "reqwest/socks"]
-indexer-api = []
 solana-rpc = ["dep:bs58", "dep:base64", "dep:solana-rpc-client", "dep:solana-commitment-config"]
-client = ["indexer-api", "solana-rpc"]
+client = ["solana-rpc"]
 # Gates the test binaries that spawn the local prover, so a plain
 # `cargo test -p zolana-client` stays hermetic by construction.
 proofs = ["reqwest"]
@@ -118,11 +117,11 @@ name = "merge_transaction_size"
 
 [[test]]
 name = "indexer"
-required-features = ["indexer-api"]
+required-features = ["reqwest"]
 
 [[test]]
 name = "client"
-required-features = ["indexer-api"]
+required-features = ["reqwest"]
 
 # Hermetic: pure witness assembly, no prover server, so no `proofs` gate.
 [[test]]

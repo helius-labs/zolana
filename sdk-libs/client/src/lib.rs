@@ -10,19 +10,16 @@
 //! they drop, and inert otherwise.
 //!
 //! Feature flags:
-//! - `(none)`: prover client + RPC traits, over an HTTP client the caller
-//!   brings (`with_client`)
+//! - `(none)`: [`ZolanaClient`], the indexer and prover clients and the RPC
+//!   traits, over an HTTP client the caller brings (`with_client`)
 //! - `reqwest` (default): the `reqwest` HTTP clients, the `new` and `local`
 //!   constructors, proxies and the local prover launcher
-//! - `indexer-api`: Photon indexer adapter and [`ZolanaClient`]
 //! - `solana-rpc`: concrete Solana RPC adapters
-//! - `client`: `indexer-api` + `solana-rpc`
+//! - `client`: `solana-rpc`, the set the CLI and the examples enable
 
 pub mod authority;
-#[cfg(feature = "indexer-api")]
 pub mod client;
 pub mod error;
-#[cfg(feature = "indexer-api")]
 pub mod indexer;
 pub mod prover;
 pub mod rpc;
@@ -30,16 +27,13 @@ pub mod spendable;
 pub mod user_registry;
 
 pub use authority::ProofAuthority;
-#[cfg(feature = "indexer-api")]
 pub use client::{
     check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc,
     SignedPrivateTransaction, Submission, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
 };
 pub use error::ClientError;
-#[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::timing;
-#[cfg(feature = "indexer-api")]
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
     attach_input_proofs,

@@ -16,7 +16,7 @@ anyhow = { workspace = true }
 solana-address = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
