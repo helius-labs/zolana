@@ -7,20 +7,24 @@ Users can deposit into and exit from Kamino kVaults from private balances withou
 3. Exits work the same way in reverse.
 4. The market maker could run in a TEE, so its operator doesn't see user amounts either.
 
+The market maker supports a set of swap pairs, a pair is one kVault and its two tokens:
+1. Collateral: the token the vault accepts, for example USDC.
+2. Shares: the token the vault mints for deposited collateral.
+
 Each swap is two SPP `transact` instructions in one Solana transaction, one proved by each side with its own keys (see [RFQ Swap](#rfq-swap-depositwithdrawal)). No custom program is involved: the vault is the unmodified kVault program, and the share mint is registered with `create_spl_interface`.
 
 ## Actors
 
 | Actor | Role | Trust |
 |-------|------|-------|
-| User | Holds shielded USDC or shares, requests quotes, proves the user transfer, signs the swap | Trusts nobody for funds: signs only after checking the maker transfer |
-| Market maker | Quotes, proves the maker transfer, assembles and pays for the transaction, holds share and USDC inventory, rebalances against kVault | Trusted for liveness and exit timing, not for funds or price |
-| kVault | Mints and burns shares against USDC at `shares_issued / AUM` | Public program; its state is the price oracle |
+| User | Holds private collateral or shares, requests quotes, proves the user transfer, signs the swap | Trusts nobody for funds: signs only after checking the maker transfer |
+| Market maker | Quotes, proves the maker transfer, assembles and pays for the transaction, holds share and collateral inventory, rebalances against kVault | Trusted for liveness and exit timing, not for funds or price |
+| kVault | Mints and burns shares against collateral at `shares_issued / AUM` | Public program; its state is the price oracle |
 | Privacy program | Verifies each transfer's proof, enforces balance per asset and each input owner's signature | Protocol |
 
 ## RFQ Swap (Deposit/Withdrawal)
 
-1. User: request quote. The user sends the market maker the direction (deposit or exit) and `amount_in`.
+1. User: request quote. The user sends the market maker the pair, the direction (deposit or exit) and `amount_in`.
 
 2. Market maker: quote. The market maker returns:
    1. `amount_out` at the vault rate minus its fee
@@ -53,25 +57,45 @@ Two transacts against one tree in one transaction are valid: the maker transfer'
 | Swap amount | User, market maker | Only in output ciphertexts and commitments; the market maker learns it from the user transfer output addressed to it |
 | User balance, other UTXOs | User | The market maker sees only the user transfer instruction and decrypts only its own output |
 | Direction (deposit or exit) | User, market maker | Both transfers move shielded UTXOs; the transaction shape is the same both ways |
-| Asset | User, market maker | Hidden in the UTXO; trading with the vault's market maker still suggests the pair |
+| Pair | User, market maker | Hidden in the UTXOs; with one supported pair, trading with the market maker still points to it, so more pairs hide it better |
 | Rebalance amounts | Public | Aggregated over many users, decoupled in time from any single swap |
 
+## Market Maker
 
+1. Setup prepares a pair once, so the market maker can hold its shares privately and quote from its own inventory.
+2. Inventory management keeps enough balance split for concurrent swaps and decides when to rebalance.
+3. Rebalancing moves the net flow of many swaps through kVault, so the vault only sees aggregate amounts.
 
+### Setup
 
+Per pair:
 
+1. Register the share mint in the privacy protocol. `create_spl_interface` for the pair's share mint, so shares can be held in private balances.
 
-## Risks
+2. Seed inventory.
+   1. Deposit the pair's deposit token into its kVault and receive shares.
+   2. Shield the shares, and optionally the deposit token, into its private balance.
 
-- Timing: a rebalance shortly after a single swap links the two amounts. The market maker should batch and delay.
-- Exit liquidity: exits wait for the market maker; `withdraw_from_available` only pays from idle vault liquidity.
-- Inventory: a fill fails when the market maker holds too few shares or too little USDC in one UTXO.
-- Rate drift between quote and signing: the user re-reads the vault and rejects a fill below the current rate minus the fee.
-- Cost: a swap pays for two proof verifications and two nullifier PDAs.
+### Inventory
 
-## Future Work
+1. Concurrency: configure how many swaps it can serve at the same time.
+   1. Problem: a swap spends one of the market maker's UTXOs, and its change is only spendable once the swap lands, so a single balance serves one swap at a time.
+   2. Solution: the market maker keeps its inventory split, so concurrent quotes do not wait on each other.
 
-1. Instant exit tier priced with a utilization premium, served from market maker USDC inventory.
-2. Asynchronous orders through an adapter program, so the user need not be online to sign.
-3. Other pairs with a redeemable rate in a program account (liquid staking tokens, other vaults).
-4. Running the market maker inside a TEE, so its operator does not learn individual swap amounts. Key custody does not need it: no user key reaches the market maker.
+2. Keep target balances. The market maker keeps a target balance per asset, and a rebalance brings it back into range.
+
+3. Schedule rebalances. Rebalances run on a schedule rather than right after a single large swap, so a public kVault operation cannot be linked to one user.
+
+### Rebalance
+
+1. Decide. Fill exits from the collateral that deposits paid in first; only the net amount goes through kVault.
+
+2. Rebalance shares: turn collateral into shares.
+   1. Unshield the collected collateral.
+   2. Deposit it into kVault.
+   3. Shield the minted shares.
+
+3. Rebalance collateral: turn shares into collateral.
+   1. Unshield shares.
+   2. Withdraw from kVault with `withdraw_from_available`.
+   3. Shield the collateral.
