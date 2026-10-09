@@ -118,7 +118,7 @@ structure BasisFacts (b : BasisParams) : Prop where
     (recompose (b.foldRows.getD i []) - 2 ^ (32 * i)) % (b.foldModulus : ℤ) = 0
   vinv : ∀ d, (b.vinv.lookup d).isSome → ∀ i ≤ d, ∀ i' ≤ d,
     sumRange (d + 1) (fun k => (b.vinvAt d i k : F) * ((evalPoint k : ℤ) : F) ^ i') = if i = i' then 1 else 0
-  crt : b.crtForms ≠ [] → 2 * limbCount - 2 < b.foldRows.length ∧
+  crt : b.crtForms ≠ [] → 2 * limbCount - 2 < b.foldRows.length ∧ b.crtCombine.length = limbCount ∧
     ∀ j < limbCount, ∀ a < limbCount, ∀ a' < limbCount,
       sumRange b.crtForms.length (fun k => (b.combineAt j k : F) * (b.formAt k a : F) * (b.formAt k a' : F)) =
         ((b.foldAt (a + a') j : ℤ) : F)
@@ -140,8 +140,8 @@ theorem basisFacts {b : BasisParams} (hbs : b.sound = true) : BasisFacts b := by
   · intro hne
     rcases hcrt with h | h
     · exact absurd h hne
-    obtain ⟨⟨⟨⟨_, _⟩, _⟩, hlen⟩, hid⟩ := h
-    refine ⟨hlen, fun j hj a ha a' ha' => ?_⟩
+    obtain ⟨⟨⟨⟨_, hcl⟩, _⟩, hlen⟩, hid⟩ := h
+    refine ⟨hlen, hcl, fun j hj a ha a' ha' => ?_⟩
     have h := hid j hj a ha a' ha'
     have h0 : ((sumRange b.crtForms.length (fun k => ((b.combineAt j k : ℕ) : ℤ) * (b.formAt k a : ℤ) *
         (b.formAt k a' : ℤ)) - b.foldAt (a + a') j : ℤ) : F) = 0 := by
@@ -326,7 +326,7 @@ theorem crtTerm_eq (hbf : BasisFacts b) (hb : ElemsMatch es s.elems) (hsf : Shap
       rw [← lin_sumRange_fun]
       apply lin_congr
       intro a' ha'
-      rw [← sumRange_mul_left, hne.2 j hj a (by omega) a' (by omega)]
+      rw [← sumRange_mul_left, hne.2.2 j hj a (by omega) a' (by omega)]
     rw [lin_congr hinner]
     unfold termInt termPoly
     rw [hfac]
@@ -334,6 +334,30 @@ theorem crtTerm_eq (hbf : BasisFacts b) (hb : ElemsMatch es s.elems) (hsf : Shap
     rw [lin_polyMul, lin_single_polyMul, Int.cast_mul, intCast_lin, ← lin_mul_fun_left]
     congr 1; funext a
     rw [intCast_lin, ← lin_mul_fun_left]
+
+theorem foldAt_ge (hbf : BasisFacts b) {i j : ℕ} (hj : limbCount ≤ j) : b.foldAt i j = 0 := by
+  unfold BasisParams.foldAt
+  by_cases hi : i < b.foldRows.length
+  · exact getD_eq_zero_of_le ((hbf.rows i hi).1 ▸ hj)
+  · rw [List.getD_eq_getElem?_getD b.foldRows i, List.getElem?_eq_none (by omega)]; simp
+
+theorem crtTerm_eq_ge (hbf : BasisFacts b) (hsf : ShapeFacts b s m) {t : TermC}
+    (hcrt : s.isCrtTerm t = true) {j : ℕ} (hj : limbCount ≤ j) (xs : List (List F)) :
+    sumRange b.crtForms.length (fun k =>
+        (t.coef : F) * (b.combineAt j k : F) *
+          (lin (fun i => (b.formAt k i : F)) (limbsOf xs (t.factors.getD 0 0)) *
+            lin (fun i => (b.formAt k i : F)) (limbsOf xs (t.factors.getD 1 0)))) =
+      ((lin (fun i => b.foldAt i j) (termInt es t) : ℤ) : F) := by
+  have hc := hcrt
+  simp only [PolyShape.isCrtTerm, Bool.and_eq_true] at hc
+  have hcl := (hbf.crt (hsf.crt hc.1.1.2)).2.1
+  have h0 : ∀ k, b.combineAt j k = 0 := by
+    intro k; unfold BasisParams.combineAt
+    rw [List.getD_eq_getElem?_getD (b.crtCombine), List.getElem?_eq_none (by omega)]
+    simp
+  have : (fun i => b.foldAt i j) = fun _ => 0 := by funext i; exact foldAt_ge hbf hj
+  rw [this, lin_zero_fun]
+  simp [h0, sumRange_eq]
 
 def foldedInt (b : BasisParams) (s : PolyShape) (es : List (Σ w, ElemVal w)) (j : ℕ) : ℤ :=
   if s.fold then lin (fun i => b.foldAt i j) (exprInt es s) else (exprInt es s).getD j 0
@@ -347,7 +371,7 @@ theorem termCoefVal_crt {t : TermC} (hcrt : s.isCrtTerm t = true) (xs : List (Li
   | [f0, f1], _ => simp [hcrt]
 
 theorem exprVal_eq (hbf : BasisFacts b) (hb : ElemsMatch es s.elems) (hsf : ShapeFacts b s m)
-    {j : ℕ} (hj : s.fold = true → j < limbCount) :
+    (j : ℕ) :
     exprVal b s (limbLists es) j = (foldedInt b s es j : F) := by
   unfold exprVal foldedInt
   by_cases hf : s.fold = true
@@ -366,7 +390,9 @@ theorem exprVal_eq (hbf : BasisFacts b) (hb : ElemsMatch es s.elems) (hsf : Shap
     by_cases hc : s.isCrtTerm t = true
     · simp only [termCoefVal_crt hc, mul_zero, hc, if_true]
       rw [show sumRange (s.degree + 1) (fun _ => (0 : F)) = 0 by simp [sumRange_eq], zero_add]
-      exact crtTerm_eq hbf hb hsf hc (hj hf)
+      by_cases hj : j < limbCount
+      · exact crtTerm_eq hbf hb hsf hc hj
+      · exact crtTerm_eq_ge hbf hsf hc (by omega) _
     · have hc' : s.isCrtTerm t = false := by simpa using hc
       simp only [hc', Bool.false_eq_true, if_false, add_zero]
       simp only [termCoefVal_eq hbf hb hsf ht hc']

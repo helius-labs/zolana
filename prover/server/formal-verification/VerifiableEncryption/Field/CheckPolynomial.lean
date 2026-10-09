@@ -11,8 +11,9 @@ shared by every check over the BN254 scalar field (`BasisParams`).
 `CheckPolynomial.circuit` restates the constraints the Go code emits for one
 check over the native values of its input limbs, and `sound` recomputes the
 compile-time bounds the soundness argument relies on. The statements of
-`checkPolynomial_eval_sound`, `checkPolynomial_assertZero_sound` and
-`lazy_sound` are the contract the curve layer builds on.
+`checkPolynomial_eval_sound`, `checkPolynomial_assertZero_sound`
+(`PlainCheck.lean`) and `lazy_sound` (`Lazy.lean`) are the contract the curve
+layer builds on.
 
 Layout decisions mirrored from Go:
 * limbs have 32 bits, `limbCount = 8` limbs per reduced element;
@@ -306,15 +307,20 @@ def residualMagnitude (b : BasisParams) : ℤ :=
   (if c.withResult then (c.remainderMax : ℤ) else 0) +
   c.quotientMagnitude * c.m
 
+/-- Bound on the carry entering a group: none before the first group, `2^cb`
+after a group whose carry was range checked to `cb + 1` bits. -/
+def carryIn : Option ℕ → ℤ
+  | none => 0
+  | some cb => 2 ^ cb
+
 /-- Carry-group walk: the groups tile `[0, carryPositions)`, and every group
 lifts, i.e. its bound plus the carry range stays below the native modulus. The
 result is the carry width entering the top position (`none` before any group). -/
 def groupsSound (b : BasisParams) : List CarryGroup → ℕ → Option ℕ → Option (Option ℕ)
   | [], pos, prev => if pos = c.carryPositions then some prev else none
   | g :: gs, pos, prev =>
-    let carryIn : ℤ := match prev with | none => 0 | some cb => 2 ^ cb
     let len := g.stop - g.start
-    let bound := carryIn + sumRange len (fun t => c.residualBound b (g.start + t) * 2 ^ (32 * t))
+    let bound := carryIn prev + sumRange len (fun t => c.residualBound b (g.start + t) * 2 ^ (32 * t))
     if g.start = pos ∧ g.start < g.stop ∧ g.carryBits + 1 ≤ 253 ∧
         (2 ^ (32 * len) * g.inv) % Order = 1 ∧
         bound + 2 ^ (32 * len + g.carryBits) < (Order : ℤ) then
@@ -325,7 +331,7 @@ def sound (b : BasisParams) : Bool :=
   c.toPolyShape.shapeSound b c.m &&
   decide (0 < c.m) && (c.m * c.mInv) % Order == 1 &&
   c.modulusLimbs.length == limbCount &&
-  recompose (c.modulusLimbs.map (fun l => (l : ℤ))) == c.m &&
+  recompose (c.modulusLimbs.map (fun l : ℕ => (l : ℤ))) == c.m &&
   decide (0 < c.pieceBits) && decide (c.pieceBits ≤ 253) &&
   c.resultWidths.length == limbCount &&
   c.resultWidths.all (· ≤ 32) &&
@@ -335,7 +341,7 @@ def sound (b : BasisParams) : Bool :=
    else
     c.quotientWidths.all (· ≤ 32) &&
     c.offsetLimbs.length == c.quotientWidths.length &&
-    recompose (c.offsetLimbs.map (fun l => (l : ℤ))) == c.offset &&
+    recompose (c.offsetLimbs.map (fun l : ℕ => (l : ℤ))) == c.offset &&
     decide (recompose (c.quotientWidths.map fun w => (2 : ℤ) ^ w - 1) ≤ 2 ^ c.quotientBits - 1) &&
     decide (c.degree < c.positions) && decide (limbCount ≤ c.positions) &&
     decide (c.quotientWidths.length + limbCount ≤ c.positions + 1)) &&
@@ -345,8 +351,7 @@ def sound (b : BasisParams) : Bool :=
    | some prev =>
      if c.checkTop then
        c.carryPositions + 1 == c.positions &&
-       decide (c.residualBound b c.carryPositions +
-         (match prev with | none => 0 | some cb => 2 ^ cb) < (Order : ℤ))
+       decide (c.residualBound b c.carryPositions + carryIn prev < (Order : ℤ))
      else
        decide (c.residualMagnitude b < (Order : ℤ) * 2 ^ (32 * c.carryPositions)))
 
@@ -397,36 +402,5 @@ def PolyShape.exprValue (s : PolyShape) (vals : List ℤ) : ℤ :=
 def values (es : List (Σ w, ElemVal w)) : List ℤ := es.map fun e => e.2.value
 
 def limbLists (es : List (Σ w, ElemVal w)) : List (List F) := es.map fun e => e.2.limbs.toList
-
-theorem checkPolynomial_eval_sound (b : BasisParams) (c : PlainCheckParams)
-    (hbs : b.sound = true) (hc : c.sound b = true) (hres : c.withResult = true)
-    {rc : ℕ → F → Prop} (hrc : RangeSound rc)
-    (es : List (Σ w, ElemVal w)) (hb : ElemsMatch es c.elems)
-    {k : Option (List F) → Prop} (h : CheckPolynomial.circuit b c (limbLists es) rc k) :
-    ∃ r : ElemVal limbCount,
-      r.lo.toList = List.replicate limbCount 0 ∧
-      r.hi.toList = c.resultWidths.map (fun w => (2 : ℤ) ^ w - 1) ∧
-      r.vlo = 0 ∧ r.vhi = recompose (c.resultWidths.map fun w => (2 : ℤ) ^ w - 1) ∧
-      k (some r.limbs.toList) ∧
-      r.value ≡ c.exprValue (values es) [ZMOD c.m] := by
-  sorry
-
-theorem checkPolynomial_assertZero_sound (b : BasisParams) (c : PlainCheckParams)
-    (hbs : b.sound = true) (hc : c.sound b = true) (hres : c.withResult = false)
-    {rc : ℕ → F → Prop} (hrc : RangeSound rc)
-    (es : List (Σ w, ElemVal w)) (hb : ElemsMatch es c.elems)
-    {k : Option (List F) → Prop} (h : CheckPolynomial.circuit b c (limbLists es) rc k) :
-    k none ∧ c.exprValue (values es) ≡ 0 [ZMOD c.m] := by
-  sorry
-
-theorem lazy_sound (b : BasisParams) (c : LazyParams)
-    (hbs : b.sound = true) (hc : c.sound b = true)
-    (es : List (Σ w, ElemVal w)) (hb : ElemsMatch es c.elems)
-    {k : List F → Prop} (h : Lazy.circuit b c (limbLists es) k) :
-    ∃ e : ElemVal limbCount,
-      e.lo.toList = c.outLo ∧ e.hi.toList = c.outHi ∧ e.vlo = c.outVlo ∧ e.vhi = c.outVhi ∧
-      k e.limbs.toList ∧
-      e.value ≡ c.exprValue (values es) [ZMOD c.m] := by
-  sorry
 
 end ZolanaVE.Field
