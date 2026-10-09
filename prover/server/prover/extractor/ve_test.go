@@ -1,7 +1,9 @@
 package extractor
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -36,25 +38,64 @@ var allowedVEHints = map[string]bool{
 }
 
 func TestExtractVELean(t *testing.T) {
-	out, err := ExtractVELean()
+	modules, err := extractVE()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "panic") {
-		t.Error("extracted circuits mention panic")
+	if _, ok := modules[veModuleLayout.Root]; !ok {
+		t.Fatal("missing the root module")
 	}
 	seen := map[string]bool{}
-	for _, m := range hintComment.FindAllStringSubmatch(out, -1) {
-		seen[m[1]] = true
+	for name, source := range modules {
+		if strings.Contains(source, "panic") {
+			t.Errorf("module %s mentions panic", name)
+		}
+		for _, m := range hintComment.FindAllStringSubmatch(source, -1) {
+			seen[m[1]] = true
+		}
 	}
 	for name := range seen {
 		if !allowedVEHints[name] {
 			t.Errorf("hint %s is not in the allowlist", name)
 		}
 	}
-	if path := os.Getenv("VE_LEAN_OUT"); path != "" {
-		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
-			t.Fatal(err)
+}
+
+func readTree(root string) (map[string]string, error) {
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		files[path] = string(data)
+		return err
+	})
+	return files, err
+}
+
+func TestWriteVELean(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := ExtractVELean(dir); err != nil {
+		t.Fatal(err)
+	}
+	first, err := readTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExtractVELean(dir); err != nil {
+		t.Fatal(err)
+	}
+	second, err := readTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != len(second) {
+		t.Fatalf("re-extraction wrote %d files, first %d", len(second), len(first))
+	}
+	for path, source := range first {
+		if second[path] != source {
+			t.Errorf("re-extraction changed %s", path)
 		}
 	}
 }

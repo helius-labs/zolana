@@ -45,7 +45,7 @@ jobs:
       - name: Extract verifiable-encryption circuits and check for drift
         run: |
           cd prover/server
-          ./light-prover extract-ve-circuit --output-dir formal-verification/VerifiableEncryption
+          ./light-prover extract-ve-circuit --output-dir formal-verification
           git diff --exit-code formal-verification/VerifiableEncryption/
           test -z "$(git status --porcelain formal-verification/VerifiableEncryption/)"
 

@@ -77,6 +77,6 @@ lean-build:
     cd formal-verification && (lake exe cache get || true) && lake build
 
 extract-ve-circuit: build-binary
-    ./light-prover extract-ve-circuit --output-dir formal-verification/VerifiableEncryption
+    ./light-prover extract-ve-circuit --output-dir formal-verification
 
 verify: extract-circuit extract-ve-circuit lean-build

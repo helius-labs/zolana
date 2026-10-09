@@ -61,7 +61,7 @@ This part explains the existing cli commands.
    4. batch-size *n* - Number of UTXOs / nullifiers per circuit (8)
 8. extract-ve-circuit - Transpiles the verifiable-encryption circuits from gnark to Lean
    Flags:  
-   1. output-dir *directory* - Directory receiving Circuit.lean
+   1. output-dir *directory* - Lake root (formal-verification) receiving VerifiableEncryption/Circuit.lean and its modules
 
 ## Running
 
@@ -158,8 +158,10 @@ runs `lake build` to check every theorem.
 
 The verifiable-encryption circuits (P-256 key agreement, Poseidon KDF and
 AES-256-CTR) are extracted by `extract-ve-circuit` into
-`formal-verification/VerifiableEncryption/Circuit.lean` (Lean library
-`VerifiableEncryption`, namespace `ZolanaVE`), also committed and diffed in CI.
+`formal-verification/VerifiableEncryption/Circuit.lean`, which imports the
+modules in `VerifiableEncryption/Circuit/` (Lean library
+`VerifiableEncryption`, namespace `ZolanaVE`). The modules elaborate
+separately to bound memory; they are committed and diffed in CI.
 Lookup arguments extract as Lean `opaque` predicates (`RangeCheck`,
 `RowLookup_*`, `SubstitutionLookup`, `SpreadByteLookup`, `ChunkParityLookup`)
 whose soundness is an explicit assumption; hint outputs extract as

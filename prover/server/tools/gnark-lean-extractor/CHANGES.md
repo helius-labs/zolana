@@ -55,6 +55,13 @@ module points at this directory with a `replace` directive.
   `NamedConstantDigits` replaces constants of at least that many digits by
   `abbrev K_<i> : F := <value>` declarations after the prelude, numbered in
   order of first use.
+- `ExtractCircuitModules(opts, ModuleLayout{...}, ...)` splits an extraction
+  into Lean modules `<Root>.<name>` that elaborate separately: a prelude
+  module (Order, F, Gates, named constants, opaque gadgets), modules assigned
+  by gadget-name prefix rules (split at `MaxLines` in definition order), a
+  module of circuit definitions, and the root module importing all of them.
+  Each module imports the prelude and the modules defining the gadgets it
+  calls; an unassigned gadget or an import cycle is an error.
 - Fix: a gadget output nested two or more levels deep whose element is a bare
   gate or input (not a projection) was returned to the caller as the whole
   gadget result, dropping its indices. Every level is now projected.
