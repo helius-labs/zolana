@@ -4,7 +4,6 @@ go 1.27.1
 
 require (
 	github.com/consensys/gnark v0.16.4
-	github.com/reilabs/gnark-lean-extractor/v3 v3.0.0
 	zolana/gnarkffiprover v0.0.0
 	zolana/gnarksdk v0.0.0
 	zolana/prover v0.0.0
@@ -19,6 +18,7 @@ require (
 	github.com/iden3/go-iden3-crypto v0.0.17 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/reilabs/gnark-lean-extractor/v3 v3.0.0 // indirect
 	github.com/ronanh/intcomp v1.1.1 // indirect
 	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -31,4 +31,4 @@ replace zolana/gnarksdk => ../../../../sdk-libs/gnark-sdk
 
 replace zolana/prover => ../../../../prover/server
 
-replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107
+replace github.com/reilabs/gnark-lean-extractor/v3 => ../../../../prover/server/tools/gnark-lean-extractor
