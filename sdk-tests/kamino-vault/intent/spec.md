@@ -7,7 +7,7 @@
 - `create_escrow`, `settle`, and `cancel` reference only the market and period accounts. The vault and direction are private proof inputs, checked against the period root.
 - Each order settles only against the period it was created in. The taker's private `min_out` refunds the order if the realized rate is worse, for example after a loss in a vault's reserves. Fill and refund have the same shape, verifying key, and public effect.
 - There is no bond. A maker that does not execute costs the taker the time until `expiry`, then anyone holding the order data cancels it. Cancels are public, so a maker's non-execution rate is observable.
-- The payout destination is the taker: the proof checks that the recipient owner-hash equals the source UTXO's owner, and the order UTXO's data hash includes it. Settlement and cancel blindings follow [dynamic swap settlement recovery](../dynamic-swap/swap_program.md#settlement-recovery). The `escrow_authority` nullifier secret is 0, as in dynamic swap.
+- The payout destination is the taker: the proof checks that the recipient owner-hash equals the source UTXO's owner, and the order UTXO's data hash includes it. Settlement and cancel blindings follow [dynamic swap settlement recovery](../../dynamic-swap/swap_program.md#settlement-recovery). The `escrow_authority` nullifier secret is 0, as in dynamic swap.
 
 ## Actors
 
