@@ -157,6 +157,35 @@ theorem signed_fits {n : ℕ} {g : List.Vector F n} (hb : AllBits g) {a : ℕ} (
   · rw [hr]; rcases hs with rfl | rfl <;> simp [sdC] <;> omega
   · rw [hr]; rcases hs with rfl | rfl <;> simp [sdC] <;> omega
 
+theorem den_pos {n : ℕ} {g : List.Vector F n} (hb : AllBits g) {a w : ℕ} (ha : a + w ≤ n)
+    (hne : ∑ j ∈ Finset.range w, g.toList.getD (a + j) 0 ≠ 0) : 1 ≤ chunk g a w := by
+  have hcast : ∑ j ∈ Finset.range w, g.toList.getD (a + j) 0 =
+      ((∑ j ∈ Finset.range w, bitI g (a + j) : ℤ) : F) := by
+    push_cast
+    apply Finset.sum_congr rfl
+    intro j hj
+    rw [(bitI_of_bool (hb (a + j) (by simp at hj; omega))).2]
+  rw [hcast] at hne
+  have hnn : ∀ j ∈ Finset.range w, 0 ≤ bitI g (a + j) := fun j _ => by unfold bitI; positivity
+  have hle : ∀ j ∈ Finset.range w, bitI g (a + j) ≤ 1 := by
+    intro j hj
+    rcases (bitI_of_bool (hb (a + j) (by simp at hj; omega))).1 with h | h <;> rw [h] <;> norm_num
+  have hsum0 : 0 ≤ ∑ j ∈ Finset.range w, bitI g (a + j) := Finset.sum_nonneg hnn
+  have hsumw : ∑ j ∈ Finset.range w, bitI g (a + j) ≤ w := by
+    calc ∑ j ∈ Finset.range w, bitI g (a + j) ≤ ∑ j ∈ Finset.range w, (1 : ℤ) := Finset.sum_le_sum hle
+      _ = w := by simp
+  have hne' : ∑ j ∈ Finset.range w, bitI g (a + j) ≠ 0 := by
+    intro h0; apply hne; rw [h0]; simp
+  have hge : 1 ≤ ∑ j ∈ Finset.range w, bitI g (a + j) := by omega
+  calc (1 : ℤ) ≤ ∑ j ∈ Finset.range w, bitI g (a + j) := hge
+    _ ≤ chunk g a w := by
+      unfold chunk
+      apply Finset.sum_le_sum
+      intro j hj
+      have h0 := hnn j hj
+      have hp : (1 : ℤ) ≤ 2 ^ j := one_le_pow₀ (by norm_num)
+      nlinarith
+
 theorem signed_limb {σ : ℤ} {c q s : F} (hσ : ((σ : ℤ) : F) = s) (h : q = c - s * (c - (0 + c * -1))) :
     q = ((1 - 2 * σ : ℤ) : F) * c := by
   rw [h, ← hσ]; push_cast; ring

@@ -169,6 +169,9 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   have c18 := CheckPolynomial_18_hb0ad1306_sound hl [⟨8, S1⟩, ⟨5, SD⟩, ⟨5, NUM⟩]
     (elemsMatch_of (by show [S1.bnd, SD.bnd, NUM.bnd] = _; rw [hS1, selElem_bnd, hHb, hS0b]; rfl))
     _ (by limbs_tac [hSD, hNUM, limbs129]) hc18
+  -- BLOCKED: the extracted model of `api.Add` with more than two operands binds each
+  -- chained intermediate to itself (`∃ g, g = g + x`), so the denominator-nonzero check
+  -- and the packed-table selectors are not faithful to the circuit (see report).
   sorry
 
 end ZolanaVE.P256
