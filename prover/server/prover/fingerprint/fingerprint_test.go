@@ -20,7 +20,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
@@ -90,6 +93,12 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	batch, err := nulltree.R1CSBatchAddressAppend(40, 10)
 	add("batch_address-append_40_10", batch, err)
 
+	agreeKey, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &hashAgreeKeyCircuit{})
+	add("ve_agree_key", agreeKey, err)
+
+	envelope, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &hashEnvelopeCircuit{})
+	add("ve_envelope_16", envelope, err)
+
 	return out
 }
 
@@ -110,6 +119,8 @@ var expectedFingerprints = map[string]fingerprint{
 	"merge_24_1":                    {constraints: 688740, public: 2},
 	"merge_ring_24_1":               {constraints: 526078, public: 2},
 	"batch_address-append_40_10":    {constraints: 421991, public: 2},
+	"ve_agree_key":                  {constraints: 31062, public: 7},
+	"ve_envelope_16":                {constraints: 40758, public: 21},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
