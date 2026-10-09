@@ -51,6 +51,104 @@ func (t opaqueTable) Lookup(indices ...frontend.Variable) []frontend.Variable {
 	return values
 }
 
+// The AES step gadgets below keep their *Constrained bodies on a builder and
+// become named Lean definitions under the extractor.
+
+// AesDecodeWord is decodeWordSum: the XOR bytes encoded by a spread word sum.
+type AesDecodeWord struct {
+	Sum       frontend.Variable
+	ByteCount int
+}
+
+func (g AesDecodeWord) DefineGadget(api frontend.API) interface{} {
+	return sharedSpreadTables(api).decodeWordSumConstrained(g.Sum, g.ByteCount)
+}
+
+func (t *spreadTables) decodeWordSum(spreadSum frontend.Variable, byteCount int) []frontend.Variable {
+	if !abstractor.Extracting(t.api) {
+		return t.decodeWordSumConstrained(spreadSum, byteCount)
+	}
+	return abstractor.Call1(t.api, AesDecodeWord{Sum: spreadSum, ByteCount: byteCount})
+}
+
+// AesRoundColumn is one MixColumns column of a middle round: the four source
+// state bytes (ShiftRows order) and the spread round-key word give four bytes.
+type AesRoundColumn struct {
+	State          []frontend.Variable
+	RoundKeySpread []frontend.Variable
+}
+
+func (g AesRoundColumn) DefineGadget(api frontend.API) interface{} {
+	t := sharedSpreadTables(api)
+	return t.decodeWordSum(t.columnSumOf(g.RoundKeySpread, g.State, 0, 1, 2, 3), wordBytes)
+}
+
+func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
+	if !abstractor.Extracting(k.tables.api) {
+		return k.roundColumnConstrained(round, column, state)
+	}
+	spreadRoundKeyWord, sources := k.columnInputs(round, column, state)
+	return abstractor.Call1(k.tables.api, AesRoundColumn{State: sources, RoundKeySpread: spreadRoundKeyWord})
+}
+
+// AesFinalRound is the last AES round of one block XORed with the plaintext:
+// SubBytes and ShiftRows of State, the spread final round key and the spread
+// plaintext bytes give the ciphertext bytes.
+type AesFinalRound struct {
+	State           []frontend.Variable
+	RoundKeySpread  []frontend.Variable
+	PlaintextSpread []frontend.Variable
+}
+
+func (g AesFinalRound) DefineGadget(api frontend.API) interface{} {
+	return sharedSpreadTables(api).finalRoundConstrained(g.State, g.RoundKeySpread, g.PlaintextSpread)
+}
+
+func (t *spreadTables) finalRound(state, spreadFinalRoundKey, spreadPlaintext []frontend.Variable) []frontend.Variable {
+	if !abstractor.Extracting(t.api) {
+		return t.finalRoundConstrained(state, spreadFinalRoundKey, spreadPlaintext)
+	}
+	return abstractor.Call1(t.api, AesFinalRound{State: state, RoundKeySpread: spreadFinalRoundKey[:len(spreadPlaintext)], PlaintextSpread: spreadPlaintext})
+}
+
+// AesCounterByte is a key byte XORed with a nonzero constant counter byte.
+type AesCounterByte struct {
+	SpreadKeyByte frontend.Variable
+	Counter       int
+}
+
+func (g AesCounterByte) DefineGadget(api frontend.API) interface{} {
+	return sharedSpreadTables(api).counterByteConstrained(g.SpreadKeyByte, byte(g.Counter))
+}
+
+func (t *spreadTables) counterByte(spreadKeyByte frontend.Variable, value byte) frontend.Variable {
+	if !abstractor.Extracting(t.api) {
+		return t.counterByteConstrained(spreadKeyByte, value)
+	}
+	return abstractor.Call(t.api, AesCounterByte{SpreadKeyByte: spreadKeyByte, Counter: int(value)})
+}
+
+// AesKeyExpansion is the AES-256 key schedule; it returns the 240 spread
+// round-key bytes and the 240 round-key bytes.
+type AesKeyExpansion struct {
+	Key []frontend.Variable
+}
+
+func (g AesKeyExpansion) DefineGadget(api frontend.API) interface{} {
+	var key [aes256KeyBytes]frontend.Variable
+	copy(key[:], g.Key)
+	keys := expandRoundKeysConstrained(api, key)
+	return [][]frontend.Variable{keys.spreadBytes, keys.bytes}
+}
+
+func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *roundKeys {
+	if !abstractor.Extracting(api) {
+		return expandRoundKeysConstrained(api, key)
+	}
+	expanded := abstractor.Call2(api, AesKeyExpansion{Key: key[:]})
+	return &roundKeys{tables: sharedSpreadTables(api), spreadBytes: expanded[0], bytes: expanded[1]}
+}
+
 func newExtractionTables(t *spreadTables) *spreadTables {
 	t.substitution = opaqueTable{t.api, func(index frontend.Variable) abstractor.GadgetDefinition {
 		return SubstitutionLookup{Index: index}

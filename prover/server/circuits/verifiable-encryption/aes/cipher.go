@@ -127,6 +127,10 @@ func (s *ctrStream) encryptBlock(counter uint32, plaintextBytes []frontend.Varia
 
 	// 5. Apply the final AES round and XOR with the plaintext.
 	spreadFinalRoundKey := s.keys.spreadBytes[aes256Rounds*blockBytes:]
+	return t.finalRound(state[:], spreadFinalRoundKey, spreadPlaintext)
+}
+
+func (t *spreadTables) finalRoundConstrained(state, spreadFinalRoundKey, spreadPlaintext []frontend.Variable) []frontend.Variable {
 	sums := make([]frontend.Variable, len(spreadPlaintext))
 	for i := range sums {
 		spreadSubstitutedByte := t.substitute(sboxRegion, state[byteOrder[i]])
@@ -140,10 +144,13 @@ func (s *ctrStream) counterByte(position int, value byte) frontend.Variable {
 	if value == 0 {
 		return s.keys.bytes[position]
 	}
-	spreadKeyByte := s.keys.spreadBytes[position]
-	spreadCounterByte := s.keys.tables.spreadConstant(value)
-	sum := s.keys.tables.api.Add(spreadKeyByte, spreadCounterByte)
-	return s.keys.tables.decodeByteSums([]frontend.Variable{sum})[0]
+	return s.keys.tables.counterByte(s.keys.spreadBytes[position], value)
+}
+
+func (t *spreadTables) counterByteConstrained(spreadKeyByte frontend.Variable, value byte) frontend.Variable {
+	spreadCounterByte := t.spreadConstant(value)
+	sum := t.api.Add(spreadKeyByte, spreadCounterByte)
+	return t.decodeByteSums([]frontend.Variable{sum})[0]
 }
 
 type roundKeys struct {
@@ -158,7 +165,7 @@ var roundConstants = [...]byte{0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0
 // Sec. 5.2, Algorithm 2. Appendix A.3 gives a worked AES-256 example.
 // Offsets here are in bytes; the specification indexes four-byte words.
 // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197-upd1.pdf#page=26
-func expandRoundKeys(api frontend.API, key [aes256KeyBytes]frontend.Variable) *roundKeys {
+func expandRoundKeysConstrained(api frontend.API, key [aes256KeyBytes]frontend.Variable) *roundKeys {
 	t := sharedSpreadTables(api)
 	// Keep ordinary bytes for S-box indices and spread bytes for XOR arithmetic.
 	spreadRoundKeyBytes := make([]frontend.Variable, aes256RoundBytes)
@@ -214,7 +221,7 @@ func (k *roundKeys) addRoundKey(spreadBytes []frontend.Variable, offset int) []f
 	return k.tables.decodeByteSums(sums)
 }
 
-func (k *roundKeys) roundColumn(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
+func (k *roundKeys) roundColumnConstrained(round, column int, state *[blockBytes]frontend.Variable) []frontend.Variable {
 	spreadColumnSum := k.columnSum(round, column, state, 0, 1, 2, 3)
 	return k.tables.decodeWordSum(spreadColumnSum, wordBytes)
 }
@@ -227,14 +234,27 @@ var columnSources = [columnsPerBlock][wordBytes]int{
 }
 
 func (k *roundKeys) columnSum(round, column int, state *[blockBytes]frontend.Variable, regions ...int) frontend.Variable {
+	spreadRoundKeyWord, sources := k.columnInputs(round, column, state)
+	return k.tables.columnSumOf(spreadRoundKeyWord, sources, regions...)
+}
+
+func (k *roundKeys) columnInputs(round, column int, state *[blockBytes]frontend.Variable) (spreadRoundKeyWord, sources []frontend.Variable) {
 	start := round*blockBytes + column*wordBytes
 	end := start + wordBytes
-	spreadRoundKeyWord := k.spreadBytes[start:end]
-	sum := k.tables.packSpreadWord(spreadRoundKeyWord)
+	sources = make([]frontend.Variable, wordBytes)
+	for region := range sources {
+		sources[region] = state[columnSources[column][region]]
+	}
+	return k.spreadBytes[start:end], sources
+}
+
+// columnSumOf adds the spread round-key word and the substitution of
+// sources[region] for each listed region.
+func (t *spreadTables) columnSumOf(spreadRoundKeyWord, sources []frontend.Variable, regions ...int) frontend.Variable {
+	sum := t.packSpreadWord(spreadRoundKeyWord)
 	for _, region := range regions {
-		stateByteIndex := columnSources[column][region]
-		spreadContribution := k.tables.substitute(region, state[stateByteIndex])
-		sum = k.tables.api.Add(sum, spreadContribution)
+		spreadContribution := t.substitute(region, sources[region])
+		sum = t.api.Add(sum, spreadContribution)
 	}
 	return sum
 }

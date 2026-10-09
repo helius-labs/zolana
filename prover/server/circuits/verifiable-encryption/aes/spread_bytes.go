@@ -134,7 +134,7 @@ func (t *spreadTables) packSpreadWord(spreadByteSums []frontend.Variable) fronte
 }
 
 // decodeWordSum takes each base-6 digit's parity to recover the XOR of the original bytes.
-func (t *spreadTables) decodeWordSum(spreadSum frontend.Variable, byteCount int) []frontend.Variable {
+func (t *spreadTables) decodeWordSumConstrained(spreadSum frontend.Variable, byteCount int) []frontend.Variable {
 	// 1. Obtain candidate chunks from the hint.
 	chunkCount := chunksPerByte * byteCount
 	chunks, err := t.api.NewHint(laneChunksHint, chunkCount, spreadSum)
