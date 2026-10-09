@@ -22,10 +22,10 @@ use crate::{
     },
 };
 
-use super::{BlockingIndexer, ZolanaClient};
+use super::{BlockingIndexer, BlockingRpc, ZolanaClient};
 
 /// Every call is the `async` client's, run to completion.
-impl<R: Rpc + Send + Sync + 'static, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
+impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.block_on(self.client.get_account(address))
     }

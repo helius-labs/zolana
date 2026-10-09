@@ -4,10 +4,10 @@ use solana_signature::Signature;
 
 use crate::{
     error::ClientError,
-    rpc::{AsyncRpc, IndexerPollConfig, Rpc},
+    rpc::{AsyncRpc, IndexerPollConfig},
 };
 
-use super::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, ZolanaClient};
+use super::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc, ZolanaClient};
 
 impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
@@ -24,7 +24,7 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     }
 }
 
-impl<R: Rpc + Send + Sync + 'static, I: BlockingIndexer> ZolanaClient<R, I> {
+impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
     /// See [`AsyncZolanaClient::confirm_private_transaction`].
     pub fn confirm_private_transaction_sync(
         &self,

@@ -29,7 +29,9 @@ use zolana_client::user_registry::{
     try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use zolana_client::{
-    client::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, Submission, ZolanaClient},
+    client::{
+        AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc, Submission, ZolanaClient,
+    },
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction,
@@ -790,7 +792,7 @@ pub async fn sign_private_transaction_with_signers<
 /// holds the fee-payer key elsewhere (an HSM or a custodian).
 pub fn build_private_transaction_sync<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc + Send + Sync + 'static,
+    R: BlockingRpc,
     I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
@@ -806,7 +808,7 @@ pub fn build_private_transaction_sync<
 
 pub fn sign_private_transaction_sync<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc + Send + Sync + 'static,
+    R: BlockingRpc,
     I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
@@ -828,7 +830,7 @@ pub fn sign_private_transaction_sync<
 /// Synchronous counterpart of [`sign_private_transaction_with_signers`].
 pub fn sign_private_transaction_sync_with_signers<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc + Send + Sync + 'static,
+    R: BlockingRpc,
     I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,

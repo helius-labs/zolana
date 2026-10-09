@@ -71,7 +71,10 @@ impl ZolanaIndexer {
         &self.indexer
     }
 
-    pub(crate) fn block_on<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+    pub(crate) fn block_on<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, ClientError>>,
+    ) -> Result<T, ClientError> {
         self.runtime.block_on(future)
     }
 

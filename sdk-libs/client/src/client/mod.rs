@@ -60,6 +60,12 @@ pub trait AsyncIndexer: AsyncRpc + AsyncWitnessReader {}
 
 impl<I: AsyncRpc + AsyncWitnessReader> AsyncIndexer for I {}
 
+/// A Solana RPC of the blocking client: a blocking [`Rpc`] that [`Blocking`]
+/// can carry to Tokio's blocking pool. Implemented for every such type.
+pub trait BlockingRpc: Rpc + Send + Sync + 'static {}
+
+impl<R: Rpc + Send + Sync + 'static> BlockingRpc for R {}
+
 /// An indexer of the blocking client: it answers the indexer half of [`Rpc`]
 /// and reads input witnesses, which [`WitnessReader`] does by default over
 /// [`Rpc`], so an in-process indexer needs only `impl WitnessReader for
@@ -317,7 +323,10 @@ impl<R, I> ZolanaClient<R, I> {
         self.client.indexer.inner()
     }
 
-    pub(crate) fn block_on<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+    pub(crate) fn block_on<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, ClientError>>,
+    ) -> Result<T, ClientError> {
         self.runtime.block_on(future)
     }
 }
@@ -350,6 +359,11 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
         prover_url: impl Into<String>,
     ) -> Self {
         let indexer = ZolanaIndexer::new(indexer_url.as_ref());
+        // The client runs on the indexer's runtime too. A lifted indexer call
+        // then nests a `block_on` on that runtime from the blocking pool while
+        // the client's own `block_on` holds it; Tokio's current-thread
+        // scheduler polls the nested future on its own thread in that case,
+        // so the two runtimes it saves do not come with a deadlock.
         let prover = AsyncProverClient::new(prover_url.into()).into_blocking_on(indexer.runtime());
         Self::new(rpc, indexer, prover)
     }

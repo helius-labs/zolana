@@ -10,7 +10,15 @@
 #[cfg(feature = "reqwest")]
 use std::io::Read;
 use std::{
-    borrow::Cow, error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration,
+    any::Any,
+    borrow::Cow,
+    error::Error as StdError,
+    fmt,
+    future::Future,
+    panic::{catch_unwind, resume_unwind, AssertUnwindSafe},
+    pin::Pin,
+    sync::Arc,
+    time::Duration,
 };
 
 use http::{
@@ -85,11 +93,65 @@ impl BlockingRuntime {
     }
 
     /// Run `future` to completion. Inside a multi-thread runtime the call
-    /// leaves the worker first; a `current_thread` runtime cannot host a
-    /// blocking client and panics here, as Tokio documents.
-    pub fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+    /// leaves the worker first. Inside a `current_thread` runtime, which
+    /// cannot host a blocking client, it fails with
+    /// [`BlockingInsideRuntime`]; Tokio exposes that state only as a panic,
+    /// so the panic is caught and matched by its message, and any other
+    /// panic is raised again unchanged.
+    pub fn block_on<T, E: From<BlockingInsideRuntime>>(
+        &self,
+        future: impl Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
         let runtime = self.0.as_ref().expect("the runtime lives until drop");
-        tokio::task::block_in_place(|| runtime.block_on(future))
+        let run = AssertUnwindSafe(|| tokio::task::block_in_place(|| runtime.block_on(future)));
+        match catch_unwind(run) {
+            Ok(output) => output,
+            Err(payload) if is_tokio_blocking_refusal(&*payload) => {
+                Err(BlockingInsideRuntime.into())
+            }
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+}
+
+/// The text Tokio panics with when `block_in_place` runs inside a
+/// `current_thread` runtime or a `LocalSet`.
+const TOKIO_BLOCKING_REFUSAL: &str =
+    "can call blocking only when running on the multi-threaded runtime";
+
+fn is_tokio_blocking_refusal(payload: &(dyn Any + Send)) -> bool {
+    payload
+        .downcast_ref::<&str>()
+        .map(|message| message.contains(TOKIO_BLOCKING_REFUSAL))
+        .or_else(|| {
+            payload
+                .downcast_ref::<String>()
+                .map(|message| message.contains(TOKIO_BLOCKING_REFUSAL))
+        })
+        .unwrap_or(false)
+}
+
+/// A blocking client was called from inside a `current_thread` Tokio
+/// runtime, such as a default `#[tokio::main]` or `#[tokio::test]`, which
+/// cannot be blocked. Use the `async` client there, or a multi-thread
+/// runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockingInsideRuntime;
+
+impl fmt::Display for BlockingInsideRuntime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "a blocking client cannot run inside a current-thread Tokio runtime; \
+             use the async client there, or a multi-thread runtime",
+        )
+    }
+}
+
+impl StdError for BlockingInsideRuntime {}
+
+impl From<BlockingInsideRuntime> for ApiError {
+    fn from(error: BlockingInsideRuntime) -> Self {
+        Self::BlockingInsideRuntime(error)
     }
 }
 
@@ -337,6 +399,7 @@ pub enum ApiError {
         status: StatusCode,
         body: String,
     },
+    BlockingInsideRuntime(BlockingInsideRuntime),
     JsonRpc {
         method: &'static str,
         code: Option<i64>,
@@ -359,6 +422,7 @@ impl fmt::Display for ApiError {
             Self::HttpClient(error) => format!("HTTP client error: {error}"),
             Self::ResponseLost(error) => format!("failed to read response body: {error}"),
             Self::Response { status, body } => format!("HTTP response error {status}: {body}"),
+            Self::BlockingInsideRuntime(error) => error.to_string(),
             Self::JsonRpc {
                 method,
                 code,
@@ -1090,6 +1154,35 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, ApiError::HttpClient(_)), "{error}");
         assert!(error.to_string().contains("no response within"), "{error}");
+    }
+
+    /// A default `#[tokio::test]` runtime is `current_thread`: the blocking
+    /// API refuses with a named error rather than Tokio's panic. On a
+    /// multi-thread runtime it runs.
+    #[tokio::test]
+    async fn a_blocking_call_inside_a_current_thread_runtime_is_an_error() {
+        let api = BlockingZolanaApi::with_client(
+            "https://rpc.example.test/v1",
+            FakeClient::answering(200, NO_TRANSACTIONS),
+        );
+        let error = api
+            .get_shielded_transactions_by_signature(SerializableSignature::default())
+            .unwrap_err();
+        assert!(
+            matches!(error, ApiError::BlockingInsideRuntime(_)),
+            "{error}"
+        );
+        assert!(error.to_string().contains("async client"), "{error}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_blocking_call_inside_a_multi_thread_runtime_runs() {
+        let api = BlockingZolanaApi::with_client(
+            "https://rpc.example.test/v1",
+            FakeClient::answering(200, NO_TRANSACTIONS),
+        );
+        api.get_shielded_transactions_by_signature(SerializableSignature::default())
+            .expect("the call leaves the worker and runs");
     }
 
     #[tokio::test]

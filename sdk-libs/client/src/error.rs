@@ -309,6 +309,9 @@ pub enum ClientError {
     #[error("TEE prover check failed, {0}")]
     Tee(#[from] TeeError),
 
+    #[error("{0}")]
+    BlockingInsideRuntime(#[from] zolana_api::BlockingInsideRuntime),
+
     #[error("no committed verifying key for address append at tree height {tree_height}, batch size {batch_size}")]
     UnsupportedAddressAppendShape { tree_height: u32, batch_size: u32 },
 

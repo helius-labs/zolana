@@ -21,8 +21,11 @@ or from the services: `ZolanaClient::new(rpc, indexer, prover)` with a
 `check_service_url` is that check for a caller building its own services.
 
 Use the blocking client from plain threads or inside a multi-thread runtime,
-as `solana_rpc_client`'s blocking client; a `current_thread` runtime cannot
-host it.
+as `solana_rpc_client`'s blocking client. Inside a `current_thread` runtime
+(a default `#[tokio::main]` or `#[tokio::test]`) every call fails with
+`ClientError::BlockingInsideRuntime`; use the `async` client there. A
+generic helper over the blocking client bounds its RPC with `BlockingRpc`
+and its indexer with `BlockingIndexer`.
 
 ## Your own HTTP client
 

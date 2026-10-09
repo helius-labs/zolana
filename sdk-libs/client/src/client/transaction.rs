@@ -22,14 +22,14 @@ use crate::{
         Prover, TransferProofResult,
     },
     rpc::{
-        compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig, Rpc,
+        compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig,
         SettlementAccountValidation,
     },
 };
 
 use super::{
     prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, AsyncZolanaClient,
-    BlockingIndexer, TransferPreparation, ZolanaClient,
+    BlockingIndexer, BlockingRpc, TransferPreparation, ZolanaClient,
 };
 
 /// A signed shielded transaction ready for proof assembly and submission.
@@ -110,7 +110,7 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     }
 }
 
-impl<R: Rpc + Send + Sync + 'static, I: BlockingIndexer> ZolanaClient<R, I> {
+impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
     /// See [`AsyncZolanaClient::prove_transact`].
     pub fn prove_transact(
         &self,
@@ -257,7 +257,7 @@ impl<'a> Submission<'a> {
     }
 
     /// See [`Self::finish_unsigned`].
-    pub fn finish_unsigned_sync<R: Rpc + Send + Sync + 'static, I: BlockingIndexer>(
+    pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
         client: &ZolanaClient<R, I>,
     ) -> Result<VersionedMessage, ClientError> {
@@ -265,7 +265,7 @@ impl<'a> Submission<'a> {
     }
 
     /// See [`Self::send`].
-    pub fn send_sync<R: Rpc + Send + Sync + 'static, I: BlockingIndexer>(
+    pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
         client: &ZolanaClient<R, I>,
         signers: &[&dyn Signer],

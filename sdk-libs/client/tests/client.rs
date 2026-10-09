@@ -427,6 +427,23 @@ async fn with_prover_replaces_the_prover_server_when_async() {
     assert_recorded_one_completed_transfer(&prover);
 }
 
+/// A default `#[tokio::test]` runtime is `current_thread`, which the blocking
+/// client cannot block: it answers with a named error rather than Tokio's
+/// panic.
+#[tokio::test]
+async fn a_blocking_client_inside_a_current_thread_runtime_is_an_error() {
+    let client = ZolanaClient::new(
+        MockSubmitRpc::new(Signature::default()),
+        ZolanaIndexer::new("http://127.0.0.1:1"),
+        ProverClient::new("http://127.0.0.1:2".to_string()),
+    );
+    let error = client.get_latest_blockhash().unwrap_err();
+    assert!(
+        matches!(error, ClientError::BlockingInsideRuntime(_)),
+        "{error}"
+    );
+}
+
 /// A prover given for one submission proves it in place of the client's own
 /// prover, and the client fetches the proof data itself even where its own
 /// prover would take the prover server's indexed route.
