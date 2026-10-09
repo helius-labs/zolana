@@ -77,6 +77,15 @@ func exportGadget(gadget ExGadget) string {
 	}
 	inAssignment := gadget.Args
 
+	if gadget.Opaque {
+		params := make([]string, len(gadget.Params))
+		for i, p := range gadget.Params {
+			params[i] = fmt.Sprintf("(%s: ℕ)", p)
+		}
+		signature := strings.Join(append(params, genArgs(inAssignment)), " ")
+		return fmt.Sprintf("opaque %s %s %s: Prop", gadget.Name, signature, kArgs)
+	}
+
 	return fmt.Sprintf("def %s %s %s: Prop :=\n%s", gadget.Name, genArgs(inAssignment), kArgs, genGadgetBody(inAssignment, gadget))
 }
 
@@ -379,6 +388,9 @@ func genOpCall(gateVar string, inAssignment []ExArg, gateVars []string, op Op, a
 
 func genLine(app App, gateVar string, inAssignment []ExArg, gateVars []string) string {
 	switch app.Op.(type) {
+	case OpHint:
+		hint := app.Op.(OpHint)
+		return fmt.Sprintf("    ∃%s : List.Vector F %d, -- hint %s\n", getGateName(gateVar, false), hint.NbOutputs, hint.Name)
 	case *ExGadget:
 		return genGadgetCall(gateVar, inAssignment, gateVars, app.Op.(*ExGadget), app.Args)
 	case Op:

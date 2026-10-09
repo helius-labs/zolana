@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 
@@ -151,9 +152,18 @@ func replaceArg(gOutputs interface{}, gate Operand, extra ...int) interface{} {
 	}
 }
 
+// copystructure only copies exported struct fields, which would zero every
+// big.Int; parameter fields hashed into gadget names must survive the clone.
+var bigIntCopiers = map[reflect.Type]copystructure.CopierFunc{
+	reflect.TypeOf(big.Int{}): func(v interface{}) (interface{}, error) {
+		b := v.(big.Int)
+		return *new(big.Int).Set(&b), nil
+	},
+}
+
 // cloneGadget performs deep cloning of `gadget`
 func cloneGadget(gadget abstractor.GadgetDefinition) abstractor.GadgetDefinition {
-	dup, err := copystructure.Copy(gadget)
+	dup, err := copystructure.Config{Copiers: bigIntCopiers}.Copy(gadget)
 	if err != nil {
 		panic(err)
 	}
@@ -169,7 +179,7 @@ func cloneGadget(gadget abstractor.GadgetDefinition) abstractor.GadgetDefinition
 // sizes, add a suffix to the name. The suffix of each instantiation
 // is made up of the concatenation of the length of all the array
 // fields in the gadget
-func generateUniqueName(element any, args []ExArg) string {
+func generateUniqueName(element any, args []ExArg, kind nameKind) string {
 	suffix := ""
 	for _, a := range args {
 		if a.ArrayType != nil {
@@ -179,7 +189,13 @@ func generateUniqueName(element any, args []ExArg) string {
 	}
 
 	val := reflect.ValueOf(element).Elem()
+	typ := val.Type()
 	for i := 0; i < val.NumField(); i++ {
+		// Opaque gadgets take integer fields as explicit ℕ parameters, and
+		// unexported gadget fields never shape the extracted body.
+		if kind == opaqueName || (kind == gadgetName && !typ.Field(i).IsExported()) {
+			continue
+		}
 		switch val.Field(i).Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			suffix += fmt.Sprintf("_%d", val.Field(i).Int())
@@ -190,8 +206,21 @@ func generateUniqueName(element any, args []ExArg) string {
 			fmt.Println("-- Proceed with caution")
 		}
 	}
+	if kind != circuitName {
+		if h := abstractor.ParamHash(element); h != "" {
+			suffix += "_h" + h
+		}
+	}
 	return fmt.Sprintf("%s%s", reflect.TypeOf(element).Elem().Name(), suffix)
 }
+
+type nameKind int
+
+const (
+	circuitName nameKind = iota
+	gadgetName
+	opaqueName
+)
 
 // getGadgetByName checks if `name` matches the ExGadget.Name of one of
 // the elements in `gadgets`

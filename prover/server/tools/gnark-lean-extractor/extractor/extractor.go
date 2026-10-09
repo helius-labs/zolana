@@ -101,6 +101,16 @@ const (
 
 func (_ OpKind) isOp() {}
 
+// OpHint is a solver hint. Its outputs are unconstrained, so Lean binds them
+// existentially and records no equation. Inputs stay in App.Args for gate
+// numbering but are not printed.
+type OpHint struct {
+	Name      string
+	NbOutputs int
+}
+
+func (_ OpHint) isOp() {}
+
 type App struct {
 	Op   Op
 	Args []Operand
@@ -111,7 +121,11 @@ type Code struct {
 }
 
 type ExGadget struct {
-	Name        string
+	Name string
+	// Opaque gadgets are emitted as Lean `opaque` predicates; Params are their
+	// explicit ℕ parameters, taken from exported integer fields per call.
+	Opaque      bool
+	Params      []string
 	Arity       int
 	Code        []App
 	OutputsFlat []Operand
@@ -128,10 +142,21 @@ func (g *ExGadget) Call(gadget abstractor.GadgetDefinition) interface{} {
 
 	rv := reflect.Indirect(reflect.ValueOf(gadget))
 	rt := rv.Type()
-	// Looping through the circuit fields only.
+	if g.Opaque {
+		for i := 0; i < rt.NumField(); i++ {
+			if abstractor.IsNameField(rt.Field(i)) {
+				args = append(args, Integer{integerField(rv.Field(i))})
+			}
+		}
+	}
+	// Only exported variable-typed fields are circuit arguments; parameters
+	// and unexported state never reach the call site.
 	for i := 0; i < rt.NumField(); i++ {
 		fld := rt.Field(i)
-		v := rv.FieldByName(fld.Name)
+		if !fld.IsExported() || !abstractor.IsVariableType(fld.Type) {
+			continue
+		}
+		v := rv.Field(i)
 		switch v.Kind() {
 		case reflect.Slice:
 			arg := flattenSlice(v)
@@ -158,11 +183,26 @@ func (g *ExGadget) Call(gadget abstractor.GadgetDefinition) interface{} {
 	return res
 }
 
+func integerField(v reflect.Value) *big.Int {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if v.Int() < 0 {
+			panic("opaque gadget parameters must be natural numbers")
+		}
+		return big.NewInt(v.Int())
+	default:
+		return new(big.Int).SetUint64(v.Uint())
+	}
+}
+
 func (ce *CodeExtractor) Call(gadget abstractor.GadgetDefinition) interface{} {
 	// Deep copying `gadget` because `DefineGadget` needs to modify the gadget fields.
 	// This was done as a replacement to the initial method of declaring gadgets using
 	// a direct call to `Define Gadget` within the circuit and then calling GadgetDefinition.Call
 	clonedGadget := cloneGadget(gadget)
+	if opaque, ok := clonedGadget.(abstractor.OpaqueGadget); ok {
+		return ce.defineOpaque(opaque).Call(gadget)
+	}
 	g := ce.DefineGadget(clonedGadget)
 	return g.Call(gadget)
 }
@@ -188,6 +228,82 @@ type CodeExtractor struct {
 	Code    []App
 	Gadgets []ExGadget
 	FieldID ecc.ID
+	// Deferred holds Compiler().Defer callbacks. They are recorded and never
+	// run: gate indices are scoped per gadget, so a callback cannot be hoisted
+	// to the end of the circuit. Deferred callbacks are commitment-based lookup
+	// arguments whose semantics enter Lean as opaque predicates.
+	Deferred []func(frontend.API) error
+	store    map[any]any
+}
+
+func (ce *CodeExtractor) SetKeyValue(key, value any) {
+	if ce.store == nil {
+		ce.store = map[any]any{}
+	}
+	ce.store[key] = value
+}
+
+func (ce *CodeExtractor) GetKeyValue(key any) any {
+	return ce.store[key]
+}
+
+func (ce *CodeExtractor) hint(name string, nbOutputs int, inputs ...frontend.Variable) []frontend.Variable {
+	if nbOutputs <= 0 {
+		return []frontend.Variable{}
+	}
+	gate := ce.AddApp(OpHint{Name: name, NbOutputs: nbOutputs}, inputs...)
+	outs := make([]frontend.Variable, nbOutputs)
+	for i := range outs {
+		outs[i] = Proj{gate, i, nbOutputs}
+	}
+	return outs
+}
+
+// MustBeLessOrEqCst mirrors gnark's R1CS builder (frontend/cs/r1cs
+// api_assertions.go) with public API operations, so bit decompositions that
+// check reducedness against the native modulus extract unchanged.
+func (ce *CodeExtractor) MustBeLessOrEqCst(aBits []frontend.Variable, bound *big.Int, aForDebug frontend.Variable) {
+	nbBits := ce.FieldBitLen()
+	if len(aBits) > nbBits {
+		panic("more input bits than field bit length")
+	}
+	for i := len(aBits); i < nbBits; i++ {
+		aBits = append(aBits, 0)
+	}
+	if bound.Sign() == -1 {
+		panic("AssertIsLessOrEqual: bound must be positive")
+	}
+	if bound.BitLen() > nbBits {
+		panic("AssertIsLessOrEqual: bound is too large, constraint will never be satisfied")
+	}
+	t := 0
+	for i := 0; i < nbBits; i++ {
+		if bound.Bit(i) == 0 {
+			break
+		}
+		t++
+	}
+	p := make([]frontend.Variable, nbBits+1)
+	p[nbBits] = 1
+	for i := nbBits - 1; i >= t; i-- {
+		if bound.Bit(i) == 0 {
+			p[i] = p[i+1]
+		} else {
+			p[i] = ce.Mul(p[i+1], aBits[i])
+		}
+	}
+	for i := nbBits - 1; i >= 0; i-- {
+		if bound.Bit(i) == 0 {
+			if c, ok := ce.ConstantValue(aBits[i]); ok && c.Sign() == 0 {
+				continue
+			}
+			l := ce.Sub(1, p[i+1])
+			l = ce.Sub(l, aBits[i])
+			ce.AssertIsEqual(ce.Mul(l, aBits[i]), 0)
+		} else {
+			ce.AssertIsBoolean(aBits[i])
+		}
+	}
 }
 
 func (ce *CodeExtractor) AssertIsCrumb(i1 frontend.Variable) {
@@ -208,13 +324,11 @@ func (ce *CodeExtractor) AddInstruction(bID constraint.BlueprintID, calldata []u
 func (ce *CodeExtractor) NewHintForId(
 	id solver.HintID, nbOutputs int, inputs ...frontend.Variable,
 ) ([]frontend.Variable, error) {
-	// TODO implement me
-	panic("implement me")
+	return ce.hint(fmt.Sprintf("hint_id_%d", id), nbOutputs, inputs...), nil
 }
 
 func (ce *CodeExtractor) Defer(cb func(api frontend.API) error) {
-	// TODO implement me
-	panic("implement me")
+	ce.Deferred = append(ce.Deferred, cb)
 }
 
 func (ce *CodeExtractor) InternalVariable(wireID uint32) frontend.Variable {
@@ -263,7 +377,7 @@ func sanitizeVars(args ...frontend.Variable) []Operand {
 			casted := arg.(big.Int)
 			ops = append(ops, Const{&casted})
 		case *big.Int:
-			ops = append(ops, Const{arg.(*big.Int)})
+			ops = append(ops, Const{new(big.Int).Set(arg.(*big.Int))})
 		case []frontend.Variable:
 			opsArray := sanitizeVars(arg.([]frontend.Variable)...)
 			ops = append(ops, ProjArray{opsArray})
@@ -419,7 +533,7 @@ func (ce *CodeExtractor) Commit(...frontend.Variable) (frontend.Variable, error)
 }
 
 func (ce *CodeExtractor) NewHint(f solver.Hint, nbOutputs int, inputs ...frontend.Variable) ([]frontend.Variable, error) {
-	panic("implement me")
+	return ce.hint(solver.GetHintName(f), nbOutputs, inputs...), nil
 }
 
 func (ce *CodeExtractor) ConstantValue(v frontend.Variable) (*big.Int, bool) {
@@ -474,7 +588,7 @@ func (ce *CodeExtractor) DefineGadget(gadget abstractor.GadgetDefinition) abstra
 	// a parameter
 	arity := len(schema.Fields)
 
-	name := generateUniqueName(gadget, args)
+	name := generateUniqueName(gadget, args, gadgetName)
 
 	ptr_gadget := getGadgetByName(ce.Gadgets, name)
 	if ptr_gadget != nil {
@@ -508,6 +622,53 @@ func (ce *CodeExtractor) DefineGadget(gadget abstractor.GadgetDefinition) abstra
 		Arity:       arity,
 		Code:        newCode,
 		OutputsFlat: sanitizeVars(flatOutput...),
+		Outputs:     outputs,
+		Extractor:   ce,
+		Fields:      schema.Fields,
+		Args:        args,
+	}
+	ce.Gadgets = append(ce.Gadgets, exGadget)
+	return &exGadget
+}
+
+// defineOpaque registers an opaque gadget without running DefineGadget.
+func (ce *CodeExtractor) defineOpaque(gadget abstractor.OpaqueGadget) abstractor.Gadget {
+	schema, _ := getSchema(gadget, ce.FieldID.ScalarField())
+	args := circuitInit(gadget, schema)
+	name := generateUniqueName(gadget, args, opaqueName)
+	if g := getGadgetByName(ce.Gadgets, name); g != nil {
+		return g
+	}
+	var params []string
+	rt := reflect.Indirect(reflect.ValueOf(gadget)).Type()
+	for i := 0; i < rt.NumField(); i++ {
+		if abstractor.IsNameField(rt.Field(i)) {
+			params = append(params, rt.Field(i).Name)
+		}
+	}
+	n := gadget.OpaqueOutputs()
+	var outputs interface{}
+	var flat []Operand
+	switch {
+	case n == 1:
+		outputs = Gate{0}
+		flat = []Operand{Gate{0}}
+	case n > 1:
+		vs := make([]frontend.Variable, n)
+		for i := range vs {
+			vs[i] = Gate{0}
+			flat = append(flat, Gate{0})
+		}
+		outputs = vs
+	default:
+		outputs = []frontend.Variable{}
+	}
+	exGadget := ExGadget{
+		Name:        name,
+		Opaque:      true,
+		Params:      params,
+		Arity:       len(schema.Fields),
+		OutputsFlat: flat,
 		Outputs:     outputs,
 		Extractor:   ce,
 		Fields:      schema.Fields,

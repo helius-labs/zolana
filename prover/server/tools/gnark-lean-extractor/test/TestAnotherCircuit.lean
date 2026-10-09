@@ -10,13 +10,13 @@ variable [Fact (Nat.Prime Order)]
 abbrev F := ZMod Order
 abbrev Gates := GatesGnark12 Order
 
-def IntArrayGadget_4 (In: List.Vector F 4) (k: List.Vector F 3 -> Prop): Prop :=
+def IntArrayGadget_4_ha9c33452 (In: List.Vector F 4) (k: List.Vector F 3 -> Prop): Prop :=
     ∃gate_0, Gates.from_binary In gate_0 ∧
     ∃_ignored_, _ignored_ = Gates.mul (0:F) (36:F) ∧
     k vec![gate_0, gate_0, gate_0]
 
 def circuit (In: List.Vector F 4): Prop :=
-    IntArrayGadget_4 In fun gate_0 =>
+    IntArrayGadget_4_ha9c33452 In fun gate_0 =>
     ∃_ignored_, Gates.from_binary vec![gate_0[1], gate_0[2]] _ignored_ ∧
     ∃_ignored_, Gates.from_binary vec![gate_0[0], gate_0[1]] _ignored_ ∧
     ∃_ignored_, Gates.from_binary gate_0 _ignored_ ∧

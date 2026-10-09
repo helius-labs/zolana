@@ -100,12 +100,13 @@ func ExtractCircuits(namespace string, field ecc.ID, circuits ...frontend.Circui
 		}
 		args := circuitInit(circuit, schema)
 
-		name := generateUniqueName(circuit, args)
+		name := generateUniqueName(circuit, args, circuitName)
 		if slices.Contains(past_circuits, name) {
 			continue
 		}
 		past_circuits = append(past_circuits, name)
 
+		api.store = nil
 		err = circuit.Define(&api)
 		if err != nil {
 			return "", err
