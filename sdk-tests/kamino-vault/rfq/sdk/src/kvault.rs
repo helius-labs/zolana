@@ -21,7 +21,7 @@ const SHARES_ISSUED_OFFSET: usize = 8 + 224;
 const PENDING_FEES_OFFSET: usize = 8 + 288;
 const TOKEN_ACCOUNT_AMOUNT_OFFSET: usize = 64;
 
-pub fn discriminator(preimage: &str) -> [u8; 8] {
+fn discriminator(preimage: &str) -> [u8; 8] {
     let hash = Sha256::digest(preimage.as_bytes());
     let mut out = [0u8; 8];
     out.copy_from_slice(hash.get(..8).unwrap_or_default());
@@ -32,7 +32,7 @@ fn pda(seeds: &[&[u8]]) -> Address {
     Address::find_program_address(seeds, &PROGRAM_ID).0
 }
 
-pub fn event_authority() -> Address {
+fn event_authority() -> Address {
     pda(&[b"__event_authority"])
 }
 

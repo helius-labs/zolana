@@ -1361,7 +1361,7 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
 # Private kVault deposits and delayed exits through a market maker: the user
 # swaps USDC for kVault shares in one co-signed shielded-pool transact, and the
 # market maker rebalances against the unmodified kVault program dumped from
-# mainnet (sdk-tests/kamino-vault/rfq/tests), booted through FixtureLocalnet.
+# mainnet (sdk-tests/kamino-vault/rfq/test), booted through FixtureLocalnet.
 test-kamino-vault-validator: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p kamino-vault-test --test kamino_vault
 

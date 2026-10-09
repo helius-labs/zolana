@@ -50,7 +50,9 @@ members = [
     "sdk-tests/dynamic-swap/prover",
     "sdk-tests/dynamic-swap/sdk",
     "sdk-tests/dynamic-swap/test",
-    "sdk-tests/kamino-vault/rfq",
+    "sdk-tests/kamino-vault/rfq/market-maker",
+    "sdk-tests/kamino-vault/rfq/sdk",
+    "sdk-tests/kamino-vault/rfq/test",
     "sdk-tests/rfq",
     "sdk-tests/zk-program-swap/program",
     "sdk-tests/zk-program-swap/prover",
@@ -157,6 +159,7 @@ solana-msg = { version = "3.1", default-features = false }
 solana-packet = "3.0"
 solana-program = "4.0"
 solana-program-error = "3.0"
+solana-pubsub-client = "4.2"
 solana-program-pack = "3.1"
 solana-pubkey = { version = "4.2", features = ["curve25519"] }
 solana-rent = "4.2"
@@ -274,6 +277,7 @@ utoipa = { version = "5.5.0", features = ["yaml", "non_strict_integers"] }
 yellowstone-grpc-proto = "12.5.0"
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-native-roots"] }
 tokio-stream = "0.1.18"
+tokio-util = "0.7.19"
 zerocopy = "0.8.25"
 
 # Prover math/crypto.

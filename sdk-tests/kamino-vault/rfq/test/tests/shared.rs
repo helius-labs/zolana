@@ -1,4 +1,9 @@
 use anyhow::{anyhow, Result};
+use kamino_vault_market_maker::{MakerConfig, MakerSetup, MarketMaker, WatcherConfig};
+use kamino_vault_rfq_sdk::{
+    kvault::{self, InitVault, VaultAccounts},
+    swap::Holdings,
+};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
@@ -6,11 +11,12 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
+    instruction::CreateCacheData,
     pda::{self, spl_token_program_id},
     state::SplAssetRegistry,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program::instruction::CreateSplInterface;
+use zolana_program::instruction::{CreateCache, CreateSplInterface};
 use zolana_program_test::{
     fixture,
     instructions::system_create_account_ix,
@@ -22,22 +28,66 @@ use zolana_test_utils::wallet::{
 };
 use zolana_transaction::AssetRegistry;
 
-use crate::{
-    kvault::{self, InitVault, VaultAccounts},
-    market_maker::MarketMaker,
-};
+use crate::user::User;
 
 pub const FEE_BPS: u64 = 30;
 pub const USER_SHIELD_USDC: u64 = 100_000_000;
+const USER_UTXOS: u64 = 2;
+const MAKER_CACHE_NONCE: u64 = 0;
+const MAKER_ACTOR: u8 = 0;
+const FIRST_USER_ACTOR: u8 = 1;
+const MAKER_CACHE_EXPIRES_AT: i64 = 2_000_000_000;
 pub const MARKET_MAKER_PUBLIC_USDC: u64 = 500_000_000;
 const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 pub struct TestEnv {
     pub localnet: FixtureLocalnet,
-    pub user: TestWallet,
+    pub user: User,
+    pub users: Vec<User>,
     pub market_maker: MarketMaker,
     pub usdc_mint: Address,
     pub vault: VaultAccounts,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SetupConfig {
+    pub test: u16,
+    pub extra_users: u8,
+    pub lanes: usize,
+    pub websocket: bool,
+    pub user_usdc: u64,
+}
+
+impl SetupConfig {
+    pub fn new(test: u16) -> Self {
+        Self {
+            test,
+            extra_users: 0,
+            lanes: 1,
+            websocket: false,
+            user_usdc: USER_SHIELD_USDC,
+        }
+    }
+}
+
+fn watcher(ports: LocalnetPorts, websocket: bool) -> Result<WatcherConfig> {
+    if !websocket {
+        return Ok(MakerConfig::new(0, FEE_BPS).watcher);
+    }
+    let port = ports
+        .rpc
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("rpc port {} has no websocket port above it", ports.rpc))?;
+    Ok(WatcherConfig::Websocket {
+        url: format!("ws://127.0.0.1:{port}"),
+    })
+}
+
+pub fn blocking<R>(work: impl FnOnce() -> R) -> R {
+    match tokio::runtime::Handle::try_current() {
+        Ok(_) => tokio::task::block_in_place(work),
+        Err(_) => work(),
+    }
 }
 
 pub struct TestWallet {
@@ -50,18 +100,6 @@ impl std::ops::Deref for TestWallet {
     fn deref(&self) -> &Self::Target {
         &self.wallet
     }
-}
-
-impl std::ops::DerefMut for TestWallet {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.wallet
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Holdings {
-    pub usdc: u64,
-    pub shares: u64,
 }
 
 impl TestWallet {
@@ -94,38 +132,9 @@ impl TestWallet {
             shares: self.balance(vault.shares_mint, None)?.amount,
         })
     }
-
-    pub fn shield(
-        &mut self,
-        localnet: &FixtureLocalnet,
-        mint: Address,
-        amount: u64,
-    ) -> Result<Signature> {
-        let token_account = pda::associated_token_address(&self.address(), &mint);
-        let signature = Deposit::new(DepositParams {
-            recipient: &self.keypair.shielded_address()?,
-            asset: mint,
-            amount,
-            spl_token_account: Some(token_account),
-            spl_token_program: Some(spl_token_program_id()),
-            memo: None,
-        })?
-        .send(
-            localnet.client.rpc(),
-            &self.keypair,
-            localnet.tree,
-            &self.keypair,
-        )?;
-        localnet
-            .client
-            .confirm_private_transaction_sync(signature)
-            .map_err(|e| anyhow!("index shield of {amount} {mint}: {e:?}"))?;
-        self.sync(localnet)?;
-        Ok(signature)
-    }
 }
 
-pub fn send(
+fn send(
     rpc: &SolanaRpc,
     instructions: &[Instruction],
     payer: &dyn Signer,
@@ -217,11 +226,64 @@ fn register_share_mint(
         .asset_id)
 }
 
-pub fn setup(test: u16) -> Result<TestEnv> {
+struct Booted {
+    localnet: FixtureLocalnet,
+    users: Vec<TestWallet>,
+    maker: TestWallet,
+    usdc_mint: Address,
+    vault: VaultAccounts,
+}
+
+pub async fn setup(test: u16) -> Result<TestEnv> {
+    setup_with(SetupConfig::new(test)).await
+}
+
+pub async fn setup_with(config: SetupConfig) -> Result<TestEnv> {
+    let ports = LocalnetPorts::for_test(config.test)?;
+    let Booted {
+        localnet,
+        users,
+        maker,
+        usdc_mint,
+        vault,
+    } = blocking(|| boot(ports, config))?;
+    let market_maker = MarketMaker::start(MakerSetup {
+        wallet: maker.wallet,
+        keypair: maker.keypair,
+        config: MakerConfig {
+            base_lanes: config.lanes,
+            watcher: watcher(ports, config.websocket)?,
+            ..MakerConfig::new(localnet.tree_id, FEE_BPS)
+        },
+        rpc_url: ports.rpc_url(),
+        photon_url: ports.photon_url(),
+        tree: localnet.tree,
+        assets: vec![usdc_mint, vault.shares_mint],
+    })
+    .await?;
+    let mut users = users
+        .into_iter()
+        .map(|wallet| User::new(wallet, FEE_BPS))
+        .collect::<Vec<_>>()
+        .into_iter();
+    let user = users
+        .next()
+        .ok_or_else(|| anyhow!("setup funded no user"))?;
+    Ok(TestEnv {
+        localnet,
+        user,
+        users: users.collect(),
+        market_maker,
+        usdc_mint,
+        vault,
+    })
+}
+
+fn boot(ports: LocalnetPorts, config: SetupConfig) -> Result<Booted> {
     let payer = fixture::payer();
     let localnet = FixtureLocalnet::start_with_accounts(
         "zolana-kamino-vault",
-        LocalnetPorts::for_test(test)?,
+        ports,
         vec![
             (
                 kvault::PROGRAM_ID,
@@ -246,8 +308,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
     let mut assets = AssetRegistry::default();
     assets.insert(fixture::SPL_ASSET_ID, usdc_mint)?;
     assets.insert(share_asset_id, vault.shares_mint)?;
-    let mut user = TestWallet::new(1, &assets)?;
-    let mut market_maker = TestWallet::new(0, &assets)?;
+    let market_maker = TestWallet::new(MAKER_ACTOR, &assets)?;
 
     for mint in [usdc_mint, vault.shares_mint] {
         create_associated_token_account(rpc, &payer, &market_maker.address(), &mint)?;
@@ -264,29 +325,48 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         &[&payer],
     )?;
 
-    let user_deposit = Deposit::new(DepositParams {
-        recipient: &user.keypair.shielded_address()?,
-        asset: usdc_mint,
-        amount: USER_SHIELD_USDC,
-        spl_token_account: Some(fixture::payer_token_account()),
-        spl_token_program: Some(spl_token_program_id()),
-        memo: None,
-    })?
-    .send(rpc, &payer, localnet.tree, &payer)?;
-    localnet
-        .client
-        .confirm_private_transaction_sync(user_deposit)
-        .map_err(|e| anyhow!("index user deposit: {e:?}"))?;
-    user.sync(&localnet)?;
-    market_maker.sync(&localnet)?;
+    let mut users = Vec::new();
+    for actor in FIRST_USER_ACTOR..=FIRST_USER_ACTOR + config.extra_users {
+        let mut user = TestWallet::new(actor, &assets)?;
+        for _ in 0..USER_UTXOS {
+            let user_deposit = Deposit::new(DepositParams {
+                recipient: &user.keypair.shielded_address()?,
+                asset: usdc_mint,
+                amount: config.user_usdc / USER_UTXOS,
+                spl_token_account: Some(fixture::payer_token_account()),
+                spl_token_program: Some(spl_token_program_id()),
+                memo: None,
+            })?
+            .send(rpc, &payer, localnet.tree, &payer)?;
+            localnet
+                .client
+                .confirm_private_transaction_sync(user_deposit)
+                .map_err(|e| anyhow!("index deposit of user {actor}: {e:?}"))?;
+        }
+        user.sync(&localnet)?;
+        users.push(user);
+    }
 
-    Ok(TestEnv {
-        localnet,
-        user,
-        market_maker: MarketMaker {
-            trader: market_maker,
-            fee_bps: FEE_BPS,
+    let create_cache = CreateCache {
+        payer: market_maker.address(),
+        data: CreateCacheData {
+            write_authority: market_maker.address(),
+            nonce: MAKER_CACHE_NONCE,
+            tree_id: localnet.tree_id,
+            expires_at: MAKER_CACHE_EXPIRES_AT,
         },
+    };
+    send(
+        rpc,
+        &[create_cache.instruction()],
+        &market_maker.keypair,
+        &[&market_maker.keypair],
+    )?;
+
+    Ok(Booted {
+        localnet,
+        users,
+        maker: market_maker,
         usdc_mint,
         vault,
     })
