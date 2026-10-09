@@ -42,11 +42,7 @@ theorem lazy_h19f9c19c_sound : lazy_h19f9c19c.sound basis = true := by decide +k
 
 theorem cert_h1a30b6ff_sound : cert_h1a30b6ff.sound basis = true := by decide +kernel
 
-theorem cert_h1b853d4d_sound : cert_h1b853d4d.sound basis = true := by decide +kernel
-
 theorem cert_h1ce5f55d_sound : cert_h1ce5f55d.sound basis = true := by decide +kernel
-
-theorem cert_h1d9b9051_sound : cert_h1d9b9051.sound basis = true := by decide +kernel
 
 theorem cert_h1f40fdb3_sound : cert_h1f40fdb3.sound basis = true := by decide +kernel
 
@@ -56,6 +52,8 @@ theorem cert_h211271d3_sound : cert_h211271d3.sound basis = true := by decide +k
 
 theorem cert_h21655805_sound : cert_h21655805.sound basis = true := by decide +kernel
 
+theorem cert_h2335258c_sound : cert_h2335258c.sound basis = true := by decide +kernel
+
 theorem cert_h2629e496_sound : cert_h2629e496.sound basis = true := by decide +kernel
 
 theorem lazy_h26631a60_sound : lazy_h26631a60.sound basis = true := by decide +kernel
@@ -63,8 +61,6 @@ theorem lazy_h26631a60_sound : lazy_h26631a60.sound basis = true := by decide +k
 theorem lazy_h289d8769_sound : lazy_h289d8769.sound basis = true := by decide +kernel
 
 theorem cert_h28b208c7_sound : cert_h28b208c7.sound basis = true := by decide +kernel
-
-theorem lazy_h293db561_sound : lazy_h293db561.sound basis = true := by decide +kernel
 
 theorem cert_h29707435_sound : cert_h29707435.sound basis = true := by decide +kernel
 
@@ -234,8 +230,6 @@ theorem cert_hb3072cc6_sound : cert_hb3072cc6.sound basis = true := by decide +k
 
 theorem lazy_hb31eb938_sound : lazy_hb31eb938.sound basis = true := by decide +kernel
 
-theorem cert_hb50427dd_sound : cert_hb50427dd.sound basis = true := by decide +kernel
-
 theorem cert_hb7d22aff_sound : cert_hb7d22aff.sound basis = true := by decide +kernel
 
 theorem cert_hb81b755e_sound : cert_hb81b755e.sound basis = true := by decide +kernel
@@ -317,8 +311,6 @@ theorem cert_hef202688_sound : cert_hef202688.sound basis = true := by decide +k
 theorem lazy_hf09a21c7_sound : lazy_hf09a21c7.sound basis = true := by decide +kernel
 
 theorem cert_hf0f7cd8d_sound : cert_hf0f7cd8d.sound basis = true := by decide +kernel
-
-theorem lazy_hf16ef5ae_sound : lazy_hf16ef5ae.sound basis = true := by decide +kernel
 
 theorem cert_hf3b38897_sound : cert_hf3b38897.sound basis = true := by decide +kernel
 

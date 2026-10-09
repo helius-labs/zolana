@@ -155,7 +155,7 @@ theorem assertCanonical_n_sound (hl : LookupSound RangeCheck 11) (L : List.Vecto
   have b5 := hlv 5
   have b6 := hlv 6
   have b7 := hlv 7
-  simp only [K_390, K_391, K_392, K_1235, K_1236] at hlo hhi
+  simp only [K_390, K_391, K_392, K_1233, K_1234] at hlo hhi
   set n0 := (g.get 0).val
   set n1 := (g.get 1).val
   set n2 := (g.get 2).val

@@ -11,133 +11,88 @@ open ZolanaVE.Field ZolanaVE.EmcurveChecks
 set_option maxHeartbeats 0
 set_option maxRecDepth 100000
 
-theorem CheckPolynomial_24_ha71ae55f_mirror (L : List.Vector F 24) (h : CheckPolynomial_24_ha71ae55f L) :
-    CheckPolynomial.circuit basis cert_ha71ae55f [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]] (LookupCheck RangeCheck 11)
+theorem CheckPolynomial_32_h57ee5dab_mirror (L : List.Vector F 32) (h : CheckPolynomial_32_h57ee5dab L) :
+    CheckPolynomial.circuit basis cert_h57ee5dab [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23], [L.get 24, L.get 25, L.get 26, L.get 27, L.get 28, L.get 29, L.get 30, L.get 31]] (LookupCheck RangeCheck 11)
       (fun _ => True) := by
-  delta CheckPolynomial_24_ha71ae55f at h
+  delta CheckPolynomial_32_h57ee5dab at h
   elim_gates h
-  obtain ⟨g0, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, g1, h13, h14, h15, h16, h17, h18, h19, h20, h21, h22, h23, h24, h25, g2, h26, h27, h28, h29, h30, h31, h32, h33, h34, h35, h36, h37, h38, -⟩ := h
-  let env : ℕ → F := fun i => [(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24)), (L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24)), (L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24)), (g0.get (0 : Fin 12)), (g0.get (1 : Fin 12)), (g0.get (2 : Fin 12)), (g0.get (3 : Fin 12)), (g0.get (4 : Fin 12)), (g0.get (5 : Fin 12)), (g0.get (6 : Fin 12)), (g0.get (7 : Fin 12)), (g0.get (8 : Fin 12)), (g0.get (9 : Fin 12)), (g0.get (10 : Fin 12)), (g0.get (11 : Fin 12)), (g1.get (0 : Fin 12)), (g1.get (1 : Fin 12)), (g1.get (2 : Fin 12)), (g1.get (3 : Fin 12)), (g1.get (4 : Fin 12)), (g1.get (5 : Fin 12)), (g1.get (6 : Fin 12)), (g1.get (7 : Fin 12)), (g1.get (8 : Fin 12)), (g1.get (9 : Fin 12)), (g1.get (10 : Fin 12)), (g1.get (11 : Fin 12)), (g2.get (0 : Fin 12)), (g2.get (1 : Fin 12)), (g2.get (2 : Fin 12)), (g2.get (3 : Fin 12)), (g2.get (4 : Fin 12)), (g2.get (5 : Fin 12)), (g2.get (6 : Fin 12)), (g2.get (7 : Fin 12)), (g2.get (8 : Fin 12)), (g2.get (9 : Fin 12)), (g2.get (10 : Fin 12)), (g2.get (11 : Fin 12))].getD i 0
-  show CheckPolynomial.circuit basis cert_ha71ae55f [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] _ _
-  rw [show [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] = ([[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15], [16, 17, 18, 19, 20, 21, 22, 23]] : List (List ℕ)).map (fun is => is.map env) from rfl,
+  obtain ⟨g0, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, g1, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20, h21, -⟩ := h
+  let env : ℕ → F := fun i => [(L.get (0 : Fin 32)), (L.get (1 : Fin 32)), (L.get (2 : Fin 32)), (L.get (3 : Fin 32)), (L.get (4 : Fin 32)), (L.get (5 : Fin 32)), (L.get (6 : Fin 32)), (L.get (7 : Fin 32)), (L.get (8 : Fin 32)), (L.get (9 : Fin 32)), (L.get (10 : Fin 32)), (L.get (11 : Fin 32)), (L.get (12 : Fin 32)), (L.get (13 : Fin 32)), (L.get (14 : Fin 32)), (L.get (15 : Fin 32)), (L.get (16 : Fin 32)), (L.get (17 : Fin 32)), (L.get (18 : Fin 32)), (L.get (19 : Fin 32)), (L.get (20 : Fin 32)), (L.get (21 : Fin 32)), (L.get (22 : Fin 32)), (L.get (23 : Fin 32)), (L.get (24 : Fin 32)), (L.get (25 : Fin 32)), (L.get (26 : Fin 32)), (L.get (27 : Fin 32)), (L.get (28 : Fin 32)), (L.get (29 : Fin 32)), (L.get (30 : Fin 32)), (L.get (31 : Fin 32)), (g0.get (0 : Fin 10)), (g0.get (1 : Fin 10)), (g0.get (2 : Fin 10)), (g0.get (3 : Fin 10)), (g0.get (4 : Fin 10)), (g0.get (5 : Fin 10)), (g0.get (6 : Fin 10)), (g0.get (7 : Fin 10)), (g0.get (8 : Fin 10)), (g0.get (9 : Fin 10)), (g1.get (0 : Fin 10)), (g1.get (1 : Fin 10)), (g1.get (2 : Fin 10)), (g1.get (3 : Fin 10)), (g1.get (4 : Fin 10)), (g1.get (5 : Fin 10)), (g1.get (6 : Fin 10)), (g1.get (7 : Fin 10)), (g1.get (8 : Fin 10)), (g1.get (9 : Fin 10))].getD i 0
+  show CheckPolynomial.circuit basis cert_h57ee5dab [[(L.get (0 : Fin 32)), (L.get (1 : Fin 32)), (L.get (2 : Fin 32)), (L.get (3 : Fin 32)), (L.get (4 : Fin 32)), (L.get (5 : Fin 32)), (L.get (6 : Fin 32)), (L.get (7 : Fin 32))], [(L.get (8 : Fin 32)), (L.get (9 : Fin 32)), (L.get (10 : Fin 32)), (L.get (11 : Fin 32)), (L.get (12 : Fin 32)), (L.get (13 : Fin 32)), (L.get (14 : Fin 32)), (L.get (15 : Fin 32))], [(L.get (16 : Fin 32)), (L.get (17 : Fin 32)), (L.get (18 : Fin 32)), (L.get (19 : Fin 32)), (L.get (20 : Fin 32)), (L.get (21 : Fin 32)), (L.get (22 : Fin 32)), (L.get (23 : Fin 32))], [(L.get (24 : Fin 32)), (L.get (25 : Fin 32)), (L.get (26 : Fin 32)), (L.get (27 : Fin 32)), (L.get (28 : Fin 32)), (L.get (29 : Fin 32)), (L.get (30 : Fin 32)), (L.get (31 : Fin 32))]] _ _
+  rw [show [[(L.get (0 : Fin 32)), (L.get (1 : Fin 32)), (L.get (2 : Fin 32)), (L.get (3 : Fin 32)), (L.get (4 : Fin 32)), (L.get (5 : Fin 32)), (L.get (6 : Fin 32)), (L.get (7 : Fin 32))], [(L.get (8 : Fin 32)), (L.get (9 : Fin 32)), (L.get (10 : Fin 32)), (L.get (11 : Fin 32)), (L.get (12 : Fin 32)), (L.get (13 : Fin 32)), (L.get (14 : Fin 32)), (L.get (15 : Fin 32))], [(L.get (16 : Fin 32)), (L.get (17 : Fin 32)), (L.get (18 : Fin 32)), (L.get (19 : Fin 32)), (L.get (20 : Fin 32)), (L.get (21 : Fin 32)), (L.get (22 : Fin 32)), (L.get (23 : Fin 32))], [(L.get (24 : Fin 32)), (L.get (25 : Fin 32)), (L.get (26 : Fin 32)), (L.get (27 : Fin 32)), (L.get (28 : Fin 32)), (L.get (29 : Fin 32)), (L.get (30 : Fin 32)), (L.get (31 : Fin 32))]] = ([[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15], [16, 17, 18, 19, 20, 21, 22, 23], [24, 25, 26, 27, 28, 29, 30, 31]] : List (List ℕ)).map (fun is => is.map env) from rfl,
     ← evalLE_atoms env]
-  apply circuit_of_exs env basis cert_ha71ae55f _ (([] : List ℕ).map Ex.atom) (([] : List ℕ).map Ex.atom)
+  apply circuit_of_exs env basis cert_h57ee5dab _ (([] : List ℕ).map Ex.atom) (([] : List ℕ).map Ex.atom)
   · rfl
   · rfl
   · intro _
-    refine lookupCheck_big_of (by decide) [(g0.get (0 : Fin 12)), (g0.get (1 : Fin 12)), (g0.get (2 : Fin 12)), (g0.get (3 : Fin 12)), (g0.get (4 : Fin 12)), (g0.get (5 : Fin 12)), (g0.get (6 : Fin 12)), (g0.get (7 : Fin 12)), (g0.get (8 : Fin 12)), (g0.get (9 : Fin 12)), (g0.get (10 : Fin 12)), (g0.get (11 : Fin 12))] ?_ ?_ h12 ?_
-    · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_ha71ae55f, if_true, if_false,
+    refine lookupCheck_big_of (by decide) [(g0.get (0 : Fin 10)), (g0.get (1 : Fin 10)), (g0.get (2 : Fin 10)), (g0.get (3 : Fin 10)), (g0.get (4 : Fin 10)), (g0.get (5 : Fin 10)), (g0.get (6 : Fin 10)), (g0.get (7 : Fin 10)), (g0.get (8 : Fin 10)), (g0.get (9 : Fin 10))] ?_ ?_ h10 ?_
+    · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_h57ee5dab, if_true, if_false,
         true_and, and_true]
-      exact ⟨h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11⟩
+      exact ⟨h0, h1, h2, h3, h4, h5, h6, h7, h8, h9⟩
     · ex_refl
-    · rw [show composeValue 11 [(g0.get (0 : Fin 12)), (g0.get (1 : Fin 12)), (g0.get (2 : Fin 12)), (g0.get (3 : Fin 12)), (g0.get (4 : Fin 12)), (g0.get (5 : Fin 12)), (g0.get (6 : Fin 12)), (g0.get (7 : Fin 12)), (g0.get (8 : Fin 12)), (g0.get (9 : Fin 12)), (g0.get (10 : Fin 12)), (g0.get (11 : Fin 12))] = (eComposeValue 11 (([24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35] : List ℕ).map Ex.atom)).eval env
-        from composeValue_atomsE env 11 [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]]
+    · rw [show composeValue 11 [(g0.get (0 : Fin 10)), (g0.get (1 : Fin 10)), (g0.get (2 : Fin 10)), (g0.get (3 : Fin 10)), (g0.get (4 : Fin 10)), (g0.get (5 : Fin 10)), (g0.get (6 : Fin 10)), (g0.get (7 : Fin 10)), (g0.get (8 : Fin 10)), (g0.get (9 : Fin 10))] = (eComposeValue 11 (([32, 33, 34, 35, 36, 37, 38, 39, 40, 41] : List ℕ).map Ex.atom)).eval env
+        from composeValue_atomsE env 11 [32, 33, 34, 35, 36, 37, 38, 39, 40, 41]]
       symm; ex_refl
   · intro h; exact absurd h (by decide)
-  · rw [show cert_ha71ae55f.groups = [⟨0, 3, 130, 6533163946079935388699578594191215037746566342452551272410847553401545914805⟩, ⟨3, 5, 131, 16662651760482593750343275155358532940078388361286693648211298903031153094221⟩] from rfl]
+  · rw [show cert_h57ee5dab.groups = [⟨0, 4, 100, 8680525429001239497728366687280168587232520577698044359798894838135247199343⟩] from rfl]
     simp only [carryChainE]
     refine ⟨?_, ?_⟩
-    · refine lookupCheck_big_of (by decide) [(g1.get (0 : Fin 12)), (g1.get (1 : Fin 12)), (g1.get (2 : Fin 12)), (g1.get (3 : Fin 12)), (g1.get (4 : Fin 12)), (g1.get (5 : Fin 12)), (g1.get (6 : Fin 12)), (g1.get (7 : Fin 12)), (g1.get (8 : Fin 12)), (g1.get (9 : Fin 12)), (g1.get (10 : Fin 12)), (g1.get (11 : Fin 12))] ?_ ?_ h25 ?_
-      · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_ha71ae55f, if_true, if_false,
+    · refine lookupCheck_big_of (by decide) [(g1.get (0 : Fin 10)), (g1.get (1 : Fin 10)), (g1.get (2 : Fin 10)), (g1.get (3 : Fin 10)), (g1.get (4 : Fin 10)), (g1.get (5 : Fin 10)), (g1.get (6 : Fin 10)), (g1.get (7 : Fin 10)), (g1.get (8 : Fin 10)), (g1.get (9 : Fin 10))] ?_ ?_ h21 ?_
+      · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_h57ee5dab, if_true, if_false,
           true_and, and_true]
-        exact ⟨h13, h14, h15, h16, h17, h18, h19, h20, h21, h22, h23, h24⟩
+        exact ⟨h11, h12, h13, h14, h15, h16, h17, h18, h19, h20⟩
       · ex_refl
-      · rw [show composeValue 11 [(g1.get (0 : Fin 12)), (g1.get (1 : Fin 12)), (g1.get (2 : Fin 12)), (g1.get (3 : Fin 12)), (g1.get (4 : Fin 12)), (g1.get (5 : Fin 12)), (g1.get (6 : Fin 12)), (g1.get (7 : Fin 12)), (g1.get (8 : Fin 12)), (g1.get (9 : Fin 12)), (g1.get (10 : Fin 12)), (g1.get (11 : Fin 12))] = (eComposeValue 11 (([36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47] : List ℕ).map Ex.atom)).eval env
-          from composeValue_atomsE env 11 [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47]]
-        symm; ex_refl
-    refine ⟨?_, ?_⟩
-    · refine lookupCheck_big_of (by decide) [(g2.get (0 : Fin 12)), (g2.get (1 : Fin 12)), (g2.get (2 : Fin 12)), (g2.get (3 : Fin 12)), (g2.get (4 : Fin 12)), (g2.get (5 : Fin 12)), (g2.get (6 : Fin 12)), (g2.get (7 : Fin 12)), (g2.get (8 : Fin 12)), (g2.get (9 : Fin 12)), (g2.get (10 : Fin 12)), (g2.get (11 : Fin 12))] ?_ ?_ h38 ?_
-      · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_ha71ae55f, if_true, if_false,
-          true_and, and_true]
-        exact ⟨h26, h27, h28, h29, h30, h31, h32, h33, h34, h35, h36, h37⟩
-      · ex_refl
-      · rw [show composeValue 11 [(g2.get (0 : Fin 12)), (g2.get (1 : Fin 12)), (g2.get (2 : Fin 12)), (g2.get (3 : Fin 12)), (g2.get (4 : Fin 12)), (g2.get (5 : Fin 12)), (g2.get (6 : Fin 12)), (g2.get (7 : Fin 12)), (g2.get (8 : Fin 12)), (g2.get (9 : Fin 12)), (g2.get (10 : Fin 12)), (g2.get (11 : Fin 12))] = (eComposeValue 11 (([48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59] : List ℕ).map Ex.atom)).eval env
-          from composeValue_atomsE env 11 [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]]
+      · rw [show composeValue 11 [(g1.get (0 : Fin 10)), (g1.get (1 : Fin 10)), (g1.get (2 : Fin 10)), (g1.get (3 : Fin 10)), (g1.get (4 : Fin 10)), (g1.get (5 : Fin 10)), (g1.get (6 : Fin 10)), (g1.get (7 : Fin 10)), (g1.get (8 : Fin 10)), (g1.get (9 : Fin 10))] = (eComposeValue 11 (([42, 43, 44, 45, 46, 47, 48, 49, 50, 51] : List ℕ).map Ex.atom)).eval env
+          from composeValue_atomsE env 11 [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]]
         symm; ex_refl
     refine ⟨fun h => absurd h (by decide), ?_⟩
     trivial
 
-theorem CheckPolynomial_24_ha71ae55f_sound (hl : LookupSound RangeCheck 11) (es : List (Σ w, ElemVal w))
-    (hb : ElemsMatch es cert_ha71ae55f.elems) (L : List.Vector F 24) (hxs : limbLists es = [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]])
-    (h : CheckPolynomial_24_ha71ae55f L) : cert_ha71ae55f.exprValue (values es) ≡ 0 [ZMOD cert_ha71ae55f.m] :=
-  assertZero_instance_sound basis cert_ha71ae55f basis_sound cert_ha71ae55f_sound rfl hl es hb hxs (CheckPolynomial_24_ha71ae55f_mirror L h)
+theorem CheckPolynomial_32_h57ee5dab_sound (hl : LookupSound RangeCheck 11) (es : List (Σ w, ElemVal w))
+    (hb : ElemsMatch es cert_h57ee5dab.elems) (L : List.Vector F 32) (hxs : limbLists es = [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23], [L.get 24, L.get 25, L.get 26, L.get 27, L.get 28, L.get 29, L.get 30, L.get 31]])
+    (h : CheckPolynomial_32_h57ee5dab L) : cert_h57ee5dab.exprValue (values es) ≡ 0 [ZMOD cert_h57ee5dab.m] :=
+  assertZero_instance_sound basis cert_h57ee5dab basis_sound cert_h57ee5dab_sound rfl hl es hb hxs (CheckPolynomial_32_h57ee5dab_mirror L h)
 
-theorem CheckPolynomial_24_hb50427dd_mirror (L : List.Vector F 24) (h : CheckPolynomial_24_hb50427dd L) :
-    CheckPolynomial.circuit basis cert_hb50427dd [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]] (LookupCheck RangeCheck 11)
+theorem CheckPolynomial_32_h5fddb6f9_mirror (L : List.Vector F 32) (h : CheckPolynomial_32_h5fddb6f9 L) :
+    CheckPolynomial.circuit basis cert_h5fddb6f9 [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23], [L.get 24, L.get 25, L.get 26, L.get 27, L.get 28, L.get 29, L.get 30, L.get 31]] (LookupCheck RangeCheck 11)
       (fun _ => True) := by
-  delta CheckPolynomial_24_hb50427dd at h
+  delta CheckPolynomial_32_h5fddb6f9 at h
   elim_gates h
   obtain ⟨g0, h0, h1, h2, h3, h4, h5, h6, h7, g1, h8, h9, h10, h11, h12, h13, h14, h15, h16, -⟩ := h
-  let env : ℕ → F := fun i => [(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24)), (L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24)), (L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24)), (g0.get (0 : Fin 7)), (g0.get (1 : Fin 7)), (g0.get (2 : Fin 7)), (g0.get (3 : Fin 7)), (g0.get (4 : Fin 7)), (g0.get (5 : Fin 7)), (g0.get (6 : Fin 7)), (g1.get (0 : Fin 8)), (g1.get (1 : Fin 8)), (g1.get (2 : Fin 8)), (g1.get (3 : Fin 8)), (g1.get (4 : Fin 8)), (g1.get (5 : Fin 8)), (g1.get (6 : Fin 8)), (g1.get (7 : Fin 8))].getD i 0
-  show CheckPolynomial.circuit basis cert_hb50427dd [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] _ _
-  rw [show [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] = ([[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15], [16, 17, 18, 19, 20, 21, 22, 23]] : List (List ℕ)).map (fun is => is.map env) from rfl,
+  let env : ℕ → F := fun i => [(L.get (0 : Fin 32)), (L.get (1 : Fin 32)), (L.get (2 : Fin 32)), (L.get (3 : Fin 32)), (L.get (4 : Fin 32)), (L.get (5 : Fin 32)), (L.get (6 : Fin 32)), (L.get (7 : Fin 32)), (L.get (8 : Fin 32)), (L.get (9 : Fin 32)), (L.get (10 : Fin 32)), (L.get (11 : Fin 32)), (L.get (12 : Fin 32)), (L.get (13 : Fin 32)), (L.get (14 : Fin 32)), (L.get (15 : Fin 32)), (L.get (16 : Fin 32)), (L.get (17 : Fin 32)), (L.get (18 : Fin 32)), (L.get (19 : Fin 32)), (L.get (20 : Fin 32)), (L.get (21 : Fin 32)), (L.get (22 : Fin 32)), (L.get (23 : Fin 32)), (L.get (24 : Fin 32)), (L.get (25 : Fin 32)), (L.get (26 : Fin 32)), (L.get (27 : Fin 32)), (L.get (28 : Fin 32)), (L.get (29 : Fin 32)), (L.get (30 : Fin 32)), (L.get (31 : Fin 32)), (g0.get (0 : Fin 7)), (g0.get (1 : Fin 7)), (g0.get (2 : Fin 7)), (g0.get (3 : Fin 7)), (g0.get (4 : Fin 7)), (g0.get (5 : Fin 7)), (g0.get (6 : Fin 7)), (g1.get (0 : Fin 8)), (g1.get (1 : Fin 8)), (g1.get (2 : Fin 8)), (g1.get (3 : Fin 8)), (g1.get (4 : Fin 8)), (g1.get (5 : Fin 8)), (g1.get (6 : Fin 8)), (g1.get (7 : Fin 8))].getD i 0
+  show CheckPolynomial.circuit basis cert_h5fddb6f9 [[(L.get (0 : Fin 32)), (L.get (1 : Fin 32)), (L.get (2 : Fin 32)), (L.get (3 : Fin 32)), (L.get (4 : Fin 32)), (L.get (5 : Fin 32)), (L.get (6 : Fin 32)), (L.get (7 : Fin 32))], [(L.get (8 : Fin 32)), (L.get (9 : Fin 32)), (L.get (10 : Fin 32)), (L.get (11 : Fin 32)), (L.get (12 : Fin 32)), (L.get (13 : Fin 32)), (L.get (14 : Fin 32)), (L.get (15 : Fin 32))], [(L.get (16 : Fin 32)), (L.get (17 : Fin 32)), (L.get (18 : Fin 32)), (L.get (19 : Fin 32)), (L.get (20 : Fin 32)), (L.get (21 : Fin 32)), (L.get (22 : Fin 32)), (L.get (23 : Fin 32))], [(L.get (24 : Fin 32)), (L.get (25 : Fin 32)), (L.get (26 : Fin 32)), (L.get (27 : Fin 32)), (L.get (28 : Fin 32)), (L.get (29 : Fin 32)), (L.get (30 : Fin 32)), (L.get (31 : Fin 32))]] _ _
+  rw [show [[(L.get (0 : Fin 32)), (L.get (1 : Fin 32)), (L.get (2 : Fin 32)), (L.get (3 : Fin 32)), (L.get (4 : Fin 32)), (L.get (5 : Fin 32)), (L.get (6 : Fin 32)), (L.get (7 : Fin 32))], [(L.get (8 : Fin 32)), (L.get (9 : Fin 32)), (L.get (10 : Fin 32)), (L.get (11 : Fin 32)), (L.get (12 : Fin 32)), (L.get (13 : Fin 32)), (L.get (14 : Fin 32)), (L.get (15 : Fin 32))], [(L.get (16 : Fin 32)), (L.get (17 : Fin 32)), (L.get (18 : Fin 32)), (L.get (19 : Fin 32)), (L.get (20 : Fin 32)), (L.get (21 : Fin 32)), (L.get (22 : Fin 32)), (L.get (23 : Fin 32))], [(L.get (24 : Fin 32)), (L.get (25 : Fin 32)), (L.get (26 : Fin 32)), (L.get (27 : Fin 32)), (L.get (28 : Fin 32)), (L.get (29 : Fin 32)), (L.get (30 : Fin 32)), (L.get (31 : Fin 32))]] = ([[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15], [16, 17, 18, 19, 20, 21, 22, 23], [24, 25, 26, 27, 28, 29, 30, 31]] : List (List ℕ)).map (fun is => is.map env) from rfl,
     ← evalLE_atoms env]
-  apply circuit_of_exs env basis cert_hb50427dd _ (([] : List ℕ).map Ex.atom) (([] : List ℕ).map Ex.atom)
+  apply circuit_of_exs env basis cert_h5fddb6f9 _ (([] : List ℕ).map Ex.atom) (([] : List ℕ).map Ex.atom)
   · rfl
   · rfl
   · intro _
     refine lookupCheck_big_of (by decide) [(g0.get (0 : Fin 7)), (g0.get (1 : Fin 7)), (g0.get (2 : Fin 7)), (g0.get (3 : Fin 7)), (g0.get (4 : Fin 7)), (g0.get (5 : Fin 7)), (g0.get (6 : Fin 7))] ?_ ?_ h7 ?_
-    · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_hb50427dd, if_true, if_false,
+    · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_h5fddb6f9, if_true, if_false,
         true_and, and_true]
       exact ⟨h0, h1, h2, h3, h4, h5, h6⟩
     · ex_refl
-    · rw [show composeValue 11 [(g0.get (0 : Fin 7)), (g0.get (1 : Fin 7)), (g0.get (2 : Fin 7)), (g0.get (3 : Fin 7)), (g0.get (4 : Fin 7)), (g0.get (5 : Fin 7)), (g0.get (6 : Fin 7))] = (eComposeValue 11 (([24, 25, 26, 27, 28, 29, 30] : List ℕ).map Ex.atom)).eval env
-        from composeValue_atomsE env 11 [24, 25, 26, 27, 28, 29, 30]]
+    · rw [show composeValue 11 [(g0.get (0 : Fin 7)), (g0.get (1 : Fin 7)), (g0.get (2 : Fin 7)), (g0.get (3 : Fin 7)), (g0.get (4 : Fin 7)), (g0.get (5 : Fin 7)), (g0.get (6 : Fin 7))] = (eComposeValue 11 (([32, 33, 34, 35, 36, 37, 38] : List ℕ).map Ex.atom)).eval env
+        from composeValue_atomsE env 11 [32, 33, 34, 35, 36, 37, 38]]
       symm; ex_refl
   · intro h; exact absurd h (by decide)
-  · rw [show cert_hb50427dd.groups = [⟨0, 3, 77, 6533163946079935388699578594191215037746566342452551272410847553401545914805⟩] from rfl]
+  · rw [show cert_h5fddb6f9.groups = [⟨0, 3, 77, 6533163946079935388699578594191215037746566342452551272410847553401545914805⟩] from rfl]
     simp only [carryChainE]
     refine ⟨?_, ?_⟩
     · refine lookupCheck_big_of (by decide) [(g1.get (0 : Fin 8)), (g1.get (1 : Fin 8)), (g1.get (2 : Fin 8)), (g1.get (3 : Fin 8)), (g1.get (4 : Fin 8)), (g1.get (5 : Fin 8)), (g1.get (6 : Fin 8)), (g1.get (7 : Fin 8))] ?_ ?_ h16 ?_
-      · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_hb50427dd, if_true, if_false,
+      · simp (config := {decide := true}) only [ComposeOk, SmallCheck, LookupCheck, cert_h5fddb6f9, if_true, if_false,
           true_and, and_true]
         exact ⟨h8, h9, h10, h11, h12, h13, h14, h15⟩
       · ex_refl
-      · rw [show composeValue 11 [(g1.get (0 : Fin 8)), (g1.get (1 : Fin 8)), (g1.get (2 : Fin 8)), (g1.get (3 : Fin 8)), (g1.get (4 : Fin 8)), (g1.get (5 : Fin 8)), (g1.get (6 : Fin 8)), (g1.get (7 : Fin 8))] = (eComposeValue 11 (([31, 32, 33, 34, 35, 36, 37, 38] : List ℕ).map Ex.atom)).eval env
-          from composeValue_atomsE env 11 [31, 32, 33, 34, 35, 36, 37, 38]]
+      · rw [show composeValue 11 [(g1.get (0 : Fin 8)), (g1.get (1 : Fin 8)), (g1.get (2 : Fin 8)), (g1.get (3 : Fin 8)), (g1.get (4 : Fin 8)), (g1.get (5 : Fin 8)), (g1.get (6 : Fin 8)), (g1.get (7 : Fin 8))] = (eComposeValue 11 (([39, 40, 41, 42, 43, 44, 45, 46] : List ℕ).map Ex.atom)).eval env
+          from composeValue_atomsE env 11 [39, 40, 41, 42, 43, 44, 45, 46]]
         symm; ex_refl
     refine ⟨fun h => absurd h (by decide), ?_⟩
     trivial
 
-theorem CheckPolynomial_24_hb50427dd_sound (hl : LookupSound RangeCheck 11) (es : List (Σ w, ElemVal w))
-    (hb : ElemsMatch es cert_hb50427dd.elems) (L : List.Vector F 24) (hxs : limbLists es = [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]])
-    (h : CheckPolynomial_24_hb50427dd L) : cert_hb50427dd.exprValue (values es) ≡ 0 [ZMOD cert_hb50427dd.m] :=
-  assertZero_instance_sound basis cert_hb50427dd basis_sound cert_hb50427dd_sound rfl hl es hb hxs (CheckPolynomial_24_hb50427dd_mirror L h)
-
-theorem CheckPolynomial_25_hcd1dd84c_mirror (L : List.Vector F 25) (h : CheckPolynomial_25_hcd1dd84c L) :
-    CheckPolynomial.circuit basis cert_hcd1dd84c [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8], [L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15, L.get 16], [L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23, L.get 24]] (LookupCheck RangeCheck 11)
-      (fun _ => True) := by
-  delta CheckPolynomial_25_hcd1dd84c at h
-  elim_gates h
-  obtain ⟨g0, h0, h1, h2, -⟩ := h
-  let env : ℕ → F := fun i => [(L.get (0 : Fin 25)), (L.get (1 : Fin 25)), (L.get (2 : Fin 25)), (L.get (3 : Fin 25)), (L.get (4 : Fin 25)), (L.get (5 : Fin 25)), (L.get (6 : Fin 25)), (L.get (7 : Fin 25)), (L.get (8 : Fin 25)), (L.get (9 : Fin 25)), (L.get (10 : Fin 25)), (L.get (11 : Fin 25)), (L.get (12 : Fin 25)), (L.get (13 : Fin 25)), (L.get (14 : Fin 25)), (L.get (15 : Fin 25)), (L.get (16 : Fin 25)), (L.get (17 : Fin 25)), (L.get (18 : Fin 25)), (L.get (19 : Fin 25)), (L.get (20 : Fin 25)), (L.get (21 : Fin 25)), (L.get (22 : Fin 25)), (L.get (23 : Fin 25)), (L.get (24 : Fin 25)), (g0.get (0 : Fin 1))].getD i 0
-  show CheckPolynomial.circuit basis cert_hcd1dd84c [[(L.get (0 : Fin 25)), (L.get (1 : Fin 25)), (L.get (2 : Fin 25)), (L.get (3 : Fin 25)), (L.get (4 : Fin 25)), (L.get (5 : Fin 25)), (L.get (6 : Fin 25)), (L.get (7 : Fin 25))], [(L.get (8 : Fin 25))], [(L.get (9 : Fin 25)), (L.get (10 : Fin 25)), (L.get (11 : Fin 25)), (L.get (12 : Fin 25)), (L.get (13 : Fin 25)), (L.get (14 : Fin 25)), (L.get (15 : Fin 25)), (L.get (16 : Fin 25))], [(L.get (17 : Fin 25)), (L.get (18 : Fin 25)), (L.get (19 : Fin 25)), (L.get (20 : Fin 25)), (L.get (21 : Fin 25)), (L.get (22 : Fin 25)), (L.get (23 : Fin 25)), (L.get (24 : Fin 25))]] _ _
-  rw [show [[(L.get (0 : Fin 25)), (L.get (1 : Fin 25)), (L.get (2 : Fin 25)), (L.get (3 : Fin 25)), (L.get (4 : Fin 25)), (L.get (5 : Fin 25)), (L.get (6 : Fin 25)), (L.get (7 : Fin 25))], [(L.get (8 : Fin 25))], [(L.get (9 : Fin 25)), (L.get (10 : Fin 25)), (L.get (11 : Fin 25)), (L.get (12 : Fin 25)), (L.get (13 : Fin 25)), (L.get (14 : Fin 25)), (L.get (15 : Fin 25)), (L.get (16 : Fin 25))], [(L.get (17 : Fin 25)), (L.get (18 : Fin 25)), (L.get (19 : Fin 25)), (L.get (20 : Fin 25)), (L.get (21 : Fin 25)), (L.get (22 : Fin 25)), (L.get (23 : Fin 25)), (L.get (24 : Fin 25))]] = ([[0, 1, 2, 3, 4, 5, 6, 7], [8], [9, 10, 11, 12, 13, 14, 15, 16], [17, 18, 19, 20, 21, 22, 23, 24]] : List (List ℕ)).map (fun is => is.map env) from rfl,
-    ← evalLE_atoms env]
-  apply circuit_of_exs env basis cert_hcd1dd84c _ (([] : List ℕ).map Ex.atom) (([25] : List ℕ).map Ex.atom)
-  · rfl
-  · show PiecesOk _ _ _ _
-    rw [evalE_atoms]
-    show PiecesOk _ _ _ [(g0.get (0 : Fin 1))]
-    simp (config := {decide := true}) only [PiecesOk, nbPieces, cert_hcd1dd84c, List.take, List.drop, List.length_cons,
-      List.length_nil, Nat.reduceAdd, Nat.reduceSub, Nat.reduceDiv, ComposeOk, LookupCheck, SmallCheck,
-      if_true, if_false, true_and, and_true]
-    exact h0
-  · intro h; exact absurd h (by decide)
-  · intro _
-    refine eq_zero_of ?_ h1
-    ex_refl
-  · rw [show cert_hcd1dd84c.groups = [⟨0, 1, 3, 20520227687253066844553443099509678173442728246946192144187700041656053926509⟩] from rfl]
-    simp only [carryChainE]
-    refine ⟨?_, ?_⟩
-    · refine lookupCheck_small_of (by decide) ?_ h2
-      ex_refl
-    refine ⟨fun h => absurd h (by decide), ?_⟩
-    trivial
-
-theorem CheckPolynomial_25_hcd1dd84c_sound (hl : LookupSound RangeCheck 11) (es : List (Σ w, ElemVal w))
-    (hb : ElemsMatch es cert_hcd1dd84c.elems) (L : List.Vector F 25) (hxs : limbLists es = [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8], [L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15, L.get 16], [L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23, L.get 24]])
-    (h : CheckPolynomial_25_hcd1dd84c L) : cert_hcd1dd84c.exprValue (values es) ≡ 0 [ZMOD cert_hcd1dd84c.m] :=
-  assertZero_instance_sound basis cert_hcd1dd84c basis_sound cert_hcd1dd84c_sound rfl hl es hb hxs (CheckPolynomial_25_hcd1dd84c_mirror L h)
+theorem CheckPolynomial_32_h5fddb6f9_sound (hl : LookupSound RangeCheck 11) (es : List (Σ w, ElemVal w))
+    (hb : ElemsMatch es cert_h5fddb6f9.elems) (L : List.Vector F 32) (hxs : limbLists es = [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23], [L.get 24, L.get 25, L.get 26, L.get 27, L.get 28, L.get 29, L.get 30, L.get 31]])
+    (h : CheckPolynomial_32_h5fddb6f9 L) : cert_h5fddb6f9.exprValue (values es) ≡ 0 [ZMOD cert_h5fddb6f9.m] :=
+  assertZero_instance_sound basis cert_h5fddb6f9 basis_sound cert_h5fddb6f9_sound rfl hl es hb hxs (CheckPolynomial_32_h5fddb6f9_mirror L h)
 
 end ZolanaVE

@@ -44,7 +44,7 @@ theorem decodeWord4_mirror (hL : AesLookupSem) {S : F} {k : List.Vector F 4 → 
   refine ⟨fun q => c.get q, ![n0, n1, n2, n3, n4, n5, n6, n7],
     ![n0 + n1 * 16, n2 + n3 * 16, n4 + n5 * 16, n6 + n7 * 16], ⟨?_, ?_, ?_⟩, ?_⟩
   · rw [hsum, sum_chunks8 (fun q => c.get q)]
-    simp only [K_6281]
+    simp only [K_6279]
     norm_num
   · intro q
     fin_cases q <;> assumption

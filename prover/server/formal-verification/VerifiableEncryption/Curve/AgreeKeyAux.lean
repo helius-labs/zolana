@@ -309,8 +309,8 @@ theorem limbNat_split (L : List.Vector F 8) {w : ℕ} (hw : w ≤ 32) :
   · rw [Nat.add_mul_mod_self_left]
   · rw [Nat.add_mul_div_left _ _ (by positivity)]; ring
 
-theorem K_pows : K_0 = ((2 ^ 240 : ℕ) : F) ∧ K_6277 = ((2 ^ 80 : ℕ) : F) ∧ K_1180 = ((2 ^ 112 : ℕ) : F) ∧
-    K_6278 = ((2 ^ 144 : ℕ) : F) ∧ K_6279 = ((2 ^ 176 : ℕ) : F) ∧ K_6280 = ((2 ^ 208 : ℕ) : F) ∧
+theorem K_pows : K_0 = ((2 ^ 240 : ℕ) : F) ∧ K_6275 = ((2 ^ 80 : ℕ) : F) ∧ K_1180 = ((2 ^ 112 : ℕ) : F) ∧
+    K_6276 = ((2 ^ 144 : ℕ) : F) ∧ K_6277 = ((2 ^ 176 : ℕ) : F) ∧ K_6278 = ((2 ^ 208 : ℕ) : F) ∧
     K_1 = ((2 ^ 88 : ℕ) : F) ∧ K_2 = ((2 ^ 120 : ℕ) : F) ∧ K_3 = ((2 ^ 152 : ℕ) : F) ∧
     K_4 = ((2 ^ 184 : ℕ) : F) ∧ K_5 = ((2 ^ 216 : ℕ) : F) := by
   decide +kernel

@@ -646,248 +646,164 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
             have hEXb := eval_bnd hEXlo hEXhi hEXvlo hEXvhi rfl
             clear hEXlo hEXhi hEXvlo hEXvhi
             elim_gates_shallow h
-            obtain ⟨gq, g1894, g1895, r0, r1, r2, r3, r4, h⟩ := h
-            obtain ⟨r5, r6, r7, r8, r9, r10, r11, r12, h⟩ := h
-            obtain ⟨r13, r14, r15, r16, r17, r18, r19, r20, h⟩ := h
-            obtain ⟨r21, r22, r23, hcr1, h⟩ := h
-            have hpS1 : ∀ i : Fin 8, PieceRC g1895 (0 + 3 * i.val) := by
-              intro i
-              fin_cases i
-              exacts [⟨rc_getD r0, rc_getD r1, rc_getD r2⟩, ⟨rc_getD r3, rc_getD r4, rc_getD r5⟩, ⟨rc_getD r6, rc_getD r7, rc_getD r8⟩, ⟨rc_getD r9, rc_getD r10, rc_getD r11⟩, ⟨rc_getD r12, rc_getD r13, rc_getD r14⟩, ⟨rc_getD r15, rc_getD r16, rc_getD r17⟩, ⟨rc_getD r18, rc_getD r19, rc_getD r20⟩, ⟨rc_getD r21, rc_getD r22, rc_getD r23⟩]
-            clear r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23
-            have dgq := distinctX_elem hQXb hEXb (by convert gq using 2; exact (vec8_eta _).symm)
-            clear gq
-            set S1s := mkElem _ _ (bal_fits hl hpS1) with hS1s
-            set NQY := linElem [(-1, QY)] with hNQY
-            have hNQYb : NQY.bnd = negRedC := by rw [hNQY, linElem_bnd]; simp only [List.map]; rw [hQYb]; rfl
-            set XD1 := linElem [(1, EX), (-1, QX)] with hXD1
-            set YD1 := linElem [(1, AY), (-1, NQY)] with hYD1
-            have cr1 := CheckPolynomial_24_hb50427dd_sound hl [⟨8, S1s⟩, ⟨8, XD1⟩, ⟨8, YD1⟩]
-              (elemsMatch_of (by
-                show [S1s.bnd, XD1.bnd, YD1.bnd] = _
-                rw [hXD1, hYD1, linElem_bnd, linElem_bnd]; simp only [List.map]; rw [hEXb, hQXb, hAY, hNQYb]; rfl))
-              _ (by limbs_tac [hS1s, hXD1, hYD1, hNQY, get2_0, get2_1]) hcr1
-            clear hcr1
-            obtain ⟨X1, hX1lo, hX1hi, hX1vlo, hX1vhi, h, vX1⟩ :=
-              CheckPolynomial_24_h42186a27_sound hl [⟨8, S1s⟩, ⟨8, QX⟩, ⟨8, EX⟩]
-                (elemsMatch_of (by show [S1s.bnd, QX.bnd, EX.bnd] = _; rw [hQXb, hEXb]; rfl))
-                _ (by limbs_tac [hS1s]) h
-            have hX1b := eval_bnd hX1lo hX1hi hX1vlo hX1vhi rfl
-            clear hX1lo hX1hi hX1vlo hX1vhi
-            unfold ScalarMulChecked_8_8_8_h903d3456_p10 at h
+            obtain ⟨gF, h⟩ := h
+            have dgF := distinctX_elem hT2X hPRXb (by
+              convert gF using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
+            clear gF
+            obtain ⟨FX, FY, hFX, hFY, h, crF⟩ :=
+              add_he7b90398_sound hl T2X T2Y PRX SPY hT2X hT2Y hPRXb hSPYb (by
+                convert h using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
+            try simp only [get2_0, get2_1] at h
             elim_gates_shallow h
-            set QX1 := linElem [(1, QX), (-1, X1)] with hQX1
-            obtain ⟨Y1, hY1lo, hY1hi, hY1vlo, hY1vhi, h, vY1⟩ :=
-              Lazy_24_hf16ef5ae_sound [⟨8, S1s⟩, ⟨8, QX1⟩, ⟨8, NQY⟩]
-                (elemsMatch_of (by
-                  show [S1s.bnd, QX1.bnd, NQY.bnd] = _
-                  rw [hQX1, linElem_bnd]; simp only [List.map]; rw [hQXb, hX1b, hNQYb]; rfl))
-                _ (by limbs_tac [hS1s, hQX1, hNQY]) h
-            have hY1b := lazy_bnd hY1lo hY1hi hY1vlo hY1vhi
-            clear hY1lo hY1hi hY1vlo hY1vhi
-            elim_gates_shallow h
-            obtain ⟨w0, z0, w1, z1, w2, z2, w3, z3, h⟩ := h
-            obtain ⟨w4, z4, w5, z5, w6, z6, w7, z7, h⟩ := h
-            obtain ⟨w8, z8, w9, z9, w10, z10, w11, z11, h⟩ := h
-            obtain ⟨w12, z12, w13, z13, w14, z14, w15, z15, h⟩ := h
-            simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select] at z0 z1 z2 z3 z4 z5 z6 z7 z8 z9 z10 z11 z12 z13 z14 z15
-            obtain ⟨b1, hb1⟩ := bool_of_is_bool z0.1
-            set C1X := selElem b1 EX X1 with hC1X
-            set C1Y := selElem b1 AY Y1 with hC1Y
-            have we0 : w0 = C1X.limbs.get 0 := by rw [z0.2, hC1X, selElem_limb, ← hb1]
-            have we1 : w1 = C1X.limbs.get 1 := by rw [z1.2, hC1X, selElem_limb, ← hb1]
-            have we2 : w2 = C1X.limbs.get 2 := by rw [z2.2, hC1X, selElem_limb, ← hb1]
-            have we3 : w3 = C1X.limbs.get 3 := by rw [z3.2, hC1X, selElem_limb, ← hb1]
-            have we4 : w4 = C1X.limbs.get 4 := by rw [z4.2, hC1X, selElem_limb, ← hb1]
-            have we5 : w5 = C1X.limbs.get 5 := by rw [z5.2, hC1X, selElem_limb, ← hb1]
-            have we6 : w6 = C1X.limbs.get 6 := by rw [z6.2, hC1X, selElem_limb, ← hb1]
-            have we7 : w7 = C1X.limbs.get 7 := by rw [z7.2, hC1X, selElem_limb, ← hb1]
-            have we8 : w8 = C1Y.limbs.get 0 := by rw [z8.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we9 : w9 = C1Y.limbs.get 1 := by rw [z9.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we10 : w10 = C1Y.limbs.get 2 := by rw [z10.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we11 : w11 = C1Y.limbs.get 3 := by rw [z11.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we12 : w12 = C1Y.limbs.get 4 := by rw [z12.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we13 : w13 = C1Y.limbs.get 5 := by rw [z13.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we14 : w14 = C1Y.limbs.get 6 := by rw [z14.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            have we15 : w15 = C1Y.limbs.get 7 := by rw [z15.2, hC1Y, selElem_limb b1 AY Y1, ← hb1, get2_1]
-            clear z0 z1 z2 z3 z4 z5 z6 z7 z8 z9 z10 z11 z12 z13 z14 z15
-            subst we0 we1 we2 we3 we4 we5 we6 we7 we8 we9 we10 we11 we12 we13 we14 we15
-            have hC1Xb : C1X.bnd = reducedC := by rw [hC1X, selElem_bnd, hEXb, hX1b]; rfl
-            obtain ⟨gp, g2092, g2093, r0, r1, r2, r3, r4, h⟩ := h
-            obtain ⟨r5, r6, r7, r8, r9, r10, r11, r12, h⟩ := h
-            obtain ⟨r13, r14, r15, r16, r17, r18, r19, r20, h⟩ := h
-            obtain ⟨r21, r22, r23, hcr2, h⟩ := h
-            have hpS2 : ∀ i : Fin 8, PieceRC g2093 (0 + 3 * i.val) := by
-              intro i
-              fin_cases i
-              exacts [⟨rc_getD r0, rc_getD r1, rc_getD r2⟩, ⟨rc_getD r3, rc_getD r4, rc_getD r5⟩, ⟨rc_getD r6, rc_getD r7, rc_getD r8⟩, ⟨rc_getD r9, rc_getD r10, rc_getD r11⟩, ⟨rc_getD r12, rc_getD r13, rc_getD r14⟩, ⟨rc_getD r15, rc_getD r16, rc_getD r17⟩, ⟨rc_getD r18, rc_getD r19, rc_getD r20⟩, ⟨rc_getD r21, rc_getD r22, rc_getD r23⟩]
-            clear r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23
-            have dgp := distinctX_elem hPRXb hC1Xb (by
-              convert gp using 2 <;> first | exact (vec8_eta _).symm | (apply List.Vector.toList_injective; limbs_tac [hPRX]))
-            clear gp
-            set S2s := mkElem _ _ (bal_fits hl hpS2) with hS2s
-            set XD2 := linElem [(1, C1X), (-1, PRX)] with hXD2
-            set YD2 := linElem [(1, C1Y), (-1, NSPY)] with hYD2
-            have cr2 := CheckPolynomial_24_h1d9b9051_sound hl [⟨8, S2s⟩, ⟨8, XD2⟩, ⟨8, YD2⟩]
-              (elemsMatch_of (by
-                show [S2s.bnd, XD2.bnd, YD2.bnd] = _
-                rw [hXD2, hYD2, linElem_bnd, linElem_bnd]; simp only [List.map]
-                rw [hC1Xb, hPRXb, hC1Y, selElem_bnd, hAY, hY1b, hNSPYb]; rfl))
-              _ (by limbs_tac [hS2s, hXD2, hYD2, hNSPY, hPRX]) hcr2
-            clear hcr2
-            obtain ⟨X2', hX2'lo, hX2'hi, hX2'vlo, hX2'vhi, h, vX2'⟩ :=
-              Lazy_24_h4ef94fb8_sound [⟨8, S2s⟩, ⟨8, PRX⟩, ⟨8, C1X⟩]
-                (elemsMatch_of (by show [S2s.bnd, PRX.bnd, C1X.bnd] = _; rw [hPRXb, hC1Xb]; rfl))
-                _ (by limbs_tac [hS2s, hPRX]) h
-            have hX2'b := lazy_bnd hX2'lo hX2'hi hX2'vlo hX2'vhi
-            clear hX2'lo hX2'hi hX2'vlo hX2'vhi
-            unfold ScalarMulChecked_8_8_8_h903d3456_p11 at h
-            elim_gates_shallow h
-            set PX2 := linElem [(1, PRX), (-1, X2')] with hPX2
-            obtain ⟨Y2', hY2'lo, hY2'hi, hY2'vlo, hY2'vhi, h, vY2'⟩ :=
-              Lazy_24_h293db561_sound [⟨8, S2s⟩, ⟨8, PX2⟩, ⟨8, NSPY⟩]
-                (elemsMatch_of (by
-                  show [S2s.bnd, PX2.bnd, NSPY.bnd] = _
-                  rw [hPX2, linElem_bnd]; simp only [List.map]; rw [hPRXb, hX2'b, hNSPYb]; rfl))
-                _ (by limbs_tac [hS2s, hPX2, hNSPY, hPRX]) h
-            have hY2'b := lazy_bnd hY2'lo hY2'hi hY2'vlo hY2'vhi
-            clear hY2'lo hY2'hi hY2'vlo hY2'vhi
-            elim_gates_shallow h
-            obtain ⟨v0, x0, v1, x1, v2, x2, v3, x3, h⟩ := h
-            obtain ⟨v4, x4, v5, x5, v6, x6, v7, x7, h⟩ := h
-            obtain ⟨v8, x8, v9, x9, v10, x10, v11, x11, h⟩ := h
-            obtain ⟨v12, x12, v13, x13, v14, x14, v15, x15, h⟩ := h
-            simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select] at x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15
-            obtain ⟨b2, hb2⟩ := bool_of_is_bool x0.1
-            set C2X := selElem b2 C1X X2' with hC2X
-            set C2Y := selElem b2 C1Y Y2' with hC2Y
-            have ve0 : v0 = C2X.limbs.get 0 := by rw [x0.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve1 : v1 = C2X.limbs.get 1 := by rw [x1.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve2 : v2 = C2X.limbs.get 2 := by rw [x2.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve3 : v3 = C2X.limbs.get 3 := by rw [x3.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve4 : v4 = C2X.limbs.get 4 := by rw [x4.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve5 : v5 = C2X.limbs.get 5 := by rw [x5.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve6 : v6 = C2X.limbs.get 6 := by rw [x6.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve7 : v7 = C2X.limbs.get 7 := by rw [x7.2, hC2X, selElem_limb b2 C1X X2', ← hb2]
-            have ve8 : v8 = C2Y.limbs.get 0 := by rw [x8.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve9 : v9 = C2Y.limbs.get 1 := by rw [x9.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve10 : v10 = C2Y.limbs.get 2 := by rw [x10.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve11 : v11 = C2Y.limbs.get 3 := by rw [x11.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve12 : v12 = C2Y.limbs.get 4 := by rw [x12.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve13 : v13 = C2Y.limbs.get 5 := by rw [x13.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve14 : v14 = C2Y.limbs.get 6 := by rw [x14.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            have ve15 : v15 = C2Y.limbs.get 7 := by rw [x15.2, hC2Y, selElem_limb b2 C1Y Y2', ← hb2]
-            clear x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15
+            obtain ⟨u0, zu0, u1, zu1, u2, zu2, u3, zu3, u4, zu4, u5, zu5, u6, zu6, u7, zu7, h⟩ := h
+            obtain ⟨u8, zu8, u9, zu9, u10, zu10, u11, zu11, u12, zu12, u13, zu13, u14, zu14, u15, zu15, h⟩ := h
+            simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select] at zu0 zu1 zu2 zu3 zu4 zu5 zu6 zu7 zu8 zu9 zu10 zu11 zu12 zu13 zu14 zu15
+            obtain ⟨b2, hb2⟩ := bool_of_is_bool zu0.1
+            set UX := selElem b2 T2X FX with hUX
+            set UY := selElem b2 T2Y FY with hUY
+            have ue0 : u0 = UX.limbs.get 0 := by rw [hUX]; exact sel_limb_of hb2 zu0.2 (by rfl) (by rfl)
+            have ue1 : u1 = UX.limbs.get 1 := by rw [hUX]; exact sel_limb_of hb2 zu1.2 (by rfl) (by rfl)
+            have ue2 : u2 = UX.limbs.get 2 := by rw [hUX]; exact sel_limb_of hb2 zu2.2 (by rfl) (by rfl)
+            have ue3 : u3 = UX.limbs.get 3 := by rw [hUX]; exact sel_limb_of hb2 zu3.2 (by rfl) (by rfl)
+            have ue4 : u4 = UX.limbs.get 4 := by rw [hUX]; exact sel_limb_of hb2 zu4.2 (by rfl) (by rfl)
+            have ue5 : u5 = UX.limbs.get 5 := by rw [hUX]; exact sel_limb_of hb2 zu5.2 (by rfl) (by rfl)
+            have ue6 : u6 = UX.limbs.get 6 := by rw [hUX]; exact sel_limb_of hb2 zu6.2 (by rfl) (by rfl)
+            have ue7 : u7 = UX.limbs.get 7 := by rw [hUX]; exact sel_limb_of hb2 zu7.2 (by rfl) (by rfl)
+            have ue8 : u8 = UY.limbs.get 0 := by rw [hUY]; exact sel_limb_of hb2 zu8.2 (by rfl) (by rfl)
+            have ue9 : u9 = UY.limbs.get 1 := by rw [hUY]; exact sel_limb_of hb2 zu9.2 (by rfl) (by rfl)
+            have ue10 : u10 = UY.limbs.get 2 := by rw [hUY]; exact sel_limb_of hb2 zu10.2 (by rfl) (by rfl)
+            have ue11 : u11 = UY.limbs.get 3 := by rw [hUY]; exact sel_limb_of hb2 zu11.2 (by rfl) (by rfl)
+            have ue12 : u12 = UY.limbs.get 4 := by rw [hUY]; exact sel_limb_of hb2 zu12.2 (by rfl) (by rfl)
+            have ue13 : u13 = UY.limbs.get 5 := by rw [hUY]; exact sel_limb_of hb2 zu13.2 (by rfl) (by rfl)
+            have ue14 : u14 = UY.limbs.get 6 := by rw [hUY]; exact sel_limb_of hb2 zu14.2 (by rfl) (by rfl)
+            have ue15 : u15 = UY.limbs.get 7 := by rw [hUY]; exact sel_limb_of hb2 zu15.2 (by rfl) (by rfl)
+            clear zu0 zu1 zu2 zu3 zu4 zu5 zu6 zu7 zu8 zu9 zu10 zu11 zu12 zu13 zu14 zu15
+            subst ue0 ue1 ue2 ue3 ue4 ue5 ue6 ue7 ue8 ue9 ue10 ue11 ue12 ue13 ue14 ue15
+            obtain ⟨v0, zv0, v1, zv1, v2, zv2, v3, zv3, v4, zv4, v5, zv5, v6, zv6, v7, zv7, h⟩ := h
+            obtain ⟨v8, zv8, v9, zv9, v10, zv10, v11, zv11, v12, zv12, v13, zv13, v14, zv14, v15, zv15, h⟩ := h
+            simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select] at zv0 zv1 zv2 zv3 zv4 zv5 zv6 zv7 zv8 zv9 zv10 zv11 zv12 zv13 zv14 zv15
+            obtain ⟨b1, hb1⟩ := bool_of_is_bool zv0.1
+            set VX := selElem b1 PRX QX with hVX
+            set VY := selElem b1 SPY QY with hVY
+            have ve0 : v0 = VX.limbs.get 0 := by rw [hVX]; exact sel_limb_of hb1 zv0.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve1 : v1 = VX.limbs.get 1 := by rw [hVX]; exact sel_limb_of hb1 zv1.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve2 : v2 = VX.limbs.get 2 := by rw [hVX]; exact sel_limb_of hb1 zv2.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve3 : v3 = VX.limbs.get 3 := by rw [hVX]; exact sel_limb_of hb1 zv3.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve4 : v4 = VX.limbs.get 4 := by rw [hVX]; exact sel_limb_of hb1 zv4.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve5 : v5 = VX.limbs.get 5 := by rw [hVX]; exact sel_limb_of hb1 zv5.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve6 : v6 = VX.limbs.get 6 := by rw [hVX]; exact sel_limb_of hb1 zv6.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve7 : v7 = VX.limbs.get 7 := by rw [hVX]; exact sel_limb_of hb1 zv7.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve8 : v8 = VY.limbs.get 0 := by rw [hVY]; exact sel_limb_of hb1 zv8.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve9 : v9 = VY.limbs.get 1 := by rw [hVY]; exact sel_limb_of hb1 zv9.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve10 : v10 = VY.limbs.get 2 := by rw [hVY]; exact sel_limb_of hb1 zv10.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve11 : v11 = VY.limbs.get 3 := by rw [hVY]; exact sel_limb_of hb1 zv11.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve12 : v12 = VY.limbs.get 4 := by rw [hVY]; exact sel_limb_of hb1 zv12.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve13 : v13 = VY.limbs.get 5 := by rw [hVY]; exact sel_limb_of hb1 zv13.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve14 : v14 = VY.limbs.get 6 := by rw [hVY]; exact sel_limb_of hb1 zv14.2 (by limbs_tac [hPRX]) (by rfl)
+            have ve15 : v15 = VY.limbs.get 7 := by rw [hVY]; exact sel_limb_of hb1 zv15.2 (by limbs_tac [hPRX]) (by rfl)
+            clear zv0 zv1 zv2 zv3 zv4 zv5 zv6 zv7 zv8 zv9 zv10 zv11 zv12 zv13 zv14 zv15
             subst ve0 ve1 ve2 ve3 ve4 ve5 ve6 ve7 ve8 ve9 ve10 ve11 ve12 ve13 ve14 ve15
+            have hUXb : UX.bnd = reducedC := by rw [hUX, selElem_bnd, hT2X, hFX]; rfl
+            have hUYb : UY.bnd = reducedC := by rw [hUY, selElem_bnd, hT2Y, hFY]; rfl
+            have hVXb : VX.bnd = reducedC := by rw [hVX, selElem_bnd, hPRXb, hQXb]; rfl
+            have hVYb : VY.bnd = selBnd selC reducedC := by rw [hVY, selElem_bnd, hSPYb, hQYb]
+            obtain ⟨gG, h⟩ := h
+            have dgG := distinctX_elem hVXb hUXb (by convert gG using 2 <;> exact (vec8_eta _).symm)
+            clear gG
+            obtain ⟨GX, GY, hGX, hGY, h, crG⟩ :=
+              add_h47aeac58_sound hl VX VY UX UY hVXb hVYb hUXb hUYb (by
+                convert h using 2 <;> exact (vec8_eta _).symm)
+            try simp only [get2_0, get2_1] at h
+            elim_gates_shallow h
+            obtain ⟨w0, zw0, w1, zw1, w2, zw2, w3, zw3, w4, zw4, w5, zw5, w6, zw6, w7, zw7, h⟩ := h
+            obtain ⟨w8, zw8, w9, zw9, w10, zw10, w11, zw11, w12, zw12, w13, zw13, w14, zw14, w15, zw15, h⟩ := h
+            simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select] at zw0 zw1 zw2 zw3 zw4 zw5 zw6 zw7 zw8 zw9 zw10 zw11 zw12 zw13 zw14 zw15
+            set WX := selElem b1 UX GX with hWX
+            set WY := selElem b1 UY GY with hWY
+            have we0 : w0 = WX.limbs.get 0 := by rw [hWX]; exact sel_limb_of hb1 zw0.2 (by rfl) (by rfl)
+            have we1 : w1 = WX.limbs.get 1 := by rw [hWX]; exact sel_limb_of hb1 zw1.2 (by rfl) (by rfl)
+            have we2 : w2 = WX.limbs.get 2 := by rw [hWX]; exact sel_limb_of hb1 zw2.2 (by rfl) (by rfl)
+            have we3 : w3 = WX.limbs.get 3 := by rw [hWX]; exact sel_limb_of hb1 zw3.2 (by rfl) (by rfl)
+            have we4 : w4 = WX.limbs.get 4 := by rw [hWX]; exact sel_limb_of hb1 zw4.2 (by rfl) (by rfl)
+            have we5 : w5 = WX.limbs.get 5 := by rw [hWX]; exact sel_limb_of hb1 zw5.2 (by rfl) (by rfl)
+            have we6 : w6 = WX.limbs.get 6 := by rw [hWX]; exact sel_limb_of hb1 zw6.2 (by rfl) (by rfl)
+            have we7 : w7 = WX.limbs.get 7 := by rw [hWX]; exact sel_limb_of hb1 zw7.2 (by rfl) (by rfl)
+            have we8 : w8 = WY.limbs.get 0 := by rw [hWY]; exact sel_limb_of hb1 zw8.2 (by rfl) (by rfl)
+            have we9 : w9 = WY.limbs.get 1 := by rw [hWY]; exact sel_limb_of hb1 zw9.2 (by rfl) (by rfl)
+            have we10 : w10 = WY.limbs.get 2 := by rw [hWY]; exact sel_limb_of hb1 zw10.2 (by rfl) (by rfl)
+            have we11 : w11 = WY.limbs.get 3 := by rw [hWY]; exact sel_limb_of hb1 zw11.2 (by rfl) (by rfl)
+            have we12 : w12 = WY.limbs.get 4 := by rw [hWY]; exact sel_limb_of hb1 zw12.2 (by rfl) (by rfl)
+            have we13 : w13 = WY.limbs.get 5 := by rw [hWY]; exact sel_limb_of hb1 zw13.2 (by rfl) (by rfl)
+            have we14 : w14 = WY.limbs.get 6 := by rw [hWY]; exact sel_limb_of hb1 zw14.2 (by rfl) (by rfl)
+            have we15 : w15 = WY.limbs.get 7 := by rw [hWY]; exact sel_limb_of hb1 zw15.2 (by rfl) (by rfl)
+            clear zw0 zw1 zw2 zw3 zw4 zw5 zw6 zw7 zw8 zw9 zw10 zw11 zw12 zw13 zw14 zw15
+            subst we0 we1 we2 we3 we4 we5 we6 we7 we8 we9 we10 we11 we12 we13 we14 we15
             aux_lemma =>
               obtain ⟨hfx, hfy, hk⟩ := h
-              have cfx := CheckPolynomial_16_h1b853d4d_sound hl [⟨8, C2X⟩, ⟨8, T2X⟩]
+              have cfx := CheckPolynomial_16_h2335258c_sound hl [⟨8, EX⟩, ⟨8, WX⟩]
                 (elemsMatch_of (by
-                  show [C2X.bnd, T2X.bnd] = _
-                  rw [hC2X, selElem_bnd, hC1Xb, hX2'b, hT2X]; rfl))
+                  show [EX.bnd, WX.bnd] = _
+                  rw [hWX, selElem_bnd, hUXb, hGX, hEXb]; rfl))
                 _ (by limbs_tac [get2_0, get2_1]) hfx
-              have cfy := CheckPolynomial_16_h2b229ca1_sound hl [⟨8, C2Y⟩, ⟨8, T2Y⟩]
+              have cfy := CheckPolynomial_16_h2b229ca1_sound hl [⟨8, AY⟩, ⟨8, WY⟩]
                 (elemsMatch_of (by
-                  show [C2Y.bnd, T2Y.bnd] = _
-                  rw [hC2Y, selElem_bnd, hC1Y, selElem_bnd, hAY, hY1b, hY2'b, hT2Y]; rfl))
+                  show [AY.bnd, WY.bnd] = _
+                  rw [hWY, selElem_bnd, hUYb, hGY, hAY]; rfl))
                 _ (by limbs_tac [get2_0, get2_1]) hfy
               have m1 : (cert_ha59f4c93.m : ℤ) = p := rfl
-              have m2 : (cert_hb50427dd.m : ℤ) = p := rfl
-              have m3 : (cert_h42186a27.m : ℤ) = p := rfl
-              have m4 : (lazy_hf16ef5ae.m : ℤ) = p := rfl
-              have m5 : (cert_h1d9b9051.m : ℤ) = p := rfl
-              have m6 : (lazy_h4ef94fb8.m : ℤ) = p := rfl
-              have m7 : (lazy_h293db561.m : ℤ) = p := rfl
-              have m8 : (cert_h1b853d4d.m : ℤ) = p := rfl
+              have m8 : (cert_h2335258c.m : ℤ) = p := rfl
               have m9 : (cert_h2b229ca1.m : ℤ) = p := rfl
               have e1 : cert_ha59f4c93.exprValue (values [⟨8, AX⟩]) = AX.value := by
                 simp [PolyShape.exprValue, values, cert_ha59f4c93]
-              have e2 : cert_hb50427dd.exprValue (values [⟨8, S1s⟩, ⟨8, XD1⟩, ⟨8, YD1⟩]) =
-                  S1s.value * XD1.value - YD1.value := by
-                simp [PolyShape.exprValue, values, cert_hb50427dd]; ring
-              have e3 : cert_h42186a27.exprValue (values [⟨8, S1s⟩, ⟨8, QX⟩, ⟨8, EX⟩]) =
-                  S1s.value * S1s.value - QX.value - EX.value := by
-                simp [PolyShape.exprValue, values, cert_h42186a27]; ring
-              have e4 : lazy_hf16ef5ae.exprValue (values [⟨8, S1s⟩, ⟨8, QX1⟩, ⟨8, NQY⟩]) =
-                  S1s.value * QX1.value - NQY.value := by
-                simp [PolyShape.exprValue, values, lazy_hf16ef5ae]; ring
-              have e5 : cert_h1d9b9051.exprValue (values [⟨8, S2s⟩, ⟨8, XD2⟩, ⟨8, YD2⟩]) =
-                  S2s.value * XD2.value - YD2.value := by
-                simp [PolyShape.exprValue, values, cert_h1d9b9051]; ring
-              have e6 : lazy_h4ef94fb8.exprValue (values [⟨8, S2s⟩, ⟨8, PRX⟩, ⟨8, C1X⟩]) =
-                  S2s.value * S2s.value - PRX.value - C1X.value := by
-                simp [PolyShape.exprValue, values, lazy_h4ef94fb8]; ring
-              have e7 : lazy_h293db561.exprValue (values [⟨8, S2s⟩, ⟨8, PX2⟩, ⟨8, NSPY⟩]) =
-                  S2s.value * PX2.value - NSPY.value := by
-                simp [PolyShape.exprValue, values, lazy_h293db561]; ring
-              have e8 : cert_h1b853d4d.exprValue (values [⟨8, C2X⟩, ⟨8, T2X⟩]) = C2X.value - T2X.value := by
-                simp [PolyShape.exprValue, values, cert_h1b853d4d]; ring
-              have e9 : cert_h2b229ca1.exprValue (values [⟨8, C2Y⟩, ⟨8, T2Y⟩]) = C2Y.value - T2Y.value := by
+              have e8 : cert_h2335258c.exprValue (values [⟨8, EX⟩, ⟨8, WX⟩]) = EX.value - WX.value := by
+                simp [PolyShape.exprValue, values, cert_h2335258c]; ring
+              have e9 : cert_h2b229ca1.exprValue (values [⟨8, AY⟩, ⟨8, WY⟩]) = AY.value - WY.value := by
                 simp [PolyShape.exprValue, values, cert_h2b229ca1]; ring
               rw [e1, m1, modEq_p_iff] at vEX
-              rw [e2, m2, modEq_p_iff] at cr1
-              rw [e3, m3, modEq_p_iff] at vX1
-              rw [e4, m4, modEq_p_iff] at vY1
-              rw [e5, m5, modEq_p_iff] at cr2
-              rw [e6, m6, modEq_p_iff] at vX2'
-              rw [e7, m7, modEq_p_iff] at vY2'
               rw [e8, m8, modEq_p_iff] at cfx
               rw [e9, m9, modEq_p_iff] at cfy
-              have vXD1 : XD1.value = EX.value - QX.value := by rw [hXD1, linElem_value]; simp; try ring
-              have vYD1 : YD1.value = AY.value - NQY.value := by rw [hYD1, linElem_value]; simp; try ring
-              have vQX1 : QX1.value = QX.value - X1.value := by rw [hQX1, linElem_value]; simp; try ring
-              have vNQY : NQY.value = -QY.value := by rw [hNQY, linElem_value]; simp
-              have vXD2 : XD2.value = C1X.value - PRX.value := by rw [hXD2, linElem_value]; simp; try ring
-              have vYD2 : YD2.value = C1Y.value - NSPY.value := by rw [hYD2, linElem_value]; simp; try ring
-              have vPX2 : PX2.value = PRX.value - X2'.value := by rw [hPX2, linElem_value]; simp; try ring
-              rw [vXD1, vYD1] at cr1
-              rw [vQX1] at vY1
-              rw [vXD2, vYD2] at cr2
-              rw [vPX2] at vY2'
-              push_cast at vEX cr1 vX1 vY1 cr2 vX2' vY2' cfx cfy
+              push_cast at vEX cfx cfy
               have hE : OnCurve (EX.value : Fp) (AY.value : Fp) := by rw [vEX]; exact hAon
               have pE : mkPoint hE = mkPoint hAon := mkPoint_inj.mpr ⟨vEX, rfl⟩
-              have hNQ : OnCurve (QX.value : Fp) (NQY.value : Fp) := by
-                unfold OnCurve at hQ' ⊢; rw [vNQY]; push_cast; linear_combination hQ'
-              have pNQ : mkPoint hNQ = -mkPoint hQ' := by
-                obtain ⟨hn, hne⟩ := neg_mkPoint hQ'
-                rw [hne, mkPoint_inj]; exact ⟨rfl, by rw [vNQY]; push_cast; rfl⟩
-              obtain ⟨hSl1, pSl1⟩ := slope_add_int (l := S1s.value) (xs := X1.value) (ys := Y1.value) hNQ hE dgq.2.2.2.2
-                (by rw [modEq_p_iff]; push_cast; linear_combination cr1)
-                (by rw [modEq_p_iff]; push_cast; linear_combination vX1)
-                (by rw [modEq_p_iff]; push_cast; linear_combination vY1)
-              have hC1on : OnCurve (C1X.value : Fp) (C1Y.value : Fp) := by
-                rw [hC1X, hC1Y, selElem_value, selElem_value]
-                cases b1
-                · exact hSl1
-                · exact hE
-              have pC1 : mkPoint hC1on = if b1 then mkPoint hE else mkPoint hNQ + mkPoint hE := by
-                cases b1
-                · simp only [Bool.false_eq_true, if_false]; rw [pSl1]
-                  exact mkPoint_inj.mpr ⟨by rw [hC1X, selElem_value]; rfl, by rw [hC1Y, selElem_value]; rfl⟩
-                · simp only [if_true]
-                  exact mkPoint_inj.mpr ⟨by rw [hC1X, selElem_value]; rfl, by rw [hC1Y, selElem_value]; rfl⟩
-              obtain ⟨hSl2, pSl2⟩ := slope_add_int (l := S2s.value) (xs := X2'.value) (ys := Y2'.value) hNRon hC1on dgp.2.2.2.2
-                (by rw [modEq_p_iff]; push_cast; linear_combination cr2)
-                (by rw [modEq_p_iff]; push_cast; linear_combination vX2')
-                (by rw [modEq_p_iff]; push_cast; linear_combination vY2')
-              have hC2on : OnCurve (C2X.value : Fp) (C2Y.value : Fp) := by
-                rw [hC2X, hC2Y, selElem_value b2 C1X X2', selElem_value b2 C1Y Y2']
+              obtain ⟨hFon, pF⟩ := chord_point hT2on hRon dgF.2.2.2.2 crF.1 crF.2
+              have hUon : OnCurve (UX.value : Fp) (UY.value : Fp) := by
+                rw [hUX, hUY, selElem_value b2 T2X FX, selElem_value b2 T2Y FY]
                 cases b2
-                · exact hSl2
-                · exact hC1on
-              have pC2 : mkPoint hC2on = if b2 then mkPoint hC1on else mkPoint hNRon + mkPoint hC1on := by
+                · exact hFon
+                · exact hT2on
+              have pU : mkPoint hUon = if b2 then mkPoint hT2on else mkPoint hFon := by
                 cases b2
-                · simp only [Bool.false_eq_true, if_false]; rw [pSl2]
-                  exact mkPoint_inj.mpr ⟨by rw [hC2X, selElem_value _ C1X X2']; rfl,
-                    by rw [hC2Y, selElem_value _ C1Y Y2']; rfl⟩
+                · simp only [Bool.false_eq_true, if_false]
+                  exact mkPoint_inj.mpr ⟨by rw [hUX, selElem_value _ T2X FX]; rfl, by rw [hUY, selElem_value _ T2Y FY]; rfl⟩
                 · simp only [if_true]
-                  exact mkPoint_inj.mpr ⟨by rw [hC2X, selElem_value _ C1X X2']; rfl,
-                    by rw [hC2Y, selElem_value _ C1Y Y2']; rfl⟩
-              have pT : mkPoint hC2on = mkPoint hT2on := mkPoint_inj.mpr ⟨by linear_combination cfx, by linear_combination cfy⟩
+                  exact mkPoint_inj.mpr ⟨by rw [hUX, selElem_value _ T2X FX]; rfl, by rw [hUY, selElem_value _ T2Y FY]; rfl⟩
+              have hVon : OnCurve (VX.value : Fp) (VY.value : Fp) := by
+                rw [hVX, hVY, selElem_value b1 PRX QX, selElem_value b1 SPY QY]
+                cases b1
+                · exact hQ'
+                · exact hRon
+              have pV : mkPoint hVon = if b1 then mkPoint hRon else mkPoint hQ' := by
+                cases b1
+                · simp only [Bool.false_eq_true, if_false]
+                  exact mkPoint_inj.mpr ⟨by rw [hVX, selElem_value _ PRX QX]; rfl, by rw [hVY, selElem_value _ SPY QY]; rfl⟩
+                · show mkPoint hVon = mkPoint hRon
+                  exact mkPoint_inj.mpr ⟨by rw [hVX, selElem_value _ PRX QX]; rfl, by rw [hVY, selElem_value _ SPY QY]; rfl⟩
+              obtain ⟨hGon, pG⟩ := chord_point hVon hUon dgG.2.2.2.2 crG.1 crG.2
+              have hWon : OnCurve (WX.value : Fp) (WY.value : Fp) := by
+                rw [hWX, hWY, selElem_value b1 UX GX, selElem_value b1 UY GY]
+                cases b1
+                · exact hGon
+                · exact hUon
+              have pW : mkPoint hWon = if b1 then mkPoint hUon else mkPoint hGon := by
+                cases b1
+                · simp only [Bool.false_eq_true, if_false]
+                  exact mkPoint_inj.mpr ⟨by rw [hWX, selElem_value _ UX GX]; rfl, by rw [hWY, selElem_value _ UY GY]; rfl⟩
+                · simp only [if_true]
+                  exact mkPoint_inj.mpr ⟨by rw [hWX, selElem_value _ UX GX]; rfl, by rw [hWY, selElem_value _ UY GY]; rfl⟩
+              have pT : mkPoint hE = mkPoint hWon := mkPoint_inj.mpr ⟨by linear_combination cfx, by linear_combination cfy⟩
               have hb1' := bitI_eq_of_sel hbits (a := 1) (by norm_num) (b := b1) (by rw [← hb1, vget_getD]; try rfl)
               have hb2' := bitI_eq_of_sel hbits (a := 130) (by norm_num) (b := b2) (by rw [← hb2, vget_getD]; try rfl)
-              have hcl := ladder_close b1 b2 hinv hAeq hdl hT2eq pE pNQ pNR pC1 pC2 pT
+              have hcl := ladder_close b1 b2 hinv hAeq hdl hT2eq pE pF pU pV pG (pT.trans pW)
               rw [← hb1', ← hb2'] at hcl
               obtain ⟨u, v, huv, hu, hv⟩ : ∃ u v : ℤ, u • mkPoint hQ' + v • mkPoint hRon = 0 ∧
                   u = chunk g402 1 129 ∧ v = chunk g402 130 129 :=

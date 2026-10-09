@@ -128,8 +128,8 @@ func TestEmcurveInstancesRender(t *testing.T) {
 	for _, src := range files {
 		theorems += strings.Count(src, "_sound (")
 	}
-	if theorems != 161 {
-		t.Fatalf("%d instance soundness theorems, want 161", theorems)
+	if theorems != 157 {
+		t.Fatalf("%d instance soundness theorems, want 157", theorems)
 	}
 	if dir := os.Getenv("EMCURVE_CHECKS_OUT"); dir != "" {
 		for module, src := range files {

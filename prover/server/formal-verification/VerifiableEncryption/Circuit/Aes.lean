@@ -22,7 +22,7 @@ def AesDecodeWord_4 (Sum: F) (k: List.Vector F 4 -> Prop): Prop :=
     ∃gate_12, gate_12 = Gates.add gate_10 gate_11 ∧
     ∃gate_13, gate_13 = Gates.mul (gate_0.get (6 : Fin 8)) (4738381338321616896:F) ∧
     ∃gate_14, gate_14 = Gates.add gate_12 gate_13 ∧
-    ∃gate_15, gate_15 = Gates.mul (gate_0.get (7 : Fin 8)) K_6281 ∧
+    ∃gate_15, gate_15 = Gates.mul (gate_0.get (7 : Fin 8)) K_6279 ∧
     ∃gate_16, gate_16 = Gates.add gate_14 gate_15 ∧
     Gates.eq Sum gate_16 ∧
     ChunkParityLookup (gate_0.get (0 : Fin 8)) fun gate_18 =>
