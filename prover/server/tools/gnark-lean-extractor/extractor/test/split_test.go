@@ -39,6 +39,14 @@ func (c *SplitCircuit) Define(api frontend.API) error {
 	return nil
 }
 
+func TestNamedConstantCircuit(t *testing.T) {
+	out, err := extractor.ExtractCircuitsWith(extractor.ExportOptions{NamedConstantDigits: 1}, "NamedConstantCircuit", ecc.BN254, &KeyedCircuit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkOutput(t, out)
+}
+
 func TestSplitCircuit(t *testing.T) {
 	out, err := extractor.ExtractCircuitsWith(extractor.ExportOptions{VectorGet: true, MaxBodyApps: 2}, "SplitCircuit", ecc.BN254, &SplitCircuit{})
 	if err != nil {

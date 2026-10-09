@@ -8,8 +8,9 @@ import (
 )
 
 // Vector access without bound-proof tactics and bodies split into parts of at
-// most 200 operations keep every definition shallow enough to elaborate.
-var veExportOptions = leanextractor.ExportOptions{VectorGet: true, MaxBodyApps: 200}
+// most 200 operations keep every definition shallow enough to elaborate; named
+// big constants keep the file small.
+var veExportOptions = leanextractor.ExportOptions{VectorGet: true, MaxBodyApps: 200, NamedConstantDigits: 20}
 
 // ExtractVELean extracts the verifiable-encryption circuits into one Lean
 // source file. The output is committed as

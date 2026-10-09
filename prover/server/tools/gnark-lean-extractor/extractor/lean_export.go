@@ -612,7 +612,7 @@ func operandExpr(operand Operand, inAssignment []ExArg, gateVars []string) strin
 		opArray = []string{strings.Join(opArray, ", ")}
 		return fmt.Sprintf("vec!%s", opArray)
 	case Const:
-		return fmt.Sprintf("(%s:F)", operand.(Const).Value.Text(10))
+		return constantExpr(operand.(Const).Value.Text(10))
 	case Integer:
 		return operand.(Integer).Value.Text(10)
 	default:

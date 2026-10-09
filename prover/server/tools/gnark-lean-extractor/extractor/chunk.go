@@ -24,20 +24,51 @@ type ExportOptions struct {
 	// no single term nests more than MaxBodyApps binders. Unfolding the parts
 	// gives back the unsplit body.
 	MaxBodyApps int
+	// NamedConstantDigits, when positive, replaces every constant of at least
+	// this many decimal digits by an abbreviation `K_<i>` (numbered in order
+	// of first use) declared after the prelude.
+	NamedConstantDigits int
 }
 
 var (
-	exportMu      sync.Mutex
-	exportOptions ExportOptions
+	exportMu       sync.Mutex
+	exportOptions  ExportOptions
+	constantNames  map[string]string
+	constantValues []string
 )
 
 // ExtractCircuitsWith is ExtractCircuits with the given output options.
 func ExtractCircuitsWith(opts ExportOptions, namespace string, field ecc.ID, circuits ...frontend.Circuit) (string, error) {
 	exportMu.Lock()
 	defer exportMu.Unlock()
-	exportOptions = opts
-	defer func() { exportOptions = ExportOptions{} }()
+	exportOptions, constantNames, constantValues = opts, map[string]string{}, nil
+	defer func() { exportOptions, constantNames, constantValues = ExportOptions{}, nil, nil }()
 	return ExtractCircuits(namespace, field, circuits...)
+}
+
+func constantExpr(value string) string {
+	if exportOptions.NamedConstantDigits <= 0 || len(value) < exportOptions.NamedConstantDigits {
+		return fmt.Sprintf("(%s:F)", value)
+	}
+	name, ok := constantNames[value]
+	if !ok {
+		name = fmt.Sprintf("K_%d", len(constantValues))
+		constantNames[value] = name
+		constantValues = append(constantValues, value)
+	}
+	return name
+}
+
+// constantDeclarations declares the named constants; empty without any.
+func constantDeclarations() string {
+	if len(constantValues) == 0 {
+		return ""
+	}
+	decls := make([]string, len(constantValues))
+	for i, v := range constantValues {
+		decls[i] = fmt.Sprintf("abbrev K_%d : F := %s", i, v)
+	}
+	return strings.Join(decls, "\n") + "\n\n"
 }
 
 func vectorAccess(base string, index, size int) string {

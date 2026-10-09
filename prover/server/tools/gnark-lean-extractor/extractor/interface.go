@@ -134,7 +134,7 @@ func ExtractCircuits(namespace string, field ecc.ID, circuits ...frontend.Circui
 	prelude := exportPrelude(namespace, extractorCircuit.Field.ScalarField())
 	gadgets := exportGadgets(api.Gadgets)
 	footer := exportFooter(namespace)
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s", prelude, gadgets, strings.Join(circuits_extracted, "\n\n"), footer), nil
+	return fmt.Sprintf("%s\n\n%s%s\n\n%s\n\n%s", prelude, constantDeclarations(), gadgets, strings.Join(circuits_extracted, "\n\n"), footer), nil
 }
 
 // ExtractGadgets is used to export a series of `gadgets` to Lean over a `field` under `namespace`.
