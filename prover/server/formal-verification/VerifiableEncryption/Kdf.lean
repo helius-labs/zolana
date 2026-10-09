@@ -182,4 +182,50 @@ theorem ToBinary256Mirror_iff_to_binary {v : F} {k : List.Vector F 256 → Prop}
   rw [ToBinary256Mirror_rw]
   simp only [to_binary_256_rw, exists_eq_left]
 
+/-- Byte `i` of `BitsToBytesBE` (`circuits/gadget/bytes.go`): the little-endian
+digits `8 * (31 - i) .. 8 * (31 - i) + 7`, so byte 0 is the most significant. -/
+def byteBE (bits : List.Vector F 256) (i : Fin 32) : List.Vector F 8 :=
+  List.Vector.ofFn fun j : Fin 8 => bits[(31 - i.val) * 8 + j.val]'(by omega)
+
+/-- Hand mirror of `FieldToBytesBE(v, 32)` (`verifiable-encryption/bytes.go`):
+the 256-digit `ToBinary` followed by one `FromBinary` per byte. -/
+def FieldToBytesBEMirror (v : F) (k : (Fin 32 → F) → Prop) : Prop :=
+  ToBinary256Mirror v fun bits =>
+  ∃bytes : Fin 32 → F, (∀ i, Gates.from_binary (byteBE bits i) (bytes i)) ∧ k bytes
+
+/-- Big-endian byte `i` of a 32-byte value. -/
+def byteOf (x : ℕ) (i : Fin 32) : ℕ := x / 256^(31 - i.val) % 256
+
+lemma byteOf_lt (x : ℕ) (i : Fin 32) : byteOf x i < 2^8 :=
+  Nat.mod_lt _ (by norm_num)
+
+lemma byteBE_toBitsLE (w : Fin (2^256)) (i : Fin 32) :
+    byteBE ((Fin.toBitsLE w).map Bool.toZMod) i =
+    (Fin.toBitsLE (⟨byteOf w.val i, byteOf_lt _ _⟩ : Fin (2^8))).map Bool.toZMod := by
+  apply List.Vector.ext
+  intro m
+  unfold byteBE
+  rw [List.Vector.get_ofFn, List.Vector.get_map, List.Vector.get_eq_getElem',
+    Fin.getElem_toBitsLE _ _ m.prop, List.Vector.getElem_map,
+    Fin.getElem_toBitsLE _ _ (by omega)]
+  congr 1
+  show w.val.testBit ((31 - i.val) * 8 + m.val) = (w.val / 256^(31 - i.val) % 2^8).testBit m.val
+  rw [Nat.testBit_mod_two_pow, show (256:ℕ)^(31 - i.val) = 2^((31 - i.val) * 8) by
+    rw [show (256:ℕ) = 2^8 by norm_num, ← pow_mul, mul_comm], Nat.testBit_div_two_pow]
+  simp [m.prop, add_comm]
+
+theorem fieldToBytesBE_rw {v : F} {k : (Fin 32 → F) → Prop} :
+    FieldToBytesBEMirror v k ↔ k (fun i : Fin 32 => ((v.val / 256^(31 - i.val) % 256 : ℕ) : F)) := by
+  unfold FieldToBytesBEMirror
+  rw [ToBinary256Mirror_rw]
+  simp only [byteBE_toBitsLE, Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    Gates.from_binary_iff_eq_ofBitsLE_mod_order, Fin.ofBitsLE_toBitsLE_eq_self]
+  apply Iff.intro
+  · rintro ⟨bytes, hbytes, hk⟩
+    have : bytes = fun i => ((byteOf v.val i : ℕ) : F) := funext hbytes
+    rw [this] at hk
+    exact hk
+  · intro hk
+    exact ⟨_, fun _ => rfl, hk⟩
+
 end VerifiableEncryption
