@@ -9,7 +9,9 @@ use kamino_vault_rfq_sdk::{
     swap::{Direction, Holdings, Offer, Quote, SwapError},
 };
 
-use crate::shared::{blocking, setup, TestEnv, FEE_BPS, USER_SHIELD_USDC};
+use kamino_vault_rfq_example::setup::{
+    blocking, setup_with, SetupConfig, TestEnv, FEE_BPS, USER_SHIELD_USDC,
+};
 
 const BOOTSTRAP_USDC: u64 = 200_000_000;
 const SWAP_USDC: u64 = 10_000_000;
@@ -40,19 +42,28 @@ async fn rejected_quotes_and_fills_leave_the_user_untouched() -> Result<()> {
         market_maker,
         vault,
         ..
-    } = setup(14).await?;
+    } = setup_with(SetupConfig {
+        quote_ttl: QUOTE_TTL,
+        ..SetupConfig::new(14)
+    })
+    .await?;
     let rpc = localnet.client.rpc();
-    market_maker.set_quote_ttl(QUOTE_TTL);
 
-    let offer = market_maker
-        .quote(&localnet, &vault, Direction::Deposit, SWAP_USDC)
-        .await?;
-    let order = user.order(&localnet, &vault, &offer, &[]).await?;
+    let unfunded = Quote::price(
+        &blocking(|| VaultState::read(rpc, &vault.vault))?,
+        Direction::Deposit,
+        SWAP_USDC,
+        FEE_BPS,
+    )?;
     assert_eq!(
-        swap_error(market_maker.fill(&localnet, &vault, &order.request).await)?,
+        swap_error(
+            market_maker
+                .quote(&localnet, &vault, Direction::Deposit, SWAP_USDC)
+                .await
+        )?,
         SwapError::InsufficientInventory {
             asset: vault.shares_mint,
-            required: offer.quote.amount_out,
+            required: unfunded.amount_out,
             available: 0,
         }
     );
@@ -60,13 +71,21 @@ async fn rejected_quotes_and_fills_leave_the_user_untouched() -> Result<()> {
     assert_eq!(user.holdings(&vault)?, UNTOUCHED);
 
     market_maker
-        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC)
+        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC, 0)
         .await?;
     let lanes_before = market_maker.lanes(&vault.shares_mint);
-    market_maker.set_fee_bps(GREEDY_FEE_BPS);
-    let greedy = market_maker
+    let fair_offer = market_maker
         .quote(&localnet, &vault, Direction::Deposit, SWAP_USDC)
         .await?;
+    let greedy = Offer {
+        quote: Quote::price(
+            &blocking(|| VaultState::read(rpc, &vault.vault))?,
+            Direction::Deposit,
+            SWAP_USDC,
+            GREEDY_FEE_BPS,
+        )?,
+        ..fair_offer
+    };
     let order = user.order(&localnet, &vault, &greedy, &[]).await?;
     let greedy_fill = market_maker.fill(&localnet, &vault, &order.request).await?;
     let fair = Quote::price(
@@ -88,7 +107,6 @@ async fn rejected_quotes_and_fills_leave_the_user_untouched() -> Result<()> {
     user.sync(&localnet).await?;
     assert_eq!(user.holdings(&vault)?, UNTOUCHED);
 
-    market_maker.set_fee_bps(FEE_BPS);
     let offer = market_maker
         .quote(&localnet, &vault, Direction::Deposit, SWAP_USDC)
         .await?;
@@ -122,7 +140,7 @@ async fn rejected_quotes_and_fills_leave_the_user_untouched() -> Result<()> {
         Some(MakerError::UnknownFill { step }) if *step == abandoned
     ));
 
-    let max = market_maker.budget().max_user_inputs;
+    let max = market_maker.max_user_inputs();
     let wide = smallest_shape(max + 1, USER_OUTPUTS)
         .ok_or_else(|| anyhow!("no shape wider than the user cap of {max}"))?
         .n_inputs();
@@ -151,5 +169,6 @@ async fn rejected_quotes_and_fills_leave_the_user_untouched() -> Result<()> {
     );
     user.sync(&localnet).await?;
     assert_eq!(user.holdings(&vault)?, UNTOUCHED);
+    market_maker.shutdown().await;
     Ok(())
 }

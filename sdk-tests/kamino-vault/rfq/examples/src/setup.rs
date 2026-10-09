@@ -1,5 +1,10 @@
+use std::time::Duration;
+
 use anyhow::{anyhow, Result};
-use kamino_vault_market_maker::{MakerConfig, MakerSetup, MarketMaker, WatcherConfig};
+use kamino_vault_market_maker::{
+    ConcurrencyConfig, ConnectionConfig, IdentityConfig, MarketMaker, MarketMakerConfig,
+    PairConfig, QuoteConfig, TokenConfig,
+};
 use kamino_vault_rfq_sdk::{
     kvault::{self, InitVault, VaultAccounts},
     swap::Holdings,
@@ -12,12 +17,11 @@ use solana_signer::Signer;
 use solana_transaction_status_client_types::EncodedTransaction;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
-    instruction::CreateCacheData,
     pda::{self, spl_token_program_id},
     state::SplAssetRegistry,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program::instruction::{CreateCache, CreateSplInterface};
+use zolana_program::instruction::CreateSplInterface;
 use zolana_program_test::{
     fixture,
     instructions::system_create_account_ix,
@@ -34,10 +38,8 @@ use crate::user::User;
 pub const FEE_BPS: u64 = 30;
 pub const USER_SHIELD_USDC: u64 = 100_000_000;
 const USER_UTXOS: u64 = 2;
-const MAKER_CACHE_NONCE: u64 = 0;
 const MAKER_ACTOR: u8 = 0;
 const FIRST_USER_ACTOR: u8 = 1;
-const MAKER_CACHE_EXPIRES_AT: i64 = 2_000_000_000;
 pub const MARKET_MAKER_PUBLIC_USDC: u64 = 500_000_000;
 const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -50,12 +52,14 @@ pub struct TestEnv {
     pub vault: VaultAccounts,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct SetupConfig {
     pub test: u16,
     pub extra_users: u8,
-    pub lanes: usize,
-    pub websocket: bool,
+    pub concurrency: ConcurrencyConfig,
+    pub collateral: TokenConfig,
+    pub shares: TokenConfig,
+    pub quote_ttl: Duration,
     pub user_usdc: u64,
 }
 
@@ -64,24 +68,13 @@ impl SetupConfig {
         Self {
             test,
             extra_users: 0,
-            lanes: 1,
-            websocket: false,
+            concurrency: ConcurrencyConfig::default(),
+            collateral: TokenConfig::default(),
+            shares: TokenConfig::default(),
+            quote_ttl: QuoteConfig::default().ttl,
             user_usdc: USER_SHIELD_USDC,
         }
     }
-}
-
-fn watcher(ports: LocalnetPorts, websocket: bool) -> Result<WatcherConfig> {
-    if !websocket {
-        return Ok(MakerConfig::new(0, FEE_BPS).watcher);
-    }
-    let port = ports
-        .rpc
-        .checked_add(1)
-        .ok_or_else(|| anyhow!("rpc port {} has no websocket port above it", ports.rpc))?;
-    Ok(WatcherConfig::Websocket {
-        url: format!("ws://127.0.0.1:{port}"),
-    })
 }
 
 pub fn blocking<R>(work: impl FnOnce() -> R) -> R {
@@ -285,19 +278,28 @@ pub async fn setup_with(config: SetupConfig) -> Result<TestEnv> {
         maker,
         usdc_mint,
         vault,
-    } = blocking(|| boot(ports, config))?;
-    let market_maker = MarketMaker::start(MakerSetup {
-        wallet: maker.wallet,
-        keypair: maker.keypair,
-        config: MakerConfig {
-            base_lanes: config.lanes,
-            watcher: watcher(ports, config.websocket)?,
-            ..MakerConfig::new(localnet.tree_id, FEE_BPS)
+    } = blocking(|| boot(ports, &config))?;
+    let market_maker = MarketMaker::start(MarketMakerConfig {
+        connection: ConnectionConfig {
+            rpc_url: ports.rpc_url(),
+            photon_url: ports.photon_url(),
+            tree: localnet.tree,
+            tree_id: localnet.tree_id,
         },
-        rpc_url: ports.rpc_url(),
-        photon_url: ports.photon_url(),
-        tree: localnet.tree,
-        assets: vec![usdc_mint, vault.shares_mint],
+        identity: IdentityConfig {
+            keypair: maker.keypair,
+            wallet: maker.wallet,
+        },
+        pairs: vec![PairConfig {
+            vault,
+            collateral: config.collateral,
+            shares: config.shares,
+        }],
+        concurrency: config.concurrency,
+        quotes: QuoteConfig {
+            fee_bps: FEE_BPS,
+            ttl: config.quote_ttl,
+        },
     })
     .await?;
     let mut users = users
@@ -318,7 +320,7 @@ pub async fn setup_with(config: SetupConfig) -> Result<TestEnv> {
     })
 }
 
-fn boot(ports: LocalnetPorts, config: SetupConfig) -> Result<Booted> {
+fn boot(ports: LocalnetPorts, config: &SetupConfig) -> Result<Booted> {
     let payer = fixture::payer();
     let localnet = FixtureLocalnet::start_with_accounts(
         "zolana-kamino-vault",
@@ -385,22 +387,6 @@ fn boot(ports: LocalnetPorts, config: SetupConfig) -> Result<Booted> {
         user.sync(&localnet)?;
         users.push(user);
     }
-
-    let create_cache = CreateCache {
-        payer: market_maker.address(),
-        data: CreateCacheData {
-            write_authority: market_maker.address(),
-            nonce: MAKER_CACHE_NONCE,
-            tree_id: localnet.tree_id,
-            expires_at: MAKER_CACHE_EXPIRES_AT,
-        },
-    };
-    send(
-        rpc,
-        &[create_cache.instruction()],
-        &market_maker.keypair,
-        &[&market_maker.keypair],
-    )?;
 
     Ok(Booted {
         localnet,

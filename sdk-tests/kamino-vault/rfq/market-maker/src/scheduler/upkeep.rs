@@ -1,53 +1,60 @@
-use super::{max_outputs_for, select_smallest, Selection};
+use super::{max_outputs_for, profile::LaneProfile, select_smallest, Selection};
 use crate::tracker::TrackedUtxo;
 
-pub enum Upkeep {
-    Consolidate(Selection),
-    Split { selection: Selection, parts: usize },
+pub struct Upkeep {
+    pub selection: Selection,
+    pub parts: Vec<u64>,
 }
 
-pub struct UpkeepPolicy {
-    pub base_lanes: usize,
-    pub min_lane_value: u64,
+pub struct UpkeepPolicy<'a> {
+    pub profile: &'a LaneProfile,
+    pub max_inputs: usize,
 }
 
-impl UpkeepPolicy {
-    pub fn target_lanes(&self, balance: u64) -> usize {
-        let by_value = usize::try_from(balance / self.min_lane_value.max(1)).unwrap_or(usize::MAX);
-        self.base_lanes.min(by_value).max(1)
-    }
-
-    pub fn consolidate_parts(&self, value: u64, inputs: usize) -> usize {
-        self.target_lanes(value).min(max_outputs_for(inputs)).max(1)
-    }
-
+impl UpkeepPolicy<'_> {
     pub fn plan(&self, lanes: &[TrackedUtxo]) -> Option<Upkeep> {
         let lanes: Vec<TrackedUtxo> = lanes
             .iter()
             .filter(|utxo| utxo.amount() > 0)
             .cloned()
             .collect();
-        let balance: u64 = lanes.iter().map(TrackedUtxo::amount).sum();
-        let target = self.target_lanes(balance);
-        let count = lanes.len();
-        if count > target {
-            let selection = select_smallest(&lanes, count - target + 1);
-            return (selection.inputs.len() >= 2).then_some(Upkeep::Consolidate(selection));
+        let amounts: Vec<u64> = lanes.iter().map(TrackedUtxo::amount).collect();
+        let balance: u64 = amounts.iter().sum();
+        let surplus = self.profile.surplus_lanes(balance, &amounts);
+        if surplus > 0 {
+            return self.merge(&lanes, surplus);
         }
-        if count < target {
-            return self.split(&lanes, count, target);
-        }
-        None
-    }
-
-    fn split(&self, lanes: &[TrackedUtxo], count: usize, target: usize) -> Option<Upkeep> {
-        let largest = lanes.iter().max_by_key(|utxo| utxo.amount())?;
-        let by_value =
-            usize::try_from(largest.amount() / self.min_lane_value.max(1)).unwrap_or(usize::MAX);
-        let parts = (target - count + 1).min(max_outputs_for(1)).min(by_value);
-        if parts < 2 {
+        if self.profile.missing(balance, &amounts).is_empty() {
             return None;
         }
-        Selection::single(largest).map(|selection| Upkeep::Split { selection, parts })
+        self.split(&lanes)
     }
+
+    fn merge(&self, lanes: &[TrackedUtxo], surplus: usize) -> Option<Upkeep> {
+        let selection = select_smallest(lanes, (surplus + 1).min(self.max_inputs));
+        let inputs = selection.inputs.len();
+        if inputs < 2 {
+            return None;
+        }
+        let others = others(lanes, &selection);
+        let max_parts = inputs.saturating_sub(surplus).min(max_outputs_for(inputs));
+        let parts = self.profile.parts(selection.total, &others, max_parts);
+        Some(Upkeep { selection, parts })
+    }
+
+    fn split(&self, lanes: &[TrackedUtxo]) -> Option<Upkeep> {
+        let amounts: Vec<u64> = lanes.iter().map(TrackedUtxo::amount).collect();
+        let (index, parts) = self.profile.split(&amounts, max_outputs_for(1))?;
+        let selection = Selection::single(lanes.get(index)?)?;
+        Some(Upkeep { selection, parts })
+    }
+}
+
+fn others(lanes: &[TrackedUtxo], selection: &Selection) -> Vec<u64> {
+    let selected = selection.hashes();
+    lanes
+        .iter()
+        .filter(|utxo| !selected.contains(&utxo.utxo_hash()))
+        .map(TrackedUtxo::amount)
+        .collect()
 }

@@ -14,7 +14,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_program_test::localnet::FixtureLocalnet;
 use zolana_transaction::WalletUtxo;
 
-use crate::shared::{blocking, TestWallet};
+use crate::setup::{blocking, TestWallet};
 
 pub struct User {
     wallet: TestWallet,

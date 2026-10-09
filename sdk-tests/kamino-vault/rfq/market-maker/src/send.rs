@@ -44,7 +44,7 @@ pub enum SendOutcome {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StepStatus {
-    Confirmed { signature: Signature, slot: u64 },
+    Confirmed { signature: Signature },
     Failed { reason: String, code: Option<u32> },
     Expired,
     Pending,
@@ -225,7 +225,6 @@ pub fn classify(
             None if status.satisfies_commitment(CommitmentConfig::confirmed()) => {
                 return StepStatus::Confirmed {
                     signature: sent.signature,
-                    slot: status.slot,
                 };
             }
             None => {}

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use solana_address::Address;
 use solana_signature::Signature;
@@ -13,26 +13,7 @@ use zolana_transaction::{
     Mint, ShieldedKeys, SppProofOutputUtxo, TransactionError, Utxo, WalletUtxo,
 };
 
-use super::{
-    error::MakerError,
-    scheduler::payment::TransferPlan,
-    tracker::{CacheSlot, SpendPath},
-};
-
-#[derive(Clone)]
-pub struct CacheWrites {
-    pub cache: Address,
-    pub slots: Vec<u8>,
-}
-
-impl CacheWrites {
-    fn slot(&self, position: usize) -> Option<CacheSlot> {
-        self.slots.get(position).map(|index| CacheSlot {
-            cache: self.cache,
-            index: *index,
-        })
-    }
-}
+use super::{error::MakerError, scheduler::payment::TransferPlan};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WithdrawalTarget {
@@ -60,16 +41,10 @@ impl WithdrawalTarget {
 }
 
 #[derive(Clone)]
-pub struct PredictedUtxo {
-    pub wallet: WalletUtxo,
-    pub cache_slot: Option<CacheSlot>,
-}
-
-#[derive(Clone)]
 pub struct BuiltTransfer {
     pub proof_inputs: SppProofInputs,
     pub interface_accounts: Vec<TransactInterfaceTransferAccounts>,
-    pub own_outputs: Vec<PredictedUtxo>,
+    pub expected_outputs: Vec<WalletUtxo>,
 }
 
 #[derive(Clone)]
@@ -78,7 +53,6 @@ pub struct TransferBuild {
     pub own: ShieldedAddress,
     pub payer: Address,
     pub tree_id: u16,
-    pub writes: Option<CacheWrites>,
     pub withdrawal: Option<WithdrawalTarget>,
 }
 
@@ -90,16 +64,6 @@ impl TransferBuild {
     }
 
     fn build<K: ShieldedKeys + ?Sized>(self, keys: &K) -> Result<BuiltTransfer, MakerError> {
-        let cached: HashMap<[u8; 32], u8> = self
-            .plan
-            .selection
-            .inputs
-            .iter()
-            .filter_map(|input| match input.path {
-                SpendPath::CachedRead(slot) => Some((input.utxo.utxo_hash(), slot.index)),
-                SpendPath::MerklePath(_) => None,
-            })
-            .collect();
         let wallets: Vec<WalletUtxo> = self
             .plan
             .selection
@@ -126,70 +90,29 @@ impl TransferBuild {
             )?;
             interface_accounts.push(target.accounts(asset.asset));
         }
-        for amount in &self.plan.own_splits {
+        for amount in &self.plan.own_parts {
             pay_to(&mut transaction, asset, &self.own, *amount)?;
         }
         transaction.pad_utxos(self.plan.shape, &self.own)?;
-        let mut proof_inputs = transaction.encrypt(keys)?;
+        let proof_inputs = transaction.encrypt(keys)?;
 
-        for input in proof_inputs.input_utxos.iter_mut() {
-            if let Some(index) = cached.get(&input.utxo_hash) {
-                *input = input.clone().with_cache_slot(*index)?;
-            }
-        }
-        if let Some(cache) = self.plan.selection.read_cache {
-            proof_inputs = proof_inputs.with_read_cache(cache);
-        }
-
-        let own_positions: Vec<usize> = proof_inputs
-            .output_utxos
-            .iter()
-            .enumerate()
-            .filter(|(_, output)| output.owner_address == Some(self.own) && output.amount > 0)
-            .map(|(position, _)| position)
-            .collect();
-        if let Some(writes) = &self.writes {
-            if writes.slots.len() != own_positions.len() {
-                return Err(MakerError::CacheSlotCountMismatch {
-                    slots: writes.slots.len(),
-                    outputs: own_positions.len(),
-                });
-            }
-            for (position, index) in own_positions.iter().zip(&writes.slots) {
-                let output = proof_inputs
-                    .output_utxos
-                    .get_mut(*position)
-                    .ok_or(TransactionError::TooManyOutputs)?;
-                *output = output.clone().with_cache_slot(*index)?;
-            }
-            proof_inputs = proof_inputs.with_write_cache(writes.cache);
-        }
-
-        let mut own_outputs = Vec::with_capacity(own_positions.len());
-        for (write_position, position) in own_positions.iter().enumerate() {
-            let output = proof_inputs
-                .output_utxos
-                .get(*position)
-                .ok_or(TransactionError::TooManyOutputs)?;
-            own_outputs.push(PredictedUtxo {
-                wallet: predict(
+        let mut expected_outputs = Vec::new();
+        for (position, output) in proof_inputs.output_utxos.iter().enumerate() {
+            if output.owner_address == Some(self.own) && output.amount > 0 {
+                expected_outputs.push(expected_output(
                     &self.own,
                     output,
                     output.hash(self.tree_id)?,
                     self.tree_id,
-                    *position,
-                )?,
-                cache_slot: self
-                    .writes
-                    .as_ref()
-                    .and_then(|writes| writes.slot(write_position)),
-            });
+                    position,
+                )?);
+            }
         }
-        assign_nullifiers(keys, &mut own_outputs)?;
+        assign_nullifiers(keys, &mut expected_outputs)?;
         Ok(BuiltTransfer {
             proof_inputs,
             interface_accounts,
-            own_outputs,
+            expected_outputs,
         })
     }
 }
@@ -208,7 +131,7 @@ fn pay_to(
     Ok(())
 }
 
-fn predict(
+fn expected_output(
     own: &ShieldedAddress,
     output: &SppProofOutputUtxo,
     utxo_hash: [u8; 32],
@@ -245,25 +168,25 @@ fn predict(
 
 fn assign_nullifiers<K: ShieldedKeys + ?Sized>(
     keys: &K,
-    predicted: &mut [PredictedUtxo],
+    outputs: &mut [WalletUtxo],
 ) -> Result<(), MakerError> {
-    let requests: Vec<DeriveRequest> = predicted
+    let requests: Vec<DeriveRequest> = outputs
         .iter()
-        .map(|entry| DeriveRequest::Nullifier {
-            utxo_hash: entry.wallet.utxo_hash,
-            blinding: entry.wallet.utxo.blinding,
+        .map(|output| DeriveRequest::Nullifier {
+            utxo_hash: output.utxo_hash,
+            blinding: output.utxo.blinding,
         })
         .collect();
     let nullifiers = keys.derive(&requests)?;
-    if nullifiers.len() != predicted.len() {
+    if nullifiers.len() != outputs.len() {
         return Err(TransactionError::IncompleteDerivation {
             got: nullifiers.len(),
-            want: predicted.len(),
+            want: outputs.len(),
         }
         .into());
     }
-    for (entry, nullifier) in predicted.iter_mut().zip(nullifiers) {
-        entry.wallet.nullifier = nullifier;
+    for (output, nullifier) in outputs.iter_mut().zip(nullifiers) {
+        output.nullifier = nullifier;
     }
     Ok(())
 }

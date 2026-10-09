@@ -5,21 +5,19 @@ use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 
 use kamino_vault_rfq_sdk::{
     kvault::{self, token_balance, VaultState},
-    swap::{
-        instructions, legs, Direction, Holdings, Spend, VaultOperation, MAKER_CACHE_SLOT,
-        SWAP_COMPUTE_BUDGET,
-    },
+    swap::{instructions, legs, Direction, Holdings, VaultOperation, SWAP_COMPUTE_BUDGET},
 };
 
-use crate::shared::{
+use kamino_vault_rfq_example::setup::{
     blocking, compute_units, landed, public_balances, setup, Landed, TestEnv, USER_SHIELD_USDC,
 };
 
 const BOOTSTRAP_USDC: u64 = 200_000_000;
+const BOOTSTRAP_COLLATERAL: u64 = 50_000_000;
 const SWAPS: [u64; 2] = [20_000_000, 30_000_000];
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() -> Result<()> {
     let TestEnv {
         localnet,
         mut user,
@@ -33,7 +31,7 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
     let before_bootstrap = blocking(|| VaultState::read(rpc, &vault.vault))?;
     let predicted = before_bootstrap.deposit(BOOTSTRAP_USDC)?;
     let bootstrap = market_maker
-        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC)
+        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC, BOOTSTRAP_COLLATERAL)
         .await?;
     assert_eq!(
         bootstrap,
@@ -44,6 +42,13 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
             shares: predicted.shares,
             inputs: 0,
             signature: bootstrap.signature,
+        }
+    );
+    assert_eq!(
+        market_maker.holdings(&vault),
+        Holdings {
+            usdc: BOOTSTRAP_COLLATERAL,
+            shares: bootstrap.shares,
         }
     );
     let bootstrap_shares = market_maker
@@ -124,14 +129,8 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
     assert_eq!(
         spends,
         vec![
-            Spend {
-                nullifier: bootstrap_shares,
-                cache_slot: None,
-            },
-            Spend {
-                nullifier: *changes.first().ok_or_else(|| anyhow!("no first fill"))?,
-                cache_slot: Some(MAKER_CACHE_SLOT),
-            },
+            bootstrap_shares,
+            *changes.first().ok_or_else(|| anyhow!("no first fill"))?,
         ]
     );
 
@@ -153,7 +152,7 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
     assert_eq!(
         market_maker.holdings(&vault),
         Holdings {
-            usdc: usdc_received,
+            usdc: BOOTSTRAP_COLLATERAL + usdc_received,
             shares: bootstrap.shares - shares_received,
         }
     );
@@ -188,16 +187,17 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
             after: predicted.after,
             tokens: usdc_received,
             shares: predicted.shares,
-            inputs: SWAPS.len(),
+            inputs: SWAPS.len() + 1,
             signature: rebalance.signature,
         }
     );
     assert_eq!(
         market_maker.holdings(&vault),
         Holdings {
-            usdc: 0,
+            usdc: BOOTSTRAP_COLLATERAL,
             shares: bootstrap.shares - shares_received + rebalance.shares,
         }
     );
+    market_maker.shutdown().await;
     Ok(())
 }

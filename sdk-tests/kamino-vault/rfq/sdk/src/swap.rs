@@ -6,7 +6,7 @@ use solana_hash::Hash;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::VersionedMessage;
 use solana_signature::Signature;
-use zolana_client::{compile_message, ComputeBudgetConfig, DEFAULT_TRANSACT_CU_LIMIT};
+use zolana_client::{compile_message, ComputeBudgetConfig};
 use zolana_interface::{
     instruction::{tag, TransactIxData},
     PROGRAM_ID_PUBKEY,
@@ -17,9 +17,7 @@ use zolana_transaction::WalletUtxo;
 use crate::kvault::{VaultAccounts, VaultState};
 
 const FULL_BPS: u64 = 10_000;
-pub const MAKER_CACHE_SLOT: u8 = 0;
-pub const SWAP_COMPUTE_BUDGET: ComputeBudgetConfig =
-    ComputeBudgetConfig::new(2 * DEFAULT_TRANSACT_CU_LIMIT);
+pub const SWAP_COMPUTE_BUDGET: ComputeBudgetConfig = ComputeBudgetConfig::new(1_400_000);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SwapError {
@@ -30,6 +28,23 @@ pub enum SwapError {
         asset: Address,
         required: u64,
         available: u64,
+    },
+    #[error(
+        "the market maker cannot pay {required} {asset} with at most {max_inputs} inputs next to a user transfer"
+    )]
+    MakerTransferTooWide {
+        asset: Address,
+        required: u64,
+        max_inputs: usize,
+    },
+    #[error(
+        "the swap would leave {asset} at {balance_after}, outside its target range {min}..={max}"
+    )]
+    OutsideTargetRange {
+        asset: Address,
+        balance_after: u64,
+        min: u64,
+        max: u64,
     },
     #[error("the user has no {asset} utxo covering {required}")]
     InsufficientFunds { asset: Address, required: u64 },
@@ -60,14 +75,14 @@ pub enum SwapError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Deposit,
-    Exit,
+    Withdrawal,
 }
 
 impl Direction {
     pub fn assets(self, vault: &VaultAccounts) -> (Address, Address) {
         match self {
             Self::Deposit => (vault.token_mint, vault.shares_mint),
-            Self::Exit => (vault.shares_mint, vault.token_mint),
+            Self::Withdrawal => (vault.shares_mint, vault.token_mint),
         }
     }
 }
@@ -88,7 +103,7 @@ impl Quote {
     ) -> Result<Self> {
         let gross = match direction {
             Direction::Deposit => rate.deposit(amount_in)?.shares,
-            Direction::Exit => rate.withdraw(amount_in)?.tokens,
+            Direction::Withdrawal => rate.withdraw(amount_in)?.tokens,
         };
         let amount_out = u64::try_from(
             u128::from(gross) * u128::from(FULL_BPS.saturating_sub(fee_bps)) / u128::from(FULL_BPS),
@@ -122,16 +137,10 @@ pub struct Order {
     pub request: SwapRequest,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Spend {
-    pub nullifier: [u8; 32],
-    pub cache_slot: Option<u8>,
-}
-
 pub struct Fill {
     pub step: u64,
     pub message: VersionedMessage,
-    pub spent: Vec<Spend>,
+    pub spent: Vec<[u8; 32]>,
     pub change: Vec<WalletUtxo>,
     pub expires_at: Instant,
 }

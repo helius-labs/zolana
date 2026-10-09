@@ -4269,20 +4269,17 @@ name = "kamino-vault-market-maker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "dashmap",
  "futures",
+ "kamino-vault-rfq-example",
  "kamino-vault-rfq-sdk",
- "solana-account-decoder-client-types",
  "solana-address 2.6.1",
  "solana-commitment-config",
  "solana-hash",
  "solana-instruction",
  "solana-instruction-error",
  "solana-message",
- "solana-pubsub-client",
  "solana-rpc-client-api",
- "solana-sdk-ids",
  "solana-signature",
  "solana-signer",
  "solana-transaction",
@@ -4292,6 +4289,30 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "kamino-vault-rfq-example"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kamino-vault-market-maker",
+ "kamino-vault-rfq-sdk",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction-status-client-types",
+ "tokio",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
@@ -4320,30 +4341,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",
- "zolana-transaction",
-]
-
-[[package]]
-name = "kamino-vault-test"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "kamino-vault-market-maker",
- "kamino-vault-rfq-sdk",
- "solana-address 2.6.1",
- "solana-instruction",
- "solana-keypair",
- "solana-message",
- "solana-signature",
- "solana-signer",
- "solana-transaction-status-client-types",
- "tokio",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-program-test",
- "zolana-test-utils",
  "zolana-transaction",
 ]
 
@@ -8330,30 +8327,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-pubsub-client"
-version = "4.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f89829ed49c5160e13e3065eb8ea91551385785e3c7e7450a185ba8d4d7d4575"
-dependencies = [
- "crossbeam-channel",
- "futures-util",
- "log",
- "serde",
- "serde_json",
- "solana-account-decoder-client-types",
- "solana-clock",
- "solana-pubkey 4.2.1",
- "solana-rpc-client-types",
- "solana-signature",
- "thiserror 2.0.20",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tungstenite",
- "url",
-]
-
-[[package]]
 name = "solana-rent"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10367,22 +10340,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-tungstenite"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
-dependencies = [
- "futures-util",
- "log",
- "rustls 0.23.44",
- "rustls-pki-types",
- "tokio",
- "tokio-rustls 0.26.5",
- "tungstenite",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
 name = "tokio-util"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10392,6 +10349,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",
@@ -10714,26 +10672,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "tungstenite"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
-dependencies = [
- "bytes",
- "data-encoding",
- "http 1.5.0",
- "httparse",
- "log",
- "rand 0.9.5",
- "rustls 0.23.44",
- "rustls-pki-types",
- "sha1 0.10.7",
- "thiserror 2.0.20",
- "utf-8",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10885,12 +10823,6 @@ dependencies = [
  "zolana-user-registry",
  "zolana-user-registry-interface",
 ]
-
-[[package]]
-name = "utf-8"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "utf8_iter"

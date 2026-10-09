@@ -249,11 +249,14 @@ pub struct WithdrawOutcome {
 
 impl VaultState {
     pub fn read(rpc: &SolanaRpc, vault: &Address) -> Result<Self> {
-        let data = account_data(rpc, vault)?;
+        Self::from_data(&account_data(rpc, vault)?)
+    }
+
+    pub fn from_data(data: &[u8]) -> Result<Self> {
         Ok(Self {
-            token_available: read_u64(&data, TOKEN_AVAILABLE_OFFSET)?,
-            shares_issued: read_u64(&data, SHARES_ISSUED_OFFSET)?,
-            pending_fees_sf: read_u128(&data, PENDING_FEES_OFFSET)?,
+            token_available: read_u64(data, TOKEN_AVAILABLE_OFFSET)?,
+            shares_issued: read_u64(data, SHARES_ISSUED_OFFSET)?,
+            pending_fees_sf: read_u128(data, PENDING_FEES_OFFSET)?,
         })
     }
 

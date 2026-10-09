@@ -9,7 +9,9 @@ use kamino_vault_rfq_sdk::{
     user::Payment,
 };
 
-use crate::shared::{blocking, compute_units, setup, TestEnv, TestWallet, USER_SHIELD_USDC};
+use kamino_vault_rfq_example::setup::{
+    blocking, compute_units, setup, TestEnv, TestWallet, USER_SHIELD_USDC,
+};
 
 const MAKER_SHIELD_USDC: u64 = 50_000_000;
 const USER_PAYS: u64 = 7_000_000;
@@ -128,5 +130,6 @@ async fn two_transacts_against_one_tree_settle_in_one_transaction() -> Result<()
             shares: 0,
         }
     );
+    market_maker.shutdown().await;
     Ok(())
 }

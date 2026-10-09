@@ -1,4 +1,3 @@
-mod caches;
 mod lifecycle;
 mod schedule;
 mod upkeep;
@@ -9,40 +8,36 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::StreamExt;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_signature::Signature;
 use tokio::{
-    sync::{mpsc, oneshot, watch},
+    sync::{mpsc, oneshot},
     time::MissedTickBehavior,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use zolana_client::AsyncRpc;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 
-use kamino_vault_rfq_sdk::{budget::SwapBudget, swap::Fill};
+use kamino_vault_rfq_sdk::{budget::SwapBudget, kvault::VaultState, swap::Fill};
 
 use super::{
     build::WithdrawalTarget,
-    cache_pool::CachePool,
-    config::MakerConfig,
+    config::Settings,
     error::MakerError,
-    ledger::Ledger,
+    ledger::{Inflow, Ledger},
     prove::ProofQueue,
+    rebalance::RebalanceOrder,
     send::{SendOutcome, SendQueue},
     step::{OperationId, StepGraph, StepId},
-    watcher::CacheWatcher,
 };
-
-const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(15);
-const MIN_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
 
 pub struct FillOrder {
     pub asset: Address,
     pub amount: u64,
     pub recipient: ShieldedAddress,
     pub user_leg: Instruction,
+    pub inflow: Inflow,
     pub ttl: Duration,
 }
 
@@ -50,7 +45,7 @@ pub struct ConsolidateOrder {
     pub asset: Address,
     pub withdrawal: u64,
     pub target: Option<WithdrawalTarget>,
-    pub tail: Vec<Instruction>,
+    pub rebalance: Option<RebalanceOrder>,
 }
 
 pub enum Operation {
@@ -83,7 +78,10 @@ pub struct ConsolidateReceipt {
 
 pub enum OperationOutcome {
     Filled(Fill),
-    Consolidated(ConsolidateReceipt),
+    Consolidated {
+        receipt: ConsolidateReceipt,
+        vault_before: Option<VaultState>,
+    },
 }
 
 pub type OperationReply = oneshot::Sender<Result<OperationOutcome, MakerError>>;
@@ -115,38 +113,37 @@ pub enum Event {
 }
 
 pub struct CoordinatorParts {
-    pub config: MakerConfig,
+    pub config: Settings,
     pub assets: Vec<Address>,
     pub rpc: Arc<dyn AsyncRpc>,
-    pub pool: CachePool,
-    pub watcher: Arc<dyn CacheWatcher>,
     pub ledger: Arc<Ledger>,
     pub keys: Arc<ShieldedKeypair>,
     pub own: ShieldedAddress,
     pub payer: Address,
-    pub budget: SwapBudget,
+    pub tree: Address,
+    pub budget: Arc<SwapBudget>,
     pub proofs: Arc<ProofQueue>,
     pub sender: Arc<SendQueue>,
     pub events: mpsc::UnboundedSender<Event>,
     pub cancel: CancellationToken,
+    pub tasks: TaskTracker,
 }
 
 pub struct Coordinator {
-    config: MakerConfig,
+    config: Settings,
     assets: Vec<Address>,
     rpc: Arc<dyn AsyncRpc>,
-    pool: CachePool,
-    watcher: Arc<dyn CacheWatcher>,
-    watched: watch::Sender<Vec<Address>>,
     ledger: Arc<Ledger>,
     keys: Arc<ShieldedKeypair>,
     own: ShieldedAddress,
     payer: Address,
-    budget: SwapBudget,
+    tree: Address,
+    budget: Arc<SwapBudget>,
     proofs: Arc<ProofQueue>,
     sender: Arc<SendQueue>,
     events: mpsc::UnboundedSender<Event>,
     cancel: CancellationToken,
+    tasks: TaskTracker,
     steps: StepGraph,
     queue: VecDeque<QueuedOperation>,
     scheduled: HashMap<OperationId, QueuedOperation>,
@@ -155,23 +152,21 @@ pub struct Coordinator {
 
 impl Coordinator {
     pub fn new(parts: CoordinatorParts) -> Self {
-        let (watched, _) = watch::channel(parts.pool.addresses());
         Self {
             config: parts.config,
             assets: parts.assets,
             rpc: parts.rpc,
-            pool: parts.pool,
-            watcher: parts.watcher,
-            watched,
             ledger: parts.ledger,
             keys: parts.keys,
             own: parts.own,
             payer: parts.payer,
+            tree: parts.tree,
             budget: parts.budget,
             proofs: parts.proofs,
             sender: parts.sender,
             events: parts.events,
             cancel: parts.cancel,
+            tasks: parts.tasks,
             steps: StepGraph::default(),
             queue: VecDeque::new(),
             scheduled: HashMap::new(),
@@ -182,12 +177,6 @@ impl Coordinator {
     pub async fn run(mut self, mut events: mpsc::UnboundedReceiver<Event>) {
         let mut status_tick = tokio::time::interval(self.config.status_interval);
         status_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let maintenance_every = MAINTENANCE_INTERVAL
-            .min(self.config.cache_rotation_margin / 4)
-            .max(MIN_MAINTENANCE_INTERVAL);
-        let mut maintenance_tick = tokio::time::interval(maintenance_every);
-        maintenance_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let mut updates = self.watcher.subscribe(self.watched.subscribe());
         loop {
             tokio::select! {
                 _ = self.cancel.cancelled() => break,
@@ -199,9 +188,8 @@ impl Coordinator {
                     self.poll_statuses().await;
                     self.send_ready();
                     self.run_upkeep().await;
+                    self.check_ranges().await;
                 }
-                _ = maintenance_tick.tick() => self.maintain_caches().await,
-                Some(update) = updates.next() => self.on_cache_update(update).await,
             }
         }
         self.drain(events).await;
@@ -227,31 +215,44 @@ impl Coordinator {
     }
 
     async fn drain(&mut self, mut events: mpsc::UnboundedReceiver<Event>) {
-        events.close();
-        while let Some(event) = events.recv().await {
-            match event {
-                Event::Operation(operation) => {
-                    let _ = operation.reply.send(Err(MakerError::ShuttingDown));
-                }
-                Event::Settle { reply, .. } => {
-                    let _ = reply.send(Err(MakerError::ShuttingDown));
-                }
-                Event::Sent { step, outcome } => self.on_sent(step, outcome).await,
-                Event::Proven { .. } | Event::Expire(_) | Event::Synced => {}
+        self.reject_queued();
+        let mut status_tick = tokio::time::interval(self.config.status_interval);
+        while self.steps.has_pending_sends() {
+            tokio::select! {
+                Some(event) = events.recv() => self.drain_event(event).await,
+                _ = status_tick.tick() => self.poll_statuses().await,
             }
         }
+        events.close();
+        while let Ok(event) = events.try_recv() {
+            self.drain_event(event).await;
+        }
+        self.reject_queued();
+        for (_, operation) in self.scheduled.drain() {
+            let _ = operation.reply.send(Err(MakerError::ShuttingDown));
+        }
+    }
+
+    fn reject_queued(&mut self) {
         for operation in self.queue.drain(..) {
             self.ledger
                 .unqueue(operation.operation.asset(), operation.operation.amount());
             let _ = operation.reply.send(Err(MakerError::ShuttingDown));
         }
-        let mut status_tick = tokio::time::interval(self.config.status_interval);
-        while self.steps.has_pending_sends() {
-            status_tick.tick().await;
-            self.poll_statuses().await;
-        }
-        for (_, operation) in self.scheduled.drain() {
-            let _ = operation.reply.send(Err(MakerError::ShuttingDown));
+    }
+
+    async fn drain_event(&mut self, event: Event) {
+        match event {
+            Event::Operation(operation) => {
+                self.ledger
+                    .unqueue(operation.operation.asset(), operation.operation.amount());
+                let _ = operation.reply.send(Err(MakerError::ShuttingDown));
+            }
+            Event::Settle { reply, .. } => {
+                let _ = reply.send(Err(MakerError::ShuttingDown));
+            }
+            Event::Sent { step, outcome } => self.on_sent(step, outcome).await,
+            Event::Proven { .. } | Event::Expire(_) | Event::Synced => {}
         }
     }
 }

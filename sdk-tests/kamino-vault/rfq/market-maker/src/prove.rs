@@ -24,7 +24,6 @@ pub struct ProofQueueConfig {
     pub base_workers: usize,
     pub max_workers: usize,
     pub payer: Address,
-    pub write_authority: Address,
 }
 
 pub struct ProofQueue {
@@ -35,7 +34,6 @@ pub struct ProofQueue {
     worker_count: AtomicUsize,
     max_workers: usize,
     payer: Address,
-    write_authority: Address,
 }
 
 impl ProofQueue {
@@ -49,7 +47,6 @@ impl ProofQueue {
             worker_count: AtomicUsize::new(base),
             max_workers: config.max_workers.max(base),
             payer: config.payer,
-            write_authority: config.write_authority,
         }
     }
 
@@ -123,7 +120,6 @@ impl ProofQueue {
             .await?;
         let owner_signers = proof_inputs.owner_signer_pubkeys()?;
         let output_tree = pda::tree(proof_inputs.output_tree_id);
-        let caches = proof_inputs.cache_accounts;
         let mut assembled = assemble(
             proof_inputs,
             &witnesses.spend_proofs,
@@ -144,23 +140,14 @@ impl ProofQueue {
             .copied()
             .map(pda::tree)
             .collect();
-        let transact = Transact {
+        Ok(Transact {
             payer: self.payer,
             input_trees,
             output_tree,
             owner_signers,
             interface_transfer_accounts: interface_accounts,
             data: assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()),
-        };
-        Ok(match (caches.read, caches.write) {
-            (Some(read), Some(write)) => {
-                transact.instruction_with_caches(read, write, self.write_authority)
-            }
-            (Some(read), None) => transact.instruction_with_cache_read(read),
-            (None, Some(write)) => {
-                transact.instruction_with_cache_write(write, self.write_authority)
-            }
-            (None, None) => transact.instruction(),
-        })
+        }
+        .instruction())
     }
 }

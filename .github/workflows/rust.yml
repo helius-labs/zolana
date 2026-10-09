@@ -381,8 +381,14 @@ jobs:
           - name: rfq settlement
             recipe: test-rfq-validator
             runner: ubuntu-latest
-          - name: kamino-vault deposits
+          - name: kamino-vault market maker
             recipe: test-kamino-vault-validator
+            runner: ubuntu-latest
+          - name: kamino-vault deposit example
+            recipe: example-kamino-vault-deposit
+            runner: ubuntu-latest
+          - name: kamino-vault withdrawal example
+            recipe: example-kamino-vault-withdrawal
             runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2

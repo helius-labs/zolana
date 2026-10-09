@@ -1,42 +1,31 @@
-pub mod growth;
 pub mod payment;
+pub mod profile;
 pub mod upkeep;
 
 use std::cmp::Reverse;
 
-use solana_address::Address;
 use zolana_client::SPP_SUPPORTED_SHAPES;
 use zolana_transaction::WalletUtxo;
 
-use super::tracker::{SpendPath, TrackedUtxo};
+use super::tracker::TrackedUtxo;
 
 #[derive(Clone)]
 pub struct SelectedInput {
     pub utxo: TrackedUtxo,
-    pub path: SpendPath,
+    pub leaf_index: u64,
 }
 
 impl SelectedInput {
     pub fn wallet(&self) -> WalletUtxo {
         let mut wallet = self.utxo.wallet.clone();
-        if let SpendPath::MerklePath(leaf_index) = self.path {
-            wallet.leaf_index = leaf_index;
-        }
+        wallet.leaf_index = self.leaf_index;
         wallet
-    }
-
-    pub fn cache_index(&self) -> Option<u8> {
-        match self.path {
-            SpendPath::CachedRead(slot) => Some(slot.index),
-            SpendPath::MerklePath(_) => None,
-        }
     }
 }
 
 #[derive(Clone, Default)]
 pub struct Selection {
     pub inputs: Vec<SelectedInput>,
-    pub read_cache: Option<Address>,
     pub total: u64,
 }
 
@@ -47,16 +36,13 @@ impl Selection {
     }
 
     fn push(&mut self, utxo: &TrackedUtxo) -> bool {
-        let Some(path) = utxo.spend_path(self.read_cache) else {
+        let Some(leaf_index) = utxo.leaf_index else {
             return false;
         };
-        if let SpendPath::CachedRead(slot) = path {
-            self.read_cache = Some(slot.cache);
-        }
         self.total = self.total.saturating_add(utxo.amount());
         self.inputs.push(SelectedInput {
             utxo: utxo.clone(),
-            path,
+            leaf_index,
         });
         true
     }
@@ -65,16 +51,6 @@ impl Selection {
         self.inputs
             .iter()
             .map(|input| input.utxo.utxo_hash())
-            .collect()
-    }
-
-    pub fn cached_slots(&self) -> Vec<(Address, u8)> {
-        self.inputs
-            .iter()
-            .filter_map(|input| match input.path {
-                SpendPath::CachedRead(slot) => Some((slot.cache, slot.index)),
-                SpendPath::MerklePath(_) => None,
-            })
             .collect()
     }
 }
@@ -89,9 +65,45 @@ pub fn max_outputs_for(inputs: usize) -> usize {
 }
 
 pub fn select(available: &[TrackedUtxo], amount: u64, max_inputs: usize) -> Option<Selection> {
-    let mut candidates: Vec<&TrackedUtxo> = available.iter().collect();
-    candidates.sort_by_key(|utxo| Reverse(utxo.amount()));
-    select_amount(candidates, amount, max_inputs)
+    let candidates: Vec<&TrackedUtxo> = available
+        .iter()
+        .filter(|utxo| utxo.leaf_index.is_some())
+        .collect();
+    let picked = pick(candidates, |utxo| utxo.amount(), amount, max_inputs)?;
+    let mut selection = Selection::default();
+    for utxo in picked {
+        selection.push(utxo);
+    }
+    Some(selection)
+}
+
+pub fn width(lanes: Vec<u64>, amount: u64, max_inputs: usize) -> Option<usize> {
+    pick(lanes, |lane| *lane, amount, max_inputs).map(|picked| picked.len())
+}
+
+fn pick<T>(
+    mut candidates: Vec<T>,
+    amount_of: impl Fn(&T) -> u64,
+    amount: u64,
+    max_inputs: usize,
+) -> Option<Vec<T>> {
+    candidates.sort_by_key(|candidate| Reverse(amount_of(candidate)));
+    let mut picked = Vec::new();
+    let mut total = 0u64;
+    while picked.len() < max_inputs && !candidates.is_empty() {
+        let remaining = amount.saturating_sub(total);
+        let covering = candidates
+            .iter()
+            .rposition(|candidate| amount_of(candidate) >= remaining)
+            .unwrap_or(0);
+        let candidate = candidates.remove(covering);
+        total = total.saturating_add(amount_of(&candidate));
+        picked.push(candidate);
+        if total >= amount {
+            return Some(picked);
+        }
+    }
+    None
 }
 
 pub fn select_all(available: &[TrackedUtxo], max_inputs: usize) -> Selection {
@@ -118,19 +130,4 @@ pub fn select_smallest(available: &[TrackedUtxo], count: usize) -> Selection {
         selection.push(utxo);
     }
     selection
-}
-
-fn select_amount(
-    candidates: Vec<&TrackedUtxo>,
-    amount: u64,
-    max_inputs: usize,
-) -> Option<Selection> {
-    let mut selection = Selection::default();
-    for utxo in candidates {
-        if selection.total >= amount || selection.inputs.len() >= max_inputs {
-            break;
-        }
-        selection.push(utxo);
-    }
-    (selection.total >= amount && !selection.inputs.is_empty()).then_some(selection)
 }

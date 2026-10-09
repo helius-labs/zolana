@@ -1358,18 +1358,28 @@ test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-se
 test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p rfq-test --test rfq
 
-# Private kVault deposits and delayed exits through a market maker: the user
-# swaps USDC for kVault shares in one co-signed shielded-pool transact, and the
-# market maker rebalances against the unmodified kVault program dumped from
-# mainnet (sdk-tests/kamino-vault/rfq/test), booted through FixtureLocalnet.
+# Private kVault deposits and withdrawals through a market maker: the market
+# maker tests (sdk-tests/kamino-vault/rfq/market-maker/tests) run against the
+# unmodified kVault program dumped from mainnet, booted through FixtureLocalnet.
 test-kamino-vault-validator: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p kamino-vault-test --test kamino_vault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p kamino-vault-market-maker --tests
+
+# The private kVault deposit user flow as a program
+# (sdk-tests/kamino-vault/rfq/examples/examples/deposit.rs). It boots its own
+# FixtureLocalnet like the market maker tests.
+example-kamino-vault-deposit: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p kamino-vault-rfq-example --example deposit
+
+# The private kVault withdrawal user flow as a program
+# (sdk-tests/kamino-vault/rfq/examples/examples/withdrawal.rs).
+example-kamino-vault-withdrawal: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p kamino-vault-rfq-example --example withdrawal
 
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of
 # them run in parallel.
 test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -p kamino-vault-test -E 'not binary(bench_cu)'
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -p kamino-vault-market-maker -E 'not binary(bench_cu)'
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -1512,7 +1522,7 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
-    cargo nextest archive -p kamino-vault-test --test kamino_vault --archive-file {{dir}}/kamino-vault-test.tar.zst
+    cargo nextest archive -p kamino-vault-market-maker --tests --archive-file {{dir}}/kamino-vault-market-maker.tar.zst
 
 # Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and

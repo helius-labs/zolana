@@ -25,8 +25,23 @@ pub enum MakerError {
         max_inputs: usize,
     },
 
+    #[error("own outputs of {planned} do not add up to the {own_value} the transfer keeps")]
+    OwnPartsMismatch { planned: u64, own_value: u64 },
+
     #[error("{asset} has no fragments to consolidate")]
     NothingToConsolidate { asset: Address },
+
+    #[error("vault {vault} does not exist")]
+    VaultMissing { vault: Address },
+
+    #[error("vault {vault} state does not parse: {reason}")]
+    VaultState { vault: Address, reason: String },
+
+    #[error("vault {vault} cannot price the rebalance: {reason}")]
+    VaultMath { vault: Address, reason: String },
+
+    #[error("shield instruction could not be built: {0}")]
+    ShieldInstruction(String),
 
     #[error("operation amount is zero")]
     AmountZero,
@@ -91,29 +106,14 @@ pub enum MakerError {
     #[error("a fill preempts this upkeep step")]
     Preempted,
 
-    #[error("a cache slot no longer holds its tracked utxo")]
-    CacheSlotChanged,
-
-    #[error("the cache expired before the step was sent")]
-    CacheExpired,
-
     #[error("no supported shape takes {inputs} inputs and {outputs} outputs")]
     NoSupportedShape { inputs: usize, outputs: usize },
 
     #[error("transaction of {bytes} bytes and {addresses} addresses does not fit transaction v1")]
     TransactionTooLarge { bytes: usize, addresses: usize },
 
-    #[error("{slots} cache slots were assigned to {outputs} own new utxos")]
-    CacheSlotCountMismatch { slots: usize, outputs: usize },
-
     #[error("output position {position} does not fit a slot index")]
     OutputPositionOutOfRange { position: usize },
-
-    #[error("cache account {cache} has invalid data")]
-    InvalidCacheAccount { cache: Address },
-
-    #[error("clock sysvar is missing or malformed")]
-    InvalidClock,
 
     #[error("utxo {0:?} is reserved by another step")]
     UtxoReserved([u8; 32]),

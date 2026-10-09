@@ -4,19 +4,18 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 
 use super::{ConsolidateOrder, Coordinator, FillOrder, Operation, QueuedOperation};
-use kamino_vault_rfq_sdk::{budget::smallest_shape, swap::Spend};
+use kamino_vault_rfq_sdk::{budget::smallest_shape, kvault::VaultState};
 
 use crate::{
-    build::{CacheWrites, PredictedUtxo, TransferBuild, WithdrawalTarget},
+    build::{TransferBuild, WithdrawalTarget},
     error::MakerError,
+    rebalance::{MakerAccounts, RebalanceOrder, RebalanceTail, ShieldPlan},
     scheduler::{
-        growth::Growth,
-        payment::{plan_consolidate, plan_payment, TransferPlan},
-        select, select_all,
-        upkeep::UpkeepPolicy,
+        max_outputs_for,
+        payment::{own_value, plan_consolidate, plan_payment, TransferPlan},
+        select, select_all, Selection,
     },
     step::{FillLeg, OperationId, ProofWork, Step, StepId, StepKind},
-    tracker::TrackedUtxo,
 };
 
 enum ScheduleOutcome {
@@ -31,9 +30,9 @@ pub(super) struct TransferStep {
     pub asset: Address,
     pub operation: Option<OperationId>,
     pub plan: TransferPlan,
-    pub open_caches: bool,
     pub withdrawal: Option<WithdrawalTarget>,
     pub tail: Vec<Instruction>,
+    pub vault_before: Option<VaultState>,
     pub fill: Option<FillLeg>,
 }
 
@@ -48,12 +47,7 @@ impl Coordinator {
                 kept.push_back(queued);
                 continue;
             }
-            let waiting = pending
-                .iter()
-                .chain(kept.iter())
-                .filter(|other| is_fill_of(other, &asset))
-                .count();
-            match self.schedule(&queued, waiting).await {
+            match self.schedule(&queued).await {
                 ScheduleOutcome::Scheduled => {
                     self.ledger.unqueue(asset, queued.operation.amount());
                     self.scheduled.insert(queued.id, queued);
@@ -74,54 +68,46 @@ impl Coordinator {
         self.queue = requeued;
     }
 
-    async fn schedule(&mut self, queued: &QueuedOperation, waiting: usize) -> ScheduleOutcome {
+    async fn schedule(&mut self, queued: &QueuedOperation) -> ScheduleOutcome {
         match &queued.operation {
-            Operation::Fill(order) => self.schedule_fill(queued.id, order, waiting).await,
+            Operation::Fill(order) => self.schedule_fill(queued.id, order).await,
             Operation::Consolidate(order) => self.schedule_consolidate(queued.id, order).await,
         }
     }
 
-    async fn schedule_fill(
-        &mut self,
-        id: OperationId,
-        order: &FillOrder,
-        waiting: usize,
-    ) -> ScheduleOutcome {
+    async fn schedule_fill(&mut self, id: OperationId, order: &FillOrder) -> ScheduleOutcome {
         let available = self.ledger.tracker.available(&order.asset);
-        let max_inputs = self.config.maker_leg.n_inputs();
+        let max_inputs = match self.budget.max_maker_inputs(&order.user_leg) {
+            Ok(max_inputs) => max_inputs,
+            Err(error) => return ScheduleOutcome::Rejected(error.into()),
+        };
         let Some(selection) = select(&available, order.amount, max_inputs) else {
             return self
                 .unschedulable(order.asset, order.amount, max_inputs)
                 .await;
         };
-        let max_outputs = match self.budget.max_maker_outputs(
-            &order.user_leg,
-            selection.inputs.len(),
-            self.config.maker_leg.n_outputs(),
-        ) {
+        let max_outputs = match self
+            .budget
+            .max_maker_outputs(&order.user_leg, selection.inputs.len())
+        {
             Ok(max_outputs) => max_outputs,
             Err(error) => return ScheduleOutcome::Rejected(error.into()),
         };
-        let change_outputs = Growth {
-            queued: waiting,
-            free_lanes: available.len().saturating_sub(selection.inputs.len()),
-            tracked_lanes: self.ledger.tracker.lane_count(&order.asset),
-            max_lanes: self.config.max_lanes,
-            inputs: selection.inputs.len(),
-            change: selection.total.saturating_sub(order.amount),
-            min_lane_value: self.config.min_lane_value,
-            max_outputs,
-        }
-        .change_outputs();
+        let change = match own_value(&selection, order.amount) {
+            Ok(change) => change,
+            Err(error) => return ScheduleOutcome::Rejected(error),
+        };
+        let change_parts = self.config.profile(&order.asset).parts(
+            change,
+            &self.other_lanes(&order.asset, &selection),
+            max_outputs.saturating_sub(1),
+        );
         let spends = selection
             .inputs
             .iter()
-            .map(|input| Spend {
-                nullifier: input.utxo.wallet.nullifier,
-                cache_slot: input.cache_index(),
-            })
+            .map(|input| input.utxo.wallet.nullifier)
             .collect();
-        let plan = match plan_payment(selection, order.recipient, order.amount, change_outputs) {
+        let plan = match plan_payment(selection, order.recipient, order.amount, change_parts) {
             Ok(plan) => plan,
             Err(error) => return ScheduleOutcome::Rejected(error),
         };
@@ -129,26 +115,29 @@ impl Coordinator {
             user_leg: order.user_leg.clone(),
             ttl: order.ttl,
             spends,
-            change: Vec::new(),
             message: None,
             last_valid_block_height: 0,
             expires_at: None,
             transaction: None,
             settle: None,
         };
-        outcome(
-            self.schedule_transfer(TransferStep {
+        let scheduled = self
+            .schedule_transfer(TransferStep {
                 kind: StepKind::Fill,
                 asset: order.asset,
                 operation: Some(id),
                 plan,
-                open_caches: false,
                 withdrawal: None,
                 tail: Vec::new(),
+                vault_before: None,
                 fill: Some(fill),
             })
-            .await,
-        )
+            .await;
+        if let Ok(step) = scheduled {
+            self.ledger
+                .expect_fill(step, (order.asset, order.amount), order.inflow);
+        }
+        outcome(scheduled)
     }
 
     async fn schedule_consolidate(
@@ -162,15 +151,29 @@ impl Coordinator {
                 asset: order.asset,
             });
         }
-        let rebalance = order
+        let tail = match &order.rebalance {
+            Some(rebalance) => match self.rebalance_tail(rebalance).await {
+                Ok(tail) => Some(tail),
+                Err(error) => return ScheduleOutcome::Rejected(error),
+            },
+            None => None,
+        };
+        let withdrawal = tail
+            .as_ref()
+            .map_or(order.withdrawal, |tail| tail.withdrawal);
+        let instructions = tail
+            .as_ref()
+            .map(|tail| tail.instructions.clone())
+            .unwrap_or_default();
+        let accounts = order
             .target
-            .filter(|_| !order.tail.is_empty())
+            .filter(|_| tail.is_some())
             .map(|target| target.spl_accounts(order.asset));
-        let max_inputs = match rebalance {
+        let max_inputs = match accounts {
             Some(accounts) => {
                 match self
                     .budget
-                    .max_consolidate_inputs_with(1, accounts, &order.tail)
+                    .max_consolidate_inputs_with(1, accounts, &instructions)
                 {
                     Ok(max_inputs) => max_inputs,
                     Err(error) => return ScheduleOutcome::Rejected(error.into()),
@@ -179,34 +182,35 @@ impl Coordinator {
             None => self.budget.max_consolidate_inputs,
         };
         let selection = select_all(&available, max_inputs);
-        if selection.total < order.withdrawal || selection.inputs.is_empty() {
+        if selection.total < withdrawal || selection.inputs.is_empty() {
             if self.waits_for_lanes(&order.asset) {
                 return ScheduleOutcome::Backlogged;
             }
             return ScheduleOutcome::Rejected(MakerError::InsufficientBalance {
                 asset: order.asset,
                 available: selection.total,
-                requested: order.withdrawal,
+                requested: withdrawal,
             });
         }
         let inputs = selection.inputs.len();
-        let parts = self
-            .policy()
-            .consolidate_parts(selection.total - order.withdrawal, inputs);
-        let parts = match rebalance {
-            Some(accounts) => (1..=parts)
-                .rev()
-                .find(|parts| {
-                    smallest_shape(inputs, *parts).is_some_and(|shape| {
-                        self.budget
-                            .consolidate_size(shape, accounts, &order.tail)
-                            .is_ok_and(|size| size.fits())
-                    })
+        let kept = selection.total - withdrawal;
+        let others = self.other_lanes(&order.asset, &selection);
+        let profile = self.config.profile(&order.asset);
+        let parts = (1..=max_outputs_for(inputs))
+            .rev()
+            .map(|max_parts| profile.parts(kept, &others, max_parts))
+            .find(|parts| {
+                let Some(accounts) = accounts else {
+                    return true;
+                };
+                smallest_shape(inputs, parts.len().max(1)).is_some_and(|shape| {
+                    self.budget
+                        .consolidate_size(shape, accounts, &instructions)
+                        .is_ok_and(|size| size.fits())
                 })
-                .unwrap_or(1),
-            None => parts,
-        };
-        let plan = match plan_consolidate(selection, order.withdrawal, parts) {
+            })
+            .unwrap_or_else(|| profile.parts(kept, &others, 1));
+        let plan = match plan_consolidate(selection, withdrawal, parts) {
             Ok(plan) => plan,
             Err(error) => return ScheduleOutcome::Rejected(error),
         };
@@ -216,20 +220,46 @@ impl Coordinator {
                 asset: order.asset,
                 operation: Some(id),
                 plan,
-                open_caches: true,
                 withdrawal: order.target,
-                tail: order.tail.clone(),
+                tail: instructions,
+                vault_before: tail.map(|tail| tail.before),
                 fill: None,
             })
             .await,
         )
     }
 
-    pub(super) fn policy(&self) -> UpkeepPolicy {
-        UpkeepPolicy {
-            base_lanes: self.config.base_lanes,
-            min_lane_value: self.config.min_lane_value,
-        }
+    async fn rebalance_tail(&self, order: &RebalanceOrder) -> Result<RebalanceTail, MakerError> {
+        let before = order.vault_state(self.rpc.as_ref()).await?;
+        let shielded = order.shielded_asset();
+        let shield = ShieldPlan {
+            profile: self.config.profile(&shielded),
+            lanes: self
+                .ledger
+                .tracker
+                .lanes(&shielded)
+                .into_iter()
+                .map(|lane| lane.amount)
+                .collect(),
+            max_lanes: self.config.max_shield_lanes,
+        };
+        let maker = MakerAccounts {
+            owner: self.payer,
+            identity: self.own,
+            tree: self.tree,
+        };
+        order.tail(before, maker, &shield, Vec::new())
+    }
+
+    pub(super) fn other_lanes(&self, asset: &Address, selection: &Selection) -> Vec<u64> {
+        let selected = selection.hashes();
+        self.ledger
+            .tracker
+            .lanes(asset)
+            .into_iter()
+            .filter(|lane| !selected.contains(&lane.utxo_hash))
+            .map(|lane| lane.amount)
+            .collect()
     }
 
     fn waits_for_lanes(&self, asset: &Address) -> bool {
@@ -265,30 +295,17 @@ impl Coordinator {
             asset,
             operation,
             plan,
-            open_caches,
             withdrawal,
             tail,
+            vault_before,
             fill,
         } = transfer;
-        let writes = self
-            .pool
-            .allocate(
-                &self.ledger.tracker,
-                plan.own_output_count(&self.own),
-                &plan.selection.cached_slots(),
-                open_caches,
-            )
-            .map(|(cache, slots)| CacheWrites { cache, slots });
-        self.publish_caches();
         let inputs = plan.selection.hashes();
-        let read_cache = plan.selection.read_cache;
-        let write_cache = writes.as_ref().map(|writes| writes.cache);
         let built = TransferBuild {
             plan,
             own: self.own,
             payer: self.payer,
             tree_id: self.config.tree_id,
-            writes,
             withdrawal,
         }
         .run(self.keys.clone())
@@ -305,31 +322,23 @@ impl Coordinator {
         step.asset = Some(asset);
         step.operation = operation;
         step.inputs = inputs;
-        step.read_cache = read_cache;
-        step.write_cache = write_cache;
         step.tail = tail;
-        step.fill = fill.map(|mut fill| {
-            fill.change = built
-                .own_outputs
-                .iter()
-                .map(|output| output.wallet.clone())
-                .collect();
-            fill
-        });
-        self.admit(step, built.own_outputs)?;
+        step.vault_before = vault_before;
+        step.fill = fill;
+        step.expected_outputs = built.expected_outputs;
+        self.admit(step)?;
         Ok(id)
     }
 
-    fn admit(&mut self, mut step: Step, outputs: Vec<PredictedUtxo>) -> Result<(), MakerError> {
+    fn admit(&mut self, step: Step) -> Result<(), MakerError> {
         self.ledger.tracker.reserve(step.id, &step.inputs)?;
-        for predicted in outputs {
-            step.own_outputs.push(predicted.wallet.utxo_hash);
-            self.ledger.tracker.insert(TrackedUtxo {
-                wallet: predicted.wallet,
-                source: Some(step.id),
-                leaf_index: None,
-                cache_slot: predicted.cache_slot,
-            });
+        if let Some(asset) = step.asset {
+            let incoming = step
+                .expected_outputs
+                .iter()
+                .map(|output| output.utxo.amount)
+                .sum();
+            self.ledger.expect(step.id, asset, incoming);
         }
         let id = step.id;
         self.steps.insert(step);
@@ -343,8 +352,4 @@ fn outcome(result: Result<StepId, MakerError>) -> ScheduleOutcome {
         Ok(_) => ScheduleOutcome::Scheduled,
         Err(error) => ScheduleOutcome::Rejected(error),
     }
-}
-
-fn is_fill_of(queued: &QueuedOperation, asset: &Address) -> bool {
-    matches!(&queued.operation, Operation::Fill(order) if order.asset == *asset)
 }

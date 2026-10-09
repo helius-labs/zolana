@@ -44,9 +44,11 @@ impl Coordinator {
         step.prove_attempts += 1;
         let proofs = self.proofs.clone();
         let events = self.events.clone();
-        tokio::spawn(async move {
-            let result = proofs.prove(work).await;
-            let _ = events.send(Event::Proven { step: id, result });
+        let cancel = self.cancel.clone();
+        self.tasks.spawn(async move {
+            if let Some(result) = cancel.run_until_cancelled(proofs.prove(work)).await {
+                let _ = events.send(Event::Proven { step: id, result });
+            }
         });
     }
 
@@ -119,16 +121,19 @@ impl Coordinator {
             step: id,
             message,
             spent: fill.spends.clone(),
-            change: fill.change.clone(),
+            change: step.expected_outputs.clone(),
             expires_at,
         };
         let operation = step
             .operation
             .and_then(|operation| self.scheduled.remove(&operation));
         let events = self.events.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep_until(expires_at.into()).await;
-            let _ = events.send(Event::Expire(id));
+        let cancel = self.cancel.clone();
+        self.tasks.spawn(async move {
+            let deadline = tokio::time::sleep_until(expires_at.into());
+            if cancel.run_until_cancelled(deadline).await.is_some() {
+                let _ = events.send(Event::Expire(id));
+            }
         });
         let delivered = operation.is_some_and(|operation| {
             operation
@@ -205,13 +210,8 @@ impl Coordinator {
     fn send_request(&self, id: StepId) -> Option<SendRequest> {
         let step = self.steps.get(id)?;
         let instruction = step.instruction.clone()?;
-        let create = step
-            .write_cache
-            .and_then(|cache| self.pool.create_instruction(&cache));
         Some(SendRequest {
-            instructions: create
-                .into_iter()
-                .chain([instruction])
+            instructions: std::iter::once(instruction)
                 .chain(step.tail.iter().cloned())
                 .collect(),
             compute_units: step.compute_units(),
@@ -244,7 +244,7 @@ impl Coordinator {
         }
         let sender = self.sender.clone();
         let events = self.events.clone();
-        tokio::spawn(async move {
+        self.tasks.spawn(async move {
             let outcome = match (signed, request) {
                 (Some((transaction, last_valid)), _) => {
                     sender.submit(&transaction, last_valid).await
@@ -319,9 +319,7 @@ impl Coordinator {
         for (id, sends) in sent {
             let step_statuses: Vec<_> = statuses.by_ref().take(sends.len()).collect();
             match classify(&sends, &step_statuses, block_height) {
-                StepStatus::Confirmed { signature, slot } => {
-                    self.on_confirmed(id, signature, slot).await
-                }
+                StepStatus::Confirmed { signature } => self.on_confirmed(id, signature).await,
                 StepStatus::Failed { reason, code } => self.on_failed(id, reason, code).await,
                 StepStatus::Expired => self.on_expired(id).await,
                 StepStatus::Pending => {}
@@ -332,7 +330,9 @@ impl Coordinator {
     async fn on_failed(&mut self, id: StepId, reason: String, code: Option<u32>) {
         let reprove = code.is_some_and(|code| REPROVE_CODES.contains(&code))
             && self.steps.get(id).is_some_and(|step| {
-                step.kind != StepKind::Fill && step.prove_attempts < PROVE_ATTEMPTS
+                step.kind != StepKind::Fill
+                    && step.tail.is_empty()
+                    && step.prove_attempts < PROVE_ATTEMPTS
             });
         if !reprove {
             let retry = match self.steps.get(id).map(|step| step.kind) {
@@ -371,39 +371,37 @@ impl Coordinator {
         }
     }
 
-    async fn on_confirmed(&mut self, id: StepId, signature: Signature, slot: u64) {
+    async fn on_confirmed(&mut self, id: StepId, signature: Signature) {
         let Some(step) = self.steps.get_mut(id) else {
             return;
         };
         step.state = StepState::Confirmed;
-        let kind = step.kind;
         let operation = step.operation;
-        let write_cache = step.write_cache;
+        let vault_before = step.vault_before;
         let inputs = step.inputs.clone();
-        let own_outputs = step.own_outputs.clone();
+        let expected_outputs = step.expected_outputs.clone();
         let settle = step.fill.as_mut().and_then(|fill| fill.settle.take());
-        if let Some(cache) = write_cache {
-            self.pool.mark_written(&cache, slot);
-        }
-        if let StepKind::CloseCache(cache) = kind {
-            self.pool.remove(&cache);
-            self.publish_caches();
-        }
         self.ledger.tracker.remove_spent(&inputs);
-        for hash in &own_outputs {
-            self.ledger.tracker.clear_source(hash);
+        let outputs = expected_outputs.len();
+        for wallet in expected_outputs {
+            self.ledger.tracker.insert(TrackedUtxo {
+                wallet,
+                leaf_index: None,
+            });
         }
+        self.ledger.settle(id);
         if let Some(settle) = settle {
             let _ = settle.send(Ok(signature));
         }
         if let Some(operation) = operation.and_then(|operation| self.scheduled.remove(&operation)) {
-            let _ = operation
-                .reply
-                .send(Ok(OperationOutcome::Consolidated(ConsolidateReceipt {
+            let _ = operation.reply.send(Ok(OperationOutcome::Consolidated {
+                receipt: ConsolidateReceipt {
                     signature,
                     inputs: inputs.len(),
-                    outputs: own_outputs.len(),
-                })));
+                    outputs,
+                },
+                vault_before,
+            }));
         }
         self.steps.prune_confirmed();
         self.send_ready();
@@ -425,9 +423,7 @@ impl Coordinator {
             return;
         };
         self.ledger.tracker.release(id);
-        for hash in &step.own_outputs {
-            self.ledger.tracker.remove(hash);
-        }
+        self.ledger.discard(id);
         let reason = error.to_string();
         if let Some(settle) = step.fill.as_mut().and_then(|fill| fill.settle.take()) {
             let _ = settle.send(Err(error));
@@ -461,7 +457,6 @@ impl Coordinator {
         let tracked: Vec<TrackedUtxo> = inputs
             .iter()
             .filter_map(|hash| self.ledger.tracker.get(hash))
-            .filter(|utxo| utxo.source.is_none())
             .collect();
         if tracked.is_empty() {
             return;

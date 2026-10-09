@@ -11,14 +11,14 @@ use solana_signature::Signature;
 use tokio::{sync::Barrier, task::JoinSet};
 use zolana_program_test::localnet::FixtureLocalnet;
 
-use kamino_vault_market_maker::{ConsolidateReceipt, MarketMaker};
+use kamino_vault_market_maker::{ConcurrencyConfig, ConsolidateReceipt, LaneProfile, MarketMaker};
 use kamino_vault_rfq_sdk::{
     kvault::{VaultAccounts, VaultState},
     swap::{Direction, Holdings, Quote, VaultOperation},
 };
 
-use crate::{
-    shared::{blocking, compute_units, setup_with, SetupConfig, TestEnv},
+use kamino_vault_rfq_example::{
+    setup::{blocking, compute_units, setup_with, SetupConfig, TestEnv},
     user::User,
 };
 
@@ -29,6 +29,7 @@ const USERS: usize = 8;
 const BOOTSTRAP_USDC: u64 = 400_000_000;
 const DEPOSIT_USDC: u64 = 10_000_000;
 const USER_USDC: u64 = 40_000_000;
+const MIN_LANE_VALUE: u64 = 1_000_000;
 
 struct Settled {
     user: User,
@@ -54,15 +55,17 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
         vault,
         ..
     } = setup_with(SetupConfig {
-        test: TEST_NUMBER,
         extra_users: EXTRA_USERS,
-        lanes: LANES,
-        websocket: true,
+        concurrency: ConcurrencyConfig {
+            lanes: LaneProfile::equal(LANES, MIN_LANE_VALUE),
+            ..ConcurrencyConfig::default()
+        },
         user_usdc: USER_USDC,
+        ..SetupConfig::new(TEST_NUMBER)
     })
     .await?;
     let bootstrap = market_maker
-        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC)
+        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC, 0)
         .await?;
     assert_eq!(market_maker.lanes(&vault.shares_mint).len(), LANES);
 
@@ -102,7 +105,7 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
         .count();
     assert!(proved_before_first_confirmation >= LANES);
     let change_outputs: usize = settled.iter().map(|fill| fill.change_outputs).sum();
-    assert!(change_outputs > USERS);
+    assert_eq!(change_outputs, USERS);
     println!(
         "{USERS} concurrent deposits on {LANES} lanes in {elapsed:?}: \
          {proved_before_first_confirmation} proved before the first confirmed, \
@@ -191,6 +194,7 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
         rebalance.inputs,
         blocking(|| compute_units(rpc, &rebalance.signature))?
     );
+    market_maker.shutdown().await;
     Ok(())
 }
 

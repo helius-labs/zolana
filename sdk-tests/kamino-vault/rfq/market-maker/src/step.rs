@@ -9,28 +9,21 @@ use solana_message::VersionedMessage;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use tokio::sync::oneshot;
-use zolana_client::DEFAULT_TRANSACT_CU_LIMIT;
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
 use zolana_transaction::{instructions::transact::SppProofInputs, WalletUtxo};
 
 use super::{error::MakerError, send::Sent};
 use kamino_vault_rfq_sdk::{
-    rebalance::REBALANCE_COMPUTE_BUDGET,
-    swap::{Spend, SWAP_COMPUTE_BUDGET},
+    kvault::VaultState, rebalance::REBALANCE_COMPUTE_BUDGET, swap::SWAP_COMPUTE_BUDGET,
 };
 
 pub type StepId = u64;
 pub type OperationId = u64;
 
-const WIDE_TRANSACT_CU_LIMIT: u32 = 1_400_000;
-const WIDE_TRANSACT_INPUTS: usize = 6;
-const CLOSE_CACHE_CU_LIMIT: u32 = 50_000;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StepKind {
     Fill,
     Consolidate,
-    CloseCache(Address),
 }
 
 #[derive(Clone)]
@@ -62,8 +55,7 @@ impl StepState {
 pub struct FillLeg {
     pub user_leg: Instruction,
     pub ttl: Duration,
-    pub spends: Vec<Spend>,
-    pub change: Vec<WalletUtxo>,
+    pub spends: Vec<[u8; 32]>,
     pub message: Option<VersionedMessage>,
     pub last_valid_block_height: u64,
     pub expires_at: Option<Instant>,
@@ -77,12 +69,11 @@ pub struct Step {
     pub asset: Option<Address>,
     pub operation: Option<OperationId>,
     pub inputs: Vec<[u8; 32]>,
-    pub own_outputs: Vec<[u8; 32]>,
-    pub read_cache: Option<Address>,
-    pub write_cache: Option<Address>,
+    pub expected_outputs: Vec<WalletUtxo>,
     pub proof: Option<ProofWork>,
     pub instruction: Option<Instruction>,
     pub tail: Vec<Instruction>,
+    pub vault_before: Option<VaultState>,
     pub fill: Option<FillLeg>,
     pub sends: Vec<Sent>,
     pub resend_failed: bool,
@@ -98,12 +89,11 @@ impl Step {
             asset: None,
             operation: None,
             inputs: Vec::new(),
-            own_outputs: Vec::new(),
-            read_cache: None,
-            write_cache: None,
+            expected_outputs: Vec::new(),
             proof,
             instruction: None,
             tail: Vec::new(),
+            vault_before: None,
             fill: None,
             sends: Vec::new(),
             resend_failed: false,
@@ -116,19 +106,10 @@ impl Step {
         self.operation.is_none() && self.kind == StepKind::Consolidate
     }
 
-    pub fn uses_cache(&self, cache: &Address) -> bool {
-        self.read_cache.as_ref() == Some(cache) || self.write_cache.as_ref() == Some(cache)
-    }
-
     pub fn compute_units(&self) -> u32 {
         match self.kind {
-            StepKind::CloseCache(_) => CLOSE_CACHE_CU_LIMIT,
             StepKind::Fill => SWAP_COMPUTE_BUDGET.cu_limit,
-            StepKind::Consolidate if !self.tail.is_empty() => REBALANCE_COMPUTE_BUDGET.cu_limit,
-            StepKind::Consolidate if self.inputs.len() >= WIDE_TRANSACT_INPUTS => {
-                WIDE_TRANSACT_CU_LIMIT
-            }
-            StepKind::Consolidate => DEFAULT_TRANSACT_CU_LIMIT,
+            StepKind::Consolidate => REBALANCE_COMPUTE_BUDGET.cu_limit,
         }
     }
 }

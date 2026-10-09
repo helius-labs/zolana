@@ -1,46 +1,43 @@
 mod build;
-mod cache_pool;
 mod chain;
 mod config;
 mod coordinator;
 mod error;
 mod ledger;
 mod prove;
+mod rebalance;
 mod scheduler;
 mod send;
 mod step;
 mod sync;
 mod tracker;
-mod watcher;
 
 use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex, PoisonError,
-    },
+    sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_instruction::Instruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
-use tokio_util::sync::CancellationToken;
-use zolana_client::{AsyncProverClient, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use zolana_client::{
+    transaction_size, AsyncProverClient, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer,
+};
 use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program_test::localnet::FixtureLocalnet;
 use zolana_test_utils::wallet::Wallet;
 
 use kamino_vault_rfq_sdk::{
-    budget::{LegBudget, SwapBudget, USER_OUTPUTS},
-    kvault::{self, UserAccounts, VaultAccounts, VaultState},
-    rebalance::{lane_amounts, ShieldLanes},
+    budget::{smallest_shape, BudgetError, SwapBudget, MAKER_MIN_OUTPUTS, USER_OUTPUTS},
+    kvault::{VaultAccounts, VaultState},
+    rebalance::REBALANCE_COMPUTE_BUDGET,
     swap::{
         transact_data, Direction, Fill, Holdings, Offer, Quote, SwapError, SwapRequest,
         VaultOperation,
@@ -50,35 +47,30 @@ use kamino_vault_rfq_sdk::{
 
 use self::{
     build::WithdrawalTarget,
-    cache_pool::{AdoptedCache, CachePool, CachePoolConfig},
     chain::{blocking, send, shield_deposit},
+    config::Settings,
     coordinator::{
         ConsolidateOrder, Coordinator, CoordinatorParts, Event, FillOrder, Operation,
         OperationOutcome, QueuedOperation,
     },
-    ledger::Ledger,
+    ledger::{Inflow, Ledger},
     prove::{ProofQueue, ProofQueueConfig},
+    rebalance::{MakerAccounts, RebalanceOrder, ShieldPlan, VaultFlow},
+    scheduler::width,
     send::SendQueue,
     sync::AccountSync,
     tracker::UtxoTracker,
-    watcher::build_watcher,
 };
 pub use self::{
-    config::{MakerConfig, WatcherConfig},
+    config::{
+        ConcurrencyConfig, ConnectionConfig, IdentityConfig, MarketMakerConfig, PairConfig,
+        QuoteConfig, TargetRange, TokenConfig,
+    },
     coordinator::ConsolidateReceipt,
     error::MakerError,
-    tracker::{CacheSlot, Lane},
+    scheduler::profile::LaneProfile,
+    tracker::Lane,
 };
-
-pub struct MakerSetup {
-    pub wallet: Wallet,
-    pub keypair: ShieldedKeypair,
-    pub config: MakerConfig,
-    pub rpc_url: String,
-    pub photon_url: String,
-    pub tree: Address,
-    pub assets: Vec<Address>,
-}
 
 #[derive(Clone)]
 pub struct MarketMaker {
@@ -88,38 +80,49 @@ pub struct MarketMaker {
 struct Inner {
     keypair: Arc<ShieldedKeypair>,
     identity: ShieldedAddress,
-    fee_bps: AtomicU64,
-    quote_ttl: Mutex<Duration>,
-    budget: LegBudget,
-    base_lanes: usize,
+    quotes: QuoteConfig,
+    budget: Arc<SwapBudget>,
+    max_user_inputs: usize,
+    max_maker_inputs: usize,
+    config: Settings,
+    tree: Address,
     ledger: Arc<Ledger>,
     account: Arc<tokio::sync::Mutex<AccountSync>>,
     events: mpsc::UnboundedSender<Event>,
-    next_operation: AtomicU64,
     cancel: CancellationToken,
-    tasks: Vec<JoinHandle<()>>,
+    background: Mutex<Vec<JoinHandle<()>>>,
+    tasks: TaskTracker,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
         self.cancel.cancel();
-        for task in &self.tasks {
+        self.tasks.close();
+        for task in self
+            .background
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+        {
             task.abort();
         }
     }
 }
 
 impl MarketMaker {
-    pub async fn start(setup: MakerSetup) -> Result<Self, MakerError> {
-        let MakerSetup {
-            wallet,
-            keypair,
-            config,
-            rpc_url,
-            photon_url,
-            tree,
-            assets,
-        } = setup;
+    pub async fn start(config: MarketMakerConfig) -> Result<Self, MakerError> {
+        let MarketMakerConfig {
+            connection,
+            identity: IdentityConfig { keypair, wallet },
+            pairs,
+            concurrency,
+            quotes,
+        } = config;
+        let config = Settings::new(&connection, &concurrency, pairs);
+        let assets = config.assets();
+        let tree = connection.tree;
+        let rpc_url = connection.rpc_url;
+        let photon_url = connection.photon_url;
         let keypair = Arc::new(keypair);
         let identity = wallet.identity;
         let address = keypair.pubkey();
@@ -136,66 +139,52 @@ impl MarketMaker {
         );
         account.run_once().await?;
 
-        let (pool, adopted) = CachePool::open(
-            CachePoolConfig {
-                rent_sponsor: address,
-                write_authority: address,
-                tree_id: config.tree_id,
-                lifetime: config.cache_lifetime,
-                rotation_margin: config.cache_rotation_margin,
+        let budget = Arc::new(SwapBudget::new(address, tree, 1)?);
+        let max_user_inputs = budget.max_user_inputs(budget.narrowest_maker()?)?.ok_or(
+            BudgetError::NoSupportedShape {
+                inputs: 1,
+                outputs: USER_OUTPUTS,
             },
-            rpc.as_ref(),
-        )
-        .await?;
-        adopt_cache_slots(&tracker, &adopted);
-        let swap_budget = SwapBudget::new(
-            address,
-            tree,
-            pool.addresses().first().copied(),
-            config.base_lanes,
         )?;
-        let budget = swap_budget.leg_budget(config.maker_leg)?;
+        let max_maker_inputs = budget.max_maker_inputs(&budget.narrowest_user_leg()?)?;
 
         let proofs = Arc::new(ProofQueue::new(ProofQueueConfig {
             authority: keypair.clone(),
             indexer,
             prover,
-            base_workers: config.base_provers,
-            max_workers: config.max_provers,
+            base_workers: concurrency.provers,
+            max_workers: concurrency.max_provers,
             payer: address,
-            write_authority: address,
         }));
         let sender = Arc::new(SendQueue::new(rpc.clone(), keypair.clone()));
-        let watcher = build_watcher(&config.watcher, rpc.clone());
         let ledger = Arc::new(Ledger::new(tracker));
         let account = Arc::new(tokio::sync::Mutex::new(account));
         let (events, receiver) = mpsc::unbounded_channel();
         let cancel = CancellationToken::new();
+        let tasks = TaskTracker::new();
 
         let sync = spawn_sync(
             account.clone(),
-            config.sync_interval,
+            concurrency.sync_interval,
             events.clone(),
             cancel.clone(),
         );
-        let quote_ttl = config.quote_ttl;
-        let base_lanes = config.base_lanes;
-        let fee_bps = config.fee_bps;
+        let maker_config = config.clone();
         let coordinator = Coordinator::new(CoordinatorParts {
             config,
             assets,
             rpc,
-            pool,
-            watcher,
             ledger: ledger.clone(),
             keys: keypair.clone(),
             own: identity,
             payer: address,
-            budget: swap_budget,
+            tree,
+            budget: budget.clone(),
             proofs,
             sender,
             events: events.clone(),
             cancel: cancel.clone(),
+            tasks: tasks.clone(),
         });
         let coordinator = tokio::spawn(coordinator.run(receiver));
 
@@ -203,18 +192,42 @@ impl MarketMaker {
             inner: Arc::new(Inner {
                 keypair,
                 identity,
-                fee_bps: AtomicU64::new(fee_bps),
-                quote_ttl: Mutex::new(quote_ttl),
+                quotes,
                 budget,
-                base_lanes,
+                max_user_inputs,
+                max_maker_inputs,
+                config: maker_config,
+                tree,
                 ledger,
                 account,
                 events,
-                next_operation: AtomicU64::new(0),
                 cancel,
-                tasks: vec![sync, coordinator],
+                background: Mutex::new(vec![sync, coordinator]),
+                tasks,
             }),
         })
+    }
+
+    pub async fn shutdown(&self) {
+        self.inner.cancel.cancel();
+        let background = std::mem::take(
+            &mut *self
+                .inner
+                .background
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for task in background {
+            if let Err(error) = task.await {
+                tracing::warn!(%error, "background task ended abnormally");
+            }
+        }
+        self.inner.tasks.close();
+        self.inner.tasks.wait().await;
+    }
+
+    pub fn rebalances(&self) -> Vec<Signature> {
+        self.inner.ledger.rebalances()
     }
 
     pub fn identity(&self) -> ShieldedAddress {
@@ -225,28 +238,8 @@ impl MarketMaker {
         self.inner.keypair.pubkey()
     }
 
-    pub fn budget(&self) -> LegBudget {
-        self.inner.budget
-    }
-
-    pub fn set_fee_bps(&self, fee_bps: u64) {
-        self.inner.fee_bps.store(fee_bps, Ordering::Relaxed);
-    }
-
-    pub fn set_quote_ttl(&self, ttl: Duration) {
-        *self
-            .inner
-            .quote_ttl
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = ttl;
-    }
-
-    fn quote_ttl(&self) -> Duration {
-        *self
-            .inner
-            .quote_ttl
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    pub fn max_user_inputs(&self) -> usize {
+        self.inner.max_user_inputs
     }
 
     pub fn holdings(&self, vault: &VaultAccounts) -> Holdings {
@@ -283,18 +276,71 @@ impl MarketMaker {
         amount_in: u64,
     ) -> Result<Offer> {
         let rate = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
+        let quote = Quote::price(&rate, direction, amount_in, self.inner.quotes.fee_bps)?;
+        let (asset_in, asset_out) = direction.assets(vault);
+        self.check_range(asset_out, quote.amount_out, false)?;
+        self.check_range(asset_in, amount_in, true)?;
         Ok(Offer {
-            quote: Quote::price(
-                &rate,
-                direction,
-                amount_in,
-                self.inner.fee_bps.load(Ordering::Relaxed),
-            )?,
+            quote,
             maker: self.inner.identity,
             fee_payer: self.address(),
-            max_user_inputs: self.inner.budget.max_user_inputs,
+            max_user_inputs: self.quoted_user_inputs(asset_out, quote.amount_out)?,
             user_outputs: USER_OUTPUTS,
         })
+    }
+
+    fn check_range(&self, asset: Address, amount: u64, incoming: bool) -> Result<(), SwapError> {
+        let Some(range) = self.inner.config.range(&asset) else {
+            return Ok(());
+        };
+        let balance = self.inner.ledger.net_balance(&asset);
+        let balance_after = if incoming {
+            balance.saturating_add(amount)
+        } else {
+            balance.saturating_sub(amount)
+        };
+        let outside = if incoming {
+            balance_after > range.max
+        } else {
+            balance_after < range.min
+        };
+        if outside {
+            return Err(SwapError::OutsideTargetRange {
+                asset,
+                balance_after,
+                min: range.min,
+                max: range.max,
+            });
+        }
+        Ok(())
+    }
+
+    fn quoted_user_inputs(&self, asset: Address, amount: u64) -> Result<usize> {
+        let lanes: Vec<u64> = self.lanes(&asset).iter().map(|lane| lane.amount).collect();
+        let available: u64 = lanes.iter().sum();
+        let max_inputs = self.inner.max_maker_inputs;
+        let too_wide = SwapError::MakerTransferTooWide {
+            asset,
+            required: amount,
+            max_inputs,
+        };
+        let Some(inputs) = width(lanes, amount, max_inputs) else {
+            if available < amount {
+                return Err(SwapError::InsufficientInventory {
+                    asset,
+                    required: amount,
+                    available,
+                }
+                .into());
+            }
+            return Err(too_wide.into());
+        };
+        let maker =
+            smallest_shape(inputs, MAKER_MIN_OUTPUTS).ok_or(SwapError::NoSupportedShape {
+                inputs,
+                outputs: MAKER_MIN_OUTPUTS,
+            })?;
+        Ok(self.inner.budget.max_user_inputs(maker)?.ok_or(too_wide)?)
     }
 
     pub async fn fill(
@@ -315,14 +361,15 @@ impl MarketMaker {
     ) -> Result<Fill> {
         let quote = request.quote;
         let (asset_in, asset_out) = quote.direction.assets(vault);
-        self.check_user_leg(localnet, asset_in, request).await?;
+        let inflow = self.check_user_leg(localnet, asset_in, request).await?;
         let outcome = self
             .operation(Operation::Fill(FillOrder {
                 asset: asset_out,
                 amount: quote.amount_out,
                 recipient,
                 user_leg: request.leg.clone(),
-                ttl: self.quote_ttl(),
+                inflow,
+                ttl: self.inner.quotes.ttl,
             }))
             .await
             .map_err(|error| match error {
@@ -339,7 +386,7 @@ impl MarketMaker {
             })?;
         match outcome {
             OperationOutcome::Filled(fill) => Ok(fill),
-            OperationOutcome::Consolidated(_) => {
+            OperationOutcome::Consolidated { .. } => {
                 Err(anyhow!("a fill operation returned a consolidation"))
             }
         }
@@ -350,7 +397,7 @@ impl MarketMaker {
         localnet: &FixtureLocalnet,
         asset_in: Address,
         request: &SwapRequest,
-    ) -> Result<()> {
+    ) -> Result<Inflow> {
         let user_data = transact_data(&request.leg)?;
         if !user_data.interface_transfers.is_empty() {
             return Err(SwapError::PublicTransfer {
@@ -358,7 +405,7 @@ impl MarketMaker {
             }
             .into());
         }
-        let max = self.inner.budget.max_user_inputs;
+        let max = self.inner.max_user_inputs;
         if user_data.inputs.len() > max {
             return Err(SwapError::UserLegTooWide {
                 inputs: user_data.inputs.len(),
@@ -373,20 +420,20 @@ impl MarketMaker {
             }
             .into());
         }
-        let received: u64 = self
+        let outputs: Vec<_> = self
             .with_wallet(|wallet, keypair| {
                 Receiver {
                     keypair,
                     registry: &wallet.registry,
                     tree_id: localnet.tree_id,
                 }
-                .received(&user_data)
+                .received_outputs(&user_data)
             })
             .await?
-            .iter()
-            .filter(|utxo| utxo.asset.asset == asset_in)
-            .map(|utxo| utxo.amount)
-            .sum();
+            .into_iter()
+            .filter(|(utxo, _)| utxo.asset.asset == asset_in)
+            .collect();
+        let received: u64 = outputs.iter().map(|(utxo, _)| utxo.amount).sum();
         if received != request.quote.amount_in {
             return Err(SwapError::Underpaid {
                 expected: request.quote.amount_in,
@@ -394,7 +441,18 @@ impl MarketMaker {
             }
             .into());
         }
-        Ok(())
+        let utxo_hash = outputs
+            .first()
+            .map(|(_, hash)| *hash)
+            .ok_or(SwapError::Underpaid {
+                expected: request.quote.amount_in,
+                received,
+            })?;
+        Ok(Inflow {
+            asset: asset_in,
+            amount: received,
+            utxo_hash,
+        })
     }
 
     pub async fn settle(&self, fill: Fill, user_signature: Signature) -> Result<Signature> {
@@ -413,18 +471,26 @@ impl MarketMaker {
     }
 
     pub async fn consolidate(&self, asset: Address) -> Result<ConsolidateReceipt> {
-        self.consolidate_order(ConsolidateOrder {
-            asset,
-            withdrawal: 0,
-            target: None,
-            tail: Vec::new(),
-        })
-        .await
+        let (receipt, _) = self
+            .consolidate_order(ConsolidateOrder {
+                asset,
+                withdrawal: 0,
+                target: None,
+                rebalance: None,
+            })
+            .await?;
+        Ok(receipt)
     }
 
-    async fn consolidate_order(&self, order: ConsolidateOrder) -> Result<ConsolidateReceipt> {
+    async fn consolidate_order(
+        &self,
+        order: ConsolidateOrder,
+    ) -> Result<(ConsolidateReceipt, Option<VaultState>)> {
         match self.operation(Operation::Consolidate(order)).await? {
-            OperationOutcome::Consolidated(receipt) => Ok(receipt),
+            OperationOutcome::Consolidated {
+                receipt,
+                vault_before,
+            } => Ok((receipt, vault_before)),
             OperationOutcome::Filled(_) => Err(anyhow!("a consolidate operation returned a fill")),
         }
     }
@@ -441,7 +507,7 @@ impl MarketMaker {
         self.inner.ledger.queue(asset, amount)?;
         let (reply, outcome) = oneshot::channel();
         let queued = QueuedOperation {
-            id: self.inner.next_operation.fetch_add(1, Ordering::Relaxed),
+            id: self.inner.ledger.next_operation(),
             operation,
             reply,
             attempts: 0,
@@ -469,16 +535,41 @@ impl MarketMaker {
         localnet: &FixtureLocalnet,
         vault: &VaultAccounts,
         usdc: u64,
+        collateral: u64,
     ) -> Result<VaultOperation> {
         let rpc = localnet.client.rpc();
         let before = blocking(|| VaultState::read(rpc, &vault.vault))?;
-        let outcome = before.deposit(usdc)?;
-        let instructions = [
-            self.vault_deposit(vault, outcome.tokens),
-            self.shield_lanes(localnet, vault.shares_mint, outcome.shares)?,
-        ];
+        let order = RebalanceOrder {
+            vault: *vault,
+            flow: VaultFlow::Deposit,
+            amount: usdc,
+        };
+        let collateral_lanes = self
+            .shield_plan(&vault.token_mint)
+            .amounts(collateral)
+            .into_iter()
+            .map(|amount| (vault.token_mint, amount))
+            .collect();
+        let tail = order.tail(
+            before,
+            self.maker_accounts(),
+            &self.shield_plan(&order.shielded_asset()),
+            collateral_lanes,
+        )?;
+        let size = transaction_size(
+            &self.address(),
+            &tail.instructions,
+            REBALANCE_COMPUTE_BUDGET,
+        )?;
+        if !size.fits() {
+            return Err(MakerError::TransactionTooLarge {
+                bytes: size.bytes,
+                addresses: size.addresses,
+            }
+            .into());
+        }
         let keypair = self.inner.keypair.as_ref();
-        let signature = blocking(|| send(rpc, &instructions, keypair, &[keypair]))?;
+        let signature = blocking(|| send(rpc, &tail.instructions, keypair, &[keypair]))?;
         self.settled(localnet, vault, before, signature, 0).await
     }
 
@@ -488,22 +579,8 @@ impl MarketMaker {
         vault: &VaultAccounts,
         usdc: u64,
     ) -> Result<VaultOperation> {
-        self.sync().await?;
-        let before = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
-        let outcome = before.deposit(usdc)?;
-        let tail = vec![
-            self.vault_deposit(vault, outcome.tokens),
-            self.shield_lanes(localnet, vault.shares_mint, outcome.shares)?,
-        ];
-        self.rebalance(
-            localnet,
-            vault,
-            before,
-            vault.token_mint,
-            outcome.tokens,
-            tail,
-        )
-        .await
+        self.rebalance(localnet, vault, VaultFlow::Deposit, usdc)
+            .await
     }
 
     pub async fn rebalance_withdraw(
@@ -512,50 +589,38 @@ impl MarketMaker {
         vault: &VaultAccounts,
         shares: u64,
     ) -> Result<VaultOperation> {
-        self.sync().await?;
-        let before = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
-        let outcome = before.withdraw(shares)?;
-        let accounts = self.public_accounts(vault);
-        let tail = vec![
-            kvault::WithdrawFromAvailable {
-                vault,
-                user: &accounts,
-                shares: outcome.shares,
-            }
-            .instruction(),
-            self.shield_lanes(localnet, vault.token_mint, outcome.tokens)?,
-        ];
-        self.rebalance(
-            localnet,
-            vault,
-            before,
-            vault.shares_mint,
-            outcome.shares,
-            tail,
-        )
-        .await
+        self.rebalance(localnet, vault, VaultFlow::Withdrawal, shares)
+            .await
     }
 
     async fn rebalance(
         &self,
         localnet: &FixtureLocalnet,
         vault: &VaultAccounts,
-        before: VaultState,
-        asset: Address,
-        withdrawal: u64,
-        tail: Vec<Instruction>,
+        flow: VaultFlow,
+        amount: u64,
     ) -> Result<VaultOperation> {
-        let receipt = self
+        self.sync().await?;
+        let asset = match flow {
+            VaultFlow::Deposit => vault.token_mint,
+            VaultFlow::Withdrawal => vault.shares_mint,
+        };
+        let (receipt, before) = self
             .consolidate_order(ConsolidateOrder {
                 asset,
-                withdrawal,
+                withdrawal: amount,
                 target: Some(WithdrawalTarget {
                     owner: self.address(),
                     token_program: pda::spl_token_program_id(),
                 }),
-                tail,
+                rebalance: Some(RebalanceOrder {
+                    vault: *vault,
+                    flow,
+                    amount,
+                }),
             })
             .await?;
+        let before = before.ok_or_else(|| anyhow!("a rebalance returned no vault state"))?;
         self.settled(localnet, vault, before, receipt.signature, receipt.inputs)
             .await
     }
@@ -582,54 +647,19 @@ impl MarketMaker {
         })
     }
 
-    fn shield_lanes(
-        &self,
-        localnet: &FixtureLocalnet,
-        mint: Address,
-        amount: u64,
-    ) -> Result<Instruction> {
-        ShieldLanes {
-            tree: localnet.tree,
-            depositor: self.address(),
-            recipient: self.inner.identity,
-            mint,
-            amounts: lane_amounts(amount, self.inner.base_lanes),
-        }
-        .instruction()
-    }
-
-    fn vault_deposit(&self, vault: &VaultAccounts, usdc: u64) -> Instruction {
-        kvault::Deposit {
-            vault,
-            user: &self.public_accounts(vault),
-            max_amount: usdc,
-        }
-        .instruction()
-    }
-
-    fn public_accounts(&self, vault: &VaultAccounts) -> UserAccounts {
-        let owner = self.address();
-        UserAccounts {
-            user: owner,
-            token_account: pda::associated_token_address(&owner, &vault.token_mint),
-            shares_account: pda::associated_token_address(&owner, &vault.shares_mint),
+    fn maker_accounts(&self) -> MakerAccounts {
+        MakerAccounts {
+            owner: self.address(),
+            identity: self.inner.identity,
+            tree: self.inner.tree,
         }
     }
-}
 
-fn adopt_cache_slots(tracker: &UtxoTracker, adopted: &[AdoptedCache]) {
-    for cache in adopted {
-        for (index, hash) in cache.utxo_hashes.iter().enumerate() {
-            let Ok(index) = u8::try_from(index) else {
-                break;
-            };
-            if tracker.get(hash).is_some() {
-                let slot = CacheSlot {
-                    cache: cache.address,
-                    index,
-                };
-                tracker.set_cache_slot(hash, Some(slot));
-            }
+    fn shield_plan(&self, asset: &Address) -> ShieldPlan<'_> {
+        ShieldPlan {
+            profile: self.inner.config.profile(asset),
+            lanes: self.lanes(asset).iter().map(|lane| lane.amount).collect(),
+            max_lanes: self.inner.config.max_shield_lanes,
         }
     }
 }

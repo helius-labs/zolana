@@ -147,6 +147,14 @@ pub struct Receiver<'a> {
 
 impl Receiver<'_> {
     pub fn received(&self, data: &TransactIxData) -> Result<Vec<Utxo>> {
+        Ok(self
+            .received_outputs(data)?
+            .into_iter()
+            .map(|(utxo, _)| utxo)
+            .collect())
+    }
+
+    pub fn received_outputs(&self, data: &TransactIxData) -> Result<Vec<(Utxo, [u8; 32])>> {
         let identity = self.keypair.shielded_address()?;
         let mut received = Vec::new();
         for (slot, output) in data.outputs.iter().enumerate() {
@@ -160,7 +168,7 @@ impl Receiver<'_> {
             if hash != output.utxo_hash {
                 return Err(SwapError::CommitmentMismatch { slot }.into());
             }
-            received.push(utxo);
+            received.push((utxo, hash));
         }
         Ok(received)
     }
@@ -175,7 +183,7 @@ impl Receiver<'_> {
         let Some(output) = output else {
             return Ok(None);
         };
-        let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(output)?
+        let Ok(OutputDataEncoding::Encrypted(blob)) = OutputDataEncoding::try_from_slice(output)
         else {
             return Ok(None);
         };

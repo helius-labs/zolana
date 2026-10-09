@@ -27,6 +27,7 @@ use zolana_transaction::{
 use crate::swap::SWAP_COMPUTE_BUDGET;
 
 pub const USER_OUTPUTS: usize = 2;
+pub const MAKER_MIN_OUTPUTS: usize = 2;
 const PLACEHOLDER_USER: Address = Address::new_from_array([7; 32]);
 const PLACEHOLDER_MINT: Address = Address::new_from_array([8; 32]);
 const PLACEHOLDER_TOKEN_ACCOUNT: Address = Address::new_from_array([9; 32]);
@@ -52,17 +53,10 @@ pub fn smallest_shape(inputs: usize, outputs: usize) -> Option<Shape> {
         .min_by_key(|shape| (shape.n_inputs(), shape.n_outputs()))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LegBudget {
-    pub max_user_inputs: usize,
-    pub maker_leg: Shape,
-}
-
 #[derive(Clone, Copy)]
 struct LegTemplate {
     shape: Shape,
     owner_signer: Option<Address>,
-    cache: Option<Address>,
     withdrawal: Option<TransactSplWithdrawalAccounts>,
     seed: u8,
 }
@@ -70,7 +64,7 @@ struct LegTemplate {
 pub struct SwapBudget {
     maker: Address,
     tree: Address,
-    cache: Option<Address>,
+    data_len: usize,
     pub max_consolidate_inputs: usize,
 }
 
@@ -78,13 +72,13 @@ impl SwapBudget {
     pub fn new(
         maker: Address,
         tree: Address,
-        cache: Option<Address>,
         consolidate_outputs: usize,
     ) -> Result<Self, BudgetError> {
+        check_compute_units()?;
         let mut budget = Self {
             maker,
             tree,
-            cache,
+            data_len: output_data_len()?,
             max_consolidate_inputs: 0,
         };
         budget.max_consolidate_inputs = budget.max_consolidate_inputs_with(
@@ -125,68 +119,101 @@ impl SwapBudget {
         let consolidate = self.placeholder(LegTemplate {
             shape,
             owner_signer: None,
-            cache: self.cache,
             withdrawal: Some(withdrawal),
             seed: 3,
-        })?;
+        });
         let instructions: Vec<Instruction> = std::iter::once(consolidate)
             .chain(tail.iter().cloned())
             .collect();
         self.size(&instructions)
     }
 
-    pub fn leg_budget(&self, maker_leg: Shape) -> Result<LegBudget, BudgetError> {
-        check_compute_units()?;
-        let maker = self.maker_template(maker_leg);
+    pub fn max_user_inputs(&self, maker: Shape) -> Result<Option<usize>, BudgetError> {
+        let maker = self.placeholder(self.maker_template(maker));
         let mut user_shapes: Vec<Shape> = SPP_SUPPORTED_SHAPES
             .into_iter()
             .filter(|shape| shape.n_outputs() == USER_OUTPUTS)
             .collect();
         user_shapes.sort_by_key(|shape| std::cmp::Reverse(shape.n_inputs()));
         for shape in user_shapes {
-            let user = LegTemplate {
+            let user = self.placeholder(LegTemplate {
                 shape,
                 owner_signer: Some(PLACEHOLDER_USER),
-                cache: None,
                 withdrawal: None,
                 seed: 1,
-            };
-            if self
-                .size(&[self.placeholder(user)?, self.placeholder(maker)?])?
-                .fits()
-            {
-                return Ok(LegBudget {
-                    max_user_inputs: shape.n_inputs(),
-                    maker_leg,
-                });
+            });
+            if self.size(&[user, maker.clone()])?.fits() {
+                return Ok(Some(shape.n_inputs()));
             }
         }
-        Err(BudgetError::NoSupportedShape {
+        Ok(None)
+    }
+
+    pub fn narrowest_maker(&self) -> Result<Shape, BudgetError> {
+        smallest_shape(1, MAKER_MIN_OUTPUTS).ok_or(BudgetError::NoSupportedShape {
+            inputs: 1,
+            outputs: MAKER_MIN_OUTPUTS,
+        })
+    }
+
+    pub fn narrowest_user_leg(&self) -> Result<Instruction, BudgetError> {
+        let shape = smallest_shape(1, USER_OUTPUTS).ok_or(BudgetError::NoSupportedShape {
             inputs: 1,
             outputs: USER_OUTPUTS,
-        })
+        })?;
+        Ok(self.placeholder(LegTemplate {
+            shape,
+            owner_signer: Some(PLACEHOLDER_USER),
+            withdrawal: None,
+            seed: 1,
+        }))
+    }
+
+    pub fn max_maker_inputs(&self, user_leg: &Instruction) -> Result<usize, BudgetError> {
+        let mut widest = 0;
+        for shape in SPP_SUPPORTED_SHAPES
+            .into_iter()
+            .filter(|shape| shape.n_outputs() >= MAKER_MIN_OUTPUTS)
+        {
+            if shape.n_inputs() <= widest {
+                continue;
+            }
+            let maker = self.placeholder(self.maker_template(shape));
+            if self.size(&[user_leg.clone(), maker])?.fits() {
+                widest = shape.n_inputs();
+            }
+        }
+        if widest == 0 {
+            return Err(BudgetError::NoSupportedShape {
+                inputs: 1,
+                outputs: MAKER_MIN_OUTPUTS,
+            });
+        }
+        Ok(widest)
     }
 
     pub fn max_maker_outputs(
         &self,
         user_leg: &Instruction,
         inputs: usize,
-        max_outputs: usize,
     ) -> Result<usize, BudgetError> {
         let mut fitting = 0;
         for shape in SPP_SUPPORTED_SHAPES
             .into_iter()
-            .filter(|shape| shape.n_inputs() >= inputs && shape.n_outputs() <= max_outputs)
+            .filter(|shape| shape.n_inputs() >= inputs)
         {
-            let maker = self.placeholder(self.maker_template(shape))?;
+            if shape.n_outputs() <= fitting {
+                continue;
+            }
+            let maker = self.placeholder(self.maker_template(shape));
             if self.size(&[user_leg.clone(), maker])?.fits() {
-                fitting = fitting.max(shape.n_outputs());
+                fitting = shape.n_outputs();
             }
         }
-        if fitting == 0 {
+        if fitting < MAKER_MIN_OUTPUTS {
             return Err(BudgetError::NoSupportedShape {
                 inputs,
-                outputs: USER_OUTPUTS,
+                outputs: MAKER_MIN_OUTPUTS,
             });
         }
         Ok(fitting)
@@ -212,14 +239,13 @@ impl SwapBudget {
         LegTemplate {
             shape,
             owner_signer: None,
-            cache: self.cache,
             withdrawal: None,
             seed: 2,
         }
     }
 
-    fn placeholder(&self, template: LegTemplate) -> Result<Instruction, BudgetError> {
-        let data_len = output_data_len()?;
+    fn placeholder(&self, template: LegTemplate) -> Instruction {
+        let data_len = self.data_len;
         let inputs = (0..template.shape.n_inputs())
             .map(|index| {
                 let mut nullifier_hash = [template.seed; 32];
@@ -278,10 +304,7 @@ impl SwapBudget {
                 }],
             },
         };
-        Ok(match template.cache {
-            Some(cache) => transact.instruction_with_caches(cache, cache, self.maker),
-            None => transact.instruction(),
-        })
+        transact.instruction()
     }
 }
 

@@ -68,8 +68,6 @@ impl AccountSync {
                 let tracked = TrackedUtxo {
                     leaf_index: Some(utxo.leaf_index),
                     wallet: utxo,
-                    source: None,
-                    cache_slot: None,
                 };
                 if self.tracker.insert(tracked) {
                     inserted += 1;
