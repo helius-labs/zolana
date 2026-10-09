@@ -39,12 +39,14 @@ No custom program is involved, the vault is the unmodified kVault program.
 
    The user sends the market maker only the instruction.
 
-4. Market maker: create maker transfer instruction and send transaction.
+4. Market maker: create maker transfer instruction and transaction.
    1. The market maker checks the user transfer: N <= `max_user_inputs`, 2 outputs, no interface transfers, `amount_in` addressed to it.
    2. It generates a transact zk proof that spends M of its inventory UTXOs and creates 1 + C UTXOs: `amount_out` for the user, C change UTXOs for itself (C >= 1).
-   3. It builds one transaction containing the user transfer and the maker transfer.
-   4. The user signs it after checking that the maker transfer pays it the quoted amount.
-   5. The market maker signs and sends it.
+   3. It builds one transaction containing the user transfer and the maker transfer, and sends it to the user.
+
+5. User: sign transaction. The user checks that the maker transfer pays it the quoted amount, signs the transaction and sends the signature to the market maker.
+
+6. Market maker: send transaction. The market maker adds its signature and sends the transaction.
 
 Atomicity is the Solana transaction: both transfers land or neither does. Non-extractability: each input owner is a signer of the transaction, and each signature covers the whole message, so neither transfer can be sent without the other.
 
