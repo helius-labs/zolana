@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.1-alpha — unreleased
+## 0.4.1-alpha — 2026-10-09
 
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
