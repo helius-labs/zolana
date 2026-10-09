@@ -251,11 +251,75 @@ list (initial state zero). The key is the low 16 bytes of `keyHi` followed by
 the low 16 bytes of `keyLo`; the nonce is the low 12 bytes of `nonceRaw`. -/
 def kdf (poseidon : List F → F) (shared : F) (info : List ℕ) :
     (Fin 32 → ℕ) × (Fin 12 → ℕ) :=
-  let siloed := poseidon ((domSepSilo : F) :: shared :: (packBE31 info).map (fun x => (x : F)))
+  let siloed := poseidon ((domSepSilo : F) :: shared :: (packBE31 info).map (Nat.cast : ℕ → F))
   let keyLo := poseidon [(domSepKey : F), siloed]
   let keyHi := poseidon [(domSepKeyHi : F), siloed]
   let nonceRaw := poseidon [(domSepNonce : F), siloed]
   (fun i => if h : i.val < 16 then byteOf keyHi.val ⟨i.val + 16, by omega⟩ else byteOf keyLo.val i,
    fun j => byteOf nonceRaw.val ⟨j.val + 20, by omega⟩)
+
+/-- `gadget.BytesToField` on circuit values: `acc * 256 + b` per byte. -/
+def packGates (bytes : List F) : F :=
+  bytes.foldl (fun acc b => Gates.add (Gates.mul acc (256:F)) b) (0:F)
+
+/-- Hand mirror of `KeySchedule` in call order. `PoseidonGadget xs k` stands for
+the extracted `PoseidonHash(xs)` at the arity of `xs`. -/
+def KeyScheduleMirror (PoseidonGadget : List F → (F → Prop) → Prop) (info : List ℕ)
+    (shared : F) (k : (Fin 32 → F) → (Fin 12 → F) → Prop) : Prop :=
+  PoseidonGadget ((domSepSilo : F) :: shared ::
+      (chunks31 (info.map (Nat.cast : ℕ → F))).map packGates) fun siloed =>
+  PoseidonGadget [(domSepKey : F), siloed] fun keyLo =>
+  PoseidonGadget [(domSepKeyHi : F), siloed] fun keyHi =>
+  FieldToBytesBEMirror keyLo fun keyLoBytes =>
+  FieldToBytesBEMirror keyHi fun keyHiBytes =>
+  PoseidonGadget [(domSepNonce : F), siloed] fun nonceRaw =>
+  FieldToBytesBEMirror nonceRaw fun nonceBytes =>
+  k (fun i => if h : i.val < 16 then keyHiBytes ⟨i.val + 16, by omega⟩ else keyLoBytes i)
+    (fun j => nonceBytes ⟨j.val + 20, by omega⟩)
+
+lemma chunks31_map {α β : Type} (f : α → β) (l : List α) :
+    chunks31 (l.map f) = (chunks31 l).map (List.map f) := by
+  induction l using chunks31.induct with
+  | case1 => simp [chunks31]
+  | case2 b bs ih =>
+    conv_rhs => rw [chunks31, List.map_cons, ← ih]
+    conv_lhs => rw [List.map_cons, chunks31]
+    simp only [List.map_take, List.map_drop, List.map_cons]
+
+lemma packGates_foldl (l : List ℕ) (acc : ℕ) :
+    (l.map (Nat.cast : ℕ → F)).foldl (fun acc b => Gates.add (Gates.mul acc (256:F)) b) (acc : F) =
+    ((l.foldl (fun acc b => acc * 256 + b) acc : ℕ) : F) := by
+  induction l generalizing acc with
+  | nil => rfl
+  | cons b bs ih =>
+    rw [List.map_cons, List.foldl_cons, List.foldl_cons, ← ih]
+    congr 1
+    simp [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul]
+
+lemma packGates_cast (l : List ℕ) :
+    packGates (l.map (Nat.cast : ℕ → F)) = ((packBE l : ℕ) : F) := by
+  have := packGates_foldl l 0
+  simpa [packGates, packBE] using this
+
+theorem KeySchedule_sound (poseidon : List F → F)
+    (PoseidonGadget : List F → (F → Prop) → Prop)
+    (hP : ∀ xs k, PoseidonGadget xs k ↔ k (poseidon xs))
+    {info : List ℕ} {shared : F} {k : (Fin 32 → F) → (Fin 12 → F) → Prop} :
+    KeyScheduleMirror PoseidonGadget info shared k ↔
+    k (fun i => ((kdf poseidon shared info).1 i : F))
+      (fun j => ((kdf poseidon shared info).2 j : F)) := by
+  unfold KeyScheduleMirror
+  simp only [hP, fieldToBytesBE_rw, chunks31_map, List.map_map]
+  have hpack : (packGates ∘ List.map (Nat.cast : ℕ → F)) = fun l => ((packBE l : ℕ) : F) :=
+    funext packGates_cast
+  rw [hpack]
+  apply iff_of_eq
+  congr 1
+  · funext i
+    simp only [kdf, packBE31, List.map_map]
+    split <;> rfl
+  · funext j
+    simp only [kdf, packBE31, List.map_map]
+    rfl
 
 end VerifiableEncryption
