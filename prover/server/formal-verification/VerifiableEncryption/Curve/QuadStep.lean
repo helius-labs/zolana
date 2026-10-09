@@ -31,9 +31,6 @@ theorem aElem_value : aElem.value = p - 3 := by
 /-- Bounds of a lazy check's output. -/
 def lazyOut (c : LazyParams) : ElemC := ⟨c.outLo, c.outHi, c.outVlo, c.outVhi⟩
 
-/-- Bounds of `curve.unpackedY`: three packed groups at limbs 0, 3 and 6. -/
-def unpackC : ElemC := cert_hdaa6ee4a.elems.getD 2 default
-
 theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_hee995b41)
     (hSX : SX.bnd = reducedC) (hSY : SY.bnd = unpackC) {hs : F}
