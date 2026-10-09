@@ -41,3 +41,8 @@ module points at this directory with a `replace` directive.
   alias every recorded constant.
 - `TestAnotherCircuit.lean` now carries the parameter hash of its `[2]int`
   fields.
+- A gadget implementing `abstractor.HashedGadget` (`GadgetHash() string`)
+  supplies its own name hash, so a key computed elsewhere (certificate
+  records) pairs with the Lean definition name.
+- Constant gadget outputs (an `int` or `*big.Int` in the returned slice) are
+  passed through the continuation like any other output instead of panicking.
