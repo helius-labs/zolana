@@ -55,4 +55,18 @@ theorem signed_red_fits {Y : ElemVal 8} (hY : Y.bnd = reducedC) {s : ℤ} (hs : 
 @[simp] theorem get2_0 {α : Type*} (a b : α) : (a ::ᵥ b ::ᵥ List.Vector.nil).get 0 = a := rfl
 @[simp] theorem get2_1 {α : Type*} (a b : α) : (a ::ᵥ b ::ᵥ List.Vector.nil).get 1 = b := rfl
 
+open Lean Meta Elab Tactic in
+/-- `generalize_rows h as rows, hrows`: name the ladder table of the first
+`RowLookup_12_16` in `h`. -/
+elab "generalize_rows " h:ident " as " r:ident ", " hr:ident : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let decl ← getLocalDeclFromUserName h.getId
+    let ty ← instantiateMVars decl.type
+    let some app := ty.find? (fun e => e.isAppOf ``ZolanaVE.RowLookup_12_16) | throwError "no RowLookup"
+    let args := app.getAppArgs
+    let rowsE := args[args.size - 3]!
+    let stx ← Term.exprToSyntax rowsE
+    evalTactic (← `(tactic| generalize $hr : $stx = $r at $h:ident))
+
 end ZolanaVE.P256

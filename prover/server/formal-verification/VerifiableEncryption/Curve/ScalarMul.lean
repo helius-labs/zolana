@@ -1,4 +1,4 @@
-import VerifiableEncryption.Curve.LadderAux
+import VerifiableEncryption.Curve.LadderTable
 import VerifiableEncryption.Curve.Ladder
 
 /-!
@@ -9,12 +9,6 @@ Soundness of the extracted variable-base scalar multiplication
 namespace ZolanaVE.P256
 
 open ZolanaVE.Field ZolanaVE.EmcurveChecks
-
-/-- Idealised soundness of the packed ladder table lookup: the returned row is
-the row at the index. -/
-def RowLookupSound : Prop :=
-  ∀ (rows : List.Vector (List.Vector F 12) 16) (idx : F) (k : List.Vector F 12 → Prop),
-    RowLookup_12_16 rows idx k → ∃ i : Fin 16, idx = ((i : ℕ) : F) ∧ k (rows.get i)
 
 theorem modEq_n_iff {a b : ℤ} : a ≡ b [ZMOD n] ↔ ((a : ℤ) : ZMod n) = ((b : ℤ) : ZMod n) :=
   (ZMod.intCast_eq_intCast_iff a b n).symm
