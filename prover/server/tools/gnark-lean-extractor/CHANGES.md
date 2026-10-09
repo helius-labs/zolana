@@ -44,5 +44,13 @@ module points at this directory with a `replace` directive.
 - A gadget implementing `abstractor.HashedGadget` (`GadgetHash() string`)
   supplies its own name hash, so a key computed elsewhere (certificate
   records) pairs with the Lean definition name.
+- `ExtractCircuitsWith(ExportOptions{...}, ...)` selects output forms for
+  large extractions; the zero value and `ExtractCircuits` keep the original
+  output byte for byte. `VectorGet` renders `(xs.get (i : Fin n))` instead of
+  `xs[i]`, which avoids one bound-proof tactic per access (about 9x faster
+  elaboration on emulated-field checks). `MaxBodyApps` splits longer bodies
+  into continuation parts `<Name>_p<j>` (emitted last part first) taking the
+  definition's arguments, the live gate variables and `k`; deeply nested
+  bodies otherwise exceed `maxRecDepth` and parse in superlinear time.
 - Constant gadget outputs (an `int` or `*big.Int` in the returned slice) are
   passed through the continuation like any other output instead of panicking.

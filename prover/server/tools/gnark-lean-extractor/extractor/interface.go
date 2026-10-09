@@ -116,6 +116,13 @@ func ExtractCircuits(namespace string, field ecc.ID, circuits ...frontend.Circui
 		extractorCircuit.Code = api.Code
 
 		circ := fmt.Sprintf("def %s %s: Prop :=\n%s", name, genArgs(extractorCircuit.Inputs), genCircuitBody(extractorCircuit))
+		if splitBody(extractorCircuit.Code) {
+			inputs := extractorCircuit.Inputs
+			header := func(name, extra string) string {
+				return fmt.Sprintf("def %s %s: Prop :=", name, joinBinders(genArgs(inputs), extra))
+			}
+			circ = genSplitDef(name, header, inputs, extractorCircuit.Code, nil, false, circuitFinalLine)
+		}
 		circuits_extracted = append(circuits_extracted, circ)
 
 		// Resetting elements for next circuit

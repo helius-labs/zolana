@@ -7,12 +7,17 @@ import (
 	"zolana/prover/circuits/formal/ve"
 )
 
+// Vector access without bound-proof tactics and bodies split into parts of at
+// most 200 operations keep every definition shallow enough to elaborate.
+var veExportOptions = leanextractor.ExportOptions{VectorGet: true, MaxBodyApps: 200}
+
 // ExtractVELean extracts the verifiable-encryption circuits into one Lean
 // source file. The output is committed as
 // formal-verification/VerifiableEncryption/Circuit.lean; CI re-extracts and
 // diffs it.
 func ExtractVELean() (string, error) {
-	return leanextractor.ExtractCircuits(
+	return leanextractor.ExtractCircuitsWith(
+		veExportOptions,
 		"ZolanaVE",
 		ecc.BN254,
 		&ve.FieldMulCheck{},

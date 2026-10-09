@@ -86,6 +86,13 @@ func exportGadget(gadget ExGadget) string {
 		return fmt.Sprintf("opaque %s %s %s: Prop", gadget.Name, signature, kArgs)
 	}
 
+	if splitBody(gadget.Code) {
+		header := func(name, extra string) string {
+			return fmt.Sprintf("def %s %s: Prop :=", name, joinBinders(genArgs(inAssignment), extra, kArgs))
+		}
+		return genSplitDef(gadget.Name, header, inAssignment, gadget.Code, gadget.OutputsFlat, kArgs != "", gadgetFinalLine(inAssignment, gadget.OutputsFlat))
+	}
+
 	return fmt.Sprintf("def %s %s %s: Prop :=\n%s", gadget.Name, genArgs(inAssignment), kArgs, genGadgetBody(inAssignment, gadget))
 }
 
@@ -595,7 +602,7 @@ func operandExpr(operand Operand, inAssignment []ExArg, gateVars []string) strin
 	case Gate:
 		return gateVars[operand.(Gate).Index]
 	case Proj:
-		return fmt.Sprintf("%s[%d]", operandExpr(operand.(Proj).Operand, inAssignment, gateVars), operand.(Proj).Index)
+		return vectorAccess(operandExpr(operand.(Proj).Operand, inAssignment, gateVars), operand.(Proj).Index, operand.(Proj).Size)
 	case ProjArray:
 		isComplete, newOperand := isVectorComplete(operand.(ProjArray))
 		if isComplete {
