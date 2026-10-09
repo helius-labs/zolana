@@ -15,9 +15,11 @@ pub mod asset;
 pub mod data;
 pub mod decrypt;
 pub mod error;
+pub mod history;
 pub mod indexer_types;
 pub mod instructions;
 pub mod keys;
+pub mod selection;
 pub mod serialization;
 pub mod signature;
 pub mod utxo;
@@ -25,16 +27,18 @@ pub mod utxo;
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
-    decrypt, decrypt_spendable, rebuild_merge, verify_spendable, DecryptionResult, MergeRebuild,
-    SpendableDecryptionResult,
+    decrypt, decrypt_spendable, rebuild_merge, verify_owned, verify_spendable, DecryptionResult,
+    MergeRebuild, OwnedUtxos, SpendableDecryptionResult,
 };
 pub use error::TransactionError;
+pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
     TransactionKeyRequest,
 };
+pub use selection::{select_spend, select_spend_excluding, spend_tree};
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };

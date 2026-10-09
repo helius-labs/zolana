@@ -12,7 +12,7 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
  */
 export const MAX_SPEND_INPUTS = 40;
 
-/** @internal Rust `is_plain_utxo`, a UTXO the default rail can always prove. */
+/** @internal Rust `WalletUtxo::is_plain`, a UTXO the default rail can always prove. */
 export function isPlainUtxo(entry: WalletUtxo): boolean {
   return (
     entry.utxo.ringProgramId === undefined &&

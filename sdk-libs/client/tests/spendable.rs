@@ -1,25 +1,32 @@
 //! `SpendableUtxos::fetch` against an in-memory indexer that pages one result
-//! at a time.
+//! at a time, and `fetch_asset_id` against in-memory accounts.
 
-use std::cell::RefCell;
+use std::{
+    cell::{Cell, RefCell},
+    collections::{BTreeSet, HashMap},
+};
+
+use solana_account::Account;
 
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
-    GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
-    OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
+    fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
+    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
+    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
+use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
+use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash,
     serialization::proofless::{Proofless, ProoflessEncode},
-    AssetRegistry, Data, EncryptedScheme, Mint, OwnerCx, RingDepositPlaintext, TransactionError,
-    Utxo, UtxoSerialization,
+    AssetRegistry, Data, DecryptRequest, DeriveRequest, EncryptedScheme, HistoryKind, Mint,
+    OwnerCx, RingDepositPlaintext, ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo,
+    UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
 };
 
 const TREE: u16 = 2;
@@ -124,6 +131,39 @@ impl Rpc for Indexer {
             next_cursor,
             scanned_through: None,
         })
+    }
+}
+
+/// A keypair that counts the derivation batches it answers, each a round
+/// trip with a remote key holder.
+struct CountingKeys<'a> {
+    keypair: &'a ShieldedKeypair,
+    derivations: Cell<usize>,
+}
+
+impl ShieldedKeys for CountingKeys<'_> {
+    fn address(&self) -> Result<ShieldedAddress, TransactionError> {
+        self.keypair.address()
+    }
+
+    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+        self.keypair.viewing_public_keys()
+    }
+
+    fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {
+        self.keypair.decrypt(requests)
+    }
+
+    fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.derivations.set(self.derivations.get() + 1);
+        self.keypair.derive(requests)
+    }
+
+    fn transaction_keys(
+        &self,
+        requests: &[TransactionKeyRequest],
+    ) -> Result<Vec<ViewingKey>, TransactionError> {
+        self.keypair.transaction_keys(requests)
     }
 }
 
@@ -322,6 +362,102 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
 }
 
 #[test]
+fn fetch_history_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
+    let owner = keypair(10);
+    let address = owner.shielded_address().unwrap();
+    let owner_tag = address.signing_pubkey.confidential_view_tag().unwrap();
+    let (first_deposit, first) = deposit(&owner, 30, 1);
+    let (second_deposit, second) = deposit(&owner, 12, 2);
+    let (tagged_merge, merged) = merge(&owner, &[&first], owner_tag, 3);
+    let (untagged_merge, untagged_output) = merge(&owner, &[&second], second.nullifier, 4);
+    // Withdraws all of the untagged merge's output. Its one output is a dummy,
+    // which a spend publishes under the owner's tag.
+    let mut withdrawal = spend(&owner, &untagged_output, 5);
+    withdrawal
+        .output_slots
+        .push(output_slot(owner_tag, [5; 32], 5, vec![5; 64]));
+    let indexer = || Indexer {
+        tagged: vec![tagged_merge.clone()],
+        deposits: vec![first_deposit.clone(), second_deposit.clone()],
+        spends: vec![
+            tagged_merge.clone(),
+            untagged_merge.clone(),
+            withdrawal.clone(),
+        ],
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let counting = || CountingKeys {
+        keypair: &owner,
+        derivations: Cell::new(0),
+    };
+    let (spendable_keys, history_keys) = (counting(), counting());
+    let (spendable_indexer, history_indexer) = (indexer(), indexer());
+
+    let spendable = SpendableUtxos::new(&spendable_keys, &assets)
+        .fetch(&spendable_indexer)
+        .unwrap();
+    let history = SpendableUtxos::new(&history_keys, &assets)
+        .fetch_history(&history_indexer)
+        .unwrap();
+
+    // The history reuses the last round's owned UTXOs: the key holder derives
+    // no more nullifiers than for `fetch`.
+    assert_eq!(
+        history_keys.derivations.get(),
+        spendable_keys.derivations.get()
+    );
+    assert_eq!(history_indexer.queried_tags, spendable_indexer.queried_tags);
+    assert_eq!(
+        history_indexer.queried_nullifiers,
+        spendable_indexer.queried_nullifiers
+    );
+    assert_eq!(
+        history.view_tags,
+        BTreeSet::from([owner_tag, address.viewing_pubkey.x()])
+    );
+    let unspent: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
+    assert_eq!(unspent, [merged.hash]);
+    let owned: Vec<_> = history.utxos.iter().map(|utxo| utxo.utxo_hash).collect();
+    assert_eq!(
+        owned,
+        [first.hash, second.hash, merged.hash, untagged_output.hash]
+    );
+    let mut signatures: Vec<_> = history
+        .transactions
+        .iter()
+        .map(|tx| tx.tx_signature)
+        .collect();
+    signatures.sort();
+    assert_eq!(
+        signatures,
+        [1, 2, 3, 4, 5].map(|nonce| Signature::from([nonce; 64]))
+    );
+    for spent in [&first, &second, &untagged_output] {
+        assert!(history
+            .transactions
+            .iter()
+            .any(|tx| tx.nullifiers.contains(&spent.nullifier)));
+    }
+
+    let entries: Vec<_> = history
+        .entries()
+        .into_iter()
+        .map(|entry| (entry.slot, entry.kind, entry.amount))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (5, HistoryKind::Withdrawal, 12),
+            (4, HistoryKind::SelfTransfer, 12),
+            (3, HistoryKind::SelfTransfer, 30),
+            (2, HistoryKind::Deposit, 12),
+            (1, HistoryKind::Deposit, 30),
+        ]
+    );
+}
+
+#[test]
 fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
     let owner = keypair(8);
     let (first_deposit, first) = deposit(&owner, 30, 1);
@@ -443,4 +579,102 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
             .fetch(&indexer),
         Err(ClientError::Transaction(TransactionError::Deserialize(_)))
     ));
+}
+
+const MINT: Address = Address::new_from_array([7; 32]);
+const OTHER_PROGRAM: Address = Address::new_from_array([9; 32]);
+
+/// Accounts by address; `get_account` is the only request it answers.
+#[derive(Default)]
+struct Accounts(HashMap<Address, Account>);
+
+impl Accounts {
+    fn with(mut self, address: Address, owner: Address, data: Vec<u8>) -> Self {
+        self.0.insert(
+            address,
+            Account {
+                lamports: 1,
+                data,
+                owner,
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+        self
+    }
+
+    fn registry(self, owner: Address, mint: Address, asset_id: u64) -> Self {
+        self.with(
+            pda::spl_asset_registry(&MINT),
+            owner,
+            SplAssetRegistry::account_bytes(mint, asset_id).to_vec(),
+        )
+    }
+}
+
+impl Rpc for Accounts {
+    fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        Ok(self.0.get(&address).cloned())
+    }
+}
+
+/// An `Rpc` that fails every request, so a lookup that succeeds with it made
+/// none.
+struct Offline;
+
+impl Rpc for Offline {}
+
+#[test]
+fn sol_has_the_reserved_asset_id_without_a_request() {
+    assert_eq!(fetch_asset_id(&Offline, SOL_MINT).unwrap(), SOL_ASSET_ID);
+}
+
+#[test]
+fn asset_id_is_read_from_the_pool_registry_account_of_the_mint() {
+    let rpc = Accounts::default().registry(PROGRAM_ID_PUBKEY, MINT, 5);
+    assert_eq!(fetch_asset_id(&rpc, MINT).unwrap(), 5);
+}
+
+#[test]
+fn a_mint_without_a_pool_owned_registry_account_is_not_registered() {
+    let not_registered = |rpc: &Accounts| {
+        matches!(
+            fetch_asset_id(rpc, MINT),
+            Err(ClientError::SplAssetNotRegistered { mint }) if mint == MINT
+        )
+    };
+    assert!(not_registered(&Accounts::default()));
+    // Lamports sent to the registry address make a system-owned account.
+    assert!(not_registered(&Accounts::default().with(
+        pda::spl_asset_registry(&MINT),
+        Address::default(),
+        Vec::new(),
+    )));
+    assert!(not_registered(&Accounts::default().registry(
+        OTHER_PROGRAM,
+        MINT,
+        5
+    )));
+}
+
+#[test]
+fn a_pool_registry_account_that_does_not_parse_or_names_another_mint_is_invalid() {
+    let invalid = |rpc: &Accounts| {
+        matches!(
+            fetch_asset_id(rpc, MINT),
+            Err(ClientError::InvalidSplAssetRegistry { mint }) if mint == MINT
+        )
+    };
+    let mut truncated = SplAssetRegistry::account_bytes(MINT, 5).to_vec();
+    truncated.pop();
+    assert!(invalid(&Accounts::default().with(
+        pda::spl_asset_registry(&MINT),
+        PROGRAM_ID_PUBKEY,
+        truncated,
+    )));
+    assert!(invalid(&Accounts::default().registry(
+        PROGRAM_ID_PUBKEY,
+        OTHER_PROGRAM,
+        5
+    )));
 }

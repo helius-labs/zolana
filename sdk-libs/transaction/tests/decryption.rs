@@ -21,8 +21,8 @@ use zolana_transaction::{
         plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
         proofless::{Proofless, ProoflessEncode},
     },
-    verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data, DataRecord,
-    DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
+    verify_owned, verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data,
+    DataRecord, DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
     LocalShieldedKeys, MergeRebuild, Mint, OutputContext, OutputSlot, OwnerCx,
     RingDepositPlaintext, ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult,
     TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo,
@@ -229,6 +229,32 @@ fn batch_spends_apply_before_or_after_publication_and_cached_nullifiers_are_untr
             .balances
             .assets,
         vec![balance(vec![note], Mint::SOL, 41)]
+    );
+}
+
+#[test]
+fn owned_utxos_keep_the_spent_ones_and_derive_their_nullifiers_again() {
+    let owner = keypair(53);
+    let spent = wallet_utxo(&owner, Mint::SOL, 41, 2, 1);
+    let unspent = wallet_utxo(&owner, Mint::SOL, 9, 2, 2);
+    let mut cached = spent.clone();
+    cached.nullifier = [99; 32];
+    let mut forged = unspent.clone();
+    forged.utxo.amount += 1;
+    let decrypted = DecryptionResult {
+        utxos: vec![cached, forged, unspent.clone(), unspent.clone()],
+        spent_nullifiers: HashSet::from([spent.nullifier]),
+        ..Default::default()
+    };
+
+    let owned = verify_owned(&owner, &decrypted).unwrap();
+    assert_eq!(owned.utxos, vec![spent.clone(), unspent.clone()]);
+    assert_eq!(owned.spent, HashSet::from([spent.nullifier]));
+    let spendable = verify_spendable(&owner, &decrypted).unwrap();
+    assert_eq!(owned.spendable(), spendable);
+    assert_eq!(
+        spendable.utxos().cloned().collect::<Vec<_>>(),
+        vec![unspent]
     );
 }
 

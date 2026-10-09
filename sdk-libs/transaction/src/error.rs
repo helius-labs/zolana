@@ -155,6 +155,21 @@ pub enum TransactionError {
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 
+    #[error("a spend needs a positive amount")]
+    ZeroSpendAmount,
+
+    #[error("no spendable balance of {asset}")]
+    NoSpendableBalance { asset: Address },
+
+    #[error("balance is spread over {trees} trees; merge each tree first")]
+    BalanceOnSeveralTrees { trees: usize },
+
+    #[error("{amount} needs more than {max_inputs} UTXOs; merge first")]
+    SpendNeedsMerge { amount: u64, max_inputs: usize },
+
+    #[error("{amount} needs UTXOs that are excluded from this spend")]
+    SpendNeedsExcludedUtxos { amount: u64 },
+
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },
 
@@ -172,6 +187,12 @@ pub enum TransactionError {
 
     #[error("expected an SPL mint; use the SOL-specific method for SOL")]
     ExpectedSplMint,
+
+    #[error("SPL mint {mint} needs its token program")]
+    MissingSplTokenProgram { mint: Address },
+
+    #[error("SOL has no token program, got {token_program}")]
+    UnexpectedSolTokenProgram { token_program: Address },
 
     #[error("public transfer sum overflow for asset {asset}")]
     PublicTransferOverflow { asset: Address },

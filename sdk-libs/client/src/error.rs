@@ -1,3 +1,4 @@
+use solana_address::Address;
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
@@ -83,9 +84,6 @@ pub enum ClientError {
     #[error("transaction failed: {0}")]
     TransactionFailed(String),
 
-    #[error("input_utxo amount must be greater than zero")]
-    ZeroSpendAmount,
-
     #[error("too many inputs: got {got}, shape holds at most {max}")]
     TooManyInputs { got: usize, max: usize },
 
@@ -127,11 +125,14 @@ pub enum ClientError {
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 
-    #[error("SPL token program is required for mint {mint}")]
-    MissingSplTokenProgram { mint: Pubkey },
-
     #[error("mint {mint} is owned by unsupported SPL token program {owner}")]
     UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },
+
+    #[error("mint {mint} is not registered with the shielded pool")]
+    SplAssetNotRegistered { mint: Address },
+
+    #[error("the shielded pool's asset registry account for mint {mint} is invalid")]
+    InvalidSplAssetRegistry { mint: Address },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),

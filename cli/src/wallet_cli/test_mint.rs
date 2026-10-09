@@ -5,12 +5,11 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use zolana_client::{fetch_asset_id, ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
-    pda,
-    state::{ProtocolConfig, SplAssetRegistry},
-    PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
-    SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
+    pda, state::ProtocolConfig, SPL_TOKEN_2022_PROGRAM_ID,
+    SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
+    SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_program::instruction::{CreateAssetCounter, CreateSplInterface};
 use zolana_transaction::Address;
@@ -71,7 +70,7 @@ pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     )?;
     ensure_asset_counter(&rpc, authority)?;
     ensure_spl_interface(&rpc, authority, &mint, token_program)?;
-    let asset_id = fetch_asset_id(&rpc, &mint)?;
+    let asset_id = fetch_asset_id(&rpc, mint)?;
 
     let mut config = CliConfigFile::load()?;
     config.upsert_asset(mint, asset_id, Some(token_account))?;
@@ -243,35 +242,6 @@ fn ensure_spl_interface(
     )?;
     println!("ok create_spl_interface mint={mint} registry={registry} signature={signature}");
     Ok(())
-}
-
-fn fetch_asset_id(rpc: &SolanaRpc, mint: &Pubkey) -> Result<u64> {
-    let registry = pda::spl_asset_registry(mint);
-    let account = rpc
-        .get_account(Address::new_from_array(registry.to_bytes()))?
-        .ok_or_else(|| anyhow::anyhow!("SPL asset registry not found for mint {mint}"))?;
-    if account.owner != PROGRAM_ID_PUBKEY {
-        bail!(
-            "SPL asset registry {registry} has unexpected owner {}",
-            account.owner
-        );
-    }
-    if account.data.len() != SplAssetRegistry::SIZE {
-        bail!(
-            "SPL asset registry {registry} has invalid size {}; expected {}",
-            account.data.len(),
-            SplAssetRegistry::SIZE
-        );
-    }
-    if account.data[0] != zolana_interface::state::discriminator::SPL_ASSET_REGISTRY {
-        bail!("SPL asset registry {registry} has invalid discriminator");
-    }
-    if account.data[8..40] != mint.to_bytes() {
-        bail!("SPL asset registry {registry} has mismatched mint");
-    }
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&account.data[40..48]);
-    Ok(u64::from_le_bytes(bytes))
 }
 
 #[cfg(test)]

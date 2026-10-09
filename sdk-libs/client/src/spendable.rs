@@ -1,4 +1,4 @@
-//! A wallet's spendable UTXOs, read from the indexer.
+//! A wallet's spendable UTXOs and its history, read from the indexer.
 //!
 //! Stateless: [`SpendableUtxos::fetch`] reads the transactions tagged for the
 //! wallet and decrypts them, then reads the transactions that spent the UTXOs
@@ -7,15 +7,22 @@
 //! find those. Each round decrypts only the transactions it fetched and queries
 //! only the nullifiers it has not queried, so with a remote key holder a round
 //! costs round trips for what is new, not for everything found so far.
+//! [`SpendableUtxos::fetch_history`] makes the same reads and keeps the
+//! transactions and the spent UTXOs as well.
+//!
+//! Both read UTXOs only in the assets of the [`AssetRegistry`] they are given
+//! and report the others as unknown; [`fetch_asset_id`] reads the id the pool
+//! registered for a mint, to add it.
 
 use std::collections::HashSet;
 
 use solana_address::Address;
 use solana_signature::Signature;
+use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
-    verify_spendable, AssetRegistry, DecryptionResult, DepositPayload, ShieldedKeys,
-    SpendableDecryptionResult,
+    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, OwnedUtxos,
+    ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -59,17 +66,39 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         &self,
         indexer: &I,
     ) -> Result<SpendableDecryptionResult, ClientError> {
+        Ok(self.fetch_rounds(indexer)?.spendable)
+    }
+
+    /// The reads of [`fetch`](Self::fetch), keeping every transaction read,
+    /// every UTXO the wallet owns among them, spent or not, and the tags they
+    /// were read by. [`History::entries`] classifies them. It asks the
+    /// key holder no more than `fetch` does.
+    pub fn fetch_history<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<History, ClientError> {
+        let fetched = self.fetch_rounds(indexer)?;
+        Ok(History {
+            utxos: fetched.owned.utxos,
+            transactions: fetched.transactions,
+            unknown_asset_ids: fetched.owned.unknown_asset_ids,
+            unknown_mints: fetched.owned.unknown_mints,
+            view_tags: fetched.tags.into_iter().collect(),
+        })
+    }
+
+    fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
 
         let mut seen = HashSet::new();
         let mut batch = self.unseen(&mut seen, tagged_transactions(indexer, &tags)?)?;
+        let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
         loop {
             decrypted.extend(self.keys, &batch, self.assets)?;
-            let spendable = verify_spendable(self.keys, &decrypted)?;
+            transactions.append(&mut batch);
+            let owned = verify_owned(self.keys, &decrypted)?;
+            let spendable = owned.spendable();
             // The spends of a UTXO queried in an earlier round are fetched.
             let nullifiers: Vec<_> = spendable
                 .utxos()
@@ -78,7 +107,12 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
                 .collect();
             batch = self.unseen(&mut seen, spending_transactions(indexer, &nullifiers)?)?;
             if batch.is_empty() {
-                return Ok(spendable);
+                return Ok(Fetched {
+                    tags,
+                    transactions,
+                    owned,
+                    spendable,
+                });
             }
         }
     }
@@ -116,6 +150,39 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         }
         Ok(tx)
     }
+}
+
+/// The asset id the shielded pool uses for `asset`: [`SOL_ASSET_ID`] for SOL,
+/// without a request, and for an SPL mint the id in the registry account the
+/// pool wrote when it registered the mint.
+pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, ClientError> {
+    if asset == SOL_MINT {
+        return Ok(SOL_ASSET_ID);
+    }
+    let not_registered = || ClientError::SplAssetNotRegistered { mint: asset };
+    let account = rpc
+        .get_account(pda::spl_asset_registry(&asset))?
+        .ok_or_else(not_registered)?;
+    // Only the pool can create an account at the registry address. Any other
+    // owner means lamports were sent there, not that the mint was registered.
+    if account.owner != PROGRAM_ID_PUBKEY {
+        return Err(not_registered());
+    }
+    let invalid = || ClientError::InvalidSplAssetRegistry { mint: asset };
+    let registry = SplAssetRegistry::from_account_bytes(&account.data).map_err(|_| invalid())?;
+    if registry.mint != asset {
+        return Err(invalid());
+    }
+    Ok(registry.asset_id)
+}
+
+/// What the rounds of one fetch read and decrypted.
+struct Fetched {
+    tags: Vec<[u8; 32]>,
+    transactions: Vec<ShieldedTransaction>,
+    /// The final round's [`verify_owned`], spent UTXOs included.
+    owned: OwnedUtxos,
+    spendable: SpendableDecryptionResult,
 }
 
 /// The transactions tagged with any of `tags`. Deposits come from the

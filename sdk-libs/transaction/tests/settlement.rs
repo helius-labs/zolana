@@ -6,7 +6,11 @@ use zolana_event::MessageData;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::instruction_data::transact::{InterfaceTransfer, OwnerTag, TransactOutput},
-    MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
+    ASSOCIATED_TOKEN_PROGRAM_ID, MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+    SOL_ASSET_FIELD, SOL_INTERFACE, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+};
+use zolana_program::instruction::{
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
 use zolana_transaction::{
     instructions::transact::{
@@ -550,4 +554,91 @@ fn external_hash_binds_every_context_payload_order_and_settlement_field() {
         mutate(&mut changed);
         assert_ne!(changed.hash().unwrap(), baseline, "mutation {index}");
     }
+}
+
+fn sol_and_spl_builder() -> ConfidentialTransaction {
+    let owner = keypair(7);
+    ConfidentialTransaction::new(
+        vec![
+            wallet_utxo(&owner, Mint::SOL, 100, 0, 1),
+            wallet_utxo(&owner, mint(4), 100, 0, 2),
+        ],
+        address(1),
+    )
+    .unwrap()
+}
+
+#[test]
+fn withdraw_to_settles_sol_to_the_recipient_and_spl_to_its_associated_token_account() {
+    let recipient = address(30);
+    let mut tx = sol_and_spl_builder();
+    assert_eq!(
+        tx.withdraw_to(SOL_MINT, 5, recipient, None).unwrap(),
+        TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient })
+    );
+
+    // The recipient's associated token account and the mint's SPL interface,
+    // derived from the protocol seeds rather than the SDK's PDA helpers. The
+    // token program is part of the account's address.
+    let associated_token_account = |token_program: [u8; 32]| {
+        Address::find_program_address(
+            &[recipient.as_ref(), &token_program, &[4; 32]],
+            &Address::new_from_array(ASSOCIATED_TOKEN_PROGRAM_ID),
+        )
+        .0
+    };
+    let (spl_interface, _) = Address::find_program_address(
+        &[b"spl_asset_vault", &[4; 32]],
+        &Address::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+    );
+    let mut expected_transfers = vec![SettlementTransfer::Sol {
+        is_deposit: false,
+        amount: 5,
+        user_sol_account: recipient,
+    }];
+    for token_program in [SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID] {
+        let user_token_account = associated_token_account(token_program);
+        let token_program = Address::new_from_array(token_program);
+        assert_eq!(
+            tx.withdraw_to(address(4), 6, recipient, Some(token_program))
+                .unwrap(),
+            TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+                mint: address(4),
+                spl_interface,
+                user_token_account,
+                token_program,
+            })
+        );
+        expected_transfers.push(SettlementTransfer::Spl {
+            mint: address(4),
+            is_deposit: false,
+            amount: 6,
+            user_spl_token: user_token_account,
+        });
+    }
+    assert_ne!(
+        associated_token_account(SPL_TOKEN_PROGRAM_ID),
+        associated_token_account(SPL_TOKEN_2022_PROGRAM_ID)
+    );
+    assert_eq!(tx.interface_transfers().unwrap(), expected_transfers);
+}
+
+#[test]
+fn withdraw_to_refuses_a_missing_or_sol_token_program_and_an_unknown_mint() {
+    let recipient = address(30);
+    let token_program = Address::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let mut tx = sol_and_spl_builder();
+    assert!(matches!(
+        tx.withdraw_to(SOL_MINT, 1, recipient, Some(token_program)),
+        Err(TransactionError::UnexpectedSolTokenProgram { token_program: got }) if got == token_program
+    ));
+    assert!(matches!(
+        tx.withdraw_to(address(4), 1, recipient, None),
+        Err(TransactionError::MissingSplTokenProgram { mint }) if mint == address(4)
+    ));
+    assert!(matches!(
+        tx.withdraw_to(address(5), 1, recipient, Some(token_program)),
+        Err(TransactionError::UnknownMint(mint)) if mint == address(5)
+    ));
+    assert!(tx.public_transfers().is_empty());
 }

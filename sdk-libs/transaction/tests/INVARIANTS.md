@@ -86,7 +86,8 @@ Source: [encryption](../src/instructions/transact/encryption.rs),
 ## Settlement and external data
 
 Source: [settlement](../src/instructions/transact/settlement.rs),
-[external data](../src/instructions/transact/external_data.rs).
+[external data](../src/instructions/transact/external_data.rs),
+[withdrawal to an account](../src/instructions/transact/mod.rs).
 
 | ID | Kind / severity | Invariant | Coverage / required assertions |
 |---|---|---|---|
@@ -100,6 +101,8 @@ Source: [settlement](../src/instructions/transact/settlement.rs),
 | INV-TX-SETTLE-08 | pre / H | `with_ring_hashes` refuses to overwrite either already-populated hash with `RingHashesAlreadySet`. | [x] `settlement.rs::ring_hashes_can_be_set_once_and_neither_existing_field_can_be_overwritten`. |
 | INV-TX-SETTLE-09 | wire / C | SOL settlement account pairs contain `SOL_INTERFACE` then the user SOL account; SPL pairs contain mint then user token account. Instruction legs preserve direction/amount and derive the SPL interface bump from that mint. | [x] `settlement.rs::ordered_settlement_accounts_and_instruction_legs_survive_builder_encryption`. SPL bump is independently derived from the address primitive and literal protocol seed, not a hardcoded bump vector. |
 | INV-TX-SETTLE-10 | wire / C | External-data owner resolution requires one resolved tag per output; only `Account` tags append the supplied resolved address to the hash preimage. Inline owner addresses are already encoded in the output. | [x] `settlement.rs::external_hash_uses_canonical_bytes_and_only_resolves_account_owner_tags`. |
+| INV-TX-SETTLE-11 | post / C | `withdraw_to` records a withdrawal to `recipient` for SOL, and for an SPL mint to `recipient`'s associated token account under the given token program. It returns the matching `transact` settlement account group: the SOL recipient, or the mint, its SPL interface, that same token account and the token program. | [x] `settlement.rs::withdraw_to_settles_sol_to_the_recipient_and_spl_to_its_associated_token_account`. The token account and the interface are derived from the literal protocol seeds, not the SDK's PDA helpers. |
+| INV-TX-SETTLE-12 | pre / H | `withdraw_to` rejects an SPL mint without a token program with `MissingSplTokenProgram { mint }`, SOL with a token program with `UnexpectedSolTokenProgram { token_program }`, and an SPL mint that no real input holds with `UnknownMint`. A failed call records no transfer. | [x] `settlement.rs::withdraw_to_refuses_a_missing_or_sol_token_program_and_an_unknown_mint`. |
 
 ## UTXOs and commitments
 
@@ -193,6 +196,16 @@ Source: [scan and verification](../src/decrypt.rs),
 | INV-TX-SCAN-14 | pre / C | A ring deposit yields a candidate only when a held viewing key opens it and the plaintext blinding reproduces the published owner-UTXO hash; the note carries the published asset, amount, ring, data and ring-data hashes. | [x] `decryption.rs::ring_deposits_open_for_their_owner_and_feed_a_ring_merge`. |
 | INV-TX-SCAN-15 | pre / H | An output whose asset the registry does not know is left out and reported, its decoded asset id in `unknown_asset_ids` or, for a deposit this wallet owns, its mint in `unknown_mints`, on both results; the rest of the batch still decodes. A reported asset id is unverified until the asset is registered and the commitment checks. | [x] `decryption.rs::outputs_in_unregistered_assets_are_reported_without_failing_the_scan`, `decryption.rs::altered_encryption_context_and_ciphertext_cannot_create_spendable_notes`. |
 | INV-TX-SCAN-16 | post / M | `DecryptionResult::extend` decrypts only the transactions it is given, rebuilds their merges and the merges still pending from earlier calls from every candidate held so far, keeps the unresolved ones in `pending_merges`, and leaves the result equal to one `decrypt` over all the transactions. | [x] `decryption.rs::extending_a_result_decrypts_only_the_new_transactions`, `decryption.rs::a_merge_pending_on_a_later_batch_rebuilds_when_its_input_arrives`. |
+| INV-TX-SCAN-17 | post / C | `verify_owned` applies the checks of `verify_spendable` (owner, nullifier key, resolved data hashes, recomputed commitment, one UTXO per commitment, nullifiers derived again) but keeps spent UTXOs, in the order the `DecryptionResult` holds them, and names the spent ones by nullifier; `OwnedUtxos::spendable` equals `verify_spendable`, its result without the spent ones. | [x] `decryption.rs::owned_utxos_keep_the_spent_ones_and_derive_their_nullifiers_again`. |
+
+## History
+
+Source: [history](../src/history.rs).
+
+| ID | Kind / severity | Invariant | Coverage / required assertions |
+|---|---|---|---|
+| INV-TX-HIST-01 | post / M | `History::entries` classifies each transaction per asset from the wallet's UTXOs: with none spent, `Deposit` for a deposit instruction and `Received` otherwise, of the amount received; with exactly the spent amount received back, `SelfTransfer` of the amount spent; with more received back, `Deposit` of the amount received minus the amount spent; otherwise `Sent` when an output that is not the wallet's carries a tag outside `view_tags` and `Withdrawal` when none does, of the amount spent minus the amount received. A dummy output of the wallet's own spend carries the wallet's tag, so it never turns a withdrawal into `Sent`. | [x] `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
+| INV-TX-HIST-02 | post / M | The events of one Solana transaction count together; there is one entry per transaction and asset with a nonzero amount, none for a transaction that moved none of the wallet's UTXOs, ordered newest slot first, then by signature and mint. | [x] `history.rs::entries_list_newest_first_with_one_entry_per_asset_and_transaction`, `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
 
 ## Key holders and asset registry
 
@@ -323,9 +336,10 @@ regression tests without first deciding the intended contract.
 
 Test files: [construction](construction.rs), [settlement](settlement.rs),
 [commitments](commitments.rs), [merge](merge.rs), [decryption](decryption.rs),
-[formats](formats.rs), [assets](assets.rs), [behavior](behavior.rs), [keys](keys.rs),
-[confidential](confidential.rs), [anonymous](anonymous.rs),
-[proofless](proofless.rs), [hash vectors](hash_vectors.rs), and
+[formats](formats.rs), [history](history.rs), [assets](assets.rs),
+[behavior](behavior.rs), [keys](keys.rs), [confidential](confidential.rs),
+[anonymous](anonymous.rs), [proofless](proofless.rs),
+[hash vectors](hash_vectors.rs), and
 [constant vectors](constants_vectors.rs). The fixed hash vectors are low-level
 evidence; builder behavior is exercised separately through its public API.
 
