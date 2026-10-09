@@ -228,4 +228,34 @@ theorem fieldToBytesBE_rw {v : F} {k : (Fin 32 → F) → Prop} :
   · intro hk
     exact ⟨_, fun _ => rfl, hk⟩
 
+def domSepSilo : ℕ := 0x544d5349
+def domSepKey : ℕ := 0x544d534b
+def domSepKeyHi : ℕ := 0x544d534c
+def domSepNonce : ℕ := 0x544d534e
+
+/-- Consecutive 31-byte chunks; the final chunk may be shorter. -/
+def chunks31 {α : Type} : List α → List (List α)
+  | [] => []
+  | b :: bs => (b :: bs).take 31 :: chunks31 ((b :: bs).drop 31)
+termination_by l => l.length
+decreasing_by simp only [List.length_drop, List.length_cons]; omega
+
+/-- Big-endian packing of one chunk (`gadget.BytesToField`). -/
+def packBE (bytes : List ℕ) : ℕ := bytes.foldl (fun acc b => acc * 256 + b) 0
+
+/-- `gadget.PackBytesBE`: 31-byte big-endian chunks, the last one unpadded. -/
+def packBE31 (info : List ℕ) : List ℕ := (chunks31 info).map packBE
+
+/-- The key schedule of `poseidon_kdf.go` over a Poseidon hash taking the input
+list (initial state zero). The key is the low 16 bytes of `keyHi` followed by
+the low 16 bytes of `keyLo`; the nonce is the low 12 bytes of `nonceRaw`. -/
+def kdf (poseidon : List F → F) (shared : F) (info : List ℕ) :
+    (Fin 32 → ℕ) × (Fin 12 → ℕ) :=
+  let siloed := poseidon ((domSepSilo : F) :: shared :: (packBE31 info).map (fun x => (x : F)))
+  let keyLo := poseidon [(domSepKey : F), siloed]
+  let keyHi := poseidon [(domSepKeyHi : F), siloed]
+  let nonceRaw := poseidon [(domSepNonce : F), siloed]
+  (fun i => if h : i.val < 16 then byteOf keyHi.val ⟨i.val + 16, by omega⟩ else byteOf keyLo.val i,
+   fun j => byteOf nonceRaw.val ⟨j.val + 20, by omega⟩)
+
 end VerifiableEncryption
