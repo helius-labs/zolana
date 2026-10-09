@@ -62,6 +62,12 @@ func (f *Field) AssertCanonical(e *Element) {
 	}
 	f.api.AssertIsEqual(sumPart(0, lowLimbCount), f.api.Add(maximumLow, f.api.Mul(carry, pow2(lowLimbCount*limbBits))))
 	f.api.AssertIsEqual(f.api.Add(sumPart(lowLimbCount, nbLimbs), carry), maximumHigh)
+	if Recorder != nil {
+		r := f.baseRecord(KindCanonicalGap)
+		r.Elements = elementRecords([]*Element{e})
+		r.LowLimbCount, r.MaximumLow, r.MaximumHigh, r.GapWidths = lowLimbCount, maximumLow, maximumHigh, append([]int{}, f.widths...)
+		Recorder(r)
+	}
 }
 
 func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
@@ -113,6 +119,15 @@ func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 			api.AssertIsEqual(api.Mul(matchesHigherLimbs, api.IsZero(api.Sub(full, limbs[i]))), 0)
 			i--
 		}
+	}
+	if Recorder != nil {
+		r := f.baseRecord(KindCanonicalLimbwise)
+		r.Elements = elementRecords([]*Element{e})
+		r.MaximumLimbs = maximumLimbs
+		for _, k := range kinds {
+			r.Kinds = append(r.Kinds, int(k))
+		}
+		Recorder(r)
 	}
 	return true
 }

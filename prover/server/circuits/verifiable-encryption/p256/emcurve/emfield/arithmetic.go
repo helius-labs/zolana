@@ -292,6 +292,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 	// 7. Check bounded carries and the final coefficient to prove the integer relation.
 	var carry frontend.Variable = 0
 	previousCarryBits := -1
+	var recordedGroups []CarryGroupRecord
 	for pos := 0; pos < carryPositions; {
 		start := pos
 		groupBound := new(big.Int)
@@ -321,6 +322,9 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 		carry = api.Mul(sum, new(big.Int).ModInverse(pow2(limbBits*(pos-start)), nativeModulus))
 		f.rc.Check(api.Add(carry, pow2(carryBits)), carryBits+1)
 		previousCarryBits = carryBits
+		if Recorder != nil {
+			recordedGroups = append(recordedGroups, CarryGroupRecord{Start: start, End: pos, CarryBits: carryBits, GroupBound: new(big.Int).Set(groupBound)})
+		}
 	}
 	if checkTopCoefficient {
 		top := residualForm(carryPositions).build(api)
@@ -328,6 +332,23 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 			panic("top coefficient does not lift")
 		}
 		api.AssertIsEqual(api.Add(top, carry), 0)
+	}
+	if Recorder != nil {
+		kind := KindAssertZero
+		if withResult {
+			kind = KindEval
+		}
+		r := f.baseRecord(kind)
+		r.Terms, r.Elements = termRecords(terms, elementIndices), elementRecords(elements)
+		r.CoefficientBounds, r.Degree = cloneBig(coefficientBounds), degree
+		r.Folded, r.UsesCRT = fold != nil, fold != nil && f.arithmetic.crt != nil
+		r.FoldedBounds, r.FoldedMin, r.FoldedMax = cloneBig(foldedBounds), new(big.Int).Set(foldedMin), new(big.Int).Set(foldedMax)
+		r.RemainderMax, r.QuotientMin, r.QuotientMax, r.Offset = remainderMax, quotientMin, quotientMax, offset
+		r.QuotientBits, r.QuotientWidths, r.OffsetLimbs, r.QuotientBounds = quotientBits, quotientWidths, offsetLimbs, quotientBounds
+		r.ResidualBounds, r.Positions, r.CarryPositions, r.CheckTop = cloneBig(residualBounds), positions, carryPositions, checkTopCoefficient
+		r.CarryGroups = recordedGroups
+		Recorder(r)
+		f.recordBasis()
 	}
 	return remainder
 }
@@ -377,6 +398,16 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 		e.lo[j], e.hi[j] = lo, hi
 		e.valueMin.Add(e.valueMin, new(big.Int).Lsh(lo, uint(limbBits*j)))
 		e.valueMax.Add(e.valueMax, new(big.Int).Lsh(hi, uint(limbBits*j)))
+	}
+	if Recorder != nil {
+		elements, indices := distinctElements(terms)
+		r := f.baseRecord(KindLazy)
+		r.Terms, r.Elements, r.Degree = termRecords(terms, indices), elementRecords(elements), degree
+		r.Folded, r.UsesCRT = true, f.arithmetic.crt != nil
+		r.CoefficientMin, r.CoefficientMax = cloneBig(coefficientMin), cloneBig(coefficientMax)
+		r.OutLo, r.OutHi, r.OutMin, r.OutMax = cloneBig(e.lo), cloneBig(e.hi), new(big.Int).Set(e.valueMin), new(big.Int).Set(e.valueMax)
+		Recorder(r)
+		f.recordBasis()
 	}
 	return e
 }
