@@ -1,17 +1,19 @@
 # Private kVault Deposits
 
-Users can deposit into and exit from Kamino kVaults from private balances without revealing transaction amounts.
+Users can deposit into and withdraw from Kamino kVaults with their private balances without revealing amounts.
 
-1. Users swap USDC for kVault shares with the market maker through a private RFQ inside the shielded pool, at the vault's exchange rate plus a small fee.
-2. The market maker deposits into the vault in aggregate on its own schedule, so Kamino only sees its net flow and individual amounts stay private.
-3. Exits work the same way in reverse.
+Flow:
+1. Users swap USDC for kVault shares with a market maker through a private RFQ between private balances, at the vault's exchange rate plus a small fee.
+2. The market maker deposits into the vault in aggregate on its own schedule, so individual amounts stay private.
+3. Withdrawals work the same way in reverse.
 4. The market maker could run in a TEE, so its operator doesn't see user amounts either.
 
-The market maker supports a set of swap pairs, a pair is one kVault and its two tokens:
+The market maker supports a set of swap pairs. A pair is one kVault and its two tokens:
 1. Collateral: the token the vault accepts, for example USDC.
 2. Shares: the token the vault mints for deposited collateral.
 
-Each swap is two SPP `transact` instructions in one Solana transaction, one proved by each side with its own keys (see [RFQ Swap](#rfq-swap-depositwithdrawal)). No custom program is involved: the vault is the unmodified kVault program, and the share mint is registered with `create_spl_interface`.
+Each swap is one Solana transaction of two private transfer instructions. The user and the market maker prove the transfer themselves so that neither side sees the others private balance.
+No custom program is involved, the vault is the unmodified kVault program.
 
 ## Actors
 
@@ -35,12 +37,12 @@ Each swap is two SPP `transact` instructions in one Solana transaction, one prov
    1. spends N of its UTXOs (N <= `max_user_inputs`)
    2. creates 2 UTXOs: `amount_in` for the market maker, change for itself
 
-   User sends the market maker only the instruction.
+   The user sends the market maker only the instruction.
 
 4. Market maker: create maker transfer instruction and send transaction.
    1. The market maker checks the user transfer: N <= `max_user_inputs`, 2 outputs, no interface transfers, `amount_in` addressed to it.
-   2. It generates a transact zk proof that spends M of its inventory UTXOs and creates 1 + C UTXOs: `amount_out` for the user, C change UTXOs for itself (C >= 1, more when lane growth splits the change).
-   3. It builds one transaction holding the user transfer and the maker transfer.
+   2. It generates a transact zk proof that spends M of its inventory UTXOs and creates 1 + C UTXOs: `amount_out` for the user, C change UTXOs for itself (C >= 1).
+   3. It builds one transaction containing the user transfer and the maker transfer.
    4. The user signs it after checking that the maker transfer pays it the quoted amount.
    5. The market maker signs and sends it.
 
@@ -53,7 +55,7 @@ Two transacts against one tree in one transaction are valid: the maker transfer'
 | Field | Visible to | Reason |
 |-------|------------|--------|
 | User address | Public | The user signs the transaction as owner of the user transfer's inputs |
-| Market maker address | Public | It pays the fee and signs as owner of the maker transfer's inputs and cache writer |
+| Market maker address | Public | It pays the fee and signs as owner of the maker transfer's inputs |
 | Swap amount | User, market maker | Only in output ciphertexts and commitments; the market maker learns it from the user transfer output addressed to it |
 | User balance, other UTXOs | User | The market maker sees only the user transfer instruction and decrypts only its own output |
 | Direction (deposit or exit) | User, market maker | Both transfers move shielded UTXOs; the transaction shape is the same both ways |
@@ -73,22 +75,22 @@ Per pair:
 1. Register the share mint in the privacy protocol. `create_spl_interface` for the pair's share mint, so shares can be held in private balances.
 
 2. Seed inventory.
-   1. Deposit the pair's deposit token into its kVault and receive shares.
-   2. Shield the shares, and optionally the deposit token, into its private balance.
+   1. Deposit collateral into the pair's kVault and receive shares.
+   2. Shield the shares, and optionally collateral, into its private balance.
 
 ### Inventory
 
-1. Concurrency: configure how many swaps it can serve at the same time.
+1. Concurrency: configure how many swaps the market maker can serve at the same time.
    1. Problem: a swap spends one of the market maker's UTXOs, and its change is only spendable once the swap lands, so a single balance serves one swap at a time.
    2. Solution: the market maker keeps its inventory split, so concurrent quotes do not wait on each other.
 
-2. Keep target balances. The market maker keeps a target balance per asset, and a rebalance brings it back into range.
+2. Keep target balances. The market maker keeps a target balance per token, and a rebalance brings it back into range.
 
 3. Schedule rebalances. Rebalances run on a schedule rather than right after a single large swap, so a public kVault operation cannot be linked to one user.
 
 ### Rebalance
 
-1. Decide. Fill exits from the collateral that deposits paid in first; only the net amount goes through kVault.
+1. Decide. Exits are filled first from the collateral that deposits paid in; only the net amount goes through kVault.
 
 2. Rebalance shares: turn collateral into shares.
    1. Unshield the collected collateral.

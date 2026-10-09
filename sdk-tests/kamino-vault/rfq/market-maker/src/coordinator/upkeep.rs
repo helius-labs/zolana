@@ -37,6 +37,7 @@ impl Coordinator {
                         plan,
                         open_caches: true,
                         withdrawal: None,
+                        tail: Vec::new(),
                         fill: None,
                     })
                     .await

@@ -5,6 +5,7 @@ use solana_address::Address;
 use solana_hash::Hash;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::VersionedMessage;
+use solana_signature::Signature;
 use zolana_client::{compile_message, ComputeBudgetConfig, DEFAULT_TRANSACT_CU_LIMIT};
 use zolana_interface::{
     instruction::{tag, TransactIxData},
@@ -148,6 +149,7 @@ pub struct VaultOperation {
     pub tokens: u64,
     pub shares: u64,
     pub inputs: usize,
+    pub signature: Signature,
 }
 
 pub fn swap_message(

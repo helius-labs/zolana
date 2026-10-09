@@ -209,7 +209,11 @@ impl Coordinator {
             .write_cache
             .and_then(|cache| self.pool.create_instruction(&cache));
         Some(SendRequest {
-            instructions: create.into_iter().chain([instruction]).collect(),
+            instructions: create
+                .into_iter()
+                .chain([instruction])
+                .chain(step.tail.iter().cloned())
+                .collect(),
             compute_units: step.compute_units(),
         })
     }

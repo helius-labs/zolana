@@ -39,7 +39,8 @@ use zolana_test_utils::wallet::Wallet;
 
 use kamino_vault_rfq_sdk::{
     budget::{LegBudget, SwapBudget, USER_OUTPUTS},
-    kvault::{self, token_balance, UserAccounts, VaultAccounts, VaultState},
+    kvault::{self, UserAccounts, VaultAccounts, VaultState},
+    rebalance::{lane_amounts, ShieldLanes},
     swap::{
         transact_data, Direction, Fill, Holdings, Offer, Quote, SwapError, SwapRequest,
         VaultOperation,
@@ -416,6 +417,7 @@ impl MarketMaker {
             asset,
             withdrawal: 0,
             target: None,
+            tail: Vec::new(),
         })
         .await
     }
@@ -468,29 +470,16 @@ impl MarketMaker {
         vault: &VaultAccounts,
         usdc: u64,
     ) -> Result<VaultOperation> {
-        let operation = self.kvault_deposit(localnet, vault, usdc)?;
-        self.shield_lanes(localnet, vault.shares_mint, operation.shares)
-            .await?;
-        Ok(operation)
-    }
-
-    async fn shield_lanes(
-        &self,
-        localnet: &FixtureLocalnet,
-        mint: Address,
-        amount: u64,
-    ) -> Result<()> {
-        let lanes = u64::try_from(self.inner.base_lanes.max(1))?;
-        let part = amount / lanes;
-        for lane in 0..lanes {
-            let lane_amount = if lane + 1 == lanes {
-                amount - part * (lanes - 1)
-            } else {
-                part
-            };
-            blocking(|| shield_deposit(localnet, &self.inner.keypair, mint, lane_amount))?;
-        }
-        self.sync().await
+        let rpc = localnet.client.rpc();
+        let before = blocking(|| VaultState::read(rpc, &vault.vault))?;
+        let outcome = before.deposit(usdc)?;
+        let instructions = [
+            self.vault_deposit(vault, outcome.tokens),
+            self.shield_lanes(localnet, vault.shares_mint, outcome.shares)?,
+        ];
+        let keypair = self.inner.keypair.as_ref();
+        let signature = blocking(|| send(rpc, &instructions, keypair, &[keypair]))?;
+        self.settled(localnet, vault, before, signature, 0).await
     }
 
     pub async fn rebalance_deposit(
@@ -499,14 +488,22 @@ impl MarketMaker {
         vault: &VaultAccounts,
         usdc: u64,
     ) -> Result<VaultOperation> {
-        let unshield = self.unshield(vault.token_mint, usdc).await?;
-        let operation = self.kvault_deposit(localnet, vault, usdc)?;
-        self.shield_lanes(localnet, vault.shares_mint, operation.shares)
-            .await?;
-        Ok(VaultOperation {
-            inputs: unshield.inputs,
-            ..operation
-        })
+        self.sync().await?;
+        let before = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
+        let outcome = before.deposit(usdc)?;
+        let tail = vec![
+            self.vault_deposit(vault, outcome.tokens),
+            self.shield_lanes(localnet, vault.shares_mint, outcome.shares)?,
+        ];
+        self.rebalance(
+            localnet,
+            vault,
+            before,
+            vault.token_mint,
+            outcome.tokens,
+            tail,
+        )
+        .await
     }
 
     pub async fn rebalance_withdraw(
@@ -515,27 +512,99 @@ impl MarketMaker {
         vault: &VaultAccounts,
         shares: u64,
     ) -> Result<VaultOperation> {
-        let unshield = self.unshield(vault.shares_mint, shares).await?;
-        let operation = self.kvault_withdraw(localnet, vault, shares)?;
-        self.shield(localnet, vault.token_mint, operation.tokens)
+        self.sync().await?;
+        let before = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
+        let outcome = before.withdraw(shares)?;
+        let accounts = self.public_accounts(vault);
+        let tail = vec![
+            kvault::WithdrawFromAvailable {
+                vault,
+                user: &accounts,
+                shares: outcome.shares,
+            }
+            .instruction(),
+            self.shield_lanes(localnet, vault.token_mint, outcome.tokens)?,
+        ];
+        self.rebalance(
+            localnet,
+            vault,
+            before,
+            vault.shares_mint,
+            outcome.shares,
+            tail,
+        )
+        .await
+    }
+
+    async fn rebalance(
+        &self,
+        localnet: &FixtureLocalnet,
+        vault: &VaultAccounts,
+        before: VaultState,
+        asset: Address,
+        withdrawal: u64,
+        tail: Vec<Instruction>,
+    ) -> Result<VaultOperation> {
+        let receipt = self
+            .consolidate_order(ConsolidateOrder {
+                asset,
+                withdrawal,
+                target: Some(WithdrawalTarget {
+                    owner: self.address(),
+                    token_program: pda::spl_token_program_id(),
+                }),
+                tail,
+            })
             .await?;
+        self.settled(localnet, vault, before, receipt.signature, receipt.inputs)
+            .await
+    }
+
+    async fn settled(
+        &self,
+        localnet: &FixtureLocalnet,
+        vault: &VaultAccounts,
+        before: VaultState,
+        signature: Signature,
+        inputs: usize,
+    ) -> Result<VaultOperation> {
+        blocking(|| localnet.client.confirm_private_transaction_sync(signature))
+            .map_err(|e| anyhow!("index vault operation {signature}: {e:?}"))?;
+        self.sync().await?;
+        let after = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
         Ok(VaultOperation {
-            inputs: unshield.inputs,
-            ..operation
+            before,
+            after,
+            tokens: before.token_available.abs_diff(after.token_available),
+            shares: before.shares_issued.abs_diff(after.shares_issued),
+            inputs,
+            signature,
         })
     }
 
-    async fn unshield(&self, mint: Address, amount: u64) -> Result<ConsolidateReceipt> {
-        self.sync().await?;
-        self.consolidate_order(ConsolidateOrder {
-            asset: mint,
-            withdrawal: amount,
-            target: Some(WithdrawalTarget {
-                owner: self.address(),
-                token_program: pda::spl_token_program_id(),
-            }),
-        })
-        .await
+    fn shield_lanes(
+        &self,
+        localnet: &FixtureLocalnet,
+        mint: Address,
+        amount: u64,
+    ) -> Result<Instruction> {
+        ShieldLanes {
+            tree: localnet.tree,
+            depositor: self.address(),
+            recipient: self.inner.identity,
+            mint,
+            amounts: lane_amounts(amount, self.inner.base_lanes),
+        }
+        .instruction()
+    }
+
+    fn vault_deposit(&self, vault: &VaultAccounts, usdc: u64) -> Instruction {
+        kvault::Deposit {
+            vault,
+            user: &self.public_accounts(vault),
+            max_amount: usdc,
+        }
+        .instruction()
     }
 
     fn public_accounts(&self, vault: &VaultAccounts) -> UserAccounts {
@@ -545,68 +614,6 @@ impl MarketMaker {
             token_account: pda::associated_token_address(&owner, &vault.token_mint),
             shares_account: pda::associated_token_address(&owner, &vault.shares_mint),
         }
-    }
-
-    fn kvault_operation(
-        &self,
-        localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        instruction: Instruction,
-    ) -> Result<VaultOperation> {
-        blocking(|| {
-            let rpc = localnet.client.rpc();
-            let accounts = self.public_accounts(vault);
-            let before = VaultState::read(rpc, &vault.vault)?;
-            let tokens_before = token_balance(rpc, &accounts.token_account)?;
-            let shares_before = token_balance(rpc, &accounts.shares_account)?;
-            send(
-                rpc,
-                &[instruction],
-                self.inner.keypair.as_ref(),
-                &[self.inner.keypair.as_ref()],
-            )?;
-            let tokens_after = token_balance(rpc, &accounts.token_account)?;
-            let shares_after = token_balance(rpc, &accounts.shares_account)?;
-            Ok(VaultOperation {
-                before,
-                after: VaultState::read(rpc, &vault.vault)?,
-                tokens: tokens_before.abs_diff(tokens_after),
-                shares: shares_before.abs_diff(shares_after),
-                inputs: 0,
-            })
-        })
-    }
-
-    fn kvault_deposit(
-        &self,
-        localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        usdc: u64,
-    ) -> Result<VaultOperation> {
-        let accounts = self.public_accounts(vault);
-        let ix = kvault::Deposit {
-            vault,
-            user: &accounts,
-            max_amount: usdc,
-        }
-        .instruction();
-        self.kvault_operation(localnet, vault, ix)
-    }
-
-    fn kvault_withdraw(
-        &self,
-        localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        shares: u64,
-    ) -> Result<VaultOperation> {
-        let accounts = self.public_accounts(vault);
-        let ix = kvault::WithdrawFromAvailable {
-            vault,
-            user: &accounts,
-            shares,
-        }
-        .instruction();
-        self.kvault_operation(localnet, vault, ix)
     }
 }
 

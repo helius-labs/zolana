@@ -14,7 +14,10 @@ use zolana_program::instruction::TransactInterfaceTransferAccounts;
 use zolana_transaction::{instructions::transact::SppProofInputs, WalletUtxo};
 
 use super::{error::MakerError, send::Sent};
-use kamino_vault_rfq_sdk::swap::{Spend, SWAP_COMPUTE_BUDGET};
+use kamino_vault_rfq_sdk::{
+    rebalance::REBALANCE_COMPUTE_BUDGET,
+    swap::{Spend, SWAP_COMPUTE_BUDGET},
+};
 
 pub type StepId = u64;
 pub type OperationId = u64;
@@ -79,6 +82,7 @@ pub struct Step {
     pub write_cache: Option<Address>,
     pub proof: Option<ProofWork>,
     pub instruction: Option<Instruction>,
+    pub tail: Vec<Instruction>,
     pub fill: Option<FillLeg>,
     pub sends: Vec<Sent>,
     pub resend_failed: bool,
@@ -99,6 +103,7 @@ impl Step {
             write_cache: None,
             proof,
             instruction: None,
+            tail: Vec::new(),
             fill: None,
             sends: Vec::new(),
             resend_failed: false,
@@ -119,6 +124,7 @@ impl Step {
         match self.kind {
             StepKind::CloseCache(_) => CLOSE_CACHE_CU_LIMIT,
             StepKind::Fill => SWAP_COMPUTE_BUDGET.cu_limit,
+            StepKind::Consolidate if !self.tail.is_empty() => REBALANCE_COMPUTE_BUDGET.cu_limit,
             StepKind::Consolidate if self.inputs.len() >= WIDE_TRANSACT_INPUTS => {
                 WIDE_TRANSACT_CU_LIMIT
             }

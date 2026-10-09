@@ -1,17 +1,19 @@
 use anyhow::{anyhow, Result};
 use solana_message::v1;
 use zolana_client::transaction_size;
-use zolana_interface::pda;
+use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 
 use kamino_vault_rfq_sdk::{
-    kvault::{token_balance, VaultState},
+    kvault::{self, token_balance, VaultState},
     swap::{
         instructions, legs, Direction, Holdings, Spend, VaultOperation, MAKER_CACHE_SLOT,
         SWAP_COMPUTE_BUDGET,
     },
 };
 
-use crate::shared::{blocking, compute_units, setup, TestEnv, USER_SHIELD_USDC};
+use crate::shared::{
+    blocking, compute_units, landed, public_balances, setup, Landed, TestEnv, USER_SHIELD_USDC,
+};
 
 const BOOTSTRAP_USDC: u64 = 200_000_000;
 const SWAPS: [u64; 2] = [20_000_000, 30_000_000];
@@ -41,6 +43,7 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
             tokens: predicted.tokens,
             shares: predicted.shares,
             inputs: 0,
+            signature: bootstrap.signature,
         }
     );
     let bootstrap_shares = market_maker
@@ -155,11 +158,29 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
         }
     );
 
+    let maker = market_maker.address();
+    let public_before = blocking(|| public_balances(rpc, &maker, &vault))?;
     let before_rebalance = blocking(|| VaultState::read(rpc, &vault.vault))?;
     let predicted = before_rebalance.deposit(usdc_received)?;
     let rebalance = market_maker
         .rebalance_deposit(&localnet, &vault, usdc_received)
         .await?;
+    assert_eq!(
+        blocking(|| public_balances(rpc, &maker, &vault))?,
+        public_before
+    );
+    assert_eq!(
+        blocking(|| landed(rpc, &rebalance.signature))?,
+        Landed {
+            signatures: 1,
+            programs: vec![PROGRAM_ID_PUBKEY, kvault::PROGRAM_ID, PROGRAM_ID_PUBKEY],
+        }
+    );
+    println!(
+        "rebalance deposit of {} inputs: {} CU",
+        rebalance.inputs,
+        blocking(|| compute_units(rpc, &rebalance.signature))?
+    );
     assert_eq!(
         rebalance,
         VaultOperation {
@@ -168,6 +189,7 @@ async fn private_deposits_settle_through_the_market_maker() -> Result<()> {
             tokens: usdc_received,
             shares: predicted.shares,
             inputs: SWAPS.len(),
+            signature: rebalance.signature,
         }
     );
     assert_eq!(

@@ -9,6 +9,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction_status_client_types::EncodedTransaction;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::CreateCacheData,
@@ -156,6 +157,44 @@ pub fn compute_units(rpc: &SolanaRpc, signature: &Signature) -> Result<u64> {
         .ok_or_else(|| anyhow!("transaction {signature} has no metadata"))?;
     Option::<u64>::from(meta.compute_units_consumed)
         .ok_or_else(|| anyhow!("transaction {signature} reports no compute units"))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Landed {
+    pub signatures: usize,
+    pub programs: Vec<Address>,
+}
+
+pub fn landed(rpc: &SolanaRpc, signature: &Signature) -> Result<Landed> {
+    let signatures = match rpc
+        .fetch_confirmed_transaction(signature)?
+        .transaction
+        .transaction
+    {
+        EncodedTransaction::Json(transaction) => transaction.signatures.len(),
+        other => return Err(anyhow!("transaction {signature} came back as {other:?}")),
+    };
+    let programs = rpc
+        .fetch_confirmed_instruction_groups(signature)?
+        .groups
+        .into_iter()
+        .map(|group| group.outer.program_id)
+        .collect();
+    Ok(Landed {
+        signatures,
+        programs,
+    })
+}
+
+pub fn public_balances(
+    rpc: &SolanaRpc,
+    owner: &Address,
+    vault: &VaultAccounts,
+) -> Result<Vec<u64>> {
+    [vault.token_mint, vault.shares_mint]
+        .iter()
+        .map(|mint| kvault::token_balance(rpc, &pda::associated_token_address(owner, mint)))
+        .collect()
 }
 
 fn token_transfer_ix(

@@ -63,7 +63,7 @@ struct LegTemplate {
     shape: Shape,
     owner_signer: Option<Address>,
     cache: Option<Address>,
-    withdrawal: bool,
+    withdrawal: Option<TransactSplWithdrawalAccounts>,
     seed: u8,
 }
 
@@ -87,30 +87,52 @@ impl SwapBudget {
             cache,
             max_consolidate_inputs: 0,
         };
+        budget.max_consolidate_inputs = budget.max_consolidate_inputs_with(
+            consolidate_outputs,
+            placeholder_withdrawal(),
+            &[],
+        )?;
+        Ok(budget)
+    }
+
+    pub fn max_consolidate_inputs_with(
+        &self,
+        outputs: usize,
+        withdrawal: TransactSplWithdrawalAccounts,
+        tail: &[Instruction],
+    ) -> Result<usize, BudgetError> {
         let mut widest = 0;
         for shape in SPP_SUPPORTED_SHAPES
             .into_iter()
-            .filter(|shape| shape.n_outputs() >= consolidate_outputs.max(USER_OUTPUTS))
+            .filter(|shape| shape.n_outputs() >= outputs.max(USER_OUTPUTS))
         {
-            let consolidate = budget.placeholder(LegTemplate {
-                shape,
-                owner_signer: None,
-                cache,
-                withdrawal: true,
-                seed: 3,
-            })?;
-            if budget.size(&[consolidate])?.fits() {
+            if self.consolidate_size(shape, withdrawal, tail)?.fits() {
                 widest = widest.max(shape.n_inputs());
             }
         }
         if widest == 0 {
-            return Err(BudgetError::NoSupportedShape {
-                inputs: 1,
-                outputs: consolidate_outputs,
-            });
+            return Err(BudgetError::NoSupportedShape { inputs: 1, outputs });
         }
-        budget.max_consolidate_inputs = widest;
-        Ok(budget)
+        Ok(widest)
+    }
+
+    pub fn consolidate_size(
+        &self,
+        shape: Shape,
+        withdrawal: TransactSplWithdrawalAccounts,
+        tail: &[Instruction],
+    ) -> Result<TransactionSize, BudgetError> {
+        let consolidate = self.placeholder(LegTemplate {
+            shape,
+            owner_signer: None,
+            cache: self.cache,
+            withdrawal: Some(withdrawal),
+            seed: 3,
+        })?;
+        let instructions: Vec<Instruction> = std::iter::once(consolidate)
+            .chain(tail.iter().cloned())
+            .collect();
+        self.size(&instructions)
     }
 
     pub fn leg_budget(&self, maker_leg: Shape) -> Result<LegBudget, BudgetError> {
@@ -126,7 +148,7 @@ impl SwapBudget {
                 shape,
                 owner_signer: Some(PLACEHOLDER_USER),
                 cache: None,
-                withdrawal: false,
+                withdrawal: None,
                 seed: 1,
             };
             if self
@@ -191,7 +213,7 @@ impl SwapBudget {
             shape,
             owner_signer: None,
             cache: self.cache,
-            withdrawal: false,
+            withdrawal: None,
             seed: 2,
         }
     }
@@ -227,14 +249,7 @@ impl SwapBudget {
             owner_signers: template.owner_signer.into_iter().collect(),
             interface_transfer_accounts: template
                 .withdrawal
-                .then_some(TransactInterfaceTransferAccounts::SplWithdrawal(
-                    TransactSplWithdrawalAccounts {
-                        mint: PLACEHOLDER_MINT,
-                        spl_interface: pda::spl_interface(&PLACEHOLDER_MINT),
-                        user_token_account: PLACEHOLDER_TOKEN_ACCOUNT,
-                        token_program: pda::spl_token_program_id(),
-                    },
-                ))
+                .map(TransactInterfaceTransferAccounts::SplWithdrawal)
                 .into_iter()
                 .collect(),
             data: TransactIxData {
@@ -245,7 +260,7 @@ impl SwapBudget {
                 inputs,
                 interface_transfers: template
                     .withdrawal
-                    .then_some(InterfaceTransfer::SplWithdrawal {
+                    .map(|_| InterfaceTransfer::SplWithdrawal {
                         amount: 1,
                         spl_interface_bump: 0,
                     })
@@ -267,6 +282,15 @@ impl SwapBudget {
             Some(cache) => transact.instruction_with_caches(cache, cache, self.maker),
             None => transact.instruction(),
         })
+    }
+}
+
+fn placeholder_withdrawal() -> TransactSplWithdrawalAccounts {
+    TransactSplWithdrawalAccounts {
+        mint: PLACEHOLDER_MINT,
+        spl_interface: pda::spl_interface(&PLACEHOLDER_MINT),
+        user_token_account: PLACEHOLDER_TOKEN_ACCOUNT,
+        token_program: pda::spl_token_program_id(),
     }
 }
 

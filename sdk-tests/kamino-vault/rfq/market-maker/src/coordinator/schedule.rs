@@ -1,9 +1,10 @@
 use std::collections::{HashSet, VecDeque};
 
 use solana_address::Address;
+use solana_instruction::Instruction;
 
 use super::{ConsolidateOrder, Coordinator, FillOrder, Operation, QueuedOperation};
-use kamino_vault_rfq_sdk::swap::Spend;
+use kamino_vault_rfq_sdk::{budget::smallest_shape, swap::Spend};
 
 use crate::{
     build::{CacheWrites, PredictedUtxo, TransferBuild, WithdrawalTarget},
@@ -32,6 +33,7 @@ pub(super) struct TransferStep {
     pub plan: TransferPlan,
     pub open_caches: bool,
     pub withdrawal: Option<WithdrawalTarget>,
+    pub tail: Vec<Instruction>,
     pub fill: Option<FillLeg>,
 }
 
@@ -142,6 +144,7 @@ impl Coordinator {
                 plan,
                 open_caches: false,
                 withdrawal: None,
+                tail: Vec::new(),
                 fill: Some(fill),
             })
             .await,
@@ -159,7 +162,23 @@ impl Coordinator {
                 asset: order.asset,
             });
         }
-        let selection = select_all(&available, self.budget.max_consolidate_inputs);
+        let rebalance = order
+            .target
+            .filter(|_| !order.tail.is_empty())
+            .map(|target| target.spl_accounts(order.asset));
+        let max_inputs = match rebalance {
+            Some(accounts) => {
+                match self
+                    .budget
+                    .max_consolidate_inputs_with(1, accounts, &order.tail)
+                {
+                    Ok(max_inputs) => max_inputs,
+                    Err(error) => return ScheduleOutcome::Rejected(error.into()),
+                }
+            }
+            None => self.budget.max_consolidate_inputs,
+        };
+        let selection = select_all(&available, max_inputs);
         if selection.total < order.withdrawal || selection.inputs.is_empty() {
             if self.waits_for_lanes(&order.asset) {
                 return ScheduleOutcome::Backlogged;
@@ -170,9 +189,23 @@ impl Coordinator {
                 requested: order.withdrawal,
             });
         }
+        let inputs = selection.inputs.len();
         let parts = self
             .policy()
-            .consolidate_parts(selection.total - order.withdrawal, selection.inputs.len());
+            .consolidate_parts(selection.total - order.withdrawal, inputs);
+        let parts = match rebalance {
+            Some(accounts) => (1..=parts)
+                .rev()
+                .find(|parts| {
+                    smallest_shape(inputs, *parts).is_some_and(|shape| {
+                        self.budget
+                            .consolidate_size(shape, accounts, &order.tail)
+                            .is_ok_and(|size| size.fits())
+                    })
+                })
+                .unwrap_or(1),
+            None => parts,
+        };
         let plan = match plan_consolidate(selection, order.withdrawal, parts) {
             Ok(plan) => plan,
             Err(error) => return ScheduleOutcome::Rejected(error),
@@ -185,6 +218,7 @@ impl Coordinator {
                 plan,
                 open_caches: true,
                 withdrawal: order.target,
+                tail: order.tail.clone(),
                 fill: None,
             })
             .await,
@@ -233,6 +267,7 @@ impl Coordinator {
             plan,
             open_caches,
             withdrawal,
+            tail,
             fill,
         } = transfer;
         let writes = self
@@ -272,6 +307,7 @@ impl Coordinator {
         step.inputs = inputs;
         step.read_cache = read_cache;
         step.write_cache = write_cache;
+        step.tail = tail;
         step.fill = fill.map(|mut fill| {
             fill.change = built
                 .own_outputs

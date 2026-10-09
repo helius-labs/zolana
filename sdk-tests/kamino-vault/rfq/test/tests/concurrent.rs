@@ -18,7 +18,7 @@ use kamino_vault_rfq_sdk::{
 };
 
 use crate::{
-    shared::{blocking, setup_with, SetupConfig, TestEnv},
+    shared::{blocking, compute_units, setup_with, SetupConfig, TestEnv},
     user::User,
 };
 
@@ -175,6 +175,7 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
             tokens: usdc_received,
             shares: predicted.shares,
             inputs: USERS,
+            signature: rebalance.signature,
         }
     );
     assert_eq!(
@@ -185,6 +186,11 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
         }
     );
     assert_eq!(market_maker.lanes(&vault.token_mint), Vec::new());
+    println!(
+        "rebalance deposit of {} inputs: {} CU",
+        rebalance.inputs,
+        blocking(|| compute_units(rpc, &rebalance.signature))?
+    );
     Ok(())
 }
 

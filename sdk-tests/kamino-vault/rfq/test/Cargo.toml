@@ -15,6 +15,7 @@ solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }

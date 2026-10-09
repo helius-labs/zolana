@@ -1,14 +1,17 @@
 use anyhow::{anyhow, Result};
+use zolana_interface::PROGRAM_ID_PUBKEY;
 use zolana_program_test::localnet::FixtureLocalnet;
 
 use kamino_vault_market_maker::MarketMaker;
 use kamino_vault_rfq_sdk::{
-    kvault::{VaultAccounts, VaultState},
+    kvault::{self, VaultAccounts, VaultState},
     swap::{Direction, Holdings, Quote, VaultOperation},
 };
 
 use crate::{
-    shared::{blocking, setup, TestEnv, USER_SHIELD_USDC},
+    shared::{
+        blocking, compute_units, landed, public_balances, setup, Landed, TestEnv, USER_SHIELD_USDC,
+    },
     user::User,
 };
 
@@ -40,11 +43,29 @@ async fn delayed_exit_settles_after_the_market_maker_withdraws() -> Result<()> {
     )
     .await?;
 
+    let maker = market_maker.address();
+    let public_before = blocking(|| public_balances(rpc, &maker, &vault))?;
     let before_withdraw = blocking(|| VaultState::read(rpc, &vault.vault))?;
     let predicted = before_withdraw.withdraw(EXIT_SHARES)?;
     let withdraw = market_maker
         .rebalance_withdraw(&localnet, &vault, EXIT_SHARES)
         .await?;
+    assert_eq!(
+        blocking(|| public_balances(rpc, &maker, &vault))?,
+        public_before
+    );
+    assert_eq!(
+        blocking(|| landed(rpc, &withdraw.signature))?,
+        Landed {
+            signatures: 1,
+            programs: vec![PROGRAM_ID_PUBKEY, kvault::PROGRAM_ID, PROGRAM_ID_PUBKEY],
+        }
+    );
+    println!(
+        "rebalance withdrawal of {} inputs: {} CU",
+        withdraw.inputs,
+        blocking(|| compute_units(rpc, &withdraw.signature))?
+    );
     assert_eq!(
         withdraw,
         VaultOperation {
@@ -53,6 +74,7 @@ async fn delayed_exit_settles_after_the_market_maker_withdraws() -> Result<()> {
             tokens: predicted.tokens,
             shares: predicted.shares,
             inputs: 1,
+            signature: withdraw.signature,
         }
     );
 

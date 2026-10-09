@@ -50,6 +50,7 @@ pub struct ConsolidateOrder {
     pub asset: Address,
     pub withdrawal: u64,
     pub target: Option<WithdrawalTarget>,
+    pub tail: Vec<Instruction>,
 }
 
 pub enum Operation {

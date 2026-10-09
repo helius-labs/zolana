@@ -45,13 +45,17 @@ impl WithdrawalTarget {
         pda::associated_token_address_with_program(&self.owner, mint, &self.token_program)
     }
 
-    pub fn accounts(&self, mint: Address) -> TransactInterfaceTransferAccounts {
-        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+    pub fn spl_accounts(&self, mint: Address) -> TransactSplWithdrawalAccounts {
+        TransactSplWithdrawalAccounts {
             mint,
             spl_interface: pda::spl_interface(&mint),
             user_token_account: self.token_account(&mint),
             token_program: self.token_program,
-        })
+        }
+    }
+
+    pub fn accounts(&self, mint: Address) -> TransactInterfaceTransferAccounts {
+        TransactInterfaceTransferAccounts::SplWithdrawal(self.spl_accounts(mint))
     }
 }
 
