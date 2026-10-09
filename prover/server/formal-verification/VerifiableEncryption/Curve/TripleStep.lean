@@ -223,4 +223,50 @@ theorem triple_he2f2b0f5_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8
   exact ⟨by linear_combination c1, by linear_combination vD, by linear_combination c2,
     by linear_combination vX3, by linear_combination vY3⟩
 
+theorem halfTangentSlope_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8)
+    (hX : X.bnd = reducedC) (hY : Y.bnd = reducedC) {k : List.Vector F 8 → Prop}
+    (h : HalfTangentSlope_8_8_habd58e5e X.limbs Y.limbs k) :
+    ∃ L : ElemVal 8, L.bnd = balC ∧ k L.limbs ∧
+      halfQuartic (X.value : Fp) (Y.value : Fp) (L.value : Fp) = 0 := by
+  unfold HalfTangentSlope_8_8_habd58e5e at h
+  elim_gates h
+  obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
+    r19, r20, r21, r22, r23, h⟩ := h
+  have hp1 : ∀ i : Fin 8, PieceRC g1 (0 + 3 * i.val) := by
+    intro i
+    fin_cases i
+    exacts [⟨rc_getD r0, rc_getD r1, rc_getD r2⟩, ⟨rc_getD r3, rc_getD r4, rc_getD r5⟩,
+      ⟨rc_getD r6, rc_getD r7, rc_getD r8⟩, ⟨rc_getD r9, rc_getD r10, rc_getD r11⟩,
+      ⟨rc_getD r12, rc_getD r13, rc_getD r14⟩, ⟨rc_getD r15, rc_getD r16, rc_getD r17⟩,
+      ⟨rc_getD r18, rc_getD r19, rc_getD r20⟩, ⟨rc_getD r21, rc_getD r22, rc_getD r23⟩]
+  clear r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23
+  set L := mkElem _ _ (bal_fits hl hp1) with hL
+  obtain ⟨S, hSlo, hShi, hSvlo, hSvhi, h, vS⟩ :=
+    Lazy_8_h158c056f_sound [⟨8, L⟩] (elemsMatch_of rfl) _ (by limbs_tac [hL]) h
+  have hSb := lazy_bnd hSlo hShi hSvlo hSvhi
+  clear hSlo hShi hSvlo hSvhi
+  elim_gates h
+  obtain ⟨hc, hk⟩ := h
+  have c := CheckPolynomial_40_h0930c075_sound hl [⟨8, S⟩, ⟨8, X⟩, ⟨8, L⟩, ⟨8, Y⟩, ⟨8, aElem⟩]
+    (elemsMatch_of (by show [S.bnd, X.bnd, L.bnd, Y.bnd, aElem.bnd] = _; rw [hSb, hX, hY]; rfl))
+    _ (by limbs_tac [hL, aElem, aLimbs]) hc
+  refine ⟨L, rfl, by convert hk using 1; apply List.Vector.toList_injective; limbs_tac [hL], ?_⟩
+  have e1 : lazy_h158c056f.exprValue (values [⟨8, L⟩]) = L.value * L.value := by
+    simp [PolyShape.exprValue, values, lazy_h158c056f]
+  have e2 : cert_h0930c075.exprValue (values [⟨8, S⟩, ⟨8, X⟩, ⟨8, L⟩, ⟨8, Y⟩, ⟨8, aElem⟩]) =
+      S.value * S.value - 6 * (S.value * X.value) - 8 * (L.value * Y.value) - 3 * (X.value * X.value) -
+        4 * aElem.value := by
+    simp [PolyShape.exprValue, values, cert_h0930c075]; ring
+  have m1 : (lazy_h158c056f.m : ℤ) = p := rfl
+  have m2 : (cert_h0930c075.m : ℤ) = p := rfl
+  rw [e1, m1, modEq_p_iff] at vS
+  rw [e2, m2, modEq_p_iff] at c
+  have va : ((aElem.value : ℤ) : Fp) = -3 := by
+    rw [aElem_value]; push_cast; rw [ZMod.natCast_self]; ring
+  push_cast at vS c
+  rw [va] at c
+  unfold halfQuartic
+  rw [vS] at c
+  linear_combination c
+
 end ZolanaVE.P256
