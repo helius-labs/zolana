@@ -40,7 +40,11 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     {k : List.Vector (List.Vector F 8) 2 → Prop}
     (h : QuadrupleAndAddLazy_8_8_8_8_h320f0a4e AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hee995b41 ∧
-      k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) := by
+      k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
+      ∃ L : ElemVal 8, L.bnd = balC ∧
+        slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∧
+        ∃ dX dY μ ν iX : Fp, QuadAddCons (AX.value : Fp) (AY.value : Fp) (SX.value : Fp) (SY.value : Fp)
+          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) := by
   unfold QuadrupleAndAddLazy_8_8_8_8_h320f0a4e QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p1
     QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 at h
   elim_gates h
@@ -145,7 +149,64 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
       _ (by limbs_tac [hMN, hOXD, hM, hN, hXD]) h
   have hOYb := lazy_bnd hOYlo hOYhi hOYvlo hOYvhi
   clear hOYlo hOYhi hOYvlo hOYvhi
-  refine ⟨OX, OY, hOXb, hOYb, ?_⟩
-  convert h using 2
+  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, gs, DX.value, DY.value, M.value, N.value,
+    IX.value, ?_⟩
+  have e1 : cert_h6485b116.exprValue (values [⟨8, L⟩, ⟨8, AY⟩, ⟨8, AX⟩, ⟨8, aElem⟩]) =
+      2 * (L.value * AY.value) - 3 * (AX.value * AX.value) - aElem.value := by
+    simp [PolyShape.exprValue, values, cert_h6485b116]; ring
+  have e2 : lazy_h53928760.exprValue (values [⟨8, L⟩, ⟨8, AX⟩]) = L.value * L.value - 2 * AX.value := by
+    simp [PolyShape.exprValue, values, lazy_h53928760]; ring
+  have e3 : lazy_h31bd1a61.exprValue (values [⟨8, L⟩, ⟨8, AmD⟩, ⟨8, AY⟩]) =
+      L.value * AmD.value - AY.value := by
+    simp [PolyShape.exprValue, values, lazy_h31bd1a61]; ring
+  have e4 : cert_hdaa6ee4a.exprValue (values [⟨8, M⟩, ⟨8, XD⟩, ⟨8, SY⟩, ⟨8, DY⟩]) =
+      M.value * XD.value - SY.value + DY.value := by
+    simp [PolyShape.exprValue, values, cert_hdaa6ee4a]; ring
+  have e5 : lazy_hdbbbc800.exprValue (values [⟨8, M⟩, ⟨8, DX⟩, ⟨8, SX⟩]) =
+      M.value * M.value - DX.value - SX.value := by
+    simp [PolyShape.exprValue, values, lazy_hdbbbc800]; ring
+  have e6 : cert_h4960297a.exprValue (values [⟨8, N⟩, ⟨8, IXD⟩, ⟨8, M⟩, ⟨8, XD⟩, ⟨8, SY⟩]) =
+      N.value * IXD.value + 2 * (M.value * XD.value) - 2 * SY.value := by
+    simp [PolyShape.exprValue, values, cert_h4960297a]; ring
+  have e7 : lazy_h9c68f146.exprValue (values [⟨8, N⟩, ⟨8, NM⟩, ⟨8, SX⟩]) =
+      N.value * NM.value + SX.value := by
+    simp [PolyShape.exprValue, values, lazy_h9c68f146]
+  have e8 : lazy_hee995b41.exprValue (values [⟨8, MN⟩, ⟨8, OXD⟩, ⟨8, M⟩, ⟨8, XD⟩, ⟨8, SY⟩]) =
+      MN.value * OXD.value + M.value * XD.value - SY.value := by
+    simp [PolyShape.exprValue, values, lazy_hee995b41]; ring
+  have m1 : (cert_h6485b116.m : ℤ) = p := rfl
+  have m2 : (lazy_h53928760.m : ℤ) = p := rfl
+  have m3 : (lazy_h31bd1a61.m : ℤ) = p := rfl
+  have m4 : (cert_hdaa6ee4a.m : ℤ) = p := rfl
+  have m5 : (lazy_hdbbbc800.m : ℤ) = p := rfl
+  have m6 : (cert_h4960297a.m : ℤ) = p := rfl
+  have m7 : (lazy_h9c68f146.m : ℤ) = p := rfl
+  have m8 : (lazy_hee995b41.m : ℤ) = p := rfl
+  rw [e1, m1, modEq_p_iff] at c1
+  rw [e2, m2, modEq_p_iff] at vDX
+  rw [e3, m3, modEq_p_iff] at vDY
+  rw [e4, m4, modEq_p_iff] at c3
+  rw [e5, m5, modEq_p_iff] at vIX
+  rw [e6, m6, modEq_p_iff] at c4
+  rw [e7, m7, modEq_p_iff] at vOX
+  rw [e8, m8, modEq_p_iff] at vOY
+  have va : ((aElem.value : ℤ) : Fp) = -3 := by
+    rw [aElem_value]; push_cast; rw [ZMod.natCast_self]; ring
+  have vAmD : AmD.value = AX.value - DX.value := by rw [hAmD, linElem_value]; simp; try ring
+  have vXD : XD.value = SX.value - DX.value := by rw [hXD, linElem_value]; simp; try ring
+  have vIXD : IXD.value = IX.value - DX.value := by rw [hIXD, linElem_value]; simp; try ring
+  have vNM : NM.value = N.value + 2 * M.value := by rw [hNM, linElem_value]; simp; try ring
+  have vMN : MN.value = M.value + N.value := by rw [hMN, linElem_value]; simp; try ring
+  have vOXD : OXD.value = OX.value - DX.value := by rw [hOXD, linElem_value]; simp; try ring
+  rw [vAmD] at vDY
+  rw [vXD] at c3 c4 vOY
+  rw [vIXD] at c4
+  rw [vNM] at vOX
+  rw [vMN, vOXD] at vOY
+  push_cast at c1 vDX vDY c3 vIX c4 vOX vOY
+  rw [va] at c1
+  exact ⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
+    by linear_combination c3, by linear_combination vIX, by linear_combination c4,
+    by linear_combination vOX, by linear_combination vOY⟩
 
 end ZolanaVE.P256
