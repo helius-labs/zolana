@@ -51,4 +51,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107
+replace github.com/reilabs/gnark-lean-extractor/v3 => ./tools/gnark-lean-extractor

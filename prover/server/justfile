@@ -22,7 +22,11 @@ test-worker-selection:
 test-batch-operations:
     go test -v -run TestBatchOperations -timeout 5m
 
-test-no-redis: test-unit test-worker-selection test-batch-operations
+# The vendored extractor is a nested module, so ./... does not cover it.
+test-extractor:
+    go test -C tools/gnark-lean-extractor ./...
+
+test-no-redis: test-unit test-worker-selection test-batch-operations test-extractor
 
 # === Tests (Redis required) ===
 test-redis:

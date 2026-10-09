@@ -15,6 +15,16 @@ Photon was imported from `helius-labs/photon-privacy` at commit
 the Apache License, Version 2.0. See `services/photon/IMPORT.md` for provenance
 and history details.
 
+prover/server/tools/gnark-lean-extractor
+----------------------------------------
+
+The gnark Lean extractor was vendored from the Lightprotocol fork of
+`reilabs/gnark-lean-extractor` at commit `aa0219463107`
+(`github.com/Lightprotocol/gnark-lean-extractor/v3
+v3.0.0-20250920122823-aa0219463107`). It remains licensed under the Apache
+License, Version 2.0; its `LICENSE` file is retained in that directory. Local
+changes are listed in `prover/server/tools/gnark-lean-extractor/CHANGES.md`.
+
 prover/server
 -------------
 
