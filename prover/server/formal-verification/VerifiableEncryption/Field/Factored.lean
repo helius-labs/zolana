@@ -67,7 +67,9 @@ def constOf? : Poly → Option ℕ
   | [([], c)] => some c
   | _ => none
 
-def FP.add (a b : FP) : FP := ⟨padd a.lin b.lin, addProds a.prods b.prods⟩
+/-- Sums are left-nested accumulations, so the right operand (usually one
+term) is inserted into the left one. -/
+def FP.add (a b : FP) : FP := ⟨padd b.lin a.lin, addProds b.prods a.prods⟩
 
 def FP.neg (a : FP) : FP := ⟨pneg a.lin, scaleProds (Order - 1) a.prods⟩
 

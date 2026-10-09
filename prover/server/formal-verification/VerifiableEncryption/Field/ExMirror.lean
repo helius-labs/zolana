@@ -12,7 +12,7 @@ certificate alone; `Ex.eval` maps each copy to its value-level definition, and
 
 namespace ZolanaVE.Field
 
-def eSum (es : List Ex) : Ex := es.foldr Ex.add Ex.zero
+def eSum (es : List Ex) : Ex := es.foldl Ex.add Ex.zero
 
 def eSumRange (n : ℕ) (f : ℕ → Ex) : Ex := eSum ((List.range n).map f)
 
@@ -32,10 +32,14 @@ variable (env : ℕ → F)
 
 def evalE (P : List Ex) : List F := P.map (Ex.eval env)
 
+theorem eval_foldl_add (es : List Ex) (acc : Ex) :
+    (es.foldl Ex.add acc).eval env = acc.eval env + (es.map (Ex.eval env)).sum := by
+  induction es generalizing acc with
+  | nil => simp
+  | cons e es ih => simp only [List.foldl_cons, ih, Ex.eval, List.map_cons, List.sum_cons]; ring
+
 theorem eval_eSum (es : List Ex) : (eSum es).eval env = (es.map (Ex.eval env)).sum := by
-  induction es with
-  | nil => rfl
-  | cons e es ih => simp only [eSum, List.foldr_cons] at ih ⊢; simp [Ex.eval, ih]
+  rw [eSum, eval_foldl_add]; simp [Ex.eval]
 
 theorem eval_eSumRange (n : ℕ) (f : ℕ → Ex) : (eSumRange n f).eval env = sumRange n (fun i => (f i).eval env) := by
   simp [eSumRange, eval_eSum, sumRange, List.map_map, Function.comp_def]
@@ -116,9 +120,36 @@ def eCrtVal (j : ℕ) : Ex :=
           (.mul (eLinNat (fun i => b.formAt k i) x) (eLinNat (fun i => b.formAt k i) y))
     else .zero)
 
-def eExprVal (j : ℕ) : Ex :=
+/-- `exprVal` written term by term, one product per coefficient and point. -/
+def eExprValRef (j : ℕ) : Ex :=
   if s.fold then
     .add (eSumRange (s.degree + 1) (fun i => .mul (eint (b.foldAt i j)) (eCoefVal b s pxs i))) (eCrtVal b s pxs j)
+  else if j ≤ s.degree then eCoefVal b s pxs j
+  else .zero
+
+/-- A product of two or more factors that goes through the inverse Vandermonde matrix. -/
+def PolyShape.isVand (t : TermC) : Bool := 2 ≤ t.factors.length && !s.isCrtTerm t
+
+def eLowCoefVal (i : ℕ) : Ex :=
+  eSum (s.terms.map fun t => if s.isVand t then .zero else eTermCoefVal b s pxs t i)
+
+def vandProd (t : TermC) (k : ℕ) : Ex :=
+  eProd (t.factors.map fun f => eEvalAt (eLimbsOf pxs f) (evalPoint k))
+
+/-- The folded contribution of a Vandermonde term to limb `j`: each evaluation
+product appears once, with its fold and interpolation coefficients combined. -/
+def eVandFolded (t : TermC) (j : ℕ) : Ex :=
+  let d := s.termDegree t
+  eSumRange (d + 1) fun k =>
+    .mul (eint (sumRange (min d s.degree + 1) (fun i => b.foldAt i j * t.coef * (b.vinvAt d i k : ℤ))))
+      (vandProd pxs t k)
+
+/-- `exprVal` as an expression. On the folded path every evaluation product
+occurs once per limb, which keeps kernel normalization small. -/
+def eExprVal (j : ℕ) : Ex :=
+  if s.fold then
+    .add (.add (eSumRange (s.degree + 1) (fun i => .mul (eint (b.foldAt i j)) (eLowCoefVal b s pxs i)))
+      (eSum (s.terms.map fun t => if s.isVand t then eVandFolded b s pxs t j else .zero))) (eCrtVal b s pxs j)
   else if j ≤ s.degree then eCoefVal b s pxs j
   else .zero
 
@@ -169,14 +200,93 @@ theorem eval_eCrtVal (j : ℕ) : (eCrtVal b s pxs j).eval env = crtVal b s (eval
     simp only [Ex.eval, eval_eint, eval_eLinNat, limbsOf, evalLE_getD]
   · rfl
 
-theorem eval_eExprVal (j : ℕ) : (eExprVal b s pxs j).eval env = exprVal b s (evalLE pxs env) j := by
-  unfold eExprVal exprVal
+theorem eval_eExprValRef (j : ℕ) : (eExprValRef b s pxs j).eval env = exprVal b s (evalLE pxs env) j := by
+  unfold eExprValRef exprVal
   split_ifs
   · simp only [Ex.eval]
     rw [eval_eSumRange, eval_eCrtVal]
     congr 1; apply sumRange_congr'; intro i
     simp only [Ex.eval, eval_eint, eval_eCoefVal]
   · exact eval_eCoefVal b s pxs env j
+  · rfl
+
+theorem vand_swap (D d : ℕ) (hD : 0 < D) (f : ℕ → F) (V : ℕ → ℕ → F) (P : ℕ → F) (c : F) :
+    sumRange D (fun i => f i * (if i ≤ d then sumRange (d + 1) (fun k => c * V i k * P k) else 0)) =
+      sumRange (d + 1) (fun k => sumRange (min d (D - 1) + 1) (fun i => f i * c * V i k) * P k) := by
+  simp only [sumRange_eq]
+  have hsub : Finset.range (min d (D - 1) + 1) ⊆ Finset.range D := by
+    intro i hi; simp only [Finset.mem_range] at hi ⊢; omega
+  rw [← Finset.sum_subset hsub (fun i hi hni => by
+    simp only [Finset.mem_range] at hi hni
+    rw [if_neg (by omega), mul_zero])]
+  rw [Finset.sum_congr rfl (fun i hi => by
+    simp only [Finset.mem_range] at hi
+    rw [if_pos (by omega), Finset.mul_sum])]
+  rw [Finset.sum_comm]
+  apply Finset.sum_congr rfl; intro k _
+  rw [Finset.sum_mul]
+  apply Finset.sum_congr rfl; intro i _
+  ring
+
+theorem eval_vand_term {t : TermC} (ht : s.isVand t = true) (i : ℕ) :
+    (eTermCoefVal b s pxs t i).eval env =
+      if i ≤ s.termDegree t then
+        sumRange (s.termDegree t + 1) (fun k => (t.coef : F) * (b.vinvAt (s.termDegree t) i k : F) *
+          (vandProd pxs t k).eval env)
+      else 0 := by
+  have hl : 2 ≤ t.factors.length ∧ s.isCrtTerm t = false := by
+    simpa [PolyShape.isVand] using ht
+  unfold eTermCoefVal
+  match hfac : t.factors, hl.1 with
+  | f1 :: f2 :: rest, _ =>
+    simp only [hl.2, Bool.false_eq_true, if_false]
+    split_ifs
+    · rw [eval_eSumRange]
+      apply sumRange_congr'; intro k
+      simp only [Ex.eval, eval_eint, vandProd]
+      rw [hfac]
+    · rfl
+
+theorem eval_eCoefVal_split (i : ℕ) : (eCoefVal b s pxs i).eval env = (eLowCoefVal b s pxs i).eval env +
+    (s.terms.map fun t => if s.isVand t then (eTermCoefVal b s pxs t i).eval env else 0).sum := by
+  unfold eCoefVal eLowCoefVal
+  rw [eval_eSum, eval_eSum, List.map_map, List.map_map, ← List.sum_map_add]
+  apply list_sum_congr; intro t _
+  simp only [Function.comp_apply]
+  split_ifs <;> simp [Ex.eval]
+
+theorem eval_eVandSum (j : ℕ) :
+    (eSum (s.terms.map fun t => if s.isVand t then eVandFolded b s pxs t j else .zero)).eval env =
+      (s.terms.map fun t => if s.isVand t then
+        sumRange (s.degree + 1) (fun i => (b.foldAt i j : F) * (eTermCoefVal b s pxs t i).eval env) else 0).sum := by
+  rw [eval_eSum, List.map_map]
+  apply list_sum_congr; intro t _
+  simp only [Function.comp_apply]
+  split_ifs with hv
+  · rw [eVandFolded, eval_eSumRange]
+    simp only [eval_vand_term b s pxs env hv]
+    rw [vand_swap _ _ (Nat.succ_pos _)]
+    apply sumRange_congr'; intro k
+    simp only [Ex.eval, eval_eint, intCast_sumRange, Int.cast_mul, Int.cast_natCast, Nat.add_sub_cancel, Nat.succ_sub_one]
+  · rfl
+
+theorem eval_eExprVal (j : ℕ) : (eExprVal b s pxs j).eval env = exprVal b s (evalLE pxs env) j := by
+  rw [← eval_eExprValRef]
+  unfold eExprVal eExprValRef
+  split_ifs
+  · simp only [Ex.eval]
+    congr 1
+    rw [eval_eSumRange, eval_eSumRange, eval_eVandSum]
+    simp only [Ex.eval, eval_eint, eval_eCoefVal_split, mul_add]
+    rw [sumRange_add]
+    congr 1
+    simp only [← List.sum_map_mul_left]
+    rw [sumRange_list_sum]
+    apply list_sum_congr; intro t _
+    split_ifs
+    · rfl
+    · simp [sumRange_eq]
+  · rfl
   · rfl
 
 theorem map_exprVal_eq (l : List ℕ) :
@@ -220,8 +330,29 @@ def eModLimb (j : ℕ) : Ex := .lit (c.modulusLimbs.getD j 0)
 
 def ePow32 (j : ℕ) : Ex := eint (2 ^ (32 * j))
 
+/-- `∑ j, exprVal j * 2^(32 j)` on the folded path with every evaluation and
+CRT product occurring once: their fold, interpolation and limb weights are
+combined into one constant per product. -/
+def eNative (s : PolyShape) : Ex :=
+  .add (.add (eSumRange limbCount (fun j =>
+      .mul (eSumRange (s.degree + 1) (fun i => .mul (eint (b.foldAt i j)) (eLowCoefVal b s pxs i))) (ePow32 j)))
+    (eSum (s.terms.map fun t => if s.isVand t then
+      eSumRange (s.termDegree t + 1) (fun k =>
+        .mul (eint (sumRange limbCount (fun j => 2 ^ (32 * j) *
+          sumRange (min (s.termDegree t) s.degree + 1)
+            (fun i => b.foldAt i j * t.coef * (b.vinvAt (s.termDegree t) i k : ℤ)))))
+          (vandProd pxs t k))
+      else .zero)))
+    (eSum (s.terms.map fun t => if s.isCrtTerm t then
+      eSumRange b.crtForms.length (fun k =>
+        .mul (eint (sumRange limbCount (fun j => 2 ^ (32 * j) * (t.coef * (b.combineAt j k : ℤ)))))
+          (.mul (eLinNat (fun i => b.formAt k i) (eLimbsOf pxs (t.factors.getD 0 0)))
+            (eLinNat (fun i => b.formAt k i) (eLimbsOf pxs (t.factors.getD 1 0)))))
+      else .zero))
+
 def eFoldQuotient (pr : List Ex) : Ex :=
-  .mul (.sub (eSumRange limbCount (fun j => .mul (eExprVal b c.toPolyShape pxs j) (ePow32 j)))
+  .mul (.sub (if c.fold then eNative b pxs c.toPolyShape
+      else eSumRange limbCount (fun j => .mul (eExprVal b c.toPolyShape pxs j) (ePow32 j)))
       (eSumRange limbCount (fun j => .mul (eGet pr j) (ePow32 j))))
     (.lit c.mInv)
 
@@ -236,14 +367,60 @@ def eResidual (pr pql : List Ex) (pkq : Ex) (pos : ℕ) : Ex :=
 theorem eval_ePow32 (j : ℕ) : (ePow32 j).eval env = pow32 j := by
   rw [ePow32, eval_eint, pow32]; push_cast; rfl
 
+theorem sumRange_swap_weighted (n m : ℕ) (a : ℕ → ℕ → F) (P w : ℕ → F) :
+    sumRange n (fun j => sumRange m (fun k => a j k * P k) * w j) =
+      sumRange m (fun k => sumRange n (fun j => w j * a j k) * P k) := by
+  simp only [sumRange_eq, Finset.sum_mul]
+  rw [Finset.sum_comm]
+  apply Finset.sum_congr rfl; intro k _
+  apply Finset.sum_congr rfl; intro j _
+  ring
+
+theorem eval_eNative (s : PolyShape) (hf : s.fold = true) :
+    (eNative b pxs s).eval env = sumRange limbCount (fun j => (eExprVal b s pxs j).eval env * pow32 j) := by
+  unfold eNative eExprVal
+  simp only [hf, if_true, Ex.eval]
+  simp only [add_mul]
+  rw [sumRange_add, sumRange_add]
+  congr 1
+  congr 1
+  · rw [eval_eSumRange]; apply sumRange_congr'; intro j; simp only [Ex.eval, eval_ePow32]
+  · rw [eval_eSum, List.map_map]
+    simp only [eval_eSum, List.map_map, ← List.sum_map_mul_right]
+    rw [sumRange_list_sum]
+    apply list_sum_congr; intro t _
+    simp only [Function.comp_apply]
+    split_ifs with hv
+    · rw [eval_eSumRange]
+      simp only [eVandFolded, eval_eSumRange, Ex.eval, eval_eint]
+      rw [sumRange_swap_weighted]
+      apply sumRange_congr'; intro k
+      simp only [pow32, intCast_sumRange, Int.cast_mul, Int.cast_pow, Int.cast_ofNat]
+    · simp [Ex.eval, sumRange_eq]
+  · rw [eval_eSum, List.map_map]
+    unfold eCrtVal
+    simp only [eval_eSum, List.map_map, ← List.sum_map_mul_right]
+    rw [sumRange_list_sum]
+    apply list_sum_congr; intro t _
+    simp only [Function.comp_apply]
+    split_ifs with hc
+    · rw [eval_eSumRange]
+      simp only [eval_eSumRange, Ex.eval, eval_eint]
+      rw [sumRange_swap_weighted]
+      apply sumRange_congr'; intro k
+      simp only [pow32, intCast_sumRange, Int.cast_mul, Int.cast_pow, Int.cast_ofNat, Int.cast_natCast]
+    · simp [Ex.eval, sumRange_eq]
+
 theorem eval_eFoldQuotient (pr : List Ex) :
     (eFoldQuotient b c pxs pr).eval env = CheckPolynomial.foldQuotient b c (evalLE pxs env) (evalE env pr) := by
   unfold eFoldQuotient CheckPolynomial.foldQuotient
   simp only [Ex.eval]
-  rw [eval_eSumRange, eval_eSumRange]
+  rw [eval_eSumRange]
   congr 2
-  · apply sumRange_congr'; intro j
-    simp only [Ex.eval, eval_eExprVal, eval_ePow32]
+  · split_ifs with hf
+    · rw [eval_eNative env b pxs _ hf]; apply sumRange_congr'; intro j; rw [eval_eExprVal]
+    · rw [eval_eSumRange]; apply sumRange_congr'; intro j
+      simp only [Ex.eval, eval_eExprVal, eval_ePow32]
   · apply sumRange_congr'; intro j
     simp only [Ex.eval, eval_eGet, eval_ePow32]
 

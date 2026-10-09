@@ -163,6 +163,24 @@ where
         if (← whnfD atoms[i]) == e' then return refl e (mkApp (mkConst ``Ex.atom) (mkNatLit i))
       throwError "ex_refl: unknown leaf {e}"
 
+unsafe def evalFPUnsafe (e : Expr) : MetaM FP := evalExpr FP (mkConst ``FP) e
+
+/-- Runs the normalizer to propose the common normal form. The value is only a
+candidate: both sides are checked against it by the kernel. -/
+@[implemented_by evalFPUnsafe] opaque evalFP (e : Expr) : MetaM FP
+
+def fpToExpr (p : FP) : MetaM Expr := do
+  return mkApp2 (mkConst ``FP.mk) (toExpr p.lin) (toExpr p.prods)
+
+/-- `lhs = rhs` for closed `FP` terms, proved by kernel evaluation in its own
+auxiliary theorem, so every normalization is a separate kernel check. -/
+def kernelEq (lhs rhs : Expr) : MetaM Expr := do
+  let ty ← mkEq lhs rhs
+  let m ← mkFreshExprMVar ty
+  let [] ← Lean.Elab.Term.TermElabM.run' (Tactic.run m.mvarId! (evalTactic (← `(tactic| decide +kernel))))
+    | throwError "ex_refl: decide left goals"
+  instantiateMVars m
+
 /-- `ex_refl` closes `Ex.eval env e = t`: it reifies `t` with a congruence
 proof, checks that the factored normal forms agree in an auxiliary theorem
 proved by kernel evaluation, and chains the two. -/
@@ -178,10 +196,13 @@ elab "ex_refl" : tactic => do
     let e ← instantiateMVars args[1]!
     let atoms ← envAtoms env
     let ((ex, pfExt), _) ← (reifyPf env Fty atoms rhs).run {}
-    let normEq ← mkEq (mkApp (mkConst ``Ex.fnorm) e) (mkApp (mkConst ``Ex.fnorm) ex)
-    let hNorm ← mkFreshExprMVar normEq
-    let [] ← Lean.Elab.Term.TermElabM.run' (Tactic.run hNorm.mvarId! (evalTactic (← `(tactic| decide +kernel))))
-      | throwError "ex_refl: decide left goals"
+    let fe := mkApp (mkConst ``Ex.fnorm) e
+    let fx := mkApp (mkConst ``Ex.fnorm) ex
+    let n ← fpToExpr (← evalFP fe)
+    let h1 ← kernelEq fe n
+    let h2 ← kernelEq fx n
+    let hNorm := mkAppN (mkConst ``Eq.trans [levelOne]) #[mkConst ``FP, fe, n, fx, h1,
+      mkAppN (mkConst ``Eq.symm [levelOne]) #[mkConst ``FP, fx, n, h2]]
     let evalE := mkAppN (mkConst ``Ex.eval) #[env, e]
     let evalX := mkAppN (mkConst ``Ex.eval) #[env, ex]
     let h1 := mkAppN (mkConst ``Ex.eval_eq_of_fnorm) #[env, e, ex, hNorm]
