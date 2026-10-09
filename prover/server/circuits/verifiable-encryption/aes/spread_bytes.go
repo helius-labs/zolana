@@ -62,34 +62,19 @@ func newSpreadTables(api frontend.API) *spreadTables {
 		return newExtractionTables(t)
 	}
 
-	// 2. Populate the combined S-box and MixColumns regions.
+	// 2. Populate the substitution regions, the spread bytes, and the chunk
+	// parities from the same accessors the Lean tables are generated from.
 	t.substitution = logderivlookup.New(api)
-	for region := 0; region < sboxRegion; region++ {
-		for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
-			substitutionWord := substitutionWords[region][byteValue]
-			spreadWord := spreadValue(uint64(substitutionWord), bitsPerByte*wordBytes)
-			t.substitution.Insert(spreadWord)
-		}
+	for _, entry := range SubstitutionTable() {
+		t.substitution.Insert(entry)
 	}
-
-	// 3. Append the S-box-only region.
-	for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
-		substitutedByte := sbox0[byteValue]
-		spreadSubstitutedByte := spreadValue(uint64(substitutedByte), bitsPerByte)
-		t.substitution.Insert(spreadSubstitutedByte)
-	}
-
-	// 4. Map each byte to its spread encoding.
 	t.bytes = logderivlookup.New(api)
-	for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
-		spreadByte := spreadValue(uint64(byteValue), bitsPerByte)
-		t.bytes.Insert(spreadByte)
+	for _, entry := range SpreadByteTable() {
+		t.bytes.Insert(entry)
 	}
-
-	// 5. Map each bounded chunk to its parity nibble.
 	t.chunks = logderivlookup.New(api)
-	for chunk := 0; chunk < chunkRadix; chunk++ {
-		t.chunks.Insert(chunkParity(chunk))
+	for _, entry := range ChunkParityTable() {
+		t.chunks.Insert(entry)
 	}
 	return t
 }
