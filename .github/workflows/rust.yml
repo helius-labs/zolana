@@ -381,11 +381,11 @@ jobs:
           - name: rfq settlement
             recipe: test-rfq-validator
             runner: ubuntu-latest
-          - name: kamino-vault market maker
-            recipe: test-kamino-vault-validator
+          - name: k-lend market maker
+            recipe: test-k-lend-validator
             runner: ubuntu-latest
-          - name: kamino-vault example
-            recipe: example-kamino-vault
+          - name: k-lend example
+            recipe: example-k-lend
             runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2

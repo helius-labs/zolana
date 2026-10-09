@@ -1359,22 +1359,22 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p rfq-test --test rfq
 
 # Private kVault deposits and withdrawals through a market maker: the market
-# maker tests (sdk-tests/kamino-vault/rfq/market-maker/tests) run against the
+# maker tests (sdk-tests/k-lend/rfq/market-maker/tests) run against the
 # unmodified kVault program dumped from mainnet, booted through FixtureLocalnet.
-test-kamino-vault-validator: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p kamino-vault-market-maker --tests
+test-k-lend-validator: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p k-lend-market-maker --tests
 
 # A private kVault deposit and withdrawal through the market maker
-# (sdk-tests/kamino-vault/rfq/examples/examples/deposit_and_withdraw.rs). It
+# (sdk-tests/k-lend/rfq/examples/examples/deposit_and_withdraw.rs). It
 # boots its own FixtureLocalnet like the market maker tests.
-example-kamino-vault: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p kamino-vault-rfq-example --example deposit_and_withdraw
+example-k-lend: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p k-lend-rfq-example --example deposit_and_withdraw
 
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of
 # them run in parallel.
 test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -p kamino-vault-market-maker -E 'not binary(bench_cu)'
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -p k-lend-market-maker -E 'not binary(bench_cu)'
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -1451,7 +1451,7 @@ ensure-smart-account:
     fi
 
 # Dump the Kamino kVault program and the Kamino lending program it requires
-# from mainnet into `target/deploy`, for sdk-tests/kamino-vault/rfq. Skips a binary
+# from mainnet into `target/deploy`, for sdk-tests/k-lend/rfq. Skips a binary
 # that is already there. A dump is zero-padded to the program account size, so
 # it is cut at the end of the ELF section header table. Set
 # KAMINO_DUMP_RPC_URL to dump through another RPC.
@@ -1517,7 +1517,7 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
-    cargo nextest archive -p kamino-vault-market-maker --tests --archive-file {{dir}}/kamino-vault-market-maker.tar.zst
+    cargo nextest archive -p k-lend-market-maker --tests --archive-file {{dir}}/k-lend-market-maker.tar.zst
 
 # Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and

@@ -1,0 +1,22 @@
+[package]
+name = "k-lend-rfq-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+anyhow = { workspace = true }
+borsh = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-message = { workspace = true }
+thiserror = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-event = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program = { workspace = true }
+zolana-transaction = { workspace = true }

@@ -1,0 +1,233 @@
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
+
+use anyhow::{anyhow, Result};
+use solana_signature::Signature;
+use tokio::{sync::Barrier, task::JoinSet};
+use zolana_program_test::localnet::FixtureLocalnet;
+
+use k_lend_market_maker::{
+    ConcurrencyConfig, ConsolidateReceipt, Holdings, InventoryProfile, MarketMaker, VaultOperation,
+};
+use k_lend_rfq_sdk::{
+    pair::{Pair, VaultState},
+    swap::{Direction, Quote},
+};
+
+use k_lend_rfq_test_utils::{
+    chain::{blocking, compute_units},
+    setup::{setup_with, SetupConfig, TestEnv},
+    user::User,
+};
+
+const TEST_NUMBER: u16 = 16;
+const UTXOS: usize = 4;
+const EXTRA_USERS: u8 = 7;
+const USERS: usize = 8;
+const SEED_DEPOSIT: u64 = 400_000_000;
+const DEPOSIT_COLLATERAL: u64 = 10_000_000;
+const USER_COLLATERAL: u64 = 40_000_000;
+const MIN_UTXO_VALUE: u64 = 1_000_000;
+
+struct Settled {
+    user: User,
+    quote: Quote,
+    signature: Signature,
+    change_outputs: usize,
+    proved: Instant,
+    confirmed: Instant,
+}
+
+struct Gate {
+    tickets: AtomicUsize,
+    first_utxos: Barrier,
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 12)]
+async fn serves_many_rfqs_at_once() -> Result<()> {
+    let TestEnv {
+        localnet,
+        user,
+        users,
+        market_maker,
+        pair,
+        ..
+    } = setup_with(SetupConfig {
+        extra_users: EXTRA_USERS,
+        concurrency: ConcurrencyConfig {
+            profile: InventoryProfile::equal(UTXOS, MIN_UTXO_VALUE),
+            ..ConcurrencyConfig::default()
+        },
+        user_collateral: USER_COLLATERAL,
+        ..SetupConfig::new(TEST_NUMBER)
+    })
+    .await?;
+    let seeded = market_maker.seed_inventory(&pair, SEED_DEPOSIT, 0).await?;
+    assert_eq!(market_maker.utxos(&pair.shares_mint).len(), UTXOS);
+
+    let localnet = Arc::new(localnet);
+    let gate = Arc::new(Gate {
+        tickets: AtomicUsize::new(0),
+        first_utxos: Barrier::new(UTXOS),
+    });
+    let ordered = Arc::new(Barrier::new(USERS));
+    let started = Instant::now();
+    let mut tasks = JoinSet::new();
+    for user in std::iter::once(user).chain(users) {
+        tasks.spawn(deposit(
+            localnet.clone(),
+            pair,
+            market_maker.clone(),
+            user,
+            ordered.clone(),
+            gate.clone(),
+        ));
+    }
+    let mut settled = Vec::with_capacity(USERS);
+    while let Some(joined) = tasks.join_next().await {
+        settled.push(joined??);
+    }
+    let elapsed = started.elapsed();
+    assert_eq!(settled.len(), USERS);
+
+    let first_confirmed = settled
+        .iter()
+        .map(|fill| fill.confirmed)
+        .min()
+        .ok_or_else(|| anyhow!("no fill confirmed"))?;
+    let proved_before_first_confirmation = settled
+        .iter()
+        .filter(|fill| fill.proved < first_confirmed)
+        .count();
+    assert!(proved_before_first_confirmation >= UTXOS);
+    let change_outputs: usize = settled.iter().map(|fill| fill.change_outputs).sum();
+    assert_eq!(change_outputs, USERS);
+    println!(
+        "{USERS} concurrent deposits on {UTXOS} utxos in {elapsed:?}: \
+         {proved_before_first_confirmation} proved before the first confirmed, \
+         {change_outputs} change outputs"
+    );
+
+    for fill in &settled {
+        let signature = fill.signature;
+        blocking(|| localnet.client.confirm_private_transaction_sync(signature))
+            .map_err(|e| anyhow!("index swap {signature}: {e:?}"))?;
+    }
+    let mut shares_paid = 0;
+    for fill in &mut settled {
+        fill.user.sync(&localnet).await?;
+        assert_eq!(
+            fill.user.holdings(&pair)?,
+            Holdings {
+                collateral: USER_COLLATERAL - DEPOSIT_COLLATERAL,
+                shares: fill.quote.amount_out,
+            }
+        );
+        shares_paid += fill.quote.amount_out;
+    }
+    market_maker.sync().await?;
+    let collateral_received = DEPOSIT_COLLATERAL * u64::try_from(USERS)?;
+    assert_eq!(
+        market_maker.holdings(&pair),
+        Holdings {
+            collateral: collateral_received,
+            shares: seeded.shares - shares_paid,
+        }
+    );
+    assert_eq!(
+        market_maker.utxos(&pair.shares_mint).len(),
+        UTXOS + change_outputs - USERS
+    );
+    assert_eq!(market_maker.utxos(&pair.token_mint).len(), USERS);
+
+    let grown = market_maker.utxos(&pair.shares_mint).len();
+    let consolidation = market_maker.consolidate(pair.shares_mint).await?;
+    assert_eq!(
+        consolidation,
+        ConsolidateReceipt {
+            signature: consolidation.signature,
+            inputs: grown,
+            outputs: UTXOS,
+        }
+    );
+    market_maker.sync().await?;
+    assert_eq!(market_maker.utxos(&pair.shares_mint).len(), UTXOS);
+    assert_eq!(
+        market_maker.holdings(&pair),
+        Holdings {
+            collateral: collateral_received,
+            shares: seeded.shares - shares_paid,
+        }
+    );
+
+    let rpc = localnet.client.rpc();
+    let before_rebalance = blocking(|| VaultState::read(rpc, &pair.vault))?;
+    let predicted = before_rebalance.deposit(collateral_received)?;
+    let rebalance = market_maker
+        .rebalance_shares(&pair, collateral_received)
+        .await?;
+    assert_eq!(
+        rebalance,
+        VaultOperation {
+            before: before_rebalance,
+            after: predicted.after,
+            tokens: collateral_received,
+            shares: predicted.shares,
+            inputs: USERS,
+            signature: rebalance.signature,
+        }
+    );
+    assert_eq!(
+        market_maker.holdings(&pair),
+        Holdings {
+            collateral: 0,
+            shares: seeded.shares - shares_paid + rebalance.shares,
+        }
+    );
+    assert_eq!(market_maker.utxos(&pair.token_mint), Vec::new());
+    println!(
+        "rebalance deposit of {} inputs: {} CU",
+        rebalance.inputs,
+        blocking(|| compute_units(rpc, &rebalance.signature))?
+    );
+    market_maker.shutdown().await;
+    Ok(())
+}
+
+async fn deposit(
+    localnet: Arc<FixtureLocalnet>,
+    pair: Pair,
+    market_maker: MarketMaker,
+    user: User,
+    ordered: Arc<Barrier>,
+    gate: Arc<Gate>,
+) -> Result<Settled> {
+    let offer = market_maker
+        .quote(&pair, Direction::Deposit, DEPOSIT_COLLATERAL)
+        .await?;
+    let order = user.order(&localnet, &pair, &offer).await?;
+    ordered.wait().await;
+    let fill = market_maker.fill(&pair, &order.request).await?;
+    let proved = Instant::now();
+    if gate.tickets.fetch_add(1, Ordering::SeqCst) < UTXOS {
+        gate.first_utxos.wait().await;
+    }
+    user.verify_quote(&localnet, &pair, &order, &fill.fill.message)
+        .await?;
+    let user_signature = user.sign(&fill.fill.message)?;
+    let change_outputs = fill.change.len();
+    let signature = market_maker.settle(&fill.fill, user_signature).await?;
+    Ok(Settled {
+        user,
+        quote: offer.quote,
+        signature,
+        change_outputs,
+        proved,
+        confirmed: Instant::now(),
+    })
+}

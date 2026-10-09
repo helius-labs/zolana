@@ -4251,28 +4251,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "k256"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6e3919bbaa2945715f0bb6d3934a173d1e9a59ac23767fbaaef277265a7411b"
-dependencies = [
- "cfg-if",
- "ecdsa 0.16.9",
- "elliptic-curve 0.13.8",
- "once_cell",
- "sha2 0.10.9",
- "signature 2.2.0",
-]
-
-[[package]]
-name = "kamino-vault-market-maker"
+name = "k-lend-market-maker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashmap",
  "futures",
- "kamino-vault-rfq-example",
- "kamino-vault-rfq-sdk",
+ "k-lend-rfq-sdk",
+ "k-lend-rfq-test-utils",
+ "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-commitment-config",
  "solana-hash",
@@ -4299,12 +4286,44 @@ dependencies = [
 ]
 
 [[package]]
-name = "kamino-vault-rfq-example"
+name = "k-lend-rfq-example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kamino-vault-market-maker",
- "kamino-vault-rfq-sdk",
+ "k-lend-market-maker",
+ "k-lend-rfq-sdk",
+ "k-lend-rfq-test-utils",
+ "tokio",
+ "zolana-program-test",
+]
+
+[[package]]
+name = "k-lend-rfq-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-message",
+ "thiserror 2.0.20",
+ "zolana-client",
+ "zolana-event",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "k-lend-rfq-test-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "k-lend-market-maker",
+ "k-lend-rfq-sdk",
+ "sha2 0.10.9",
+ "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -4323,25 +4342,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "kamino-vault-rfq-sdk"
-version = "0.1.0"
+name = "k256"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6e3919bbaa2945715f0bb6d3934a173d1e9a59ac23767fbaaef277265a7411b"
 dependencies = [
- "anyhow",
- "borsh",
+ "cfg-if",
+ "ecdsa 0.16.9",
+ "elliptic-curve 0.13.8",
+ "once_cell",
  "sha2 0.10.9",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-hash",
- "solana-instruction",
- "solana-message",
- "solana-signature",
- "thiserror 2.0.20",
- "zolana-client",
- "zolana-event",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-transaction",
+ "signature 2.2.0",
 ]
 
 [[package]]
