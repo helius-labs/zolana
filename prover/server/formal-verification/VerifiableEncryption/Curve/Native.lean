@@ -83,6 +83,51 @@ theorem bal_value_lt {e : ElemVal 8} (h : e.bnd = balC) : |e.value| < p := by
   norm_num at this ⊢
   constructor <;> linarith [this.1, this.2]
 
+open Lean Meta Elab Tactic in
+/-- `elimGatesCore` without unfolding continuation parts. -/
+partial def elimGatesShallow (P h : Expr) : MetaM (Expr × Expr) := do
+  if P.isAppOfArity ``Exists 2 then
+    let α := P.appFn!.appArg!
+    let lam := P.appArg!
+    if let .lam n ty body bi := lam then
+      let lvl ← getLevel α
+      if body.isAppOfArity ``And 2 then
+        let eqPart := body.appFn!.appArg!
+        let rest := body.appArg!
+        if eqPart.isAppOfArity ``Eq 3 && eqPart.appFn!.appArg! == .bvar 0 && !eqPart.appArg!.hasLooseBVars then
+          let e := eqPart.appArg!
+          let pfun := Expr.lam n ty rest bi
+          let h' := mkAppN (mkConst ``ZolanaVE.Field.exists_eq_and_elim [lvl]) #[α, pfun, e, h]
+          return ← elimGatesShallow (rest.instantiate1 e) h'
+      withLocalDecl n bi ty fun x => do
+        let px := body.instantiate1 x
+        withLocalDeclD `hx px fun hx => do
+          let (q, pq) ← elimGatesShallow px hx
+          let qlam ← mkLambdaFVars #[x] q
+          let fx ← mkLambdaFVars #[x, hx] pq
+          let res := mkApp2 (mkConst ``Exists [lvl]) α qlam
+          return (res, mkAppN (mkConst ``ZolanaVE.Field.exists_map' [lvl]) #[α, lam, qlam, fx, h])
+    else return (P, h)
+  else if P.isAppOfArity ``And 2 then
+    let a := P.appFn!.appArg!
+    let b := P.appArg!
+    let (q, pq) ← elimGatesShallow b (mkAppN (mkConst ``And.right) #[a, b, h])
+    return (mkApp2 (mkConst ``And) a q, mkAppN (mkConst ``And.intro) #[a, q, mkAppN (mkConst ``And.left) #[a, b, h], pq])
+  else return (P, h)
+
+open Lean Meta Elab Tactic in
+/-- `elim_gates_shallow h`: substitute gate equations, leaving continuation parts folded. -/
+elab "elim_gates_shallow " h:ident : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let decl ← getLocalDeclFromUserName h.getId
+    let P ← instantiateMVars decl.type
+    let (q, pf) ← elimGatesShallow P decl.toExpr
+    let g' ← g.assert h.getId q pf
+    let g'' ← g'.clear decl.fvarId
+    let (_, g''') ← g''.intro1P
+    replaceMainGoal [g''']
+
 open ZolanaVE.Field in
 /-- Normalise an `hxs` goal `limbLists es = [[L.get 0, …]]` to limb equalities and close them.
 The extra terms unfold local element names. -/
