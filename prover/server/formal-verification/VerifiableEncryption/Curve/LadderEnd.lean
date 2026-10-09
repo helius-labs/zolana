@@ -85,4 +85,11 @@ theorem scalar_close {Q Q' R Prod : P} {s s0 hH num den ε : ℤ} (e : Bool) (h�
   rw [Ladder.select_sound (Out := Prod) e hh (by rw [h1, hQ'])]
   exact zsmul_congr hs Q
 
+/-- Transport a continuation along limb lists, without unfolding either side. -/
+theorem k_of_limbs {k : List.Vector (List.Vector F 8) 2 → Prop} {A B A' B' : List.Vector F 8}
+    (h : k (A ::ᵥ B ::ᵥ List.Vector.nil)) (hA : A'.toList = A.toList) (hB : B'.toList = B.toList) :
+    k (A' ::ᵥ B' ::ᵥ List.Vector.nil) := by
+  rw [List.Vector.toList_injective hA, List.Vector.toList_injective hB]
+  exact h
+
 end ZolanaVE.P256

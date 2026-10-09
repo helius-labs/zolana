@@ -169,7 +169,7 @@ theorem den_pos {n : ℕ} {g : List.Vector F n} (hb : AllBits g) {a w : ℕ} (ha
   have hnn : ∀ j ∈ Finset.range w, 0 ≤ bitI g (a + j) := fun j _ => by unfold bitI; positivity
   have hle : ∀ j ∈ Finset.range w, bitI g (a + j) ≤ 1 := by
     intro j hj
-    rcases (bitI_of_bool (hb (a + j) (by simp at hj; omega))).1 with h | h <;> rw [h] <;> norm_num
+    rcases (bitI_of_bool (hb (a + j) (by simp at hj; omega))).1 with h | h <;> simp [h]
   have hsum0 : 0 ≤ ∑ j ∈ Finset.range w, bitI g (a + j) := Finset.sum_nonneg hnn
   have hsumw : ∑ j ∈ Finset.range w, bitI g (a + j) ≤ w := by
     calc ∑ j ∈ Finset.range w, bitI g (a + j) ≤ ∑ j ∈ Finset.range w, (1 : ℤ) := Finset.sum_le_sum hle

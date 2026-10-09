@@ -89,10 +89,12 @@ theorem window_select {t : ℕ} (ht : t < 51) {b0 b1 b2 b3 b4 : F} (hb0 : GatesD
     have ty := ty_ok ⟨t, ht⟩ i
     simp only at tx ty
     rw [tx 0, tx 1, tx 2, tx 3, tx 4, tx 5, tx 6, tx 7, ty 0, ty 1, ty 2] at hk
-    convert hk using 3 <;>
-      (apply List.Vector.toList_injective
-       simp only [winX, winY, mkElem_limbs]
-       simp only [xInts, yInts, Fin.isValue, Fin.coe_ofNat_eq_mod, Nat.reduceMod, Fin.val_zero, List.getD_cons_succ, List.getD_cons_zero, Int.cast_natCast, Int.cast_zero, Nat.reduceMul, List.Vector.toList_cons, List.Vector.toList_nil, pow_zero, Nat.div_one])
+    convert hk using 3
+    apply List.Vector.toList_injective
+    simp only [winX, winY, mkElem_limbs]
+    simp only [xInts, yInts, Fin.isValue, Fin.coe_ofNat_eq_mod, Nat.reduceMod, Fin.val_zero, List.getD_cons_succ,
+      List.getD_cons_zero, Int.cast_natCast, Int.cast_zero, Nat.reduceMul, List.Vector.toList_cons,
+      List.Vector.toList_nil, pow_zero, Nat.div_one]
   · have e1 : ((winX _ h1).value : Fp) = ((entry t i).1 : Fp) := by
       simp only [winX, mkElem_value]; rw [rec8_xInts h1]; push_cast; rfl
     have e2 : ((winY _ h2).value : Fp) = ((entry t i).2 : Fp) := by
@@ -128,10 +130,7 @@ theorem top_select {b0 b1 : F} (hb0 : GatesDef.is_bool b0) (hb1 : GatesDef.is_bo
   · have tx := topX_ok i
     have ty := topY_ok i
     rw [tx 0, tx 1, tx 2, tx 3, tx 4, tx 5, tx 6, tx 7, ty 0, ty 1, ty 2, ty 3, ty 4, ty 5, ty 6, ty 7] at hk
-    convert hk using 3 <;>
-      (apply List.Vector.toList_injective
-       simp only [winX, mkElem_limbs]
-       simp only [xInts, Fin.isValue, Fin.coe_ofNat_eq_mod, Nat.reduceMod, Fin.val_zero, Int.cast_natCast, Nat.reduceMul])
+    convert hk using 3
   · have e1 : ((winX _ h1).value : Fp) = ((topEntry i).1 : Fp) := by
       simp only [winX, mkElem_value]; rw [rec8_xInts h1]; push_cast; rfl
     have e2 : ((winX _ h2).value : Fp) = ((topEntry i).2 : Fp) := by
