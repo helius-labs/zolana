@@ -33,6 +33,8 @@ No custom program is involved, the vault is the unmodified kVault program.
    2. its addresses
    3. `max_user_inputs`, the widest user transfer that still fits next to its own transfer in one v1 transaction (4,096 bytes, 64 addresses, 1.4M compute units)
 
+   The market maker only quotes amounts its inventory can absorb while staying within its target range, so a single swap cannot force a rebalance on its own.
+
 3. User: accept quote, create user transfer instruction. The user generates a transact zk proof that:
    1. spends N of its UTXOs (N <= `max_user_inputs`)
    2. creates 2 UTXOs: `amount_in` for the market maker, change for itself
@@ -85,13 +87,14 @@ Per pair:
    2. Solution: the market maker keeps its inventory split, so quotes can be executed concurrently.
    3. Sizing: the market maker keeps many UTXOs of different sizes, so a few large ones fill a large swap in one transaction while many small ones serve concurrent small swaps.
 
-2. Keep target balances. The market maker keeps a target balance per token, and a rebalance brings it back into range.
-
-3. Schedule rebalances. Rebalances run on a schedule rather than right after a single large swap, so a public kVault operation cannot be linked to one user.
+2. Target balance range: configure per token when a rebalance is triggered.
+   1. Problem: every rebalance is a public kVault operation, so a rebalance right after one swap reveals that swap's amount.
+   2. Solution: keep balances in target range and rebalances only when a balance leaves it, so a rebalance aggregates many swaps.
+   3. Sizing: the range should be wide compared with typical swaps, a max swap size should prevent large swaps which become an issue if these only occur in on pair direction and trigger rebalance with few user interaction.
 
 ### Rebalance
 
-1. Decide. Withdrawals are filled first from the collateral that deposits paid in; only the net amount goes through kVault.
+1. Trigger. A rebalance runs when a balance leaves its target range: too much collateral and too few shares after net deposits.
 
 2. Rebalance shares: turn collateral into shares.
    1. Unshield the collected collateral.
@@ -100,5 +103,5 @@ Per pair:
 
 3. Rebalance collateral: turn shares into collateral.
    1. Unshield shares.
-   2. Withdraw from kVault with `withdraw_from_available`.
+   2. Withdraw from kVault.
    3. Shield the collateral.
