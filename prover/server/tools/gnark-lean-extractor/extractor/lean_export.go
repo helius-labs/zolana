@@ -69,9 +69,9 @@ func genKTypeSignature(output reflect.Value) string {
 // exportGadget generates the `gadget` function in Lean
 func exportGadget(gadget ExGadget) string {
 	kArgs := ""
-	if len(gadget.OutputsFlat) == 1 {
+	if scalarOutput(gadget) {
 		kArgs = "(k: F -> Prop)"
-	} else if len(gadget.OutputsFlat) > 1 {
+	} else if len(gadget.OutputsFlat) > 0 {
 		outputType := genKTypeSignature(reflect.ValueOf(gadget.Outputs))
 		kArgs = fmt.Sprintf("(k: %s -> Prop)", outputType)
 	}
@@ -90,7 +90,7 @@ func exportGadget(gadget ExGadget) string {
 		header := func(name, extra string) string {
 			return fmt.Sprintf("def %s %s: Prop :=", name, joinBinders(genArgs(inAssignment), extra, kArgs))
 		}
-		return genSplitDef(gadget.Name, header, inAssignment, gadget.Code, gadget.OutputsFlat, kArgs != "", gadgetFinalLine(inAssignment, gadget.OutputsFlat))
+		return genSplitDef(gadget.Name, header, inAssignment, gadget.Code, gadget.OutputsFlat, kArgs != "", gadgetFinalLine(inAssignment, gadget.OutputsFlat, scalarOutput(gadget)))
 	}
 
 	return fmt.Sprintf("def %s %s %s: Prop :=\n%s", gadget.Name, genArgs(inAssignment), kArgs, genGadgetBody(inAssignment, gadget))
@@ -413,11 +413,11 @@ func genGadgetBody(inAssignment []ExArg, gadget ExGadget) string {
 		lines[i] = genLine(app, gateVars[i], inAssignment, gateVars)
 	}
 
-	switch len(gadget.OutputsFlat) {
-	case 0:
+	switch {
+	case len(gadget.OutputsFlat) == 0:
 		lastLine := "    True"
 		return strings.Join(append(lines, lastLine), "")
-	case 1:
+	case scalarOutput(gadget):
 		// The case statement ensures there is index 0 (and only 0)
 		result := operandExpr(gadget.OutputsFlat[0], inAssignment, gateVars)
 		lastLine := fmt.Sprintf("    k %s", result)

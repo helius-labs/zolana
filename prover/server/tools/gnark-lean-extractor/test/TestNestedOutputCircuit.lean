@@ -10,17 +10,23 @@ variable [Fact (Nat.Prime Order)]
 abbrev F := ZMod Order
 abbrev Gates := GatesGnark12 Order
 
+def SingletonGadget (A: F) (k: List.Vector F 1 -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.mul A A ∧
+    k vec![gate_0]
+
 def PairGadget (A: F) (B: F) (k: List.Vector (List.Vector F 2) 2 -> Prop): Prop :=
     ∃gate_0, gate_0 = Gates.add A B ∧
     ∃gate_1, gate_1 = Gates.mul A B ∧
     k vec![vec![gate_0, gate_1], vec![gate_1, gate_0]]
 
 def circuit (A: F) (B: F): Prop :=
-    PairGadget A B fun gate_0 =>
-    Gates.eq gate_0[0][1] gate_0[1][0] ∧
-    ∃gate_2, gate_2 = Gates.add gate_0[0][0] gate_0[1][1] ∧
-    ∃gate_2, gate_2 = Gates.add gate_2 gate_0[0][1] ∧
-    Gates.eq gate_2 (0:F) ∧
+    SingletonGadget A fun gate_0 =>
+    Gates.eq gate_0[0] B ∧
+    PairGadget A B fun gate_2 =>
+    Gates.eq gate_2[0][1] gate_2[1][0] ∧
+    ∃gate_4, gate_4 = Gates.add gate_2[0][0] gate_2[1][1] ∧
+    ∃gate_4, gate_4 = Gates.add gate_4 gate_2[0][1] ∧
+    Gates.eq gate_4 (0:F) ∧
     True
 
 end NestedOutputCircuit

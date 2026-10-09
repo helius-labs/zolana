@@ -88,7 +88,7 @@ func gateType(app App) string {
 	case OpHint:
 		return fmt.Sprintf("List.Vector F %d", op.NbOutputs)
 	case *ExGadget:
-		if len(op.OutputsFlat) == 1 {
+		if scalarOutput(*op) {
 			return "F"
 		}
 		return genKTypeSignature(reflect.ValueOf(op.Outputs))
@@ -179,12 +179,18 @@ func genSplitDef(name string, header func(name, extra string) string, inAssignme
 	return strings.Join(append(defs, main), "\n\n")
 }
 
-func gadgetFinalLine(inAssignment []ExArg, outputs []Operand) func([]string) string {
+// scalarOutput reports whether a gadget returns one bare variable; a slice
+// of one variable is a vector of length one.
+func scalarOutput(g ExGadget) bool {
+	return len(g.OutputsFlat) == 1 && reflect.ValueOf(g.Outputs).Kind() != reflect.Slice
+}
+
+func gadgetFinalLine(inAssignment []ExArg, outputs []Operand, scalar bool) func([]string) string {
 	return func(gateVars []string) string {
-		switch len(outputs) {
-		case 0:
+		switch {
+		case len(outputs) == 0:
 			return "    True"
-		case 1:
+		case scalar:
 			return fmt.Sprintf("    k %s", operandExpr(outputs[0], inAssignment, gateVars))
 		default:
 			return fmt.Sprintf("    k %s", operandExpr(ProjArray{outputs}, inAssignment, gateVars))

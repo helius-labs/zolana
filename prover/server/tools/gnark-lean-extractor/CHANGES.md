@@ -58,5 +58,8 @@ module points at this directory with a `replace` directive.
 - Fix: a gadget output nested two or more levels deep whose element is a bare
   gate or input (not a projection) was returned to the caller as the whole
   gadget result, dropping its indices. Every level is now projected.
+- Fix: a gadget returning a one-element slice was typed `k : F -> Prop` while
+  its callers index the result; it is now `k : List.Vector F 1 -> Prop`.
+  Only a gadget returning a bare variable has a scalar continuation.
 - Constant gadget outputs (an `int` or `*big.Int` in the returned slice) are
   passed through the continuation like any other output instead of panicking.

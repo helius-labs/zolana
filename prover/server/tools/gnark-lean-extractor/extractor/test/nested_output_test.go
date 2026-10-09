@@ -20,11 +20,21 @@ func (g PairGadget) DefineGadget(api frontend.API) interface{} {
 	return [][]frontend.Variable{{sum, product}, {product, sum}}
 }
 
+type SingletonGadget struct {
+	A frontend.Variable
+}
+
+func (g SingletonGadget) DefineGadget(api frontend.API) interface{} {
+	return []frontend.Variable{api.Mul(g.A, g.A)}
+}
+
 type NestedOutputCircuit struct {
 	A, B frontend.Variable
 }
 
 func (c *NestedOutputCircuit) Define(api frontend.API) error {
+	single := abstractor.Call1(api, SingletonGadget{A: c.A})
+	api.AssertIsEqual(single[0], c.B)
 	out := abstractor.Call2(api, PairGadget{A: c.A, B: c.B})
 	api.AssertIsEqual(out[0][1], out[1][0])
 	api.AssertIsEqual(api.Add(out[0][0], out[1][1], out[0][1]), 0)
@@ -36,7 +46,7 @@ func TestNestedOutputCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Gates.eq gate_0[0][1] gate_0[1][0]") {
+	if !strings.Contains(out, "Gates.eq gate_2[0][1] gate_2[1][0]") {
 		t.Error("nested gadget outputs lost their inner index")
 	}
 	checkOutput(t, out)
