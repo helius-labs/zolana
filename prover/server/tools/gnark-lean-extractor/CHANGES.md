@@ -52,5 +52,8 @@ module points at this directory with a `replace` directive.
   into continuation parts `<Name>_p<j>` (emitted last part first) taking the
   definition's arguments, the live gate variables and `k`; deeply nested
   bodies otherwise exceed `maxRecDepth` and parse in superlinear time.
+- Fix: a gadget output nested two or more levels deep whose element is a bare
+  gate or input (not a projection) was returned to the caller as the whole
+  gadget result, dropping its indices. Every level is now projected.
 - Constant gadget outputs (an `int` or `*big.Int` in the returned slice) are
   passed through the continuation like any other output instead of panicking.

@@ -117,8 +117,10 @@ func replaceArg(gOutputs interface{}, gate Operand, extra ...int) interface{} {
 	// extra[1] -> len
 	switch v := (gOutputs).(type) {
 	case Input, Gate:
-		if len(extra) == 2 {
-			return Proj{gate, extra[0], extra[1]}
+		// Nested outputs carry one index/size pair per level; a bare gate at
+		// depth two or more must still project every level.
+		if len(extra) >= 2 {
+			return updateProj(gate, extra...)
 		}
 		return gate
 	case Proj:
