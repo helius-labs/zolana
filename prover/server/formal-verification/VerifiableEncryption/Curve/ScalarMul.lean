@@ -1,4 +1,4 @@
-import VerifiableEncryption.Curve.Bits
+import VerifiableEncryption.Curve.LadderAux
 import VerifiableEncryption.Curve.Ladder
 
 /-!
@@ -169,9 +169,135 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   have c18 := CheckPolynomial_18_hb0ad1306_sound hl [⟨8, S1⟩, ⟨5, SD⟩, ⟨5, NUM⟩]
     (elemsMatch_of (by show [S1.bnd, SD.bnd, NUM.bnd] = _; rw [hS1, selElem_bnd, hHb, hS0b]; rfl))
     _ (by limbs_tac [hSD, hNUM, limbs129]) hc18
-  -- BLOCKED: the extracted model of `api.Add` with more than two operands binds each
-  -- chained intermediate to itself (`∃ g, g = g + x`), so the denominator-nonzero check
-  -- and the packed-table selectors are not faithful to the circuit (see report).
+  obtain ⟨hne, g690, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, h⟩ := h
+  unfold ScalarMulChecked_8_8_8_h903d3456_p4 at h
+  elim_gates_shallow h
+  obtain ⟨r37, r38, r39, r40, r41, r42, r43, r44, r45, r46, r47, h⟩ := h
+  have hden : 1 ≤ chunk g402 130 129 := den_pos hbits (a := 130) (w := 129) (by norm_num) (by
+    intro h0
+    apply hne
+    rw [← h0]
+    simp only [Finset.sum_range_succ, Finset.sum_range_zero, zero_add, Nat.reduceAdd, Gates, GatesGnark12,
+      GatesGnark9, GatesGnark8, GatesDef.add, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod])
+  clear hne
+  have hpPX : ∀ i : Fin 8, PieceRC g690 (0 + 3 * i.val) := by
+    intro i
+    fin_cases i
+    exacts [⟨rc_getD r0, rc_getD r1, rc_getD r2⟩, ⟨rc_getD r3, rc_getD r4, rc_getD r5⟩, ⟨rc_getD r6, rc_getD r7, rc_getD r8⟩, ⟨rc_getD r9, rc_getD r10, rc_getD r11⟩, ⟨rc_getD r12, rc_getD r13, rc_getD r14⟩, ⟨rc_getD r15, rc_getD r16, rc_getD r17⟩, ⟨rc_getD r18, rc_getD r19, rc_getD r20⟩, ⟨rc_getD r21, rc_getD r22, rc_getD r23⟩]
+  have hpPY : ∀ i : Fin 8, PieceRC g690 (24 + 3 * i.val) := by
+    intro i
+    fin_cases i
+    exacts [⟨rc_getD r24, rc_getD r25, rc_getD r26⟩, ⟨rc_getD r27, rc_getD r28, rc_getD r29⟩, ⟨rc_getD r30, rc_getD r31, rc_getD r32⟩, ⟨rc_getD r33, rc_getD r34, rc_getD r35⟩, ⟨rc_getD r36, rc_getD r37, rc_getD r38⟩, ⟨rc_getD r39, rc_getD r40, rc_getD r41⟩, ⟨rc_getD r42, rc_getD r43, rc_getD r44⟩, ⟨rc_getD r45, rc_getD r46, rc_getD r47⟩]
+  clear r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23 r24 r25 r26 r27 r28 r29 r30 r31 r32 r33 r34 r35 r36 r37 r38 r39 r40 r41 r42 r43 r44 r45 r46 r47
+  set PRX := mkElem _ _ (pieces_fits hl hpPX) with hPRX
+  set PRY := mkElem _ _ (pieces_fits hl hpPY) with hPRY
+  have hPRXb : PRX.bnd = reducedC := rfl
+  have hPRYb : PRY.bnd = reducedC := rfl
+  obtain ⟨X2, hX2lo, hX2hi, hX2vlo, hX2vhi, h, vX2⟩ :=
+    Lazy_8_h2d947ec4_sound [⟨8, PRX⟩] (elemsMatch_of (by show [PRX.bnd] = _; rw [hPRXb]; rfl))
+      _ (by limbs_tac [hPRX]) h
+  have hX2b := lazy_bnd hX2lo hX2hi hX2vlo hX2vhi
+  clear hX2lo hX2hi hX2vlo hX2vhi
+  elim_gates_shallow h
+  obtain ⟨hoc, h⟩ := h
+  have coc := CheckPolynomial_40_h29707435_sound hl
+    [⟨8, X2⟩, ⟨8, PRX⟩, ⟨8, aElem⟩, ⟨8, constElem bLimbs⟩, ⟨8, PRY⟩]
+    (elemsMatch_of (by
+      show [X2.bnd, PRX.bnd, aElem.bnd, (constElem bLimbs).bnd, PRY.bnd] = _
+      rw [hX2b, hPRXb, hPRYb]; rfl))
+    _ (by limbs_tac [hPRX, hPRY, aElem, aLimbs, constElem, bLimbs]) hoc
+  clear hoc
+  have hQXb : QX.bnd = reducedC := by rw [hQX, selElem_bnd, hDXb, hPX]; rfl
+  have hQYb : QY.bnd = reducedC := by rw [hQY, selElem_bnd, hDYb, hPY]; rfl
+  obtain ⟨T1X, T1Y, hT1X, hT1Y, h, l1, xd1, r1, tc1⟩ :=
+    triple_habd58e5e_sound hl QX QY hQXb hQYb (by convert h using 2 <;> exact (vec8_eta _).symm)
+  beta_reduce at h
+  simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨y0, u0, y1, u1, y2, u2, y3, u3, y4, u4, y5, u5, y6, u6, y7, u7, h⟩ := h
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select, GatesDef.add, GatesDef.mul] at u0 u1 u2 u3 u4 u5 u6 u7
+  have ue0 := signed_limb hσ u0.2
+  have ue1 := signed_limb hσ u1.2
+  have ue2 := signed_limb hσ u2.2
+  have ue3 := signed_limb hσ u3.2
+  have ue4 := signed_limb hσ u4.2
+  have ue5 := signed_limb hσ u5.2
+  have ue6 := signed_limb hσ u6.2
+  have ue7 := signed_limb hσ u7.2
+  clear u0 u1 u2 u3 u4 u5 u6 u7
+  set SPY := mkElem _ _ (signed_red_fits hPRYb hs1) with hSPY
+  have hSPYb : SPY.bnd = selC := rfl
+  have ve0 : y0 = SPY.limbs.get 0 := by
+    rw [ue0, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve1 : y1 = SPY.limbs.get 1 := by
+    rw [ue1, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve2 : y2 = SPY.limbs.get 2 := by
+    rw [ue2, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve3 : y3 = SPY.limbs.get 3 := by
+    rw [ue3, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve4 : y4 = SPY.limbs.get 4 := by
+    rw [ue4, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve5 : y5 = SPY.limbs.get 5 := by
+    rw [ue5, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve6 : y6 = SPY.limbs.get 6 := by
+    rw [ue6, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  have ve7 : y7 = SPY.limbs.get 7 := by
+    rw [ue7, hSPY, mkElem_limb]
+    simp only [hPRY, mkElem_int]
+    simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod,
+      Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.get_eq_getElem, getElem_eq_getD0, Fin.coe_cast,
+      Int.cast_mul, Int.cast_sub, pieceInt_cast]
+    try ring
+  clear ue0 ue1 ue2 ue3 ue4 ue5 ue6 ue7
+  subst ve0 ve1 ve2 ve3 ve4 ve5 ve6 ve7
+  obtain ⟨T2X, T2Y, hT2X, hT2Y, h, l2, xd2, r2, tc2⟩ :=
+    triple_he2f2b0f5_sound hl PRX SPY hPRXb hSPYb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
+  beta_reduce at h
+  simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨g1d, g2d, g3d, h⟩ := h
+  have dg1 := distinctX_elem hPRXb hQXb (by
+    convert g1d using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
+  have dg2 := distinctX_elem hPRXb hT1X (by
+    convert g2d using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
+  have dg3 := distinctX_elem hT2X hQXb (by convert g3d using 2; exact (vec8_eta _).symm)
+  clear g1d g2d g3d
   sorry
 
 end ZolanaVE.P256
