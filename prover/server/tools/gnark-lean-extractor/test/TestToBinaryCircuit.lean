@@ -19,8 +19,7 @@ def VectorGadget_3_3_3_3 (In_1: List.Vector F 3) (In_2: List.Vector F 3) (Nested
 def circuit (In: F) (Out: F) (Double: List.Vector (List.Vector F 3) 3): Prop :=
     ∃gate_0, Gates.to_binary In 3 gate_0 ∧
     ∃gate_1, Gates.to_binary Out 3 gate_1 ∧
-    ∃_ignored_, _ignored_ = Gates.add Double[2][2] Double[1][1] ∧
-    ∃_ignored_, _ignored_ = Gates.add _ignored_ Double[0][0] ∧
+    ∃_ignored_, _ignored_ = Gates.add (Gates.add Double[2][2] Double[1][1]) Double[0][0] ∧
     ∃_ignored_, _ignored_ = Gates.mul gate_0[1] gate_1[1] ∧
     VectorGadget_3_3_3_3 Double[2] Double[0] Double fun gate_4 =>
     ∃_ignored_, _ignored_ = Gates.mul gate_4[2] gate_4[1] ∧

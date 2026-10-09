@@ -62,6 +62,15 @@ module points at this directory with a `replace` directive.
   module of circuit definitions, and the root module importing all of them.
   Each module imports the prelude and the modules defining the gadgets it
   calls; an unassigned gadget or an import cycle is an error.
+- Fix (soundness of the extracted relation, inherited from upstream): an
+  Add, Sub or Mul with more than two operands was emitted as a chain that
+  rebound the same gate name per link, `∃g, g = add a b ∧ ∃g, g = add g c`,
+  where the second `g` on the right refers to its own binder and forces
+  `c = 0`. It is now one binder over a left-nested expression,
+  `∃g, g = add (add a b) c`. Two-operand gates print as before; gate
+  numbering is unchanged. The goldens of TestToBinaryCircuit,
+  TestExtractCircuits, TestSplitCircuit and TestNestedOutputCircuit change
+  only on those lines.
 - Fix: a gadget output nested two or more levels deep whose element is a bare
   gate or input (not a projection) was returned to the caller as the whole
   gadget result, dropping its indices. Every level is now projected.

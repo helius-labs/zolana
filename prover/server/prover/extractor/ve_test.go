@@ -61,6 +61,50 @@ func TestExtractVELean(t *testing.T) {
 	}
 }
 
+var gateBinding = regexp.MustCompile(`(?m)^\s*∃(gate_\d+), (gate_\d+) = (Gates\.\w+ .*)$`)
+
+// selfBindings lists lines whose binder occurs on its own right-hand side;
+// `∃g, g = add g x` would force x = 0 and over-constrain the circuit.
+func selfBindings(source string) []string {
+	var out []string
+	for _, m := range gateBinding.FindAllStringSubmatch(source, -1) {
+		if m[1] != m[2] {
+			continue
+		}
+		if regexp.MustCompile(`\b` + m[1] + `\b`).MatchString(m[3]) {
+			out = append(out, m[0])
+		}
+	}
+	return out
+}
+
+func TestNoSelfReferentialBindings(t *testing.T) {
+	modules, err := extractVE()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("..", "..", "formal-verification")
+	committed, err := readTree(filepath.Join(root, "VerifiableEncryption", "Circuit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(root, "VerifiableEncryption", "Circuit.lean"), filepath.Join(root, "FormalVerification", "Circuit.lean")} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		committed[path] = string(data)
+	}
+	for name, source := range committed {
+		modules[name] = source
+	}
+	for name, source := range modules {
+		for _, line := range selfBindings(source) {
+			t.Errorf("%s: self-referential binding %s", name, strings.TrimSpace(line))
+		}
+	}
+}
+
 func readTree(root string) (map[string]string, error) {
 	files := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

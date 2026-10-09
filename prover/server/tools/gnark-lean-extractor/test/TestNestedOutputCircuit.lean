@@ -24,8 +24,7 @@ def circuit (A: F) (B: F): Prop :=
     Gates.eq gate_0[0] B ∧
     PairGadget A B fun gate_2 =>
     Gates.eq gate_2[0][1] gate_2[1][0] ∧
-    ∃gate_4, gate_4 = Gates.add gate_2[0][0] gate_2[1][1] ∧
-    ∃gate_4, gate_4 = Gates.add gate_4 gate_2[0][1] ∧
+    ∃gate_4, gate_4 = Gates.add (Gates.add gate_2[0][0] gate_2[1][1]) gate_2[0][1] ∧
     Gates.eq gate_4 (0:F) ∧
     True
 

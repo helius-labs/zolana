@@ -370,18 +370,18 @@ func genOpCall(gateVar string, inAssignment []ExArg, gateVars []string, op Op, a
 	}
 
 	if functional {
-		// if an operation supports infinite length of arguments,
-		// turn it into a chain of operations
+		// An operation with more than two operands folds left into one
+		// nested expression under a single binder. Rebinding the gate name
+		// per link would make each link refer to its own binder
+		// (`∃g, g = add g x` forces x = 0).
 		switch op {
 		case OpAdd, OpSub, OpMul:
 			{
-				finalStr := genFunctionalGate(gateVar, op, operands[0:2])
-				for len(operands) > 2 {
-					operands = operands[1:]
-					operands[0] = getGateName(gateVar, false)
-					finalStr += genFunctionalGate(gateVar, op, operands[0:2])
+				acc := strings.Join(operands[0:2], " ")
+				for _, operand := range operands[2:] {
+					acc = fmt.Sprintf("(%s %s) %s", genGateOp(op), acc, operand)
 				}
-				return finalStr
+				return genFunctionalGate(gateVar, op, []string{acc})
 			}
 		default:
 			return genFunctionalGate(gateVar, op, operands)

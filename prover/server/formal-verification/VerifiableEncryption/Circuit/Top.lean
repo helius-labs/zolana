@@ -768,15 +768,7 @@ def DerivePublicKey_32_32 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F) (
     Gates.eq gate_95 gate_182 ∧
     CheckPolynomial_8_h57d6a69c vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_184 =>
     AssertCanonical_8_1_hc36017e9 gate_184 ∧
-    ∃gate_186, gate_186 = Gates.add (0:F) (0:F) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (0 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (1 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (2 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (3 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (4 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (5 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (6 : Fin 8)) ∧
-    ∃gate_186, gate_186 = Gates.add gate_186 (gate_184.get (7 : Fin 8)) ∧
+    ∃gate_186, gate_186 = Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (0:F) (0:F)) (gate_184.get (0 : Fin 8))) (gate_184.get (1 : Fin 8))) (gate_184.get (2 : Fin 8))) (gate_184.get (3 : Fin 8))) (gate_184.get (4 : Fin 8))) (gate_184.get (5 : Fin 8))) (gate_184.get (6 : Fin 8))) (gate_184.get (7 : Fin 8)) ∧
     Gates.ne gate_186 (0:F) ∧
     ScalarMulBase_8_hd39a5e0e vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_188 =>
     AssertCanonical_8_0_hc36017e9 (gate_188.get (0 : Fin 2)) ∧

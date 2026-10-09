@@ -12,8 +12,7 @@ abbrev Gates := GatesGnark12 Order
 
 def SplitGadget_3_p2 (In: List.Vector F 3) (gate_0: List.Vector F 2) (gate_1: F) (gate_3: F) (k: List.Vector F 2 -> Prop): Prop :=
     Gates.is_bool (gate_0.get (0 : Fin 2)) ∧
-    ∃gate_5, gate_5 = Gates.add gate_1 gate_3 ∧
-    ∃gate_5, gate_5 = Gates.add gate_5 (gate_0.get (0 : Fin 2)) ∧
+    ∃gate_5, gate_5 = Gates.add (Gates.add gate_1 gate_3) (gate_0.get (0 : Fin 2)) ∧
     k vec![gate_5, gate_1]
 
 def SplitGadget_3_p1 (In: List.Vector F 3) (gate_0: List.Vector F 2) (gate_1: F) (k: List.Vector F 2 -> Prop): Prop :=
