@@ -444,7 +444,7 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
     // server, not the client, reads the proof data. The mock indexer answers
     // only the two reads, so a request on that route fails the test.
     let on_indexed_route = |server: &MockIndexerServer| {
-        ZolanaClient::from_urls(
+        ZolanaClient::<_>::from_urls(
             MockSubmitRpc::new(Signature::default()),
             server.url(),
             server.url(),
@@ -1183,7 +1183,7 @@ fn default_transfer_routes_skip_client_indexer_reads() {
         .encrypt(&owner)
         .unwrap();
     let server = MockIndexerServer::respond_with(vec![json!({}), json!({}), json!({})]);
-    let client = ZolanaClient::from_urls(
+    let client = ZolanaClient::<_>::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
@@ -1263,7 +1263,7 @@ fn client_proof_data_opt_in_fetches_paths_before_proving() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let client = ZolanaClient::from_urls(
+    let client = ZolanaClient::<_>::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),

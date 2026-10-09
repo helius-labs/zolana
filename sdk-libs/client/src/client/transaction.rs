@@ -14,7 +14,7 @@ use crate::{
     prover::{
         transact::witness::{assemble, AssembledTransfer},
         verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
-        witness::{AsyncWitnessReader, WitnessReader},
+        witness::AsyncWitnessReader,
         ProofCompressed, Prover, ProverExt, TransferProofResult,
     },
     rpc::{
@@ -24,10 +24,9 @@ use crate::{
 };
 
 use super::{
-    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncZolanaClient,
+    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, BlockingIndexer,
     TransferPreparation, ZolanaClient,
 };
-use crate::indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 
 /// A signed shielded transaction ready for proof assembly and submission.
 ///
@@ -38,7 +37,7 @@ pub struct SignedPrivateTransaction {
     pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
 }
 
-impl<R> ZolanaClient<R, AsyncZolanaIndexer> {
+impl<R, I: AsyncIndexer> ZolanaClient<R, I> {
     /// Ask the configured prover for a default-ring Ed25519 transfer proof and
     /// verify it locally before returning its transaction wire encoding.
     pub async fn prove_confidential_transfer_result(
@@ -51,7 +50,7 @@ impl<R> ZolanaClient<R, AsyncZolanaIndexer> {
     }
 }
 
-impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
+impl<R: Rpc, I: BlockingIndexer> ZolanaClient<R, I> {
     /// Fetch the input merkle proofs from the indexer and prove the transaction
     /// with the client's prover, returning the assembled `transact` instruction
     /// data ready for the [`Transact`] builder.
@@ -134,9 +133,9 @@ impl<'a> Submission<'a> {
     /// exceeded the blockhash lifetime and the transaction was rejected at
     /// submission, having already paid for the sync and the proof: an
     /// 80-worker run lost 297 of 337 transfers to "Blockhash not found".
-    pub fn finish_unsigned_sync<R: Rpc>(
+    pub fn finish_unsigned_sync<R: Rpc, I: BlockingIndexer>(
         self,
-        client: &ZolanaClient<R>,
+        client: &ZolanaClient<R, I>,
     ) -> Result<VersionedMessage, ClientError> {
         let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
         let (trees, data) = match (&self.prover, client.indexed_prover()) {
@@ -192,9 +191,9 @@ impl<'a> Submission<'a> {
 
     /// Async counterpart of [`Self::finish_unsigned_sync`]; a prover of this
     /// submission's own runs on Tokio's blocking pool.
-    pub async fn finish_unsigned<R: AsyncRpc>(
+    pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         self,
-        client: &AsyncZolanaClient<R>,
+        client: &ZolanaClient<R, I>,
     ) -> Result<VersionedMessage, ClientError> {
         let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
         let (trees, data) = match (&self.prover, client.indexed_prover()) {

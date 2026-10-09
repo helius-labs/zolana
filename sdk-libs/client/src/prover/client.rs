@@ -1,23 +1,26 @@
 use super::indexed::{ProofDataSource, Request};
+#[cfg(feature = "reqwest")]
 use std::{
     env,
     path::{Path, PathBuf},
     process::Command,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
+};
+use std::{
+    sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
 
-use reqwest::{
+use http::{
     header::{HeaderMap, RETRY_AFTER},
-    redirect::Policy,
-    StatusCode, Url,
+    StatusCode,
 };
+#[cfg(feature = "reqwest")]
+use reqwest::redirect::Policy;
 use serde::Deserialize;
 use tokio::time::sleep as async_sleep;
+use url::Url;
 use zeroize::Zeroizing;
 use zolana_api::{
     ApiError, BlockingHttpClient, BlockingRuntime, HttpClient, HttpRequest, HttpResponse,
@@ -49,11 +52,13 @@ pub const PROVER_INDEXER_URL_ENV: &str = "PROVER_INDEXER_URL";
 
 /// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
 /// the fallback when a custom [`server_address`] has no parseable port.
+#[cfg(feature = "reqwest")]
 const DEFAULT_PROVER_PORT: u16 = 3001;
 
 /// Address the local prover client connects to and that [`spawn_prover`] starts
 /// the server on. Defaults to [`SERVER_ADDRESS`]; set `ZOLANA_PROVER_URL` per
 /// local clone to avoid port contention between concurrent checkouts.
+#[cfg(feature = "reqwest")]
 pub fn server_address() -> String {
     match env::var("ZOLANA_PROVER_URL") {
         Ok(url) if !url.trim().is_empty() => url.trim().to_string(),
@@ -64,6 +69,7 @@ pub fn server_address() -> String {
 /// Extract the TCP port from a prover address so [`spawn_prover`] starts the
 /// server on the same port the client will connect to. Falls back to
 /// [`DEFAULT_PROVER_PORT`] when the address carries no parseable port.
+#[cfg(feature = "reqwest")]
 fn prover_port(server_address: &str) -> u16 {
     server_address
         .rsplit(':')
@@ -73,7 +79,9 @@ fn prover_port(server_address: &str) -> u16 {
         .unwrap_or(DEFAULT_PROVER_PORT)
 }
 
+#[cfg(feature = "reqwest")]
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
+#[cfg(feature = "reqwest")]
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
 // A heavy cold proof (the first P256 request loads a 63MB key and runs a
@@ -128,6 +136,7 @@ const ATTESTATION_RETRY_AFTER_CAP_SECS: u64 = 30;
 // caps sync work at 120–180s depending on circuit, so a clean timeout returns
 // well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
+#[cfg(feature = "reqwest")]
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Per-request bound on a status poll.
 ///
@@ -169,6 +178,7 @@ impl Default for AsyncPollConfig {
     }
 }
 
+#[cfg(feature = "reqwest")]
 fn build_http_client(
     proxy: Option<reqwest::Proxy>,
 ) -> Result<reqwest::blocking::Client, reqwest::Error> {
@@ -183,6 +193,7 @@ fn build_http_client(
     builder.build()
 }
 
+#[cfg(feature = "reqwest")]
 fn build_async_http_client(
     proxy: Option<reqwest::Proxy>,
 ) -> Result<reqwest::Client, reqwest::Error> {
@@ -197,6 +208,7 @@ fn build_async_http_client(
     builder.build()
 }
 
+#[cfg(feature = "reqwest")]
 fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
     // Require an explicit scheme instead of reqwest's implicit HTTP fallback.
     // Do not include the URL in errors: it may contain proxy credentials.
@@ -241,12 +253,42 @@ pub struct AsyncProverClient {
     tee: Option<TeeSession>,
 }
 
+/// A prover server client, blocking or `async`: what a `ZolanaClient` reads
+/// and sets on the prover it was built with.
+pub trait ProverServer {
+    fn proof_data_source(&self) -> ProofDataSource;
+    #[must_use]
+    fn with_proof_data_source(self, source: ProofDataSource) -> Self;
+}
+
+impl ProverServer for ProverClient {
+    fn proof_data_source(&self) -> ProofDataSource {
+        ProverClient::proof_data_source(self)
+    }
+
+    fn with_proof_data_source(self, source: ProofDataSource) -> Self {
+        ProverClient::with_proof_data_source(self, source)
+    }
+}
+
+impl ProverServer for AsyncProverClient {
+    fn proof_data_source(&self) -> ProofDataSource {
+        AsyncProverClient::proof_data_source(self)
+    }
+
+    fn with_proof_data_source(self, source: ProofDataSource) -> Self {
+        AsyncProverClient::with_proof_data_source(self, source)
+    }
+}
+
+#[cfg(feature = "reqwest")]
 impl Default for ProverClient {
     fn default() -> Self {
         Self::local()
     }
 }
 
+#[cfg(feature = "reqwest")]
 impl Default for AsyncProverClient {
     fn default() -> Self {
         Self::local()
@@ -266,10 +308,12 @@ impl ProverClient {
         self.client.proof_data_source()
     }
 
+    #[cfg(feature = "reqwest")]
     pub fn local() -> Self {
         AsyncProverClient::local().into_blocking()
     }
 
+    #[cfg(feature = "reqwest")]
     pub fn new(server_address: String) -> Self {
         AsyncProverClient::new(server_address).into_blocking()
     }
@@ -286,6 +330,7 @@ impl ProverClient {
 
     /// Route proof traffic through `proxy_url`; see
     /// [`AsyncProverClient::with_proxy`].
+    #[cfg(feature = "reqwest")]
     pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
         self.client = self.client.with_proxy(proxy_url)?;
         Ok(self)
@@ -646,10 +691,12 @@ impl AsyncProverClient {
         self.proof_data_source
     }
 
+    #[cfg(feature = "reqwest")]
     pub fn local() -> Self {
         Self::new(server_address())
     }
 
+    #[cfg(feature = "reqwest")]
     pub fn new(server_address: String) -> Self {
         Self::with_client(
             server_address,
@@ -687,6 +734,7 @@ impl AsyncProverClient {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(feature = "reqwest")]
     pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
         let http = build_async_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
@@ -1055,6 +1103,7 @@ async fn async_wait_or_timeout(
 
 /// Block until a prover server is reachable, starting one via the `zolana` CLI if
 /// none is already running. Intended for tests.
+#[cfg(feature = "reqwest")]
 pub fn spawn_prover() -> Result<(), ClientError> {
     ProverLaunch {
         cli: None,
@@ -1064,6 +1113,7 @@ pub fn spawn_prover() -> Result<(), ClientError> {
     .spawn()
 }
 
+#[cfg(feature = "reqwest")]
 #[must_use]
 pub struct ProverLaunch {
     /// Discovered at start when `None`.
@@ -1072,6 +1122,7 @@ pub struct ProverLaunch {
     indexer: Option<(String, IndexerRequirement)>,
 }
 
+#[cfg(feature = "reqwest")]
 impl ProverLaunch {
     /// Start the test prover from an explicit CLI binary and key-cache directory.
     /// Repository tests use this entry point so neither artifact is discovered
@@ -1183,6 +1234,7 @@ impl ProverLaunch {
     }
 }
 
+#[cfg(feature = "reqwest")]
 fn health_check(retries: usize, timeout_secs: u64) -> bool {
     let client = build_http_client(None).expect("failed to build HTTP client");
     let timeout = Duration::from_secs(timeout_secs);
@@ -1201,6 +1253,7 @@ fn health_check(retries: usize, timeout_secs: u64) -> bool {
     false
 }
 
+#[cfg(feature = "reqwest")]
 fn get_cli_command() -> Option<String> {
     if let Ok(command) = env::var("ZOLANA_CLI_CMD") {
         let command = command.trim();
@@ -1225,6 +1278,7 @@ fn get_cli_command() -> Option<String> {
     find_in_path("zolana").map(|path| shell_quote(&path))
 }
 
+#[cfg(feature = "reqwest")]
 fn get_project_root() -> Option<String> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -1239,6 +1293,7 @@ fn get_project_root() -> Option<String> {
     }
 }
 
+#[cfg(feature = "reqwest")]
 fn find_in_path(binary: &str) -> Option<String> {
     let paths = env::var_os("PATH")?;
     for dir in env::split_paths(&paths) {
@@ -1250,10 +1305,12 @@ fn find_in_path(binary: &str) -> Option<String> {
     None
 }
 
+#[cfg(feature = "reqwest")]
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+#[cfg(feature = "reqwest")]
 fn prover_start_command(cli: &str, port: u16, redis_url: Option<&str>) -> String {
     let mut command = format!("{cli} dev prover start --prover-port {port}");
     if let Some(redis_url) = redis_url.filter(|url| !url.trim().is_empty()) {
@@ -1263,7 +1320,7 @@ fn prover_start_command(cli: &str, port: u16, redis_url: Option<&str>) -> String
     command
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reqwest"))]
 mod tests {
     use std::{
         io::{Read, Write},

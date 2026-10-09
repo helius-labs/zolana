@@ -457,7 +457,7 @@ fn worker(
     // set and every proof witness cross the network in the clear -- and it is
     // spelled out here rather than defaulted, so it disappears the moment the
     // certificate is issued.
-    let client = ZolanaClient::from_urls_allowing_insecure_http(
+    let client = ZolanaClient::<_>::from_urls_allowing_insecure_http(
         SolanaRpc::new(options.rpc_url.clone()),
         options.indexer_url.clone(),
         options.prover_url.clone(),

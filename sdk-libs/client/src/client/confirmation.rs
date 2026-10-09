@@ -4,13 +4,12 @@ use solana_signature::Signature;
 
 use crate::{
     error::ClientError,
-    indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{AsyncRpc, IndexerPollConfig, Rpc},
 };
 
-use super::ZolanaClient;
+use super::{AsyncIndexer, BlockingIndexer, ZolanaClient};
 
-impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
+impl<R: Rpc, I: BlockingIndexer> ZolanaClient<R, I> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
     ///
@@ -25,7 +24,7 @@ impl<R: Rpc> ZolanaClient<R, ZolanaIndexer> {
     }
 }
 
-impl<R: AsyncRpc> ZolanaClient<R, AsyncZolanaIndexer> {
+impl<R: AsyncRpc, I: AsyncIndexer> ZolanaClient<R, I> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
     ///
@@ -86,8 +85,8 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
 /// is indexed. Matching the event against the transaction's view tags would add
 /// no guarantee and would reject legitimate transactions whose events share a
 /// tag.
-fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
+fn wait_for_indexed_transaction<I: Rpc>(
+    indexer: &I,
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
@@ -106,8 +105,8 @@ fn wait_for_indexed_transaction(
     Err(indexer_poll_timeout(retry, last_error))
 }
 
-async fn wait_for_indexed_transaction_async(
-    indexer: &AsyncZolanaIndexer,
+async fn wait_for_indexed_transaction_async<I: AsyncRpc>(
+    indexer: &I,
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {

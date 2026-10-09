@@ -60,7 +60,7 @@ impl ZolanaProgramTest {
         self.send_indexed(sign_transaction(message, signers)?)
     }
 
-    fn send_indexed(
+    pub(crate) fn send_indexed(
         &mut self,
         transaction: VersionedTransaction,
     ) -> Result<IndexedTransaction, ProgramTestError> {

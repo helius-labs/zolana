@@ -19,7 +19,7 @@ use crate::{
     prover::transact::witness::SpendProof,
     rpc::{
         AsyncRpc, GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig,
-        NonInclusionProof,
+        NonInclusionProof, Rpc,
     },
 };
 
@@ -44,13 +44,51 @@ pub struct InputWitnesses {
 /// The inputs name their own trees, so no caller supplies one. Inputs from
 /// several trees are fetched per tree and the results are put back in the
 /// caller's order.
+///
+/// The default reads through [`Rpc`], one tree after another, so an
+/// in-process indexer that answers [`Rpc`] needs only
+/// `impl WitnessReader for MyIndexer {}`. [`ZolanaIndexer`] overrides it to
+/// run the round trips together.
 pub trait WitnessReader {
     fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],
         dummy_nullifiers: &[[u8; 32]],
         config: Option<IndexerRpcConfig>,
-    ) -> Result<InputWitnesses, ClientError>;
+    ) -> Result<InputWitnesses, ClientError>
+    where
+        Self: Rpc,
+    {
+        let groups = group_by_tree(inputs);
+        let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
+            Vec::new()
+        } else {
+            let tree = pda::tree(padding_tree_id(&groups)?);
+            self.get_non_inclusion_proofs(tree, dummy_nullifiers.to_vec(), config)?
+                .proofs
+        };
+        let mut placed = Vec::with_capacity(inputs.len());
+        for group in &groups {
+            let tree = pda::tree(group.tree_id);
+            let state = self.get_merkle_proofs(tree, group.leaves(), config)?;
+            let nullifier = self.get_non_inclusion_proofs(tree, group.nullifiers(), config)?;
+            placed.extend(
+                group.positions.iter().copied().zip(validate_spend_proofs(
+                    group
+                        .positions
+                        .iter()
+                        .copied()
+                        .zip(group.inputs.iter().copied()),
+                    state.proofs,
+                    nullifier.proofs,
+                )?),
+            );
+        }
+        Ok(InputWitnesses {
+            spend_proofs: scatter(placed),
+            dummy_nullifier_proofs,
+        })
+    }
 }
 
 /// The async counterpart. Separate from [`WitnessReader`] because the trait

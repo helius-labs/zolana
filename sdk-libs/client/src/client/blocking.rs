@@ -1,4 +1,4 @@
-use crate::{prover::witness::WitnessReader, rpc::Rpc};
+use crate::rpc::Rpc;
 
 use solana_account::Account;
 use solana_address::Address;
@@ -26,10 +26,10 @@ use crate::{
     },
 };
 
+use super::BlockingIndexer;
 use super::{TransferPreparation, ZolanaClient};
-use crate::indexer::ZolanaIndexer;
 
-impl<R: Rpc> Rpc for ZolanaClient<R, ZolanaIndexer> {
+impl<R: Rpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address)
     }

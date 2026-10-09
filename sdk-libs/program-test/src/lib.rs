@@ -29,6 +29,8 @@ use zolana_interface::{
 };
 
 mod admin;
+pub mod client;
+pub use client::ProgramTestHandle;
 pub mod events;
 pub use events::{
     deposit_output_from_event, deposit_outputs_from_event, index_events, indexed_events_from_meta,
@@ -38,7 +40,7 @@ pub use events::{
 };
 pub mod indexer;
 pub use indexer::{
-    shielded_transaction_from_general_event, IndexedPayload, IndexedUtxo, IndexerError,
+    shielded_transaction_from_general_event, IndexedPayload, IndexedUtxo, IndexerError, LeafProof,
     ProoflessOutput, TestIndexer,
 };
 pub mod instructions;

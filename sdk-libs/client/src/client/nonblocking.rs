@@ -28,11 +28,11 @@ use crate::{
     },
 };
 
+use super::AsyncIndexer;
 use super::{TransferPreparation, ZolanaClient};
-use crate::indexer::AsyncZolanaIndexer;
 
 #[async_trait]
-impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R, AsyncZolanaIndexer> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for ZolanaClient<R, I> {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address).await
     }

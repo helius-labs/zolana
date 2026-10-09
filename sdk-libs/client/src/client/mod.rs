@@ -2,9 +2,9 @@
 //!
 //! [`ZolanaClient`] owns the three services a private transaction needs: the
 //! Solana RPC, the indexer and the prover. The indexer fixes the client's mode:
-//! over a [`ZolanaIndexer`], the default, the client blocks and implements
-//! [`Rpc`](crate::rpc::Rpc); over an [`AsyncZolanaIndexer`] it is `async` and
-//! implements [`AsyncRpc`](crate::rpc::AsyncRpc), and [`AsyncZolanaClient`]
+//! over a [`BlockingIndexer`], [`ZolanaIndexer`] by default, the client blocks
+//! and implements [`Rpc`]; over an [`AsyncIndexer`], [`AsyncZolanaIndexer`] by
+//! default, it is `async` and implements [`AsyncRpc`], and [`AsyncZolanaClient`]
 //! names it. The blocking client's indexer and prover run on a Tokio runtime
 //! of their own, so it is built, used and dropped from plain threads or from
 //! inside a multi-thread runtime alike; only a `current_thread` runtime cannot
@@ -29,9 +29,10 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
-        AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
+        witness::{AsyncWitnessReader, WitnessReader},
+        AsyncProverClient, Proof, Prover, ProverClient, ProverServer, TransferInputs,
     },
-    rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
+    rpc::{AsyncRpc, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
 };
 
 pub use transaction::{SignedPrivateTransaction, Submission};
@@ -51,11 +52,32 @@ pub use validation::check_service_url;
 /// ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
-/// An indexer client a [`ZolanaClient`] is built over. It fixes the client's
-/// mode, blocking for [`ZolanaIndexer`] and `async` for [`AsyncZolanaIndexer`],
-/// and names the prover client of the same kind. Sealed.
-pub trait Indexer: sealed::Sealed {
-    type ProverClient;
+/// An indexer a [`ZolanaClient`] is built over. The indexer fixes the
+/// client's mode: a [`BlockingIndexer`] gives the blocking client and an
+/// [`AsyncIndexer`] the `async` one, and each names the prover client of its
+/// kind. [`ZolanaIndexer`] and [`AsyncZolanaIndexer`] read Photon; an
+/// in-process indexer, such as a test harness, implements this with [`Rpc`]
+/// and [`WitnessReader`] and is a client's indexer the same way.
+pub trait Indexer {
+    type ProverClient: ProverServer;
+}
+
+/// An indexer of the blocking client: it answers the indexer half of [`Rpc`]
+/// and reads input witnesses, which [`WitnessReader`] does by default over
+/// [`Rpc`]. Implemented for every such type.
+pub trait BlockingIndexer: Indexer<ProverClient = ProverClient> + Rpc + WitnessReader {}
+
+impl<I: Indexer<ProverClient = ProverClient> + Rpc + WitnessReader> BlockingIndexer for I {}
+
+/// An indexer of the `async` client; see [`BlockingIndexer`].
+pub trait AsyncIndexer:
+    Indexer<ProverClient = AsyncProverClient> + AsyncRpc + AsyncWitnessReader
+{
+}
+
+impl<I: Indexer<ProverClient = AsyncProverClient> + AsyncRpc + AsyncWitnessReader> AsyncIndexer
+    for I
+{
 }
 
 impl Indexer for ZolanaIndexer {
@@ -64,70 +86,6 @@ impl Indexer for ZolanaIndexer {
 
 impl Indexer for AsyncZolanaIndexer {
     type ProverClient = AsyncProverClient;
-}
-
-mod sealed {
-    use super::{
-        AsyncProverClient, AsyncZolanaIndexer, Indexer, ProofDataSource, ProverClient,
-        ZolanaIndexer,
-    };
-
-    type ProverOf<I> = <I as Indexer>::ProverClient;
-
-    /// What [`super::ZolanaClient`] does with its indexer and prover kind,
-    /// out of the public API.
-    pub trait Sealed: Sized {
-        /// The indexer and prover clients at these URLs, on one runtime when
-        /// they block.
-        fn from_urls(indexer_url: &str, prover_url: String) -> (Self, ProverOf<Self>)
-        where
-            Self: Indexer;
-        fn proof_data_source(prover: &ProverOf<Self>) -> ProofDataSource
-        where
-            Self: Indexer;
-        fn with_proof_data_source(
-            prover: ProverOf<Self>,
-            source: ProofDataSource,
-        ) -> ProverOf<Self>
-        where
-            Self: Indexer;
-    }
-
-    impl Sealed for ZolanaIndexer {
-        fn from_urls(indexer_url: &str, prover_url: String) -> (Self, ProverClient) {
-            let indexer = ZolanaIndexer::new(indexer_url);
-            let prover = AsyncProverClient::new(prover_url).into_blocking_on(indexer.runtime());
-            (indexer, prover)
-        }
-
-        fn proof_data_source(prover: &ProverClient) -> ProofDataSource {
-            prover.proof_data_source()
-        }
-
-        fn with_proof_data_source(prover: ProverClient, source: ProofDataSource) -> ProverClient {
-            prover.with_proof_data_source(source)
-        }
-    }
-
-    impl Sealed for AsyncZolanaIndexer {
-        fn from_urls(indexer_url: &str, prover_url: String) -> (Self, AsyncProverClient) {
-            (
-                AsyncZolanaIndexer::new(indexer_url),
-                AsyncProverClient::new(prover_url),
-            )
-        }
-
-        fn proof_data_source(prover: &AsyncProverClient) -> ProofDataSource {
-            prover.proof_data_source()
-        }
-
-        fn with_proof_data_source(
-            prover: AsyncProverClient,
-            source: ProofDataSource,
-        ) -> AsyncProverClient {
-            prover.with_proof_data_source(source)
-        }
-    }
 }
 
 /// A [`ZolanaClient`] over an [`AsyncZolanaIndexer`]: the `async` client.
@@ -172,45 +130,6 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     /// on Tokio's blocking pool.
     pub fn with_prover(rpc: R, indexer: I, prover: impl Prover + 'static) -> Self {
         Self::build(rpc, indexer, ProverBackend::Custom(Arc::new(prover)))
-    }
-
-    /// Build the indexer and prover clients from their URLs. Both must be
-    /// https, or http to loopback: the indexer answers with the wallet's UTXO
-    /// set and the prover is sent every proof input.
-    ///
-    /// No argument names the mode, and Rust does not infer a default type
-    /// parameter, so name it: `ZolanaClient::<_>::from_urls(..)` builds the
-    /// blocking client and `AsyncZolanaClient::from_urls(..)` the `async` one,
-    /// unless the binding's type already says which.
-    pub fn from_urls(
-        rpc: R,
-        indexer_url: impl AsRef<str>,
-        prover_url: impl Into<String>,
-    ) -> Result<Self, ClientError> {
-        let indexer_url = indexer_url.as_ref();
-        let prover_url = prover_url.into();
-        check_service_url(indexer_url, "indexer_url")?;
-        check_service_url(&prover_url, "prover_url")?;
-        Ok(Self::from_urls_allowing_insecure_http(
-            rpc,
-            indexer_url,
-            prover_url,
-        ))
-    }
-
-    /// [`Self::from_urls`] without the transport check.
-    ///
-    /// Only for a network that is already private or an explicitly disposable
-    /// development profile that accepts zero transport-privacy. On a public
-    /// endpoint this publishes the wallet's UTXO set and every proof input in
-    /// the clear. Never use this constructor for production funds.
-    pub fn from_urls_allowing_insecure_http(
-        rpc: R,
-        indexer_url: impl AsRef<str>,
-        prover_url: impl Into<String>,
-    ) -> Self {
-        let (indexer, prover) = I::from_urls(indexer_url.as_ref(), prover_url.into());
-        Self::new(rpc, indexer, prover)
     }
 
     fn build(rpc: R, indexer: I, prover: ProverBackend<I::ProverClient>) -> Self {
@@ -260,7 +179,7 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
         self.prover = match self.prover {
             ProverBackend::Server(prover) => {
-                ProverBackend::Server(I::with_proof_data_source(prover, source))
+                ProverBackend::Server(prover.with_proof_data_source(source))
             }
             custom => custom,
         };
@@ -289,7 +208,7 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     fn indexed_prover(&self) -> Option<&I::ProverClient> {
         match &self.prover {
             ProverBackend::Server(prover)
-                if I::proof_data_source(prover) == ProofDataSource::Prover =>
+                if prover.proof_data_source() == ProofDataSource::Prover =>
             {
                 Some(prover)
             }
@@ -298,7 +217,91 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
     }
 }
 
-impl<R> ZolanaClient<R, ZolanaIndexer> {
+/// A Photon client, built from the indexer's URL: [`ZolanaIndexer`] or
+/// [`AsyncZolanaIndexer`]. Sealed, since only these are reached through a
+/// URL; any other [`Indexer`] is built by its own means and passed to
+/// [`ZolanaClient::new`].
+#[cfg(feature = "reqwest")]
+pub trait PhotonIndexer: Indexer + sealed::Sealed {
+    fn from_url(url: &str) -> Self;
+    /// The prover client at `url`, run with this indexer: on the blocking
+    /// indexer's runtime, so a client built from URLs owns one runtime.
+    fn prover_client(&self, url: String) -> Self::ProverClient;
+}
+
+#[cfg(feature = "reqwest")]
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for crate::indexer::ZolanaIndexer {}
+    impl Sealed for crate::indexer::AsyncZolanaIndexer {}
+}
+
+#[cfg(feature = "reqwest")]
+impl PhotonIndexer for ZolanaIndexer {
+    fn from_url(url: &str) -> Self {
+        ZolanaIndexer::new(url)
+    }
+
+    fn prover_client(&self, url: String) -> ProverClient {
+        AsyncProverClient::new(url).into_blocking_on(self.runtime())
+    }
+}
+
+#[cfg(feature = "reqwest")]
+impl PhotonIndexer for AsyncZolanaIndexer {
+    fn from_url(url: &str) -> Self {
+        AsyncZolanaIndexer::new(url)
+    }
+
+    fn prover_client(&self, url: String) -> AsyncProverClient {
+        AsyncProverClient::new(url)
+    }
+}
+
+#[cfg(feature = "reqwest")]
+impl<R, I: PhotonIndexer> ZolanaClient<R, I> {
+    /// Build the Photon indexer and the prover client from their URLs. Both
+    /// must be https, or http to loopback: the indexer answers with the
+    /// wallet's UTXO set and the prover is sent every proof input.
+    ///
+    /// No argument names the mode, and Rust does not infer a default type
+    /// parameter, so name it where nothing else does:
+    /// `ZolanaClient::<_>::from_urls(..)` builds the blocking client and
+    /// `AsyncZolanaClient::from_urls(..)` the `async` one.
+    pub fn from_urls(
+        rpc: R,
+        indexer_url: impl AsRef<str>,
+        prover_url: impl Into<String>,
+    ) -> Result<Self, ClientError> {
+        let indexer_url = indexer_url.as_ref();
+        let prover_url = prover_url.into();
+        check_service_url(indexer_url, "indexer_url")?;
+        check_service_url(&prover_url, "prover_url")?;
+        Ok(Self::from_urls_allowing_insecure_http(
+            rpc,
+            indexer_url,
+            prover_url,
+        ))
+    }
+
+    /// [`Self::from_urls`] without the transport check.
+    ///
+    /// Only for a network that is already private or an explicitly disposable
+    /// development profile that accepts zero transport-privacy. On a public
+    /// endpoint this publishes the wallet's UTXO set and every proof input in
+    /// the clear. Never use this constructor for production funds.
+    pub fn from_urls_allowing_insecure_http(
+        rpc: R,
+        indexer_url: impl AsRef<str>,
+        prover_url: impl Into<String>,
+    ) -> Self {
+        let indexer = I::from_url(indexer_url.as_ref());
+        let prover = indexer.prover_client(prover_url.into());
+        Self::new(rpc, indexer, prover)
+    }
+}
+
+impl<R, I: BlockingIndexer> ZolanaClient<R, I> {
     /// The prover of a transfer off the indexed route.
     fn prover(&self) -> &dyn Prover {
         match &self.prover {
@@ -308,7 +311,7 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
     }
 }
 
-impl<R> ZolanaClient<R, AsyncZolanaIndexer> {
+impl<R, I: AsyncIndexer> ZolanaClient<R, I> {
     /// The transfer proof of a transfer off the indexed route.
     async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         match &self.prover {
