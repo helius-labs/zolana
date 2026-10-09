@@ -212,7 +212,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   obtain ⟨T1X, T1Y, hT1X, hT1Y, h, l1, xd1, r1, tc1⟩ :=
     triple_habd58e5e_sound hl QX QY hQXb hQYb (by convert h using 2 <;> exact (vec8_eta _).symm)
   beta_reduce at h
-  simp only [get2_0, get2_1] at h
+  try simp only [get2_0, get2_1] at h
   elim_gates_shallow h
   obtain ⟨y0, u0, y1, u1, y2, u2, y3, u3, y4, u4, y5, u5, y6, u6, y7, u7, h⟩ := h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select, GatesDef.add, GatesDef.mul] at u0 u1 u2 u3 u4 u5 u6 u7
@@ -289,7 +289,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
     triple_he2f2b0f5_sound hl PRX SPY hPRXb hSPYb (by
       convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
   beta_reduce at h
-  simp only [get2_0, get2_1] at h
+  try simp only [get2_0, get2_1] at h
   elim_gates_shallow h
   obtain ⟨g1d, g2d, g3d, h⟩ := h
   have dg1 := distinctX_elem hPRXb hQXb (by
@@ -298,6 +298,100 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
     convert g2d using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
   have dg3 := distinctX_elem hT2X hQXb (by convert g3d using 2; exact (vec8_eta _).symm)
   clear g1d g2d g3d
+  set NSPY := linElem [(-1, SPY)] with hNSPY
+  have hNSPYb : NSPY.bnd = selC := by rw [hNSPY, linElem_bnd]; simp only [List.map]; rw [hSPYb]; rfl
+  set NT2Y := linElem [(-1, T2Y)] with hNT2Y
+  have hNT2Yb : NT2Y.bnd = negRedC := by rw [hNT2Y, linElem_bnd]; simp only [List.map]; rw [hT2Y]; rfl
+  obtain ⟨A0X, A0Y, hA0X, hA0Y, h, crA0⟩ :=
+    add_he7b90398_sound hl QX QY PRX SPY hQXb hQYb hPRXb hSPYb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A1X, A1Y, hA1X, hA1Y, h, crA1⟩ :=
+    add_hd2848b17_sound hl T1X T1Y T2X T2Y hT1X hT1Y hT2X hT2Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A2X, A2Y, hA2X, hA2Y, h, crA2⟩ :=
+    add_he7b90398_sound hl T1X T1Y PRX SPY hT1X hT1Y hPRXb hSPYb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A3X, A3Y, hA3X, hA3Y, h, crA3⟩ :=
+    add_hd2848b17_sound hl QX QY T2X T2Y hQXb hQYb hT2X hT2Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A4X, A4Y, hA4X, hA4Y, h, crA4⟩ :=
+    add_hc7058f2f_sound hl PRX NSPY QX QY hPRXb hNSPYb hQXb hQYb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX, hNSPY]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A5X, A5Y, hA5X, hA5Y, h, crA5⟩ :=
+    add_h15bb4ad7_sound hl QX QY T2X NT2Y hQXb hQYb hT2X hNT2Yb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hNT2Y]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A6X, A6Y, hA6X, hA6Y, h, crA6⟩ :=
+    add_h17455767_sound hl T1X T1Y PRX NSPY hT1X hT1Y hPRXb hNSPYb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX, hNSPY]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨A7X, A7Y, hA7X, hA7Y, h, crA7⟩ :=
+    add_h15bb4ad7_sound hl T1X T1Y T2X NT2Y hT1X hT1Y hT2X hNT2Yb (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hNT2Y]))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨HA1, hHA1, h, qHA1⟩ :=
+    halfTangentSlope_sound hl A1X A1Y hA1X hA1Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  obtain ⟨HA5, hHA5, h, qHA5⟩ :=
+    halfTangentSlope_sound hl A5X A5Y hA5X hA5Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  obtain ⟨HA6, hHA6, h, qHA6⟩ :=
+    halfTangentSlope_sound hl A6X A6Y hA6X hA6Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  obtain ⟨HA0, hHA0, h, qHA0⟩ :=
+    halfTangentSlope_sound hl A0X A0Y hA0X hA0Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  obtain ⟨HA3, hHA3, h, qHA3⟩ :=
+    halfTangentSlope_sound hl A3X A3Y hA3X hA3Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  unfold ScalarMulChecked_8_8_8_h903d3456_p5 at h
+  elim_gates_shallow h
+  obtain ⟨HA7, hHA7, h, qHA7⟩ :=
+    halfTangentSlope_sound hl A7X A7Y hA7X hA7Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  obtain ⟨HA4, hHA4, h, qHA4⟩ :=
+    halfTangentSlope_sound hl A4X A4Y hA4X hA4Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
+  obtain ⟨HA2, hHA2, h, qHA2⟩ :=
+    halfTangentSlope_sound hl A2X A2Y hA2X hA2Y (by
+      convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
+  beta_reduce at h
+  elim_gates_shallow h
   sorry
 
 end ZolanaVE.P256
