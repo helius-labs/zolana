@@ -20,13 +20,13 @@ No custom program is involved, the vault is the unmodified kVault program.
 | Actor | Role | Trust |
 |-------|------|-------|
 | User | Holds private collateral or shares, requests quotes, proves the user transfer, signs the swap | Trusts nobody for funds: signs only after checking the maker transfer |
-| Market maker | Quotes, proves the maker transfer, assembles and pays for the transaction, holds share and collateral inventory, rebalances against kVault | Trusted for liveness and exit timing, not for funds or price |
+| Market maker | Quotes, proves the maker transfer, assembles and pays for the transaction, holds share and collateral inventory, rebalances against kVault | Trusted for liveness and withdrawal timing, not for funds or price |
 | kVault | Mints and burns shares against collateral at `shares_issued / AUM` | Public program; its state is the price oracle |
 | Privacy program | Verifies each transfer's proof, enforces balance per asset and each input owner's signature | Protocol |
 
 ## RFQ Swap (Deposit/Withdrawal)
 
-1. User: request quote. The user sends the market maker the pair, the direction (deposit or exit) and `amount_in`.
+1. User: request quote. The user sends the market maker the pair, the direction (deposit or withdrawal) and `amount_in`.
 
 2. Market maker: quote. The market maker returns:
    1. `amount_out` at the vault rate minus its fee
@@ -58,7 +58,7 @@ Atomicity is the Solana transaction: both transfers land or neither does.
 | Market maker address | Public | Signs rfq swap transaction. |
 | Swap amount | Private | Private transfers prove state transition with zero knowledge proofs and encrypt amounts. |
 | User balance, other UTXOs | Private: User | The user generates her own transfer proof, the market maker can only decrypt her new UTXO.  |
-| Direction (deposit or exit) | Private: User, market maker | Private transfers do not reveal the transferred assets. |
+| Direction (deposit or withdrawal) | Private: User, market maker | Private transfers do not reveal the transferred assets. |
 | Pair | Public/Private | Private transfers do not reveal the transferred assets. Can be inferred if the maker only supports a single pair. |
 | Rebalance amounts | Public | Aggregated over many users, decoupled in time from any single swap |
 
@@ -83,6 +83,7 @@ Per pair:
 1. Concurrency: configure how many swaps the market maker can serve at the same time.
    1. Problem: a swap spends one of the market maker's UTXOs, and its change is only spendable once the swap lands, so a single balance serves one swap at a time.
    2. Solution: the market maker keeps its inventory split, so quotes can be executed concurrently.
+   3. Sizing: the market maker keeps many UTXOs of different sizes, so a few large ones fill a large swap in one transaction while many small ones serve concurrent small swaps.
 
 2. Keep target balances. The market maker keeps a target balance per token, and a rebalance brings it back into range.
 
@@ -90,7 +91,7 @@ Per pair:
 
 ### Rebalance
 
-1. Decide. Exits are filled first from the collateral that deposits paid in; only the net amount goes through kVault.
+1. Decide. Withdrawals are filled first from the collateral that deposits paid in; only the net amount goes through kVault.
 
 2. Rebalance shares: turn collateral into shares.
    1. Unshield the collected collateral.
