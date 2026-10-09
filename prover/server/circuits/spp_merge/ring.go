@@ -24,7 +24,7 @@ type RingCircuit struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [mergeshared.MintChunkCount]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -57,7 +57,7 @@ func (c *RingCircuit) transaction() mergeshared.Transaction {
 	return mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
-		Asset:               c.Asset,
+		MintChunks:          c.MintChunks,
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
@@ -72,9 +72,8 @@ func (c *RingCircuit) Define(api frontend.API) error {
 		return err
 	}
 	api.AssertIsDifferent(c.RingProgramID, 0)
-	if _, err := tx.Constrain(api); err != nil {
-		return err
-	}
+	tx.OutputAmount = mergeshared.RangeCheckedAmount(api, c.Inputs)
+	tx.Constrain(api)
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)

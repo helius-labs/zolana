@@ -64,7 +64,7 @@ func disclosureElements(
 		rangeChecker.Check(b, 8)
 	}
 	saltField := gadget.PackBytesBE(api, salt[:])[0]
-	keyLo, keyHi := Pack32To2FECircuit(api, txViewingSk)
+	keyLo, keyHi := gadget.BytesToField(api, txViewingSk[:31]), txViewingSk[31]
 	ciphertext := make([]frontend.Variable, len(plaintext))
 	for i, value := range plaintext {
 		stream := gadget.PoseidonHash(api, []frontend.Variable{

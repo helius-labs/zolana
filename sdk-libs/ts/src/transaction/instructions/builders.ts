@@ -2,11 +2,13 @@ import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
   mergeDummyNullifier,
-  mergeOutputBlinding,
   mergePrivateTxBlinding,
+  encryptMergeEnvelope,
+  type EncryptedMergeEnvelope,
 } from "../../keypair/merge/index.js";
-import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
+import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data } from "../data.js";
 import {
@@ -47,6 +49,53 @@ function checkedU64(value: bigint, field: string): bigint {
   return value;
 }
 
+export class MergeOutputEnvelope {
+  readonly recipient: P256PublicKey;
+  readonly firstNullifier: Bytes32;
+  readonly #ephemeral = ViewingKey.generate();
+
+  constructor(input: Readonly<{ recipient: P256PublicKey; firstNullifier: Bytes32 }>) {
+    if (!(input.recipient instanceof P256PublicKey)) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "recipient" });
+    }
+    this.recipient = input.recipient;
+    this.firstNullifier = checked<Bytes32>(input.firstNullifier, 32, "first nullifier");
+  }
+
+  encrypt(amount: bigint, mint: Address): EncryptedMergeEnvelope {
+    return encryptMergeEnvelope({
+      recipient: this.recipient,
+      ephemeral: this.#ephemeral,
+      amount,
+      mint: decodeAddress(mint),
+      firstNullifier: this.firstNullifier,
+    });
+  }
+
+  /**
+   * Lends a copy of the ephemeral secret to `use`, which the merge prover
+   * needs to prove the envelope. The copy is wiped once `use` settles, so it
+   * must not be retained.
+   */
+  async withEphemeralSecret<T>(use: (secret: Bytes32) => Promise<T> | T): Promise<T> {
+    const secret = this.#ephemeral.secretBytes();
+    try {
+      return await use(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  /** Wipes the ephemeral key; the envelope can no longer encrypt or be proven. */
+  destroy(): void {
+    this.#ephemeral.destroy();
+  }
+}
+
+export type MergeBlindingSource =
+  | Readonly<{ kind: "envelope" }>
+  | Readonly<{ kind: "derived"; outputBlinding: Bytes32 }>;
+
 export class PreparedMerge {
   readonly inputs: readonly ProofInputUtxo[];
   readonly output: ProofOutputUtxo;
@@ -57,6 +106,7 @@ export class PreparedMerge {
   readonly inputTreeId: TreeId;
   /** The tree the merged output is appended to. */
   readonly outputTreeId: TreeId;
+  readonly envelope: MergeOutputEnvelope | undefined;
   readonly #dummyNullifiers: readonly Bytes32[];
   readonly #privateTxBlinding: Bytes32;
 
@@ -64,6 +114,7 @@ export class PreparedMerge {
     input: Readonly<{
       inputs: readonly ProofInputUtxo[];
       output: ProofOutputUtxo;
+      envelope?: MergeOutputEnvelope | undefined;
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
       nullifierPublicKey: Bytes32;
@@ -146,11 +197,16 @@ export class PreparedMerge {
       "merge private tx blinding",
     );
     this.outputTreeId = checkedTreeId(input.outputTreeId);
+    this.envelope = input.envelope;
   }
 
   /** The merged output's commitment in `outputTreeId`. */
   outputHash(): Bytes32 {
     return this.output.hash(this.outputTreeId);
+  }
+
+  encryptedEnvelope(): EncryptedMergeEnvelope | undefined {
+    return this.envelope?.encrypt(this.output.amount, this.output.asset);
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
@@ -227,9 +283,11 @@ function realInputContexts(
 
 /**
  * Consolidates up to `MAX_MERGE_INPUTS` plain UTXOs of one owner and asset into one.
- * The output blinding, private-transaction blinding, and padded slots'
- * nullifiers derive from the nullifier secret; the builder receives them
- * derived by `ShieldedKeys.derive`. The circuit's unused slots are compact
+ * The private-transaction blinding and padded slots' nullifiers derive from
+ * the nullifier secret; the builder receives them derived by
+ * `ShieldedKeys.derive`. The output blinding derives from the envelope shared
+ * secret on the default rail, and from the nullifier secret and first
+ * nullifier on the ring rail. The circuit's unused slots are compact
  * padding: each publishes 0 in place of its derived dummy nullifier, which it
  * still proves absent, and the instruction leaves it out, so the merge reveals
  * its real input count. Mirrors Rust `MergeTransaction::new`.
@@ -241,8 +299,7 @@ export class Merge {
     input: Readonly<{
       address: ShieldedAddress;
       inputs: readonly ProofInputUtxo[];
-      /** `mergeOutputBlinding(firstNullifier)`. */
-      outputBlinding: Bytes32;
+      blinding: MergeBlindingSource;
       /** `mergePrivateTxBlinding(firstNullifier)`. */
       privateTxBlinding: Bytes32;
       /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
@@ -284,6 +341,25 @@ export class Merge {
         throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
       }
     });
+    const blinding = input.blinding;
+    if (
+      blinding === null ||
+      typeof blinding !== "object" ||
+      blinding.kind !== (input.ring === undefined ? "envelope" : "derived")
+    ) {
+      throw new TransactionError("TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH");
+    }
+    let envelope: MergeOutputEnvelope | undefined;
+    let outputBlinding: Bytes32;
+    if (blinding.kind === "envelope") {
+      envelope = new MergeOutputEnvelope({
+        recipient: address.viewingPublicKey,
+        firstNullifier: firstInput.nullifier(),
+      });
+      outputBlinding = envelope.encrypt(amount, asset).outputBlinding;
+    } else {
+      outputBlinding = checked<Bytes32>(blinding.outputBlinding, 32, "merge output blinding");
+    }
     const inputTreeId = singleInputTreeId(inputs);
     const padded = [...inputs];
     while (padded.length < width) padded.push(ProofInputUtxo.compact(inputTreeId));
@@ -293,7 +369,7 @@ export class Merge {
         ownerAddress: address,
         asset,
         amount,
-        blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
+        blinding: outputBlinding,
         ...(input.ring === undefined
           ? {}
           : {
@@ -303,6 +379,7 @@ export class Merge {
                 : { ringDataHash: input.ring.outputDataHash }),
             }),
       }),
+      envelope,
       expiryUnixTs: U64_MAX,
       signingPublicKey: owner,
       nullifierPublicKey: address.nullifierPublicKey,
@@ -326,7 +403,7 @@ export class Merge {
       return new Merge({
         address: keypair.shieldedAddress(),
         inputs,
-        outputBlinding: mergeOutputBlinding(nullifierKey, firstNullifier),
+        blinding: { kind: "envelope" },
         privateTxBlinding: mergePrivateTxBlinding(nullifierKey, firstNullifier),
         dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
@@ -346,6 +423,7 @@ export class Merge {
     this.#prepared = new PreparedMerge({
       inputs: this.#prepared.inputs,
       output: this.#prepared.output,
+      envelope: this.#prepared.envelope,
       expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
       signingPublicKey: this.#prepared.signingPublicKey,
       nullifierPublicKey: this.#prepared.nullifierPublicKey,
@@ -361,6 +439,7 @@ export class Merge {
     this.#prepared = new PreparedMerge({
       inputs: this.#prepared.inputs,
       output: this.#prepared.output,
+      envelope: this.#prepared.envelope,
       expiryUnixTs: this.#prepared.expiryUnixTs,
       signingPublicKey: this.#prepared.signingPublicKey,
       nullifierPublicKey: this.#prepared.nullifierPublicKey,

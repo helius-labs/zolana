@@ -22,10 +22,10 @@ Changed
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Transfers prove on a grid of up to 49 inputs and 16 outputs, merges
-take up to 54 notes in one transaction, wallet sync recovers the output of
-such a merge, and transfers can leave their unused slots out of the
-transaction at the cost of revealing the real counts, which every merge now
-does.
+take up to 54 notes in one transaction and encrypt their output to the owner's
+viewing key, so wallet sync decrypts a merge from its envelope without holding
+its inputs, and transfers can leave their unused slots out of the transaction
+at the cost of revealing the real counts, which every merge now does.
 Registration never replaces an owner's published keys, and replacing them is
 its own transaction. The private transaction hash ignores padding and no longer
 covers the external data, which P-256 owners now sign alongside it.
@@ -134,6 +134,32 @@ Breaking
   the appended record takes, and refuses a slot before the transfer's outputs
   or past the shape with `TRANSACTION_UNSUPPORTED_SHAPE` → pass the number of
   the transfer's own outputs.
+- `ClientErrorCode` gains `CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH` for a merge
+  whose envelope does not match its kind, `WalletErrorCode` gains
+  `WALLET_UNDECRYPTED_MERGE`, `TransactionErrorCode` gains
+  `TRANSACTION_MERGE_BLINDING_RAIL_MISMATCH`, and `KeypairErrorCode` gains
+  `KEYPAIR_INVALID_AMOUNT` and `KEYPAIR_INVALID_INPUT` → handle them in
+  exhaustive switches.
+- `Merge` takes `blinding`, a `MergeBlindingSource`, in place of
+  `outputBlinding`, a default merge encrypts its amount and mint to the owner's
+  viewing key in a `MergeOutputEnvelope` that `PreparedMerge.envelope` holds
+  and `PreparedMerge.encryptedEnvelope()` returns encrypted, and a default
+  merge's `MergeTransactInstructionData` is a `MergeBody` with a
+  `MergeProofCommitment` and a `MergeEnvelope`, while `ringMergeInstruction`
+  takes a bare `MergeBody` and `ProvedMerge.data` returns a
+  `MergeInstructionData` → pass `{ kind: "envelope" }` for a default merge and
+  `{ kind: "derived", outputBlinding }` for a ring merge, and set
+  `proofCommitment` and `envelope` on hand-built default merge data and neither
+  on ring merge data.
+- `MergeInputs` requires `mint` and, on a default merge, `envelope`, a
+  `MergeEnvelopeInputs`, and `ShieldedKeys.decrypt` receives merge envelopes
+  under the new `DecryptLabel` `"mergeEnvelope"` with the merge's first
+  published nullifier in the new `DecryptRequest.firstNullifier`, and a sync
+  fails on an answer that is not an encoded decrypted envelope → set both fields
+  on hand-built merge inputs, prove against the prover of this release, and
+  answer the label in custom `ShieldedKeys` with
+  `encodeDecryptedMergeEnvelope(decryptMergeEnvelope(...))`, passing the
+  request's `firstNullifier`.
 
 Added
 
@@ -172,6 +198,20 @@ Added
   fetch and is `null` for every other slot.
 - Wallet sync recovers the output of a compact merge, which publishes only the
   nullifiers it sends.
+- Wallet sync recovers a default merge's output from its envelope under every
+  viewing key the wallet holds, retired ones included, without holding its
+  inputs, asks the key holder only about merges addressed to the wallet, holds
+  one in an unregistered mint back until the registry knows it, and counts one
+  the key holder fails to decrypt in `SyncReport.undecryptableMerges`, on which
+  `syncWallet` commits nothing and rejects with `WALLET_UNDECRYPTED_MERGE` so
+  the next sync retries it, while `MergeOutputEnvelope` from
+  `@heliuslabs/zolana/transaction` builds an envelope for a hand-built
+  `PreparedMerge` from the owner's viewing key and the merge's first nullifier,
+  lends its ephemeral secret only inside `withEphemeralSecret(use)` and wipes it
+  on `destroy()`, and `decryptMergeEnvelope`, `encodeDecryptedMergeEnvelope`,
+  `DecryptedMergeEnvelope` and `EncryptedMergeEnvelope` from
+  `@heliuslabs/zolana/keypair` decrypt and describe an envelope, decryption
+  taking the merge's first published nullifier.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (54) notes in one transaction, padded to the 8-input
   proof, above 8 to the 24-input proof or above 24 to the 54-input proof, and

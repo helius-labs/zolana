@@ -14,8 +14,8 @@ use super::transact::nullifier_pda_accounts;
 /// `user_record` (read-only), the System Program, the program account for the
 /// `emit_event` self-CPI, one writable nullifier PDA per `nullifiers` entry,
 /// then the writable cache account and its signing writer when
-/// `data.cache_slot` is set. The program rejects any account beyond that, so
-/// `cache` and `data.cache_slot` must be set together.
+/// `data.body.cache_slot` is set. The program rejects any account beyond that, so
+/// `cache` and `data.body.cache_slot` must be set together.
 pub struct MergeTransact {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
@@ -60,7 +60,7 @@ impl MergeTransact {
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
-            self.data.nullifiers.iter(),
+            self.data.body.nullifiers.iter(),
         ));
         accounts.extend(
             self.cache

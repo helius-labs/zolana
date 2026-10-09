@@ -10,7 +10,8 @@ use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{
-        MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
+        MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment, MergeTransactIxData,
+        MAX_MERGE_INPUTS, MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };
@@ -20,12 +21,18 @@ use zolana_test_utils::transact::fe;
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
-/// Wire-valid default-rail merge data with a zeroed proof: eight distinct
-/// nullifiers against root-history slot 0, so every parse and tree step
-/// succeeds and only the checks under test can fail. The merge output is
-/// ciphertext-free (recovered from the first input and its nullifier).
-fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
-    MergeTransactIxData {
+fn dummy_envelope() -> MergeEnvelope {
+    MergeEnvelope {
+        ephemeral_pk: core::array::from_fn(|index| if index == 0 { 0x02 } else { 7 }),
+        ciphertext: [9u8; MERGE_CIPHERTEXT_LEN],
+    }
+}
+
+/// Well-formed merge body with a zeroed proof: eight distinct nullifiers
+/// against root-history slot 0, so every parse and tree step succeeds and only
+/// the checks under test can fail.
+fn merge_body(eddsa_owner: bool) -> MergeBody {
+    MergeBody {
         cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
@@ -38,14 +45,35 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     }
 }
 
+/// Default-rail merge data: the body plus a zeroed proof commitment and a
+/// dummy envelope.
+fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
+    MergeTransactIxData {
+        body: merge_body(eddsa_owner),
+        proof_commitment: MergeProofCommitment {
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        },
+        envelope: dummy_envelope(),
+    }
+}
+
 // Every count from 1 to 54 selects the narrowest merge circuit that holds it;
 // the missing slots are compact padding.
 const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 2] = [0, MAX_MERGE_INPUTS + 1];
 
 fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
     let mut data = merge_ix_data(true);
-    data.nullifiers = (1..=input_count as u64).map(fe).collect();
+    data.body.nullifiers = (1..=input_count as u64).map(fe).collect();
     data
+}
+
+fn ring_merge_ix_data() -> MergeBody {
+    merge_body(true)
+}
+
+fn ring_merge_ix_data_at_input_count(input_count: usize) -> MergeBody {
+    merge_ix_data_at_input_count(input_count).body
 }
 
 fn merge_env() -> (ZolanaProgramTest, Pubkey) {
@@ -159,7 +187,7 @@ fn merge_rejects_a_sent_zero_nullifier() {
 
     for slot in [0, 3, MERGE_DEFAULT_INPUT_COUNT - 1] {
         let mut data = merge_ix_data(true);
-        *data.nullifiers.get_mut(slot).expect("nullifier slot") = [0u8; 32];
+        *data.body.nullifiers.get_mut(slot).expect("nullifier slot") = [0u8; 32];
         let ix = merge_instruction(&rpc, &tree, record, data);
         let error = rpc
             .create_and_send_default_payer_transaction(&[ix], &[])
@@ -200,7 +228,7 @@ fn merge_rejects_an_expired_transaction() {
     // The merge dispatch shares transact's expiry gate (`check_not_expired`).
     // Pin the sysvar clock one second past the instruction's expiry.
     let mut data = merge_ix_data(true);
-    data.expiry_unix_ts = 1_000;
+    data.body.expiry_unix_ts = 1_000;
     let mut clock = rpc.svm.get_sysvar::<solana_clock::Clock>();
     clock.unix_timestamp = 1_001;
     rpc.svm.set_sysvar(&clock);
@@ -292,7 +320,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data: merge_ix_data(true),
+        data: ring_merge_ix_data(),
         output_ring_data_hash: fe(99),
         cache: None,
     }
@@ -449,7 +477,7 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     // fails at G1 decompression -- the 7007 encoding error, distinct from
     // the 7008 pairing failure of a well-formed but non-verifying proof.
     let mut data = merge_ix_data(true);
-    data.proof = MergeProof {
+    data.body.proof = MergeProof {
         a: [0xFF; 32],
         b: [0xFF; 128],
         c: [0xFF; 32],
@@ -473,12 +501,31 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     );
 }
 
+#[test]
+fn default_rail_merge_rejects_a_payload_without_the_envelope_exactly() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    let mut ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    ix.data.truncate(ix.data.len() - 33 - MERGE_CIPHERTEXT_LEN);
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a default-rail merge without an envelope must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+    assert_eq!(rpc.account_data(&tree).expect("tree data"), tree_before);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}
+
 /// SPP-shaped ring merge instruction (as a ring program would CPI it, the
 /// canonical `ring_auth` PDA marked signer).
 fn merge_ring_cpi_instruction(
     rpc: &ZolanaProgramTest,
     tree: &Pubkey,
-    data: MergeTransactIxData,
+    data: MergeBody,
     output_ring_data_hash: [u8; 32],
 ) -> solana_instruction::Instruction {
     MergeRing {
@@ -529,7 +576,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_owner() {
     rpc.airdrop(&impostor.pubkey(), 1_000_000)
         .expect("fund impostor");
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(90));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(90));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = impostor.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&impostor])
@@ -547,7 +594,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_discriminator() {
     let fake = Keypair::new();
     write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1, true, false);
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(91));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = fake.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&fake])
@@ -578,7 +625,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: outsider,
-        data: merge_ix_data(true),
+        data: ring_merge_ix_data(),
         output_ring_data_hash: fe(92),
         cache: None,
     }
@@ -603,7 +650,7 @@ fn merge_ring_rejects_a_paused_ring_config() {
     let ring_config = Keypair::new();
     write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, true, true);
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(94));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(94));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -623,7 +670,7 @@ fn merge_ring_rejects_an_inactive_ring_config() {
         let ring_config = Keypair::new();
         write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, false, paused);
 
-        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(93));
+        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, ring_merge_ix_data(), fe(93));
         ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
         let error = rpc
             .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -639,7 +686,7 @@ fn merge_ring_rejects_an_inactive_ring_config() {
 fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
     let (mut rpc, tree) = merge_env();
     for input_count in UNSUPPORTED_MERGE_INPUT_COUNTS {
-        let data = merge_ix_data_at_input_count(input_count);
+        let data = ring_merge_ix_data_at_input_count(input_count);
         let mut ix = merge_ring_cpi_instruction(&rpc, &tree, data, fe(93));
         ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
         let error = rpc
@@ -674,7 +721,7 @@ fn merge_ring_rejects_a_paused_tree() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data: merge_ix_data(true),
+        data: ring_merge_ix_data(),
         output_ring_data_hash: fe(95),
         cache: None,
     }

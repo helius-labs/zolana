@@ -6,9 +6,11 @@ import (
 	"fmt"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/gadget"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
+	ve "zolana/prover/circuits/verifiable-encryption"
 )
 
 const (
@@ -57,7 +59,7 @@ type Input struct {
 
 // Output contains the merged output's only free leaf field. The circuit
 // derives its owner, asset, amount, domain, data hash, ring program, and
-// blinding (see MergeOutputBlinding).
+// blinding.
 type Output struct {
 	RingDataHash frontend.Variable
 }
@@ -87,7 +89,7 @@ type Transaction struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [MintChunkCount]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -95,12 +97,39 @@ type Transaction struct {
 
 	Public        CommonPublicInputs
 	RingProgramID frontend.Variable
+
+	OutputAmount OutputAmount
+	// OutputBlinding is nil for the blinding derived from the nullifier
+	// secret and the first nullifier.
+	OutputBlinding frontend.Variable
 }
 
-// Derived contains the owner identity a wrapper may publish in its
-// public-input-hash preimage.
-type Derived struct {
-	OwnerPkHash frontend.Variable
+// OutputAmount is the merged input amount, bounded below 2^64. Only
+// RangeCheckedAmount and AmountBytes build one, so an output never carries an
+// unchecked amount.
+type OutputAmount struct {
+	value frontend.Variable
+}
+
+func RangeCheckedAmount(api frontend.API, inputs []Input) OutputAmount {
+	amount := sumAmounts(api, inputs)
+	abstractor.CallVoid(api, transaction.RangeCheck64{Value: amount})
+	return OutputAmount{value: amount}
+}
+
+// AmountBytes bounds the merged amount through its big-endian bytes, which
+// the envelope plaintext reuses instead of a second decomposition.
+func AmountBytes(api frontend.API, inputs []Input) (OutputAmount, []frontend.Variable) {
+	amount := sumAmounts(api, inputs)
+	return OutputAmount{value: amount}, ve.BytesBigEndian(api, amount, MergeAmountBytes)
+}
+
+func sumAmounts(api frontend.API, inputs []Input) frontend.Variable {
+	sum := frontend.Variable(0)
+	for i := range inputs {
+		sum = api.Add(sum, inputs[i].Amount)
+	}
+	return sum
 }
 
 // NewInputs allocates n merge input slots and their Merkle paths.
@@ -188,7 +217,8 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 
 // Constrain proves the common merge statement and binds every supplied common
 // public-input-hash component to its in-circuit derivation.
-func (t Transaction) Constrain(api frontend.API) (Derived, error) {
+func (t Transaction) Constrain(api frontend.API) {
+	asset := gadget.HashChain(api, t.MintChunks[:])
 	userOwnerHash := gadget.PoseidonHash(
 		api,
 		[]frontend.Variable{t.OwnerPkHash, t.UserNullifierPk},
@@ -198,9 +228,9 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	api.AssertIsEqual(t.UserNullifierPk, nullifierPk)
 	api.AssertIsBoolean(t.Public.AllowDummyInputs)
 	isCompact := transaction.CompactSlots(api, t.Public.Nullifiers)
+	// Compact padding (nullifier 0) inserts nothing, so the gate does not
+	// apply to it.
 	for i := range t.Inputs {
-		// Compact padding (nullifier 0) inserts nothing, so the gate does not
-		// apply to it.
 		isDummy := api.IsZero(api.Sub(t.Inputs[i].Domain, DummyDomain))
 		api.AssertIsEqual(
 			api.Mul(api.Sub(1, t.Public.AllowDummyInputs), api.Sub(isDummy, isCompact[i])),
@@ -217,7 +247,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	ctx := mergeInputContext{
 		OwnerHash:       userOwnerHash,
 		NullifierSecret: t.UserNullifierSecret,
-		Asset:           t.Asset,
+		Asset:           asset,
 		RingProgramID:   t.RingProgramID,
 		FirstNullifier:  frontend.Variable(0),
 	}
@@ -229,19 +259,23 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 	transaction.AssertDistinctNullifiers(api, nullifiers, isCompact)
 
-	sumInputs := frontend.Variable(0)
-	for i := range t.Inputs {
-		sumInputs = api.Add(sumInputs, t.Inputs[i].Amount)
+	if t.OutputAmount.value == nil {
+		panic("merge: output amount was not range-checked")
 	}
+	sumInputs := sumAmounts(api, t.Inputs)
+	api.AssertIsEqual(t.OutputAmount.value, sumInputs)
 
-	outputBlinding := MergeOutputBlinding(api, t.UserNullifierSecret, nullifiers[0])
+	outputBlinding := t.OutputBlinding
+	if outputBlinding == nil {
+		outputBlinding = MergeOutputBlinding(api, t.UserNullifierSecret, nullifiers[0])
+	}
 	outputHash := constrainOutput(
 		api,
 		t.Output,
 		t.Public.OutputHash,
 		outputBlinding,
 		userOwnerHash,
-		t.Asset,
+		asset,
 		sumInputs,
 		t.RingProgramID,
 		t.Public.OutputTreeID,
@@ -263,8 +297,4 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	for i := range nullifiers {
 		api.AssertIsEqual(t.Public.Nullifiers[i], nullifiers[i])
 	}
-
-	return Derived{
-		OwnerPkHash: t.OwnerPkHash,
-	}, nil
 }

@@ -4,9 +4,12 @@ use serde::Serialize;
 
 use crate::{
     error::ClientError,
-    prover::inputs::{
-        BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
-        TransferOutput, TransferP256Inputs, TreeSlotFields,
+    prover::{
+        inputs::{
+            BatchAddressAppendInputs, CacheReadInputs, MergeEnvelopeInputs, MergeInputs,
+            TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TreeSlotFields,
+        },
+        proving_key::hex,
     },
 };
 
@@ -350,9 +353,11 @@ pub(crate) struct MergeParametersJson {
     pub tree_slots: Vec<TreeSlotJson>,
     #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
-    /// The single asset shared by every real input and the merged output.
-    #[serde(rename = "asset")]
-    pub asset: String,
+    /// The single mint shared by every real input and the merged output.
+    #[serde(rename = "mint")]
+    pub mint: String,
+    #[serde(flatten)]
+    pub envelope: Option<MergeEnvelopeInputs>,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
@@ -419,7 +424,8 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         output: merge_output_to_json(&inputs.output),
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
-        asset: fe_to_string(&inputs.output.utxo.asset),
+        mint: hex(&inputs.mint),
+        envelope: inputs.envelope.clone(),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
@@ -779,16 +785,37 @@ mod merge_tests {
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
+            mint: [0xa5; 32],
+            envelope: Some(MergeEnvelopeInputs {
+                viewing_pk: [4; 65],
+                ephemeral_sk: zeroize::Zeroizing::new([9; 32]),
+            }),
         };
+
+        let ring: serde_json::Value = serde_json::from_str(&to_json_merge_ring(&MergeInputs {
+            envelope: None,
+            ..inputs.clone()
+        }))
+        .unwrap();
+        assert_eq!(ring["circuitType"], "merge-ring");
+        assert_eq!(ring["mint"], "a5".repeat(32));
+        assert!(ring.get("viewingPk").is_none());
+        assert!(ring.get("ephemeralSk").is_none());
 
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
         assert_eq!(value["circuitType"], "merge");
+        assert_eq!(value["mint"], "a5".repeat(32));
+        assert_eq!(value["viewingPk"], "04".repeat(65));
+        assert_eq!(value["ephemeralSk"], "09".repeat(32));
+        assert!(value.get("asset").is_none());
         for key in [
             "inputs",
             "output",
             "treeSlots",
             "outputTreeId",
-            "asset",
+            "mint",
+            "viewingPk",
+            "ephemeralSk",
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",

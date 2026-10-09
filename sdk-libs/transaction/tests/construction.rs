@@ -1236,6 +1236,15 @@ impl ShieldedKeys for RecordingKeys {
     fn decrypt(&self, _requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, E> {
         panic!("builder does not decrypt")
     }
+    fn decrypt_merge_envelope(
+        &self,
+        _viewing_pubkey: &P256Pubkey,
+        _ephemeral_pk: &P256Pubkey,
+        _ciphertext: &[u8; zolana_keypair::MERGE_ENVELOPE_CIPHERTEXT_LEN],
+        _first_nullifier: &[u8; 32],
+    ) -> Result<zolana_keypair::DecryptedMergeEnvelope, E> {
+        panic!("builder does not decrypt merge envelopes")
+    }
     fn derive(&self, _requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, E> {
         panic!("builder does not derive nullifiers")
     }

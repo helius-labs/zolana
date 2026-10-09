@@ -335,20 +335,22 @@ proptest! {
     ) {
         let spp = Pubkey::new_unique();
         let mut merge = merge_ix(output_utxo_hash);
-        merge.nullifiers = nullifiers.clone();
-        let (source_tag, ix_bytes, output_data) = match ring_data_hash {
+        merge.body.nullifiers = nullifiers.clone();
+        let (source_tag, ix_bytes, output_data, tx_viewing_pk) = match ring_data_hash {
             None => (
                 tag::MERGE_TRANSACT,
                 merge.serialize().expect("serialize merge"),
-                Vec::new(),
+                support::MERGE_CIPHERTEXT.to_vec(),
+                support::MERGE_EPHEMERAL_PK,
             ),
             Some(ring_data_hash) => {
                 let mut ring = merge_ring_ix(output_utxo_hash, ring_data_hash);
-                ring.merge = merge;
+                ring.merge.nullifiers = merge.body.nullifiers;
                 (
                     tag::RING_MERGE_TRANSACT,
                     ring.serialize().expect("serialize merge ring"),
                     ring_data_hash.to_vec(),
+                    [0u8; 33],
                 )
             }
         };
@@ -371,7 +373,7 @@ proptest! {
                 data: output_data,
             }],
             messages: Vec::new(),
-            tx_viewing_pk: [0u8; 33],
+            tx_viewing_pk,
             salt: [0u8; 16],
             first_output_leaf_index: output_leaf_index,
             output_tree: OUTPUT_TREE,

@@ -1,8 +1,12 @@
 package merge
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,6 +14,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	transaction "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/prover-test/hosttest"
 	"zolana/prover/prover/common"
 )
 
@@ -18,46 +23,55 @@ import (
 // TestValidateShapeAcceptsEverySupportedCount pins the set itself.
 const defaultTestNInputs = 24
 
-// TestMergeParametersJSONRoundTrip checks the wire format the Rust client
-// produces decodes back to identical parameters (shape, paths, and all fields).
-func TestMergeParametersJSONRoundTrip(t *testing.T) {
-	p := sampleParams()
-	data, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+var sharedRequestKeys = []string{
+	"circuitType",
+	"inputs",
+	"output",
+	"treeSlots",
+	"outputTreeId",
+	"mint",
+	"ownerPkHash",
+	"userNullifierPk",
+	"userNullifierSecret",
+	"externalDataHash",
+	"privateTxHash",
+	"publicInputHash",
+	"allowDummyInputs",
+	"outputRingDataHash",
+	"ringProgramId",
+}
 
-	var got MergeParameters
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if err := got.ValidateShape(); err != nil {
-		t.Fatalf("validate shape after round trip: %v", err)
-	}
-	if got.PublicInputHash.Cmp(p.PublicInputHash) != 0 {
-		t.Fatalf("public input hash mismatch: got %s want %s", got.PublicInputHash, p.PublicInputHash)
-	}
-	if len(got.Inputs) != len(p.Inputs) {
-		t.Fatalf("input count mismatch: got %d want %d", len(got.Inputs), len(p.Inputs))
-	}
-	if got.OutputTreeID.Cmp(p.OutputTreeID) != 0 {
-		t.Fatalf("output tree id mismatch: got %s want %s", got.OutputTreeID, p.OutputTreeID)
-	}
-	if len(got.TreeSlots) != len(p.TreeSlots) {
-		t.Fatalf("tree slot count mismatch: got %d want %d", len(got.TreeSlots), len(p.TreeSlots))
-	}
-	for k := range p.TreeSlots {
-		want, have := p.TreeSlots[k], got.TreeSlots[k]
-		if have.ID.Cmp(want.ID) != 0 ||
-			have.UtxoRoot.Cmp(want.UtxoRoot) != 0 ||
-			have.NullifierRoot.Cmp(want.NullifierRoot) != 0 {
-			t.Fatalf("tree slot %d mismatch: got %v want %v", k, have, want)
-		}
-	}
-	for i := range p.Inputs {
-		if got.Inputs[i].TreeSlot.Cmp(p.Inputs[i].TreeSlot) != 0 {
-			t.Fatalf("input %d tree slot mismatch: got %s want %s", i, got.Inputs[i].TreeSlot, p.Inputs[i].TreeSlot)
-		}
+var defaultRailOnlyKeys = []string{"viewingPk", "ephemeralSk"}
+
+func TestMergeParametersJSONRoundTrip(t *testing.T) {
+	for _, p := range []*MergeParameters{sampleParams(), sampleRingParams()} {
+		t.Run(string(p.CircuitType), func(t *testing.T) {
+			data, err := json.Marshal(p)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+
+			var got MergeParameters
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if err := got.ValidateShape(); err != nil {
+				t.Fatalf("validate shape after round trip: %v", err)
+			}
+			if got.CircuitType != p.CircuitType {
+				t.Fatalf("circuit type: got %s want %s", got.CircuitType, p.CircuitType)
+			}
+			if got.Mint != p.Mint || got.ViewingPk != p.ViewingPk || got.EphemeralSk != p.EphemeralSk {
+				t.Fatalf("byte fields mismatch: got mint %x viewingPk %x ephemeralSk %x", got.Mint, got.ViewingPk, got.EphemeralSk)
+			}
+			again, err := json.Marshal(&got)
+			if err != nil {
+				t.Fatalf("re-marshal: %v", err)
+			}
+			if !bytes.Equal(again, data) {
+				t.Fatalf("round trip changed the request:\n got %s\nwant %s", again, data)
+			}
+		})
 	}
 }
 
@@ -66,70 +80,128 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 // the per-input roots must be gone, and no field carries the private tx
 // blinding (the circuit derives it from UserNullifierSecret).
 func TestMergeParametersJSONKeys(t *testing.T) {
-	data, err := json.Marshal(sampleParams())
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	cases := []struct {
+		params *MergeParameters
+		keys   []string
+	}{
+		{sampleParams(), append(slices.Clone(sharedRequestKeys), defaultRailOnlyKeys...)},
+		{sampleRingParams(), sharedRequestKeys},
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		t.Fatalf("unmarshal to map: %v", err)
-	}
-	for _, key := range []string{"treeSlots", "outputTreeId"} {
-		if _, ok := fields[key]; !ok {
-			t.Fatalf("missing top-level key %q in %s", key, data)
-		}
-	}
-	if _, ok := fields["privateTxBlinding"]; ok {
-		t.Fatal("privateTxBlinding must not be on the wire; the circuit derives it")
-	}
+	for _, tc := range cases {
+		t.Run(string(tc.params.CircuitType), func(t *testing.T) {
+			fields := marshalFields(t, tc.params)
+			got := slices.Sorted(maps.Keys(fields))
+			want := slices.Sorted(slices.Values(tc.keys))
+			if !slices.Equal(got, want) {
+				t.Fatalf("top-level keys:\n got %v\nwant %v", got, want)
+			}
 
-	var slots []map[string]json.RawMessage
-	if err := json.Unmarshal(fields["treeSlots"], &slots); err != nil {
-		t.Fatalf("unmarshal tree slots: %v", err)
-	}
-	if len(slots) != transaction.InputTrees {
-		t.Fatalf("tree slot count: got %d want %d", len(slots), transaction.InputTrees)
-	}
-	for _, key := range []string{"id", "utxoRoot", "nullifierRoot"} {
-		if _, ok := slots[0][key]; !ok {
-			t.Fatalf("missing treeSlots[0].%s", key)
-		}
-	}
+			var slots []map[string]json.RawMessage
+			if err := json.Unmarshal(fields["treeSlots"], &slots); err != nil {
+				t.Fatalf("unmarshal tree slots: %v", err)
+			}
+			if len(slots) != transaction.InputTrees {
+				t.Fatalf("tree slot count: got %d want %d", len(slots), transaction.InputTrees)
+			}
+			assertKeys(t, "treeSlots[0]", slots[0], []string{"id", "utxoRoot", "nullifierRoot"})
 
-	var inputs []map[string]json.RawMessage
-	if err := json.Unmarshal(fields["inputs"], &inputs); err != nil {
-		t.Fatalf("unmarshal inputs: %v", err)
+			var inputs []map[string]json.RawMessage
+			if err := json.Unmarshal(fields["inputs"], &inputs); err != nil {
+				t.Fatalf("unmarshal inputs: %v", err)
+			}
+			assertKeys(t, "inputs[0]", inputs[0], []string{
+				"domain", "amount", "blinding", "ringDataHash",
+				"statePathElements", "statePathIndex",
+				"nullifierLowValue", "nullifierNextValue", "nullifierLowPathElements", "nullifierLowPathIndex",
+				"treeSlot", "nullifier",
+			})
+
+			var output map[string]json.RawMessage
+			if err := json.Unmarshal(fields["output"], &output); err != nil {
+				t.Fatalf("unmarshal output: %v", err)
+			}
+			assertKeys(t, "output", output, []string{"ringDataHash", "hash"})
+		})
 	}
-	if _, ok := inputs[0]["treeSlot"]; !ok {
-		t.Fatal("missing inputs[0].treeSlot")
+}
+
+func TestMergeParametersByteFieldsAreLowercaseHex(t *testing.T) {
+	p := sampleParams()
+	fields := marshalFields(t, p)
+	want := map[string][]byte{
+		"mint":        p.Mint[:],
+		"viewingPk":   p.ViewingPk[:],
+		"ephemeralSk": p.EphemeralSk[:],
 	}
-	for _, key := range []string{"utxoTreeRoot", "nullifierTreeRoot"} {
-		if _, ok := inputs[0][key]; ok {
-			t.Fatalf("inputs[0].%s must not be on the wire; roots live in treeSlots", key)
+	for key, value := range want {
+		var got string
+		if err := json.Unmarshal(fields[key], &got); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		if got != hex.EncodeToString(value) {
+			t.Fatalf("%s: got %q want %q", key, got, hex.EncodeToString(value))
 		}
 	}
 }
 
-// TestMergeParametersRejectMissingUserNullifierSecret guards the required
-// field. The secret seeds both the private tx blinding and the merged output's
-// blinding, so defaulting an absent one to zero would hand an observer both.
-func TestMergeParametersRejectMissingUserNullifierSecret(t *testing.T) {
-	data, err := json.Marshal(sampleParams())
+func TestMergeParametersAcceptPrefixedHex(t *testing.T) {
+	p := sampleParams()
+	got, err := unmarshalMutated(t, p, func(fields map[string]any) {
+		for _, key := range []string{"mint", "viewingPk", "ephemeralSk"} {
+			fields[key] = "0x" + fields[key].(string)
+		}
+	})
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("0x-prefixed byte fields rejected: %v", err)
 	}
-	var fields map[string]any
-	if err := json.Unmarshal(data, &fields); err != nil {
-		t.Fatalf("unmarshal to map: %v", err)
+	if got.Mint != p.Mint || got.ViewingPk != p.ViewingPk || got.EphemeralSk != p.EphemeralSk {
+		t.Fatal("0x-prefixed byte fields decoded to different values")
 	}
-	delete(fields, "userNullifierSecret")
-	stripped, err := json.Marshal(fields)
-	if err != nil {
-		t.Fatalf("re-marshal: %v", err)
-	}
+}
 
-	var got MergeParameters
-	if err := json.Unmarshal(stripped, &got); err == nil {
+func TestMergeParametersRejectInvalidEnvelopeKeys(t *testing.T) {
+	offCurve := sampleParams().ViewingPk
+	offCurve[64] ^= 1
+	compressedPrefix := sampleParams().ViewingPk
+	compressedPrefix[0] = 0x02
+
+	cases := []struct {
+		name   string
+		params *MergeParameters
+		mutate func(map[string]any)
+		want   string
+	}{
+		{"default rail without viewingPk", sampleParams(), deleteKey("viewingPk"), "viewingPk is required"},
+		{"default rail without ephemeralSk", sampleParams(), deleteKey("ephemeralSk"), "ephemeralSk is required"},
+		{"viewingPk with prefix 0x02", sampleParams(), setKey("viewingPk", hex.EncodeToString(compressedPrefix[:])), "viewingPk is not an uncompressed P-256 point"},
+		{"viewingPk off the curve", sampleParams(), setKey("viewingPk", hex.EncodeToString(offCurve[:])), "viewingPk is not an uncompressed P-256 point"},
+		{"compressed viewingPk", sampleParams(), setKey("viewingPk", hex.EncodeToString(compressedPrefix[:33])), "viewingPk must be 65 bytes, got 33"},
+		{"viewingPk not hex", sampleParams(), setKey("viewingPk", "zz"), "merge: viewingPk"},
+		{"zero ephemeralSk", sampleParams(), setKey("ephemeralSk", strings.Repeat("00", 32)), "ephemeralSk must be non-zero"},
+		{"short ephemeralSk", sampleParams(), setKey("ephemeralSk", "01"), "ephemeralSk must be 32 bytes, got 1"},
+		{"ring rail with viewingPk", sampleRingParams(), setKey("viewingPk", hex.EncodeToString(sampleParams().ViewingPk[:])), "must be absent on the ring rail"},
+		{"ring rail with ephemeralSk", sampleRingParams(), setKey("ephemeralSk", hex.EncodeToString(sampleParams().EphemeralSk[:])), "must be absent on the ring rail"},
+		{"unknown circuit type", sampleParams(), setKey("circuitType", "transfer"), "unsupported circuit type"},
+		{"short mint", sampleParams(), setKey("mint", "01"), "mint must be 32 bytes, got 1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := unmarshalMutated(t, tc.params, tc.mutate)
+			if err == nil {
+				t.Fatal("expected the request to be rejected")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestMergeParametersRejectMissingUserNullifierSecret guards the required
+// field. The secret seeds the private tx blinding, so defaulting an absent one
+// to zero would hand it to an observer.
+func TestMergeParametersRejectMissingUserNullifierSecret(t *testing.T) {
+	if _, err := unmarshalMutated(t, sampleParams(), deleteKey("userNullifierSecret")); err == nil {
 		t.Fatal("expected an omitted userNullifierSecret to be rejected")
 	}
 }
@@ -185,13 +257,8 @@ func TestMergeParametersValidateShapeTreeSlots(t *testing.T) {
 }
 
 func TestMergeParametersCreateCompleteWitness(t *testing.T) {
-	params := sampleParams()
-	for _, circuitType := range []common.CircuitType{
-		common.MergeCircuitType,
-		common.MergeRingCircuitType,
-	} {
-		t.Run(string(circuitType), func(t *testing.T) {
-			params.CircuitType = circuitType
+	for _, params := range []*MergeParameters{sampleParams(), sampleRingParams()} {
+		t.Run(string(params.CircuitType), func(t *testing.T) {
 			assignment, err := params.CreateWitness()
 			if err != nil {
 				t.Fatalf("create assignment: %v", err)
@@ -201,6 +268,55 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 			}
 		})
 	}
+}
+
+func marshalFields(t *testing.T, p *MergeParameters) map[string]json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal to map: %v", err)
+	}
+	return fields
+}
+
+func assertKeys(t *testing.T, name string, fields map[string]json.RawMessage, keys []string) {
+	t.Helper()
+	got := slices.Sorted(maps.Keys(fields))
+	want := slices.Sorted(slices.Values(keys))
+	if !slices.Equal(got, want) {
+		t.Fatalf("%s keys:\n got %v\nwant %v", name, got, want)
+	}
+}
+
+func unmarshalMutated(t *testing.T, p *MergeParameters, mutate func(map[string]any)) (*MergeParameters, error) {
+	t.Helper()
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal to map: %v", err)
+	}
+	mutate(fields)
+	mutated, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("re-marshal: %v", err)
+	}
+	var got MergeParameters
+	return &got, json.Unmarshal(mutated, &got)
+}
+
+func deleteKey(key string) func(map[string]any) {
+	return func(fields map[string]any) { delete(fields, key) }
+}
+
+func setKey(key, value string) func(map[string]any) {
+	return func(fields map[string]any) { fields[key] = value }
 }
 
 func sampleParams() *MergeParameters {
@@ -221,8 +337,6 @@ func sampleParams() *MergeParameters {
 			Nullifier:                big.NewInt(int64(100 + i)),
 		}
 	}
-	// Only slot 0 is in use; the remaining slots stay all zero, which is the
-	// unused-slot encoding no input may select.
 	treeSlots := make([]common.TreeSlotParams, transaction.InputTrees)
 	for k := range treeSlots {
 		treeSlots[k] = common.TreeSlotParams{
@@ -236,12 +350,16 @@ func sampleParams() *MergeParameters {
 		UtxoRoot:      big.NewInt(11),
 		NullifierRoot: big.NewInt(13),
 	}
+	keys := hosttest.DefaultKeys()
 	return &MergeParameters{
+		CircuitType:         common.MergeCircuitType,
 		Inputs:              inputs,
 		Output:              OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
 		TreeSlots:           treeSlots,
 		OutputTreeID:        big.NewInt(11),
-		Asset:               big.NewInt(1),
+		Mint:                [32]byte{0: 0xab, 31: 1},
+		ViewingPk:           keys.RecipientUncompressed(),
+		EphemeralSk:         keys.EphemeralScalar(),
 		OwnerPkHash:         big.NewInt(0x1212),
 		UserNullifierPk:     big.NewInt(0x3333),
 		UserNullifierSecret: big.NewInt(0x4444),
@@ -252,6 +370,17 @@ func sampleParams() *MergeParameters {
 		PublicInputHash:     big.NewInt(0x8888),
 		RingProgramID:       big.NewInt(0),
 	}
+}
+
+func sampleRingParams() *MergeParameters {
+	p := sampleParams()
+	p.CircuitType = common.MergeRingCircuitType
+	p.ViewingPk = [65]byte{}
+	p.EphemeralSk = [32]byte{}
+	p.Output.RingDataHash = big.NewInt(0x33)
+	p.OutputRingDataHash = big.NewInt(0x33)
+	p.RingProgramID = big.NewInt(71)
+	return p
 }
 
 func zeros(n int) []*big.Int {

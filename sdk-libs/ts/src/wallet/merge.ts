@@ -186,6 +186,8 @@ export async function buildMergeTransaction(
     } catch (cause) {
       input.wallet._releaseReservation(created.reservationId);
       throw cause;
+    } finally {
+      created.prepared.envelope?.destroy();
     }
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_MERGE", cause);

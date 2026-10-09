@@ -63,7 +63,10 @@ use zolana_indexer_api::{
     GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
+    instruction_data::merge_transact::{
+        MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment, MERGE_CIPHERTEXT_LEN,
+        MERGE_DEFAULT_INPUT_COUNT,
+    },
     CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, OwnerTag, TransactIxData,
     TransactOutput, TransactProof, TreeContext,
 };
@@ -268,7 +271,7 @@ fn parses_merge_event_with_photon_parser() {
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
     assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::MERGE_TRANSACT as i16);
-    assert!(rings_tx.tx_viewing_pk.is_none());
+    assert_eq!(rings_tx.tx_viewing_pk, Some(MERGE_EPHEMERAL_PK.to_vec()));
     assert!(rings_tx.salt.is_none());
     assert!(!rings_tx.proofless);
     assert_eq!(
@@ -284,7 +287,13 @@ fn parses_merge_event_with_photon_parser() {
     assert_eq!(rings_tx.output_tree, TEST_TREE);
     assert_eq!(
         rings_tx.outputs,
-        vec![expected_output(0, 12, 0x77, 0x66, Vec::new())]
+        vec![expected_output(
+            0,
+            12,
+            0x77,
+            0x66,
+            MERGE_CIPHERTEXT.to_vec()
+        )]
     );
 }
 
@@ -2241,19 +2250,32 @@ fn ring_transact_transaction_info(
     }
 }
 
+const MERGE_EPHEMERAL_PK: [u8; 33] = [0x03; 33];
+const MERGE_CIPHERTEXT: [u8; MERGE_CIPHERTEXT_LEN] = [0x44; MERGE_CIPHERTEXT_LEN];
+
 fn merge_transaction_info() -> TransactionInfo {
     let merge = MergeTransactIxData {
-        cache_slot: None,
-        expiry_unix_ts: 0,
-        proof: MergeProof::zeroed(),
-        output_utxo_hash: [0x66; 32],
-        eddsa_owner: true,
-        private_tx_hash: [0; 32],
-        nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
-            .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
-            .collect(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        body: MergeBody {
+            cache_slot: None,
+            expiry_unix_ts: 0,
+            proof: MergeProof::zeroed(),
+            output_utxo_hash: [0x66; 32],
+            eddsa_owner: true,
+            private_tx_hash: [0; 32],
+            nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
+                .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
+                .collect(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        },
+        proof_commitment: MergeProofCommitment {
+            commitment: [0; 32],
+            commitment_pok: [0; 32],
+        },
+        envelope: MergeEnvelope {
+            ephemeral_pk: MERGE_EPHEMERAL_PK,
+            ciphertext: MERGE_CIPHERTEXT,
+        },
     };
     let mut source_data = vec![tag::MERGE_TRANSACT];
     source_data.extend_from_slice(&merge.serialize().expect("serialize merge"));

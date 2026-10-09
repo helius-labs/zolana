@@ -1,10 +1,6 @@
 package gadget
 
-import (
-	"math/big"
-
-	"github.com/consensys/gnark/frontend"
-)
+import "github.com/consensys/gnark/frontend"
 
 const HashBytesChunkSize = 31
 
@@ -23,13 +19,7 @@ func PackBytesBE(api frontend.API, bytes []frontend.Variable) []frontend.Variabl
 		if end > len(bytes) {
 			end = len(bytes)
 		}
-		chunk := bytes[offset:end]
-		field := frontend.Variable(0)
-		for i, value := range chunk {
-			coefficient := new(big.Int).Lsh(big.NewInt(1), uint(8*(len(chunk)-1-i)))
-			field = api.Add(field, api.Mul(value, coefficient))
-		}
-		fields = append(fields, field)
+		fields = append(fields, BytesToField(api, bytes[offset:end]))
 	}
 	return fields
 }

@@ -15,6 +15,7 @@ import {
 } from "../../interface/tree-slot.js";
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
+import { P256_UNCOMPRESSED_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 import { hashChain } from "../../transaction/internal.js";
 import type {
   IndexedPolicyInputs,
@@ -35,7 +36,7 @@ import {
   hasIndexedMethod,
 } from "../internal.js";
 import { asField, resolvedPublicInputHash, type InputTree } from "./assembly.js";
-import type { CircuitUtxo, TransferOutput, Field, Proof } from "./types.js";
+import type { CircuitUtxo, TransferOutput, Field, MergeEnvelopeInputs, Proof } from "./types.js";
 import { compressProof, parseCheckedProof } from "./proof.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -55,12 +56,23 @@ export async function proveThroughAuthority(
 ): Promise<Readonly<{ proof: Proof; trees: readonly InputTree[] }>> {
   checkIndexedAuthority(authority);
   // The key holder edits only its own copy, never the statement checked below.
-  const result: unknown = await authority.proveIndexed(decodeIndexedInputs(inputs), context);
+  const copy = decodeIndexedInputs(inputs);
+  let result: unknown;
+  try {
+    result = await authority.proveIndexed(copy, context);
+  } finally {
+    wipeIndexedInputs(copy);
+  }
   const decoded = resultDecoder.record(result, "result");
   return Object.freeze({
     proof: authorityProof(decoded["proof"]),
     trees: resolvedTrees(inputs, checkedResolution(decoded["resolution"], authorityField)),
   });
+}
+
+/** Wipes the merge ephemeral secret a decoded copy carries; the copy is unusable afterwards. */
+export function wipeIndexedInputs(inputs: IndexedProofInputs): void {
+  if (inputs.circuit === "merge") inputs.payload.envelope?.ephemeralSecret.fill(0);
 }
 
 export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
@@ -122,6 +134,10 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               : { userNullifierSecret: field("userNullifierSecret") }),
             allowDummyInputs: field("allowDummyInputs"),
             outputRingDataHash: field("outputRingDataHash"),
+            mint: requestBytes(payload["mint"], 32) as Bytes32,
+            ...(payload["envelope"] === undefined
+              ? {}
+              : { envelope: decodeMergeEnvelope(payload["envelope"]) }),
           },
         }
       : {
@@ -305,6 +321,24 @@ function decodeOutput(value: unknown): TransferOutput {
   };
 }
 
+function decodeMergeEnvelope(value: unknown): MergeEnvelopeInputs {
+  const envelope = requestDecoder.record(value, "envelope");
+  const viewingPublicKey = requestBytes(
+    envelope["viewingPublicKey"],
+    P256_UNCOMPRESSED_PUBLIC_KEY_LENGTH,
+  );
+  if (viewingPublicKey[0] !== 0x04) throw invalid();
+  return {
+    viewingPublicKey,
+    ephemeralSecret: requestBytes(envelope["ephemeralSecret"], 32) as Bytes32,
+  };
+}
+
+function requestBytes(value: unknown, length: number): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== length) throw invalid();
+  return new Uint8Array(value);
+}
+
 function requestField(value: unknown): Field {
   if (typeof value !== "bigint" || value < 0n || value >= BN254_MODULUS) throw invalid();
   return asField(value);
@@ -315,17 +349,22 @@ function checkStatement(inputs: IndexedProofInputs): void {
   if (
     inputs.trees.length < 1 ||
     inputs.trees.length > 2 ||
-    inputs.lookups.length !== inputs.payload.inputs.length ||
-    inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+    inputs.lookups.length !== inputs.payload.inputs.length
   )
     throw invalid();
   if (inputs.circuit === "merge") {
-    if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(inputs.payload.inputs.length)) throw invalid();
+    const ring = inputs.payload.ringProgramId !== 0n;
+    if (
+      inputs.publicInputs.length !== (ring ? 8 : 12) ||
+      !MERGE_SUPPORTED_INPUT_COUNTS.includes(inputs.payload.inputs.length) ||
+      (inputs.payload.envelope === undefined) !== ring
+    )
+      throw invalid();
   } else {
     if (
-      inputs.payload.cacheIsCached.length !== 0 &&
-      inputs.payload.cacheIsCached.length !== inputs.payload.inputs.length
+      inputs.publicInputs.length !== (inputs.circuit === "transferRingAuthority" ? 14 : 17) ||
+      (inputs.payload.cacheIsCached.length !== 0 &&
+        inputs.payload.cacheIsCached.length !== inputs.payload.inputs.length)
     )
       throw invalid();
     const shape = selectSppShape(inputs.payload.inputs.length, inputs.payload.outputs.length);

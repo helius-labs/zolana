@@ -5,8 +5,8 @@ mod support;
 use solana_pubkey::Pubkey;
 use support::{
     emit_event_data, emit_instruction, input_trees, input_trees_in_order, merge_event, merge_ix,
-    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT,
-    TX_VIEWING_PK,
+    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, MERGE_CIPHERTEXT,
+    MERGE_EPHEMERAL_PK, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
@@ -16,7 +16,9 @@ use zolana_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
     InstructionGroup, ParsedInstruction,
 };
-use zolana_interface::instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT;
+use zolana_interface::instruction::instruction_data::merge_transact::{
+    MERGE_CIPHERTEXT_LEN, MERGE_DEFAULT_INPUT_COUNT,
+};
 use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
 use zolana_interface::verifying_keys::{CacheAccess, CircuitId};
 
@@ -498,7 +500,11 @@ fn merge_with_more_than_one_input_tree_is_not_reconstructible_yet() {
     );
 }
 
-fn expected_merge(output_view_tag: [u8; 32], output_data: Vec<u8>) -> GeneralEvent {
+fn expected_merge(
+    output_view_tag: [u8; 32],
+    output_data: Vec<u8>,
+    tx_viewing_pk: [u8; 33],
+) -> GeneralEvent {
     GeneralEvent {
         inputs: (0..MERGE_DEFAULT_INPUT_COUNT as u64)
             .map(|i| Input {
@@ -513,7 +519,7 @@ fn expected_merge(output_view_tag: [u8; 32], output_data: Vec<u8>) -> GeneralEve
             data: output_data,
         }],
         messages: Vec::new(),
-        tx_viewing_pk: [0u8; 33],
+        tx_viewing_pk,
         salt: [0u8; 16],
         first_output_leaf_index: 9,
         output_tree: OUTPUT_TREE,
@@ -538,7 +544,31 @@ fn merge_transact_event_rebuilds_the_default_inputs_and_the_owner_indexed_output
     )
     .expect("reconstruct merge");
 
-    assert_eq!(event, expected_merge([0xD0; 32], Vec::new()));
+    assert_eq!(
+        event,
+        expected_merge([0xD0; 32], MERGE_CIPHERTEXT.to_vec(), MERGE_EPHEMERAL_PK)
+    );
+}
+
+#[test]
+fn merge_transact_without_an_envelope_is_rejected() {
+    let mut bytes = merge_ix([0xC0; 32]).serialize().expect("serialize merge");
+    bytes.truncate(bytes.len() - 33 - MERGE_CIPHERTEXT_LEN);
+    let src = source(
+        Pubkey::new_unique(),
+        tag::MERGE_TRANSACT,
+        Vec::new(),
+        bytes,
+        1,
+    );
+
+    assert_eq!(
+        reconstruct_general_event(
+            &src,
+            &emit_event_data(EventKind::Merge, &merge_event([0xD0; 32])),
+        ),
+        Err(EventDecodeError::InvalidSourceInstructionData)
+    );
 }
 
 #[test]
@@ -560,7 +590,7 @@ fn merge_ring_event_republishes_the_output_ring_data_hash() {
     )
     .expect("reconstruct merge ring");
 
-    assert_eq!(event, expected_merge([0x40; 32], vec![0xE0; 32]));
+    assert_eq!(event, expected_merge([0x40; 32], vec![0xE0; 32], [0u8; 33]));
 }
 
 #[test]
@@ -678,18 +708,24 @@ fn emit_event_data_must_start_with_the_emit_event_tag() {
 #[test]
 fn cached_merges_reconstruct_under_the_existing_tags() {
     for ring in [false, true] {
-        let mut merge = merge_ix([0xC0; 32]);
-        merge.cache_slot = Some(35);
-        let (tag, bytes, output_data) = if ring {
+        let (tag, bytes, output_data, tx_viewing_pk) = if ring {
             let mut wrapper = merge_ring_ix([0xC0; 32], [0xE0; 32]);
-            wrapper.merge = merge;
+            wrapper.merge.cache_slot = Some(35);
             (
                 tag::RING_MERGE_TRANSACT,
                 wrapper.serialize().unwrap(),
                 vec![0xE0; 32],
+                [0u8; 33],
             )
         } else {
-            (tag::MERGE_TRANSACT, merge.serialize().unwrap(), Vec::new())
+            let mut merge = merge_ix([0xC0; 32]);
+            merge.body.cache_slot = Some(35);
+            (
+                tag::MERGE_TRANSACT,
+                merge.serialize().unwrap(),
+                MERGE_CIPHERTEXT.to_vec(),
+                MERGE_EPHEMERAL_PK,
+            )
         };
         let src = source(
             Pubkey::new_unique(),
@@ -703,6 +739,9 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
             &emit_event_data(EventKind::Merge, &merge_event([0xD0; 32])),
         )
         .unwrap();
-        assert_eq!(event, expected_merge([0xD0; 32], output_data));
+        assert_eq!(
+            event,
+            expected_merge([0xD0; 32], output_data, tx_viewing_pk)
+        );
     }
 }

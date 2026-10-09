@@ -10,6 +10,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
+
+	"zolana/prover/circuits/verifiable-encryption/p256"
 	"zolana/prover/prover-test/spp/spptest"
 )
 
@@ -23,7 +25,7 @@ type counterCircuit struct {
 }
 
 func (c *counterCircuit) Define(api frontend.API) error {
-	hash, err := (successorCounters{salt: c.Salt, assets: c.Assets, spent: c.Spent}).seal(api, c.Secret, c.TransactionSalt)
+	hash, err := (successorCounters{salt: c.Salt, assets: c.Assets, spent: c.Spent}).encrypt(api, p256.DerivePublicKey(api, c.Secret), c.TransactionSalt)
 	if err != nil {
 		return err
 	}

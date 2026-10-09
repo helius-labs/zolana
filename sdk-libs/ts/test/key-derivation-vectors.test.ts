@@ -18,18 +18,23 @@ import {
 } from "../src/keypair/derivation.js";
 import {
   NullifierKey,
+  P256PublicKey,
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
+  decryptMergeEnvelope,
   symmetricApply,
   type Bytes16,
   type Bytes31,
   type Bytes32,
+  type Bytes33,
 } from "../src/keypair/index.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
   mergePrivateTxBlinding,
+  mergeSharedSecret,
+  encryptMergeEnvelope,
 } from "../src/keypair/merge/index.js";
 
 type RailVectors = Readonly<{
@@ -81,6 +86,19 @@ type KeyDerivationVectors = Readonly<{
     dummy_slot_index: number;
     dummy_nullifier: string;
     private_tx_blinding: string;
+  }>;
+  merge_envelope: Readonly<{
+    recipient_secret: string;
+    ephemeral_secret: string;
+    amount: number;
+    mint: string;
+    first_nullifier: string;
+    recipient_compressed: string;
+    recipient_uncompressed: string;
+    ephemeral_pk: string;
+    shared_secret: string;
+    ciphertext: string;
+    output_blinding: string;
   }>;
   derivation_input_guard: readonly Readonly<{
     name: string;
@@ -206,6 +224,51 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     expect(hex(mergePrivateTxBlinding(nullifierKey, firstNullifier))).toBe(
       section.private_tx_blinding,
     );
+  });
+
+  it("encrypts and decrypts the merge envelope", () => {
+    const section = vectors.merge_envelope;
+    const recipient = ViewingKey.fromBytes(bytes(section.recipient_secret) as Bytes32);
+    const ephemeral = ViewingKey.fromBytes(bytes(section.ephemeral_secret) as Bytes32);
+    const recipientPublicKey = recipient.publicKey();
+    const amount = BigInt(section.amount);
+    const mint = bytes(section.mint) as Bytes32;
+    const firstNullifier = bytes(section.first_nullifier) as Bytes32;
+    expect(hex(recipientPublicKey.toBytes())).toBe(section.recipient_compressed);
+    expect(hex(recipientPublicKey.toUncompressed())).toBe(section.recipient_uncompressed);
+    expect(
+      hex(
+        mergeSharedSecret(
+          ephemeral.ecdh(recipientPublicKey),
+          ephemeral.publicKey(),
+          recipientPublicKey,
+          firstNullifier,
+        ),
+      ),
+    ).toBe(section.shared_secret);
+
+    const encrypted = encryptMergeEnvelope({
+      recipient: recipientPublicKey,
+      ephemeral,
+      amount,
+      mint,
+      firstNullifier,
+    });
+    expect(hex(encrypted.ephemeralPublicKey.toBytes())).toBe(section.ephemeral_pk);
+    expect(hex(encrypted.ciphertext)).toBe(section.ciphertext);
+    expect(hex(encrypted.outputBlinding)).toBe(section.output_blinding);
+
+    const decrypted = decryptMergeEnvelope({
+      viewingKey: recipient,
+      ephemeralPublicKey: P256PublicKey.fromBytes(bytes(section.ephemeral_pk) as Bytes33),
+      ciphertext: bytes(section.ciphertext),
+      firstNullifier,
+    });
+    expect(decrypted).toEqual({
+      amount,
+      mint,
+      outputBlinding: bytes(section.output_blinding),
+    });
   });
 
   it("detects derivation inputs exactly like Rust", () => {

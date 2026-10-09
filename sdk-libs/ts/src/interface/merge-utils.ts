@@ -1,5 +1,6 @@
 import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
+import { MERGE_CIPHERTEXT_LENGTH } from "./constants.js";
 import { InterfaceError } from "./errors.js";
 import { copyBytes } from "./internal.js";
 import type { Bytes32 } from "./types.js";
@@ -63,13 +64,47 @@ export function ownerPkFieldCompressed(compressed: Uint8Array): Bytes32 {
   return xHash(checkedCompressedKey(compressed));
 }
 
+const PACK_BE_CHUNK_BYTES = 31;
+
+function packChunk(bytes: Uint8Array, index: number): Bytes32 {
+  return rightAlign(bytes.subarray(index * PACK_BE_CHUNK_BYTES, (index + 1) * PACK_BE_CHUNK_BYTES));
+}
+
+export function pack32(bytes: Uint8Array): readonly [Bytes32, Bytes32] {
+  const input = copyBytes(bytes, 32, "bytes");
+  try {
+    return Object.freeze([packChunk(input, 0), packChunk(input, 1)]);
+  } finally {
+    input.fill(0);
+  }
+}
+
 export function pack33(bytes: Uint8Array): readonly [Bytes32, Bytes32] {
   const input = copyBytes(bytes, 33, "bytes");
-  const low = new Uint8Array(32);
-  low.set(input.subarray(0, 31), 1);
-  const high = new Uint8Array(32);
-  high.set(input.subarray(31), 30);
-  return Object.freeze([low as Bytes32, high as Bytes32]);
+  return Object.freeze([packChunk(input, 0), packChunk(input, 1)]);
+}
+
+export function mergeEnvelopePublicElements(
+  recipient: Uint8Array,
+  ephemeral: Uint8Array,
+  ciphertext: Uint8Array,
+): readonly [Bytes32, Bytes32, Bytes32, Bytes32] {
+  const recipientKey = checkedCompressedKey(recipient);
+  const ephemeralKey = checkedCompressedKey(ephemeral);
+  const encrypted = copyBytes(ciphertext, MERGE_CIPHERTEXT_LENGTH, "ciphertext");
+  const packed = Uint8Array.of(
+    ...recipientKey.subarray(0, PACK_BE_CHUNK_BYTES),
+    ...ephemeralKey.subarray(0, PACK_BE_CHUNK_BYTES),
+    ...recipientKey.subarray(PACK_BE_CHUNK_BYTES),
+    ...ephemeralKey.subarray(PACK_BE_CHUNK_BYTES),
+    ...encrypted,
+  );
+  return Object.freeze([
+    packChunk(packed, 0),
+    packChunk(packed, 1),
+    packChunk(packed, 2),
+    packChunk(packed, 3),
+  ]);
 }
 
 export function ciphertextHash(ciphertext: Uint8Array): Bytes32 {

@@ -117,6 +117,12 @@ export interface SyncReport {
   readonly unparsedTransactions: number;
   readonly undecryptableCandidates: number;
   /**
+   * Merges tagged for this wallet whose envelope the key holder failed to
+   * decrypt. Each is left out of the decrypted state, and `syncWallet` commits
+   * no cursor while any remains, so the next sync retries it.
+   */
+  readonly undecryptableMerges: number;
+  /**
    * Compact asset ids that failed to decode because the wallet's registry did
    * not know them, ascending. The client sync layer uses this to lazily
    * backfill the registry from chain and retry; it stays empty when every id is

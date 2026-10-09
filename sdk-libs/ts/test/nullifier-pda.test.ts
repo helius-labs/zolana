@@ -232,6 +232,14 @@ describe("nullifier PDA accounts", () => {
       nullifiers,
       utxoTreeRootIndex: 0,
       nullifierTreeRootIndex: 0,
+      proofCommitment: {
+        commitment: filled(48, 32) as Bytes32,
+        commitmentPok: filled(49, 32) as Bytes32,
+      },
+      envelope: {
+        ephemeralPk: Uint8Array.of(2, ...filled(50, 32)) as Bytes33,
+        ciphertext: filled(51, 40),
+      },
     };
     const instruction = await mergeTransactInstruction({
       inputTree: TREE,

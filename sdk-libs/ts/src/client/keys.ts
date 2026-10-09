@@ -19,7 +19,7 @@ import type {
   IndexedProofResult,
   PreparedTransferInput,
 } from "./ports.js";
-import { decodeIndexedInputs } from "./prover/indexed.js";
+import { decodeIndexedInputs, wipeIndexedInputs } from "./prover/indexed.js";
 import { asField } from "./prover/assembly.js";
 import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
 
@@ -204,10 +204,14 @@ async function proveIndexedWith(
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
   }
   const inputs = decodeIndexedInputs(request);
-  return service.proveIndexed(
-    withKey((key) => completeIndexedInputs(inputs, key)),
-    context,
-  );
+  try {
+    return await service.proveIndexed(
+      withKey((key) => completeIndexedInputs(inputs, key)),
+      context,
+    );
+  } finally {
+    wipeIndexedInputs(inputs);
+  }
 }
 
 function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): IndexedProofInputs {

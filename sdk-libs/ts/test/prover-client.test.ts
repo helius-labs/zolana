@@ -423,7 +423,18 @@ function mergeInputs(): MergeInputs {
     publicInputHash: asField(0n),
     outputRingDataHash: asField(0n),
     ringProgramId: asField(0n),
+    mint: bytes(0xa5),
+    envelope: {
+      viewingPublicKey: p256.getPublicKey(bytes(4), false),
+      ephemeralSecret: bytes(9),
+    },
   };
+}
+
+function ringMergeInputs(): MergeInputs {
+  const { envelope, ...ring } = mergeInputs();
+  expect(envelope).toBeDefined();
+  return { ...ring, ringProgramId: asField(7n) };
 }
 
 function dummyNullifierProof(utxo: ProofInputUtxo): NonInclusionProof {
@@ -604,7 +615,7 @@ describe("prover request routing", () => {
 
   it("expects the merge-ring key for a merge inside a custom ring", async () => {
     const json = { "content-type": "application/json" };
-    const ringMerge = { ...mergeInputs(), ringProgramId: asField(7n) };
+    const ringMerge = ringMergeInputs();
     let posted: unknown;
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       posted = JSON.parse(String(init?.body));
@@ -837,7 +848,9 @@ describe("prover request routing", () => {
         "output",
         "treeSlots",
         "outputTreeId",
-        "asset",
+        "mint",
+        "viewingPk",
+        "ephemeralSk",
         "ownerPkHash",
         "userNullifierPk",
         "userNullifierSecret",
@@ -870,6 +883,37 @@ describe("prover request routing", () => {
     // The merge circuit derives every blinding from userNullifierSecret, so
     // the transfer-only root seed is not part of this request.
     expect(body).not.toHaveProperty("blindingSeed");
+    expect(body).not.toHaveProperty("asset");
+    expect(body["mint"]).toBe("a5".repeat(32));
+    expect(body["viewingPk"]).toBe(AUDITOR_PK_HEX.slice(2));
+    expect(body["ephemeralSk"]).toBe("09".repeat(32));
+
+    const ring = await sentBody((prover) => prover.proveMerge(ringMergeInputs()));
+    expect(ring["circuitType"]).toBe("merge-ring");
+    expect(ring["mint"]).toBe("a5".repeat(32));
+    expect(ring).not.toHaveProperty("viewingPk");
+    expect(ring).not.toHaveProperty("ephemeralSk");
+  });
+
+  it("refuses a merge whose envelope does not match its rail before posting", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const { envelope, ...withoutEnvelope } = mergeInputs();
+    if (envelope === undefined) throw new Error("fixture has an envelope");
+    for (const inputs of [withoutEnvelope, { ...ringMergeInputs(), envelope }]) {
+      await expect(prover.proveMerge(inputs)).rejects.toMatchObject({
+        code: "CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH",
+      });
+    }
+    await expect(
+      prover.proveMerge({
+        ...mergeInputs(),
+        envelope: { ...envelope, viewingPublicKey: envelope.viewingPublicKey.subarray(1) },
+      }),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("pins the transfer request keys to the Go `TransferParametersJSON` tags", async () => {

@@ -2,8 +2,6 @@ package shared
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
-
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
@@ -18,9 +16,8 @@ func constrainOutput(
 	ringProgramID,
 	treeID frontend.Variable,
 ) frontend.Variable {
-
-	abstractor.CallVoid(api, transaction.RangeCheck64{Value: amount})
-
+	// DataHash is fixed to zero, so no owner signature is needed. The merged
+	// output is always real, so it is never compact padding.
 	utxo := transaction.UtxoCircuitFields{
 		Domain:        UtxoDomain,
 		Owner:         userOwnerHash,
@@ -31,7 +28,5 @@ func constrainOutput(
 		RingDataHash:  out.RingDataHash,
 		RingProgramID: ringProgramID,
 	}
-	// DataHash is fixed to zero, so no owner signature is needed. The merged
-	// output is always real, so it is never compact padding.
 	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0), frontend.Variable(0), treeID)
 }

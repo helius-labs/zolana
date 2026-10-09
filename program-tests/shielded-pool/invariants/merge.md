@@ -5,12 +5,16 @@ Covers `MergeTransact` (tag 13) and `RingMergeTransact` (tag 16). Shared invaria
 live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously described a variable input
-count `N` and an oversized proof; `docs/spec.md` now matches the code: 24-in/1-out
-and 54-in/1-out shapes and a vanilla Groth16 `a||b||c` proof with no BSB22
-commitment (`program-libs/interface/src/instruction/instruction_data/merge_transact.rs:9-22`,
-`docs/spec.md:1795-1836`). Post-PR164 the merge output is ciphertext-free (no
-`encrypted_utxo` field and no `merge_view_tag`): the output is recovered from the
-first real input and its nullifier, and padding slots publish derived dummy
+count `N` and an oversized proof; `docs/spec.md` now matches the code: 8-in, 24-in
+and 54-in, 1-out shapes and a 192-byte Groth16 `a||b||c` proof, which carries a
+BSB22 commitment on the default rail only (`program-libs/interface/src/instruction/instruction_data/merge_transact.rs`,
+`docs/spec.md:1795-1836`). The default-rail merge encrypts its output in a merge
+envelope (P-256 ECIES to the registry `viewing_pk`, `docs/spec.md` "Merge Envelope"):
+its proof carries one BSB22 commitment and the instruction carries the envelope.
+The ring-rail merge output is ciphertext-free and recovered from the first real
+input and its nullifier. Its blinding derives from the owner's nullifier secret,
+so any holder of that secret can read a ring merge output; this is an accepted
+limitation (`docs/spec.md` "Merge output indexing"), not an invariant. On both rails padding slots publish derived dummy
 nullifiers.
 
 ## MergeTransact
@@ -91,8 +95,14 @@ nullifiers.
   - Severity: High
   - Suggested test: negative + fuzz; harness: mollusk unit
 
-- [ ] **INV-MERGE-07: the output blob must be verifiably encrypted**
-  - Not applicable post-PR164 (the merge output is ciphertext-free: the `encrypted_utxo` field and the `MERGE_ENCRYPTED_UTXO_*` constants were removed; the owner recovers the output from the first input and its nullifier). The covering `merge_rejects_a_wrong_encrypted_output_scheme` test was removed with the field.
+- [x] **INV-MERGE-07: a default-rail merge carries a proof commitment and an envelope; a ring merge carries neither**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_payload_without_the_envelope_exactly` (7019, tree untouched), `merge_ring_rejects_a_default_rail_payload_exactly` (7019); `program-libs/interface/tests/merge_shape.rs` `both_rails_lay_the_shared_body_out_identically`, `ring_rail_rejects_a_default_rail_payload`, `default_rail_rejects_a_payload_without_the_commitment_or_envelope`, `both_rails_reject_trailing_bytes`; `program-libs/interface/tests/parser_props.rs` `merge_rails_reject_each_others_payloads`
+  - Kind: precondition
+  - Statement: `merge_transact` instruction data is `MergeBody || MergeProofCommitment || MergeEnvelope` with no option tags, and `merge_ring` instruction data is `output_ring_data_hash || MergeBody`; both decode exactly (no trailing bytes), so a default merge without its commitment or envelope, and a ring merge with either, cannot be encoded and fail with `InvalidMergeShape = 7019` before any account is read.
+  - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`parse_merge_view`), `program-libs/interface/src/instruction/instruction_data/merge_ring.rs` (`MergeRingIxDataRef::from_bytes`)
+  - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
+  - Severity: High (an unencrypted default merge would publish an unreadable output)
+  - Suggested test: negative both rails; harness: program-tests integration (`cargo test-sbf`)
 
 ### Proof Binding
 
@@ -105,25 +115,37 @@ nullifiers.
   - Severity: Critical (owner substitution)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-MERGE-09: the proof binds the owner's registered viewing key**
-  - Not applicable post-PR164 (the merge encryption flow was restructured: the output is ciphertext-free and recovered by the owner from the first input and its nullifier, so no viewing-key public input exists; F-06 re-reviewed 2026-07-27 and closed as MOOT -- no recipient viewing key enters any circuit KDF anymore).
+- [x] **INV-MERGE-09: the proof binds the owner's registered viewing key**
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_proof_encrypted_to_a_key_other_than_the_registered_one` (a real proof encrypted to the owner's key fails with 7008 while the registry holds another valid key, and lands once the registry holds the encrypted-to key); `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_registry_viewing_key_without_a_compressed_prefix` (7080); `program-tests/shielded-pool/tests/merge/public_input.rs` `default_rail_rejects_a_registered_viewing_key_without_a_compressed_prefix`
+  - Kind: postcondition
+  - Statement: the default-rail public-input hash folds `pack33(user_record.viewing_pk)` as the envelope recipient, so a proof encrypted to any other key fails verification; a registry `viewing_pk` without a `0x02`/`0x03` prefix returns `InvalidViewingKeyEncoding = 7080`.
+  - Location: `programs/shielded-pool/src/instructions/merge/account.rs` (`load_user_record`), `merge/verify.rs` (`fn public_input_hash`), `program-libs/interface/src/merge_utils.rs` (`merge_envelope_public_elements`)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidViewingKeyEncoding = 7080`
+  - Severity: Critical (a merger could encrypt the output to its own key)
+  - Suggested test: negative (proof encrypted to a foreign viewing key); harness: program-tests integration
 
-- [ ] **INV-MERGE-10: the ciphertext hash is recomputed on-chain**
-  - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).
+- [x] **INV-MERGE-10: the envelope ciphertext and ephemeral key are bound on-chain**
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_tampered_envelope_byte` (flipping the first ciphertext byte, the last ciphertext byte, or one `ephemeral_pk` x-coordinate byte of a valid merge each fails with 7008 and leaves the tree and nullifier PDAs untouched; the untampered merge then lands); `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_an_ephemeral_key_without_a_compressed_prefix` (an `ephemeral_pk` prefix other than `0x02`/`0x03` returns 7080)
+  - Kind: postcondition
+  - Statement: SPP packs the instruction's `ephemeral_pk` and 40-byte `ciphertext` into the default-rail public-input hash, so changing any byte of either makes the proof fail.
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs` (`fn public_input_hash`)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
+  - Severity: Critical (a relayer could swap in an unreadable ciphertext)
+  - Suggested test: negative (flip one ciphertext byte of a valid merge); harness: program-tests integration
 
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (24 inputs) and `merge_verifies_the_wide_shape_on_chain` (54 inputs), each proving with the workspace prover and requiring the program to accept
   - Kind: precondition
-  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_8_1` / `merge_24_1` / `merge_54_1` (default rail), `merge_ring_8_1` / `merge_ring_24_1` / `merge_ring_54_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
+  - Statement: `merge_transact` decodes the proof as `a||b||c` plus the envelope's BSB22 commitment and proof of knowledge (`merge_ring`: no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_8_1` / `merge_24_1` / `merge_54_1` (default rail), `merge_ring_8_1` / `merge_ring_24_1` / `merge_ring_54_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:51-73` (`fn verify`)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
   - Severity: Critical
   - Suggested test: negative both errors; harness: mollusk unit
 
-- [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus both owner keys**
-  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_merge_width` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
+- [x] **INV-MERGE-12: registry public-input shape is the 7-element prefix, both owner keys and the four envelope elements**
+  - Covered by: `program-tests/shielded-pool/tests/merge/public_input.rs` `default_rail_folds_owner_and_envelope_after_the_common_prefix` (the program's `public_input_hash` equals the 13-element chain in order); positive on-chain side by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (24-input shape) and `merge_verifies_the_wide_shape_on_chain` (54-input shape), and `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_merge_width`
   - Kind: state
-  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record.
+  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record and the four envelope elements (13 elements). Covered as a host computation by `program-tests/shielded-pool/tests/merge/public_input.rs`.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
@@ -139,9 +161,9 @@ nullifiers.
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
 - [ ] **INV-MERGE-14: successful merge emits exactly one Merge GeneralEvent tagged by the owner key**
-  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_merge_width` (output rediscovered by owner signing-key tag; nullifier sequence numbers, verbatim `data`, and the empty `spl_transfers` list unasserted)
+  - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_merge_width` (output rediscovered by owner signing-key tag; nullifier sequence numbers and the empty `spl_transfers` list unasserted); `program-tests/shielded-pool/tests/merge/functional.rs` `merged_output_rebuilds_from_the_envelope_alone` (the rebuilt event's output payload and `tx_viewing_pk` equal the instruction envelope; the owner rebuilds the output from it with no inputs held, and a wrong viewing key rebuilds nothing)
   - Kind: postcondition
-  - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the sent nullifiers with assigned queue sequence numbers and exactly one output whose `view_tag` is the owner's signing-key tag from the registry record and whose `data` is empty (ciphertext-free output), and an empty `spl_transfers` list (no public movements).
+  - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the sent nullifiers with assigned queue sequence numbers and exactly one output whose `view_tag` is the owner's signing-key tag from the registry record and whose rebuilt `data` is the envelope ciphertext with `tx_viewing_pk` the envelope `ephemeral_pk`, and an empty `spl_transfers` list (no public movements).
   - Location: `programs/shielded-pool/src/instructions/merge/event.rs:15-42` (`fn build_merge_event`), `merge/account.rs:58-89`
   - Severity: Medium (owner rediscovery on sync)
   - Suggested test: positive; harness: litesvm

@@ -1,9 +1,6 @@
-// Package audittest recomputes the audit block of package base on the host.
 package audittest
 
 import (
-	stdaes "crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdh"
 	"math/big"
 	"testing"
@@ -13,12 +10,10 @@ import (
 
 	ve "zolana/prover/circuits/verifiable-encryption"
 	base "zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/prover-test/hosttest"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 )
-
-// Mirrors the unexported key-schedule info string of package base.
-const auditEncInfo = "CRING/adt1"
 
 type Keys struct {
 	txSk      [32]byte
@@ -51,7 +46,6 @@ func DefaultKeys(t testing.TB) Keys {
 	}
 }
 
-// The gadget compresses its (0,0) infinity to 0x02||0^32.
 var infinityPk = [33]byte{0x02}
 
 func (k Keys) WithInfinityTxScalar(value *big.Int) Keys {
@@ -83,21 +77,20 @@ type Sealed struct {
 	CiphertextHash *big.Int
 }
 
-// Mirrors base.Envelope.Seal.
 func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 	t.Helper()
-	dhLo, dhHi := pack32(k.dh)
-	ephLo, ephHi := pack33(k.ephPk)
-	auditorLo, auditorHi := pack33(compress(t, k.auditorPk[:]))
+	dhLo, dhHi := hosttest.PackShared(k.dh)
+	ephLo, ephHi := hosttest.PackCompressed(k.ephPk)
+	auditorLo, auditorHi := hosttest.PackCompressed(compress(t, k.auditorPk[:]))
 
 	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
-		tag(base.DomSepCRShared),
+		ve.SecretTagValue(base.SharedSecretTag),
 		dhLo, dhHi,
 		ephLo, ephHi,
 		auditorLo, auditorHi,
 	})
-	key, nonce := keySchedule(t, sharedSecret, info)
-	ciphertext, err := protocol.HashBytes(ctrEncrypt(t, key, nonce, plaintext))
+	key, nonce := hosttest.KeySchedule(sharedSecret, []byte(info))
+	ciphertext, err := protocol.HashBytes(hosttest.CTR(key, nonce, plaintext))
 	return Sealed{
 		AuditorLo:      auditorLo,
 		AuditorHi:      auditorHi,
@@ -123,16 +116,10 @@ func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
 	return w
 }
 
-// ChainElements returns a one-slot zero-output audit statement.
-func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
-	w := k.AuditBlockWires(privateTxHash)
-	return k.ChainElementsFor(t, w, 1)
-}
-
 func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) []*big.Int {
 	t.Helper()
-	txLo, txHi := pack33(k.txPk)
-	sealed := k.Seal(t, k.txSk[:], auditEncInfo)
+	txLo, txHi := hosttest.PackCompressed(k.txPk)
+	sealed := k.Seal(t, k.txSk[:], base.AuditEncInfo)
 	outputHashes := make([]*big.Int, count)
 	plaintext := make([]*big.Int, 0, base.AuditOutputSlots*base.AuditOutputFieldCount)
 	for i, output := range w.Outputs {
@@ -149,7 +136,7 @@ func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) 
 		}
 	}
 	outputHashChain := spptest.MustHashChain4(t, outputHashes)
-	keyLo, keyHi := pack32(k.txSk)
+	keyLo, keyHi := hosttest.PackShared(k.txSk)
 	salt := make([]byte, len(w.Salt))
 	for i, value := range w.Salt {
 		salt[i] = byte(spptest.AsBigInt(value).Uint64())
@@ -194,7 +181,6 @@ func outputFields(output base.AuditOutputWires) []*big.Int {
 	}
 }
 
-// The leading 0x01 keeps every seed below the group order.
 func Scalar(seed byte) [32]byte {
 	var out [32]byte
 	for i := range out {
@@ -226,62 +212,10 @@ func Uncompressed(t testing.TB, publicKey []byte) [65]byte {
 	return out
 }
 
-// Mirrors p256.CompressPubkey, (0x02 + parity(y)) || x.
 func compress(t testing.TB, publicKey []byte) [33]byte {
 	t.Helper()
 	key := Uncompressed(t, publicKey)
-	var out [33]byte
-	out[0] = 2 + (key[64] & 1)
-	copy(out[1:], key[1:33])
-	return out
-}
-
-// Mirrors base.Pack32To2FECircuit.
-func pack32(bytes [32]byte) (lo, hi *big.Int) {
-	return new(big.Int).SetBytes(bytes[:31]), new(big.Int).SetUint64(uint64(bytes[31]))
-}
-
-// Mirrors base.Pack33To2FECircuit.
-func pack33(key [33]byte) (lo, hi *big.Int) {
-	return new(big.Int).SetBytes(key[:31]), new(big.Int).SetUint64(uint64(key[31])<<8 | uint64(key[32]))
-}
-
-// Mirrors ve.KeySchedule.
-func keySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte, nonce [12]byte) {
-	t.Helper()
-	siloed := spptest.MustPoseidon(t, 4, []*big.Int{
-		tag(ve.DomSepSilo),
-		sharedSecret,
-		new(big.Int).SetBytes([]byte(info)),
-	})
-	keyLo := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{tag(ve.DomSepKey), siloed}))
-	keyHi := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{tag(ve.DomSepKey + 1), siloed}))
-	nonceRaw := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{tag(ve.DomSepNonce), siloed}))
-
-	copy(key[:16], keyHi[16:])
-	copy(key[16:], keyLo[16:])
-	copy(nonce[:], nonceRaw[20:])
-	return key, nonce
-}
-
-// Mirrors aes.CTREncrypt, the first keystream block counts from nonce || 2.
-func ctrEncrypt(t testing.TB, key [32]byte, nonce [12]byte, plaintext []byte) []byte {
-	t.Helper()
-	block, err := stdaes.NewCipher(key[:])
-	if err != nil {
-		t.Fatalf("aes: %v", err)
-	}
-	var counter [16]byte
-	copy(counter[:12], nonce[:])
-	counter[15] = 2
-
-	ciphertext := make([]byte, len(plaintext))
-	cipher.NewCTR(block, counter[:]).XORKeyStream(ciphertext, plaintext)
-	return ciphertext
-}
-
-func tag(value uint32) *big.Int {
-	return new(big.Int).SetUint64(uint64(value))
+	return hosttest.CompressP256(key[:])
 }
 
 func setBytes(dst []frontend.Variable, src []byte) {

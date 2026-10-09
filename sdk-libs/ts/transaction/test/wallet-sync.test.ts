@@ -132,6 +132,8 @@ function reportRow(value: unknown): SyncReport {
     storedUtxos: Number(fixtureString(report, "storedUtxos")),
     unparsedTransactions: Number(fixtureString(report, "unparsedTransactions")),
     undecryptableCandidates: Number(fixtureString(report, "undecryptableCandidates")),
+    // The fixtures hold no merge a key holder failed to decrypt.
+    undecryptableMerges: 0,
     unknownAssetIds: fixtureArray(report, "unknownAssetIds").map((entry) => BigInt(String(entry))),
     // These fixtures predate merge-field recovery; no case contains an
     // unresolved merge asset.

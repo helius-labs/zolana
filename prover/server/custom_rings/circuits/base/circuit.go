@@ -20,13 +20,13 @@
 //  11. disclosure_hash    -- encrypted output commitment fields
 //
 // The on-chain Rust recompute in
-// custom-rings/program/src/instructions/transact.rs
+// custom-rings/interface/src/base_public_input.rs
 // (CustomRingBasePublicInput::hash) MUST mirror this chain order element for element:
 // gadget.HashChain here == zolana_hasher::hash_chain::create_hash_chain_from_slice
 // there, gadget.HashBytes here == zolana_hasher::primitives::hash_bytes
 // (== zolana_interface::merge_utils::ciphertext_hash::<32>) there, and the
-// packing of elements 2..7 is defined by pack.go. Every comment step below is
-// tagged with the chain element(s) it produces.
+// packing of elements 2..7 is defined by packCompressedPoint in
+// circuits/verifiable-encryption/p256/keyagreement.go.
 package base
 
 import (
@@ -35,22 +35,24 @@ import (
 
 	"zolana/prover/circuits/gadget"
 	ve "zolana/prover/circuits/verifiable-encryption"
-	"zolana/prover/circuits/verifiable-encryption/aes"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 )
 
-// auditEncInfo is the key-schedule info string. It MUST equal the Rust
+// AuditEncInfo is the key-schedule info string. It MUST equal the Rust
 // AUDIT_ENC_INFO constant byte for byte.
-const auditEncInfo = "CRING/adt1"
+const AuditEncInfo = "CRING/adt1"
+
+// SharedSecretTag is the shared-secret domain separator "CR_S", the first
+// Poseidon input of the envelope shared secret. The Rust host derivation
+// (DOM_SEP_CR_SHARED in custom-rings/client/src/encryption.rs) MUST use the
+// same value.
+var SharedSecretTag = []byte("CR_S")
 
 // CustomRingBaseCircuit is the audit-only custom-ring proof.
 //
 // Both scalars are witnessed as 32 big-endian bytes and the auditor key as the
 // 65-byte uncompressed SEC1 point, because that is what the p256 gadgets
-// consume and what the witness assigner supports. Every one of those 129 bytes
-// is range-checked in Define: p256's byte-to-limb conversion does not
-// range-check, so unconstrained bytes would let a prover feed unnormalized
-// limbs into the emulated field.
+// consume and what the witness assigner supports.
 type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -87,7 +89,7 @@ type AuditBlockWires struct {
 }
 
 func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
-	elements := DefineAuditBlock(api, AuditBlockWires{
+	elements, _ := DefineAuditBlock(api, AuditBlockWires{
 		PrivateTxHash:       c.PrivateTxHash,
 		TxViewingSk:         c.TxViewingSk,
 		EphSk:               c.EphSk,
@@ -97,120 +99,49 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 		OutputCountSelected: c.OutputCountSelected,
 	})
 
-	// (k) The single public input, chain order pinned by the package comment.
+	// The single public input, chain order pinned by the package comment.
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, elements[:]))
 	return nil
 }
 
-// DefineAuditBlock constrains the audit statement and returns its chain elements.
-func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable {
-	// (a) Range-check all 129 witnessed bytes to 8 bits. rangecheck.New reuses
-	// the range checker the emulated P-256 arithmetic already instantiates, so
-	// these checks share its lookup table.
-	rangeChecker := rangecheck.New(api)
-	for _, b := range w.TxViewingSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range w.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range w.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	// The p256 compression gadget derives the SEC1 prefix from the y parity and
-	// ignores byte 0, so the uncompressed prefix has to be constrained here.
-	api.AssertIsEqual(w.AuditorPk[0], 4)
-
-	// (b) Never trust a witnessed point: an off-curve auditor key would make the
-	// ECDH output attacker-chosen.
-	p256.PointOnCurve(api, w.AuditorPk)
-
-	// (c) Chain elements 2 and 3. This is the binding that the transaction's
+// DefineAuditBlock constrains the audit statement and returns its chain
+// elements. It also returns the transaction viewing key it derived, so a
+// later block can agree a key with it without a second base multiplication.
+func DefineAuditBlock(api frontend.API, w AuditBlockWires) ([11]frontend.Variable, p256.PublicKey) {
+	// Chain elements 2 and 3. This is the binding that the transaction's
 	// published tx_viewing_pk equals TxViewingSk * G, which is what makes the
 	// ciphertext below worth anything.
-	txCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, w.TxViewingSk))
-	txLo, txHi := Pack33To2FECircuit(api, txCompressed)
+	txViewingKey := p256.DerivePublicKey(api, w.TxViewingSk)
+	txLo, txHi := txViewingKey.Packed(api)
 
-	sealed := Envelope{
-		Plaintext: w.TxViewingSk,
-		EphSk:     w.EphSk,
-		AuditorPk: w.AuditorPk,
-		Info:      auditEncInfo,
-	}.Seal(api)
+	// Chain elements 4 to 7: the auditor key the program reads from its config
+	// account and the ephemeral key that rides in the message data, so the
+	// auditor can rederive the shared secret. The envelope never trusts the
+	// witnessed auditor point: an off-curve key would make the ECDH output
+	// attacker-chosen.
+	encrypted := ve.Envelope{
+		SecretTag:   SharedSecretTag,
+		KdfInfo:     []byte(AuditEncInfo),
+		EphemeralSk: w.EphSk,
+		RecipientPk: w.AuditorPk,
+		Plaintext:   w.TxViewingSk[:],
+	}.Encrypt(api)
+	// Chain element 8. Ciphertext integrity comes from this hash, not from a
+	// GCM tag.
+	ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext)
 	outputHashChain, disclosureHash := disclosureElements(
-		api, rangeChecker, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
+		api, rangecheck.New(api), w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
 	)
 	saltField := gadget.PackBytesBE(api, w.Salt[:])[0]
 
 	return [11]frontend.Variable{
 		w.PrivateTxHash,
 		txLo, txHi,
-		sealed.AuditorLo, sealed.AuditorHi,
-		sealed.EphLo, sealed.EphHi,
-		sealed.CiphertextHash,
+		encrypted.RecipientLo, encrypted.RecipientHi,
+		encrypted.EphemeralLo, encrypted.EphemeralHi,
+		ciphertextHash,
 		outputHashChain,
 		saltField,
 		disclosureHash,
-	}
-}
-
-type Envelope struct {
-	Plaintext [32]frontend.Variable
-	EphSk     [32]frontend.Variable
-	AuditorPk [65]frontend.Variable
-	Info      string
-}
-
-type Sealed struct {
-	AuditorLo      frontend.Variable
-	AuditorHi      frontend.Variable
-	EphLo          frontend.Variable
-	EphHi          frontend.Variable
-	CiphertextHash frontend.Variable
-}
-
-// The caller range checks every byte and checks the auditor point first.
-func (e Envelope) Seal(api frontend.API) Sealed {
-	// (d) Chain elements 4 and 5: the auditor key the program reads from its
-	// config account.
-	auditorCompressed := p256.CompressPubkey(api, e.AuditorPk)
-	auditorLo, auditorHi := Pack33To2FECircuit(api, auditorCompressed)
-
-	// (e) Chain elements 6 and 7: the ephemeral key that rides in the message
-	// data, so the auditor can rederive the shared secret.
-	ephCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, e.EphSk))
-	ephLo, ephHi := Pack33To2FECircuit(api, ephCompressed)
-
-	// (f) ECDH: the 32-byte big-endian x-coordinate of EphSk * AuditorPk.
-	dh := p256.ECDH(api, e.EphSk, e.AuditorPk)
-
-	// (g) Bind the raw ECDH output to both public keys (see pack.go).
-	sharedSecret := DeriveAuditSharedSecret(api, dh, ephCompressed, auditorCompressed)
-
-	// (h) Poseidon key schedule, mirroring the Rust host KDF
-	// (zolana_keypair::symmetric_apply with the same info string).
-	key, nonce := ve.KeySchedule(api, sharedSecret, infoVars(e.Info), len(e.Info))
-
-	// (i) AES-256-CTR over the 32-byte plaintext scalar. Ciphertext integrity
-	// comes from the hash in (j), not from a GCM tag.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, e.Plaintext[:])
-
-	// (j) Chain element 8.
-	ciphertextHash := gadget.HashBytes(api, ciphertext)
-
-	return Sealed{
-		AuditorLo:      auditorLo,
-		AuditorHi:      auditorHi,
-		EphLo:          ephLo,
-		EphHi:          ephHi,
-		CiphertextHash: ciphertextHash,
-	}
-}
-
-func infoVars(info string) []frontend.Variable {
-	out := make([]frontend.Variable, len(info))
-	for i, b := range info {
-		out[i] = frontend.Variable(b)
-	}
-	return out
+	}, txViewingKey
 }

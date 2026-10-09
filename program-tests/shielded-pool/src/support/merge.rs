@@ -52,21 +52,17 @@ pub fn write_user_record(
     owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
     merging_enabled: bool,
 ) -> Pubkey {
-    let mut viewing_pubkey = [7u8; P256_PUBKEY_LEN];
-    if let Some(first) = viewing_pubkey.first_mut() {
-        *first = 0x02;
-    }
+    let merger = ShieldedKeypair::from_keypair(&rpc.payer).expect("fixture keypair");
     let (address, bump) = user_record_pda(&owner);
     let record = UserRecord {
         owner,
         bump,
         owner_p256,
-        nullifier_pubkey: ShieldedKeypair::from_keypair(&rpc.payer)
-            .expect("fixture keypair")
+        nullifier_pubkey: merger
             .nullifier_key()
             .pubkey()
             .expect("fixture nullifier public key"),
-        viewing_pubkey,
+        viewing_pubkey: *merger.viewing_pubkey().as_bytes(),
         merging_enabled,
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
@@ -434,23 +430,25 @@ impl RealMergeProof {
             .expect("prove merge");
         {
             let public_inputs = [result.public_input_hash];
-            let mut verifier = Groth16Verifier::new(
+            let commitment = proof.commitment.expect("default merge proof commitment");
+            let mut verifier = Groth16Verifier::new_with_commitment(
                 &proof.a,
                 &proof.b,
                 &proof.c,
+                &commitment.commitment,
+                &commitment.commitment_pok,
                 &public_inputs,
                 merge_verifying_key(input_count),
             )
             .expect("construct merge verifier");
             verifier.verify().expect("merge proof verifies locally");
         }
-        let merge_proof = ProofCompressed::try_from(proof)
-            .expect("compress merge proof")
-            .to_merge_proof()
-            .expect("merge rail proof");
+        let merge_proof = ProofCompressed::try_from(proof).expect("compress merge proof");
 
         RealMerge {
-            data: result.instruction_data(merge_proof),
+            data: result
+                .instruction_data(merge_proof)
+                .expect("default merge instruction data"),
             nullifiers: result.nullifiers.clone(),
             user_record,
             cache: cache.map(|target| target.address),
@@ -667,13 +665,12 @@ impl RealRingMergeProof {
         let proof = ProverClient::local()
             .prove_merge_ring(&result.inputs)
             .expect("prove ring merge");
-        let merge_proof = ProofCompressed::try_from(proof)
-            .expect("compress ring merge proof")
-            .to_merge_proof()
-            .expect("merge rail proof");
+        let merge_proof = ProofCompressed::try_from(proof).expect("compress ring merge proof");
 
         RealRingMerge {
-            data: result.ring_instruction_data(merge_proof),
+            data: result
+                .ring_instruction_data(merge_proof)
+                .expect("ring merge instruction data"),
             nullifiers: result.nullifiers.clone(),
             ring_program_id,
             cache: cache.map(|target| target.address),

@@ -38,6 +38,8 @@ import type {
   Bytes128,
   CacheWrite,
   CircuitId,
+  MergeEnvelope,
+  MergeProofCommitment,
   MergeTransactInstructionData,
   TransactInstructionData,
 } from "../src/interface/types.js";
@@ -118,6 +120,23 @@ const UNCACHED: CircuitId = {
   publicAssetSlots: 3,
 };
 
+const MERGE_PROOF_COMMITMENT: MergeProofCommitment = {
+  commitment: field(11),
+  commitmentPok: field(12),
+};
+
+const MERGE_ENVELOPE: MergeEnvelope = {
+  ephemeralPk: Uint8Array.of(2, ...field(13)) as Bytes33,
+  ciphertext: filled(14, 40),
+};
+
+const MERGE_ENVELOPE_BYTES = [
+  ...MERGE_PROOF_COMMITMENT.commitment,
+  ...MERGE_PROOF_COMMITMENT.commitmentPok,
+  ...MERGE_ENVELOPE.ephemeralPk,
+  ...MERGE_ENVELOPE.ciphertext,
+];
+
 function mergeData(cacheSlot?: number): MergeTransactInstructionData {
   return {
     expiryUnixTs: 42n,
@@ -133,6 +152,8 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
     utxoTreeRootIndex: 4,
     nullifierTreeRootIndex: 10,
     ...(cacheSlot === undefined ? {} : { cacheSlot }),
+    proofCommitment: MERGE_PROOF_COMMITMENT,
+    envelope: MERGE_ENVELOPE,
   };
 }
 
@@ -430,10 +451,37 @@ describe("merge cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-    expect(cached.data).toHaveLength(1 + 528);
-    expect(Array.from(cached.data?.slice(-2) ?? [])).toEqual([1, 7]);
-    expect(plain.data?.at(-1)).toBe(0);
+    expect(cached.data).toHaveLength(1 + 665);
+    expect(Array.from(cached.data?.slice(-(MERGE_ENVELOPE_BYTES.length + 2)) ?? [])).toEqual([
+      1,
+      7,
+      ...MERGE_ENVELOPE_BYTES,
+    ]);
+    expect(Array.from(plain.data?.slice(-(MERGE_ENVELOPE_BYTES.length + 1)) ?? [])).toEqual([
+      0,
+      ...MERGE_ENVELOPE_BYTES,
+    ]);
   });
+
+  it.each(["proofCommitment", "envelope"] as const)(
+    "refuses merge data without the %s the program requires",
+    async (name) => {
+      const { [name]: removed, ...data } = mergeData();
+      expect(removed).toBeDefined();
+      await expect(
+        getMergeTransactInstructionAsync({
+          inputTree: TREE,
+          outputTree: TREE,
+          payer: PAYER,
+          userRecord: OUTPUT_TREE,
+          data: data as MergeTransactInstructionData,
+        }),
+      ).rejects.toMatchObject({
+        code: "INTERFACE_INVALID_SHAPE",
+        details: { name, expected: "present", actual: "none" },
+      });
+    },
+  );
 
   it.each([
     ["cache accounts without a slot", undefined, { cache: CACHE, writer: WRITER }],
@@ -455,7 +503,11 @@ describe("merge cache accounts", () => {
     expect(() => encodeMergeTransactInstructionData(mergeData(CACHE_CAPACITY))).toThrow(
       expect.objectContaining({ code: "INTERFACE_INVALID_INTEGER" }),
     );
-    expect(encodeMergeTransactInstructionData(mergeData(CACHE_CAPACITY - 1)).at(-1)).toBe(35);
+    expect(
+      encodeMergeTransactInstructionData(mergeData(CACHE_CAPACITY - 1)).at(
+        -(MERGE_ENVELOPE_BYTES.length + 1),
+      ),
+    ).toBe(35);
   });
 
   it("commits the external data hash to the cache address and slot", () => {

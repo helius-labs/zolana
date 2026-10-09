@@ -88,7 +88,7 @@ func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (deposi
 	ephLo, ephHi := new(big.Int).SetBytes(ephemeralPk[:31]), new(big.Int).SetBytes(ephemeralPk[31:])
 	auditorLo, auditorHi := new(big.Int).SetBytes(auditorPk[:31]), new(big.Int).SetBytes(auditorPk[31:])
 	secret := spptest.MustPoseidon(t, 8, []*big.Int{
-		new(big.Int).SetUint64(uint64(base.DomSepCRShared)), new(big.Int).SetBytes(dh[:31]), new(big.Int).SetBytes(dh[31:]),
+		ve.SecretTagValue(base.SharedSecretTag), new(big.Int).SetBytes(dh[:31]), new(big.Int).SetBytes(dh[31:]),
 		ephLo, ephHi, auditorLo, auditorHi,
 	})
 	silo := spptest.MustPoseidon(t, 4, []*big.Int{new(big.Int).SetUint64(uint64(ve.DomSepSilo)), secret, new(big.Int).SetBytes([]byte(deposit.EncryptionInfo))})
@@ -104,7 +104,7 @@ func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (deposi
 	iv := make([]byte, 16)
 	copy(iv, nonce[20:])
 	iv[15] = 2
-	plaintext := make([]byte, deposit.MaxDeposits*deposit.OpeningBytes)
+	plaintext := make([]byte, deposit.MaxDeposits*deposit.DepositPlaintextBytes)
 	for i := range owners {
 		owners[i].FillBytes(plaintext[i*64 : i*64+32])
 		p.Blindings[i].FillBytes(plaintext[i*64+32 : (i+1)*64])

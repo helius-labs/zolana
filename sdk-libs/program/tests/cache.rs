@@ -3,7 +3,10 @@ use solana_pubkey::Pubkey;
 use zolana_hasher::hash_chain::create_right_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::{
-        instruction_data::merge_transact::MergeProof, tag, CreateCacheData, MergeTransactIxData,
+        instruction_data::merge_transact::{
+            MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment,
+        },
+        tag, CreateCacheData, MergeTransactIxData,
     },
     pda,
     state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY, CACHE_SEED},
@@ -23,8 +26,22 @@ fn create_data(nonce: u64) -> CreateCacheData {
     }
 }
 
-fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
+fn merge_transact_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     MergeTransactIxData {
+        body: merge_data(cache_slot),
+        proof_commitment: MergeProofCommitment {
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        },
+        envelope: MergeEnvelope {
+            ephemeral_pk: [2u8; 33],
+            ciphertext: [0u8; 40],
+        },
+    }
+}
+
+fn merge_data(cache_slot: Option<u8>) -> MergeBody {
+    MergeBody {
         cache_slot,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
@@ -371,7 +388,7 @@ fn merge_transact_appends_the_cache_and_writer_only_when_set() {
         output_tree: Pubkey::new_unique(),
         payer: Pubkey::new_unique(),
         user_record: Pubkey::new_unique(),
-        data: merge_data(None),
+        data: merge_transact_data(None),
         cache: None,
     };
     let without_cache = builder.instruction();
@@ -382,7 +399,7 @@ fn merge_transact_appends_the_cache_and_writer_only_when_set() {
     );
 
     let with_cache = MergeTransact {
-        data: merge_data(Some(4)),
+        data: merge_transact_data(Some(4)),
         cache: Some(CacheWriteAccounts {
             cache,
             writer: builder.payer,

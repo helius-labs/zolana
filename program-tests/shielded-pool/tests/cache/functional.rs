@@ -200,7 +200,7 @@ fn merge_writes_the_bound_slot() {
 
     assert_eq!(
         cache_state(&pool.rpc, &cache.address),
-        cache.holding(SLOT, merge.data.output_utxo_hash)
+        cache.holding(SLOT, merge.data.body.output_utxo_hash)
     );
     assert_eq!(
         tree_progress(&pool.rpc, &tree),

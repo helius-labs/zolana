@@ -5,7 +5,8 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{
-    transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt, SpendProof,
+    transaction_size, ComputeBudgetConfig, MergeProver, ProofCompressed, ProverClient, ProverExt,
+    SpendProof,
 };
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program::instruction::MergeTransact;
@@ -19,7 +20,7 @@ use zolana_user_registry_interface::{
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{pack_merge_proof, send_transaction, send_transaction_with_budget, ZERO},
+    localnet::{send_transaction, send_transaction_with_budget, ZERO},
     nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
@@ -166,8 +167,8 @@ impl LifecycleHarness {
 
         // The client assembles the instruction data (incl. the encrypted_utxo blob)
         // the same way the prover bound `external_data_hash`, so they agree on-chain.
-        let data = result.instruction_data(pack_merge_proof(&proof)?);
-        let sent_nullifiers = data.nullifiers.clone();
+        let data = result.instruction_data(ProofCompressed::try_from(proof)?)?;
+        let sent_nullifiers = data.body.nullifiers.clone();
         let merge_key_pays = sent_nullifiers.len() > MERGE_DEFAULT_INPUT_COUNT;
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;

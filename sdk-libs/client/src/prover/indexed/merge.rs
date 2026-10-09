@@ -6,19 +6,21 @@ use zolana_interface::{
         instruction_data::{
             merge_ring::MergeRingIxData,
             merge_transact::{
-                merge_circuit_width, MergeExternalDataHash, MergeProof, MergeTransactIxData,
+                merge_circuit_width, MergeBody, MergeExternalDataHash, MergeProof,
+                MergeTransactIxData,
             },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::tree_id_field,
 };
-use zolana_keypair::{Curve, NullifierKey};
-use zolana_transaction::instructions::{
-    merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
+use zolana_keypair::{Curve, EncryptedMergeEnvelope, NullifierKey};
+use zolana_transaction::{
+    instructions::{
+        merge::{merge_dummy_nullifier, merge_private_tx_blinding, MergeProofInputs},
+        transact::PrivateTxHash,
     },
-    transact::PrivateTxHash,
+    TransactionError,
 };
 
 use super::{
@@ -29,9 +31,11 @@ use crate::{
     prover::{
         field::right_align_slice,
         json::MergeOutputParamsJson,
+        merge::MergeRailInputs,
+        proving_key::hex,
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
-        ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
+        ExpectedProvingKey, MergeEnvelopeInputs, Proof, ProofCompressed, ProofInputUtxo,
     },
     ClientError,
 };
@@ -43,8 +47,9 @@ pub struct IndexedMergePreparation {
 
 pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
-    data: MergeTransactIxData,
+    data: MergeBody,
     ring_data_hash: Option<[u8; 32]>,
+    envelope: Option<EncryptedMergeEnvelope>,
 }
 
 pub enum ProvenIndexedMerge {
@@ -90,9 +95,12 @@ impl IndexedMergePreparation {
         let tree_id = first.tree_id;
         let first_nullifier = first.nullifier;
         let nullifier_pk = nullifier_key.pubkey()?;
-        if merge.output_utxo.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
-            return Err(invalid());
+        let rail = MergeRailInputs {
+            transaction: &merge,
+            nullifier_key: &nullifier_key,
+            first_nullifier: &first_nullifier,
         }
+        .resolve()?;
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
@@ -190,24 +198,15 @@ impl IndexedMergePreparation {
             &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
         )
         .hash()?;
-        let public_inputs = vec![
+        let mut public_inputs = vec![
             create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
             output_hash,
             tree_id_field(merge.output_tree_id),
             private,
             external,
             scalar_one(),
-            if merge.ring_program_id.is_some() {
-                ring_data_hash
-            } else {
-                owner_pk_hash
-            },
-            if merge.ring_program_id.is_some() {
-                ring_hash
-            } else {
-                nullifier_pk
-            },
         ];
+        public_inputs.extend(rail.public_inputs);
         let witness = PreparedMergeJson {
             circuit_type: if merge.ring_program_id.is_some() {
                 IndexedCircuit::MergeRing
@@ -220,7 +219,8 @@ impl IndexedMergePreparation {
                 hash: hex_field(&output_hash),
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
-            asset: hex_field(&output.utxo.asset),
+            mint: hex(merge.output_utxo.asset.asset.as_array()),
+            envelope: rail.envelope,
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -241,7 +241,7 @@ impl IndexedMergePreparation {
             inputs: lookups,
             public_inputs,
         })?;
-        let data = MergeTransactIxData {
+        let data = MergeBody {
             expiry_unix_ts: merge.expiry_unix_ts,
             proof: MergeProof {
                 a: [0; 32],
@@ -260,6 +260,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
+            envelope: merge.encrypted_envelope().copied(),
         })
     }
 }
@@ -304,17 +305,30 @@ impl Request for PreparedIndexedMerge {
             .first()
             .ok_or_else(invalid_resolution)?
             .context;
-        let mut data = self.data.clone();
-        data.utxo_tree_root_index = context.utxo_tree_root_index;
-        data.nullifier_tree_root_index = context.nullifier_tree_root_index;
-        data.proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
-        Ok(match self.ring_data_hash {
-            Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
-                output_ring_data_hash,
-                merge: data,
-            }),
-            None => ProvenIndexedMerge::Merge(data),
-        })
+        let mut body = self.data.clone();
+        body.utxo_tree_root_index = context.utxo_tree_root_index;
+        body.nullifier_tree_root_index = context.nullifier_tree_root_index;
+        let proof = ProofCompressed::try_from(proof)?;
+        match (self.ring_data_hash, self.envelope.as_ref()) {
+            (Some(output_ring_data_hash), None) => {
+                body.proof = proof.into_ring_merge_proof()?;
+                Ok(ProvenIndexedMerge::Ring(MergeRingIxData {
+                    output_ring_data_hash,
+                    merge: body,
+                }))
+            }
+            (None, Some(encrypted)) => {
+                let (proof, proof_commitment, envelope) =
+                    proof.into_default_merge_parts(encrypted)?;
+                body.proof = proof;
+                Ok(ProvenIndexedMerge::Merge(MergeTransactIxData {
+                    body,
+                    proof_commitment,
+                    envelope,
+                }))
+            }
+            _ => Err(TransactionError::MergeBlindingRailMismatch.into()),
+        }
     }
 }
 
@@ -336,7 +350,9 @@ struct PreparedMergeJson {
     inputs: Vec<PreparedMergeInputJson>,
     output: MergeOutputParamsJson,
     output_tree_id: String,
-    asset: String,
+    mint: String,
+    #[serde(flatten)]
+    envelope: Option<MergeEnvelopeInputs>,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
@@ -410,8 +426,15 @@ mod tests {
                 .get("statePathElements")
                 .is_none());
             assert_eq!(body["inputs"][1]["commitment"], serde_json::Value::Null);
-            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 8);
+            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 12);
             assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
+            assert_eq!(body["prepared"]["mint"], "00".repeat(32));
+            assert_eq!(
+                body["prepared"]["viewingPk"],
+                hex(&owner.viewing_pubkey().to_uncompressed().unwrap())
+            );
+            assert_eq!(body["prepared"]["ephemeralSk"].as_str().unwrap().len(), 64);
+            assert!(body["prepared"].get("asset").is_none());
         }
     }
 

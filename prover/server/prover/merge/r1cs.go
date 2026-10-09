@@ -23,8 +23,8 @@ func R1CSMerge(nInputs int) (constraint.ConstraintSystem, error) {
 }
 
 // R1CSMergeRing compiles the policy-ring merge circuit (merge_ring). It mirrors
-// R1CSMerge with the ring binding added, so the same compression threshold and
-// BSB22 commitment apply.
+// R1CSMerge with the ring binding added, so the same compression threshold
+// applies.
 func R1CSMergeRing(nInputs int) (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),

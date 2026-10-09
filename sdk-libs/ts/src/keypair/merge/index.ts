@@ -1,20 +1,226 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
-import { type Bytes32, bigIntToBytes, checkedBytes, concatBytes, copyBytes } from "../bytes.js";
+import { MERGE_CIPHERTEXT_LENGTH } from "../../interface/constants.js";
+import { pack32, pack33, rightAlign } from "../../interface/merge-utils.js";
 import {
+  type Bytes32,
+  bigIntToBytes,
+  bytesToBigInt,
+  checkedBytes,
+  concatBytes,
+  copyBytes,
+  u64be,
+} from "../bytes.js";
+import {
+  DOMAIN_MERGE_DERIVED_BLINDING,
   DOMAIN_MERGE_DUMMY_NULLIFIER,
   DOMAIN_MERGE_OUTPUT_BLINDING_V1,
   DOM_SEP_KEY,
   DOM_SEP_NONCE,
   DOM_SEP_SILO,
+  MERGE_ENVELOPE_INFO,
   MERGE_INFO as MERGE_INFO_BYTES,
+  MERGE_SECRET_TAG,
 } from "../derivation.js";
-import { invalidLength } from "../error.js";
+import { KeypairError, invalidLength } from "../error.js";
 import type { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
+import { P256PublicKey } from "../public-key.js";
 import { privateTxBlinding } from "../transact/index.js";
+import { ViewingKey } from "../viewing-key.js";
 
 export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
+
+const MERGE_AMOUNT_LENGTH = 8;
+const MERGE_MINT_LENGTH = 32;
+export const DECRYPTED_MERGE_ENVELOPE_LENGTH = MERGE_AMOUNT_LENGTH + MERGE_MINT_LENGTH + 32;
+
+const U64_MAX = 0xffff_ffff_ffff_ffffn;
+
+export interface EncryptedMergeEnvelope {
+  readonly ephemeralPublicKey: P256PublicKey;
+  readonly ciphertext: Uint8Array;
+  readonly outputBlinding: Bytes32;
+}
+
+export interface DecryptedMergeEnvelope {
+  readonly amount: bigint;
+  readonly mint: Bytes32;
+  readonly outputBlinding: Bytes32;
+}
+
+export function keyAgreementSecret(
+  tag: Uint8Array,
+  sharedX: Bytes32,
+  ephemeralPublicKey: P256PublicKey,
+  recipient: P256PublicKey,
+  context?: Bytes32,
+): Bytes32 {
+  const packed = pack32(sharedX);
+  try {
+    return poseidon([
+      rightAlign(tag),
+      ...packed,
+      ...pack33(ephemeralPublicKey.toBytes()),
+      ...pack33(recipient.toBytes()),
+      ...(context === undefined ? [] : [context]),
+    ]) as Bytes32;
+  } finally {
+    for (const field of packed) field.fill(0);
+  }
+}
+
+export function mergeSharedSecret(
+  sharedX: Bytes32,
+  ephemeralPublicKey: P256PublicKey,
+  recipient: P256PublicKey,
+  firstNullifier: Bytes32,
+): Bytes32 {
+  return keyAgreementSecret(
+    MERGE_SECRET_TAG,
+    sharedX,
+    ephemeralPublicKey,
+    recipient,
+    firstNullifier,
+  );
+}
+
+function checkInput(input: unknown): void {
+  if (typeof input !== "object" || input === null) {
+    throw new KeypairError("KEYPAIR_INVALID_INPUT", { name: "merge envelope input" });
+  }
+}
+
+function checkedPublicKey(value: unknown, name: string): P256PublicKey {
+  if (!(value instanceof P256PublicKey)) {
+    throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { name, reason: "type" });
+  }
+  return value;
+}
+
+function checkedViewingKey(value: unknown, name: string): ViewingKey {
+  if (!(value instanceof ViewingKey)) {
+    throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { name, reason: "type" });
+  }
+  return value;
+}
+
+function checkedAmount(value: unknown): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
+    throw new KeypairError("KEYPAIR_INVALID_AMOUNT", {
+      name: "merge amount",
+      minimum: 0,
+      maximum: U64_MAX.toString(),
+    });
+  }
+  return value;
+}
+
+export function encryptMergeEnvelope(
+  input: Readonly<{
+    recipient: P256PublicKey;
+    ephemeral: ViewingKey;
+    amount: bigint;
+    mint: Bytes32;
+    firstNullifier: Bytes32;
+  }>,
+): EncryptedMergeEnvelope {
+  checkInput(input);
+  const recipient = checkedPublicKey(input.recipient, "merge recipient");
+  const ephemeral = checkedViewingKey(input.ephemeral, "merge ephemeral key");
+  const amount = checkedAmount(input.amount);
+  const firstNullifier = checkedBytes<Bytes32>(input.firstNullifier, 32, "first nullifier");
+  const plaintext = concatBytes(
+    u64be(amount),
+    checkedBytes<Bytes32>(input.mint, MERGE_MINT_LENGTH, "merge mint"),
+  );
+  let sharedX: Bytes32 | undefined;
+  let secret: Bytes32 | undefined;
+  try {
+    const ephemeralPublicKey = ephemeral.publicKey();
+    sharedX = ephemeral.ecdh(recipient);
+    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient, firstNullifier);
+    return Object.freeze({
+      ephemeralPublicKey,
+      ciphertext: symmetricApply(secret, MERGE_ENVELOPE_INFO, plaintext),
+      outputBlinding: mergeDerivedBlinding(secret),
+    });
+  } finally {
+    plaintext.fill(0);
+    sharedX?.fill(0);
+    secret?.fill(0);
+  }
+}
+
+export function decryptMergeEnvelope(
+  input: Readonly<{
+    viewingKey: ViewingKey;
+    ephemeralPublicKey: P256PublicKey;
+    ciphertext: Uint8Array;
+    firstNullifier: Bytes32;
+  }>,
+): DecryptedMergeEnvelope {
+  checkInput(input);
+  const viewingKey = checkedViewingKey(input.viewingKey, "merge viewing key");
+  const ephemeralPublicKey = checkedPublicKey(
+    input.ephemeralPublicKey,
+    "merge ephemeral public key",
+  );
+  const ciphertext = checkedBytes<Uint8Array>(
+    input.ciphertext,
+    MERGE_CIPHERTEXT_LENGTH,
+    "merge envelope ciphertext",
+  );
+  const firstNullifier = checkedBytes<Bytes32>(input.firstNullifier, 32, "first nullifier");
+  let sharedX: Bytes32 | undefined;
+  let secret: Bytes32 | undefined;
+  let plaintext: Uint8Array | undefined;
+  try {
+    const recipient = viewingKey.publicKey();
+    sharedX = viewingKey.ecdh(ephemeralPublicKey);
+    secret = mergeSharedSecret(sharedX, ephemeralPublicKey, recipient, firstNullifier);
+    plaintext = symmetricApply(secret, MERGE_ENVELOPE_INFO, ciphertext);
+    return Object.freeze({
+      amount: bytesToBigInt(plaintext.subarray(0, MERGE_AMOUNT_LENGTH)),
+      mint: copyBytes(plaintext.subarray(MERGE_AMOUNT_LENGTH)) as Bytes32,
+      outputBlinding: mergeDerivedBlinding(secret),
+    });
+  } finally {
+    sharedX?.fill(0);
+    secret?.fill(0);
+    plaintext?.fill(0);
+  }
+}
+
+export function encodeDecryptedMergeEnvelope(decrypted: DecryptedMergeEnvelope): Uint8Array {
+  return concatBytes(
+    u64be(decrypted.amount),
+    checkedBytes<Bytes32>(decrypted.mint, MERGE_MINT_LENGTH, "merge mint"),
+    checkedBytes<Bytes32>(decrypted.outputBlinding, 32, "merge output blinding"),
+  );
+}
+
+export function decodeDecryptedMergeEnvelope(bytes: Uint8Array): DecryptedMergeEnvelope {
+  const decrypted = checkedBytes<Uint8Array>(
+    bytes,
+    DECRYPTED_MERGE_ENVELOPE_LENGTH,
+    "decrypted merge envelope",
+  );
+  const mintEnd = MERGE_AMOUNT_LENGTH + MERGE_MINT_LENGTH;
+  try {
+    return Object.freeze({
+      amount: bytesToBigInt(decrypted.subarray(0, MERGE_AMOUNT_LENGTH)),
+      mint: copyBytes(decrypted.subarray(MERGE_AMOUNT_LENGTH, mintEnd)) as Bytes32,
+      outputBlinding: copyBytes(decrypted.subarray(mintEnd)) as Bytes32,
+    });
+  } finally {
+    decrypted.fill(0);
+  }
+}
+
+function mergeDerivedBlinding(sharedSecret: Bytes32): Bytes32 {
+  return poseidon([fieldU32(DOMAIN_MERGE_DERIVED_BLINDING), sharedSecret]) as Bytes32;
+}
 
 function keySchedule(
   sharedSecret: Uint8Array,
@@ -131,11 +337,5 @@ function alignedNullifierSecret(nullifierKey: NullifierKey): Bytes32 {
 function fieldU32(value: number): Bytes32 {
   const field = new Uint8Array(32);
   new DataView(field.buffer).setUint32(28, value, false);
-  return field as Bytes32;
-}
-
-function rightAlign(bytes: Uint8Array): Bytes32 {
-  const field = new Uint8Array(32);
-  field.set(bytes, 32 - bytes.length);
   return field as Bytes32;
 }

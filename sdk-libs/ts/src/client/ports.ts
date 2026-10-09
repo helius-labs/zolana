@@ -2,7 +2,7 @@ import type { Address, Commitment, Signature } from "@solana/kit";
 
 import type {
   Instruction,
-  MergeTransactInstructionData,
+  MergeInstructionData,
   RequestContext,
   Transaction,
   TransactInstructionData,
@@ -540,7 +540,7 @@ export function authorizedPrivateTransactionMaterial(
 }
 
 export interface ProvedMerge {
-  readonly data: MergeTransactInstructionData;
+  readonly data: MergeInstructionData;
   readonly outputHash: Bytes32;
 }
 

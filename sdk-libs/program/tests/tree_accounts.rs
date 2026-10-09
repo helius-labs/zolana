@@ -1,6 +1,8 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+use zolana_interface::instruction::instruction_data::merge_transact::{
+    MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment,
+};
 use zolana_interface::instruction::{
     CircuitId, InputUtxo, MergeTransactIxData, TransactIxData, TransactProof, TreeContext,
 };
@@ -40,8 +42,8 @@ fn merge_nullifiers() -> Vec<[u8; 32]> {
     (1u8..=8).map(|i| [i; 32]).collect()
 }
 
-fn merge_data() -> MergeTransactIxData {
-    MergeTransactIxData {
+fn merge_data() -> MergeBody {
+    MergeBody {
         cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
@@ -168,7 +170,17 @@ fn every_spend_builder_has_the_exact_account_layout() {
         output_tree,
         payer,
         user_record,
-        data: merge_data.clone(),
+        data: MergeTransactIxData {
+            body: merge_data.clone(),
+            proof_commitment: MergeProofCommitment {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            envelope: MergeEnvelope {
+                ephemeral_pk: [2u8; 33],
+                ciphertext: [0u8; 40],
+            },
+        },
         cache: None,
     }
     .instruction();

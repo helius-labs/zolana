@@ -78,9 +78,10 @@ impl CustomRingBasePublicInput<'_> {
     }
 }
 
-/// Mirrors `Pack32To2FECircuit`: `lo = 0x00 || bytes[0..31]` (byte 0 is the most
-/// significant data byte) and `hi = bytes[31]`, both as 32-byte big-endian field
-/// elements.
+/// Mirrors `packSharedX` in
+/// `prover/server/circuits/verifiable-encryption/p256/keyagreement.go`:
+/// `lo = 0x00 || bytes[0..31]` (byte 0 is the most significant data byte) and
+/// `hi = bytes[31]`, both as 32-byte big-endian field elements.
 pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
     let mut lo = [0u8; 32];
     lo[1..].copy_from_slice(&bytes[..31]);
@@ -93,8 +94,8 @@ pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
 /// Split a 33-byte SEC1-compressed P256 key into the two BN254 field elements
 /// the auditor circuit hashes.
 ///
-/// Mirrors `Pack33To2FECircuit` in
-/// `prover/server/custom_rings/circuits/base/pack.go`.
+/// Mirrors `packCompressedPoint` in
+/// `prover/server/circuits/verifiable-encryption/p256/keyagreement.go`.
 ///
 /// ```text
 /// lo = 0x00 || key[0..31]        (the SEC1 prefix is the most significant data byte)

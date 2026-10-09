@@ -41,6 +41,7 @@ import {
   Wallet,
   decryptToBalances,
   serializeWallet,
+  type MergeOutputEnvelope,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
@@ -422,6 +423,7 @@ describe("prover indexer lag", () => {
     const owner = shielded.solanaAddress();
     const wallet = fundedWallet(keypair, [20n, 30n]);
     let calls = 0;
+    const envelopes = new Set<MergeOutputEnvelope>();
     const answer = async <T>(value: () => T): Promise<T> => {
       if (calls++ < lags) throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
       return value();
@@ -443,7 +445,7 @@ describe("prover indexer lag", () => {
           },
           context,
         ).catch((cause: unknown) => cause);
-        return { result, calls, wallet };
+        return { result, calls, wallet, envelopes: [] };
       }
       const pda = await internalUserRecordPda(owner);
       const record = Uint8Array.of(
@@ -466,8 +468,9 @@ describe("prover indexer lag", () => {
                 ? { owner: USER_REGISTRY_PROGRAM_ID, data: record, lamports: 1n }
                 : undefined,
             ),
-            proveMerge: ({ prepared }) =>
-              answer(() => {
+            proveMerge: ({ prepared }) => {
+              if (prepared.envelope !== undefined) envelopes.add(prepared.envelope);
+              return answer(() => {
                 const complete = prepareMerge(prepared, TREE).finish({
                   slot: { id: 0, utxoRoot: filled(1), nullifierRoot: filled(2) },
                   utxoRootIndex: 0,
@@ -478,10 +481,13 @@ describe("prover indexer lag", () => {
                     a: filled(0),
                     b: new Uint8Array(128) as Bytes128,
                     c: filled(0),
+                    commitment: filled(0),
+                    commitmentPok: filled(0),
                   }),
                   outputHash: complete.outputHash,
                 };
-              }),
+              });
+            },
             assembleAuthorizedMergeTransaction: vi.fn(async () => TRANSACTION),
           },
           wallet,
@@ -490,9 +496,22 @@ describe("prover indexer lag", () => {
         },
         context,
       ).catch((cause: unknown) => cause);
-      return { result, calls, wallet };
+      return { result, calls, wallet, envelopes: [...envelopes] };
     } finally {
       keys.destroy();
+    }
+  }
+
+  /** A merge build destroys its envelope's ephemeral key whether it succeeds or fails. */
+  function expectDestroyed(
+    kind: "transfer" | "merge",
+    envelopes: readonly MergeOutputEnvelope[],
+  ): void {
+    expect(envelopes).toHaveLength(kind === "merge" ? 1 : 0);
+    for (const envelope of envelopes) {
+      expect(() => envelope.encrypt(1n, SOL_MINT)).toThrow(
+        expect.objectContaining({ code: "KEYPAIR_INVALID_SECRET_KEY" }),
+      );
     }
   }
 
@@ -504,19 +523,21 @@ describe("prover indexer lag", () => {
   it.each(["transfer", "merge"] as const)(
     "retries a %s once the prover's indexer catches up",
     async (kind) => {
-      const { result, calls } = await build(kind, "prover", 1);
+      const { result, calls, envelopes } = await build(kind, "prover", 1);
       expect(result).toBe(TRANSACTION);
       expect(calls).toBe(2);
+      expectDestroyed(kind, envelopes);
     },
   );
 
   it.each(["transfer", "merge"] as const)(
     "fails a %s at once on the client source and releases its inputs",
     async (kind) => {
-      const { result, calls, wallet } = await build(kind, "client", 1);
+      const { result, calls, wallet, envelopes } = await build(kind, "client", 1);
       expect(result).toMatchObject(failure(kind));
       expect(calls).toBe(1);
       expect(wallet._reservationEntries()).toHaveLength(0);
+      expectDestroyed(kind, envelopes);
     },
   );
 

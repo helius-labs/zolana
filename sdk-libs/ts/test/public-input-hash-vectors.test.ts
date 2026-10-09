@@ -80,7 +80,14 @@ describe("public input hash known-answer vectors", () => {
       outputTreeId: vector.output_tree_id,
       privateTxHash: field(vector.private_tx_hash),
       externalDataHash: field(vector.external_data_hash),
-      owner: [field(vector.owner_pk_hash), field(vector.nullifier_pk)],
+      rail: {
+        kind: "default",
+        ownerPublicKeyHash: field(vector.owner_pk_hash),
+        nullifierPublicKey: field(vector.nullifier_pk),
+        recipient: Buffer.from(vector.viewing_pk, "hex"),
+        ephemeralPublicKey: Buffer.from(vector.ephemeral_pk, "hex"),
+        ciphertext: Buffer.from(vector.ciphertext, "hex"),
+      },
     });
     expect(hex(resolvedPublicInputHash(publicInputs, treeSlots(vector.tree_slots)))).toBe(
       vector.public_input_hash,

@@ -11,6 +11,7 @@ import {
   checkDepositResolution,
   checkPolicyResolution,
   decodeIndexedInputs,
+  wipeIndexedInputs,
   indexedRequestEnvelope,
   parseIndexedResponse,
   resolvedTrees,
@@ -24,6 +25,7 @@ import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-sl
 import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { bytesToBigInt } from "../../keypair/bytes.js";
+import { P256_UNCOMPRESSED_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 import { poseidon } from "../../keypair/poseidon.js";
 
 import { InterfaceError } from "../../interface/errors.js";
@@ -116,7 +118,6 @@ const STATUS_PATH = "/status";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
 const ATTESTATION_PATH = "/tee/v1/attestation";
-const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
 
@@ -258,10 +259,15 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<IndexedProofResult> {
     const inputs = decodeIndexedInputs(request);
-    const prepared =
-      inputs.circuit === "merge"
-        ? mergeProverRequest(inputs.payload, completeSecret)
-        : proverRequest(inputs, completeSecret);
+    let prepared: ProverRequestBody;
+    try {
+      prepared =
+        inputs.circuit === "merge"
+          ? mergeProverRequest(inputs.payload, completeSecret)
+          : proverRequest(inputs, completeSecret);
+    } finally {
+      wipeIndexedInputs(inputs);
+    }
     const key = provingKeyFor(
       inputs.circuit === "merge"
         ? { circuit: mergeCircuit(inputs.payload), nInputs: inputs.payload.inputs.length }
@@ -741,6 +747,25 @@ function mergeCircuit(inputs: MergeInputs | PreparedMergeInputs): "merge" | "mer
   return BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring";
 }
 
+function mergeEnvelopeJson(
+  inputs: MergeInputs | PreparedMergeInputs,
+): Readonly<{ viewingPk?: string; ephemeralSk?: string }> {
+  const circuit = mergeCircuit(inputs);
+  if ((inputs.envelope === undefined) !== (circuit === "merge-ring")) {
+    throw new ClientError("CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH");
+  }
+  if (inputs.envelope === undefined) return {};
+  const ephemeralSecret = checkedBytes(inputs.envelope.ephemeralSecret, 32, "ephemeralSecret");
+  try {
+    return {
+      viewingPk: bytesToHex(uncompressedP256(inputs.envelope.viewingPublicKey)),
+      ephemeralSk: bytesToHex(ephemeralSecret),
+    };
+  } finally {
+    ephemeralSecret.fill(0);
+  }
+}
+
 function mergeProverRequest(
   inputs: MergeInputs | PreparedMergeInputs,
   secret: SecretEncoder,
@@ -756,7 +781,8 @@ function mergeProverRequest(
         }
       : {}),
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
-    asset: hex(inputs.output.circuit.asset, "asset"),
+    mint: bytesToHex(checkedBytes(inputs.mint, 32, "mint")),
+    ...mergeEnvelopeJson(inputs),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),
@@ -1123,14 +1149,18 @@ function hex32(bytes: Uint8Array, field: string): string {
 
 /** The uncompressed SEC1 auditor point the circuit witnesses, `0x04 || x || y`. */
 function auditorPkHex(auditorPublicKey: Uint8Array): string {
+  return bytesHex(uncompressedP256(auditorPublicKey));
+}
+
+function uncompressedP256(publicKey: Uint8Array): Uint8Array {
   if (
-    !(auditorPublicKey instanceof Uint8Array) ||
-    auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
-    auditorPublicKey[0] !== 0x04
+    !(publicKey instanceof Uint8Array) ||
+    publicKey.length !== P256_UNCOMPRESSED_PUBLIC_KEY_LENGTH ||
+    publicKey[0] !== 0x04
   ) {
     throw new ClientError("CLIENT_INVALID_P256_KEY");
   }
-  return bytesHex(auditorPublicKey);
+  return publicKey;
 }
 
 function u8(value: number, field: string): number {

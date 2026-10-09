@@ -6,6 +6,7 @@ import (
 	"github.com/consensys/gnark/std/math/uints"
 
 	"zolana/prover/circuits/gadget"
+	ve "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/circuits/verifiable-encryption/aes"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 )
@@ -18,11 +19,10 @@ type successorCounters struct {
 	spent  [NVelocityAssets]frontend.Variable
 }
 
-func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, salt [16]frontend.Variable) (frontend.Variable, error) {
-	public := p256.ScalarMulGenerator(api, secret)
-	compressed := p256.CompressPubkey(api, public)
-	dh := p256.ECDH(api, secret, public)
-	ikm := append(append(append([]frontend.Variable{}, dh[:]...), compressed[:]...), compressed[:]...)
+func (s successorCounters) encrypt(api frontend.API, txViewingKey p256.PublicKey, salt [16]frontend.Variable) (frontend.Variable, error) {
+	agreement := p256.SelfAgreeKey(api, txViewingKey)
+	compressed := agreement.PublicKey
+	ikm := append(append(append([]frontend.Variable{}, agreement.SharedX[:]...), compressed[:]...), compressed[:]...)
 	zeros := make([]frontend.Variable, 32)
 	for i := range zeros {
 		zeros[i] = 0
@@ -51,32 +51,20 @@ func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, 
 	copy(nonce[:], second)
 
 	// Canonical field bytes bind the encrypted opening to the record commitment.
-	plaintext := counterFieldBytes(api, s.salt)
+	plaintext := ve.FieldToBytesBE(api, s.salt, 32)
 	for i, asset := range s.assets {
-		plaintext = append(plaintext, counterFieldBytes(api, asset)...)
+		plaintext = append(plaintext, ve.FieldToBytesBE(api, asset, 32)...)
 		bits := api.ToBinary(s.spent[i], 64)
 		for j := 0; j < 8; j++ {
 			plaintext = append(plaintext, api.FromBinary(bits[j*8:(j+1)*8]...))
 		}
 	}
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, plaintext)
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
 	disclosure := counterConstants([]byte(CountersDisclosureDomain))
 	disclosure = append(disclosure, salt[:]...)
 	disclosure = append(disclosure, compressed[:]...)
 	disclosure = append(disclosure, ciphertext...)
 	return gadget.HashBytes(api, disclosure), nil
-}
-
-func counterFieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
-	bits := api.ToBinary(value)
-	for len(bits) < 256 {
-		bits = append(bits, 0)
-	}
-	out := make([]frontend.Variable, 32)
-	for i := range out {
-		out[31-i] = api.FromBinary(bits[i*8 : (i+1)*8]...)
-	}
-	return out
 }
 
 func counterConstants(bytes []byte) []frontend.Variable {
@@ -95,8 +83,8 @@ func counterHMAC(api frontend.API, key, message []frontend.Variable) ([]frontend
 	outer := make([]frontend.Variable, 64)
 	for i := range inner {
 		if i < len(key) {
-			inner[i] = aes.XorByte(api, key[i], 0x36)
-			outer[i] = aes.XorByte(api, key[i], 0x5c)
+			inner[i] = xorByte(api, key[i], 0x36)
+			outer[i] = xorByte(api, key[i], 0x5c)
 		} else {
 			inner[i], outer[i] = 0x36, 0x5c
 		}
@@ -106,6 +94,16 @@ func counterHMAC(api frontend.API, key, message []frontend.Variable) ([]frontend
 		return nil, err
 	}
 	return counterSHA256(api, append(outer, digest...))
+}
+
+func xorByte(api frontend.API, a, b frontend.Variable) frontend.Variable {
+	aBits := api.ToBinary(a, 8)
+	bBits := api.ToBinary(b, 8)
+	resultBits := make([]frontend.Variable, 8)
+	for i := range resultBits {
+		resultBits[i] = api.Sub(api.Add(aBits[i], bBits[i]), api.Mul(2, api.Mul(aBits[i], bBits[i])))
+	}
+	return api.FromBinary(resultBits...)
 }
 
 func counterSHA256(api frontend.API, input []frontend.Variable) ([]frontend.Variable, error) {

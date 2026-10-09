@@ -40,20 +40,14 @@ impl TxIndex {
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
         let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
-            let mut classified = false;
             // The index and the decoder share `may_be_merge`, so a site routed
             // to the merge path is never decoded with a viewing key it has no
             // ciphertext for.
             if tx.may_be_merge() {
-                for slot_index in 0..tx.output_slots.len() {
-                    merge_sites.push((t, slot_index));
-                    classified = true;
-                }
-                if !classified {
-                    report.unparsed_transactions += 1;
-                }
+                merge_sites.push((t, 0));
                 continue;
             }
+            let mut classified = false;
             for (slot_index, slot) in tx.output_slots.iter().enumerate() {
                 let blob = match slot.output_data() {
                     Some(
@@ -591,7 +585,7 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        if tx.output_slots.get(site.1).is_none() || !tx.may_be_merge() {
+        if !tx.may_be_merge() {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         }
@@ -880,13 +874,18 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(MergeResolution::Complete);
         };
-        let rebuilt = match rebuild_merge(&self.keys, tx, self.utxos.as_slice())? {
-            MergeRebuild::Rebuilt(rebuilt) => rebuilt,
-            MergeRebuild::Pending => return Ok(MergeResolution::Pending),
-            MergeRebuild::NotOurs => {
+        let rebuilt = match rebuild_merge(&self.keys, tx, self.utxos.as_slice(), self.assets) {
+            Ok(MergeRebuild::Rebuilt(rebuilt)) => rebuilt,
+            Ok(MergeRebuild::Pending) => return Ok(MergeResolution::Pending),
+            Ok(MergeRebuild::NotOurs | MergeRebuild::Undecryptable) => {
                 self.report.undecryptable_candidates += 1;
                 return Ok(MergeResolution::Complete);
             }
+            Err(err @ TransactionError::UnknownMint(_)) => {
+                self.note_undecryptable(&err);
+                return Ok(MergeResolution::Complete);
+            }
+            Err(err) => return Err(err),
         };
         let Some(output) = rebuilt
             .into_iter()

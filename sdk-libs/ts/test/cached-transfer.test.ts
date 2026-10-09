@@ -23,7 +23,12 @@ import {
 import { treeAddress } from "../src/interface/pda/index.js";
 import { InstructionTag } from "../src/interface/program.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
-import type { Bytes16, Bytes32, Bytes128 } from "../src/interface/types.js";
+import type {
+  Bytes16,
+  Bytes32,
+  Bytes128,
+  MergeTransactInstructionData,
+} from "../src/interface/types.js";
 import { ShieldedKeypair, sha256Bytes } from "../src/keypair/index.js";
 import {
   Merge,
@@ -926,9 +931,15 @@ function mergeFixture() {
 }
 
 describe("a merge writing its output to a cache slot", () => {
-  const PROOF = { a: bytes(0), b: new Uint8Array(128) as Bytes128, c: bytes(0) };
+  const PROOF = {
+    a: bytes(0),
+    b: new Uint8Array(128) as Bytes128,
+    c: bytes(0),
+    commitment: bytes(0),
+    commitmentPok: bytes(0),
+  };
 
-  it("names the slot in its data and commits its external data hash to the cache", () => {
+  it("names the slot in its data and commits its external data hash to the cache", async () => {
     const { prepared, proofs, dummyProofs } = mergeFixture();
     const cached = assembleMergeWithProofs(prepared, proofs, TREE, dummyProofs, {
       address: CACHE,
@@ -940,7 +951,9 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(304);
+    expect(encodeMergeTransactInstructionData(data as MergeTransactInstructionData)).toHaveLength(
+      441,
+    );
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,
@@ -951,7 +964,9 @@ describe("a merge writing its output to a cache slot", () => {
     );
     expect(cached.externalDataHash).not.toEqual(plain.externalDataHash);
     expect(cached.publicInputHash).not.toEqual(plain.publicInputHash);
-    expect(cached.proverInputs.externalDataHash).toBe(bytesToBigInt(cached.externalDataHash));
+    expect(await cached.withProverInputs((inputs) => inputs.externalDataHash)).toBe(
+      bytesToBigInt(cached.externalDataHash),
+    );
     expect(cached.outputHash).toEqual(plain.outputHash);
   });
 
@@ -975,7 +990,7 @@ describe("a merge writing its output to a cache slot", () => {
         slot: 2,
       });
       const fetch = proverFetch({
-        publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
+        publicInputHash: `0x${bytesToBigInt(expected.publicInputHash).toString(16)}`,
         trees: [
           {
             tree: TREE,

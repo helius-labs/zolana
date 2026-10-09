@@ -1,5 +1,7 @@
-import { mergePaddedInputCount } from "../../interface/constants.js";
+import { MERGE_CIPHERTEXT_LENGTH, mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
+import { isDerivationPoint } from "../../keypair/derivation.js";
+import { decodeDecryptedMergeEnvelope } from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
@@ -7,9 +9,13 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, equal } from "../internal.js";
+import { copy, decodeAddress, encodeAddress, equal, hashBytes } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
-import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
+import type {
+  IndexedShieldedTransaction,
+  OutputContext,
+  OutputSlot,
+} from "../instructions/transact.js";
 import {
   EncryptedScheme,
   anonymousRecipientUtxo,
@@ -115,7 +121,7 @@ interface Site {
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
-  readonly mergeSites: readonly Site[];
+  readonly mergeSites: readonly MergeSite[];
   readonly unparsedTransactions: number;
 }
 
@@ -125,21 +131,31 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
   else existing.push(value);
 }
 
+interface MergeSite extends Site {
+  readonly tx: IndexedShieldedTransaction;
+  readonly output: OutputSlot;
+}
+
+function mergeSite(transaction: number, tx: IndexedShieldedTransaction): MergeSite | undefined {
+  if (tx.proofless || tx.salt !== undefined || tx.messages.length !== 0) return undefined;
+  const [output, ...rest] = tx.outputSlots;
+  const payloadLength = tx.txViewingPublicKey === undefined ? 32 : MERGE_CIPHERTEXT_LENGTH;
+  if (output?.payload.length !== payloadLength || rest.length !== 0) return undefined;
+  return { transaction, slot: 0, tx, output };
+}
+
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
-  const mergeSites: Site[] = [];
+  const mergeSites: MergeSite[] = [];
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
-    let classified = false;
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const slotIndex of tx.outputSlots.keys()) {
-        mergeSites.push({ transaction, slot: slotIndex });
-        classified = true;
-      }
-      if (!classified) unparsedTransactions++;
+    const merge = mergeSite(transaction, tx);
+    if (merge !== undefined) {
+      mergeSites.push(merge);
       continue;
     }
+    let classified = false;
     for (const [index, slot] of tx.outputSlots.entries()) {
       let scheme: EncryptedScheme;
       try {
@@ -234,6 +250,8 @@ function rowKey(row: PrivateTransaction): string {
 class SyncPass {
   readonly #depositPayloadDecoder: DepositPayloadDecoder;
   readonly #owner: ShieldedPublicKey;
+  /** The view tag the program puts on this wallet's default merge outputs. */
+  readonly #ownerViewTag: Bytes32;
   readonly #nullifierPublicKey: Bytes32;
   /** The keys the wallet holds, current first; the pass opens under each. */
   readonly #viewingPublicKeys: readonly P256PublicKey[];
@@ -258,6 +276,7 @@ class SyncPass {
   >();
   storedUtxos = 0;
   undecryptableCandidates = 0;
+  undecryptableMerges = 0;
 
   constructor(
     input: Readonly<{
@@ -274,6 +293,7 @@ class SyncPass {
   ) {
     this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ((bytes) => bytes);
     this.#owner = input.identity.signingPublicKey;
+    this.#ownerViewTag = input.identity.signingPublicKey.confidentialViewTag();
     this.#nullifierPublicKey = input.identity.nullifierPublicKey;
     this.#viewingPublicKeys = input.viewingPublicKeys;
     this.#keys = input.keys;
@@ -446,6 +466,34 @@ class SyncPass {
       }
     }
     this.undecryptableCandidates++;
+  }
+
+  /**
+   * A merge output in a mint the registry does not know is held back like any
+   * other output with an unknown asset: its asset field is reported so the
+   * sync layer backfills the registry, and the cursors stay put until it does.
+   */
+  #recordUnknownMergeMint(mint: Bytes32, siteKey: string): void {
+    const field = hashBytes(mint) as Bytes32;
+    const candidate = this.#unknownAssetsBySite.get(siteKey) ?? {
+      ids: new Set<bigint>(),
+      fields: new Map<string, Bytes32>(),
+    };
+    candidate.fields.set(hex(field), field);
+    this.#unknownAssetsBySite.set(siteKey, candidate);
+    this.undecryptableCandidates++;
+  }
+
+  #knowsMint(mint: Address): boolean {
+    try {
+      this.#assets.assetId(mint);
+      return true;
+    } catch (error) {
+      if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_MINT") {
+        return false;
+      }
+      throw error;
+    }
   }
 
   #resolveAssetCandidate(siteKey: string): void {
@@ -916,19 +964,19 @@ class SyncPass {
     this.undecryptableCandidates++;
   }
 
-  resolveMergeSites(sites: readonly Site[]): void {
+  resolveMergeSites(sites: readonly MergeSite[]): void {
     let pending = [...sites];
     while (pending.length > 0) {
-      const unresolved: Site[] = [];
+      const unresolved: MergeSite[] = [];
       for (const site of pending) {
         const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
         if (this.#processedSlots.has(siteKey)) continue;
-        const tx = this.#transactions[site.transaction];
-        if (tx === undefined || tx.outputSlots[site.slot] === undefined) {
-          this.undecryptableCandidates++;
-          continue;
-        }
-        if (!this.#reconstructMerge(tx, site, siteKey)) unresolved.push(site);
+        const ephemeralPublicKey = site.tx.txViewingPublicKey;
+        const resolved =
+          ephemeralPublicKey === undefined
+            ? this.#reconstructRingMerge(site, siteKey)
+            : this.#decryptMergeEnvelope(site, ephemeralPublicKey, siteKey);
+        if (!resolved) unresolved.push(site);
       }
       if (unresolved.length === pending.length) {
         this.undecryptableCandidates += unresolved.length;
@@ -938,12 +986,70 @@ class SyncPass {
     }
   }
 
+  #decryptMergeEnvelope(
+    site: MergeSite,
+    ephemeralPublicKey: P256PublicKey,
+    siteKey: string,
+  ): boolean {
+    const { tx, output } = site;
+    // The program tags a default merge's output with the owner's signing key,
+    // so a merge tagged for anyone else never reaches the key holder.
+    if (!equal(output.viewTag, this.#ownerViewTag)) return true;
+    if (isDerivationPoint(ephemeralPublicKey)) {
+      this.undecryptableCandidates++;
+      return true;
+    }
+    const firstNullifier = tx.nullifiers[0];
+    if (firstNullifier === undefined) return true;
+    const answers = this.#viewingPublicKeys.map((viewingPublicKey) =>
+      this.#keys.decryptMergeEnvelope({
+        ciphertext: output.payload,
+        viewingPublicKey,
+        txViewingPublicKey: ephemeralPublicKey,
+        firstNullifier,
+      }),
+    );
+    const decrypted: Uint8Array[] = [];
+    let failed = false;
+    for (const answer of answers) {
+      if (answer === undefined) {
+        for (const plaintext of decrypted) plaintext.fill(0);
+        return false;
+      }
+      if (answer.kind === "failed") failed = true;
+      else decrypted.push(answer.plaintext);
+    }
+    try {
+      for (const plaintext of decrypted) {
+        const { amount, mint, outputBlinding } = decodeDecryptedMergeEnvelope(plaintext);
+        const asset = encodeAddress(mint);
+        const utxo = new Utxo({ owner: this.#owner, asset, amount, blinding: outputBlinding });
+        if (!equal(utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID), output.outputContext.hash)) {
+          continue;
+        }
+        if (!this.#knowsMint(asset)) {
+          this.#recordUnknownMergeMint(mint, siteKey);
+          return true;
+        }
+        this.#resolveAssetCandidate(siteKey);
+        if (this.#store(utxo, output.outputContext, undefined, undefined) !== "pending") {
+          this.#processedSlots.add(siteKey);
+          this.#recordMerge(tx, output.outputContext, utxo);
+        }
+        return true;
+      }
+    } finally {
+      for (const plaintext of decrypted) plaintext.fill(0);
+    }
+    if (failed) this.undecryptableMerges++;
+    else this.undecryptableCandidates++;
+    return true;
+  }
+
   /** Missing inputs may be outputs of another merge in the same batch. */
-  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
-    const slot = tx.outputSlots[site.slot];
+  #reconstructRingMerge({ tx, output }: MergeSite, siteKey: string): boolean {
     const firstNullifier = tx.nullifiers[0];
     if (
-      slot === undefined ||
       firstNullifier === undefined ||
       !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
     ) {
@@ -979,7 +1085,15 @@ class SyncPass {
         matched.push(entry);
       }
       const first = matched[0];
-      if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
+      const ringProgramId = first?.utxo.ringProgramId;
+      if (
+        first === undefined ||
+        ringProgramId === undefined ||
+        matched.some(
+          (entry) =>
+            entry.utxo.asset !== first.utxo.asset || entry.utxo.ringProgramId !== ringProgramId,
+        )
+      ) {
         this.undecryptableCandidates++;
         return true;
       }
@@ -988,31 +1102,17 @@ class SyncPass {
         amount += entry.utxo.amount;
         if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
       }
-      const ringProgramId = first.utxo.ringProgramId;
-      if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const ringDataHash =
-        ringProgramId === undefined
-          ? undefined
-          : slot.payload.length === 32
-            ? (copy(slot.payload) as Bytes32)
-            : null;
-      if (ringDataHash === null) {
-        this.undecryptableCandidates++;
-        return true;
-      }
       const utxo = new Utxo({
         owner: this.#owner,
         asset: first.utxo.asset,
         amount,
         blinding: outputBlinding,
-        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+        ringProgramId,
       });
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
+      const ringDataHash = copy(output.payload) as Bytes32;
+      if (this.#storeRecipientUtxos([utxo], output.outputContext, undefined, ringDataHash)) {
         this.#processedSlots.add(siteKey);
-        this.#recordMerge(tx, slot.outputContext, utxo);
+        this.#recordMerge(tx, output.outputContext, utxo);
       }
       return true;
     } catch (error) {
@@ -1174,6 +1274,7 @@ function commitPass(
     storedUtxos: pass.storedUtxos,
     unparsedTransactions: index.unparsedTransactions,
     undecryptableCandidates: pass.undecryptableCandidates,
+    undecryptableMerges: pass.undecryptableMerges,
     unknownAssetIds: pass.unknownAssetIds(),
     unknownAssetFields: pass.unknownAssetFields(),
   });

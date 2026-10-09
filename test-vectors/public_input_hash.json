@@ -1,5 +1,5 @@
 {
-  "description": "Known-answer vectors for the transfer and merge public input hashes. Every value is a 32-byte big-endian hex string; nullifier, output hash and owner lists span the circuit width, with 0 for compact padding, and a published owner list shorter than the outputs is padded with 0. Transfers are zolana_client::PublicInputs::hash; merges hash the MergeProver::build element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs print_public_input_hash_vectors: cargo test -p zolana-client --test public_input_hash_vectors print_public_input_hash_vectors -- --ignored --nocapture",
+  "description": "Known-answer vectors for the transfer and merge public input hashes. Every value is a 32-byte big-endian hex string except a merge's viewing_pk and ephemeral_pk (33-byte SEC1-compressed P-256 keys) and its 40-byte envelope ciphertext; nullifier, output hash and owner lists span the circuit width, with 0 for compact padding, and a published owner list shorter than the outputs is padded with 0. Transfers are zolana_client::PublicInputs::hash; merges hash the MergeProver::build element order, ending in the four merge_envelope_public_elements. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs print_public_input_hash_vectors: cargo test -p zolana-client --test public_input_hash_vectors print_public_input_hash_vectors -- --ignored --nocapture",
   "transfers": [
     {
       "name": "full_2x3",
@@ -432,6 +432,9 @@
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
+      "viewing_pk": "032d4bd530c8412d87d004abc845ee45586a7be6c7cf602ce2197bf27871d5a0b9",
+      "ephemeral_pk": "02d2b3ef863cbff9c5f49d996faee486879433543b9d296f1c672fc426889334fc",
+      "ciphertext": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
       "tree_slots": [
         {
           "id": 1,
@@ -459,7 +462,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "28b9d63a492ec203c0f52aa535699dd6592920b80ad376dc8ab22208f0874243"
+      "public_input_hash": "10de3d758ce49386b223fd026207918f63b746296a8cf51c1dbbcf733f16be1b"
     },
     {
       "name": "compact_8",
@@ -479,6 +482,9 @@
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
+      "viewing_pk": "032d4bd530c8412d87d004abc845ee45586a7be6c7cf602ce2197bf27871d5a0b9",
+      "ephemeral_pk": "02d2b3ef863cbff9c5f49d996faee486879433543b9d296f1c672fc426889334fc",
+      "ciphertext": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
       "tree_slots": [
         {
           "id": 1,
@@ -506,7 +512,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "09044efb4e726d74cf10699f406f5504c42d86b71e312932d1154c6b8ba6a613"
+      "public_input_hash": "221e6d94c18a32a9c07ef18698ab14398b640905650e7e9064be7dbbf3844245"
     },
     {
       "name": "full_36",
@@ -554,6 +560,9 @@
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
+      "viewing_pk": "032d4bd530c8412d87d004abc845ee45586a7be6c7cf602ce2197bf27871d5a0b9",
+      "ephemeral_pk": "02d2b3ef863cbff9c5f49d996faee486879433543b9d296f1c672fc426889334fc",
+      "ciphertext": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
       "tree_slots": [
         {
           "id": 1,
@@ -581,7 +590,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "074d5b4fdf44cb6241a656fd89eff19bbc06abc309ded5b3b9e4ba063c2d654a"
+      "public_input_hash": "0dd40fd879357f13644b39a49d312690b74f1ab4cdbe36d5acd6fe1ffa22a283"
     },
     {
       "name": "compact_36",
@@ -629,6 +638,9 @@
       "external_data_hash": "0000000000000000000000000000000000000000000000000000000000000053",
       "owner_pk_hash": "0000000000000000000000000000000000000000000000000000000000000054",
       "nullifier_pk": "0000000000000000000000000000000000000000000000000000000000000055",
+      "viewing_pk": "032d4bd530c8412d87d004abc845ee45586a7be6c7cf602ce2197bf27871d5a0b9",
+      "ephemeral_pk": "02d2b3ef863cbff9c5f49d996faee486879433543b9d296f1c672fc426889334fc",
+      "ciphertext": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
       "tree_slots": [
         {
           "id": 1,
@@ -656,7 +668,7 @@
           "nullifier_root": "0000000000000000000000000000000000000000000000000000000000000000"
         }
       ],
-      "public_input_hash": "0babf819775f4945e4300e26f5e57ec3a4b589cd9b10fbeab7d6a8b074ffdb90"
+      "public_input_hash": "0d9b4fe182611c7f53fcf5624216c9baad5cedeb57a66b48b3668535112380b9"
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { proofFor } from "./helpers/proofs.js";
+import { solInput } from "./helpers/utxos.js";
 import { LocalKeys, ZolanaClient, type IndexedProofInputs } from "../src/client/index.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
@@ -26,7 +27,7 @@ const decode = wireDecoder(() => new Error("invalid shared vector"));
 
 it.each([1, 8, 9, MERGE_INPUT_COUNT])(
   "hashes each real merge input once with %i real inputs",
-  (count) => {
+  async (count) => {
     const owner = ShieldedKeypair.generate();
     try {
       const inputs = Array.from({ length: count }, () =>
@@ -45,19 +46,19 @@ it.each([1, 8, 9, MERGE_INPUT_COUNT])(
       const hashes = inputs.map((input) => vi.spyOn(input, "hash"));
       try {
         const tree = treeAddress(prepared.inputTreeId);
-        const first = prepareMerge(prepared, tree);
+        const first = await prepareMerge(prepared, tree).withInputs((inputs) => inputs);
         hashes.forEach((hash) => expect(hash).toHaveBeenCalledTimes(1));
-        expect(first.inputs.lookups.map((lookup) => lookup.commitment)).toEqual([
+        expect(first.lookups.map((lookup) => lookup.commitment)).toEqual([
           ...expected,
           ...Array.from({ length: (mergePaddedInputCount(count) ?? 0) - count }, () => null),
         ]);
         const input = inputs[0];
         if (input === undefined) throw new Error("missing test input");
         input.utxo.blinding.fill(0);
-        const second = prepareMerge(prepared, tree);
-        expect(second.inputs.lookups[0]?.commitment).not.toEqual(expected[0]);
-        expect(second.inputs.payload.privateTxHash).not.toBe(first.inputs.payload.privateTxHash);
-        expect(first.inputs.lookups[0]?.commitment).toEqual(expected[0]);
+        const second = await prepareMerge(prepared, tree).withInputs((inputs) => inputs);
+        expect(second.lookups[0]?.commitment).not.toEqual(expected[0]);
+        expect(second.payload.privateTxHash).not.toBe(first.payload.privateTxHash);
+        expect(first.lookups[0]?.commitment).toEqual(expected[0]);
       } finally {
         hashes.forEach((hash) => hash.mockRestore());
       }
@@ -123,6 +124,8 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
   const prepared = Merge.fromKeypair(owner, [input]).prepare();
   const tree = treeAddress(prepared.inputTreeId);
   const local = prepareMerge(prepared, tree);
+  const indexed = await local.withInputs((inputs) => inputs);
+  expect(indexed.payload.envelope?.ephemeralSecret).toEqual(new Uint8Array(32));
   const resolved = {
     tree,
     id: prepared.inputTreeId,
@@ -156,7 +159,10 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(result.outputHash).toEqual(complete.outputHash);
     expect(result.data).toEqual(
-      complete.instructionData(compressProof(parseProof(STANDARD_PROOF)).toTransactProof()),
+      complete.instructionData(compressProof(parseProof(STANDARD_PROOF))),
+    );
+    expect("envelope" in result.data ? result.data.envelope.ephemeralPk : undefined).toEqual(
+      prepared.encryptedEnvelope()?.ephemeralPublicKey.toBytes(),
     );
     const request: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
     const envelope = decode.record(request, "request");
@@ -165,9 +171,15 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(payload).not.toHaveProperty("treeSlots");
     expect(typeof payload["userNullifierSecret"]).toBe("string");
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(ONE_INPUT_MERGE_WIDTH);
-    expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
+    expect(payload["privateTxHash"]).toBe(`0x${indexed.payload.privateTxHash.toString(16)}`);
+    expect(payload).not.toHaveProperty("asset");
+    expect(payload["mint"]).toBe("00".repeat(32));
+    expect(payload["viewingPk"]).toBe(
+      Buffer.from(owner.viewingPublicKey().toUncompressed()).toString("hex"),
+    );
+    expect(String(payload["ephemeralSk"])).toMatch(/^[0-9a-f]{64}$/u);
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
-    expect(publicInputs).toHaveLength(8);
+    expect(publicInputs).toHaveLength(12);
     expect(publicInputs[7]).toBe(payload["userNullifierPk"]);
     for (const provingKeySha256 of [undefined, "00".repeat(32)]) {
       fetch.mockResolvedValueOnce(Response.json({ ...STANDARD_PROOF, provingKeySha256 }));
@@ -189,15 +201,15 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
           {
             proveIndexed: () => ({
               ...valid,
-              proof: { ...valid.proof, [part]: checkedBytes(new Uint8Array(64), 64, "point") },
+              proof: { ...valid.proof, [part]: undefined },
             }),
           },
-          local.inputs,
+          indexed,
         ),
       ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
     }
     await expect(
-      proveThroughAuthority({ proveIndexed: () => undefined }, local.inputs),
+      proveThroughAuthority({ proveIndexed: () => undefined }, indexed),
     ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
     await expect(
       proveThroughAuthority(
@@ -224,11 +236,42 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
             };
           },
         },
-        local.inputs,
+        indexed,
       ),
     ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
   } finally {
     keys.destroy();
+    owner.destroy();
+  }
+});
+
+it("refuses an indexed merge whose envelope does not match its rail", async () => {
+  const owner = ShieldedKeypair.generate();
+  try {
+    const input = solInput(owner, 5n);
+    const prepared = Merge.fromKeypair(owner, [input]).prepare();
+    const request = await prepareMerge(prepared, treeAddress(prepared.inputTreeId)).withInputs(
+      (inputs) => inputs,
+    );
+    expect(decodeIndexedInputs(request).publicInputs).toHaveLength(12);
+    const { envelope, ...withoutEnvelope } = request.payload;
+    if (envelope === undefined) throw new Error("a default merge carries an envelope");
+    for (const payload of [
+      withoutEnvelope,
+      { ...request.payload, ringProgramId: asField(7n) },
+      {
+        ...request.payload,
+        envelope: { ...envelope, viewingPublicKey: owner.viewingPublicKey().toBytes() },
+      },
+    ]) {
+      expect(() => decodeIndexedInputs({ ...request, payload })).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      );
+    }
+    expect(() =>
+      decodeIndexedInputs({ ...request, publicInputs: request.publicInputs.slice(0, 8) }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
+  } finally {
     owner.destroy();
   }
 });

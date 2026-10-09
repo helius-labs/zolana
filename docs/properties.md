@@ -39,7 +39,7 @@
 1. no signer check
 2. cannot change owner
 3. input, output, balance check same as transfer circuit, no address creation
-4. verifiable encryption
+4. verifiable encryption of the output amount and mint to the owner's registered viewing key (default rail only)
 5. a dummy input is permitted only when the proof-wide public boolean `allow_dummy_inputs` is true
 
 ### Ring Authority Circuit

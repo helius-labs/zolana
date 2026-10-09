@@ -1,7 +1,10 @@
 import type {
   Address,
   Bytes32,
-  MergeTransactInstructionData,
+  MergeBody,
+  MergeEnvelope,
+  MergeInstructionData,
+  MergeProofCommitment,
   RequestContext,
 } from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
@@ -10,10 +13,12 @@ import {
   MERGE_SUPPORTED_INPUT_COUNTS,
   mergePaddedInputCount,
 } from "../../interface/constants.js";
+import { mergeEnvelopePublicElements } from "../../interface/merge-utils.js";
 import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
-import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import type { EncryptedMergeEnvelope } from "../../keypair/merge/index.js";
+import { MergeOutputEnvelope, PreparedMerge } from "../../transaction/instructions/builders.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
@@ -44,10 +49,15 @@ import {
   treeSlotFields,
   validateSpendProof,
 } from "./assembly.js";
-import type { Field, MergeInputs, TransferInput } from "./types.js";
+import type { CompressedProofParts } from "./proof.js";
+import type { Field, MergeEnvelopeInputs, MergeInputs, TransferInput } from "./types.js";
 
 export interface MergeAssembly {
-  readonly proverInputs: MergeInputs;
+  /**
+   * Lends the complete prover inputs to `use`. A default merge's inputs carry
+   * a copy of the envelope's ephemeral secret, wiped once `use` settles.
+   */
+  withProverInputs<T>(use: (inputs: MergeInputs) => Promise<T> | T): Promise<T>;
   readonly expiryUnixTs: bigint;
   readonly outputHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
@@ -60,7 +70,11 @@ export interface MergeAssembly {
   readonly externalDataHash: Bytes32;
   readonly eddsaOwner: boolean;
   readonly cacheSlot?: number;
-  instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
+  /**
+   * The default merge's `merge_transact` data, or the ring merge's shared body,
+   * which `merge_ring` sends after the output `ring_data_hash`.
+   */
+  instructionData(proof: CompressedProofParts): MergeInstructionData;
 }
 
 export async function assembleMerge(
@@ -251,16 +265,34 @@ function assembleMergeUnchecked(
 
   const local = prepareMerge(prepared, tree, cache);
   const complete = local.finish(inputTree);
+  const treeSlots = Object.freeze(inputTreeSlots([inputTree.slot]).map(treeSlotFields));
+  const publicInputHash = asField(bytesToBigInt(complete.publicInputHash));
   return Object.freeze({
     ...complete,
-    proverInputs: Object.freeze({
-      ...local.inputs.payload,
-      inputs: Object.freeze(inputs),
-      treeSlots: Object.freeze(inputTreeSlots([inputTree.slot]).map(treeSlotFields)),
-      publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
-    }),
+    withProverInputs: <T>(use: (inputs: MergeInputs) => Promise<T> | T): Promise<T> =>
+      local.withInputs((request) =>
+        use(
+          Object.freeze({
+            ...request.payload,
+            inputs: Object.freeze(inputs),
+            treeSlots,
+            publicInputHash,
+          }),
+        ),
+      ),
   });
 }
+
+type MergeRailPublicInputs =
+  | Readonly<{
+      kind: "default";
+      ownerPublicKeyHash: bigint;
+      nullifierPublicKey: bigint;
+      recipient: Uint8Array;
+      ephemeralPublicKey: Uint8Array;
+      ciphertext: Uint8Array;
+    }>
+  | Readonly<{ kind: "ring"; ringDataHash: bigint; ringProgramId: bigint }>;
 
 interface MergePublicInputFields {
   /** One per circuit slot, 0 for compact padding. */
@@ -269,11 +301,7 @@ interface MergePublicInputFields {
   readonly outputTreeId: TreeId;
   readonly privateTxHash: bigint;
   readonly externalDataHash: bigint;
-  /**
-   * The owner binding: the signing and nullifier public keys on the plain
-   * rail, the output ring data hash and ring program id on a ring merge.
-   */
-  readonly owner: readonly [bigint, bigint];
+  readonly rail: MergeRailPublicInputs;
 }
 
 /**
@@ -290,16 +318,32 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.privateTxHash,
     input.externalDataHash,
     1n,
-    ...input.owner,
+    ...(input.rail.kind === "ring"
+      ? [input.rail.ringDataHash, input.rail.ringProgramId]
+      : [
+          input.rail.ownerPublicKeyHash,
+          input.rail.nullifierPublicKey,
+          ...mergeEnvelopePublicElements(
+            input.rail.recipient,
+            input.rail.ephemeralPublicKey,
+            input.rail.ciphertext,
+          ).map(bytesToBigInt),
+        ]),
   ];
 }
 
+type IndexedMergeInputs = IndexedProofInputs & {
+  readonly circuit: "merge";
+  readonly payload: PreparedMergeInputs;
+};
+
 interface PreparedMergeAssembly {
-  readonly inputs: IndexedProofInputs & {
-    readonly circuit: "merge";
-    readonly payload: PreparedMergeInputs;
-  };
-  finish(tree: MergeInputTree): Omit<MergeAssembly, "proverInputs">;
+  /**
+   * Lends the prover request to `use`. A default merge's request carries a
+   * copy of the envelope's ephemeral secret, wiped once `use` settles.
+   */
+  withInputs<T>(use: (inputs: IndexedMergeInputs) => Promise<T> | T): Promise<T>;
+  finish(tree: MergeInputTree): Omit<MergeAssembly, "withProverInputs">;
 }
 
 export function prepareMerge(
@@ -307,7 +351,7 @@ export function prepareMerge(
   tree: Address,
   cacheTarget?: MergeCacheTarget,
 ): PreparedMergeAssembly {
-  validateMergeTree(prepared, tree);
+  const validated = validateMergeTree(prepared, tree);
   const cache = cacheTarget === undefined ? undefined : checkedMergeCacheTarget(cacheTarget);
   const expiryUnixTs = prepared.expiryUnixTs;
   // 1. Reuse commitments within one call to keep mutable input bytes bound to the statement.
@@ -380,43 +424,62 @@ export function prepareMerge(
     "merge owner public key",
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
+  const nullifierPublicKey = bytesField(prepared.nullifierPublicKey, "merge nullifier public key");
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
     outputTreeId: prepared.outputTreeId,
     privateTxHash: bytesToBigInt(privateTxHash),
     externalDataHash: bytesToBigInt(externalDataHash),
-    owner:
-      prepared.output.ringProgramId === undefined
-        ? [
+    rail:
+      validated === undefined
+        ? {
+            kind: "ring",
+            ringDataHash: BigInt(output.circuit.ringDataHash),
+            ringProgramId: BigInt(output.circuit.ringProgramId),
+          }
+        : {
+            kind: "default",
             ownerPublicKeyHash,
-            bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
-          ]
-        : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
+            nullifierPublicKey,
+            recipient: validated.envelope.recipient.toBytes(),
+            ephemeralPublicKey: validated.encrypted.ephemeralPublicKey.toBytes(),
+            ciphertext: validated.encrypted.ciphertext,
+          },
   }).map(asField);
-  const payload: PreparedMergeInputs = Object.freeze({
+  const payload: Omit<PreparedMergeInputs, "envelope"> = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
     outputTreeId: asField(outputTreeIdField),
+    mint: addressBytes(prepared.output.asset),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
-    userNullifierPublicKey: asField(
-      bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
-    ),
+    userNullifierPublicKey: asField(nullifierPublicKey),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
   });
-  return Object.freeze({
-    inputs: Object.freeze({
+  const trees = Object.freeze([{ tree, id: prepared.inputTreeId }]);
+  const lookups = Object.freeze(slots.map((slot) => slot.lookup));
+  const frozenPublicInputs = Object.freeze(publicInputs);
+  const request = (envelope?: MergeEnvelopeInputs): IndexedMergeInputs =>
+    Object.freeze({
       circuit: "merge",
-      payload,
-      trees: Object.freeze([{ tree, id: prepared.inputTreeId }]),
-      lookups: Object.freeze(slots.map((slot) => slot.lookup)),
-      publicInputs: Object.freeze(publicInputs),
-    }),
-    finish(inputTree: MergeInputTree): Omit<MergeAssembly, "proverInputs"> {
+      payload: Object.freeze({ ...payload, ...(envelope === undefined ? {} : { envelope }) }),
+      trees,
+      lookups,
+      publicInputs: frozenPublicInputs,
+    });
+  return Object.freeze({
+    async withInputs<T>(use: (inputs: IndexedMergeInputs) => Promise<T> | T): Promise<T> {
+      if (validated === undefined) return await use(request());
+      const viewingPublicKey = validated.envelope.recipient.toUncompressed();
+      return await validated.envelope.withEphemeralSecret((ephemeralSecret) =>
+        use(request(Object.freeze({ viewingPublicKey, ephemeralSecret }))),
+      );
+    },
+    finish(inputTree: MergeInputTree): Omit<MergeAssembly, "withProverInputs"> {
       const publicInputHash = checkedBytes(
         bigintToBytes(
           resolvedPublicInputHash(publicInputs, inputTreeSlots([inputTree.slot])),
@@ -427,12 +490,11 @@ export function prepareMerge(
       );
       const utxoTreeRootIndex = inputTree.utxoRootIndex;
       const nullifierTreeRootIndex = inputTree.nullifierRootIndex;
-      const instructionData = (
-        proof: MergeTransactInstructionData["proof"],
-      ): MergeTransactInstructionData =>
+      const instructionData = (proof: CompressedProofParts): MergeInstructionData =>
         Object.freeze({
           expiryUnixTs,
           proof: copyMergeProof(proof),
+          ...mergeEnvelopeData(proof, validated?.encrypted),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
           eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
@@ -470,8 +532,8 @@ export function prepareMerge(
   });
 }
 
-function validateMergeTree(prepared: PreparedMerge, tree: Address): void {
-  validatePreparedMerge(prepared);
+function validateMergeTree(prepared: PreparedMerge, tree: Address): ValidatedEnvelope | undefined {
+  const validated = validatePreparedMerge(prepared);
   // The submit tree must be the tree the inputs are hashed under, or the proof
   // and the instruction would name different trees.
   if (treeAddress(prepared.inputTreeId) !== tree) {
@@ -496,6 +558,7 @@ function validateMergeTree(prepared: PreparedMerge, tree: Address): void {
       },
     });
   }
+  return validated;
 }
 
 function checkNullifierRoot(
@@ -513,7 +576,7 @@ function checkNullifierRoot(
   }
 }
 
-function validatePreparedMerge(prepared: PreparedMerge): void {
+function validatePreparedMerge(prepared: PreparedMerge): ValidatedEnvelope | undefined {
   if (!(prepared instanceof PreparedMerge)) throw new ClientError("CLIENT_INVALID_MERGE");
   const actual = prepared.inputs.length;
   if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(actual)) {
@@ -553,11 +616,71 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
     throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
   if (total !== prepared.output.amount || total > 0xffff_ffff_ffff_ffffn)
     throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
+  return validatedEnvelope(prepared);
 }
 
-function copyMergeProof(
-  proof: MergeTransactInstructionData["proof"],
-): MergeTransactInstructionData["proof"] {
+interface ValidatedEnvelope {
+  readonly envelope: MergeOutputEnvelope;
+  readonly encrypted: EncryptedMergeEnvelope;
+}
+
+function validatedEnvelope(prepared: PreparedMerge): ValidatedEnvelope | undefined {
+  const envelope = prepared.envelope;
+  if (envelope !== undefined && !(envelope instanceof MergeOutputEnvelope)) {
+    throw new ClientError("CLIENT_INVALID_MERGE");
+  }
+  if ((envelope === undefined) !== (prepared.output.ringProgramId !== undefined)) {
+    throw new ClientError("CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH");
+  }
+  if (envelope === undefined) return undefined;
+  const viewingPublicKey = prepared.output.ownerAddress?.viewingPublicKey;
+  if (viewingPublicKey === undefined || !viewingPublicKey.equals(envelope.recipient)) {
+    throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
+  }
+  const first = prepared.inputs[0];
+  if (first === undefined || !equal(first.nullifier(), envelope.firstNullifier)) {
+    throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
+  }
+  const encrypted = prepared.encryptedEnvelope();
+  if (encrypted === undefined || !equal(encrypted.outputBlinding, prepared.output.blinding)) {
+    throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", { details: { index: 0 } });
+  }
+  return Object.freeze({ envelope, encrypted });
+}
+
+function mergeEnvelopeData(
+  proof: CompressedProofParts,
+  encrypted: EncryptedMergeEnvelope | undefined,
+): Readonly<{ proofCommitment?: MergeProofCommitment; envelope?: MergeEnvelope }> {
+  const { commitment, commitmentPok } = proof;
+  if (encrypted === undefined) {
+    if (commitment !== undefined || commitmentPok !== undefined) {
+      throw commitmentError("unexpected commitment");
+    }
+    return {};
+  }
+  if (commitment === undefined || commitmentPok === undefined) {
+    throw commitmentError("missing commitment");
+  }
+  return {
+    proofCommitment: Object.freeze({
+      commitment: checkedBytes(commitment, 32, "merge proof commitment"),
+      commitmentPok: checkedBytes(commitmentPok, 32, "merge proof commitmentPok"),
+    }),
+    envelope: Object.freeze({
+      ephemeralPk: encrypted.ephemeralPublicKey.toBytes(),
+      ciphertext: new Uint8Array(encrypted.ciphertext),
+    }),
+  };
+}
+
+function commitmentError(reason: string): ClientError {
+  return new ClientError("CLIENT_PROOF_PARSE", {
+    details: { path: "$.proof.proofCommitment", reason },
+  });
+}
+
+function copyMergeProof(proof: CompressedProofParts): MergeBody["proof"] {
   return Object.freeze({
     a: checkedBytes(proof.a, 32, "merge proof a"),
     b: checkedBytes(proof.b, 128, "merge proof b"),

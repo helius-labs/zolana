@@ -27,6 +27,9 @@ export function proofFor(body: unknown): Record<string, unknown> {
     ar: ZERO_POINT,
     bs: [ZERO_POINT, ZERO_POINT],
     krs: ZERO_POINT,
+    ...(request["circuitType"] === "merge"
+      ? { proofCommitment: ZERO_POINT, proofCommitmentPok: ZERO_POINT }
+      : {}),
     provingKeySha256: sha256,
   };
 }

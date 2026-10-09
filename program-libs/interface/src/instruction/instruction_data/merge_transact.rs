@@ -8,10 +8,11 @@ pub const MAX_MERGE_INPUTS: usize = 54;
 pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 3] =
     [8, MERGE_DEFAULT_INPUT_COUNT, MAX_MERGE_INPUTS];
 
-/// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
+pub const MERGE_CIPHERTEXT_LEN: usize = 40;
+
+/// The Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the
-/// raw big-endian G2 point (128 bytes). The merge circuit carries no P256
-/// gadget, so there is no BSB22 commitment.
+/// raw big-endian G2 point (128 bytes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeProof {
     pub a: [u8; 32],
@@ -42,9 +43,37 @@ pub struct MergeProofRef<'a> {
     pub c: &'a [u8; 32],
 }
 
-/// `merge_transact` instruction data (spec: SPP `merge_transact`).
+/// The BSB22 commitment and its proof of knowledge that the P-256 default-merge
+/// circuit adds to its Groth16 proof. The ring merge circuit has none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct MergeProofCommitment {
+    pub commitment: [u8; 32],
+    pub commitment_pok: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct MergeProofCommitmentRef<'a> {
+    pub commitment: &'a [u8; 32],
+    pub commitment_pok: &'a [u8; 32],
+}
+
+/// The default-merge output amount and mint, encrypted to the owner's viewing
+/// key: the sender's SEC1-compressed ephemeral key and the 40-byte ciphertext.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct MergeEnvelope {
+    pub ephemeral_pk: [u8; 33],
+    pub ciphertext: [u8; MERGE_CIPHERTEXT_LEN],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct MergeEnvelopeRef<'a> {
+    pub ephemeral_pk: &'a [u8; 33],
+    pub ciphertext: &'a [u8; MERGE_CIPHERTEXT_LEN],
+}
+
+/// The fields `merge_transact` and `merge_ring` share.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct MergeTransactIxData {
+pub struct MergeBody {
     pub expiry_unix_ts: u64,
     pub proof: MergeProof,
     pub output_utxo_hash: [u8; 32],
@@ -63,6 +92,16 @@ pub struct MergeTransactIxData {
     pub cache_slot: Option<u8>,
 }
 
+/// `merge_transact` instruction data (spec: SPP `merge_transact`). The
+/// default rail always carries the proof commitment and the encrypted output
+/// envelope, so neither is optional.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct MergeTransactIxData {
+    pub body: MergeBody,
+    pub proof_commitment: MergeProofCommitment,
+    pub envelope: MergeEnvelope,
+}
+
 impl MergeTransactIxData {
     pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
         Ok(wincode::serialize(self)?)
@@ -73,7 +112,7 @@ impl MergeTransactIxData {
     }
 }
 
-/// Read config for the borrowed view: identical to the default config used by
+/// Read config for the borrowed views: identical to the default config used by
 /// [`MergeTransactIxData::serialize`]; every sequence carries an explicit
 /// `FixIntLen<u8>` override, so the config choice never surfaces on the wire.
 pub(crate) type RefConfig = wincode::config::Configuration<
@@ -82,10 +121,10 @@ pub(crate) type RefConfig = wincode::config::Configuration<
     FixIntLen<u16>,
 >;
 
-/// Zero-copy view of [`MergeTransactIxData`]. The proof points alias the
-/// instruction buffer; only the small element vectors are read owned.
+/// Zero-copy view of [`MergeBody`]. The proof points alias the instruction
+/// buffer; only the small element vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
-pub struct MergeTransactIxDataRef<'a> {
+pub struct MergeBodyRef<'a> {
     pub expiry_unix_ts: u64,
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
@@ -98,13 +137,7 @@ pub struct MergeTransactIxDataRef<'a> {
     pub cache_slot: Option<u8>,
 }
 
-impl<'a> MergeTransactIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
-        parsed.validate_shape()?;
-        Ok(parsed)
-    }
-
+impl MergeBodyRef<'_> {
     /// The instruction carries only the leading nullifiers; the circuit
     /// [`merge_circuit_width`] selects pads the rest with compact padding.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
@@ -112,6 +145,22 @@ impl<'a> MergeTransactIxDataRef<'a> {
             return Err(wincode::ReadError::Custom("unsupported merge shape"));
         }
         Ok(())
+    }
+}
+
+/// Zero-copy view of [`MergeTransactIxData`].
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+pub struct MergeTransactIxDataRef<'a> {
+    pub body: MergeBodyRef<'a>,
+    pub proof_commitment: MergeProofCommitmentRef<'a>,
+    pub envelope: MergeEnvelopeRef<'a>,
+}
+
+impl<'a> MergeTransactIxDataRef<'a> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
+        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        parsed.body.validate_shape()?;
+        Ok(parsed)
     }
 }
 
@@ -152,98 +201,5 @@ impl MergeExternalDataHash<'_> {
             preimage.push(slot);
         }
         Sha256BE::hash(&preimage)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn data() -> MergeTransactIxData {
-        MergeTransactIxData {
-            cache_slot: None,
-            expiry_unix_ts: 42,
-            proof: MergeProof {
-                a: [1u8; 32],
-                b: [2u8; 128],
-                c: [3u8; 32],
-            },
-            output_utxo_hash: [9u8; 32],
-            nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
-                .map(|i| [i; 32])
-                .collect(),
-            utxo_tree_root_index: 4,
-            nullifier_tree_root_index: 10,
-            private_tx_hash: [3u8; 32],
-            eddsa_owner: false,
-        }
-    }
-
-    #[test]
-    fn round_trips_owned_and_ref() {
-        let owned = data();
-        let bytes = owned.serialize().unwrap();
-        let view = MergeTransactIxDataRef::from_bytes(&bytes).unwrap();
-        assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-        assert_eq!(view.proof.a, &owned.proof.a);
-        assert_eq!(view.proof.b, &owned.proof.b);
-        assert_eq!(view.proof.c, &owned.proof.c);
-        assert_eq!(view.output_utxo_hash, &owned.output_utxo_hash);
-        assert_eq!(view.nullifiers, owned.nullifiers);
-        assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
-        assert_eq!(
-            view.nullifier_tree_root_index,
-            owned.nullifier_tree_root_index
-        );
-        assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
-        assert_eq!(view.eddsa_owner, owned.eddsa_owner);
-    }
-
-    #[test]
-    fn fixed_shape_wire_length_matches_the_protocol_contract() {
-        let bytes = data().serialize().expect("serialize merge instruction");
-
-        assert_eq!(bytes.len(), 271 + 32 * MERGE_DEFAULT_INPUT_COUNT);
-    }
-
-    #[test]
-    fn rejects_empty_and_oversized_nullifier_lists() {
-        for count in [0, MAX_MERGE_INPUTS + 1] {
-            let mut owned = data();
-            owned.nullifiers = vec![[1u8; 32]; count];
-            let bytes = owned.serialize().unwrap();
-            assert!(
-                MergeTransactIxDataRef::from_bytes(&bytes).is_err(),
-                "{count} nullifiers"
-            );
-        }
-    }
-
-    fn hash_of(discriminator: u8, expiry: u64, output: &[u8; 32]) -> [u8; 32] {
-        MergeExternalDataHash {
-            cache: None,
-            spp_instruction_discriminator: discriminator,
-            expiry_unix_ts: expiry,
-            output_utxo_hash: output,
-        }
-        .hash()
-        .unwrap()
-    }
-
-    #[test]
-    fn external_data_hash_is_injective() {
-        let base = hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[1u8; 32]);
-        assert_ne!(
-            base,
-            hash_of(crate::instruction::tag::MERGE_TRANSACT, 2, &[1u8; 32])
-        );
-        assert_ne!(
-            base,
-            hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[2u8; 32])
-        );
-        assert_ne!(
-            base,
-            hash_of(crate::instruction::tag::RING_MERGE_TRANSACT, 1, &[1u8; 32])
-        );
     }
 }

@@ -9,7 +9,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, InputTreeSequence},
     instruction::instruction_data::merge_transact::{
-        MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
+        MergeBodyRef, MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     tree_slot::TreeSlot,
@@ -39,7 +39,7 @@ pub(crate) struct MergeCoreAccounts<'a> {
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
 }
 
-pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> ProgramResult {
+pub(crate) fn validate_field_elements(ix: &MergeBodyRef<'_>) -> ProgramResult {
     check_field_elements(
         ix.nullifiers.iter(),
         "input nullifier",
@@ -62,7 +62,11 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
 
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let ix = MergeTransactIxDataRef::from_bytes(data)
+    let MergeTransactIxDataRef {
+        body: ix,
+        proof_commitment,
+        envelope,
+    } = MergeTransactIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     validate_field_elements(&ix)?;
 
@@ -100,6 +104,9 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         MergeOwnerBinding::Default {
             signing_pk_field,
             nullifier_pk: pk_fields.nullifier_pk,
+            viewing_pk: pk_fields.viewing_pk,
+            proof_commitment,
+            envelope,
         },
         cache,
         output_view_tag,
@@ -114,8 +121,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 #[inline(never)]
 pub(crate) fn process_merge_core(
     mut accounts: MergeCoreAccounts<'_>,
-    ix: &MergeTransactIxDataRef<'_>,
-    owner_binding: MergeOwnerBinding,
+    ix: &MergeBodyRef<'_>,
+    owner_binding: MergeOwnerBinding<'_>,
     cache: Option<(CacheWrite<'_>, u8)>,
     output_view_tag: [u8; 32],
     slot: u64,
@@ -212,8 +219,8 @@ pub(crate) fn process_merge_core(
 #[inline(never)]
 fn apply_input_tree(
     tree: &mut TreeAccount<'_>,
-    ix: &MergeTransactIxDataRef<'_>,
-    derived: &mut MergeProofInputs,
+    ix: &MergeBodyRef<'_>,
+    derived: &mut MergeProofInputs<'_>,
 ) -> Result<u64, ProgramError> {
     derived.tree_slot = TreeSlot {
         id: tree.tree_id_array(),
@@ -236,7 +243,7 @@ fn apply_input_tree(
 
 fn apply_output_tree(
     tree: &mut TreeAccount<'_>,
-    ix: &MergeTransactIxDataRef<'_>,
+    ix: &MergeBodyRef<'_>,
     output_tree: [u8; 32],
     input_tree: InputTreeSequence,
     slot: u64,

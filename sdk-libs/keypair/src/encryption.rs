@@ -20,8 +20,9 @@ use crate::{
 
 type Aes256Ctr = Ctr32BE<Aes256>;
 
-/// AES-256-CTR matching aes/ctr.go: J0 = nonce || 0x00000001 and the counter is
-/// advanced once before the first block, so encryption starts at nonce || 2.
+/// AES-256-CTR matching `(*aes.Cipher).CTREncrypt` in
+/// verifiable-encryption/aes/cipher.go: J0 = nonce || 0x00000001 and the counter
+/// is advanced once before the first block, so encryption starts at nonce || 2.
 /// Used for transfer and merge ciphertexts (no authentication tag; integrity
 /// comes from proof-committed hashes).
 pub(crate) fn ctr_apply(key: &[u8; 32], nonce: &[u8; CTR_NONCE_LEN], buf: &mut [u8]) {
@@ -55,7 +56,7 @@ fn key_schedule(
 
 /// Symmetric verifiable encryption: derive the AES-256-CTR key/nonce from a
 /// pre-shared `shared_secret` via the same Poseidon key schedule as the
-/// circuit's `KeySchedule` + `CTREncrypt`, then apply the keystream.
+/// circuit's `KeySchedule` + `(*aes.Cipher).CTREncrypt`, then apply the keystream.
 /// Encryption and decryption are the same operation.
 ///
 /// The key and nonce are fully determined by `(shared_secret, info)`, so the

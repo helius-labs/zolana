@@ -32,7 +32,7 @@ import (
 // the constraint under test, not the hash binding.
 func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	t.Helper()
-	refreshPublicInputHash(t, f, f.userSigningPkHash, f.userNullifierPk)
+	refreshPublicInputHash(t, f, append([]*big.Int{f.userSigningPkHash, f.userNullifierPk}, f.envelope.publicElements()...)...)
 }
 
 // refreshRingPublicInputHash is refreshDefaultPublicInputHash for the ring rail.

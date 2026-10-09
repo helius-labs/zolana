@@ -1,20 +1,30 @@
+use borsh::BorshSerialize;
 use shielded_pool_tests::support::{
-    merge::RealMergeProof,
+    fixtures::Pool,
+    merge::{RealMerge, RealMergeProof},
     transact::{proof_env, tree_progress},
 };
 
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
     state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
+use zolana_program_test::{IndexedTransaction, Rejection};
 use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, assert_nullifier_pdas_absent, nullifier_pda_addresses,
     nullifier_pda_rent, tree_fees,
 };
+use zolana_transaction::{
+    rebuild_merge, AssetRegistry, LocalShieldedKeys, MergeOutput, MergeRebuild, Mint,
+};
+use zolana_user_registry_interface::state::{UserRecord, P256_PUBKEY_LEN};
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -31,6 +41,212 @@ fn merge_cu_ceiling(input_count: usize) -> u64 {
         54 => MERGE_54_CU_CEILING,
         other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
     }
+}
+
+fn send_merge(pool: &mut Pool, ix: Instruction) -> IndexedTransaction {
+    pool.rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .expect("merge with a valid proof")
+}
+
+fn assert_merge_rejected_untouched(
+    pool: &mut Pool,
+    merge: &RealMerge,
+    ix: Instruction,
+    error: ShieldedPoolError,
+    case: &str,
+) {
+    let tree_before = pool.rpc.account_data(&pool.tree).expect("tree data");
+    let failure = pool
+        .rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .err()
+        .unwrap_or_else(|| panic!("{case}: the merge must be rejected"));
+    Rejection::pool(error).at(0).assert_litesvm(failure);
+    assert_eq!(
+        pool.rpc.account_data(&pool.tree).expect("tree data"),
+        tree_before,
+        "{case}: a rejected merge leaves the tree untouched"
+    );
+    assert_nullifier_pdas_absent(&pool.rpc, &pool.tree, &merge.data.body.nullifiers)
+        .unwrap_or_else(|error| panic!("{case}: {error:?}"));
+}
+
+fn set_registry_viewing_key(
+    pool: &mut Pool,
+    record: Pubkey,
+    viewing_pubkey: [u8; P256_PUBKEY_LEN],
+) {
+    let mut account = pool.rpc.svm.get_account(&record).expect("user record");
+    let mut user_record =
+        UserRecord::try_from_account_data(&account.data).expect("decode user record");
+    user_record.viewing_pubkey = viewing_pubkey;
+    account.data = vec![UserRecord::DISCRIMINATOR];
+    user_record
+        .serialize(&mut account.data)
+        .expect("encode user record");
+    account.data.resize(UserRecord::SIZE, 0);
+    pool.rpc
+        .svm
+        .set_account(record, account)
+        .expect("replace registry viewing key");
+}
+
+fn default_merge(pool: &mut Pool, real_input_count: usize) -> RealMerge {
+    RealMergeProof {
+        input_count: MERGE_DEFAULT_INPUT_COUNT,
+        real_input_count,
+    }
+    .build(pool)
+}
+
+#[test]
+fn merge_rejects_a_tampered_envelope_byte() {
+    let mut pool = proof_env();
+    let merge = default_merge(&mut pool, 1);
+
+    for case in [
+        "first ciphertext byte",
+        "last ciphertext byte",
+        "ephemeral key x byte",
+    ] {
+        let mut data = merge.data.clone();
+        let envelope = &mut data.envelope;
+        let byte = match case {
+            "first ciphertext byte" => envelope.ciphertext.first_mut(),
+            "last ciphertext byte" => envelope.ciphertext.last_mut(),
+            _ => envelope.ephemeral_pk.last_mut(),
+        }
+        .expect("envelope byte");
+        *byte ^= 1;
+        let tampered = RealMerge {
+            data,
+            nullifiers: merge.nullifiers.clone(),
+            user_record: merge.user_record,
+            cache: merge.cache,
+        };
+        let ix = tampered.instruction(&pool);
+        assert_merge_rejected_untouched(
+            &mut pool,
+            &merge,
+            ix,
+            ShieldedPoolError::TransactProofVerificationFailed,
+            case,
+        );
+    }
+
+    let ix = merge.instruction(&pool);
+    send_merge(&mut pool, ix);
+    assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.body.nullifiers)
+        .expect("the untampered merge spends its inputs");
+}
+
+#[test]
+fn merge_rejects_a_proof_encrypted_to_a_key_other_than_the_registered_one() {
+    let mut pool = proof_env();
+    let merge = default_merge(&mut pool, 1);
+    let owner = ShieldedKeypair::from_keypair(&pool.rpc.payer).expect("shielded keypair");
+
+    let registered = *ViewingKey::new().pubkey().as_bytes();
+    set_registry_viewing_key(&mut pool, merge.user_record, registered);
+    let ix = merge.instruction(&pool);
+    assert_merge_rejected_untouched(
+        &mut pool,
+        &merge,
+        ix.clone(),
+        ShieldedPoolError::TransactProofVerificationFailed,
+        "proof encrypted to the owner's previous viewing key",
+    );
+
+    set_registry_viewing_key(
+        &mut pool,
+        merge.user_record,
+        *owner.viewing_pubkey().as_bytes(),
+    );
+    send_merge(&mut pool, ix);
+    assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.data.body.nullifiers)
+        .expect("the merge encrypted to the registered key spends its inputs");
+}
+
+#[test]
+fn merged_output_rebuilds_from_the_envelope_alone() {
+    let mut pool = proof_env();
+    let owner = ShieldedKeypair::from_keypair(&pool.rpc.payer).expect("shielded keypair");
+    let merge = default_merge(&mut pool, 3);
+    let envelope = merge.data.envelope;
+    let (utxo_next_before, _) = tree_progress(&pool.rpc, &pool.tree);
+
+    let ix = merge.instruction(&pool);
+    let sent = send_merge(&mut pool, ix);
+    let published = pool
+        .rpc
+        .indexer()
+        .fetch_transaction_by_signature(&sent.signature)
+        .expect("indexed merge")
+        .clone();
+    assert_eq!(
+        published.merge_output(),
+        Some(MergeOutput::Envelope {
+            ephemeral_pk: P256Pubkey::from_bytes(envelope.ephemeral_pk).expect("ephemeral key"),
+            ciphertext: &envelope.ciphertext,
+        }),
+        "the event republishes the instruction envelope"
+    );
+
+    let assets = AssetRegistry::default();
+    let rebuilt = match rebuild_merge(&owner, &published, &[], &assets).expect("rebuild merge") {
+        MergeRebuild::Rebuilt(rebuilt) => rebuilt,
+        other => panic!("the owner must rebuild the merged output, got {other:?}"),
+    };
+    let [output] = rebuilt.as_slice() else {
+        panic!("a merge rebuilds exactly one output, got {}", rebuilt.len());
+    };
+    assert_eq!(
+        (
+            output.utxo_hash,
+            output.leaf_index,
+            output.tree_id,
+            output.utxo.owner,
+            output.utxo.asset,
+            output.utxo.amount,
+            output.nullifier,
+        ),
+        (
+            merge.data.body.output_utxo_hash,
+            utxo_next_before,
+            pool.tree_id,
+            owner.signing_pubkey(),
+            Mint::SOL,
+            0,
+            owner
+                .nullifier_key
+                .nullifier(&output.utxo_hash, &output.utxo.blinding)
+                .expect("output nullifier"),
+        )
+    );
+
+    let wrong_viewing_key = ViewingKey::new();
+    let mut address = owner.shielded_address().expect("shielded address");
+    address.viewing_pubkey = wrong_viewing_key.pubkey();
+    let wrong_keys = LocalShieldedKeys::new(
+        address,
+        vec![wrong_viewing_key],
+        owner.nullifier_key.clone(),
+    )
+    .expect("keys under a wrong viewing key");
+    assert_eq!(
+        rebuild_merge(&wrong_keys, &published, &[], &assets).expect("rebuild merge"),
+        MergeRebuild::NotOurs,
+        "a wrong viewing key must not rebuild the merged output"
+    );
 }
 
 /// Compact padding fills the merge circuit past the real inputs and is left out
@@ -50,7 +266,7 @@ fn merge_with_compact_padding_spends_only_the_real_inputs() {
             real_input_count,
         }
         .build_compact(&mut pool);
-        assert_eq!(merge.data.nullifiers.len(), real_input_count);
+        assert_eq!(merge.data.body.nullifiers.len(), real_input_count);
         let ix = merge.instruction(&pool);
         let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
         pool.rpc
@@ -68,7 +284,7 @@ fn merge_with_compact_padding_spends_only_the_real_inputs() {
             ),
             "one output appended and one nullifier queued per real input"
         );
-        assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.nullifiers)
+        assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.body.nullifiers)
             .expect("nullifier PDAs for the real inputs");
         assert_nullifier_pdas_absent(&pool.rpc, &tree, &[[0u8; 32]])
             .expect("no nullifier PDA for compact padding");

@@ -1002,30 +1002,24 @@ export class ZolanaClient
       }
       if (this.#proofDataSource === "prover") {
         const prepared = prepareMerge(input.prepared, this.tree, input.cache);
-        const { proof, trees } = await proveThroughAuthority(
-          input.keys,
-          this.#withMinContextSlot(prepared.inputs, undefined),
-          context,
+        const { proof, trees } = await prepared.withInputs((inputs) =>
+          proveThroughAuthority(input.keys, this.#withMinContextSlot(inputs, undefined), context),
         );
         const [tree] = trees;
         if (tree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
         const complete = prepared.finish(tree);
         const compressed = compressProof(proof);
         return Object.freeze({
-          data: complete.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c }),
+          data: complete.instructionData(compressed),
           outputHash: new Uint8Array(complete.outputHash) as Bytes32,
         });
       }
       const assembled = await assembleMerge(input.prepared, this, this.tree, context, input.cache);
       const compressed = compressProof(
-        await input.keys.proveMerge(assembled.proverInputs, context),
+        await assembled.withProverInputs((inputs) => input.keys.proveMerge(inputs, context)),
       );
       return Object.freeze({
-        data: assembled.instructionData({
-          a: compressed.a,
-          b: compressed.b,
-          c: compressed.c,
-        }),
+        data: assembled.instructionData(compressed),
         outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
       });
     });
@@ -1050,6 +1044,10 @@ export class ZolanaClient
     if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
       throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
     }
+    const data = input.proved.data;
+    if (!("proofCommitment" in data && "envelope" in data)) {
+      throw new ClientError("CLIENT_MERGE_ENVELOPE_RAIL_MISMATCH");
+    }
     checkedAddress(input.feePayer, "feePayer");
     checkedAddress(input.userRecord, "userRecord");
     const lifetime = await this.getLatestBlockhash(context);
@@ -1059,7 +1057,7 @@ export class ZolanaClient
       userRecord: input.userRecord,
       lifetime,
       ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
-      data: input.proved.data,
+      data,
     });
   }
 

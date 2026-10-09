@@ -109,6 +109,10 @@ name = "spend_input_ceiling"
 [[test]]
 name = "merge_transaction_size"
 
+# Hermetic: merge proof inputs built without a prover server.
+[[test]]
+name = "merge_inputs"
+
 [[test]]
 name = "indexer"
 required-features = ["indexer-api"]

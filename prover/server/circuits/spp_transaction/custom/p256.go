@@ -3,9 +3,9 @@ package customring
 import (
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/circuits/verifiable-encryption/p256/emcurve"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
 	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
@@ -19,7 +19,10 @@ import (
 // 4. Dummy slots are indistinguishable from real UTXO and address slots.
 // 5. Input nullifiers are distinct and balances are preserved.
 
-const p256MessageLimbBits = 128
+const (
+	p256MessageLimbBits = 128
+	p256WitnessLimbBits = 64
+)
 
 type (
 	P256PublicKey = gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
@@ -193,44 +196,35 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
 }
 
+// p256Authorization verifies the shared P256 signature unconditionally:
+// P256Signers requires at least one P256 input on this rail, so a satisfiable
+// witness always carries a valid signature.
 func (c *CustomRingP256Circuit) p256Authorization(
 	api frontend.API,
 ) (frontend.Variable, frontend.Variable, frontend.Variable, error) {
-	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](
-		api,
-		sw_emulated.GetCurveParams[emulated.P256Fp](),
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	point := sw_emulated.AffinePoint[emulated.P256Fp](c.Private.P256Pub)
-	curve.AssertIsOnCurve(&point)
-
-	fp, err := emulated.NewField[emulated.P256Fp](api)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	p256PkHash := gadget.P256OwnerIdentity(api, bytes32FromBits(api, fp.ToBitsCanonical(&point.X)))
-
-	fr, err := emulated.NewField[emulated.P256Fr](api)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	messageBits := append(
 		api.ToBinary(c.Public.P256MessageHashLow, p256MessageLimbBits),
 		api.ToBinary(c.Public.P256MessageHashHigh, p256MessageLimbBits)...,
 	)
-	message := fr.FromBits(messageBits...)
+	message := make([]frontend.Variable, len(messageBits)/p256WitnessLimbBits)
+	for i := range message {
+		message[i] = api.FromBinary(messageBits[i*p256WitnessLimbBits : (i+1)*p256WitnessLimbBits]...)
+	}
+	pub, sig := c.Private.P256Pub, c.Private.P256Sig
+	publicKeyX := emcurve.VerifyECDSA(api, emcurve.ECDSAInputs{
+		LimbBits:   p256WitnessLimbBits,
+		PublicKeyX: pub.X.Limbs,
+		PublicKeyY: pub.Y.Limbs,
+		R:          sig.R.Limbs,
+		S:          sig.S.Limbs,
+		Message:    message,
+	})
+	p256PkHash := gadget.P256OwnerIdentity(api, publicKeyX)
+
 	// The message digest is not an identity, so it stays an untagged hash_bytes_32.
 	messageBytes := bytes32FromBits(api, messageBits)
 	p256MessageHash := gadget.HashBytes(api, messageBytes[:])
-	p256SignatureValid := c.Private.P256Pub.IsValid(
-		api,
-		sw_emulated.GetCurveParams[emulated.P256Fp](),
-		message,
-		&c.Private.P256Sig,
-	)
-	return p256PkHash, p256MessageHash, p256SignatureValid, nil
+	return p256PkHash, p256MessageHash, frontend.Variable(1), nil
 }
 
 // bytes32FromBits adapts a 256-bit little-endian bit decomposition to the

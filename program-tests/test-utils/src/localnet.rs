@@ -1,4 +1,3 @@
-use anyhow::Result;
 use solana_instruction::Instruction;
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
@@ -8,8 +7,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use zolana_client::{ClientError, ComputeBudgetConfig, Proof, ProofCompressed, Rpc, SolanaRpc};
-use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_program_test::localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -23,12 +21,6 @@ pub const ZERO: [u8; 32] = [0u8; 32];
 pub const SPL_CHANGE_POSITION: u8 = 0;
 pub const SOL_CHANGE_POSITION: u8 = 1;
 pub const RECIPIENT_POSITION_BASE: u8 = 2;
-
-/// Build the merge proof carried by a `merge` instruction, via the shared
-/// `ProofCompressed::to_merge_proof` conversion.
-pub fn pack_merge_proof(proof: &Proof) -> Result<MergeProof> {
-    Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
-}
 
 /// Send as a transaction **v1** message, the only format whose 4 KB limit fits
 /// a large transact shape.

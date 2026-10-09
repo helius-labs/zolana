@@ -149,6 +149,12 @@ pub const DOM_SEP_NONCE: u32 = 0x544d_534e; // "TMSN"
 pub const DOMAIN_MERGE_OUTPUT_BLINDING_V1: u32 = 0x544d_4f42; // "TMOB"
 pub const DOMAIN_MERGE_DUMMY_NULLIFIER: u32 = 0x544d_444e; // "TMDN"
 
+pub(crate) const DOMAIN_MERGE_DERIVED_BLINDING: u32 = 0x544d_4542;
+
+pub(crate) const MERGE_SECRET_TAG: &[u8; 4] = b"TMES";
+
+pub(crate) const MERGE_ENVELOPE_INFO: &[u8; 10] = b"\0\0\0\0\0\0TMEC";
+
 pub(crate) fn hkdf_expand(
     salt: Option<&[u8]>,
     ikm: &[u8],

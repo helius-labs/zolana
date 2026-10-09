@@ -10,6 +10,7 @@ import (
 	merge "zolana/prover/circuits/spp_merge"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/prover-test/hosttest"
 	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -42,7 +43,6 @@ type mergeFixtureOptions struct {
 	externalDataHash  *big.Int
 	rail              mergeFixtureRail
 	eddsa             bool
-	asset             *big.Int
 	ringProgramID     *big.Int
 	inputRingData     []*big.Int
 	outputRingData    *big.Int
@@ -57,6 +57,74 @@ type mergeFixtureOptions struct {
 	inputSlot int
 	// outputNullifierPk publishes the merged output under another nullifier key.
 	outputNullifierPk *big.Int
+	legacyBlinding    bool
+	realInputs        []fixtureInput
+	outputTreeID      int64
+	encrypt           func(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope
+}
+
+type fixtureInput struct {
+	amount   *big.Int
+	blinding *big.Int
+}
+
+type hostEnvelope struct {
+	recipientPk  [65]byte
+	recipientLo  *big.Int
+	recipientHi  *big.Int
+	ephemeralSk  [32]byte
+	ephemeralLo  *big.Int
+	ephemeralHi  *big.Int
+	ciphertext   []byte
+	sharedSecret *big.Int
+}
+
+func honestEnvelope(t testing.TB, plaintext []byte, firstNullifier *big.Int) hostEnvelope {
+	t.Helper()
+	return envelopeTo(hosttest.DefaultKeys(), plaintext, firstNullifier)
+}
+
+func envelopeTo(keys hosttest.Keys, plaintext []byte, firstNullifier *big.Int) hostEnvelope {
+	ciphertext, sharedSecret := keys.EncryptWithContext(mergeshared.MergeSecretTag, mergeshared.MergeKdfInfo, plaintext, firstNullifier)
+	recipientLo, recipientHi := keys.RecipientPacked()
+	ephemeralLo, ephemeralHi := keys.EphemeralPacked()
+	return hostEnvelope{
+		recipientPk:  keys.RecipientUncompressed(),
+		recipientLo:  recipientLo,
+		recipientHi:  recipientHi,
+		ephemeralSk:  keys.EphemeralScalar(),
+		ephemeralLo:  ephemeralLo,
+		ephemeralHi:  ephemeralHi,
+		ciphertext:   ciphertext,
+		sharedSecret: sharedSecret,
+	}
+}
+
+func (e hostEnvelope) publicElements() []*big.Int {
+	head := mergeshared.MergeHeadChunkCiphertextBytes
+	packed := new(big.Int).Lsh(e.recipientHi, 8*(2+uint(head)))
+	packed.Add(packed, new(big.Int).Lsh(e.ephemeralHi, 8*uint(head)))
+	packed.Add(packed, new(big.Int).SetBytes(e.ciphertext[:head]))
+	return []*big.Int{
+		e.recipientLo,
+		e.ephemeralLo,
+		packed,
+		new(big.Int).SetBytes(e.ciphertext[head:mergeshared.MergeCiphertextBytes]),
+	}
+}
+
+func fixtureMint() [32]byte {
+	var mint [32]byte
+	for i := range mint {
+		mint[i] = byte(i + 1)
+	}
+	return mint
+}
+
+func mergePlaintext(amount *big.Int, mint [32]byte) []byte {
+	plaintext := make([]byte, mergeshared.MergeAmountBytes, mergeshared.MergeCiphertextBytes)
+	amount.FillBytes(plaintext)
+	return append(plaintext, mint[:]...)
 }
 
 // Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
@@ -108,7 +176,8 @@ type mergeWitnessFixture struct {
 	inputs []merge.Input
 	output merge.Output
 
-	asset               *big.Int
+	mintChunks          [mergeshared.MintChunkCount]frontend.Variable
+	envelope            *hostEnvelope
 	ownerPkHash         *big.Int
 	userNullifierPk     *big.Int
 	userNullifierSecret *big.Int
@@ -116,6 +185,7 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
+	outputBlinding      *big.Int
 	publicInputHash     *big.Int
 }
 
@@ -143,7 +213,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 	curve := elliptic.P256()
 
-	// Owner identity: signing key (P256 or Solana) + shared nullifier secret.
 	ownerSk := big.NewInt(11)
 	ownerX, ownerY := curve.ScalarBaseMult(leftPad32(ownerSk))
 	var ownerKeyHash *big.Int
@@ -172,14 +241,29 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		t.Fatal(err)
 	}
 
-	asset := big.NewInt(1)
-	if options.asset != nil {
-		asset = new(big.Int).Set(options.asset)
+	mint := fixtureMint()
+	asset, err := protocol.HashBytes(mint[:])
+	if err != nil {
+		t.Fatal(err)
 	}
-	const numReal = 2
+	mintChunks := [mergeshared.MintChunkCount]frontend.Variable{
+		new(big.Int).SetBytes(mint[:mergeshared.MintHeadChunkBytes]),
+		new(big.Int).SetBytes(mint[mergeshared.MintHeadChunkBytes:]),
+	}
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
 	blindings := []*big.Int{big.NewInt(0x1111), big.NewInt(0x2222)}
-	ringData := []*big.Int{big.NewInt(0), big.NewInt(0)}
+	if options.realInputs != nil {
+		amounts = make([]*big.Int, len(options.realInputs))
+		blindings = make([]*big.Int, len(options.realInputs))
+		for i, input := range options.realInputs {
+			amounts[i], blindings[i] = input.amount, input.blinding
+		}
+	}
+	numReal := len(amounts)
+	ringData := make([]*big.Int, numReal)
+	for i := range ringData {
+		ringData[i] = big.NewInt(0)
+	}
 	if options.inputRingData != nil {
 		if len(options.inputRingData) != numReal {
 			t.Fatalf("input ring data count: got %d want %d", len(options.inputRingData), numReal)
@@ -198,13 +282,12 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		ringProgramID = options.ringProgramID
 	}
 
-	// Real input UTXOs and their state-tree leaves. Slot 0 is always real: the
-	// output blinding derives from its blinding.
 	if options.inputSlot < 0 || options.inputSlot >= mergeshared.InputTrees {
 		t.Fatalf("input slot %d out of range", options.inputSlot)
 	}
 	treeIDs := fixtureSlotTreeIDs()
 	inputSlots := []int{0, options.inputSlot}
+	// Real input UTXOs and their state-tree leaves. Slot 0 is always real.
 	inUtxos := make([]protocol.Utxo, numReal)
 	inHashes := make([]*big.Int, numReal)
 	stateEntries := map[uint64]*big.Int{}
@@ -228,9 +311,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		inHashes[i] = h
 		stateEntries[uint64(i)] = h
 	}
-	// Every slot publishes the slot-0 state root under its own tree id. An
-	// input placed in another slot is instead the sole leaf of a second tree
-	// published as that slot's root.
 	if options.inputSlot != 0 {
 		delete(stateEntries, 1)
 	}
@@ -238,6 +318,9 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every slot publishes the slot-0 state root under its own tree id. An
+	// input placed in another slot is instead the sole leaf of a second tree
+	// published as that slot's root.
 	slotRoots := make([]*big.Int, mergeshared.InputTrees)
 	for k := range slotRoots {
 		slotRoots[k] = stateRoot
@@ -294,14 +377,32 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		nfWitnesses[i] = w
 	}
 
-	// Merged output. The blinding is derived from the owner's nullifier secret
-	// and the first real nullifier, mirroring the in-circuit derivation.
-	outAmount := new(big.Int).Add(amounts[0], amounts[1])
+	outAmount := new(big.Int)
+	for _, amount := range amounts {
+		outAmount.Add(outAmount, amount)
+	}
 	outBlinding, err := poseidon.Hash([]*big.Int{
 		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), nullifierSecret, nullifiers[0],
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	var envelope *hostEnvelope
+	if options.rail == defaultFixtureRail {
+		encrypt := options.encrypt
+		if encrypt == nil {
+			encrypt = honestEnvelope
+		}
+		encrypted := encrypt(t, mergePlaintext(outAmount, mint), nullifiers[0])
+		envelope = &encrypted
+		if !options.legacyBlinding {
+			outBlinding, err = poseidon.Hash([]*big.Int{
+				big.NewInt(mergeshared.MergeDerivedBlindingDomain), encrypted.sharedSecret,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	outputOwnerHash := userOwnerHash
 	if options.outputNullifierPk != nil {
@@ -320,14 +421,17 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		RingDataHash:  outputRingData,
 		RingProgramID: ringProgramID,
 	}
-	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
+	outputTreeID := int64(fixtureOutputTreeID)
+	if options.outputTreeID != 0 {
+		outputTreeID = options.outputTreeID
+	}
+	outHash := mergeUtxoHash(t, outUtxo, outputTreeID)
 
 	externalDataHash := options.externalDataHash
 	if externalDataHash == nil {
 		externalDataHash = big.NewInt(0xABCDEF)
 	}
 
-	// private_tx_hash over the input/output hash chains (dummies contribute 0).
 	inputHashChainInputs := make([]*big.Int, inputCount)
 	for i := 0; i < inputCount; i++ {
 		if i < numReal {
@@ -359,9 +463,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash = options.userSigningPkHash
 	}
 
-	// Dummy slots publish deterministic nullifiers derived from the owner's
-	// nullifier secret and the first real nullifier, mirroring the in-circuit
-	// derivation.
 	dummyNullifier := func(slot int) *big.Int {
 		nf, err := poseidon.Hash([]*big.Int{
 			big.NewInt(mergeshared.MergeDummyNullifierDomain),
@@ -383,7 +484,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		dummyNfWitnesses[i] = w
 	}
 
-	// Public columns (real + dummy), reused verbatim in the public input hash.
 	pubNullifiers := make([]*big.Int, inputCount)
 	for i := 0; i < inputCount; i++ {
 		if i < numReal {
@@ -397,13 +497,12 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if options.allowDummyInputs != nil {
 		allowDummyInputs = options.allowDummyInputs
 	}
-	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
 	publicInputPreimage := []*big.Int{
 		spptest.MustRightHashChain4(t, pubNullifiers),
 		outHash,
 		spptest.MustTreeSlotsHashChain(t, treeSlots),
-		outputTreeID,
+		big.NewInt(outputTreeID),
 		privateTxHash,
 		externalDataHash,
 		allowDummyInputs,
@@ -415,6 +514,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 			userSigningPkHash,
 			userNullifierPk,
 		)
+		publicInputPreimage = append(publicInputPreimage, envelope.publicElements()...)
 	case ringFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
@@ -432,7 +532,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
-	public.OutputTreeID = outputTreeID
+	public.OutputTreeID = big.NewInt(outputTreeID)
 	for k, slot := range treeSlots {
 		public.TreeSlots[k] = transaction.TreeSlot{
 			ID:            slot.ID,
@@ -479,7 +579,8 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	return &mergeWitnessFixture{
 		inputs:              inputs,
 		output:              merge.Output{RingDataHash: outputRingData},
-		asset:               asset,
+		mintChunks:          mintChunks,
+		envelope:            envelope,
 		ownerPkHash:         ownerKeyHash,
 		userNullifierPk:     userNullifierPk,
 		userNullifierSecret: nullifierSecret,
@@ -487,6 +588,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash:   userSigningPkHash,
 		outputRingDataHash:  outputRingData,
 		ringProgramID:       ringProgramID,
+		outputBlinding:      outBlinding,
 		publicInputHash:     publicInputHash,
 	}
 }
@@ -495,7 +597,13 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment := merge.NewMergeCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
-	assignment.Asset = f.asset
+	assignment.MintChunks = f.mintChunks
+	for i, b := range f.envelope.recipientPk {
+		assignment.ViewingPk[i] = b
+	}
+	for i, b := range f.envelope.ephemeralSk {
+		assignment.EphemeralSk[i] = b
+	}
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
@@ -509,7 +617,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment := merge.NewMergeRingCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
-	assignment.Asset = f.asset
+	assignment.MintChunks = f.mintChunks
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret

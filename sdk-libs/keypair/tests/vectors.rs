@@ -16,7 +16,9 @@
 use serde::{Deserialize, Serialize};
 use zolana_keypair::{
     derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
-    symmetric_apply, ShieldedKeypair, SigningKey, ViewingKey,
+    merge_envelope::merge_shared_secret,
+    symmetric_apply, DecryptedMergeEnvelope, MergeEnvelopeDecryption, MergeEnvelopeEncryption,
+    P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 
 const VECTORS_JSON: &str = include_str!("../../../test-vectors/key_derivation.json");
@@ -30,6 +32,7 @@ struct KeyDerivationVectors {
     owner: Owner,
     key_schedule: KeySchedule,
     merge_recovery: MergeRecovery,
+    merge_envelope: MergeEnvelope,
     derivation_input_guard: Vec<GuardCase>,
 }
 
@@ -99,6 +102,21 @@ struct MergeRecovery {
     dummy_slot_index: u8,
     dummy_nullifier: String,
     private_tx_blinding: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct MergeEnvelope {
+    recipient_secret: String,
+    ephemeral_secret: String,
+    amount: u64,
+    mint: String,
+    first_nullifier: String,
+    recipient_compressed: String,
+    recipient_uncompressed: String,
+    ephemeral_pk: String,
+    shared_secret: String,
+    ciphertext: String,
+    output_blinding: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -214,6 +232,73 @@ fn compute_key_schedule() -> KeySchedule {
     }
 }
 
+fn merge_envelope_keys() -> (ViewingKey, ViewingKey) {
+    let mut ephemeral_secret = scalar_bytes(0x61);
+    if let Some(first) = ephemeral_secret.first_mut() {
+        *first = 0x0f;
+    }
+    (
+        ViewingKey::from_bytes(&scalar_bytes(0x2b)).unwrap(),
+        ViewingKey::from_bytes(&ephemeral_secret).unwrap(),
+    )
+}
+
+fn merge_envelope_mint() -> [u8; 32] {
+    let mut mint = [0u8; 32];
+    for (byte, value) in mint.iter_mut().zip(0xa0u8..) {
+        *byte = value;
+    }
+    mint
+}
+
+fn merge_envelope_first_nullifier() -> [u8; 32] {
+    let mut first_nullifier = [0u8; 32];
+    for (byte, value) in first_nullifier.iter_mut().zip(0xc0u8..) {
+        *byte = value;
+    }
+    if let Some(top) = first_nullifier.first_mut() {
+        *top = 0x1e;
+    }
+    first_nullifier
+}
+
+fn compute_merge_envelope() -> MergeEnvelope {
+    let (recipient, ephemeral) = merge_envelope_keys();
+    let amount = 1_234_567_890_123u64;
+    let mint = merge_envelope_mint();
+    let first_nullifier = merge_envelope_first_nullifier();
+    let recipient_pk = recipient.pubkey();
+    let encrypted = MergeEnvelopeEncryption {
+        recipient: &recipient_pk,
+        ephemeral: &ephemeral,
+        amount,
+        mint,
+        first_nullifier,
+    }
+    .encrypt()
+    .unwrap();
+    let shared_secret = merge_shared_secret(
+        &ephemeral.ecdh(&recipient_pk).unwrap(),
+        &ephemeral.pubkey(),
+        &recipient_pk,
+        &first_nullifier,
+    )
+    .unwrap();
+    MergeEnvelope {
+        recipient_secret: hex::encode(recipient.secret_bytes().as_slice()),
+        ephemeral_secret: hex::encode(ephemeral.secret_bytes().as_slice()),
+        amount,
+        mint: hex::encode(mint),
+        first_nullifier: hex::encode(first_nullifier),
+        recipient_compressed: hex::encode(recipient_pk.as_bytes()),
+        recipient_uncompressed: hex::encode(recipient_pk.to_uncompressed().unwrap()),
+        ephemeral_pk: hex::encode(encrypted.ephemeral_pk),
+        shared_secret: hex::encode(shared_secret.as_slice()),
+        ciphertext: hex::encode(encrypted.ciphertext),
+        output_blinding: hex::encode(encrypted.output_blinding),
+    }
+}
+
 fn compute_derivation_input_guard() -> Vec<GuardCase> {
     let signer_pubkey = [7u8; 32];
     let wrapped = ed25519_derivation_message(&signer_pubkey);
@@ -253,6 +338,7 @@ fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
         owner: compute_owner(),
         key_schedule: compute_key_schedule(),
         merge_recovery,
+        merge_envelope: compute_merge_envelope(),
         derivation_input_guard: compute_derivation_input_guard(),
     }
 }
@@ -295,6 +381,42 @@ fn shared_vectors_match() {
     let mut round_trip = hex::decode(&committed.key_schedule.ciphertext).unwrap();
     symmetric_apply(&shared_secret, MERGE_INFO, &mut round_trip).unwrap();
     assert_eq!(hex::encode(round_trip), committed.key_schedule.plaintext);
+
+    let (recipient, _) = merge_envelope_keys();
+    let ephemeral_pk = P256Pubkey::from_bytes(
+        hex::decode(&committed.merge_envelope.ephemeral_pk)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    )
+    .unwrap();
+    let ciphertext: [u8; 40] = hex::decode(&committed.merge_envelope.ciphertext)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let first_nullifier: [u8; 32] = hex::decode(&committed.merge_envelope.first_nullifier)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let decrypted = MergeEnvelopeDecryption {
+        viewing_key: &recipient,
+        ephemeral_pk: &ephemeral_pk,
+        ciphertext: &ciphertext,
+        first_nullifier: &first_nullifier,
+    }
+    .decrypt()
+    .unwrap();
+    assert_eq!(
+        decrypted,
+        DecryptedMergeEnvelope {
+            amount: committed.merge_envelope.amount,
+            mint: merge_envelope_mint(),
+            output_blinding: hex::decode(&committed.merge_envelope.output_blinding)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        }
+    );
 }
 
 #[test]

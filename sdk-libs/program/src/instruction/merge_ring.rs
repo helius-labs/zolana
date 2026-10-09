@@ -2,7 +2,7 @@ use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{tag, MergeRingIxData, MergeTransactIxData},
+    instruction::{instruction_data::MergeBody, tag, MergeRingIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -17,14 +17,15 @@ use super::{merge_transact::CacheWriteAccounts, transact::nullifier_pda_accounts
 /// writable cache account and its signing writer when `data.cache_slot` is
 /// set. The program rejects any account beyond that, so `cache` and
 /// `data.cache_slot` must be set together. Instruction data is the output `ring_data_hash` followed by the
-/// `MergeTransactIxData` body.
+/// shared `MergeBody`; a ring merge carries no proof commitment and no
+/// encrypted envelope.
 pub struct MergeRing {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
     /// Calling ring program; its `ring_config` (canonical `ring_auth` PDA) signs.
     pub ring_program_id: Pubkey,
     pub payer: Pubkey,
-    pub data: MergeTransactIxData,
+    pub data: MergeBody,
     /// The output `ring_data_hash` the ring program selected; the merge proof
     /// binds it to `Output.Utxo.RingDataHash`.
     pub output_ring_data_hash: [u8; 32],
@@ -95,8 +96,8 @@ mod tests {
         (1u8..=8).map(|i| [i; 32]).collect()
     }
 
-    fn data() -> MergeTransactIxData {
-        MergeTransactIxData {
+    fn data() -> MergeBody {
+        MergeBody {
             cache_slot: None,
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
@@ -164,7 +165,7 @@ mod tests {
             output_tree: Pubkey::new_unique(),
             ring_program_id,
             payer: Pubkey::new_unique(),
-            data: MergeTransactIxData {
+            data: MergeBody {
                 cache_slot: Some(0),
                 ..data()
             },

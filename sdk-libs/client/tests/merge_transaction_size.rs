@@ -9,8 +9,10 @@ use solana_instruction::Instruction;
 use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
-use zolana_client::{transaction_size, ComputeBudgetConfig, MergeProver, Rpc, TransactionSize};
-use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+use zolana_client::{
+    transaction_size, CompressedCommitments, ComputeBudgetConfig, MergeProver, ProofCompressed,
+    Rpc, TransactionSize,
+};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_program::instruction::{MergeRing, MergeTransact};
 use zolana_transaction::{
@@ -24,6 +26,15 @@ const TREE_ID: u16 = 0;
 
 fn ring_program() -> Address {
     Address::new_from_array([9u8; 32])
+}
+
+fn zeroed_proof(commitment: Option<CompressedCommitments>) -> ProofCompressed {
+    ProofCompressed {
+        a: [0; 32],
+        b: [0; 128],
+        c: [0; 32],
+        commitment,
+    }
 }
 
 fn output_ring_data_hash() -> [u8; 32] {
@@ -131,7 +142,9 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
     let payer = Pubkey::new_unique();
     let (instruction, sent_nullifiers) = match ring {
         Some(ring) => {
-            let data = result.ring_instruction_data(MergeProof::zeroed());
+            let data = result
+                .ring_instruction_data(zeroed_proof(None))
+                .expect("merge-ring instruction data");
             let sent_nullifiers = data.merge.nullifiers.len();
             let instruction = MergeRing {
                 input_tree: tree,
@@ -146,8 +159,13 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
             (instruction, sent_nullifiers)
         }
         None => {
-            let data = result.instruction_data(MergeProof::zeroed());
-            let sent_nullifiers = data.nullifiers.len();
+            let data = result
+                .instruction_data(zeroed_proof(Some(CompressedCommitments {
+                    commitment: [0; 32],
+                    commitment_pok: [0; 32],
+                })))
+                .expect("merge instruction data");
+            let sent_nullifiers = data.body.nullifiers.len();
             let instruction = MergeTransact {
                 input_tree: tree,
                 output_tree: tree,
@@ -202,9 +220,22 @@ fn a_ring_merge_of_every_slot_misses_the_byte_ceiling() {
 }
 
 #[test]
-fn a_plain_merge_of_every_slot_fits_a_v1_transaction() {
+fn a_plain_merge_of_every_slot_misses_the_byte_ceiling() {
     let merge = build_merge(MAX_MERGE_INPUTS, None);
     assert_compact(&merge, MAX_MERGE_INPUTS);
-    let size = merge.size();
-    assert!(size.fits(), "plain merge of every slot is {size:?}");
+    assert!(merge.size().bytes > MAX_TRANSACTION_SIZE);
+}
+
+#[test]
+fn a_plain_merge_two_slots_short_of_the_widest_shape_is_the_widest_that_fits() {
+    let widest = build_merge(MAX_MERGE_INPUTS - 2, None);
+    assert_compact(&widest, MAX_MERGE_INPUTS - 2);
+    let size = widest.size();
+    assert!(
+        size.fits(),
+        "plain merge of {} real inputs is {size:?}",
+        MAX_MERGE_INPUTS - 2
+    );
+    let one_more = build_merge(MAX_MERGE_INPUTS - 1, None);
+    assert!(one_more.size().bytes > MAX_TRANSACTION_SIZE);
 }

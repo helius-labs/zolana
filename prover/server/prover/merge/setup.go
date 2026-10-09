@@ -71,7 +71,7 @@ func mergeSystem(circuitType common.CircuitType, nInputs uint32, pk groth16.Prov
 		CircuitType:      circuitType,
 		NInputs:          nInputs,
 		NOutputs:         MergeNOutputs,
-		RequiresP256:     true,
+		RequiresP256:     circuitType == common.MergeCircuitType,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,

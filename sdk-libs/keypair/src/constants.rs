@@ -2,6 +2,8 @@ pub const PUBLIC_KEY_LEN: usize = 34;
 
 pub const P256_PUBKEY_LEN: usize = 33;
 
+pub const P256_UNCOMPRESSED_PUBKEY_LEN: usize = 65;
+
 pub const BLINDING_LEN: usize = 31;
 
 pub(crate) const ED25519_PUBKEY_LEN: usize = 32;

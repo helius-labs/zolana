@@ -16,12 +16,12 @@ type InputParams struct {
 	Blinding     *big.Int
 	RingDataHash *big.Int
 
-	StatePathElements []*big.Int // len StateTreeHeight
+	StatePathElements []*big.Int
 	StatePathIndex    *big.Int
 
 	NullifierLowValue        *big.Int
 	NullifierNextValue       *big.Int
-	NullifierLowPathElements []*big.Int // len NullifierTreeHeight
+	NullifierLowPathElements []*big.Int
 	NullifierLowPathIndex    *big.Int
 
 	// TreeSlot indexes MergeParameters.TreeSlots and stays private: it selects
@@ -40,9 +40,9 @@ type OutputParams struct {
 }
 
 // MergeParameters is the flat, pre-computed witness for the n-in/1-out merge
-// circuit. The prover does no hashing: the client computes every field (utxo
-// hashes, nullifiers, tree roots/proofs, the private-tx hash, the encryption,
-// and the public-input hash) and sends them here.
+// circuit. The prover does no hashing: the client computes every hash (utxo
+// hashes, nullifiers, tree roots/proofs, the private-tx hash, and the
+// public-input hash) and sends them here.
 type MergeParameters struct {
 	// CircuitType selects the rail: MergeCircuitType (default) or
 	// MergeRingCircuitType (policy ring). It chooses which circuit the witness is
@@ -62,8 +62,10 @@ type MergeParameters struct {
 	// slot's tree.
 	OutputTreeID *big.Int
 
-	// Asset is the single asset shared by every real input and the merged output.
-	Asset *big.Int
+	Mint [32]byte
+
+	ViewingPk   [65]byte
+	EphemeralSk [32]byte
 
 	// RingProgramID is the policy-ring merge circuit's top-level public
 	// RingProgramID input (the ring program's pk_field). Every real input and the
@@ -73,8 +75,8 @@ type MergeParameters struct {
 
 	// Shared owner identity: the owner's pk_field and the nullifier
 	// secret/commitment. UserNullifierSecret also seeds the private tx blinding
-	// and the merged output's blinding, both derived in-circuit, so no wire
-	// field carries either.
+	// and, on the policy-ring rail, the merged output's blinding, both derived
+	// in-circuit, so no request field carries either.
 	OwnerPkHash         *big.Int
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int

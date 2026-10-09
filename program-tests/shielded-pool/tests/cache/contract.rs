@@ -7,7 +7,10 @@ use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::{
-        merge_transact::{MergeProof, MergeTransactIxData},
+        merge_transact::{
+            MergeBody, MergeEnvelope, MergeProof, MergeProofCommitment, MergeTransactIxData,
+            MERGE_CIPHERTEXT_LEN,
+        },
         CreateCacheData,
     },
     pda,
@@ -378,15 +381,25 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
         };
         store(&mut rpc, cache, cache_state);
         let data = MergeTransactIxData {
-            cache_slot: Some(if case == "slot" { 36 } else { 0 }),
-            expiry_unix_ts: u64::MAX,
-            proof: MergeProof::zeroed(),
-            output_utxo_hash: fe(9),
-            eddsa_owner: !p256,
-            private_tx_hash: [0; 32],
-            nullifiers: (1..=8).map(fe).collect(),
-            utxo_tree_root_index: 0,
-            nullifier_tree_root_index: 0,
+            body: MergeBody {
+                cache_slot: Some(if case == "slot" { 36 } else { 0 }),
+                expiry_unix_ts: u64::MAX,
+                proof: MergeProof::zeroed(),
+                output_utxo_hash: fe(9),
+                eddsa_owner: !p256,
+                private_tx_hash: [0; 32],
+                nullifiers: (1..=8).map(fe).collect(),
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            },
+            proof_commitment: MergeProofCommitment {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+            envelope: MergeEnvelope {
+                ephemeral_pk: core::array::from_fn(|index| if index == 0 { 0x02 } else { 7 }),
+                ciphertext: [9; MERGE_CIPHERTEXT_LEN],
+            },
         };
         let ix = MergeTransact {
             input_tree: tree,

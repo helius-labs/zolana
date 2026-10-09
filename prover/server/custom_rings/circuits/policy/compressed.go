@@ -17,10 +17,10 @@ func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
 	}
 	// 1. Prove the member's windowed policy and record transition.
 	api.AssertIsDifferent(c.Policy.WindowSlots, 0)
-	chain, counters := c.Policy.constrainPolicyRail(api, memberRail)
+	chain, counters, txViewingKey := c.Policy.constrainPolicyRail(api, memberRail)
 
 	// 2. The disclosure hash follows the policy chain, as the program hashes it.
-	disclosureHash, err := counters.seal(api, c.Policy.TxViewingSk, c.TransactionSalt)
+	disclosureHash, err := counters.encrypt(api, txViewingKey, c.TransactionSalt)
 	if err != nil {
 		return err
 	}

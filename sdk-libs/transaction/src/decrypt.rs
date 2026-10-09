@@ -3,13 +3,17 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey};
+use zolana_hasher::p256::is_reserved_derivation_point;
+use zolana_keypair::{
+    constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey,
+    MERGE_ENVELOPE_CIPHERTEXT_LEN,
+};
 
 use crate::{
-    asset::{AssetBalance, AssetRegistry, Balances},
+    asset::{AssetBalance, AssetRegistry, Balances, Mint},
     data::Data,
     error::TransactionError,
-    indexer_types::{OutputSlot, ShieldedTransaction},
+    indexer_types::{MergeOutput, OutputContext, OutputSlot, ShieldedTransaction},
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys},
     serialization::{
         anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
@@ -37,6 +41,10 @@ pub struct DecryptionResult {
     /// every batch: the missing input can be another merge's output that a
     /// later batch brings.
     pub pending_merges: Vec<ShieldedTransaction>,
+    /// Merges tagged for this wallet whose envelope the key holder failed to
+    /// decrypt under every viewing key. Each is left out; the rest of the sync
+    /// stands.
+    pub undecryptable_merges: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,6 +55,8 @@ pub struct SpendableDecryptionResult {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
     pub unknown_mints: BTreeSet<Address>,
+    /// As on [`DecryptionResult`].
+    pub undecryptable_merges: usize,
 }
 
 impl SpendableDecryptionResult {
@@ -145,7 +155,18 @@ impl DecryptionResult {
             .iter()
             .chain(transactions.iter().filter(|tx| tx.may_be_merge()))
             .collect();
-        let pending_merges = rebuild_merges(shielded_keys, &address, merges, &mut utxos)?;
+        let mut undecryptable_merges = 0;
+        let pending_merges = rebuild_merges(
+            shielded_keys,
+            &address,
+            merges,
+            &mut utxos,
+            assets,
+            MergeSkips {
+                unknown_mints: &mut unknown_mints,
+                undecryptable: &mut undecryptable_merges,
+            },
+        )?;
         utxos.sort_by_key(|utxo| {
             (
                 utxo.slot,
@@ -162,6 +183,9 @@ impl DecryptionResult {
         self.unknown_asset_ids.extend(unknown_asset_ids);
         self.unknown_mints.extend(unknown_mints);
         self.pending_merges = pending_merges;
+        self.undecryptable_merges = self
+            .undecryptable_merges
+            .saturating_add(undecryptable_merges);
         Ok(())
     }
 }
@@ -244,6 +268,7 @@ pub fn verify_spendable<K: ShieldedKeys + ?Sized>(
         utxos_with_data,
         unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
         unknown_mints: decrypted.unknown_mints.clone(),
+        undecryptable_merges: decrypted.undecryptable_merges,
     })
 }
 
@@ -466,26 +491,44 @@ pub enum MergeRebuild {
     Pending,
     /// Not a merge of this wallet's UTXOs.
     NotOurs,
+    /// Tagged for this wallet, but the key holder failed to decrypt its
+    /// envelope under every viewing key.
+    Undecryptable,
+}
+
+struct MergeSkips<'a> {
+    unknown_mints: &'a mut BTreeSet<Address>,
+    undecryptable: &'a mut usize,
 }
 
 /// Rebuilds the outputs of this wallet's merges and returns the ones still
-/// pending. A merge publishes no ciphertext: its output carries the inputs'
-/// total under a blinding derived from the first nullifier, so the owner
-/// recomputes it from the notes it holds. A merge can spend another merge's
-/// output, so passes repeat until one resolves nothing new.
+/// pending. A default merge's output is decrypted from its envelope. A ring
+/// merge publishes no ciphertext: its output carries the inputs' total under a
+/// blinding derived from the first nullifier, so the owner recomputes it from
+/// the notes it holds. A merge can spend another merge's output, so passes
+/// repeat until one resolves nothing new.
 fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
     mut pending: Vec<&ShieldedTransaction>,
     utxos: &mut Vec<WalletUtxo>,
+    assets: &AssetRegistry,
+    skips: MergeSkips<'_>,
 ) -> Result<Vec<ShieldedTransaction>, TransactionError> {
     while !pending.is_empty() {
         let mut unresolved = Vec::new();
         for tx in &pending {
-            match rebuild(shielded_keys, address, tx, utxos)? {
-                MergeRebuild::Rebuilt(rebuilt) => utxos.extend(rebuilt),
-                MergeRebuild::Pending => unresolved.push(*tx),
-                MergeRebuild::NotOurs => {}
+            match rebuild(shielded_keys, address, tx, utxos, assets) {
+                Ok(MergeRebuild::Rebuilt(rebuilt)) => utxos.extend(rebuilt),
+                Ok(MergeRebuild::Pending) => unresolved.push(*tx),
+                Ok(MergeRebuild::NotOurs) => {}
+                Ok(MergeRebuild::Undecryptable) => {
+                    *skips.undecryptable = skips.undecryptable.saturating_add(1);
+                }
+                Err(TransactionError::UnknownMint(mint)) => {
+                    skips.unknown_mints.insert(mint);
+                }
+                Err(error) => return Err(error),
             }
         }
         if unresolved.len() == pending.len() {
@@ -496,19 +539,23 @@ fn rebuild_merges<K: ShieldedKeys + ?Sized>(
     Ok(pending.into_iter().cloned().collect())
 }
 
-/// Rebuilds the outputs of `merge` from the UTXOs the wallet holds, found by
-/// nullifier. [`decrypt`] rebuilds the merges of one batch from that batch's
+/// Rebuilds the output of `merge`; a ring merge's inputs are found in `held`
+/// by nullifier. [`decrypt()`] rebuilds the merges of one batch from that batch's
 /// candidates; a client that keeps UTXOs between syncs passes them here, since
-/// a merge's inputs were usually published in an earlier batch.
+/// a ring merge's inputs were usually published in an earlier batch.
 pub fn rebuild_merge<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     merge: &ShieldedTransaction,
     held: &[WalletUtxo],
+    assets: &AssetRegistry,
 ) -> Result<MergeRebuild, TransactionError> {
-    if !merge.may_be_merge() {
-        return Ok(MergeRebuild::NotOurs);
-    }
-    rebuild(shielded_keys, &shielded_keys.address()?, merge, held)
+    rebuild(
+        shielded_keys,
+        &shielded_keys.address()?,
+        merge,
+        held,
+        assets,
+    )
 }
 
 fn rebuild<K: ShieldedKeys + ?Sized>(
@@ -516,6 +563,92 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
     address: &ShieldedAddress,
     tx: &ShieldedTransaction,
     utxos: &[WalletUtxo],
+    assets: &AssetRegistry,
+) -> Result<MergeRebuild, TransactionError> {
+    let (Some(output), [slot]) = (tx.merge_output(), tx.output_slots.as_slice()) else {
+        return Ok(MergeRebuild::NotOurs);
+    };
+    let context = &slot.output_context;
+    match output {
+        MergeOutput::Envelope {
+            ephemeral_pk,
+            ciphertext,
+        } => decrypt_merge_envelope(
+            shielded_keys,
+            address,
+            tx,
+            slot,
+            &ephemeral_pk,
+            ciphertext,
+            assets,
+        ),
+        MergeOutput::Ring { ring_data_hash } => {
+            rebuild_ring_merge(shielded_keys, address, tx, context, utxos, ring_data_hash)
+        }
+    }
+}
+
+fn decrypt_merge_envelope<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    address: &ShieldedAddress,
+    tx: &ShieldedTransaction,
+    slot: &OutputSlot,
+    ephemeral_pk: &P256Pubkey,
+    ciphertext: &[u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    assets: &AssetRegistry,
+) -> Result<MergeRebuild, TransactionError> {
+    // The program tags a default merge's output with the owner's signing key,
+    // so a merge tagged for anyone else is dropped before any key agreement.
+    if slot.view_tag != address.confidential_view_tag()?
+        || is_reserved_derivation_point(ephemeral_pk.as_bytes())
+    {
+        return Ok(MergeRebuild::NotOurs);
+    }
+    let Some(first_nullifier) = tx.nullifiers.first() else {
+        return Ok(MergeRebuild::NotOurs);
+    };
+    let context = &slot.output_context;
+    let mut failed = false;
+    for viewing_pubkey in shielded_keys.viewing_public_keys() {
+        let Ok(envelope) = shielded_keys.decrypt_merge_envelope(
+            &viewing_pubkey,
+            ephemeral_pk,
+            ciphertext,
+            first_nullifier,
+        ) else {
+            failed = true;
+            continue;
+        };
+        let mint = Address::new_from_array(envelope.mint);
+        let utxo = Utxo {
+            owner: address.signing_pubkey,
+            asset: Mint::new(mint, 0),
+            amount: envelope.amount,
+            blinding: envelope.output_blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        let Some(mut rebuilt) = merge_wallet_utxo(address, tx, context, utxo, None)? else {
+            continue;
+        };
+        rebuilt.utxo.asset = assets.mint(&mint)?;
+        let mut rebuilt = vec![rebuilt];
+        assign_nullifiers(shielded_keys, &mut rebuilt)?;
+        return Ok(MergeRebuild::Rebuilt(rebuilt));
+    }
+    if failed {
+        return Ok(MergeRebuild::Undecryptable);
+    }
+    Ok(MergeRebuild::NotOurs)
+}
+
+fn rebuild_ring_merge<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    address: &ShieldedAddress,
+    tx: &ShieldedTransaction,
+    context: &OutputContext,
+    utxos: &[WalletUtxo],
+    ring_data_hash: [u8; 32],
 ) -> Result<MergeRebuild, TransactionError> {
     let held = |nullifier: &[u8; 32]| utxos.iter().find(|utxo| &utxo.nullifier == nullifier);
     let Some(&first_nullifier) = tx.nullifiers.first() else {
@@ -564,7 +697,11 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
         return Ok(MergeRebuild::NotOurs);
     };
     let (asset, ring_program_id) = (first.utxo.asset, first.utxo.ring_program_id);
-    if inputs.iter().any(|input| input.utxo.asset != asset) {
+    if ring_program_id.is_none()
+        || inputs
+            .iter()
+            .any(|input| input.utxo.asset != asset || input.utxo.ring_program_id != ring_program_id)
+    {
         return Ok(MergeRebuild::NotOurs);
     }
     let mut amount = 0u64;
@@ -574,55 +711,53 @@ fn rebuild<K: ShieldedKeys + ?Sized>(
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
     }
 
-    let mut rebuilt = Vec::new();
-    for (position, slot) in tx.output_slots.iter().enumerate() {
-        // A ring merge publishes the output's ring-data hash as the payload.
-        let ring_data_hash = match ring_program_id {
-            Some(_) => match <[u8; 32]>::try_from(slot.payload.as_slice()) {
-                Ok(hash) => Some(hash),
-                Err(_) => continue,
-            },
-            None => None,
-        };
-        let utxo = Utxo {
-            owner: address.signing_pubkey,
-            asset,
-            amount,
-            blinding,
-            ring_program_id,
-            data: Data::default(),
-        };
-        let context = &slot.output_context;
-        let hash = utxo.hash(
-            &address.nullifier_pubkey,
-            &[0; 32],
-            &ring_data_hash.unwrap_or_default(),
-            context.tree_id,
-        )?;
-        // Checked here rather than only in `verify_spendable`: a rebuilt note
-        // seeds the next merge in a chain, so a wrong one must not.
-        if hash != context.hash {
-            continue;
-        }
-        rebuilt.push(WalletUtxo {
-            utxo,
-            nullifier_pubkey: address.nullifier_pubkey,
-            utxo_hash: hash,
-            nullifier: [0; 32],
-            data_hash: None,
-            ring_data_hash,
-            tree_id: context.tree_id,
-            leaf_index: context.leaf_index,
-            slot: tx.slot,
-            tx_signature: tx.tx_signature,
-            slot_index: u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?,
-        });
-    }
-    if rebuilt.is_empty() {
+    let utxo = Utxo {
+        owner: address.signing_pubkey,
+        asset,
+        amount,
+        blinding,
+        ring_program_id,
+        data: Data::default(),
+    };
+    let Some(rebuilt) = merge_wallet_utxo(address, tx, context, utxo, Some(ring_data_hash))? else {
         return Ok(MergeRebuild::NotOurs);
-    }
+    };
+    let mut rebuilt = vec![rebuilt];
     assign_nullifiers(shielded_keys, &mut rebuilt)?;
     Ok(MergeRebuild::Rebuilt(rebuilt))
+}
+
+fn merge_wallet_utxo(
+    address: &ShieldedAddress,
+    tx: &ShieldedTransaction,
+    context: &OutputContext,
+    utxo: Utxo,
+    ring_data_hash: Option<[u8; 32]>,
+) -> Result<Option<WalletUtxo>, TransactionError> {
+    let hash = utxo.hash(
+        &address.nullifier_pubkey,
+        &[0; 32],
+        &ring_data_hash.unwrap_or_default(),
+        context.tree_id,
+    )?;
+    // Checked here rather than only in `verify_spendable`: a rebuilt note
+    // seeds the next merge in a chain, so a wrong one must not.
+    if hash != context.hash {
+        return Ok(None);
+    }
+    Ok(Some(WalletUtxo {
+        utxo,
+        nullifier_pubkey: address.nullifier_pubkey,
+        utxo_hash: context.hash,
+        nullifier: [0; 32],
+        data_hash: None,
+        ring_data_hash,
+        tree_id: context.tree_id,
+        leaf_index: context.leaf_index,
+        slot: tx.slot,
+        tx_signature: tx.tx_signature,
+        slot_index: 0,
+    }))
 }
 
 fn assign_nullifiers<K: ShieldedKeys + ?Sized>(

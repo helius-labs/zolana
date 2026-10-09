@@ -5,7 +5,7 @@ import {
   type TreeSlot,
 } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
-import { pack33 } from "../interface/merge-utils.js";
+import { pack32, pack33, rightAlign } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
 
 import {
@@ -17,7 +17,7 @@ import {
   concatBytes,
   u32be,
 } from "./bytes.js";
-import { symmetricApply } from "./merge/index.js";
+import { keyAgreementSecret, symmetricApply } from "./merge/index.js";
 import { poseidon } from "./poseidon.js";
 import { P256PublicKey } from "./public-key.js";
 import { ViewingKey } from "./viewing-key.js";
@@ -58,12 +58,6 @@ export interface AuditorEncryption {
   readonly message: AuditorMessage;
 }
 
-function rightAlign(bytes: Uint8Array): Bytes32 {
-  const output = new Uint8Array(32);
-  output.set(bytes, 32 - bytes.length);
-  return output as Bytes32;
-}
-
 function hashChain(values: readonly Bytes32[]): Bytes32 {
   const [first, ...remaining] = values;
   let hash = new Uint8Array(first ?? new Uint8Array(32)) as Bytes32;
@@ -71,15 +65,8 @@ function hashChain(values: readonly Bytes32[]): Bytes32 {
   return hash;
 }
 
-/** `lo = 0x00 || bytes[0..31]`, `hi = bytes[31]`, Rust `pack32_to_2fe`. */
-function pack32(bytes: Bytes32): readonly [Bytes32, Bytes32] {
-  const low = new Uint8Array(32);
-  low.set(bytes.subarray(0, 31), 1);
-  return [low as Bytes32, rightAlign(bytes.subarray(31))];
-}
-
 /**
- * Mirrors Rust `derive_audit_shared_secret` and the circuit's `DeriveAuditSharedSecret`.
+ * Mirrors Rust `AuditSharedSecret::derive` and the shared secret of the circuit's `ve.Envelope.Encrypt`.
  * Binds the ECDH x-coordinate to both public keys, so one shared point serves one key pair.
  */
 export function auditSharedSecret(
@@ -87,23 +74,7 @@ export function auditSharedSecret(
   ephemeralPublicKey: P256PublicKey,
   auditorPublicKey: P256PublicKey,
 ): Bytes32 {
-  const [dhLow, dhHigh] = pack32(dh);
-  try {
-    const [ephLow, ephHigh] = pack33(ephemeralPublicKey.toBytes());
-    const [auditorLow, auditorHigh] = pack33(auditorPublicKey.toBytes());
-    return poseidon([
-      rightAlign(u32be(DOM_SEP_CR_SHARED)),
-      dhLow,
-      dhHigh,
-      ephLow,
-      ephHigh,
-      auditorLow,
-      auditorHigh,
-    ]) as Bytes32;
-  } finally {
-    dhLow.fill(0);
-    dhHigh.fill(0);
-  }
+  return keyAgreementSecret(u32be(DOM_SEP_CR_SHARED), dh, ephemeralPublicKey, auditorPublicKey);
 }
 
 /** `(ephemeral, auditor)` fixes the keystream, so the ephemeral scalar is never taken from a caller. */

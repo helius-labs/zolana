@@ -1,7 +1,9 @@
 use p256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey as P256PublicKey};
 
 use crate::{
-    constants::{ED25519_PUBKEY_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
+    constants::{
+        ED25519_PUBKEY_LEN, P256_PUBKEY_LEN, P256_UNCOMPRESSED_PUBKEY_LEN, PUBLIC_KEY_LEN,
+    },
     error::KeypairError,
 };
 
@@ -75,6 +77,14 @@ impl P256Pubkey {
 
     pub fn to_p256(&self) -> Result<P256PublicKey, KeypairError> {
         P256PublicKey::from_sec1_bytes(&self.0).map_err(|_| KeypairError::InvalidPublicKey)
+    }
+
+    pub fn to_uncompressed(&self) -> Result<[u8; P256_UNCOMPRESSED_PUBKEY_LEN], KeypairError> {
+        let encoded = self.to_p256()?.to_encoded_point(false);
+        encoded
+            .as_bytes()
+            .try_into()
+            .map_err(|_| KeypairError::InvalidPublicKey)
     }
 }
 

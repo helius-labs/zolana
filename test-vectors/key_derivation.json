@@ -53,6 +53,19 @@
     "dummy_nullifier": "1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914",
     "private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610"
   },
+  "merge_envelope": {
+    "recipient_secret": "000000000000000000000000000000000000000000000000000000000000002b",
+    "ephemeral_secret": "0f00000000000000000000000000000000000000000000000000000000000061",
+    "amount": 1234567890123,
+    "mint": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+    "first_nullifier": "1ec1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+    "recipient_compressed": "03986ae2506f1ff104d04230861d8f4b498f4bc4c6d009b30f7544dc129b82d28d",
+    "recipient_uncompressed": "04986ae2506f1ff104d04230861d8f4b498f4bc4c6d009b30f7544dc129b82d28d003cccc0a6460e0ae328a4d97d3c7b61d86fc6289c189f2525110c441bb07e97",
+    "ephemeral_pk": "03b46358e7fa2bfba57c5f6a84738aa81d5f24281eac02d1221ce794001e551d8d",
+    "shared_secret": "2397af3c4dd34e9d2d492ed5af594bef1f2527885cd1aba77a717850ef2c0c83",
+    "ciphertext": "6c3cf760509aab83b4ff35cb19b068eed31c17c0d7d85f525cacbd210531f70de5c51ccbc3501100",
+    "output_blinding": "04cabca519de1c0a7402b17202bafbebc41f697f60275576df850b2de4b9aa1f"
+  },
   "derivation_input_guard": [
     {
       "name": "bare_payload",

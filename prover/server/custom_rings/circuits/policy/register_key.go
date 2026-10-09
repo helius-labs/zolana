@@ -5,7 +5,7 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 
 	"zolana/prover/circuits/gadget"
-	"zolana/prover/circuits/verifiable-encryption/p256"
+	ve "zolana/prover/circuits/verifiable-encryption"
 	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/custom_rings/circuits/registry"
 )
@@ -41,32 +41,23 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	for _, b := range c.NullifierSecret {
 		rangeChecker.Check(b, 8)
 	}
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range c.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	api.AssertIsEqual(c.AuditorPk[0], 4)
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
-	p256.PointOnCurve(api, c.AuditorPk)
 
 	// 2. Bind the encrypted secret to the registered nullifier public key.
-	secretFE := frontend.Variable(0)
-	for _, b := range c.NullifierSecret {
-		secretFE = api.Add(api.Mul(secretFE, 256), b)
-	}
+	secretFE := gadget.BytesToField(api, c.NullifierSecret[:])
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{secretFE})
 
-	sealed := base.Envelope{
-		Plaintext: c.NullifierSecret,
-		EphSk:     c.EphSk,
-		AuditorPk: c.AuditorPk,
-		Info:      NfKeyEncInfo,
-	}.Seal(api)
+	encrypted := ve.Envelope{
+		SecretTag:   base.SharedSecretTag,
+		KdfInfo:     []byte(NfKeyEncInfo),
+		EphemeralSk: c.EphSk,
+		RecipientPk: c.AuditorPk,
+		Plaintext:   c.NullifierSecret[:],
+	}.Encrypt(api)
+	ciphertextHash := gadget.HashBytes(api, encrypted.Ciphertext)
 
 	// 3. Require member absence before inserting the key hash.
-	keyHash := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, sealed.CiphertextHash})
+	keyHash := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, ciphertextHash})
 	newRoot := registry.Insertion{
 		OldRoot:  c.RegistryOldRoot,
 		Low:      registry.Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowKey},
@@ -82,7 +73,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	// 4. Bind registration to the program's public statement.
 	chain := []frontend.Variable{
 		c.RegistryOldRoot, c.RegistryNewRoot, c.Member,
-		nullifierPk, sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash,
+		nullifierPk, encrypted.RecipientLo, encrypted.RecipientHi, encrypted.EphemeralLo, encrypted.EphemeralHi, ciphertextHash,
 		c.NewIndex,
 	}
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))

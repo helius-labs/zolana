@@ -6,6 +6,9 @@ import type {
   CreateCacheData,
   DepositInstructionData,
   InputUtxo,
+  MergeBody,
+  MergeEnvelope,
+  MergeProofCommitment,
   MergeTransactInstructionData,
   OwnerTag,
   ProtocolConfigAccount,
@@ -23,7 +26,7 @@ import type {
   TreeHeadRoots,
 } from "../types.js";
 import { validCacheAccess } from "../cache.js";
-import { mergePaddedInputCount } from "../constants.js";
+import { MERGE_CIPHERTEXT_LENGTH, mergePaddedInputCount } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   CACHE_ACCOUNT_SIZE,
@@ -308,7 +311,7 @@ export function encodeTransactInstructionData(value: TransactInstructionData): U
   return encoded(value, writeTransactData);
 }
 
-function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
+function writeMergeBody(writer: Writer, value: MergeBody): void {
   // The instruction carries the sent nullifiers; compact padding fills the
   // narrowest merge circuit that holds them.
   if (
@@ -335,17 +338,46 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
-const MERGE_FIXED_DATA_LENGTH = 271;
+function writeMergeProofCommitment(writer: Writer, value: MergeProofCommitment): void {
+  writer
+    .bytes(value.commitment, 32, "proofCommitment.commitment")
+    .bytes(value.commitmentPok, 32, "proofCommitment.commitmentPok");
+}
+
+function writeMergeEnvelope(writer: Writer, value: MergeEnvelope): void {
+  writer
+    .bytes(value.ephemeralPk, 33, "envelope.ephemeralPk")
+    .bytes(value.ciphertext, MERGE_CIPHERTEXT_LENGTH, "envelope.ciphertext");
+}
+
+const MERGE_BODY_FIXED_LENGTH = 271;
+
+const MERGE_PROOF_COMMITMENT_LENGTH = 32 + 32;
+
+const MERGE_ENVELOPE_LENGTH = 33 + MERGE_CIPHERTEXT_LENGTH;
+
+function mergeBodyLength(value: MergeBody): number {
+  return (
+    MERGE_BODY_FIXED_LENGTH + 32 * value.nullifiers.length + (value.cacheSlot === undefined ? 0 : 1)
+  );
+}
+
+/** The shared merge body, which `merge_ring` sends after its `ring_data_hash`. */
+export function encodeMergeBody(value: MergeBody): Uint8Array {
+  return encoded(value, writeMergeBody, mergeBodyLength(value));
+}
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
   return encoded(
     value,
-    writeMergeData,
-    MERGE_FIXED_DATA_LENGTH +
-      32 * value.nullifiers.length +
-      (value.cacheSlot === undefined ? 0 : 1),
+    (writer, data) => {
+      writeMergeBody(writer, data);
+      writeMergeProofCommitment(writer, data.proofCommitment);
+      writeMergeEnvelope(writer, data.envelope);
+    },
+    mergeBodyLength(value) + MERGE_PROOF_COMMITMENT_LENGTH + MERGE_ENVELOPE_LENGTH,
   );
 }
 

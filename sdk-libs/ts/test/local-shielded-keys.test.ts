@@ -1,8 +1,9 @@
 import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import type { Bytes32, Bytes64 } from "../src/interface/index.js";
-import { KeypairError, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
+import type { Bytes16, Bytes32, Bytes64 } from "../src/interface/index.js";
+import { KeypairError, ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
+import { decodeDecryptedMergeEnvelope, encryptMergeEnvelope } from "../src/keypair/merge/index.js";
 import { LocalShieldedKeys, Utxo, SOL_MINT } from "../src/transaction/index.js";
 
 function hex(value: Uint8Array): string {
@@ -164,5 +165,67 @@ describe("LocalShieldedKeys", () => {
         },
       ]),
     ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
+  });
+
+  it("decrypts a merge envelope and refuses a request the envelope cannot carry", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    const ephemeral = ViewingKey.generate();
+    try {
+      const mint = new Uint8Array(32).fill(7) as Bytes32;
+      const firstNullifier = new Uint8Array(32).fill(8) as Bytes32;
+      const encrypted = encryptMergeEnvelope({
+        recipient: keypair.viewingPublicKey(),
+        ephemeral,
+        amount: 55n,
+        mint,
+        firstNullifier,
+      });
+      const withoutFirstNullifier = {
+        ciphertext: encrypted.ciphertext,
+        viewingPublicKey: keypair.viewingPublicKey(),
+        txViewingPublicKey: encrypted.ephemeralPublicKey,
+        salt: new Uint8Array(16) as Bytes16,
+        slotIndex: 0,
+        label: "mergeEnvelope" as const,
+      };
+      const request = { ...withoutFirstNullifier, firstNullifier };
+      const [decrypted] = await keys.decrypt([request]);
+      expect(decrypted).toHaveLength(72);
+      expect(decodeDecryptedMergeEnvelope(decrypted!)).toEqual({
+        amount: 55n,
+        mint,
+        outputBlinding: encrypted.outputBlinding,
+      });
+      const [other] = await keys.decrypt([
+        { ...request, firstNullifier: new Uint8Array(32).fill(9) as Bytes32 },
+      ]);
+      expect(decodeDecryptedMergeEnvelope(other!).outputBlinding).not.toEqual(
+        encrypted.outputBlinding,
+      );
+      await expect(keys.decrypt([withoutFirstNullifier])).rejects.toMatchObject({
+        code: "TRANSACTION_DESERIALIZE",
+        details: { field: "firstNullifier" },
+      });
+      await expect(keys.decrypt([{ ...request, slotIndex: 1 }])).rejects.toMatchObject({
+        code: "TRANSACTION_INVALID_POSITION",
+      });
+      await expect(
+        keys.decrypt([{ ...request, ciphertext: encrypted.ciphertext.subarray(1) }]),
+      ).rejects.toMatchObject({
+        code: "TRANSACTION_INVALID_LENGTH",
+        details: { field: "ciphertext", expected: 40, actual: 39 },
+      });
+      await expect(keys.decrypt([{ ...request, label: "unknown" as never }])).rejects.toMatchObject(
+        {
+          code: "TRANSACTION_DESERIALIZE",
+          details: { field: "label" },
+        },
+      );
+    } finally {
+      ephemeral.destroy();
+      keys.destroy();
+      keypair.destroy();
+    }
   });
 });

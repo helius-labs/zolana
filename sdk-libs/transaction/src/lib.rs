@@ -29,7 +29,9 @@ pub use decrypt::{
     SpendableDecryptionResult,
 };
 pub use error::TransactionError;
-pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
+pub use indexer_types::{
+    DepositPayload, MergeOutput, OutputContext, OutputSlot, ShieldedTransaction,
+};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,

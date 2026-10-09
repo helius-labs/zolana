@@ -7,6 +7,7 @@ import (
 
 	"zolana/prover/circuits/gadget"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
+	ve "zolana/prover/circuits/verifiable-encryption"
 )
 
 // Properties:
@@ -17,8 +18,8 @@ import (
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. The output UTXO is derived completely deterministically from the
-// input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
+// 7. The output UTXO blinding derives from the envelope shared secret, so the
+// owner recovers the output by decrypting the envelope with its viewing key.
 
 type (
 	Input  = mergeshared.Input
@@ -38,11 +39,14 @@ type Circuit struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [mergeshared.MintChunkCount]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
+
+	ViewingPk   [ve.UncompressedPointBytes]frontend.Variable
+	EphemeralSk [ve.ScalarBytes]frontend.Variable
 
 	mergeshared.CommonPublicInputs
 
@@ -61,33 +65,43 @@ func NewMergeCircuit(n int) *Circuit {
 	}
 }
 
-func (c *Circuit) transaction() mergeshared.Transaction {
-	return mergeshared.Transaction{
+func (c *Circuit) Define(api frontend.API) error {
+	tx := mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
-		Asset:               c.Asset,
+		MintChunks:          c.MintChunks,
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
 		Public:              c.CommonPublicInputs,
 		RingProgramID:       frontend.Variable(0),
 	}
-}
-
-func (c *Circuit) Define(api frontend.API) error {
-	tx := c.transaction()
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
 
+	amount, amountBytes := mergeshared.AmountBytes(api, c.Inputs)
+	encrypted := ve.Envelope{
+		SecretTag:   mergeshared.MergeSecretTag,
+		KdfInfo:     mergeshared.MergeKdfInfo,
+		EphemeralSk: c.EphemeralSk,
+		RecipientPk: c.ViewingPk,
+		Plaintext:   mergeshared.MergePlaintext(api, amountBytes, c.MintChunks),
+		// The published first nullifier is unique per accepted merge, so a
+		// reused ephemeral key repeats neither the keystream nor the output leaf.
+		Context: c.Nullifiers[0],
+	}.Encrypt(api)
+	tx.OutputAmount = amount
+	tx.OutputBlinding = mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret)
+
 	assertDefaultRing(api, tx.Inputs, tx.Output)
-	if _, err := tx.Constrain(api); err != nil {
-		return err
-	}
+	tx.Constrain(api)
 	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
+	envelope := mergeshared.EnvelopePublicElements(api, encrypted)
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.UserSigningPkHash, c.UserNullifierPk)
+	fields = append(fields, envelope[:]...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::{P256Pubkey, MERGE_ENVELOPE_CIPHERTEXT_LEN};
 
 use crate::{
     error::TransactionError,
@@ -30,13 +30,38 @@ pub struct ShieldedTransaction {
     pub ring_program_id: Option<solana_address::Address>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeOutput<'a> {
+    Envelope {
+        ephemeral_pk: P256Pubkey,
+        ciphertext: &'a [u8; MERGE_ENVELOPE_CIPHERTEXT_LEN],
+    },
+    Ring {
+        ring_data_hash: [u8; 32],
+    },
+}
+
 impl ShieldedTransaction {
-    /// A merge publishes no ciphertext and no transaction viewing key, and is
-    /// not a deposit. Other transactions can share that shape;
-    /// [`rebuild_merge`](crate::rebuild_merge) tells them apart by the
-    /// commitment.
+    pub fn merge_output(&self) -> Option<MergeOutput<'_>> {
+        if self.proofless || self.salt.is_some() || !self.messages.is_empty() {
+            return None;
+        }
+        let [slot] = self.output_slots.as_slice() else {
+            return None;
+        };
+        match self.tx_viewing_pk {
+            Some(ephemeral_pk) => Some(MergeOutput::Envelope {
+                ephemeral_pk,
+                ciphertext: slot.payload.as_slice().try_into().ok()?,
+            }),
+            None => Some(MergeOutput::Ring {
+                ring_data_hash: slot.payload.as_slice().try_into().ok()?,
+            }),
+        }
+    }
+
     pub fn may_be_merge(&self) -> bool {
-        !self.proofless && self.tx_viewing_pk.is_none() && self.salt.is_none()
+        self.merge_output().is_some()
     }
 }
 

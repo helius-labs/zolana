@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"crypto/elliptic"
 	"math/big"
 	"sync"
 	"testing"
@@ -11,7 +12,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/verifiable-encryption/p256"
 	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/custom_rings/circuits/base/audittest"
 	"zolana/prover/prover-test/spp/spptest"
@@ -148,7 +148,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		{
 			name: "tx scalar at the group order",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityTxScalar(p256.GroupOrder())
+				return k.WithInfinityTxScalar(elliptic.P256().Params().N)
 			},
 		},
 		{
@@ -160,7 +160,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		{
 			name: "eph scalar at the group order",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityEphScalar(p256.GroupOrder())
+				return k.WithInfinityEphScalar(elliptic.P256().Params().N)
 			},
 		},
 	}

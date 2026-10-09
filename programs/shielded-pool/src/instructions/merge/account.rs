@@ -79,6 +79,7 @@ pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub nullifier_pk: [u8; 32],
     pub signing_view_tag: [u8; 32],
+    pub viewing_pk: [u8; 33],
     pub merging_enabled: bool,
 }
 
@@ -127,6 +128,7 @@ pub fn load_user_record(
         signing_pk_field,
         nullifier_pk: record.nullifier_pubkey,
         signing_view_tag,
+        viewing_pk: record.viewing_pubkey,
         merging_enabled,
     })
 }
