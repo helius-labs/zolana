@@ -377,6 +377,26 @@ func runCli() {
 				},
 			},
 			{
+				Name:  "extract-ve-circuit",
+				Usage: "Transpile the verifiable-encryption circuits to Lean for formal verification",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output-dir", Usage: "Directory receiving Circuit.lean", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					path := filepath.Join(context.String("output-dir"), "Circuit.lean")
+					logging.Logger().Info().Msg("Extracting verifiable-encryption circuits to Lean")
+					circuitString, err := extractor.ExtractVELean()
+					if err != nil {
+						return err
+					}
+					if err := os.WriteFile(path, []byte(circuitString), 0644); err != nil {
+						return err
+					}
+					logging.Logger().Info().Int("bytesWritten", len(circuitString)).Str("output", path).Msg("Lean circuits written to file")
+					return nil
+				},
+			},
+			{
 				Name:  "download",
 				Usage: "Download proving keys",
 				Flags: []cli.Flag{
