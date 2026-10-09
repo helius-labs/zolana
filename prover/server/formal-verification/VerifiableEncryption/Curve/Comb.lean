@@ -337,4 +337,124 @@ theorem topEven_point (j : ℕ) (hj : j < 2) :
   push_cast
   ring
 
+/-! ### Scalar recoding and the addition chain -/
+
+theorem n_pos : (0 : ℤ) < n := by
+  have : (0 : ℕ) < n := by decide +kernel
+  exact_mod_cast this
+
+theorem two_pow_255_lt_n : (2 : ℤ) ^ 255 < n := by
+  have : 2 ^ 255 < n := by decide +kernel
+  exact_mod_cast this
+
+/-- `G` has order exactly `n`: equal multiples have congruent scalars. -/
+theorem zsmul_G_eq {a c : ℤ} (h : a • G = c • G) : a ≡ c [ZMOD n] := by
+  have hk : (a - c) • G = 0 := by simp [sub_zsmul, h]
+  by_contra hne
+  have hmod : (a - c) % n ≠ 0 := by
+    intro h0
+    apply hne
+    rw [Int.modEq_iff_dvd, ← neg_sub]
+    exact dvd_neg.mpr (Int.dvd_of_emod_eq_zero h0)
+  have hpos : 0 < (a - c) % n := lt_of_le_of_ne (Int.emod_nonneg _ n_pos.ne') (Ne.symm hmod)
+  have hlt : (a - c) % n < n := Int.emod_lt_of_pos _ n_pos
+  rw [zsmul_mod] at hk
+  have hnat : ((a - c) % n) = (((a - c) % n).toNat : ℤ) := (Int.toNat_of_nonneg hpos.le).symm
+  rw [hnat, natCast_zsmul] at hk
+  have hcop : Nat.Coprime ((a - c) % n).toNat n := Nat.Coprime.symm
+    (Nat.coprime_of_lt_prime (by omega) (by omega) Assumptions.p256_order_prime)
+  exact mkPoint_ne_zero G_onCurve (smul_eq_zero_of_coprime hcop hk)
+
+theorem zsmul_G_inj {a c : ℤ} (hlt : |a - c| < n) (h : a • G = c • G) : a = c := by
+  have hm := zsmul_G_eq h
+  have hd : (n : ℤ) ∣ a - c := (Int.ModEq.dvd hm.symm)
+  exact sub_eq_zero.mp (Int.eq_zero_of_abs_lt_dvd hd hlt)
+
+theorem window_sum_bound (dig : ℕ → ℤ) (hd : ∀ u, |dig u| ≤ 31) :
+    ∀ t, |∑ u ∈ Finset.range t, dig u * 2 ^ (5 * u)| ≤ 2 ^ (5 * t) - 1 := by
+  intro t
+  induction t with
+  | zero => simp
+  | succ t ih =>
+    rw [Finset.sum_range_succ]
+    have h1 := abs_add (∑ u ∈ Finset.range t, dig u * 2 ^ (5 * u)) (dig t * 2 ^ (5 * t))
+    have h2 : |dig t * 2 ^ (5 * t)| ≤ 31 * 2 ^ (5 * t) := by
+      rw [abs_mul, abs_of_pos (by positivity : (0 : ℤ) < 2 ^ (5 * t))]
+      exact mul_le_mul_of_nonneg_right (hd t) (by positivity)
+    have h3 : (2 : ℤ) ^ (5 * (t + 1)) = 32 * 2 ^ (5 * t) := by
+      rw [show 5 * (t + 1) = 5 * t + 5 by ring, pow_add]; norm_num; ring
+    rw [h3]
+    linarith
+
+/-- The comb's chain additions carry no distinct-x guard, so soundness
+needs the partial sum of windows `0..t-1` never to share an x-coordinate
+with window `t`. It cannot: the scalars differ by less than `n` and are
+never equal or opposite. -/
+theorem chain_x_distinct (t : ℕ) (ht : t ≤ 50) (dig : ℕ → ℤ) (hd : ∀ u, |dig u| ≤ 31) (d : ℤ)
+    (hd1 : 1 ≤ |d|) (hd31 : |d| ≤ 31) :
+    (∑ u ∈ Finset.range t, dig u * 2 ^ (5 * u)) • G ≠ (d * 2 ^ (5 * t)) • G ∧
+      (∑ u ∈ Finset.range t, dig u * 2 ^ (5 * u)) • G ≠ -((d * 2 ^ (5 * t)) • G) := by
+  set a := ∑ u ∈ Finset.range t, dig u * 2 ^ (5 * u)
+  have ha := window_sum_bound dig hd t
+  have hpow : (0 : ℤ) < 2 ^ (5 * t) := by positivity
+  have hc : |d * 2 ^ (5 * t)| = |d| * 2 ^ (5 * t) := by rw [abs_mul, abs_of_pos hpow]
+  have hc1 : 2 ^ (5 * t) ≤ |d * 2 ^ (5 * t)| := by rw [hc]; nlinarith
+  have hc31 : |d * 2 ^ (5 * t)| ≤ 31 * 2 ^ (5 * t) := by rw [hc]; nlinarith
+  have hbig : (2 : ℤ) ^ (5 * t) * 32 ≤ 2 ^ 255 := by
+    rw [show (2 : ℤ) ^ (5 * t) * 32 = 2 ^ (5 * t + 5) by rw [pow_add]; norm_num]
+    exact pow_le_pow_right₀ (by norm_num) (by omega)
+  have hn := two_pow_255_lt_n
+  constructor
+  · intro h
+    have heq := zsmul_G_inj (by
+      have := abs_sub a (d * 2 ^ (5 * t))
+      linarith) h
+    have : |a| = |d * 2 ^ (5 * t)| := by rw [heq]
+    linarith
+  · intro h
+    rw [← neg_zsmul] at h
+    have heq := zsmul_G_inj (by
+      have := abs_sub a (-(d * 2 ^ (5 * t)))
+      rw [abs_neg] at this
+      linarith) h
+    have : |a| = |d * 2 ^ (5 * t)| := by rw [heq, abs_neg]
+    linarith
+
+theorem geom_31 (m : ℕ) : ∑ t ∈ Finset.range m, (31 : ℤ) * 2 ^ (5 * t) = 2 ^ (5 * m) - 1 := by
+  induction m with
+  | zero => simp
+  | succ m ih =>
+    rw [Finset.sum_range_succ, ih, show 5 * (m + 1) = 5 * m + 5 by ring, pow_add]
+    ring
+
+/-- The signed-window recoding: digits `2r_t - 31` on 51 five-bit windows, a
+top digit `2·top - 1` at `2^255`, and the parity fold `-(1 - π)` sum to
+`2r + π - 2^256`. -/
+theorem recode_identity (rt : ℕ → ℤ) (top π : ℤ) :
+    ∑ t ∈ Finset.range 51, (2 * rt t - 31) * 2 ^ (5 * t) + (2 * top - 1) * 2 ^ 255 - (1 - π) =
+      2 * (∑ t ∈ Finset.range 51, rt t * 2 ^ (5 * t) + top * 2 ^ 255) + π - 2 ^ 256 := by
+  have hsplit : ∑ t ∈ Finset.range 51, (2 * rt t - 31) * (2 : ℤ) ^ (5 * t) =
+      2 * ∑ t ∈ Finset.range 51, rt t * 2 ^ (5 * t) - ∑ t ∈ Finset.range 51, (31 : ℤ) * 2 ^ (5 * t) := by
+    rw [Finset.mul_sum, ← Finset.sum_sub_distrib]
+    exact Finset.sum_congr rfl fun t _ => by ring
+  rw [hsplit, geom_31]
+  norm_num
+  ring
+
+/-- Group-level soundness of `scalarMulBase`: once the selected window points
+are the table multiples and the chain sums them, the result is `s·G`
+whenever the recoding constraint `2r + π ≡ s + 2^256 (mod n)` holds. -/
+theorem comb_result {s top π : ℤ} (rt : ℕ → ℤ)
+    (hrec : 2 * (∑ t ∈ Finset.range 51, rt t * 2 ^ (5 * t) + top * 2 ^ 255) + π ≡
+      s + 2 ^ 256 [ZMOD n]) {E : P}
+    (hE : E = ∑ t ∈ Finset.range 51, ((2 * rt t - 31) * 2 ^ (5 * t)) • G +
+      ((2 * top - 1) * 2 ^ 255 - (1 - π)) • G) : E = s • G := by
+  rw [hE, ← Finset.sum_smul, ← add_zsmul]
+  apply zsmul_congr
+  have hid := recode_identity rt top π
+  rw [add_sub_assoc] at hid
+  rw [hid]
+  have := Int.ModEq.sub_right (2 ^ 256) hrec
+  simpa using this
+
 end ZolanaVE.P256.Comb
