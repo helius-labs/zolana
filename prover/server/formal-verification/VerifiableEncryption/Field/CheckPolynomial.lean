@@ -122,9 +122,6 @@ def BasisParams.formAt (b : BasisParams) (k i : ℕ) : ℕ := (b.crtForms.getD k
 
 def BasisParams.combineAt (b : BasisParams) (j k : ℕ) : ℕ := (b.crtCombine.getD j []).getD k 0
 
-def sumRange {α : Type*} [AddCommMonoid α] (n : ℕ) (f : ℕ → α) : α :=
-  ((List.range n).map f).sum
-
 /-! ### Native values of the linear forms (`foldedForms`) -/
 
 section Native
@@ -232,9 +229,9 @@ def ElemC.absLimbs (e : ElemC) : List ℤ := List.zipWith (fun l h => max |l| |h
 
 def BasisParams.sound (b : BasisParams) : Bool :=
   decide (0 < b.foldModulus) &&
-  b.foldRows.length.fold (fun i _ acc => acc &&
+  (List.range b.foldRows.length).all (fun i =>
     ((b.foldRows.getD i []).length == limbCount) &&
-    ((recompose (b.foldRows.getD i []) - 2 ^ (32 * i)) % (b.foldModulus : ℤ) == 0)) true &&
+    ((recompose (b.foldRows.getD i []) - 2 ^ (32 * i)) % (b.foldModulus : ℤ) == 0)) &&
   b.vinv.all (fun ⟨d, v⟩ =>
     v.length == d + 1 && v.all (fun row => row.length == d + 1) &&
     (List.range (d + 1)).all fun i => (List.range (d + 1)).all fun i' =>

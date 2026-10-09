@@ -15,6 +15,9 @@ All definitions are structural on lists so that the kernel evaluates them in
 
 namespace ZolanaVE.Field
 
+def sumRange {α : Type*} [AddCommMonoid α] (n : ℕ) (f : ℕ → α) : α :=
+  ((List.range n).map f).sum
+
 section Generic
 
 variable {R : Type*} [CommRing R]
@@ -212,6 +215,15 @@ theorem length_foldl_polyMul (ps : List (List R)) (p0 : List R) (h0 : p0 ≠ [])
       omega
     rw [ih _ hne (fun q hq => hps q (by simp [hq])), hlen]
     omega
+
+theorem length_polySum_le (ps : List (List R)) (N : ℕ) (h : ∀ p ∈ ps, p.length ≤ N) :
+    (polySum ps).length ≤ N := by
+  induction ps with
+  | nil => simp [polySum]
+  | cons p ps ih =>
+    simp only [polySum, List.foldr_cons] at ih ⊢
+    rw [length_polyAdd]
+    exact max_le (h p (by simp)) (ih (fun q hq => h q (by simp [hq])))
 
 /-- Ring homomorphisms commute with the list polynomial operations. -/
 theorem map_polyAdd {S : Type*} [CommRing S] (φ : R →+* S) (a b : List R) :
