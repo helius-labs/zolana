@@ -32,8 +32,6 @@ def fullRound (st rk : Fin 16 → Byte) : Fin 16 → Byte :=
 def finalRoundBytes (st rk : Fin 16 → Byte) : Fin 16 → Byte :=
   fun i => sb (st (columnSource (columnOf i) (rowOf i))) ^^^ rk i
 
-def addRoundKey (st rk : Fin 16 → Byte) : Fin 16 → Byte := fun i => st i ^^^ rk i
-
 /-- Rounds `1..n` applied to the state after the initial AddRoundKey. -/
 def applyRounds (rk : Fin 15 → Fin 16 → Byte) : ℕ → (Fin 16 → Byte) → Fin 16 → Byte
   | 0, st => st

@@ -1,4 +1,4 @@
-import VerifiableEncryption.Aes.SpecStub
+import VerifiableEncryption.Aes.Spec
 import VerifiableEncryption.Aes.Spread
 
 namespace ZolanaVE.Aes
