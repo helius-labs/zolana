@@ -28,9 +28,19 @@ watch socat VSOCK-LISTEN:3001,fork,reuseaddr TCP:127.0.0.1:3001 &
 memory_mib=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo)
 heap_mib=$((memory_mib - keys_mib - 2048))
 [ "$heap_mib" -ge 8192 ] || { echo "enclave memory ${memory_mib} MiB is too small" >&2; exit 1; }
+backend=gnark
+[ ! -f /etc/zolana-nitro/backend ] || backend=$(cat /etc/zolana-nitro/backend)
+export PROVER_BACKEND="$backend"
+if [ "$backend" = aeglos-cpu ]; then
+    # Aeglos native allocations sit outside GOMEMLIMIT and need their own share.
+    aeglos_mib=$((heap_mib / 2))
+    heap_mib=$((heap_mib - aeglos_mib))
+    export AEGLOS_MEMORY_LIMIT_BYTES=$((aeglos_mib * 1048576))
+fi
 
 concurrency=$(cat /etc/zolana-nitro/concurrency)
 export PROVER_SYNC_CONCURRENCY="$concurrency"
+[ ! -f /etc/zolana-nitro/request-timing ] || export PROVER_REQUEST_TIMING=true
 set -- start --require-optimized-build --server-only --auto-download --preload-keys none \
     --keys-dir /proving-keys --prover-address 127.0.0.1:3001 --metrics-address 127.0.0.1:9998 \
     --tee nitro --transfer-concurrency "$concurrency" \

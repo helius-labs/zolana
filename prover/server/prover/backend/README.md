@@ -1,8 +1,10 @@
 # Proof backend
 
-A build with the `aeglos` tag proves on the GPU engine by default. Other builds
-prove with Gnark on CPU. `PROVER_BACKEND` set to `gnark` or `aeglos` overrides
-the default, and startup logs the selected backend.
+A build with the `aeglos` tag proves on the GPU engine by default. A build with
+the `aeglos_cpu` tag proves on the Aeglos CPU engine by default. Other builds
+prove with Gnark on CPU. `PROVER_BACKEND` set to `gnark`, `aeglos` or
+`aeglos-cpu` overrides the default, and startup logs the selected backend.
+The two tags exclude each other, and a build with both fails to compile.
 The `start` and `prove` commands reject an unknown backend or an unavailable GPU.
 Transfers, P256 transfers, merges, custom rings, and forester proofs use the same
 backend boundary.
@@ -42,11 +44,58 @@ needs more memory. GPU calls are serialized inside one process. Queue workers
 can admit concurrent requests and wait for the GPU. Shutdown drains those
 workers before closing the backend.
 
+The `aeglos-cpu` backend needs no GPU, so a TEE prover on it attests no GPU
+evidence. `build-aeglos.sh` builds it when it gets `cpu` in place of the CUDA
+architecture, and `Dockerfile.nitro` builds it with `BACKEND=aeglos-cpu`.
+`AEGLOS_CPU_THREADS` sets the engine workers, and unset takes every logical CPU.
+`AEGLOS_CPU_FAMILY` pins the arithmetic to `scalar`, `avx512f`, `ifma256` or
+`ifma512`, and startup fails on a host without it. Unset or `auto` follows
+CPUID. `AEGLOS_MEMORY_LIMIT_BYTES` caps the native allocations of the CPU engine
+too, and unset takes 90% of physical memory.
+
+Both Aeglos backends prove concurrent requests for one proving key in one
+`ProveBatch` call. Each request builds its own witness in Go, and the engine
+solves and proves the batch together. The first request for a key opens a batch.
+The batch closes when it holds `--batch-max` requests, or when `--batch-window`
+has passed and the engine is free. Requests that arrive while the engine runs
+join the open batch. The window defaults to zero, so a request at an idle engine
+proves at once and batches form only under load. The engine rejects a batch as
+a whole, so a failed batch proves each request alone and a request gets only
+its own proof or error. A request whose witness Gnark cannot solve fails before
+it reaches the engine again, because every failed proof evicts a prepared key.
+A circuit with commitments bypasses batching, because `ProveBatch` rejects it.
+`--batch-max 1` proves every request alone. Each request in a batch holds its
+admission permit from `--transfer-concurrency` or `PROVER_SYNC_CONCURRENCY`. The
+next batch collects while one proves, so full batches need twice `--batch-max`
+permits. Each batch size prepares its own key in the engine and holds its own
+memory. Request timing shows the wait for the batch and the engine as `batch`
+and the engine call as `prove`, and a request of a failed batch adds `retry`.
+With batching the engine admission stage stays near zero. Metrics count the
+proofs per batch and the failed batches.
+
 The existing metrics endpoint exposes backend stage durations, cache hits and
 misses, cached key count, allocated device bytes, and errors. Stage durations
 overlap. Total duration covers backend admission and proof execution. It excludes
 HTTP handling and queue delay. Use admission for GPU contention and preparation
 with cache misses to identify key churn.
+
+`aeglos-source.lock` pins the GPU build and `aeglos-cpu-source.lock` pins the CPU
+build, so one image moves without the other. To pin a new Aeglos commit, archive
+it from a checkout and write its digest into the lock of that build:
+
+```sh
+lock=prover/server/prover/backend/aeglos-cpu-source.lock
+rev=$(git -C ../aeglos rev-parse "COMMIT^{commit}")
+mkdir -p target/aeglos-source
+git -C ../aeglos archive --format=tar --output="$PWD/target/aeglos-source/aeglos-$rev.tar" "$rev"
+(cd target/aeglos-source && shasum -a 256 "aeglos-$rev.tar") > "$lock"
+```
+
+`tools/gpu/fetch-aeglos.sh target/aeglos-source cpu` then fetches the same
+archive from GitHub and checks it against the CPU lock, and without `cpu` against
+the GPU lock. For a build from a local checkout that no lock pins,
+`AEGLOS_UNPINNED=1` makes `build-aeglos.sh` take an extracted source tree and
+skip the digest check. A release build must not set it.
 
 The fixture export tests check circuit constraints and write two distinct
 synthetic witnesses for each shape in `prover/provingkeys/proving-keys.lock`.
