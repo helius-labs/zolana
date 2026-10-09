@@ -2,6 +2,7 @@ package emcurve
 
 import (
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 const uncompressedPrefix = 0x04
@@ -27,7 +28,7 @@ func AgreeKeyFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, rec
 	limbBits := c.layout.LimbBits
 	// 1. Validate the recipient encoding and constrain its canonical curve point.
 	recipient := c.parseKey(recipientPubkey)
-	c.assertOnCurve(recipient)
+	c.assertOnCurveAt(recipient)
 	_, recipientParity := c.splitLowBits(recipientPubkey[64], 1, 8)
 
 	// 2. Pack the recipient with its compressed-point prefix.
@@ -40,9 +41,9 @@ func AgreeKeyFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, rec
 
 	// 3. Constrain the shared point and derive the ephemeral public point.
 	scalar := c.parseScalar(ephemeralSecretKey)
-	shared := c.scalarMulChecked(recipient, scalar)
+	shared := c.scalarMulCheckedAt(recipient, scalar)
 
-	ephemeral := c.scalarMulBase(scalar)
+	ephemeral := c.scalarMulBaseAt(scalar)
 	ephemeralXLimbs := c.canonicalLimbs(ephemeral.X)
 	ephemeralYLimbs := c.canonicalLimbs(ephemeral.Y)
 	agreement.EphemeralLo, agreement.EphemeralHi = c.compressedPacking(ephemeralXLimbs, ephemeralYLimbs, limbBits)
@@ -86,6 +87,14 @@ func packAbove(api frontend.API, lowLimbHigh frontend.Variable, limbs []frontend
 // compressedPacking encodes (2 + y parity) || x as a 31-byte field and a
 // two-byte field. Its inputs must already be canonical coordinate limbs.
 func (c *curve) compressedPacking(xLimbs, yLimbs []frontend.Variable, limbBits int) (lo, hi frontend.Variable) {
+	if abstractor.Extracting(c.api) {
+		packed := abstractor.Call1(c.api, CompressedPacking{XLimbs: xLimbs, YLimbs: yLimbs, LimbBits: limbBits, Lookups: c.layout.Lookups})
+		return packed[0], packed[1]
+	}
+	return c.compressedPackingConstrained(xLimbs, yLimbs, limbBits)
+}
+
+func (c *curve) compressedPackingConstrained(xLimbs, yLimbs []frontend.Variable, limbBits int) (lo, hi frontend.Variable) {
 	api := c.api
 	_, parity := c.splitLowBits(yLimbs[0], 1, limbBits)
 	high, low := c.splitLowBits(xLimbs[0], 16, limbBits)

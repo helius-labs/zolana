@@ -7,6 +7,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
@@ -72,8 +73,8 @@ func (c *curve) parseKey(publicKey [65]frontend.Variable) *point {
 		X: c.fp.Reduced(c.fieldLimbs(publicKey[1:33])),
 		Y: c.fp.Reduced(c.fieldLimbs(publicKey[33:65])),
 	}
-	c.fp.AssertCanonical(publicPoint.X)
-	c.fp.AssertCanonical(publicPoint.Y)
+	c.assertCanonical(c.fp, publicPoint.X)
+	c.assertCanonical(c.fp, publicPoint.Y)
 	return publicPoint
 }
 
@@ -112,11 +113,19 @@ func (c *curve) toBytes(coordinate *fpElement) []frontend.Variable {
 }
 
 func (c *curve) canonicalLimbs(e *fpElement) []frontend.Variable {
-	c.fp.AssertCanonical(e)
+	c.assertCanonical(c.fp, e)
 	return e.Limbs()
 }
 
 func (c *curve) splitLowBits(value frontend.Variable, lowBits, totalBits int) (high, low frontend.Variable) {
+	if abstractor.Extracting(c.api) {
+		parts := abstractor.Call1(c.api, SplitLowBits{V: value, LowBits: lowBits, TotalBits: totalBits, Lookups: c.layout.Lookups})
+		return parts[0], parts[1]
+	}
+	return c.splitLowBitsConstrained(value, lowBits, totalBits)
+}
+
+func (c *curve) splitLowBitsConstrained(value frontend.Variable, lowBits, totalBits int) (high, low frontend.Variable) {
 	api := c.api
 	if lowBits < 0 || lowBits > totalBits || totalBits >= api.Compiler().FieldBitLen() {
 		panic("bit split must fit the native field without wraparound")

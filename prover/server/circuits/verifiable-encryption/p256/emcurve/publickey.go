@@ -36,7 +36,7 @@ func DerivePublicKey(api frontend.API, secretKeyBytes [32]frontend.Variable) Pub
 	scalar := c.fr.FromLimbs(c.fieldLimbs(secretKeyBytes[:]))
 	c.assertNonZeroResidue(scalar)
 	// 2. Derive the public point and retain its canonical coordinates for reuse.
-	publicPoint := c.scalarMulBase(scalar)
+	publicPoint := c.scalarMulBaseAt(scalar)
 	key := PublicKey{scalar: scalar, xLimbs: c.canonicalLimbs(publicPoint.X), yLimbs: c.canonicalLimbs(publicPoint.Y)}
 	copy(key.x[:], c.toBytes(publicPoint.X))
 	return key
@@ -62,7 +62,7 @@ func SelfAgreeKey(api frontend.API, key PublicKey) SelfKeyAgreement {
 	c := newCurve(api)
 	// 1. Compute the self-agreement point [s²]G using the fixed-base table.
 	squaredScalar := c.fr.Eval(T(1, key.scalar, key.scalar))
-	shared := c.scalarMulBase(squaredScalar)
+	shared := c.scalarMulBaseAt(squaredScalar)
 	// 2. Return canonical shared-x bytes and the compressed public key.
 	var agreement SelfKeyAgreement
 	copy(agreement.SharedX[:], c.toBytes(shared.X))
@@ -72,6 +72,6 @@ func SelfAgreeKey(api frontend.API, key PublicKey) SelfKeyAgreement {
 
 func (c *curve) assertNonZeroResidue(s *frElement) {
 	reduced := c.fr.Eval(T(1, s))
-	c.fr.AssertCanonical(reduced)
+	c.assertCanonical(c.fr, reduced)
 	c.api.AssertIsDifferent(c.api.Add(0, 0, reduced.Limbs()...), 0)
 }
