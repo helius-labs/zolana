@@ -30,9 +30,5 @@ zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [[example]]
-name = "deposit"
-path = "examples/deposit.rs"
-
-[[example]]
-name = "withdrawal"
-path = "examples/withdrawal.rs"
+name = "deposit_and_withdraw"
+path = "examples/deposit_and_withdraw.rs"

@@ -1364,16 +1364,11 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
 test-kamino-vault-validator: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p kamino-vault-market-maker --tests
 
-# The private kVault deposit user flow as a program
-# (sdk-tests/kamino-vault/rfq/examples/examples/deposit.rs). It boots its own
-# FixtureLocalnet like the market maker tests.
-example-kamino-vault-deposit: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p kamino-vault-rfq-example --example deposit
-
-# The private kVault withdrawal user flow as a program
-# (sdk-tests/kamino-vault/rfq/examples/examples/withdrawal.rs).
-example-kamino-vault-withdrawal: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p kamino-vault-rfq-example --example withdrawal
+# A private kVault deposit and withdrawal through the market maker
+# (sdk-tests/kamino-vault/rfq/examples/examples/deposit_and_withdraw.rs). It
+# boots its own FixtureLocalnet like the market maker tests.
+example-kamino-vault: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p kamino-vault-rfq-example --example deposit_and_withdraw
 
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of

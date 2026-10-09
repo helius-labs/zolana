@@ -384,11 +384,8 @@ jobs:
           - name: kamino-vault market maker
             recipe: test-kamino-vault-validator
             runner: ubuntu-latest
-          - name: kamino-vault deposit example
-            recipe: example-kamino-vault-deposit
-            runner: ubuntu-latest
-          - name: kamino-vault withdrawal example
-            recipe: example-kamino-vault-withdrawal
+          - name: kamino-vault example
+            recipe: example-kamino-vault
             runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
