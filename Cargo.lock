@@ -4251,6 +4251,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "kamino-vault-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "sha2 0.10.9",
+ "solana-account 4.3.2",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-signature",
+ "solana-signer",
+ "thiserror 2.0.20",
+ "zolana-client",
+ "zolana-event",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

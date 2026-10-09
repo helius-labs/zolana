@@ -17,6 +17,7 @@ use std::{
     time::Duration,
 };
 
+use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{
     AsyncProverClient, AsyncZolanaIndexer, IndexerRequirement, ProofDataSource, ProverClient,
@@ -24,7 +25,10 @@ use zolana_client::{
 };
 use zolana_interface::{pda, state::tree::read_tree_id, SHIELDED_POOL_PROGRAM_ID};
 
-use crate::{fixture::write_test_fixture, paths, ProgramTestError};
+use crate::{
+    fixture::{write_account_json, write_test_fixture},
+    paths, ProgramTestError,
+};
 
 /// Short slots so each transaction confirms quickly, and a poll interval well
 /// under one slot so the client notices.
@@ -277,6 +281,18 @@ impl FixtureLocalnet {
         programs: Vec<(Address, PathBuf)>,
         paths: &LocalnetPaths,
     ) -> Result<Self, ProgramTestError> {
+        Self::start_with_accounts(label, ports, programs, Vec::new(), paths)
+    }
+
+    /// [`start`](Self::start), with `accounts` loaded at boot next to the
+    /// fixture.
+    pub fn start_with_accounts(
+        label: &str,
+        ports: LocalnetPorts,
+        programs: Vec<(Address, PathBuf)>,
+        accounts: Vec<(Address, Account)>,
+        paths: &LocalnetPaths,
+    ) -> Result<Self, ProgramTestError> {
         let spp = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         let scratch = paths.scratch_dir.join(format!("{label}-{}", ports.rpc));
         if scratch.exists() {
@@ -284,6 +300,9 @@ impl FixtureLocalnet {
         }
         let account_dir = scratch.join("accounts");
         write_test_fixture(&paths.shielded_pool_program, &account_dir)?;
+        for (address, account) in &accounts {
+            write_account_json(&account_dir, address, account)?;
+        }
 
         let mut loaded = vec![(spp, paths.shielded_pool_program.clone())];
         loaded.extend(programs);

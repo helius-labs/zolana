@@ -1358,11 +1358,18 @@ test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-se
 test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p rfq-test --test rfq
 
+# Private kVault deposits and delayed exits through a market maker: the user
+# swaps USDC for kVault shares in one co-signed shielded-pool transact, and the
+# market maker rebalances against the unmodified kVault program dumped from
+# mainnet (sdk-tests/kamino-vault/rfq/tests), booted through FixtureLocalnet.
+test-kamino-vault-validator: build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p kamino-vault-test --test kamino_vault
+
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of
 # them run in parallel.
-test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
-    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -E 'not binary(bench_cu)'
+test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon ensure-surfpool ensure-kvault
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -p kamino-vault-test -E 'not binary(bench_cu)'
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -1438,6 +1445,29 @@ ensure-smart-account:
         just fetch-smart-account
     fi
 
+# Dump the Kamino kVault program and the Kamino lending program it requires
+# from mainnet into `target/deploy`, for sdk-tests/kamino-vault/rfq. Skips a binary
+# that is already there. A dump is zero-padded to the program account size, so
+# it is cut at the end of the ELF section header table. Set
+# KAMINO_DUMP_RPC_URL to dump through another RPC.
+ensure-kvault:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url="${KAMINO_DUMP_RPC_URL:-https://api.mainnet-beta.solana.com}"
+    mkdir -p target/deploy
+    for entry in KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd:kamino_vault KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD:kamino_lending; do
+        program="${entry%%:*}"
+        out="target/deploy/${entry##*:}.so"
+        [[ -f "$out" ]] && continue
+        dump="$(mktemp)"
+        solana program dump "$program" "$dump" --url "$url"
+        shoff=$(od -An -t u8 -j 40 -N 8 "$dump" | tr -d ' ')
+        shentsize=$(od -An -t u2 -j 58 -N 2 "$dump" | tr -d ' ')
+        shnum=$(od -An -t u2 -j 60 -N 2 "$dump" | tr -d ' ')
+        head -c $((shoff + shentsize * shnum)) "$dump" > "$out"
+        rm -f "$dump"
+    done
+
 # Build one service image locally and publish it to ECR by the same rules as
 # the publish-image workflow, `just publish-image prover --push`.
 publish-image service *args:
@@ -1482,6 +1512,7 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
+    cargo nextest archive -p kamino-vault-test --test kamino_vault --archive-file {{dir}}/kamino-vault-test.tar.zst
 
 # Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and

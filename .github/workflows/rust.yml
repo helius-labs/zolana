@@ -381,6 +381,9 @@ jobs:
           - name: rfq settlement
             recipe: test-rfq-validator
             runner: ubuntu-latest
+          - name: kamino-vault deposits
+            recipe: test-kamino-vault-validator
+            runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
       # GH_TOKEN is for the gh-release custom-ring key downloads

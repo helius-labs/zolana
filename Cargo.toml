@@ -50,6 +50,7 @@ members = [
     "sdk-tests/dynamic-swap/prover",
     "sdk-tests/dynamic-swap/sdk",
     "sdk-tests/dynamic-swap/test",
+    "sdk-tests/kamino-vault/rfq",
     "sdk-tests/rfq",
     "sdk-tests/zk-program-swap/program",
     "sdk-tests/zk-program-swap/prover",
