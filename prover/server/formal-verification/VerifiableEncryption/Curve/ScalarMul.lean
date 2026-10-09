@@ -486,8 +486,10 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   rw [← hT2eq] at pA1 pA3 pA5 pA7
   unfold ScalarMulChecked_8_8_8_h903d3456_p6 at h
   elim_gates_shallow h
-  unfold ScalarMulChecked_8_8_8_h903d3456_p7 at h
+  unfold ScalarMulChecked_8_8_8_h903d3456_p7 ScalarMulChecked_8_8_8_h903d3456_p8
+    ScalarMulChecked_8_8_8_h903d3456_p9 at h
   elim_gates_shallow h
+  try simp only [get2_0, get2_1] at h
   generalize_rows h as rows, hrows
   have htab : TableOK rows (mkPoint hQ') (mkPoint hRon) := by
     intro i
@@ -604,6 +606,385 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
         (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
         (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
         (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA1]; try abel) (fun h1 => by norm_num at h1)
+  have hinv : mkPoint hA0 = (1 : ℤ) • mkPoint hQ' + (1 : ℤ) • mkPoint hRon := by rw [pA0, one_zsmul, one_zsmul]
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_he10e6061 hl hr htab A0X A0Y hA0X hA0Y hA0 h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 129) (c := 258) (d := 128) (e := 257)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h8a920ea3 hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 127) (c := 256) (d := 126) (e := 255)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 125) (c := 254) (d := 124) (e := 253)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 123) (c := 252) (d := 122) (e := 251)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 121) (c := 250) (d := 120) (e := 249)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 119) (c := 248) (d := 118) (e := 247)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 117) (c := 246) (d := 116) (e := 245)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 115) (c := 244) (d := 114) (e := 243)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 113) (c := 242) (d := 112) (e := 241)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 111) (c := 240) (d := 110) (e := 239)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 109) (c := 238) (d := 108) (e := 237)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 107) (c := 236) (d := 106) (e := 235)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 105) (c := 234) (d := 104) (e := 233)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 103) (c := 232) (d := 102) (e := 231)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 101) (c := 230) (d := 100) (e := 229)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 99) (c := 228) (d := 98) (e := 227)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 97) (c := 226) (d := 96) (e := 225)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 95) (c := 224) (d := 94) (e := 223)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 93) (c := 222) (d := 92) (e := 221)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 91) (c := 220) (d := 90) (e := 219)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 89) (c := 218) (d := 88) (e := 217)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 87) (c := 216) (d := 86) (e := 215)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 85) (c := 214) (d := 84) (e := 213)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 83) (c := 212) (d := 82) (e := 211)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 81) (c := 210) (d := 80) (e := 209)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 79) (c := 208) (d := 78) (e := 207)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 77) (c := 206) (d := 76) (e := 205)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 75) (c := 204) (d := 74) (e := 203)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 73) (c := 202) (d := 72) (e := 201)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 71) (c := 200) (d := 70) (e := 199)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 69) (c := 198) (d := 68) (e := 197)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 67) (c := 196) (d := 66) (e := 195)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 65) (c := 194) (d := 64) (e := 193)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 63) (c := 192) (d := 62) (e := 191)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 61) (c := 190) (d := 60) (e := 189)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 59) (c := 188) (d := 58) (e := 187)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 57) (c := 186) (d := 56) (e := 185)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 55) (c := 184) (d := 54) (e := 183)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 53) (c := 182) (d := 52) (e := 181)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 51) (c := 180) (d := 50) (e := 179)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 49) (c := 178) (d := 48) (e := 177)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 47) (c := 176) (d := 46) (e := 175)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 45) (c := 174) (d := 44) (e := 173)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 43) (c := 172) (d := 42) (e := 171)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 41) (c := 170) (d := 40) (e := 169)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 39) (c := 168) (d := 38) (e := 167)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 37) (c := 166) (d := 36) (e := 165)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 35) (c := 164) (d := 34) (e := 163)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 33) (c := 162) (d := 32) (e := 161)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 31) (c := 160) (d := 30) (e := 159)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 29) (c := 158) (d := 28) (e := 157)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 27) (c := 156) (d := 26) (e := 155)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 25) (c := 154) (d := 24) (e := 153)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 23) (c := 152) (d := 22) (e := 151)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 21) (c := 150) (d := 20) (e := 149)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 19) (c := 148) (d := 18) (e := 147)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 17) (c := 146) (d := 16) (e := 145)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 15) (c := 144) (d := 14) (e := 143)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 13) (c := 142) (d := 12) (e := 141)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 11) (c := 140) (d := 10) (e := 139)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 9) (c := 138) (d := 8) (e := 137)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 7) (c := 136) (d := 6) (e := 135)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
+  obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h320f0a4e hl hr htab AX AY hAX hAY hAon h
+  have hinv := step_inv hinv hAeq (sel_digits hbits (a := 5) (c := 134) (d := 4) (e := 133)
+    (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
+  beta_reduce at h
+  try simp only [get2_0, get2_1] at h
+  elim_gates_shallow h
   sorry
 
 end ZolanaVE.P256

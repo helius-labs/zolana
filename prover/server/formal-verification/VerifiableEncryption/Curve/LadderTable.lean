@@ -224,4 +224,47 @@ theorem packed_limbs_pos (Y : ElemVal 8) :
   push_cast
   refine ⟨by ring, by ring, by ring⟩
 
+theorem bit01 {n : ℕ} {g : List.Vector F n} (hb : AllBits g) {a : ℕ} (ha : a < n) :
+    ∃ v : ℕ, v ≤ 1 ∧ bitI g a = v ∧ g.get ⟨a, ha⟩ = (v : F) := by
+  obtain ⟨h01, hc⟩ := bitI_of_bool (hb a ha)
+  rcases h01 with h0 | h1
+  · refine ⟨0, by norm_num, h0, ?_⟩
+    rw [vget_getD', ← hc, h0]; simp
+  · refine ⟨1, le_rfl, h1, ?_⟩
+    rw [vget_getD', ← hc, h1]; simp
+
+/-- The packed-table selector `n_i + 2·d_i + 4·n_{i-1} + 8·d_{i-1}` names the
+row whose digits are those bits. -/
+theorem sel_digits {g : List.Vector F 259} (hb : AllBits g) {a c d e : ℕ} (ha : a < 259) (hc : c < 259)
+    (hd : d < 259) (he : e < 259) {i : Fin 16}
+    (h : g.toList.getD a 0 + g.toList.getD c 0 * 2 + g.toList.getD d 0 * 4 + g.toList.getD e 0 * 8 =
+      ((i : ℕ) : F)) :
+    Ladder.digQ i = 2 * (2 * bitI g a + bitI g d) - 3 ∧ Ladder.digR i = 2 * (2 * bitI g c + bitI g e) - 3 := by
+  obtain ⟨va, hva, ba, ga⟩ := bit01 hb ha
+  obtain ⟨vc, hvc, bc, gc⟩ := bit01 hb hc
+  obtain ⟨vd, hvd, bd, gd⟩ := bit01 hb hd
+  obtain ⟨ve, hve, be, ge⟩ := bit01 hb he
+  rw [← vget_getD' g a ha, ← vget_getD' g c hc, ← vget_getD' g d hd, ← vget_getD' g e he,
+    ga, gc, gd, ge] at h
+  have h' : ((va + vc * 2 + vd * 4 + ve * 8 : ℕ) : F) = ((i : ℕ) : F) := by push_cast; exact h
+  have hi := natCast_inj (lt_order_of_le (by omega)) (lt_order_of_le (by omega)) h'
+  have hiv := i.2
+  rw [ba, bc, bd, be]
+  unfold Ladder.digQ Ladder.digR
+  rw [← hi]
+  constructor
+  · have e1 : (va + vc * 2 + vd * 4 + ve * 8) % 2 = va := by omega
+    have e2 : (va + vc * 2 + vd * 4 + ve * 8) / 4 % 2 = vd := by omega
+    rw [e1, e2]
+  · have e1 : (va + vc * 2 + vd * 4 + ve * 8) / 2 % 2 = vc := by omega
+    have e2 : (va + vc * 2 + vd * 4 + ve * 8) / 8 % 2 = ve := by omega
+    rw [e1, e2]
+
+theorem step_inv {Q R A O : P} {a c dq dr : ℤ} {i : Fin 16} (hA : A = a • Q + c • R)
+    (hO : O = 4 • A + Ladder.rowPoint i Q R) (hd : Ladder.digQ i = dq ∧ Ladder.digR i = dr) :
+    O = (4 * a + dq) • Q + (4 * c + dr) • R := by
+  rw [hO, hA, Ladder.row_point Q R i i.2, hd.1, hd.2, add_zsmul, add_zsmul, ← smul_smul, ← smul_smul,
+    nsmul_add]
+  abel
+
 end ZolanaVE.P256
