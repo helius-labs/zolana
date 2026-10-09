@@ -240,6 +240,26 @@ func oneHot(api frontend.API, selectorBits []frontend.Variable) []frontend.Varia
 	return flags
 }
 
+// CombTables returns copies of the comb tables the lookup layout selects
+// from: the signed-digit windows and the parity-folded top window, each entry
+// an affine (x, y) pair in selector order. The formal-verification exporter
+// reads them; circuits never call it.
+func CombTables() (windows [][][2]*big.Int, topEven [][2]*big.Int) {
+	table := p256Comb(combWindowFor(emfield.LayoutFor(true)))
+	copyEntries := func(entries [][2]*big.Int) [][2]*big.Int {
+		out := make([][2]*big.Int, len(entries))
+		for i, entry := range entries {
+			out[i] = [2]*big.Int{new(big.Int).Set(entry[0]), new(big.Int).Set(entry[1])}
+		}
+		return out
+	}
+	windows = make([][][2]*big.Int, len(table.windows))
+	for t, window := range table.windows {
+		windows[t] = copyEntries(window)
+	}
+	return windows, copyEntries(table.topEven)
+}
+
 func combWindowFor(layout emfield.Layout) int {
 	if layout.Lookups {
 		return 5

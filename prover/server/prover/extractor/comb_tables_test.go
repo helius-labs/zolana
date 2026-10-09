@@ -1,0 +1,78 @@
+package extractor
+
+import (
+	"math/big"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/consensys/gnark-crypto/ecc/secp256r1"
+
+	"zolana/prover/circuits/verifiable-encryption/p256/emcurve"
+)
+
+const combTablesPath = "../../formal-verification/VerifiableEncryption/CombTables.lean"
+
+func multipleOfGenerator(t *testing.T, scalar *big.Int) [2]*big.Int {
+	t.Helper()
+	reduced := new(big.Int).Mod(scalar, emcurve.GroupOrder())
+	if reduced.Sign() == 0 {
+		t.Fatalf("scalar %v is a multiple of the group order", scalar)
+	}
+	_, generator := secp256r1.Generators()
+	var product secp256r1.G1Affine
+	product.ScalarMultiplication(&generator, reduced)
+	return [2]*big.Int{product.X.BigInt(new(big.Int)), product.Y.BigInt(new(big.Int))}
+}
+
+func TestCombTablesMatchGeneratorMultiples(t *testing.T) {
+	windows, topEven := emcurve.CombTables()
+	if len(windows) != 52 {
+		t.Fatalf("window count %d, want 52", len(windows))
+	}
+	for w, window := range windows {
+		width := 5
+		if w == len(windows)-1 {
+			width = 1
+		}
+		if len(window) != 1<<width {
+			t.Fatalf("window %d has %d entries, want %d", w, len(window), 1<<width)
+		}
+		for j, entry := range window {
+			digit := big.NewInt(int64(2*j + 1 - (1 << width)))
+			want := multipleOfGenerator(t, new(big.Int).Lsh(digit, uint(5*w)))
+			if entry[0].Cmp(want[0]) != 0 || entry[1].Cmp(want[1]) != 0 {
+				t.Fatalf("window %d entry %d is not %v * 2^%d * G", w, j, digit, 5*w)
+			}
+		}
+	}
+	if len(topEven) != 2 {
+		t.Fatalf("top-even count %d, want 2", len(topEven))
+	}
+	for j, entry := range topEven {
+		digit := big.NewInt(int64(2*j - 1))
+		want := multipleOfGenerator(t, new(big.Int).Sub(new(big.Int).Lsh(digit, 255), big.NewInt(1)))
+		if entry[0].Cmp(want[0]) != 0 || entry[1].Cmp(want[1]) != 0 {
+			t.Fatalf("top-even entry %d is not %v * 2^255 * G - G", j, digit)
+		}
+	}
+}
+
+// TestCombTablesLeanUpToDate pins the committed Lean data to the Go tables.
+// Regenerate with UPDATE_COMB_TABLES=1.
+func TestCombTablesLeanUpToDate(t *testing.T) {
+	rendered := ExtractCombTables()
+	path := filepath.FromSlash(combTablesPath)
+	if os.Getenv("UPDATE_COMB_TABLES") != "" {
+		if err := os.WriteFile(path, []byte(rendered), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	committed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(committed) != rendered {
+		t.Fatal("CombTables.lean is stale; rerun with UPDATE_COMB_TABLES=1")
+	}
+}
