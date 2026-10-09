@@ -31,7 +31,7 @@ pub use decrypt::{
     MergeRebuild, OwnedUtxos, SpendableDecryptionResult,
 };
 pub use error::TransactionError;
-pub use history::{HistoryEntry, HistoryKind, WalletHistory};
+pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{

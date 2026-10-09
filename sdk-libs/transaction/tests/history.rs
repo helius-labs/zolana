@@ -1,4 +1,4 @@
-//! `WalletHistory::entries` over synthetic transactions: what each one did to
+//! `History::entries` over synthetic transactions: what each one did to
 //! the wallet's balance of each asset.
 
 mod common;
@@ -9,7 +9,7 @@ use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_transaction::{
-    HistoryKind, Mint, OutputContext, OutputSlot, ShieldedTransaction, WalletHistory, WalletUtxo,
+    History, HistoryKind, Mint, OutputContext, OutputSlot, ShieldedTransaction, WalletUtxo,
 };
 
 const TREE: u16 = 1;
@@ -78,11 +78,11 @@ fn deposit(signature: u8, slot: u64, utxo: &WalletUtxo) -> ShieldedTransaction {
 
 /// The entries of one transaction, given the UTXOs the wallet owns.
 fn classify(owned: &[&WalletUtxo], tx: ShieldedTransaction) -> Vec<(HistoryKind, u64)> {
-    WalletHistory {
+    History {
         transactions: vec![tx],
         utxos: owned.iter().map(|&utxo| utxo.clone()).collect(),
         view_tags: BTreeSet::from([WALLET_TAG]),
-        ..WalletHistory::default()
+        ..History::default()
     }
     .entries()
     .into_iter()
@@ -226,7 +226,7 @@ fn entries_list_newest_first_with_one_entry_per_asset_and_transaction() {
         wallet_utxo(&owner, Mint::SOL, 0, TREE, 6),
         wallet_utxo(&other, token, 4, TREE, 7),
     );
-    let history = WalletHistory {
+    let history = History {
         transactions: vec![
             deposit(1, 10, &first_deposit),
             with_dummies(
@@ -245,7 +245,7 @@ fn entries_list_newest_first_with_one_entry_per_asset_and_transaction() {
             zero_sol,
         ],
         view_tags: BTreeSet::from([WALLET_TAG]),
-        ..WalletHistory::default()
+        ..History::default()
     };
 
     let entries: Vec<_> = history

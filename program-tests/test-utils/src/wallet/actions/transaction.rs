@@ -7,13 +7,13 @@ use zolana_interface::{
     SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{shielded::ShieldedAddress, NullifierKey, ShieldedKeypair};
-use zolana_program::instruction::TransactInterfaceTransferAccounts;
+use zolana_program::instruction::{
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_transaction::{
     instructions::{
         merge::{MergeProofInputs, MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
-        transact::{
-            withdrawal_settlement, ConfidentialTransaction, SettlementTarget, SppProofInputs,
-        },
+        transact::{ConfidentialTransaction, SettlementTarget, SppProofInputs},
     },
     keys::LocalShieldedKeys,
     select_spend, Address, TransactionError, WalletUtxo, SOL_MINT,
@@ -872,7 +872,32 @@ fn withdrawal_target(
     asset: Address,
     spl_token_program: Option<Pubkey>,
 ) -> Result<(SettlementTarget, TransactInterfaceTransferAccounts), ClientError> {
-    Ok(withdrawal_settlement(asset, recipient, spl_token_program)?)
+    if asset == SOL_MINT {
+        return Ok((
+            SettlementTarget::Sol {
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+            },
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
+        ));
+    }
+
+    let mint = Pubkey::new_from_array(asset.to_bytes());
+    let token_program =
+        spl_token_program.ok_or(TransactionError::MissingSplTokenProgram { mint })?;
+    let user_spl_token =
+        pda::associated_token_address_with_program(&recipient, &mint, &token_program);
+    let vault = pda::spl_interface(&mint);
+    Ok((
+        SettlementTarget::Spl {
+            user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
+        },
+        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint,
+            spl_interface: vault,
+            user_token_account: user_spl_token,
+            token_program,
+        }),
+    ))
 }
 
 fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
@@ -1073,7 +1098,6 @@ mod tests {
     use solana_account::Account;
     use solana_signature::Signature;
     use zolana_keypair::{ShieldedKeypair, SigningKey};
-    use zolana_program::instruction::{TransactSolTransferAccounts, TransactSplWithdrawalAccounts};
     use zolana_transaction::{
         instructions::transact::{SettlementTransfer, MAX_SPEND_INPUTS},
         AssetRegistry, Data, DataRecord, Utxo,
@@ -1434,7 +1458,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 1,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 })
                 .collect(),
         }));
@@ -1453,7 +1477,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 0,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         }));
         assert!(matches!(
@@ -1471,7 +1495,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             })
             .collect();
 
@@ -1498,7 +1522,7 @@ mod tests {
                 recipient,
                 asset: SOL_MINT,
                 amount: u64::MAX,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("full-u64 withdrawal");
@@ -1530,13 +1554,13 @@ mod tests {
                     recipient: user,
                     asset: SOL_MINT,
                     amount: 6,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: relayer,
                     asset: SOL_MINT,
                     amount: 2,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         })
@@ -1629,7 +1653,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 3,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
@@ -1664,13 +1688,13 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 6,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 5,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         }));
@@ -1708,7 +1732,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 3,
-                    spl_token_program: None,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
@@ -1741,7 +1765,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("withdrawal")
@@ -1786,7 +1810,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .unwrap()
@@ -1814,7 +1838,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 8,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("tree with enough balance");
@@ -1869,7 +1893,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
-                spl_token_program: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("withdrawal");

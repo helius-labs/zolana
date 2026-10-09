@@ -323,7 +323,7 @@ impl ConfidentialTransaction {
 
     /// Withdraw `amount` of `asset` to the public account `recipient` and
     /// return the settlement accounts the `transact` instruction takes for it,
-    /// as [`withdrawal_settlement`] derives them. The token account of an SPL
+    /// as `withdrawal_settlement` derives them. The token account of an SPL
     /// withdrawal must exist when the transaction lands.
     pub fn withdraw_to(
         &mut self,
@@ -350,7 +350,7 @@ impl ConfidentialTransaction {
 /// goes to `recipient` itself. An SPL mint goes to `recipient`'s associated
 /// token account under `token_program`, the mint's token program, which must
 /// be `None` for SOL.
-pub fn withdrawal_settlement(
+fn withdrawal_settlement(
     asset: Address,
     recipient: Address,
     token_program: Option<Address>,

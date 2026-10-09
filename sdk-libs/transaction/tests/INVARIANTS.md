@@ -104,14 +104,6 @@ Source: [settlement](../src/instructions/transact/settlement.rs),
 | INV-TX-SETTLE-11 | post / C | `withdraw_to` records a withdrawal to `recipient` for SOL, and for an SPL mint to `recipient`'s associated token account under the given token program. It returns the matching `transact` settlement account group: the SOL recipient, or the mint, its SPL interface, that same token account and the token program. | [x] `settlement.rs::withdraw_to_settles_sol_to_the_recipient_and_spl_to_its_associated_token_account`. The token account and the interface are derived from the literal protocol seeds, not the SDK's PDA helpers. |
 | INV-TX-SETTLE-12 | pre / H | `withdraw_to` rejects an SPL mint without a token program with `MissingSplTokenProgram { mint }`, SOL with a token program with `UnexpectedSolTokenProgram { token_program }`, and an SPL mint that no real input holds with `UnknownMint`. A failed call records no transfer. | [x] `settlement.rs::withdraw_to_refuses_a_missing_or_sol_token_program_and_an_unknown_mint`. |
 
-## Deposits
-
-Source: [deposit](../src/instructions/deposit.rs).
-
-| ID | Kind / severity | Invariant | Coverage / required assertions |
-|---|---|---|---|
-| INV-TX-DEPOSIT-01 | post / H | `deposit_to` builds a deposit entry with the given asset and amount and no memo, owned by the recipient's owner hash and tagged with the recipient's bootstrap view tag, the tag its wallet scans for. | [x] `deposit.rs::a_wallet_deposit_is_owned_by_the_recipient_and_carries_the_tag_its_wallet_scans_for`. |
-
 ## UTXOs and commitments
 
 Source: [UTXO hashing](../src/utxo/note.rs), [output hashing](../src/utxo/output.rs),
@@ -212,7 +204,7 @@ Source: [history](../src/history.rs).
 
 | ID | Kind / severity | Invariant | Coverage / required assertions |
 |---|---|---|---|
-| INV-TX-HIST-01 | post / M | `WalletHistory::entries` classifies each transaction per asset from the wallet's UTXOs: with none spent, `Deposit` for a deposit instruction and `Received` otherwise, of the amount received; with exactly the spent amount received back, `SelfTransfer` of the amount spent; with more received back, `Deposit` of the amount received minus the amount spent; otherwise `Sent` when an output that is not the wallet's carries a tag outside `view_tags` and `Withdrawal` when none does, of the amount spent minus the amount received. A dummy output of the wallet's own spend carries the wallet's tag, so it never turns a withdrawal into `Sent`. | [x] `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
+| INV-TX-HIST-01 | post / M | `History::entries` classifies each transaction per asset from the wallet's UTXOs: with none spent, `Deposit` for a deposit instruction and `Received` otherwise, of the amount received; with exactly the spent amount received back, `SelfTransfer` of the amount spent; with more received back, `Deposit` of the amount received minus the amount spent; otherwise `Sent` when an output that is not the wallet's carries a tag outside `view_tags` and `Withdrawal` when none does, of the amount spent minus the amount received. A dummy output of the wallet's own spend carries the wallet's tag, so it never turns a withdrawal into `Sent`. | [x] `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
 | INV-TX-HIST-02 | post / M | The events of one Solana transaction count together; there is one entry per transaction and asset with a nonzero amount, none for a transaction that moved none of the wallet's UTXOs, ordered newest slot first, then by signature and mint. | [x] `history.rs::entries_list_newest_first_with_one_entry_per_asset_and_transaction`, `history.rs::each_transaction_is_classified_by_the_wallets_utxos_it_moved`. |
 
 ## Key holders and asset registry

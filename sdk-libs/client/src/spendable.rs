@@ -21,8 +21,8 @@ use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
-    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, OwnedUtxos, ShieldedKeys,
-    SpendableDecryptionResult, WalletHistory, SOL_ASSET_ID, SOL_MINT,
+    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, OwnedUtxos,
+    ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -71,14 +71,11 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
 
     /// The reads of [`fetch`](Self::fetch), keeping every transaction read,
     /// every UTXO the wallet owns among them, spent or not, and the tags they
-    /// were read by. [`WalletHistory::entries`] classifies them. It asks the
+    /// were read by. [`History::entries`] classifies them. It asks the
     /// key holder no more than `fetch` does.
-    pub fn fetch_history<I: Rpc + ?Sized>(
-        &self,
-        indexer: &I,
-    ) -> Result<WalletHistory, ClientError> {
+    pub fn fetch_history<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<History, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
-        Ok(WalletHistory {
+        Ok(History {
             utxos: fetched.owned.utxos,
             transactions: fetched.transactions,
             unknown_asset_ids: fetched.owned.unknown_asset_ids,

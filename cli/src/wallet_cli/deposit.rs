@@ -3,8 +3,8 @@ use solana_signer::Signer;
 use zolana_client::{
     user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer,
 };
-use zolana_program::instruction::{Deposit, DepositAsset, DepositSplAccounts};
-use zolana_transaction::{instructions::deposit::deposit_to, Address};
+use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
+use zolana_transaction::Address;
 
 use super::{
     material::load_sender_from_resolved_sync,
@@ -46,12 +46,19 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
             token_program: resolve_spl_token_program(&rpc, &mint)?,
         })
     };
-    let entry = deposit_to(deposit_asset, opts.amount, &recipient.address)?;
-    let view_tag = entry.view_tag;
+    // The recipient's viewing key tags a deposit: it is how the recipient's
+    // wallet finds the output without knowing the sender.
+    let view_tag = recipient.address.viewing_pubkey.x();
     let deposit = Deposit {
         tree,
         depositor: material.funding.pubkey(),
-        deposits: vec![entry],
+        deposits: vec![AssetDeposit {
+            asset: deposit_asset,
+            view_tag,
+            owner: recipient.address.owner_hash()?,
+            amount: opts.amount,
+            memo: None,
+        }],
     }
     .instruction()?;
     let signature = rpc.create_and_send_transaction(

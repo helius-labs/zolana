@@ -2,7 +2,7 @@
 //! created or spent one of its UTXOs did to its balance of each asset.
 //!
 //! A published transaction shows neither its public amounts nor whether it
-//! withdrew, so [`WalletHistory::entries`] reads the kind from the wallet's
+//! withdrew, so [`History::entries`] reads the kind from the wallet's
 //! UTXOs alone, per asset:
 //!
 //! - It spent none of them: a [`Deposit`](HistoryKind::Deposit) when it came
@@ -20,7 +20,7 @@
 //!   that is not the wallet's: [`Sent`](HistoryKind::Sent) to another wallet.
 //! - Otherwise: a [`Withdrawal`](HistoryKind::Withdrawal) of what did not come
 //!   back as change. A spend publishes its dummy outputs under the spender's
-//!   tag, so an output under one of [`WalletHistory::view_tags`] that the
+//!   tag, so an output under one of [`History::view_tags`] that the
 //!   wallet does not own is padding of its own spend, not a payment.
 //!
 //! Amounts are net per asset. So a transaction that both pays another wallet
@@ -72,7 +72,7 @@ pub struct HistoryEntry {
 /// owns among their outputs, spent or not, as
 /// [`verify_owned`](crate::verify_owned) returns them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct WalletHistory {
+pub struct History {
     pub transactions: Vec<ShieldedTransaction>,
     pub utxos: Vec<WalletUtxo>,
     /// As on [`DecryptionResult`](crate::DecryptionResult). UTXOs in these
@@ -85,7 +85,7 @@ pub struct WalletHistory {
     pub view_tags: BTreeSet<[u8; 32]>,
 }
 
-impl WalletHistory {
+impl History {
     /// One entry per asset each transaction moved, newest first. The events of
     /// one Solana transaction count together. A transaction that moved none of
     /// an asset, such as a zero-amount change output, has no entry for it.
