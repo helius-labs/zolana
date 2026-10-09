@@ -8,6 +8,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/bits"
 	"github.com/consensys/gnark/std/rangecheck"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/gadget"
 )
@@ -57,5 +58,22 @@ func BytesBigEndian(api frontend.API, value frontend.Variable, n int) []frontend
 // FieldToBytesBE decomposes v through its bits; at 32 bytes the decomposition
 // is the canonical one of the field element.
 func FieldToBytesBE(api frontend.API, v frontend.Variable, nbytes int) []frontend.Variable {
+	if abstractor.Extracting(api) {
+		return abstractor.Call1(api, FieldBytesBE{V: v, NBytes: nbytes})
+	}
+	return fieldToBytesBE(api, v, nbytes)
+}
+
+func fieldToBytesBE(api frontend.API, v frontend.Variable, nbytes int) []frontend.Variable {
 	return gadget.BitsToBytesBE(api, bits.ToBinary(api, v, bits.WithNbDigits(nbytes*byteBits)))
+}
+
+// FieldBytesBE is FieldToBytesBE as a named Lean definition, FieldBytesBE_<NBytes>.
+type FieldBytesBE struct {
+	V      frontend.Variable
+	NBytes int
+}
+
+func (g FieldBytesBE) DefineGadget(api frontend.API) interface{} {
+	return fieldToBytesBE(api, g.V, g.NBytes)
 }

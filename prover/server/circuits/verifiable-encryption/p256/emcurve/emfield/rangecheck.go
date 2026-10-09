@@ -20,6 +20,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/multicommit"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 func init() {
@@ -71,6 +72,8 @@ func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
 		rc.api.AssertIsEqual(v, 0)
 	case bits == 1:
 		rc.api.AssertIsBoolean(v)
+	case bits <= pieceBits && abstractor.Extracting(rc.api):
+		abstractor.CallVoid(rc.api, RangeCheck{V: v, Bits: bits})
 	case bits < pieceBits:
 		if rc.partial == nil {
 			rc.partial = map[int][]frontend.Variable{}

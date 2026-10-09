@@ -20,6 +20,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/multicommit"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 const rowSeparationLog = 8
@@ -46,6 +47,9 @@ func (t *rowTable) insert(row []frontend.Variable) {
 }
 
 func (t *rowTable) lookup(index frontend.Variable) []frontend.Variable {
+	if abstractor.Extracting(t.api) {
+		return abstractor.Call1(t.api, RowLookup{Rows: t.rows, Index: index})
+	}
 	inputs := []frontend.Variable{index, len(t.rows), t.nbCols}
 	for _, row := range t.rows {
 		inputs = append(inputs, row...)

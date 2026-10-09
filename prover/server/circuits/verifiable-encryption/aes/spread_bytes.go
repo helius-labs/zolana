@@ -7,6 +7,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/lookup/logderivlookup"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 const (
@@ -56,6 +57,9 @@ func newSpreadTables(api frontend.API) *spreadTables {
 	for byteIndex := range t.byteWeights {
 		exponent := big.NewInt(int64(bitsPerByte * byteIndex))
 		t.byteWeights[byteIndex] = new(big.Int).Exp(base, exponent, nil)
+	}
+	if abstractor.Extracting(api) {
+		return newExtractionTables(t)
 	}
 
 	// 2. Populate the combined S-box and MixColumns regions.
