@@ -244,6 +244,8 @@ theorem cert_hb838cae4_sound : cert_hb838cae4.sound basis = true := by decide +k
 
 theorem lazy_hb9b2a022_sound : lazy_hb9b2a022.sound basis = true := by decide +kernel
 
+theorem cert_hbeeafe4b_sound : cert_hbeeafe4b.sound basis = true := by decide +kernel
+
 theorem cert_hbfd40503_sound : cert_hbfd40503.sound basis = true := by decide +kernel
 
 theorem cert_hc20aa839_sound : cert_hc20aa839.sound basis = true := by decide +kernel

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
+	"zolana/prover/circuits/formal/ve"
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
 
@@ -48,7 +50,7 @@ func TestEmcurveChecksCoverEveryKind(t *testing.T) {
 
 func TestEmcurveRecorderAddsNoConstraints(t *testing.T) {
 	digest := func() [32]byte {
-		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &agreeKeyShape{})
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &ve.AgreeKey{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,6 +68,47 @@ func TestEmcurveRecorderAddsNoConstraints(t *testing.T) {
 	if plain != recorded {
 		t.Fatal("installing the recorder changed the constraint system")
 	}
+}
+
+var extractedCheckName = regexp.MustCompile(`(?m)^def (CheckPolynomial|Lazy)_[0-9]+_h([0-9a-f]{8}) `)
+
+func TestEmcurveChecksMatchExtractedGadgets(t *testing.T) {
+	checks, err := CollectEmcurveChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := map[string]bool{}
+	for _, r := range checks.Records {
+		switch r.Kind {
+		case emfield.KindEval, emfield.KindAssertZero, emfield.KindLazy:
+			recorded[recordName(r)] = true
+		}
+	}
+	modules, err := extractVE()
+	if err != nil {
+		t.Fatal(err)
+	}
+	extracted := map[string]bool{}
+	for _, source := range modules {
+		for _, m := range extractedCheckName.FindAllStringSubmatch(source, -1) {
+			prefix := "cert_h"
+			if m[1] == "Lazy" {
+				prefix = "lazy_h"
+			}
+			extracted[prefix+m[2]] = true
+		}
+	}
+	for name := range extracted {
+		if !recorded[name] {
+			t.Errorf("extracted gadget %s has no certificate record", name)
+		}
+	}
+	for name := range recorded {
+		if !extracted[name] {
+			t.Errorf("certificate record %s has no extracted gadget", name)
+		}
+	}
+	t.Logf("%d extracted check gadgets, %d records", len(extracted), len(recorded))
 }
 
 func write(t *testing.T, path, content string) {

@@ -10,28 +10,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/verifiable-encryption/p256/emcurve"
+	"zolana/prover/circuits/formal/ve"
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
-
-type agreeKeyShape struct {
-	EphemeralSk [32]frontend.Variable
-	RecipientPk [65]frontend.Variable
-}
-
-func (c *agreeKeyShape) Define(api frontend.API) error {
-	emcurve.AgreeKey(api, c.EphemeralSk, c.RecipientPk)
-	return nil
-}
-
-type derivePublicKeyShape struct {
-	Sk [32]frontend.Variable
-}
-
-func (c *derivePublicKeyShape) Define(api frontend.API) error {
-	emcurve.DerivePublicKey(api, c.Sk)
-	return nil
-}
 
 // EmcurveChecks is the deduplicated set of field-layer certificate records of
 // the P-256 key-agreement and public-key circuits.
@@ -42,8 +23,15 @@ type EmcurveChecks struct {
 	Calls int
 }
 
-// CollectEmcurveChecks compiles the key-agreement and public-key derivation
-// circuits with the production builder and the field recorders installed.
+// emcurveCircuits are the extraction circuits that use the emulated field;
+// their records pair one to one with the extracted CheckPolynomial and Lazy
+// definitions.
+func emcurveCircuits() []frontend.Circuit {
+	return []frontend.Circuit{&ve.FieldMulCheck{}, &ve.GuardedAdd{}, &ve.AgreeKey{}, &ve.DerivePublicKey{}, &ve.Envelope{}}
+}
+
+// CollectEmcurveChecks compiles the extraction circuits that use the emulated
+// field with the production builder and the field recorders installed.
 func CollectEmcurveChecks() (*EmcurveChecks, error) {
 	out := &EmcurveChecks{}
 	byKey := map[string]emfield.CheckRecord{}
@@ -66,7 +54,7 @@ func CollectEmcurveChecks() (*EmcurveChecks, error) {
 		emfield.Recorder = nil
 		emfield.RecordBasis = nil
 	}()
-	for _, circuit := range []frontend.Circuit{&agreeKeyShape{}, &derivePublicKeyShape{}} {
+	for _, circuit := range emcurveCircuits() {
 		if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit); err != nil {
 			return nil, err
 		}
