@@ -3,18 +3,19 @@
 //! [`ZolanaApi`] is the implementation; [`BlockingZolanaApi`] runs it on a
 //! Tokio runtime it owns, for blocking callers, the way `solana_rpc_client`'s
 //! blocking `RpcClient` drives its nonblocking one. Requests go through an
-//! [`HttpClient`]: a `reqwest` client by default, or the application's own
+//! [`HttpClient`]: a `reqwest` client by default (the `reqwest` feature), or the application's own
 //! networking stack; a [`BlockingHttpClient`] is carried on the runtime's
 //! blocking pool. The `zolana-client` prover clients use the same traits.
 
+#[cfg(feature = "reqwest")]
+use std::io::Read;
 use std::{
-    borrow::Cow, error::Error as StdError, fmt, future::Future, io::Read, pin::Pin, sync::Arc,
-    time::Duration,
+    borrow::Cow, error::Error as StdError, fmt, future::Future, pin::Pin, sync::Arc, time::Duration,
 };
 
-use reqwest::{
+use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
-    Method,
+    Method, StatusCode,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -45,10 +46,11 @@ pub use zolana_indexer_api::{
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
-/// `reqwest::blocking::Client`'s default bound, which [`BlockingZolanaApi`]
-/// kept before it ran on [`ZolanaApi`]: a hung indexer fails a blocking call
-/// rather than holding its thread.
-const BLOCKING_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// The bound on each request of a [`BlockingZolanaApi`], the one
+/// `reqwest::blocking::Client` gave it: a hung indexer fails a blocking call
+/// rather than holding its thread. [`BlockingZolanaApi::with_request_timeout`]
+/// changes it.
+pub const BLOCKING_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_ID: &str = "test-account";
 
 #[derive(Clone, Debug)]
@@ -57,6 +59,8 @@ pub struct ZolanaApi {
     api_key: Option<String>,
     client: Arc<dyn HttpClient>,
     trace_http: bool,
+    /// Bound on each request, kept here whatever the transport does.
+    request_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -236,11 +240,12 @@ impl fmt::Debug for HttpRequest {
 /// prover inside a TEE answers with ciphertext, and its headers say so.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpResponse {
-    pub status: reqwest::StatusCode,
+    pub status: StatusCode,
     pub headers: HeaderMap,
     pub body: Vec<u8>,
 }
 
+#[cfg(feature = "reqwest")]
 impl HttpClient for reqwest::Client {
     fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a> {
         Box::pin(async move {
@@ -278,6 +283,7 @@ impl HttpClient for reqwest::Client {
     }
 }
 
+#[cfg(feature = "reqwest")]
 impl BlockingHttpClient for reqwest::blocking::Client {
     fn send(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
         let HttpRequest {
@@ -312,11 +318,13 @@ impl BlockingHttpClient for reqwest::blocking::Client {
     }
 }
 
+#[cfg(feature = "reqwest")]
 fn response_lost(error: reqwest::Error) -> ApiError {
     ApiError::ResponseLost(Box::new(error))
 }
 
 pub enum ApiError {
+    #[cfg(feature = "reqwest")]
     Request(reqwest::Error),
     /// A custom [`HttpClient`] or [`BlockingHttpClient`] failed before it had
     /// a response.
@@ -326,7 +334,7 @@ pub enum ApiError {
     /// not safe to repeat, such as a proof, is not sent again.
     ResponseLost(Box<dyn StdError + Send + Sync>),
     Response {
-        status: reqwest::StatusCode,
+        status: StatusCode,
         body: String,
     },
     JsonRpc {
@@ -346,6 +354,7 @@ pub enum ApiError {
 impl fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match self {
+            #[cfg(feature = "reqwest")]
             Self::Request(error) => format!("request error: {error}"),
             Self::HttpClient(error) => format!("HTTP client error: {error}"),
             Self::ResponseLost(error) => format!("failed to read response body: {error}"),
@@ -378,6 +387,7 @@ impl fmt::Debug for ApiError {
 impl StdError for ApiError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
+            #[cfg(feature = "reqwest")]
             Self::Request(error) => Some(error),
             Self::HttpClient(error) | Self::ResponseLost(error) => Some(error.as_ref()),
             _ => None,
@@ -385,6 +395,7 @@ impl StdError for ApiError {
     }
 }
 
+#[cfg(feature = "reqwest")]
 impl From<reqwest::Error> for ApiError {
     fn from(error: reqwest::Error) -> Self {
         Self::Request(error)
@@ -423,6 +434,9 @@ struct JsonRpcError {
 }
 
 impl ZolanaApi {
+    /// Over a `reqwest` client with no request bound; see
+    /// [`Self::with_request_timeout`].
+    #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
         Self::with_client(url, reqwest::Client::new())
     }
@@ -434,7 +448,17 @@ impl ZolanaApi {
             api_key,
             client: Arc::new(client),
             trace_http: false,
+            request_timeout: None,
         }
+    }
+
+    /// Give up on a request at `timeout`. The bound rides on the request for
+    /// a transport that keeps one and is enforced here for one that does not,
+    /// so a hung server fails the call instead of holding it.
+    #[must_use]
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = Some(timeout);
+        self
     }
 
     /// This API for blocking callers, run on a Tokio runtime of its own.
@@ -609,7 +633,19 @@ impl ZolanaApi {
         if self.trace_http {
             print_api_request(&url, &body);
         }
-        let response = self.client.send(HttpRequest::post_json(url, body)).await?;
+        let mut request = HttpRequest::post_json(url, body);
+        request.timeout = self.request_timeout;
+        let send = self.client.send(request);
+        let response = match self.request_timeout {
+            Some(timeout) => tokio::time::timeout(timeout, send)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ApiError::HttpClient(
+                        format!("no response within {} s", timeout.as_secs()).into(),
+                    ))
+                })?,
+            None => send.await?,
+        };
         handle_response(method, response, self.trace_http)
     }
 
@@ -619,19 +655,30 @@ impl ZolanaApi {
 }
 
 impl BlockingZolanaApi {
+    /// Over a `reqwest` client, each request bound by
+    /// [`BLOCKING_REQUEST_TIMEOUT`].
+    #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(BLOCKING_REQUEST_TIMEOUT)
-            .build()
-            .expect("failed to build HTTP client");
-        ZolanaApi::with_client(url, client).into_blocking()
+        ZolanaApi::new(url)
+            .with_request_timeout(BLOCKING_REQUEST_TIMEOUT)
+            .into_blocking()
     }
 
-    /// Send through `client`, run on the runtime's blocking pool. An async
-    /// transport goes through [`ZolanaApi::with_client`] and
-    /// [`ZolanaApi::into_blocking`] instead.
+    /// Send through `client`, run on the runtime's blocking pool, each
+    /// request bound by [`BLOCKING_REQUEST_TIMEOUT`]. An async transport goes
+    /// through [`ZolanaApi::with_client`] and [`ZolanaApi::into_blocking`]
+    /// instead.
     pub fn with_client(url: impl AsRef<str>, client: impl BlockingHttpClient + 'static) -> Self {
-        ZolanaApi::with_client(url, OnBlockingPool::new(client)).into_blocking()
+        ZolanaApi::with_client(url, OnBlockingPool::new(client))
+            .with_request_timeout(BLOCKING_REQUEST_TIMEOUT)
+            .into_blocking()
+    }
+
+    /// See [`ZolanaApi::with_request_timeout`].
+    #[must_use]
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.api = self.api.with_request_timeout(timeout);
+        self
     }
 
     pub fn api(&self) -> &ZolanaApi {
@@ -898,7 +945,7 @@ fn print_api_request(url: &str, body: &[u8]) {
     );
 }
 
-fn print_api_response(method: &str, status: reqwest::StatusCode, body: &str) {
+fn print_api_response(method: &str, status: StatusCode, body: &str) {
     println!(
         "Photon API response {method} {status}:\n{}",
         pretty_json(body)
@@ -923,7 +970,7 @@ fn pretty_json(body: &str) -> String {
         .unwrap_or_else(|_| body.to_string())
 }
 
-fn parse_json_response<R>(status: reqwest::StatusCode, body: String) -> Result<R, ApiError>
+fn parse_json_response<R>(status: StatusCode, body: String) -> Result<R, ApiError>
 where
     R: DeserializeOwned,
 {
@@ -967,7 +1014,7 @@ mod tests {
 
         fn answer(&self, request: HttpRequest) -> Result<HttpResponse, ApiError> {
             self.requests.lock().unwrap().push(request);
-            match reqwest::StatusCode::from_u16(self.status) {
+            match StatusCode::from_u16(self.status) {
                 Ok(status) => Ok(HttpResponse {
                     status,
                     headers: HeaderMap::new(),
@@ -990,7 +1037,7 @@ mod tests {
         }
     }
 
-    fn assert_signature_request(requests: &Mutex<Vec<HttpRequest>>) {
+    fn assert_signature_request(requests: &Mutex<Vec<HttpRequest>>, timeout: Option<Duration>) {
         let request = requests.lock().unwrap().pop().expect("one request");
         assert_eq!(request.method, Method::POST);
         assert_eq!(
@@ -1001,7 +1048,7 @@ mod tests {
             request.headers.get(CONTENT_TYPE).map(HeaderValue::as_bytes),
             Some(b"application/json".as_slice())
         );
-        assert_eq!(request.timeout, None);
+        assert_eq!(request.timeout, timeout);
         let body: serde_json::Value =
             serde_json::from_slice(request.body.as_slice()).expect("the API sends JSON");
         assert_eq!(body["jsonrpc"], JSON_RPC_VERSION);
@@ -1019,7 +1066,30 @@ mod tests {
             .get_shielded_transactions_by_signature(SerializableSignature::default())
             .unwrap();
         assert_eq!(response.context.slot, 7);
-        assert_signature_request(&requests);
+        assert_signature_request(&requests, Some(BLOCKING_REQUEST_TIMEOUT));
+    }
+
+    /// Never answers, as a transport that ignores [`HttpRequest::timeout`].
+    #[derive(Debug)]
+    struct HungClient;
+
+    impl HttpClient for HungClient {
+        fn send<'a>(&'a self, _request: HttpRequest) -> HttpFuture<'a> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    /// The API keeps its request bound itself, whatever the transport does.
+    #[tokio::test]
+    async fn a_request_is_cut_off_at_the_api_timeout() {
+        let api = ZolanaApi::with_client("https://rpc.example.test/v1", HungClient)
+            .with_request_timeout(Duration::from_millis(20));
+        let error = api
+            .get_shielded_transactions_by_signature(SerializableSignature::default())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ApiError::HttpClient(_)), "{error}");
+        assert!(error.to_string().contains("no response within"), "{error}");
     }
 
     #[tokio::test]
@@ -1032,7 +1102,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.context.slot, 7);
-        assert_signature_request(&requests);
+        assert_signature_request(&requests, None);
     }
 
     #[test]
@@ -1047,7 +1117,7 @@ mod tests {
         assert!(matches!(
             call(429, "slow down"),
             Err(ApiError::Response { status, body })
-                if status == reqwest::StatusCode::TOO_MANY_REQUESTS && body == "slow down"
+                if status == StatusCode::TOO_MANY_REQUESTS && body == "slow down"
         ));
         assert!(matches!(
             call(

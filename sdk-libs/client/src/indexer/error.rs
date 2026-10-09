@@ -22,6 +22,7 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
+        #[cfg(feature = "reqwest")]
         zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
             ClientError::IndexerUnavailable(message)
         }
@@ -29,7 +30,7 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
             ClientError::IndexerUnavailable(message)
         }
         zolana_api::ApiError::Response { status, .. }
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() =>
+            if status == http::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() =>
         {
             ClientError::IndexerUnavailable(message)
         }

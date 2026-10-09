@@ -11632,6 +11632,7 @@ dependencies = [
 name = "zolana-api"
 version = "0.1.0"
 dependencies = [
+ "http 1.5.0",
  "reqwest",
  "serde",
  "serde_json",
@@ -11688,6 +11689,7 @@ dependencies = [
  "groth16-solana",
  "hex",
  "hpke",
+ "http 1.5.0",
  "httpdate",
  "num-bigint 0.4.8",
  "num-traits",
@@ -11717,6 +11719,7 @@ dependencies = [
  "solana-transaction-status-client-types",
  "thiserror 2.0.20",
  "tokio",
+ "url",
  "wincode",
  "x509-cert",
  "zeroize",
@@ -11905,9 +11908,11 @@ version = "0.23.0"
 dependencies = [
  "base64 0.22.1",
  "litesvm",
+ "num-bigint 0.4.8",
  "sha2 0.10.9",
  "solana-account 4.3.2",
  "solana-address 2.6.1",
+ "solana-clock",
  "solana-hash",
  "solana-instruction",
  "solana-keypair",

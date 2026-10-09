@@ -3,18 +3,20 @@
 
 use std::{mem, time::Duration};
 
-use reqwest::{
+use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
-    Method, StatusCode, Url,
+    Method, StatusCode,
 };
+use url::Url;
 use zeroize::Zeroizing;
 use zolana_api::{ApiError, HttpRequest};
 
+#[cfg(feature = "reqwest")]
+use crate::prover::endpoint::scrub;
 use crate::{
     error::ClientError,
     prover::{
         client::Delivery,
-        endpoint::scrub,
         tee::{
             EncryptedRequest, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, VERSION,
         },
@@ -229,6 +231,7 @@ impl CallError {
 /// which keeps its own wording, and any other through `ApiError`'s display.
 pub(crate) fn transport_error(error: ApiError) -> String {
     match error {
+        #[cfg(feature = "reqwest")]
         ApiError::Request(error) => scrub(error).to_string(),
         error => error.to_string(),
     }

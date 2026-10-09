@@ -4,8 +4,9 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use http::StatusCode;
 use rand_core::{OsRng, TryRngCore};
-use reqwest::{StatusCode, Url};
+use url::Url;
 
 use super::{
     platform::Anchors,
@@ -243,7 +244,7 @@ impl TeeSession {
         Ok((inner, text))
     }
 
-    pub fn is_encrypted(headers: &reqwest::header::HeaderMap) -> bool {
+    pub fn is_encrypted(headers: &http::HeaderMap) -> bool {
         headers
             .get(HEADER_VERSION)
             .is_some_and(|value| value.as_bytes() == VERSION.as_bytes())

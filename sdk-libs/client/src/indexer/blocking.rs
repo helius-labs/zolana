@@ -3,13 +3,18 @@ use std::sync::Arc;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{BlockingRuntime, BlockingZolanaApi, ZolanaApi};
+#[cfg(feature = "reqwest")]
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+#[cfg(feature = "reqwest")]
 use zolana_transaction::instructions::transact::SppProofInputs;
 
+#[cfg(feature = "reqwest")]
 use crate::{
     authority::ProofAuthority,
-    error::ClientError,
     prover::{witness::WitnessReader, ProverClient, ProverExt},
+};
+use crate::{
+    error::ClientError,
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
@@ -34,6 +39,7 @@ pub struct ZolanaIndexer {
 impl ZolanaIndexer {
     /// An indexer whose requests are each bounded by
     /// [`BlockingZolanaApi::new`]'s timeout.
+    #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
         Self::with_api(BlockingZolanaApi::new(url))
     }
@@ -57,6 +63,7 @@ impl ZolanaIndexer {
 
     /// The runtime this indexer's calls run on, for a prover client built
     /// beside it.
+    #[cfg(feature = "reqwest")]
     pub(crate) fn runtime(&self) -> Arc<BlockingRuntime> {
         Arc::clone(&self.runtime)
     }
@@ -69,7 +76,8 @@ impl ZolanaIndexer {
         self.runtime.block_on(future)
     }
 
-    /// Fetch the witnesses the inputs name and prove locally.
+    /// Fetch the witnesses the inputs name and prove through the local prover.
+    #[cfg(feature = "reqwest")]
     ///
     /// The witnesses come from [`WitnessReader`], the one place that knows how
     /// to split real inputs from padding and which tree each is proven against;

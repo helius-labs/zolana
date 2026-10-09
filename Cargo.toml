@@ -92,7 +92,7 @@ zolana-ring-indexer = { path = "custom-rings/indexer", version = "0.1.0" }
 zolana-ring-key-registry = { path = "custom-rings/key-registry", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
-zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
+zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0", default-features = false }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
@@ -227,6 +227,7 @@ hex = "0.4"
 hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
 libc = "0.2"
 http-body-util = "0.1.3"
+http = "1"
 httpdate = "1.0.3"
 hyper = "1.10.1"
 hyper-util = { version = "0.1.20", features = ["server-auto", "tokio"] }
@@ -264,6 +265,7 @@ toml = "0.8"
 toml_edit = "0.22"
 tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
+url = "2"
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.0", default-features = false, features = ["cors"] }
 tracing = "0.1.41"

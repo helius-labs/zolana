@@ -45,6 +45,7 @@ pub struct AsyncZolanaIndexer {
 }
 
 impl AsyncZolanaIndexer {
+    #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
             api: ZolanaApi::new(url),

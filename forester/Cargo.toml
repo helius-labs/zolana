@@ -42,7 +42,7 @@ zolana-tree = { workspace = true }
 # `run`: reconstruct the reference nullifier tree, build address-append
 # witnesses, and prove them on the forester prover.
 zolana-client = { workspace = true }
-zolana-api = { workspace = true }
+zolana-api = { workspace = true, features = ["reqwest"] }
 zolana-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-smart-account-client = { workspace = true }
