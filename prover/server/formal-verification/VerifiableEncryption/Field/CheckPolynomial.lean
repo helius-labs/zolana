@@ -388,6 +388,24 @@ def sound : Bool :=
 
 end LazyParams
 
+/-! ### Canonical checks -/
+
+/-- `AssertCanonical` record: the element is reduced and the check is either the
+limbwise comparison (`limbwise`) or the hinted gap. -/
+structure CanonicalCheckParams where
+  m : ℕ
+  limbwise : Bool
+  widths : List ℕ
+  lo : List ℤ
+  hi : List ℤ
+deriving Inhabited, Repr
+
+/-- The element is reduced: limbs `[0, 2^w - 1]` for the field widths. -/
+def CanonicalCheckParams.sound (c : CanonicalCheckParams) : Bool :=
+  c.widths.length == limbCount &&
+  c.lo == List.replicate limbCount 0 &&
+  c.hi == c.widths.map (fun w => (2 : ℤ) ^ w - 1)
+
 /-! ### Statements -/
 
 /-- Inputs carry exactly the bounds the certificate was computed from. -/
