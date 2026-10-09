@@ -77,16 +77,16 @@ theorem slopeFactor_eq_zero_of_modEq {d : ℤ} (hd : |d| < 2 * p) (h : d ≡ 0 [
   rcases hk1 with ⟨hk1, hk2⟩
   interval_cases k <;> ring
 
-/-- `curve.assertDistinctSlope`: with both integer values below `2^255` in
+/-- `curve.assertDistinctSlope`: with both integer values below `p` in
 magnitude, a nonzero native product rules out `v ≡ ±h (mod p)`. -/
-theorem distinctSlope_guard {q : ℕ} {v h : ℤ} (hv : |v| < 2 ^ 255) (hh : |h| < 2 ^ 255)
+theorem distinctSlope_guard {q : ℕ} {v h : ℤ} (hv : |v| < p) (hh : |h| < p)
     (hne : slopeFactor ((v : ZMod q) - (h : ZMod q)) * slopeFactor ((v : ZMod q) + (h : ZMod q)) ≠ 0) :
     (v : Fp) ≠ (h : Fp) ∧ (v : Fp) ≠ -(h : Fp) := by
   have hp : (p : ℤ) = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff := rfl
   have hsub : |v - h| < 2 * p := by
-    rw [hp]; rw [abs_lt] at hv hh ⊢; constructor <;> omega
+    rw [abs_lt] at hv hh ⊢; constructor <;> linarith
   have hadd : |v + h| < 2 * p := by
-    rw [hp]; rw [abs_lt] at hv hh ⊢; constructor <;> omega
+    rw [abs_lt] at hv hh ⊢; constructor <;> linarith
   constructor
   · intro he
     apply hne

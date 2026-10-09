@@ -1,4 +1,4 @@
-import VerifiableEncryption.Curve.Pieces
+import VerifiableEncryption.Curve.Native
 import VerifiableEncryption.Curve.Steps
 import VerifiableEncryption.Field.Instances
 

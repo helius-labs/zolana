@@ -157,18 +157,4 @@ theorem eval_bnd {c : PlainCheckParams} {e : ElemVal 8}
     (mkElem x c h).ints.get i = x i := by
   simp [mkElem]
 
-/-- Normalise an `hxs` goal `limbLists es = [[L.get 0, …]]` to limb equalities and close them.
-The extra terms unfold local element names. -/
-syntax "limbs_tac" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
-macro_rules
-  | `(tactic| limbs_tac [$ts,*]) => `(tactic| (
-    simp only [limbLists, List.map, mkElem_limbs, vec8_toList, mkElem_int, ElemVal.limb_eq, $ts,*]
-    try simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod, List.Vector.toList_cons,
-      List.Vector.toList_nil, List.get_eq_getElem, Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.getElem_cons_succ,
-      List.getElem_cons_zero, getElem_eq_getD0, List.getD_cons_succ, List.getD_cons_zero, pieceInt_cast, Gates,
-      GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
-      List.cons.injEq, and_true, Fin.coe_cast, Int.cast_add, Int.cast_sub, Int.cast_neg, Int.cast_mul]
-    try (constructorm* _ ∧ _)
-    all_goals (try push_cast); all_goals ring))
-
 end ZolanaVE.Field
