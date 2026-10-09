@@ -30,7 +30,7 @@ func ScalarMulGenerator(api frontend.API, scalar [32]frontend.Variable) [65]fron
 
 func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, lookups bool) [65]frontend.Variable {
 	c := newCurveFor(api, lookups)
-	publicPoint := c.scalarMulBase(c.fr.FromLimbs(c.fieldLimbs(scalar[:])))
+	publicPoint := c.scalarMulBase(c.parseScalar(scalar))
 	var encodedPoint [65]frontend.Variable
 	encodedPoint[0] = frontend.Variable(0x04)
 	copy(encodedPoint[1:33], c.toBytes(publicPoint.X))
@@ -46,7 +46,7 @@ func ScalarMulFor(api frontend.API, scalar [32]frontend.Variable, pointBytes [65
 	c := newCurveFor(api, lookups)
 	inputPoint := c.parseKey(pointBytes)
 	c.assertOnCurve(inputPoint)
-	product := c.scalarMulChecked(inputPoint, c.fr.FromLimbs(c.fieldLimbs(scalar[:])))
+	product := c.scalarMulChecked(inputPoint, c.parseScalar(scalar))
 	var encodedPoint [65]frontend.Variable
 	encodedPoint[0] = frontend.Variable(0x04)
 	copy(encodedPoint[1:33], c.toBytes(product.X))
@@ -66,7 +66,27 @@ func ECDHFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipie
 }
 
 func (c *curve) parseKey(publicKey [65]frontend.Variable) *point {
-	return &point{X: c.fp.FromLimbs(c.fieldLimbs(publicKey[1:33])), Y: c.fp.FromLimbs(c.fieldLimbs(publicKey[33:65]))}
+	c.api.AssertIsEqual(publicKey[0], uncompressedPrefix)
+	c.checkBytes(publicKey[1:])
+	publicPoint := &point{
+		X: c.fp.Reduced(c.fieldLimbs(publicKey[1:33])),
+		Y: c.fp.Reduced(c.fieldLimbs(publicKey[33:65])),
+	}
+	c.fp.AssertCanonical(publicPoint.X)
+	c.fp.AssertCanonical(publicPoint.Y)
+	return publicPoint
+}
+
+func (c *curve) checkBytes(bytes []frontend.Variable) {
+	rangeChecker := c.rangeChecker()
+	for _, byteValue := range bytes {
+		rangeChecker.Check(byteValue, 8)
+	}
+}
+
+func (c *curve) parseScalar(bytes [32]frontend.Variable) *frElement {
+	c.checkBytes(bytes[:])
+	return c.fr.Reduced(c.fieldLimbs(bytes[:]))
 }
 
 func (c *curve) toBytes(coordinate *fpElement) []frontend.Variable {
@@ -98,6 +118,9 @@ func (c *curve) canonicalLimbs(e *fpElement) []frontend.Variable {
 
 func (c *curve) splitLowBits(value frontend.Variable, lowBits, totalBits int) (high, low frontend.Variable) {
 	api := c.api
+	if lowBits < 0 || lowBits > totalBits || totalBits >= api.Compiler().FieldBitLen() {
+		panic("bit split must fit the native field without wraparound")
+	}
 	// 1. Obtain candidate high and low parts from the hint.
 	parts, err := api.Compiler().NewHint(p256SplitLowBitsHint, 2, value, lowBits)
 	if err != nil {

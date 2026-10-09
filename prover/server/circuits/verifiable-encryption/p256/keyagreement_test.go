@@ -11,7 +11,7 @@
 //  5. Field-coordinate bytes are canonical (emcurve TestLimbsBelowModulus).
 //  6. Forged scalar-multiplication reports (emcurve soundness tests) and mutated hints are rejected.
 //  7. Key agreement uses one Groth16 commitment with no public variables committed.
-//  8. The variable-base ladder refuses the ephemeral scalars +-1, +-3 and +-1/3.
+//  8. Key agreement accepts the ephemeral residues +-1, +-3 and +-1/3.
 package p256
 
 import (
@@ -114,26 +114,9 @@ func TestComputeKeyAgreementRefusesInfinityAndReducesScalars(t *testing.T) {
 	cs := compile(t, &keyAgreementCircuit{})
 	peer := peerKey(t).PublicKey()
 	for _, row := range scalarRows(t) {
-		if row.reduced != nil && ladderExceptional(row.reduced) {
-			row.reduced = nil
-		}
 		t.Run(row.name, func(t *testing.T) {
 			row.check(t, cs, row.agreementWitness(t, peer))
 		})
-	}
-}
-
-// Invariant 8: The variable-base ladder refuses the ephemeral scalars +-1, +-3 and +-1/3 for every recipient.
-func TestComputeKeyAgreementRefusesLadderExceptionalScalars(t *testing.T) {
-	cs := compile(t, &keyAgreementCircuit{})
-	peer := agreementPeer(t)
-	for _, s := range ladderExceptionalScalars() {
-		if err := solveAgreement(t, cs, keyAgreementWitness(t, s, peer)); err == nil {
-			t.Fatalf("scalar %x accepted", s)
-		}
-	}
-	if err := solveAgreement(t, cs, keyAgreementWitness(t, big.NewInt(2), peer)); err != nil {
-		t.Fatalf("scalar 2 rejected: %v", err)
 	}
 }
 
@@ -142,9 +125,6 @@ func TestComputeKeyAgreementRejectsHintAttacks(t *testing.T) {
 	cs := compile(t, &keyAgreementCircuit{})
 	peer := agreementPeer(t)
 	for _, row := range attackScalars() {
-		if ladderExceptional(row.scalar) {
-			continue
-		}
 		w := keyAgreementWitness(t, row.scalar, peer)
 		t.Run(row.name, func(t *testing.T) {
 			hintattack.RunHintAttacks(t, cs, func(opts ...solver.Option) error {
@@ -168,10 +148,23 @@ func TestComputeKeyAgreementCommitmentCount(t *testing.T) {
 	t.Logf("ComputeKeyAgreement constraints %d variables %d", cs.GetNbConstraints(), variables)
 }
 
+// Invariant 8: Key agreement accepts the ephemeral residues +-1, +-3 and +-1/3.
+func TestComputeKeyAgreementAcceptsLadderExceptionalScalars(t *testing.T) {
+	cs := compile(t, &keyAgreementCircuit{})
+	peer := agreementPeer(t)
+	for _, s := range ladderExceptionalScalars() {
+		if err := solveAgreement(t, cs, keyAgreementWitness(t, s, peer)); err != nil {
+			t.Fatalf("scalar %x rejected: %v", s, err)
+		}
+	}
+	if err := solveAgreement(t, cs, keyAgreementWitness(t, big.NewInt(2), peer)); err != nil {
+		t.Fatalf("scalar 2 rejected: %v", err)
+	}
+}
+
 // Test circuits and shared helpers.
 
-// ladderExceptionalScalars mirrors hosttest.LadderExceptionalScalars, which this
-// package cannot import without a cycle.
+// ladderExceptionalScalars lists the six residues handled by the ladder wrapper.
 func ladderExceptionalScalars() []*big.Int {
 	n := elliptic.P256().Params().N
 	third := new(big.Int).ModInverse(big.NewInt(3), n)
@@ -180,16 +173,6 @@ func ladderExceptionalScalars() []*big.Int {
 		out = append(out, s, new(big.Int).Sub(n, s))
 	}
 	return out
-}
-
-func ladderExceptional(s *big.Int) bool {
-	reduced := new(big.Int).Mod(s, elliptic.P256().Params().N)
-	for _, e := range ladderExceptionalScalars() {
-		if reduced.Cmp(e) == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 type attackScalar struct {

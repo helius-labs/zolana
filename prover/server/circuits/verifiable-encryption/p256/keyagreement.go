@@ -27,6 +27,5 @@ func ComputeKeyAgreement(
 	ephemeralSecretKey [32]frontend.Variable,
 	recipientPubkey [65]frontend.Variable,
 ) KeyAgreement {
-	emcurve.AssertBytes(api, ephemeralSecretKey[:])
 	return emcurve.AgreeKey(api, ephemeralSecretKey, recipientPubkey)
 }

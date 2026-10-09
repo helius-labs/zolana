@@ -16,30 +16,17 @@ type KeyAgreement struct {
 }
 
 // AgreeKey computes packed key-agreement outputs using lookup range checks.
-// Callers must constrain ephemeralSecretKey to bytes before packing its limbs.
+// Both the ephemeral scalar bytes and recipient encoding are constrained here.
 func AgreeKey(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable) KeyAgreement {
 	return AgreeKeyFor(api, ephemeralSecretKey, recipientPubkey, true)
 }
 
-// AgreeKeyFor selects lookup or bit-based range checks; it has the same
-// byte-input precondition as AgreeKey.
+// AgreeKeyFor selects lookup or bit-based range checks for the same input validation.
 func AgreeKeyFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable, lookups bool) KeyAgreement {
 	c := newCurveFor(api, lookups)
 	limbBits := c.layout.LimbBits
 	// 1. Validate the recipient encoding and constrain its canonical curve point.
-	api.AssertIsEqual(recipientPubkey[0], uncompressedPrefix)
-	rangeChecker := c.rangeChecker()
-	for _, recipientByte := range recipientPubkey[1:] {
-		rangeChecker.Check(recipientByte, 8)
-	}
-	recipientXBytes := recipientPubkey[1:33]
-	recipientYBytes := recipientPubkey[33:65]
-	recipient := &point{
-		X: c.fp.Reduced(c.fieldLimbs(recipientXBytes)),
-		Y: c.fp.Reduced(c.fieldLimbs(recipientYBytes)),
-	}
-	c.fp.AssertCanonical(recipient.X)
-	c.fp.AssertCanonical(recipient.Y)
+	recipient := c.parseKey(recipientPubkey)
 	c.assertOnCurve(recipient)
 	_, recipientParity := c.splitLowBits(recipientPubkey[64], 1, 8)
 
@@ -52,7 +39,7 @@ func AgreeKeyFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, rec
 	agreement.RecipientHi = bigEndianSum(api, recipientPubkey[31:33])
 
 	// 3. Constrain the shared point and derive the ephemeral public point.
-	scalar := c.fr.FromLimbs(c.fieldLimbs(ephemeralSecretKey[:]))
+	scalar := c.parseScalar(ephemeralSecretKey)
 	shared := c.scalarMulChecked(recipient, scalar)
 
 	ephemeral := c.scalarMulBase(scalar)

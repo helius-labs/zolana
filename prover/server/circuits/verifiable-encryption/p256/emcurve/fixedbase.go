@@ -100,9 +100,9 @@ func (c *curve) completeAdd(p, q *point) *point {
 	if err != nil {
 		panic(err)
 	}
-	sameX, inverseDifferenceProduct := hinted[0], hinted[1]
+	sameX, inverseDifferenceSquares := hinted[0], hinted[1]
 	api.AssertIsBoolean(sameX)
-	api.AssertIsEqual(api.Mul(c.distinctProduct(p.X, q.X), inverseDifferenceProduct), api.Sub(1, sameX))
+	api.AssertIsEqual(api.Mul(c.xDifferenceSquares(p.X, q.X), inverseDifferenceSquares), api.Sub(1, sameX))
 	sameXElement := fp.Bounded([]frontend.Variable{sameX}, []int{1})
 	xDifference := fp.Sub(q.X, p.X)
 	yDifference := fp.Sub(q.Y, p.Y)
@@ -370,31 +370,23 @@ func p256XEqualHint(q *big.Int, inputs, outputs []*big.Int) error {
 	if len(inputs) < 1 || len(outputs) != 2 {
 		return errors.New("expecting two x-coordinates")
 	}
-	limbBits := uint(inputs[0].Uint64())
 	inputs = inputs[1:]
-	n := len(inputs) / 2
-	if len(inputs) != 2*n {
+	limbCount := len(inputs) / 2
+	if len(inputs) != 2*limbCount {
 		return errors.New("expecting two x-coordinates")
 	}
-	value := func(limbs []*big.Int) *big.Int {
-		v := new(big.Int)
-		for i := len(limbs) - 1; i >= 0; i-- {
-			v.Lsh(v, limbBits).Add(v, limbs[i])
-		}
-		return v
-	}
-	p := elliptic.P256().Params().P
-	diff := new(big.Int).Sub(value(inputs[n:]), value(inputs[:n]))
 	outputs[0].SetUint64(0)
 	outputs[1].SetUint64(0)
-	if new(big.Int).Mod(diff, p).Sign() == 0 {
-		outputs[0].SetUint64(1)
-		return nil
+	differenceSquares := new(big.Int)
+	for i := 0; i < limbCount; i++ {
+		difference := new(big.Int).Sub(inputs[limbCount+i], inputs[i])
+		differenceSquares.Add(differenceSquares, difference.Mul(difference, difference))
 	}
-	prod := new(big.Int).Mul(diff, new(big.Int).Sub(diff, p))
-	prod.Mul(prod, new(big.Int).Add(diff, p)).Mod(prod, q)
-	if prod.Sign() != 0 {
-		outputs[1].ModInverse(prod, q)
+	differenceSquares.Mod(differenceSquares, q)
+	if differenceSquares.Sign() == 0 {
+		outputs[0].SetUint64(1)
+	} else {
+		outputs[1].ModInverse(differenceSquares, q)
 	}
 	return nil
 }

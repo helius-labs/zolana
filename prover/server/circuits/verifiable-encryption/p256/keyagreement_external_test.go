@@ -11,7 +11,7 @@
 //  5. Field-coordinate bytes are canonical (emcurve TestLimbsBelowModulus).
 //  6. Forged scalar-multiplication reports (emcurve soundness tests) and mutated hints are rejected.
 //  7. Key agreement uses one Groth16 commitment with no public variables committed.
-//  8. The variable-base ladder refuses the ephemeral scalars +-1, +-3 and +-1/3.
+//  8. Key agreement accepts the ephemeral residues +-1, +-3 and +-1/3.
 package p256_test
 
 import (
@@ -38,10 +38,6 @@ func TestComputeKeyAgreementMatchesHostAtEdgeCases(t *testing.T) {
 		t.Run(edge.Name, func(t *testing.T) {
 			scalar := new(big.Int).SetBytes(edge.Keys.EphemeralSecret.Bytes())
 			w := p256.KeyAgreementWitness(t, scalar, edge.Keys.RecipientSecret.PublicKey())
-			if hosttest.IsLadderExceptional(scalar) {
-				hintattack.RequireConstraintRejection(t, p256.SolveAgreement(t, cs, w))
-				return
-			}
 			if err := p256.SolveAgreement(t, cs, w); err != nil {
 				t.Fatalf("honest witness rejected: %v", err)
 			}
@@ -131,10 +127,6 @@ func TestComputeKeyAgreementBoundaryScalarAtGroupOrder(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			w := p256.KeyAgreementWitness(t, row.reduced, peer)
 			assignBytes(w.Scalar[:], scalarBytes(row.raw))
-			if hosttest.IsLadderExceptional(row.reduced) {
-				hintattack.RequireConstraintRejection(t, p256.SolveAgreement(t, cs, w))
-				return
-			}
 			if err := p256.SolveAgreement(t, cs, w); err != nil {
 				t.Fatalf("rejected: %v", err)
 			}

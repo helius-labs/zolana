@@ -32,6 +32,37 @@ const (
 )
 
 func (c *curve) scalarMulChecked(inputPoint *point, scalar *frElement) *point {
+	// 1. Canonicalize the scalar so limb comparisons are integer-exact.
+	scalar = c.fr.Eval(T(1, scalar))
+	c.fr.AssertCanonical(scalar)
+	groupOrder := GroupOrder()
+	inverseThree := new(big.Int).ModInverse(big.NewInt(3), groupOrder)
+
+	// 2. Identify the ladder's six exceptional residues: ±1, ±3, and ±1/3.
+	var exceptional frontend.Variable = 0
+	for _, positive := range []*big.Int{big.NewInt(1), big.NewInt(3), inverseThree} {
+		negative := new(big.Int).Sub(groupOrder, positive)
+		for _, residue := range []*big.Int{positive, negative} {
+			residueLimbs := c.fr.Const(residue).Limbs()
+			var differenceSquares frontend.Variable = 0
+			for i, scalarLimb := range scalar.Limbs() {
+				difference := c.api.Sub(scalarLimb, residueLimbs[i])
+				differenceSquares = c.api.Add(differenceSquares, c.api.Mul(difference, difference))
+			}
+			exceptional = c.api.Add(exceptional, c.api.IsZero(differenceSquares))
+		}
+	}
+
+	// 3. For those residues, prove [s/2](2Q) = [s]Q with a nonexceptional scalar.
+	inverseTwo := c.fr.Const(new(big.Int).ModInverse(big.NewInt(2), groupOrder))
+	halfScalar := c.fr.Eval(T(1, scalar, inverseTwo))
+	doubledInput := c.double(inputPoint)
+	ladderInput := c.selectPoint(exceptional, doubledInput, inputPoint)
+	ladderScalar := c.fr.Select(exceptional, halfScalar, scalar)
+	return c.scalarMulLadder(ladderInput, ladderScalar)
+}
+
+func (c *curve) scalarMulLadder(inputPoint *point, scalar *frElement) *point {
 	fr, fp, api := c.fr, c.fp, c.api
 	// 1. Constrain the signed rational decomposition and its nonzero denominator.
 	decomposition, err := api.Compiler().NewHint(p256DecomposeScalarHint, 1+2*halfScalarBits, c.limbHintInputs(scalar.Limbs())...)
@@ -286,17 +317,25 @@ func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) 
 }
 
 func (c *curve) assertDistinctX(p, q *fpElement) {
-	c.api.AssertIsDifferent(c.distinctProduct(p, q), 0)
+	c.api.AssertIsDifferent(c.xDifferenceSquares(p, q), 0)
 }
 
-func (c *curve) distinctProduct(p, q *fpElement) frontend.Variable {
+// xDifferenceSquares compares canonical 32-bit limbs without reducing a
+// 256-bit coordinate into the native field. The sum is below 2^67, so it is
+// zero exactly when every limb matches.
+func (c *curve) xDifferenceSquares(p, q *fpElement) frontend.Variable {
 	widths := c.fp.ReducedWidths()
 	if !p.IsReduced(widths) || !q.IsReduced(widths) {
 		panic("distinct-x guard needs reduced coordinates")
 	}
-	diff := c.api.Sub(c.nativeValue(q), c.nativeValue(p))
-	modulus := c.fp.Modulus()
-	return c.api.Mul(c.api.Mul(diff, c.api.Sub(diff, modulus)), c.api.Add(diff, modulus))
+	c.fp.AssertCanonical(p)
+	c.fp.AssertCanonical(q)
+	var sum frontend.Variable = 0
+	for i, pLimb := range p.Limbs() {
+		difference := c.api.Sub(pLimb, q.Limbs()[i])
+		sum = c.api.Add(sum, c.api.Mul(difference, difference))
+	}
+	return sum
 }
 
 func (c *curve) nativeValue(e *fpElement) frontend.Variable {

@@ -4,6 +4,7 @@
 //  2. Each altered packed output is rejected.
 //  3. Forged decomposition, multiplication, slope, and lookup hints are rejected.
 //  4. Malformed, noncanonical, and off-curve recipient encodings are rejected.
+//  5. Key agreement rejects scalar-byte carries that preserve the packed integer.
 package emcurve
 
 import (
@@ -223,6 +224,18 @@ func TestAgreeKeyRejectsInvalidRecipients(t *testing.T) {
 			}
 
 		}
+	})
+}
+
+// Invariant 5: Key agreement rejects scalar-byte carries that preserve the packed integer.
+func TestAgreeKeyRejectsScalarByteAlias(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
+		w := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
+		raw := mergeScalar.FillBytes(make([]byte, 32))
+		w.Scalar[1] = int(raw[1]) - 1
+		w.Scalar[2] = int(raw[2]) + 256
+		assertCircuitResult(t, cs, w, false)
 	})
 }
 

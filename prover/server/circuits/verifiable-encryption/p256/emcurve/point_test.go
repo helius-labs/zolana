@@ -4,12 +4,14 @@
 //  2. Canonical limb checks accept values below the modulus and reject values at or
 //     above it.
 //  3. Forged output-byte splits are rejected.
-//  4. ECDH reduces scalars and rejects infinity and the documented exceptional
-//     scalars.
+//  4. ECDH reduces scalars, accepts the six exceptional residues, and rejects infinity.
+//  5. ECDH rejects incorrect prefixes, nonbyte coordinates, and noncanonical coordinates.
+//  6. Exceptional scalar multiplication matches both host coordinates and rejects altered y.
 package emcurve
 
 import (
 	"crypto/ecdh"
+	"crypto/elliptic"
 	"math/big"
 	"strings"
 	"testing"
@@ -84,14 +86,78 @@ func TestOutputBytesRejectForgedSplit(t *testing.T) {
 	}
 }
 
-// Invariant 4: ECDH reduces scalars and rejects infinity and the documented exceptional scalars.
+// Invariant 4: ECDH reduces scalars, accepts the six exceptional residues, and rejects infinity.
 func TestECDHRefusesInfinityAndReducesScalars(t *testing.T) {
 	forEachMode(t, func(t *testing.T, noLookups bool) {
 		cs := compile(t, &ecdhCircuit{NoLookups: noLookups})
 		peer := peerKey(t).PublicKey()
 		for _, row := range scalarRows(t) {
 			t.Run(row.name, func(t *testing.T) {
-				row.check(t, cs, row.ecdhWitness(t, peer), true)
+				row.check(t, cs, row.ecdhWitness(t, peer))
+			})
+		}
+	})
+}
+
+// Invariant 5: ECDH rejects incorrect prefixes, nonbyte coordinates, and noncanonical coordinates.
+func TestECDHRejectsMalformedEncoding(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdhCircuit{NoLookups: noLookups})
+		row := scalarRow{scalar: mergeScalar, reduced: mergeScalar}
+		peer := peerKey(t).PublicKey()
+		honest := row.ecdhWitness(t, peer)
+		assertCircuitResult(t, cs, honest, true)
+		t.Run("wrong prefix", func(t *testing.T) {
+			w := *honest
+			w.PublicKey[0] = 5
+			bad := append([]byte{}, peer.Bytes()...)
+			bad[0] = 5
+			if _, err := ecdh.P256().NewPublicKey(bad); err == nil {
+				t.Fatal("host accepted malformed key")
+			}
+			assertCircuitResult(t, cs, &w, false)
+		})
+		t.Run("non byte coordinate", func(t *testing.T) {
+			w := *honest
+			w.PublicKey[1] = int(peer.Bytes()[1]) - 1
+			w.PublicKey[2] = int(peer.Bytes()[2]) + 256
+			assertCircuitResult(t, cs, &w, false)
+		})
+		t.Run("noncanonical x", func(t *testing.T) {
+			x, y := smallCurvePoint(t)
+			key, err := ecdh.P256().NewPublicKey(elliptic.Marshal(elliptic.P256(), x, y))
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := row.ecdhWitness(t, key)
+			alias := new(big.Int).Add(x, elliptic.P256().Params().P)
+			setBytes(w.PublicKey[1:33], alias.FillBytes(make([]byte, 32)))
+			assertCircuitResult(t, cs, w, false)
+		})
+	})
+}
+
+// Invariant 6: Exceptional scalar multiplication matches both host coordinates and rejects altered y.
+func TestScalarMulExceptionalCoordinates(t *testing.T) {
+	peer := peerKey(t).PublicKey().Bytes()
+	px, py := elliptic.Unmarshal(elliptic.P256(), peer)
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &scalarMulCoordinatesCircuit{NoLookups: noLookups})
+		for _, row := range scalarRows(t) {
+			if row.reduced == nil {
+				continue
+			}
+			t.Run(row.name, func(t *testing.T) {
+				w := &scalarMulCoordinatesCircuit{}
+				setBytes(w.Scalar[:], row.scalar.FillBytes(make([]byte, 32)))
+				setBytes(w.PublicKey[:], peer)
+				x, y := elliptic.P256().ScalarMult(px, py, row.reduced.Bytes())
+				setBytes(w.Result[:], elliptic.Marshal(elliptic.P256(), x, y))
+				assertCircuitResult(t, cs, w, true)
+				// ECDH's X alone cannot distinguish a sign error; assert full Y,
+				// then make that coordinate incorrect and require rejection.
+				w.Result[64] = int(y.FillBytes(make([]byte, 32))[31]) ^ 1
+				assertCircuitResult(t, cs, w, false)
 			})
 		}
 	})
@@ -154,10 +220,9 @@ func assertBytesEqual(api frontend.API, got, want []frontend.Variable) {
 }
 
 type scalarRow struct {
-	name        string
-	scalar      *big.Int
-	reduced     *big.Int
-	exceptional bool
+	name    string
+	scalar  *big.Int
+	reduced *big.Int
 }
 
 func scalarRows(t *testing.T) []scalarRow {
@@ -173,9 +238,12 @@ func scalarRows(t *testing.T) []scalarRow {
 	return []scalarRow{
 		{name: "zero", scalar: big.NewInt(0)},
 		{name: "group order", scalar: n},
-		{name: "one", scalar: big.NewInt(1), reduced: big.NewInt(1), exceptional: true},
-		{name: "minus three", scalar: minusThree, reduced: minusThree, exceptional: true},
-		{name: "inverse of three", scalar: inverseOfThree, reduced: inverseOfThree, exceptional: true},
+		{name: "one", scalar: big.NewInt(1), reduced: big.NewInt(1)},
+		{name: "minus one", scalar: new(big.Int).Sub(n, big.NewInt(1)), reduced: new(big.Int).Sub(n, big.NewInt(1))},
+		{name: "three", scalar: big.NewInt(3), reduced: big.NewInt(3)},
+		{name: "minus inverse of three", scalar: new(big.Int).Sub(n, inverseOfThree), reduced: new(big.Int).Sub(n, inverseOfThree)},
+		{name: "minus three", scalar: minusThree, reduced: minusThree},
+		{name: "inverse of three", scalar: inverseOfThree, reduced: inverseOfThree},
 		{name: "two", scalar: big.NewInt(2), reduced: big.NewInt(2)},
 		{name: "scalar plus group order", scalar: shifted, reduced: s},
 	}
@@ -239,18 +307,9 @@ func compile(t *testing.T, circuit frontend.Circuit) constraint.ConstraintSystem
 	return cs
 }
 
-func (r scalarRow) check(t *testing.T, cs constraint.ConstraintSystem, assignment frontend.Circuit, rejectsExceptional bool) {
+func (r scalarRow) check(t *testing.T, cs constraint.ConstraintSystem, assignment frontend.Circuit) {
 	t.Helper()
-	if rejectsExceptional && r.exceptional {
-		witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-		if err != nil {
-			t.Fatalf("new witness: %v", err)
-		}
-		if cs.IsSolved(witness) == nil {
-			t.Fatal("expected the exceptional scalar to be rejected")
-		}
-		return
-	}
+
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
 	if err != nil {
 		t.Fatalf("new witness: %v", err)
@@ -285,4 +344,31 @@ func (c *belowModulusCircuit) Define(api frontend.API) error {
 	cv := newCurve(api)
 	cv.canonicalLimbs(cv.fp.FromLimbs(c.Limbs))
 	return nil
+}
+
+type scalarMulCoordinatesCircuit struct {
+	NoLookups         bool `gnark:"-"`
+	Scalar            [32]frontend.Variable
+	PublicKey, Result [65]frontend.Variable
+}
+
+func (c *scalarMulCoordinatesCircuit) Define(api frontend.API) error {
+	result := ScalarMulFor(api, c.Scalar, c.PublicKey, !c.NoLookups)
+	assertBytesEqual(api, result[:], c.Result[:])
+	return nil
+}
+
+func assertCircuitResult(t *testing.T, cs constraint.ConstraintSystem, w frontend.Circuit, accept bool) {
+	t.Helper()
+	wit, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cs.IsSolved(wit)
+	if (err == nil) != accept {
+		t.Fatalf("accept=%v: %v", accept, err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "is not satisfied") {
+		t.Fatalf("not a constraint rejection: %v", err)
+	}
 }

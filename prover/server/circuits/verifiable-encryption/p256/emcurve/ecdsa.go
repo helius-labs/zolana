@@ -48,9 +48,16 @@ func VerifyECDSAFor(api frontend.API, signature ECDSAInputs, lookups bool) [32]f
 	publicKeyScalar := fr.Eval(T(1, r, inverseS))
 
 	// 4. Constrain [message/s]G + [r/s]Q and require its x-coordinate modulo n to equal r.
-	generatorContribution := c.scalarMulBase(generatorScalar)
+	// A zero message gives a zero generator scalar. Use a safe comb input
+	// and doubling in the inactive branch, then select the variable product.
+	fr.AssertCanonical(generatorScalar)
+	generatorIsZero := api.IsZero(api.Add(0, 0, generatorScalar.Limbs()...))
+	safeGeneratorScalar := fr.Select(generatorIsZero, fr.Const(big.NewInt(1)), generatorScalar)
+	generatorContribution := c.scalarMulBase(safeGeneratorScalar)
 	publicKeyContribution := c.scalarMulChecked(publicPoint, publicKeyScalar)
-	verificationPoint := c.completeAdd(generatorContribution, publicKeyContribution)
+	additionRight := c.selectPoint(generatorIsZero, generatorContribution, publicKeyContribution)
+	sum := c.completeAdd(generatorContribution, additionRight)
+	verificationPoint := c.selectPoint(generatorIsZero, publicKeyContribution, sum)
 	c.assertXModOrder(verificationPoint.X, r)
 	return publicKeyX
 }
@@ -64,7 +71,7 @@ func (c *curve) nonZeroScalar(limbs []frontend.Variable, limbBits int) *frElemen
 
 func (c *curve) relimb(limbs []frontend.Variable, limbBits int) []frontend.Variable {
 	layoutLimbBits := c.layout.LimbBits
-	if limbBits <= 0 || limbBits%layoutLimbBits != 0 || len(limbs)*limbBits != c.layout.NbLimbs*layoutLimbBits {
+	if limbBits <= 0 || limbBits >= c.api.Compiler().FieldBitLen() || limbBits%layoutLimbBits != 0 || len(limbs)*limbBits != c.layout.NbLimbs*layoutLimbBits {
 		panic("limbs do not tile the field layout")
 	}
 	rangeChecker := c.rangeChecker()

@@ -4,6 +4,7 @@
 //  2. The distinct-slope guard rejects equal or negated slopes.
 //  3. Forged rational decompositions and multiplication results from the regression
 //     report are rejected.
+//  4. Valid point addition accepts x-coordinates differing by the BN254 modulus.
 package emcurve
 
 import (
@@ -110,6 +111,40 @@ func TestUnconstrainedHintInScalarMulFakeGLVReportIsRejected(t *testing.T) {
 				}
 			})
 		}
+	})
+}
+
+// Invariant 4: Valid point addition accepts x-coordinates differing by the BN254 modulus.
+func TestPointAdditionAcceptsNativeModulusXDifference(t *testing.T) {
+	params := elliptic.P256().Params()
+	sqrt := func(x *big.Int) *big.Int {
+		r := new(big.Int).Exp(x, big.NewInt(3), params.P)
+		r.Sub(r, new(big.Int).Mul(big.NewInt(3), x)).Add(r, params.B).Mod(r, params.P)
+		return new(big.Int).ModSqrt(r, params.P)
+	}
+	var px, py, qx, qy *big.Int
+	for i := int64(0); i < 1000; i++ {
+		px = big.NewInt(i)
+		qx = new(big.Int).Add(px, ecc.BN254.ScalarField())
+		py, qy = sqrt(px), sqrt(qx)
+		if py != nil && qy != nil {
+			break
+		}
+	}
+	if py == nil || qy == nil {
+		t.Fatal("no collision points found")
+	}
+	x, y := elliptic.P256().Add(px, py, qx, qy)
+	t.Logf("valid unequal x coordinates: %s and %s", px, qx)
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &pointAdditionCircuit{NoLookups: noLookups})
+		w := &pointAdditionCircuit{PX: plainLimbValues(px), PY: plainLimbValues(py), QX: plainLimbValues(qx), QY: plainLimbValues(qy), X: plainLimbValues(x), Y: plainLimbValues(y)}
+		assertCircuitResult(t, cs, w, true)
+		// Control: doubling the same valid point succeeds.
+		x, y = elliptic.P256().Double(px, py)
+		w.QX, w.QY, w.X, w.Y = w.PX, w.PY, plainLimbValues(x), plainLimbValues(y)
+		assertCircuitResult(t, cs, w, true)
+		x, y = elliptic.P256().Add(px, py, qx, qy)
 	})
 }
 
@@ -232,4 +267,20 @@ func plainLimbValues(v *big.Int) (out [8]frontend.Variable) {
 		out[i] = new(big.Int).And(new(big.Int).Rsh(v, uint(32*i)), big.NewInt(0xffffffff))
 	}
 	return out
+}
+
+type pointAdditionCircuit struct {
+	NoLookups            bool `gnark:"-"`
+	PX, PY, QX, QY, X, Y [8]frontend.Variable
+}
+
+func (c *pointAdditionCircuit) Define(api frontend.API) error {
+	cv := newCurveFor(api, !c.NoLookups)
+	p := &point{cv.fp.FromLimbs(c.PX[:]), cv.fp.FromLimbs(c.PY[:])}
+	q := &point{cv.fp.FromLimbs(c.QX[:]), cv.fp.FromLimbs(c.QY[:])}
+	cv.assertOnCurve(p)
+	cv.assertOnCurve(q)
+	r := cv.completeAdd(p, q)
+	cv.assertEqual(r, &point{cv.fp.FromLimbs(c.X[:]), cv.fp.FromLimbs(c.Y[:])})
+	return nil
 }

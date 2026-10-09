@@ -110,6 +110,14 @@ func (c *curve) triple(p *point) *point {
 	return &point{X: x, Y: y}
 }
 
+// double accepts finite on-curve P-256 points, whose y-coordinates are nonzero.
+func (c *curve) double(p *point) *point {
+	slope := c.tangent(p)
+	doubledX := c.fp.Eval(T(1, slope, slope), T(-2, p.X))
+	doubledY := c.fp.Eval(T(1, slope, c.fp.Sub(p.X, doubledX)), T(-1, p.Y))
+	return &point{X: doubledX, Y: doubledY}
+}
+
 func (c *curve) selectPoint(b frontend.Variable, p, q *point) *point {
 	return &point{X: c.fp.Select(b, p.X, q.X), Y: c.fp.Select(b, p.Y, q.Y)}
 }

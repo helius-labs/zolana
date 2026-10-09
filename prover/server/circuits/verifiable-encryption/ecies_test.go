@@ -62,10 +62,6 @@ func TestEnvelopeMatchesHostAtEdgeCases(t *testing.T) {
 	for _, edge := range cases {
 		t.Run(edge.Name, func(t *testing.T) {
 			assignment := envelopeAssignmentFor(edge.Keys, eciesPlaintextBytes)
-			if hosttest.IsLadderExceptional(new(big.Int).SetBytes(edge.Keys.EphemeralSecret.Bytes())) {
-				hintattack.RequireConstraintRejection(t, solveCompiled(t, cs, assignment))
-				return
-			}
 			if err := solveCompiled(t, cs, assignment); err != nil {
 				t.Fatalf("honest envelope rejected: %v", err)
 			}

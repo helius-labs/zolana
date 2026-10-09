@@ -23,7 +23,7 @@ func TestGeneratorRefusesInfinityAndReducesScalars(t *testing.T) {
 		cs := compile(t, &generatorCircuit{NoLookups: noLookups})
 		for _, row := range scalarRows(t) {
 			t.Run(row.name, func(t *testing.T) {
-				row.check(t, cs, row.generatorWitness(t), false)
+				row.check(t, cs, row.generatorWitness(t))
 			})
 		}
 	})

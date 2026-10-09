@@ -2,12 +2,13 @@
 //
 //  1. Supported honest signatures match the host verifier.
 //  2. Invalid signatures and malformed inputs are rejected.
-//  3. The variable-base ladder rejects its documented exceptional signature scalars.
+//  3. ECDSA accepts exceptional signature scalars and a zero message digest.
 //  4. Forged reports and mutated hints cannot satisfy signature verification.
 //  5. The verification x-coordinate is compared modulo the group order, including
-//     wraparound.
+//     wraparound; valid additions also handle native-modulus X collisions.
 //  6. Diagnostic: signature constraint counts are recorded for both range-check
 //     modes.
+//  7. ECDSA rejects source limbs wider than the native field.
 package emcurve
 
 import (
@@ -24,6 +25,7 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
@@ -102,8 +104,8 @@ func TestECDSARejectsInvalidSignatures(t *testing.T) {
 	})
 }
 
-// Invariant 3: The variable-base ladder rejects its documented exceptional signature scalars.
-func TestECDSARefusesExceptionalScalars(t *testing.T) {
+// Invariant 3: ECDSA accepts exceptional signature scalars and a zero message digest.
+func TestECDSAAcceptsExceptionalScalars(t *testing.T) {
 	forEachMode(t, func(t *testing.T, noLookups bool) {
 		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
 		n := GroupOrder()
@@ -125,8 +127,8 @@ func TestECDSARefusesExceptionalScalars(t *testing.T) {
 				if !v.hostVerifies() {
 					t.Fatal("host rejects the constructed signature")
 				}
-				if solveECDSA(t, cs, v.witness()) == nil {
-					t.Fatal("expected the exceptional scalar to be refused")
+				if err := solveECDSA(t, cs, v.witness()); err != nil {
+					t.Fatalf("exceptional scalar rejected: %v", err)
 				}
 			})
 		}
@@ -307,12 +309,77 @@ func TestECDSAComparesXModuloOrder(t *testing.T) {
 	}
 }
 
+// Invariant 5: Valid signatures accept point additions whose x-coordinates collide modulo BN254.
+func TestECDSAAcceptsNativeModulusXDifference(t *testing.T) {
+	curve := elliptic.P256()
+	p, n := curve.Params().P, GroupOrder()
+	var v ecdsaVector
+	for u1 := int64(1); u1 < 100; u1++ {
+		ax, ay := curve.ScalarBaseMult(big.NewInt(u1).Bytes())
+		bx := new(big.Int).Add(ax, ecc.BN254.ScalarField())
+		if bx.Cmp(p) >= 0 {
+			continue
+		}
+		rhs := new(big.Int).Exp(bx, big.NewInt(3), p)
+		rhs.Sub(rhs, new(big.Int).Mul(bx, big.NewInt(3))).Add(rhs, curve.Params().B).Mod(rhs, p)
+		by := new(big.Int).ModSqrt(rhs, p)
+		if by == nil {
+			continue
+		}
+		qx, qy := curve.ScalarMult(bx, by, new(big.Int).ModInverse(big.NewInt(2), n).Bytes())
+		rx, _ := curve.Add(ax, ay, bx, by)
+		r := new(big.Int).Mod(rx, n)
+		s := new(big.Int).Mul(r, new(big.Int).ModInverse(big.NewInt(2), n))
+		s.Mod(s, n)
+		h := new(big.Int).Mul(big.NewInt(u1), s)
+		h.Mod(h, n)
+		v = ecdsaVector{x: qx, y: qy, h: h, r: r, s: s}
+		if !v.hostVerifies() {
+			t.Fatal("invalid reference signature")
+		}
+		t.Logf("u1=%d u2=2", u1)
+		break
+	}
+	if v.x == nil {
+		t.Fatal("no vector found")
+	}
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
+		hit := false
+		record := solver.OverrideHint(solver.GetHintID(p256XEqualHint), func(q *big.Int, inputs, outputs []*big.Int) error {
+			width, limbs := inputs[0], inputs[1:]
+			half := len(limbs) / 2
+			x1 := limbHintValue(append([]*big.Int{width}, limbs[:half]...))
+			x2 := limbHintValue(append([]*big.Int{width}, limbs[half:]...))
+			d := new(big.Int).Sub(x1, x2)
+			hit = hit || (d.Sign() != 0 && new(big.Int).Mod(d, q).Sign() == 0)
+			return p256XEqualHint(q, inputs, outputs)
+		})
+		if err := solveECDSA(t, cs, v.witness(), record); err != nil {
+			t.Fatal(err)
+		}
+		if !hit {
+			t.Fatal("did not reach the colliding addition")
+		}
+	})
+}
+
 // Diagnostic 6: signature constraint counts are recorded for both range-check modes.
 func TestECDSAConstraintCount(t *testing.T) {
 	forEachMode(t, func(t *testing.T, noLookups bool) {
 		cs := compile(t, &ecdsaCircuit{NoLookups: noLookups})
 		wires := cs.GetNbInternalVariables() + cs.GetNbSecretVariables() + cs.GetNbPublicVariables()
 		t.Logf("ecdsa constraints %7d wires %7d commitments %d", cs.GetNbConstraints(), wires, len(cs.GetCommitments().CommitmentIndexes()))
+	})
+}
+
+// Invariant 7: ECDSA rejects source limbs wider than the native field.
+func TestECDSARejectsWideNativeLimbs(t *testing.T) {
+	forEachMode(t, func(t *testing.T, noLookups bool) {
+		_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &wideRelimbCircuit{NoLookups: noLookups})
+		if err == nil || !strings.Contains(err.Error(), "limbs do not tile the field layout") {
+			t.Fatalf("expected layout rejection, got %v", err)
+		}
 	})
 }
 
@@ -487,5 +554,20 @@ func (c *orderWrapCircuit) Define(api frontend.API) error {
 	r := cv.fr.FromLimbs(c.R[:])
 	cv.fr.AssertCanonical(r)
 	cv.assertXModOrder(cv.fp.FromLimbs(c.X[:]), r)
+	return nil
+}
+
+type wideRelimbCircuit struct {
+	NoLookups bool `gnark:"-"`
+	Input     frontend.Variable
+	Output    [8]frontend.Variable `gnark:",public"`
+}
+
+func (c *wideRelimbCircuit) Define(api frontend.API) error {
+	cv := newCurveFor(api, !c.NoLookups)
+	out := cv.relimb([]frontend.Variable{c.Input}, 256)
+	for i := range out {
+		api.AssertIsEqual(out[i], c.Output[i])
+	}
 	return nil
 }

@@ -57,9 +57,7 @@ func (k PublicKey) Compressed(api frontend.API) [33]frontend.Variable {
 }
 
 // SelfAgreeKey agrees a key between a public key and its own secret s. The
-// shared point [s]([s]G) is [s^2 mod n]G, so it runs on the fixed-base comb,
-// which is complete for every non-zero scalar, instead of the variable-base
-// ladder, whose distinct-x guards refuse s = +-1 and s = +-3.
+// shared point [s]([s]G) is [s^2 mod n]G, so it uses the fixed-base comb.
 func SelfAgreeKey(api frontend.API, key PublicKey) SelfKeyAgreement {
 	c := newCurve(api)
 	// 1. Compute the self-agreement point [s²]G using the fixed-base table.
