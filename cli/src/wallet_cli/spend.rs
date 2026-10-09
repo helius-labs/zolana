@@ -11,7 +11,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     sign_transaction, Rpc, RpcSendTransactionConfig, SignedPrivateTransaction, SolanaRpc,
-    ZolanaClient,
+    Submission, ZolanaClient,
 };
 use zolana_interface::pda;
 use zolana_program::instruction::{
@@ -147,8 +147,8 @@ pub(super) fn send_private(
         transaction: transaction.encrypt(keypair)?,
         settlement_transfers,
     };
-    let message =
-        client.finish_submission_unsigned_sync(&signed, ctx.material.funding.pubkey(), keypair)?;
+    let message = Submission::new(&signed, ctx.material.funding.pubkey(), keypair)
+        .finish_unsigned_sync(client)?;
     let transaction = sign_transaction(message, &[&ctx.material.funding])?;
     let signature = match send {
         Send::Fast => client.rpc().send_transaction_with_config(

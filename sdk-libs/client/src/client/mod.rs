@@ -29,14 +29,13 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
-        tee::{TeeError, TeePolicy},
         AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
     },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
 };
 
-pub use transaction::SignedPrivateTransaction;
-use validation::check_service_url;
+pub use transaction::{SignedPrivateTransaction, Submission};
+pub use validation::check_service_url;
 
 /// Compute-unit ceiling a private transaction is submitted with unless the
 /// caller overrides it. A shielded `Transact` verifies a Groth16 proof
@@ -69,7 +68,7 @@ impl Indexer for AsyncZolanaIndexer {
 
 mod sealed {
     use super::{
-        AsyncProverClient, AsyncZolanaIndexer, Indexer, ProofDataSource, ProverClient, TeePolicy,
+        AsyncProverClient, AsyncZolanaIndexer, Indexer, ProofDataSource, ProverClient,
         ZolanaIndexer,
     };
 
@@ -92,9 +91,6 @@ mod sealed {
         ) -> ProverOf<Self>
         where
             Self: Indexer;
-        fn with_tee(prover: ProverOf<Self>, policy: TeePolicy) -> ProverOf<Self>
-        where
-            Self: Indexer;
     }
 
     impl Sealed for ZolanaIndexer {
@@ -110,10 +106,6 @@ mod sealed {
 
         fn with_proof_data_source(prover: ProverClient, source: ProofDataSource) -> ProverClient {
             prover.with_proof_data_source(source)
-        }
-
-        fn with_tee(prover: ProverClient, policy: TeePolicy) -> ProverClient {
-            prover.with_tee(policy)
         }
     }
 
@@ -134,10 +126,6 @@ mod sealed {
             source: ProofDataSource,
         ) -> AsyncProverClient {
             prover.with_proof_data_source(source)
-        }
-
-        fn with_tee(prover: AsyncProverClient, policy: TeePolicy) -> AsyncProverClient {
-            prover.with_tee(policy)
         }
     }
 }
@@ -279,18 +267,12 @@ impl<R, I: Indexer> ZolanaClient<R, I> {
         self
     }
 
-    /// Send proofs only to a prover server that attests to `policy`; see
-    /// [`ProverClient::with_tee`].
-    ///
-    /// Fails with [`TeeError::CustomProver`] on a client built by
-    /// [`Self::with_prover`]: that prover is used as given, so a prover client
-    /// passed there takes its policy from its own `with_tee`.
-    pub fn with_prover_tee(self, policy: TeePolicy) -> Result<Self, ClientError> {
-        let prover = match self.prover {
-            ProverBackend::Server(prover) => ProverBackend::Server(I::with_tee(prover, policy)),
-            ProverBackend::Custom(_) => return Err(TeeError::CustomProver.into()),
-        };
-        Ok(Self { prover, ..self })
+    /// The data a transfer hands the prover server on its indexed route.
+    fn transfer_preparation(&self, signed: &SignedPrivateTransaction) -> TransferPreparation {
+        TransferPreparation {
+            transaction: signed.transaction.clone(),
+            config: self.indexer_config,
+        }
     }
 
     pub fn rpc(&self) -> &R {
@@ -329,15 +311,25 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
 impl<R> ZolanaClient<R, AsyncZolanaIndexer> {
     /// The transfer proof of a transfer off the indexed route.
     async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        let prover = match &self.prover {
-            ProverBackend::Server(prover) => return prover.prove_transfer(inputs).await,
-            ProverBackend::Custom(prover) => Arc::clone(prover),
-        };
-        let request = crate::prover::requests::transfer(inputs)?;
-        tokio::task::spawn_blocking(move || prover.prove(&request))
-            .await
-            .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?
+        match &self.prover {
+            ProverBackend::Server(prover) => prover.prove_transfer(inputs).await,
+            ProverBackend::Custom(prover) => {
+                prove_on_blocking_pool(Arc::clone(prover), inputs).await
+            }
+        }
     }
+}
+
+/// A custom prover is synchronous and may run for seconds, so it proves on
+/// Tokio's blocking pool rather than on the worker that awaits it.
+async fn prove_on_blocking_pool(
+    prover: Arc<dyn Prover>,
+    inputs: &TransferInputs,
+) -> Result<Proof, ClientError> {
+    let request = crate::prover::requests::transfer(inputs)?;
+    tokio::task::spawn_blocking(move || prover.prove(&request))
+        .await
+        .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?
 }
 
 struct TransferPreparation {

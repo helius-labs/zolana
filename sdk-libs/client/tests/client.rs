@@ -18,14 +18,11 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_client::{
-    client::{AsyncZolanaClient, SignedPrivateTransaction, ZolanaClient},
+    client::{AsyncZolanaClient, SignedPrivateTransaction, Submission, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
-        tee::{TeeError, TeePolicy},
-        transact::assemble,
-        witness::WitnessReader,
-        AsyncProverClient, Proof, ProofCompressed, ProveRequest, Prover, ProverClient,
-        TransferInput, TransferInputs,
+        transact::assemble, witness::WitnessReader, AsyncProverClient, Proof, ProofCompressed,
+        ProveRequest, Prover, ProverClient, TransferInput, TransferInputs,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, IndexerPollConfig, IndexerRpcConfig, Rpc,
@@ -332,15 +329,12 @@ fn submit_validation_binds_fee_payer() {
     .with_proof_data_source(zolana_client::ProofDataSource::Client);
 
     assert!(matches!(
-        client.finish_submission_unsigned_sync(
-            &signed,
-            Keypair::new().pubkey(),
-            &StopBeforeProving
-        ),
+        Submission::new(&signed, Keypair::new().pubkey(), &StopBeforeProving)
+            .finish_unsigned_sync(&client),
         Err(ClientError::FeePayerMismatch)
     ));
     assert!(matches!(
-        client.finish_submission_unsigned_sync(&signed, payer.pubkey(), &StopBeforeProving),
+        Submission::new(&signed, payer.pubkey(), &StopBeforeProving).finish_unsigned_sync(&client),
         Err(ClientError::Rpc(message)) if message == "test authority reached"
     ));
     assert_eq!(server.requests().len(), 2);
@@ -410,7 +404,8 @@ fn with_prover_replaces_the_prover_server_when_blocking() {
         prover.clone(),
     );
 
-    let result = client.finish_submission_unsigned_sync(&signed, signed.transaction.payer, &sender);
+    let result =
+        Submission::new(&signed, signed.transaction.payer, &sender).finish_unsigned_sync(&client);
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
 }
@@ -425,37 +420,11 @@ async fn with_prover_replaces_the_prover_server_when_async() {
         prover.clone(),
     );
 
-    let result = client
-        .finish_submission_unsigned(&signed, signed.transaction.payer, Hash::default(), &sender)
+    let result = Submission::new(&signed, signed.transaction.payer, &sender)
+        .finish_unsigned(&client)
         .await;
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
-}
-
-/// A TEE policy set on the client cannot reach a custom prover, so setting
-/// one fails rather than leaving that prover unattested.
-#[test]
-fn a_prover_tee_policy_refuses_a_custom_prover() {
-    let policy = TeePolicy::from_json(include_str!(
-        "../../../prover/tee/testdata/probe_policy.json"
-    ))
-    .expect("the probe policy");
-    let custom = ZolanaClient::with_prover(
-        MockSubmitRpc::new(Signature::default()),
-        ZolanaIndexer::new("http://127.0.0.1:1"),
-        RecordingProver::default(),
-    );
-    assert!(matches!(
-        custom.with_prover_tee(policy.clone()),
-        Err(ClientError::Tee(TeeError::CustomProver))
-    ));
-    let server: ZolanaClient<_> = ZolanaClient::from_urls(
-        MockSubmitRpc::new(Signature::default()),
-        "http://127.0.0.1:1",
-        "http://127.0.0.1:2",
-    )
-    .expect("loopback URLs");
-    assert!(server.with_prover_tee(policy).is_ok());
 }
 
 /// A prover given for one submission proves it in place of the client's own
@@ -488,12 +457,9 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
     ] {
         let (sender, signed, server) = with_prover_fixture();
         let given = RecordingProver::default();
-        let result = client(&server).finish_submission_unsigned_sync_with_prover(
-            &signed,
-            signed.transaction.payer,
-            &sender,
-            &given,
-        );
+        let result = Submission::new(&signed, signed.transaction.payer, &sender)
+            .with_prover(Arc::new(given.clone()))
+            .finish_unsigned_sync(&client(&server));
         assert!(
             matches!(result, Err(ClientError::Prover(message)) if message == "recording prover")
         );
@@ -796,7 +762,7 @@ fn a_client_with_its_own_prover_reads_only_its_indexer() {
         prover.clone(),
     );
 
-    let result = client.finish_submission_unsigned_sync(&signed, payer.pubkey(), &sender);
+    let result = Submission::new(&signed, payer.pubkey(), &sender).finish_unsigned_sync(&client);
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
     client
@@ -1232,14 +1198,15 @@ fn default_transfer_routes_skip_client_indexer_reads() {
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert!(matches!(
-        client.finish_submission_unsigned_sync(
+        Submission::new(
             &SignedPrivateTransaction {
                 transaction,
                 settlement_transfers: Vec::new(),
             },
             payer.pubkey(),
             &owner,
-        ),
+        )
+        .finish_unsigned_sync(&client),
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(
@@ -1268,17 +1235,16 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert!(matches!(
-        client
-            .finish_submission_unsigned(
-                &SignedPrivateTransaction {
-                    transaction,
-                    settlement_transfers: Vec::new(),
-                },
-                payer.pubkey(),
-                Hash::default(),
-                &owner,
-            )
-            .await,
+        Submission::new(
+            &SignedPrivateTransaction {
+                transaction,
+                settlement_transfers: Vec::new(),
+            },
+            payer.pubkey(),
+            &owner,
+        )
+        .finish_unsigned(&client)
+        .await,
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(

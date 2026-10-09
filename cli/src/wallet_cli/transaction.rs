@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use zolana_client::{
-    prover::merge::MergeProver,
+    check_service_url,
+    indexer::ZolanaIndexer,
+    prover::{merge::MergeProver, ProverClient},
     user_registry::{
         fetch_user_record_checked, resolved_address_from_record, try_resolve_registered_address,
     },
@@ -42,15 +44,23 @@ pub(super) fn client(
     rpc: SolanaRpc,
     network: &ResolvedNetworkOptions,
 ) -> Result<ZolanaClient<SolanaRpc>> {
-    let client = ZolanaClient::from_urls(
+    let Some(policy) = &network.prover_tee else {
+        return Ok(ZolanaClient::from_urls(
+            rpc,
+            &network.sync.indexer_url,
+            network.prover_url.clone(),
+        )?);
+    };
+    // The policy is the prover client's, so the client is built around one
+    // that carries it; the transport check `from_urls` runs still runs.
+    check_service_url(&network.sync.indexer_url, "indexer_url")?;
+    check_service_url(&network.prover_url, "prover_url")?;
+    let prover = ProverClient::new(network.prover_url.clone()).with_tee(policy.clone());
+    Ok(ZolanaClient::new(
         rpc,
-        network.sync.indexer_url.clone(),
-        network.prover_url.clone(),
-    )?;
-    Ok(match &network.prover_tee {
-        Some(policy) => client.with_prover_tee(policy.clone())?,
-        None => client,
-    })
+        ZolanaIndexer::new(&network.sync.indexer_url),
+        prover,
+    ))
 }
 
 /// Send privately to `--to`'s registered shielded address. An account without
