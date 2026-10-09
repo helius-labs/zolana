@@ -76,13 +76,8 @@ func (c *curve) scalarMulBase(scalar *frElement) *point {
 	previousSlope, previousWindowX, previousWindowY := zero, windowPoints[0].X, fp.Neg(windowPoints[0].Y)
 	for t := 1; t < windowCount-1; t++ {
 		windowPoint := windowPoints[t]
-		slope := c.hintSlope(p256CombChainHint, 1, nil, previousSlope, x, previousWindowX, previousWindowY, windowPoint.X, windowPoint.Y)[0]
-		if t == 1 {
-			fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(-1, windowPoint.Y), T(1, windowPoints[0].Y))
-		} else {
-			fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, windowPoint.Y), T(-1, previousWindowY))
-		}
-		x = fp.Lazy(T(1, slope, slope), T(-1, x), T(-1, windowPoint.X))
+		var slope *fpElement
+		x, slope = c.combChainStep(t == 1, x, previousSlope, previousWindowX, previousWindowY, windowPoint, windowPoints[0].Y)
 		previousSlope, previousWindowX, previousWindowY = slope, windowPoint.X, windowPoint.Y
 	}
 	// 4. Recover the accumulated point and add the top window with a doubling-aware check.
@@ -91,9 +86,22 @@ func (c *curve) scalarMulBase(scalar *frElement) *point {
 	return c.completeAdd(&point{X: x, Y: y}, windowPoints[windowCount-1])
 }
 
+// combChainStepConstrained adds window point W to the accumulator with
+// x-coordinate x and implicit y; the first step reads the y of window zero.
+func (c *curve) combChainStepConstrained(first bool, x, previousSlope, previousWindowX, previousWindowY *fpElement, windowPoint *point, firstWindowY *fpElement) (nextX, slope *fpElement) {
+	fp := c.fp
+	slope = c.hintSlope(p256CombChainHint, 1, nil, previousSlope, x, previousWindowX, previousWindowY, windowPoint.X, windowPoint.Y)[0]
+	if first {
+		fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(-1, windowPoint.Y), T(1, firstWindowY))
+	} else {
+		fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, windowPoint.Y), T(-1, previousWindowY))
+	}
+	return fp.Lazy(T(1, slope, slope), T(-1, x), T(-1, windowPoint.X)), slope
+}
+
 // completeAdd handles distinct points and doubling, but rejects inverse
 // points: when x-coordinates match, it also requires matching y-coordinates.
-func (c *curve) completeAdd(p, q *point) *point {
+func (c *curve) completeAddConstrained(p, q *point) *point {
 	fp, api := c.fp, c.api
 	inputs := c.limbHintInputs(append(append([]frontend.Variable{}, p.X.Limbs()...), q.X.Limbs()...))
 	hinted, err := api.Compiler().NewHint(p256XEqualHint, 2, inputs...)
@@ -115,11 +123,41 @@ func (c *curve) completeAdd(p, q *point) *point {
 	return &point{X: x, Y: y}
 }
 
-func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable, packY bool) *point {
+// combTableLimbs splits each table entry into x limbs and y limbs, or y
+// limb groups of packedYGroup limbs when packY is set.
+func (c *curve) combTableLimbs(table [][2]*big.Int, packY bool) (xs, ys [][]frontend.Variable) {
+	nbLimbs, limbBits := c.layout.NbLimbs, c.layout.LimbBits
+	mask := new(big.Int).Sub(pow2(limbBits), big.NewInt(1))
+	limb := func(v *big.Int, i int) *big.Int {
+		return new(big.Int).And(new(big.Int).Rsh(v, uint(limbBits*i)), mask)
+	}
+	for _, entry := range table {
+		x := make([]frontend.Variable, nbLimbs)
+		for l := range x {
+			x[l] = limb(entry[0], l)
+		}
+		var y []frontend.Variable
+		for g := 0; g < nbLimbs; g++ {
+			if !packY {
+				y = append(y, limb(entry[1], g))
+				continue
+			}
+			if g%packedYGroup != 0 {
+				continue
+			}
+			end := min(g+packedYGroup, nbLimbs)
+			groupMask := new(big.Int).Sub(pow2(limbBits*(end-g)), big.NewInt(1))
+			y = append(y, new(big.Int).And(new(big.Int).Rsh(entry[1], uint(limbBits*g)), groupMask))
+		}
+		xs, ys = append(xs, x), append(ys, y)
+	}
+	return xs, ys
+}
+
+func (c *curve) combSelectConstrained(xs, ys [][]frontend.Variable, selectorBits []frontend.Variable, packY bool) *point {
 	nbLimbs := c.layout.NbLimbs
-	limbBits := c.layout.LimbBits
 	selectorBitCount := len(selectorBits)
-	if len(table) != 1<<selectorBitCount {
+	if len(xs) != 1<<selectorBitCount || len(ys) != len(xs) {
 		panic("table size mismatch")
 	}
 	oneHotCost := func(k int) int {
@@ -136,11 +174,7 @@ func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable
 	}
 	rowSelectors := oneHot(c.api, selectorBits[:rowBitCount])
 	columnSelectors := oneHot(c.api, selectorBits[rowBitCount:])
-	mask := new(big.Int).Sub(pow2(limbBits), big.NewInt(1))
-	limb := func(v *big.Int, i int) *big.Int {
-		return new(big.Int).And(new(big.Int).Rsh(v, uint(limbBits*i)), mask)
-	}
-	selectCoordinate := func(value func(e int) *big.Int) frontend.Variable {
+	selectCoordinate := func(value func(e int) frontend.Variable) frontend.Variable {
 		inner := make([]frontend.Variable, len(rowSelectors))
 		for i := range rowSelectors {
 			sum := frontend.Variable(0)
@@ -161,11 +195,11 @@ func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable
 	xLimbs := make([]frontend.Variable, nbLimbs)
 	yLimbs := make([]frontend.Variable, nbLimbs)
 	for l := 0; l < nbLimbs; l++ {
-		xLimbs[l] = selectCoordinate(func(e int) *big.Int { return limb(table[e][0], l) })
+		xLimbs[l] = selectCoordinate(func(e int) frontend.Variable { return xs[e][l] })
 	}
 	if !packY {
 		for l := 0; l < nbLimbs; l++ {
-			yLimbs[l] = selectCoordinate(func(e int) *big.Int { return limb(table[e][1], l) })
+			yLimbs[l] = selectCoordinate(func(e int) frontend.Variable { return ys[e][l] })
 		}
 		return &point{X: c.fp.Reduced(xLimbs), Y: c.fp.Reduced(yLimbs)}
 	}
@@ -177,10 +211,7 @@ func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable
 			continue
 		}
 		end := min(g+packedYGroup, nbLimbs)
-		mask := new(big.Int).Sub(pow2(limbBits*(end-g)), big.NewInt(1))
-		yLimbs[g] = selectCoordinate(func(e int) *big.Int {
-			return new(big.Int).And(new(big.Int).Rsh(table[e][1], uint(limbBits*g)), mask)
-		})
+		yLimbs[g] = selectCoordinate(func(e int) frontend.Variable { return ys[e][g/packedYGroup] })
 		bits := 0
 		for _, limbWidth := range widths[g:end] {
 			bits += limbWidth

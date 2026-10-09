@@ -146,6 +146,13 @@ func replaceArg(gOutputs interface{}, gate Operand, extra ...int) interface{} {
 		return res
 	case nil:
 		return []frontend.Variable{}
+	case Const, int, int64, uint64, *big.Int:
+		// A constant gadget output is still passed through the continuation,
+		// so callers see it as a projection of the call like any other output.
+		if len(extra) >= 2 {
+			return updateProj(gate, extra...)
+		}
+		return gate
 	default:
 		fmt.Printf("replaceArg invalid argument of type %T %#v\n", gOutputs, gOutputs)
 		panic("replaceArg invalid argument")
