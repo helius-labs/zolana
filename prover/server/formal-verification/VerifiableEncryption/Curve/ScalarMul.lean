@@ -1,4 +1,5 @@
 import VerifiableEncryption.Curve.LadderTable
+import VerifiableEncryption.Curve.Slots
 import VerifiableEncryption.Curve.Ladder
 
 /-!
@@ -386,6 +387,103 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
       convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac []))
   beta_reduce at h
   elim_gates_shallow h
+  -- Group-level facts about the ladder inputs and the slot points.
+  have va : ((aElem.value : ℤ) : Fp) = -3 := by
+    rw [aElem_value]; push_cast; rw [ZMod.natCast_self]; ring
+  have vb : ((constElem bLimbs).value : Fp) = ((ZolanaVE.P256.b : ℕ) : Fp) := by rw [bConst_value]; push_cast; rfl
+  have eT : cert_h35a4bc86.exprValue (values [⟨8, L⟩, ⟨8, PY⟩, ⟨8, PX⟩, ⟨8, aElem⟩]) =
+      2 * (L.value * PY.value) - 3 * (PX.value * PX.value) - aElem.value := by
+    simp [PolyShape.exprValue, values, cert_h35a4bc86]; ring
+  have eDX : cert_h0c8d6bae.exprValue (values [⟨8, L⟩, ⟨8, PX⟩]) = L.value * L.value - 2 * PX.value := by
+    simp [PolyShape.exprValue, values, cert_h0c8d6bae]; ring
+  have eDY : cert_h2629e496.exprValue (values [⟨8, L⟩, ⟨8, XmD⟩, ⟨8, PY⟩]) = L.value * XmD.value - PY.value := by
+    simp [PolyShape.exprValue, values, cert_h2629e496]; ring
+  have eX2 : lazy_h2d947ec4.exprValue (values [⟨8, PRX⟩]) = PRX.value * PRX.value := by
+    simp [PolyShape.exprValue, values, lazy_h2d947ec4]
+  have eoc : cert_h29707435.exprValue
+      (values [⟨8, X2⟩, ⟨8, PRX⟩, ⟨8, aElem⟩, ⟨8, constElem bLimbs⟩, ⟨8, PRY⟩]) =
+      X2.value * PRX.value + aElem.value * PRX.value + (constElem bLimbs).value - PRY.value * PRY.value := by
+    simp [PolyShape.exprValue, values, cert_h29707435]; ring
+  have mT : (cert_h35a4bc86.m : ℤ) = p := rfl
+  have mDX : (cert_h0c8d6bae.m : ℤ) = p := rfl
+  have mDY : (cert_h2629e496.m : ℤ) = p := rfl
+  have mX2 : (lazy_h2d947ec4.m : ℤ) = p := rfl
+  have moc : (cert_h29707435.m : ℤ) = p := rfl
+  rw [eT, mT, modEq_p_iff] at cT
+  rw [eDX, mDX, modEq_p_iff] at vDX
+  rw [eDY, mDY, modEq_p_iff] at vDY
+  rw [eX2, mX2, modEq_p_iff] at vX2
+  rw [eoc, moc, modEq_p_iff] at coc
+  have vXmD : XmD.value = PX.value - DX.value := by rw [hXmD, linElem_value]; simp; try ring
+  rw [vXmD] at vDY
+  push_cast at cT vDX vDY vX2 coc
+  rw [va] at cT coc
+  rw [vb] at coc
+  obtain ⟨hDon, hDeq⟩ := tangent_double (x := (PX.value : Fp)) (y := (PY.value : Fp)) (l := (L.value : Fp))
+    (xd := (DX.value : Fp)) (yd := (DY.value : Fp)) hQ (by linear_combination cT)
+    (by linear_combination vDX) (by linear_combination vDY)
+  have hQXv : QX.value = if b then DX.value else PX.value := by rw [hQX, selElem_value]
+  have hQYv : QY.value = if b then DY.value else PY.value := by rw [hQY, selElem_value]
+  have hQ' : OnCurve (QX.value : Fp) (QY.value : Fp) := by
+    rw [hQXv, hQYv]; cases b
+    · exact hQ
+    · exact hDon
+  have hQ'pt : mkPoint hQ' = if b then (2 : ℤ) • mkPoint hQ else mkPoint hQ := by
+    cases b
+    · simp only [Bool.false_eq_true, if_false]; exact mkPoint_inj.mpr ⟨by rw [hQXv]; rfl, by rw [hQYv]; rfl⟩
+    · simp only [if_true]
+      rw [two_zsmul, ← two_nsmul, hDeq]
+      exact mkPoint_inj.mpr ⟨by rw [hQXv]; rfl, by rw [hQYv]; rfl⟩
+  have hPRon : OnCurve (PRX.value : Fp) (PRY.value : Fp) := by
+    unfold OnCurve; rw [vX2] at coc; linear_combination -coc
+  have vSPY : SPY.value = (1 - 2 * bitI g402 0) * PRY.value := by
+    rw [hSPY, mkElem_value, rec8_smul, PRY.value_eq]
+  have hRon : OnCurve (PRX.value : Fp) (SPY.value : Fp) := by
+    have hsq : ((1 - 2 * bitI g402 0 : ℤ) : Fp) ^ 2 = 1 := by
+      rcases hs1 with h1 | h1 <;> rw [h1] <;> norm_num
+    unfold OnCurve at hPRon ⊢
+    rw [vSPY]; push_cast
+    push_cast at hsq
+    linear_combination (PRY.value : Fp) ^ 2 * hsq + hPRon
+  obtain ⟨hT1on, hT1eq⟩ := triple hQ' tc1.tangent tc1.dx tc1.ratio tc1.ex3 tc1.ey3
+  obtain ⟨hT2on, hT2eq⟩ := triple hRon tc2.tangent tc2.dx tc2.ratio tc2.ex3 tc2.ey3
+  have g1 := (x_ne_iff hRon hQ').mp dg1.2.2.2.2
+  have g2 := (x_ne_iff hRon hT1on).mp dg2.2.2.2.2
+  have g3 := (x_ne_iff hT2on hQ').mp dg3.2.2.2.2
+  rw [← hT1eq] at g2
+  rw [← hT2eq] at g3
+  have xQR : (QX.value : Fp) ≠ (PRX.value : Fp) := fun he => dg1.2.2.2.2 he.symm
+  have xT1R : (T1X.value : Fp) ≠ (PRX.value : Fp) := fun he => dg2.2.2.2.2 he.symm
+  have xQT2 : (QX.value : Fp) ≠ (T2X.value : Fp) := fun he => dg3.2.2.2.2 he.symm
+  have g1' : mkPoint hQ' ≠ mkPoint hRon ∧ mkPoint hQ' ≠ -mkPoint hRon :=
+    ⟨fun he => g1.1 he.symm, fun he => g1.2 (by rw [he, neg_neg])⟩
+  have xT1T2 : (T1X.value : Fp) ≠ (T2X.value : Fp) := by
+    rw [x_ne_iff hT1on hT2on, ← hT1eq, ← hT2eq]
+    exact three_ne g1'.1 g1'.2
+  have vNSPY : NSPY.value = -SPY.value := by rw [hNSPY, linElem_value]; simp
+  have vNT2Y : NT2Y.value = -T2Y.value := by rw [hNT2Y, linElem_value]; simp
+  have hNRon : OnCurve (PRX.value : Fp) (NSPY.value : Fp) := by
+    unfold OnCurve at hRon ⊢; rw [vNSPY]; push_cast; linear_combination hRon
+  have hNT2on : OnCurve (T2X.value : Fp) (NT2Y.value : Fp) := by
+    unfold OnCurve at hT2on ⊢; rw [vNT2Y]; push_cast; linear_combination hT2on
+  have pNR : mkPoint hNRon = -mkPoint hRon := by
+    obtain ⟨hn, hne⟩ := neg_mkPoint hRon
+    rw [hne, mkPoint_inj]; exact ⟨rfl, by rw [vNSPY]; push_cast; rfl⟩
+  have pNT2 : mkPoint hNT2on = -mkPoint hT2on := by
+    obtain ⟨hn, hne⟩ := neg_mkPoint hT2on
+    rw [hne, mkPoint_inj]; exact ⟨rfl, by rw [vNT2Y]; push_cast; rfl⟩
+  obtain ⟨hA0, pA0⟩ := chord_point hQ' hRon xQR crA0.1 crA0.2
+  obtain ⟨hA1, pA1⟩ := chord_point hT1on hT2on xT1T2 crA1.1 crA1.2
+  obtain ⟨hA2, pA2⟩ := chord_point hT1on hRon xT1R crA2.1 crA2.2
+  obtain ⟨hA3, pA3⟩ := chord_point hQ' hT2on xQT2 crA3.1 crA3.2
+  obtain ⟨hA4, pA4⟩ := chord_point hNRon hQ' (fun he => xQR he.symm) crA4.1 crA4.2
+  obtain ⟨hA5, pA5⟩ := chord_point hQ' hNT2on xQT2 crA5.1 crA5.2
+  obtain ⟨hA6, pA6⟩ := chord_point hT1on hNRon xT1R crA6.1 crA6.2
+  obtain ⟨hA7, pA7⟩ := chord_point hT1on hNT2on xT1T2 crA7.1 crA7.2
+  rw [pNR] at pA4 pA6
+  rw [pNT2] at pA5 pA7
+  rw [← hT1eq] at pA1 pA2 pA6 pA7
+  rw [← hT2eq] at pA1 pA3 pA5 pA7
   sorry
 
 end ZolanaVE.P256
