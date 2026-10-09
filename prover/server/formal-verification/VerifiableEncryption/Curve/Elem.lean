@@ -120,4 +120,72 @@ theorem ElemVal.fits_of_bnd (e : ElemVal 8) {c : ElemC} (h : e.bnd = c) :
   subst h
   exact ⟨fun i => ⟨e.lo_le i, e.le_hi i⟩, e.vlo_le, e.le_vhi⟩
 
+/-! ### Five-limb elements (`scalarFromBits` of 129 bits) -/
+
+theorem vec5_toList {α : Type*} (v : List.Vector α 5) :
+    v.toList = [v.get 0, v.get 1, v.get 2, v.get 3, v.get 4] := by
+  obtain ⟨l, hl⟩ := v
+  match l, hl with
+  | [a0, a1, a2, a3, a4], _ => rfl
+
+def rec5 (x : Fin 5 → ℤ) : ℤ := x 0 + 2 ^ 32 * x 1 + 2 ^ 64 * x 2 + 2 ^ 96 * x 3 + 2 ^ 128 * x 4
+
+theorem recompose_vec5 (v : List.Vector ℤ 5) : recompose v.toList = rec5 (fun i => v.get i) := by
+  rw [vec5_toList]
+  simp only [recompose, evalAt_cons, evalAt_nil, limbBase, rec5]
+  ring
+
+def Fits5 (x : Fin 5 → ℤ) (c : ElemC) : Prop :=
+  c.lo.length = 5 ∧ c.hi.length = 5 ∧
+  (∀ i : Fin 5, c.lo.getD i 0 ≤ x i ∧ x i ≤ c.hi.getD i 0) ∧
+  c.vlo ≤ rec5 x ∧ rec5 x ≤ c.vhi
+
+def mkElem5 (x : Fin 5 → ℤ) (c : ElemC) (h : Fits5 x c) : ElemVal 5 where
+  limbs := List.Vector.ofFn fun i => (x i : F)
+  ints := List.Vector.ofFn x
+  lo := ⟨c.lo, h.1⟩
+  hi := ⟨c.hi, h.2.1⟩
+  vlo := c.vlo
+  vhi := c.vhi
+  h_cast := by intro i; simp
+  h_lo := by
+    intro i
+    have := (h.2.2.1 i).1
+    rw [List.getD_eq_getElem _ _ (by rw [h.1]; exact i.2)] at this
+    rw [List.Vector.get_ofFn]
+    exact this
+  h_hi := by
+    intro i
+    have := (h.2.2.1 i).2
+    rw [List.getD_eq_getElem _ _ (by rw [h.2.1]; exact i.2)] at this
+    rw [List.Vector.get_ofFn]
+    exact this
+  h_vlo := by
+    rw [recompose_vec5]
+    simpa using h.2.2.2.1
+  h_vhi := by
+    rw [recompose_vec5]
+    simpa using h.2.2.2.2
+
+@[simp] theorem mkElem5_limb (x : Fin 5 → ℤ) (c : ElemC) (h : Fits5 x c) (i : Fin 5) :
+    (mkElem5 x c h).limbs.get i = (x i : F) := by
+  simp [mkElem5]
+
+theorem mkElem5_limbs (x : Fin 5 → ℤ) (c : ElemC) (h : Fits5 x c) :
+    (mkElem5 x c h).limbs.toList = [(x 0 : F), x 1, x 2, x 3, x 4] := by
+  rw [vec5_toList]
+  simp only [mkElem5_limb]
+
+theorem mkElem5_value (x : Fin 5 → ℤ) (c : ElemC) (h : Fits5 x c) :
+    (mkElem5 x c h).value = rec5 x := by
+  rw [ElemVal.value, recompose_vec5]
+  simp [mkElem5]
+
+def ElemVal.bnd5 (e : ElemVal 5) : ElemC := ⟨e.lo.toList, e.hi.toList, e.vlo, e.vhi⟩
+
+theorem elemsMatch_cons {e : Σ w, ElemVal w} {es : List (Σ w, ElemVal w)} {c : ElemC} {cs : List ElemC}
+    (h1 : e.2.lo.toList = c.lo ∧ e.2.hi.toList = c.hi ∧ e.2.vlo = c.vlo ∧ e.2.vhi = c.vhi)
+    (h2 : ElemsMatch es cs) : ElemsMatch (e :: es) (c :: cs) :=
+  List.Forall₂.cons h1 h2
+
 end ZolanaVE.Field

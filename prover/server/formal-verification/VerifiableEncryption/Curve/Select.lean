@@ -90,4 +90,12 @@ theorem rebound_limbs (A : ElemVal 8) (c : ElemC) (h : Fits (fun i => A.ints.get
   intro i
   simp [rebound, ElemVal.limb_eq]
 
+theorem reduced_lohi {e : ElemVal 8} (h : e.bnd = reducedC) (i : Fin 8) :
+    e.lo.get i = 0 ∧ e.hi.get i = 2 ^ 32 - 1 := by
+  simp only [ElemVal.bnd, reducedC, uniC, ElemC.mk.injEq] at h
+  obtain ⟨h1, h2, -, -⟩ := h
+  constructor
+  · rw [List.Vector.get_eq_get_toList]; simp [h1]; fin_cases i <;> rfl
+  · rw [List.Vector.get_eq_get_toList]; simp [h2]; fin_cases i <;> rfl
+
 end ZolanaVE.P256

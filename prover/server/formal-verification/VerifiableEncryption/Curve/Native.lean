@@ -90,7 +90,8 @@ syntax "limbs_tac" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 macro_rules
   | `(tactic| limbs_tac [$ts,*]) => `(tactic| (
     simp only [limbLists, List.map, linElem, linX, List.map_cons, List.map_nil, List.sum_cons,
-      List.sum_nil, mkElem_limbs, vec8_toList, mkElem_int, ElemVal.limb_eq, $ts,*]
+      List.sum_nil, mkElem_limbs, mkElem5_limbs, vec8_toList, vec5_toList, mkElem_int, mkElem5_limb,
+      ElemVal.limb_eq, $ts,*]
     try simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod, List.Vector.toList_cons,
       List.Vector.toList_nil, List.get_eq_getElem, Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.getElem_cons_succ,
       List.getElem_cons_zero, getElem_eq_getD0, List.getD_cons_succ, List.getD_cons_zero, pieceInt_cast, balInt_cast, linElem, linX, List.map_cons, List.map_nil,
