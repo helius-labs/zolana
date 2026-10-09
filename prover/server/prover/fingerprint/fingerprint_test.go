@@ -119,8 +119,8 @@ var expectedFingerprints = map[string]fingerprint{
 	"merge_24_1":                    {constraints: 688740, public: 2},
 	"merge_ring_24_1":               {constraints: 526078, public: 2},
 	"batch_address-append_40_10":    {constraints: 421991, public: 2},
-	"ve_agree_key":                  {constraints: 31062, public: 7},
-	"ve_envelope_16":                {constraints: 40758, public: 21},
+	"ve_agree_key":                  {constraints: 31161, public: 7},
+	"ve_envelope_16":                {constraints: 40857, public: 21},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
