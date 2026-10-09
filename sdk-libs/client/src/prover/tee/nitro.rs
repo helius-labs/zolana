@@ -23,6 +23,7 @@ use x509_cert::{
 
 use super::{
     platform::TeePlatform,
+    policy::hex_pin,
     verify::{Claims, Measured},
     TeeError,
 };
@@ -45,6 +46,9 @@ pub struct Nitro;
 #[serde(deny_unknown_fields)]
 pub struct NitroPolicy {
     pub measurements: Vec<NitroMeasurement>,
+    /// Holds across reboots only on a KMS deployment.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "hex_pin")]
+    pub hpke_public_key: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +172,12 @@ impl TeePlatform for Nitro {
         }
         if identity.nonce.as_deref() != Some(claims.nonce.as_slice()) {
             return Err(invalid("nonce is not the session nonce"));
+        }
+        if pins
+            .hpke_public_key
+            .is_some_and(|pinned| &pinned != claims.hpke_public_key)
+        {
+            return Err(TeeError::HpkeKeyMismatch);
         }
         Ok(())
     }

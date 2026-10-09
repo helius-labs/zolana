@@ -86,7 +86,15 @@ def healthy(url, timeout=300, key=None):
     raise RuntimeError(f"Readiness timed out for {url}")
 
 
-def gateway(with_indexer, authorizer="http://127.0.0.1:3003/auth"):
+def gateway(with_indexer, authorizer="http://127.0.0.1:3003/auth", upstreams=()):
+    prover = "http://prover" if upstreams else "http://127.0.0.1:3003"
+    pool = (
+        "    upstream prover {\n"
+        + "".join(f"        server {upstream};\n" for upstream in upstreams)
+        + "        keepalive 16;\n    }\n"
+        if upstreams
+        else ""
+    )
     indexer = (
         """
         location = /indexer { proxy_pass http://127.0.0.1:8784/; }
@@ -107,7 +115,9 @@ http {
         "~^[^?]*[?](?<query>.*)" $query;
         default "";
     }
-    server {
+"""
+        + pool
+        + """    server {
         listen 3001;
         client_max_body_size 16m;
         proxy_http_version 1.1;
@@ -135,9 +145,13 @@ http {
         }
         location ~ ^/(v1/zolana/)?proving-keys$ {
             auth_request off;
-            proxy_pass http://127.0.0.1:3003;
+            proxy_pass """
+        + prover
+        + """;
         }
-        location / { proxy_pass http://127.0.0.1:3003; }
+        location / { proxy_pass """
+        + prover
+        + """; }
     """
         + indexer
         + "\n    }\n}\n"

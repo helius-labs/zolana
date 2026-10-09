@@ -7,6 +7,7 @@ The TEE prover is the Go prover in an Intel TDX confidential VM on Phala Cloud. 
 A client that requires a TEE sends a request only after an Intel-signed quote proves which image runs. Only the process that quote measures can read the request.
 
 The same server also runs on the CPU in an AWS Nitro Enclave, deployed with `tools/nitro`, whose guide covers that platform. A policy names its platform, and both SDKs accept either.
+The `tools/nitro` guide also gives the AWS KMS layout that lets all enclaves of a deployment share one HPKE key.
 This guide covers the Phala dstack deployment.
 
 ## Threat
@@ -30,6 +31,11 @@ In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncPr
 The `zolana` commands that prove take `--prover-tee`, or `ZOLANA_PROVER_TEE`, and `zolana vks check --prover-url <url> --prover-tee` attests a prover before it checks its proving keys.
 In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.
 Without a policy the clients send plaintext requests, which the server still accepts.
+
+The SDK pins no default deployment, so TEE stays opt-in.
+`deployments/nitro-c7a.json` pins the running prover, an AWS Nitro c7a.24xlarge enclave at `https://d3psb33kf6y5qv.cloudfront.net`.
+Load a pin with `TeePolicy::from_file_json` in Rust or `teePolicyFromJson(pin.deployment)` in TypeScript, and give the client the prover URL with its `api-key` query parameter.
+A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
 ## Roles
 

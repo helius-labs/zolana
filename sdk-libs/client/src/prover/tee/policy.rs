@@ -145,3 +145,32 @@ pub(super) mod hex_list {
             .collect()
     }
 }
+
+pub(super) mod hex_pin {
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<[u8; 32]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(bytes) => hex::serde::serialize(bytes, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<[u8; 32]>, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        if !value
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(D::Error::custom("the key pin is not lowercase hex"));
+        }
+        hex::FromHex::from_hex(value)
+            .map(Some)
+            .map_err(D::Error::custom)
+    }
+}

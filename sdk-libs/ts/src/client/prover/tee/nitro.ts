@@ -62,6 +62,8 @@ export type NitroMeasurement = Readonly<{
 export type AwsNitroPolicy = Readonly<{
   platform: "aws-nitro";
   measurements: readonly NitroMeasurement[];
+  /** Lowercase hex, holds across reboots only on a KMS deployment. */
+  hpkePublicKey?: string;
   gpu: GpuRequirement;
   maxAgeSecs: number;
 }>;
@@ -115,8 +117,9 @@ export const AWS_NITRO: PlatformModule<AwsNitroPolicy> = Object.freeze({
   hostsGpu: false,
   keyPerBoot: true,
   anchors: Object.freeze([AWS_NITRO_ROOT_G1]),
-  policy: (fields, common) =>
-    Object.freeze({
+  policy: (fields, common) => {
+    const hpkePublicKey = fields.optionalHex("hpke_public_key", 32);
+    return Object.freeze({
       platform: "aws-nitro",
       measurements: fields.records("measurements", (m) =>
         Object.freeze({
@@ -125,9 +128,14 @@ export const AWS_NITRO: PlatformModule<AwsNitroPolicy> = Object.freeze({
           pcr2: m.hex("pcr2", PCR_SIZE),
         }),
       ),
+      ...(hpkePublicKey === undefined ? {} : { hpkePublicKey }),
       ...common,
-    }),
-  pinsJson: (policy) => ({ measurements: policy.measurements }),
+    });
+  },
+  pinsJson: (policy) => ({
+    measurements: policy.measurements,
+    ...(policy.hpkePublicKey === undefined ? {} : { hpke_public_key: policy.hpkePublicKey }),
+  }),
   verify: verifyAwsNitro,
 });
 
@@ -160,6 +168,12 @@ function verifyAwsNitro(
   }
   if (document.publicKey === undefined || !equalBytes(document.publicKey, claims.hpkePublicKey)) {
     throw refused("public_key");
+  }
+  if (
+    policy.hpkePublicKey !== undefined &&
+    bytesToHex(claims.hpkePublicKey) !== policy.hpkePublicKey
+  ) {
+    throw refused("hpke_key");
   }
   if (document.userData === undefined) throw refused("report_data");
   return Object.freeze({ reportData: document.userData, imageId: pcr0 });

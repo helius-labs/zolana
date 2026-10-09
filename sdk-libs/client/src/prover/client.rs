@@ -1920,6 +1920,10 @@ mod tests {
     }
 
     fn nitro_attestation(now: u64) -> MockResponse {
+        nitro_answer(now, |fixture| fixture)
+    }
+
+    fn nitro_answer(now: u64, answer: fn(NitroFixture) -> NitroFixture) -> MockResponse {
         MockResponse::computed(move |request| {
             let nonce = request
                 .path
@@ -1927,7 +1931,7 @@ mod tests {
                 .and_then(|(_, nonce)| hex::decode(nonce).ok())
                 .and_then(|nonce| nonce.try_into().ok())
                 .unwrap();
-            MockResponse::json(200, NitroFixture::at(nonce, now).attestation_json())
+            MockResponse::json(200, answer(NitroFixture::at(nonce, now)).attestation_json())
         })
     }
 
@@ -1959,17 +1963,37 @@ mod tests {
     #[test]
     fn a_lost_key_is_attested_again_and_the_call_resent() {
         let now = now_secs();
-        let server = MockServer::respond_with(vec![
+        let pinned = NitroFixture::at([0; 32], now).pinning_key().session();
+        for session in [nitro_session(now), pinned] {
+            let server = MockServer::respond_with(vec![
+                nitro_attestation(now),
+                key_lost(),
+                nitro_attestation(now),
+                MockResponse::text(404, "resent"),
+            ]);
+            let mut client = ProverClient::new(server.url().to_string());
+            client.tee = Some(session);
+            let error = client.check_proving_keys().unwrap_err();
+            assert!(error.to_string().contains("resent"), "{error}");
+            assert_attested_twice(&server.requests());
+        }
+    }
+
+    #[test]
+    fn a_pinned_key_refuses_an_enclave_that_rebooted_with_another() {
+        let now = now_secs();
+        let server = MockServer::respond_then_hold(vec![
             nitro_attestation(now),
             key_lost(),
-            nitro_attestation(now),
-            MockResponse::text(404, "resent"),
+            nitro_answer(now, NitroFixture::rebooted),
         ]);
         let mut client = ProverClient::new(server.url().to_string());
-        client.tee = Some(nitro_session(now));
-        let error = client.check_proving_keys().unwrap_err();
-        assert!(error.to_string().contains("resent"), "{error}");
-        assert_attested_twice(&server.requests());
+        client.tee = Some(NitroFixture::at([0; 32], now).pinning_key().session());
+        assert!(matches!(
+            client.check_proving_keys(),
+            Err(ClientError::Tee(TeeError::HpkeKeyMismatch))
+        ));
+        assert_eq!(server.requests().len(), 3);
     }
 
     #[tokio::test]

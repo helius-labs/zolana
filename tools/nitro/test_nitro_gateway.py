@@ -11,6 +11,7 @@ from aws_host import NGINX, gateway
 from test_gateway import BACKEND, NGINX_MIRROR
 
 TOOLS = Path(__file__).resolve().parents[1]
+INGRESS = [host.ingress_port(index) for index in range(2)]
 SERVERS = f"""
 import json, sys, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,13 +20,14 @@ import aws_nitro_host
 class Echo(BaseHTTPRequestHandler):
     def answer(self):
         body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
-        echoed = json.dumps({{'method': self.command, 'path': self.path, 'headers': dict(self.headers), 'body': body.hex()}}).encode()
+        echoed = json.dumps({{'method': self.command, 'path': self.path, 'headers': dict(self.headers), 'body': body.hex(), 'port': self.server.server_port}}).encode()
         self.send_response(200)
         self.send_header('Content-Length', str(len(echoed)))
         self.end_headers()
         self.wfile.write(echoed)
     do_GET = do_POST = answer
-threading.Thread(target=ThreadingHTTPServer(('127.0.0.1', {host.INGRESS_PORT}), Echo).serve_forever, daemon=True).start()
+for port in {INGRESS}:
+    threading.Thread(target=ThreadingHTTPServer(('127.0.0.1', port), Echo).serve_forever, daemon=True).start()
 aws_nitro_host.serve_authorizer('secret', {host.AUTHORIZER_PORT})
 """
 CHECKS = f"""
@@ -66,6 +68,8 @@ status, _, headers = request('/ready', {{'Origin': 'https://app.example', 'Acces
 assert status == 204 and headers['Access-Control-Allow-Origin'] == '*', status
 assert 'Zolana-Tee-Ciphertext' in headers['Access-Control-Allow-Headers']
 assert 'Zolana-Tee' in request('/ready', {{'X-API-Key': 'secret'}})[2]['Access-Control-Expose-Headers']
+ports = [json.loads(request('/ready', {{'X-API-Key': 'secret'}})[1])['port'] for _ in range(4)]
+assert sorted(ports) == sorted({INGRESS} * 2) and ports[0] != ports[1], ports
 """
 
 
@@ -100,7 +104,9 @@ class GatewayTest(unittest.TestCase):
             config = Path(directory) / "nginx.conf"
             config.write_text(
                 gateway(
-                    False, authorizer=f"http://127.0.0.1:{host.AUTHORIZER_PORT}/auth"
+                    False,
+                    authorizer=f"http://127.0.0.1:{host.AUTHORIZER_PORT}/auth",
+                    upstreams=[f"127.0.0.1:{port}" for port in INGRESS],
                 )
             )
             config.chmod(0o644)

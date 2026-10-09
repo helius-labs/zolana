@@ -5,7 +5,12 @@
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
-path.
+path. A Nitro Enclave prover can be held to one encryption key.
+
+Added
+
+- `AwsNitroPolicy.hpkePublicKey` optionally pins the prover's encryption key, and
+  `proverTee` then refuses an attestation that offers any other key.
 
 Changed
 

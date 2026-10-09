@@ -173,6 +173,50 @@ fn the_live_nitro_enclave_passes_the_aws_chain_and_its_pinned_image() {
     assert_eq!(prover.platform, Platform::AwsNitro);
     assert!(!prover.gpu_verified);
     assert!(verify(attestation(), &policy, &[0; 32], fixture.captured_at).is_err());
+
+    let pinned = |key: [u8; 32]| {
+        let mut policy = policy.clone();
+        let PlatformPolicy::AwsNitro(pins) = &mut policy.pins else {
+            panic!("not a Nitro policy");
+        };
+        pins.hpke_public_key = Some(key);
+        verify(attestation(), &policy, &nonce, fixture.captured_at)
+    };
+    assert!(pinned(prover.hpke_public_key).is_ok());
+    assert!(matches!(pinned([0; 32]), Err(TeeError::HpkeKeyMismatch)));
+}
+
+#[test]
+fn a_nitro_key_pin_is_optional_and_written_only_when_set() {
+    let key = "ab".repeat(32);
+    let mut policy = nitro_policy();
+    let unpinned = TeePolicy::from_json(&policy.to_string()).unwrap();
+    assert!(serde_json::to_value(&unpinned)
+        .unwrap()
+        .get("hpke_public_key")
+        .is_none());
+    policy["hpke_public_key"] = key.clone().into();
+    let pinned = TeePolicy::from_json(&policy.to_string()).unwrap();
+    assert!(matches!(
+        pinned.pins(),
+        PlatformPolicy::AwsNitro(pins) if pins.hpke_public_key == Some([0xab; 32])
+    ));
+    assert_eq!(
+        serde_json::to_value(&pinned).unwrap()["hpke_public_key"],
+        key
+    );
+    for refused in [
+        serde_json::Value::Null,
+        "ab".repeat(31).into(),
+        "AB".repeat(32).into(),
+        7.into(),
+    ] {
+        policy["hpke_public_key"] = refused;
+        assert!(matches!(
+            TeePolicy::from_json(&policy.to_string()),
+            Err(TeeError::Policy(_))
+        ));
+    }
 }
 
 /// A live H200 prover's answer to a recorded nonce, quote and GPU verdict included.
@@ -270,6 +314,15 @@ fn a_policy_file_is_a_pin_file_or_a_bare_policy() {
     assert!(refusal(typo).starts_with("pin file"));
     assert!(refusal(&PROBE_POLICY.replacen("\"gpu\"", "\"gpus\"", 1)).contains("`gpu"));
     refusal("not json");
+}
+
+#[test]
+fn the_published_deployment_pin_loads() {
+    let pin = include_str!("../../../../../prover/tee/deployments/nitro-c7a.json");
+    assert_eq!(
+        TeePolicy::from_file_json(pin).unwrap().platform(),
+        Platform::AwsNitro
+    );
 }
 
 #[derive(Deserialize)]

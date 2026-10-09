@@ -12,19 +12,50 @@ The enclave image decides trust.
 It holds the prover binary, the CA bundle, the startup script, the egress hosts and the indexer URL.
 PCR0 to PCR2 measure all of them.
 The image is public, so it holds no secret.
-The prover runs with `--tee nitro` and draws a new HPKE key at each boot.
+It names the deployment's KMS key, and PCR0 to PCR2 bind that name too.
+The prover runs with `--tee nitro` and derives its HPKE key from a seed that KMS releases only to an attested enclave.
+An image built without the KMS key source draws a new HPKE key at each boot instead.
 It listens on enclave loopback only and runs without an API key.
+
+From creation the KMS key policy denies every decrypt and any call that wraps a chosen plaintext.
+Deploy replaces it once with a policy that admits only an enclave with the measured PCRs and a random encryption context drawn at that moment, and grants no principal of the account `kms:PutKeyPolicy` or `kms:CreateGrant`.
+From then on no principal of the account, administrators included, can read the seed, wrap one it knows, or change the policy.
+Between `kms-key` and that deploy the account root still holds `kms:*`, but a ciphertext made then lacks the bind's encryption context, and the bound policy denies every decrypt under another context, grants included.
+Deploy also refuses to bind a key that carries a grant.
+The trust root is AWS KMS, AWS Support for a key no principal can manage, the Nitro hardware and the operator during the deploy that binds the key.
+A client cannot read the key policy, so it relies on the operator's deploy for this guarantee.
 
 The parent instance runs the enclave and carries traffic it cannot read.
 It is an Amazon Linux 2023 EC2 instance with enclaves enabled.
 Operators reach it through SSM only.
-It builds the enclave image file (EIF) from the image digest with the pinned `nitro-cli` release and runs the enclave without debug mode.
+It builds the enclave image file (EIF) from the image digest with the pinned `nitro-cli` release and runs one enclave per NUMA node without debug mode.
 It also runs the gateway that enforces the API key.
 
 CloudFront is the only ingress.
 Its VPC origin reaches the instance, and the security group admits only the CloudFront origin prefix list on port 3001.
 
-The operator builds and pushes the image, measures it locally, deploys it, and pins the measurements into the SDKs.
+The operator creates the KMS key, builds and pushes the image with its ARN, measures it locally, deploys it, and pins the measurements into the SDKs.
+
+## Shared key
+
+All enclaves of a deployment hold the same HPKE key, so the gateway can spread requests over them and a client can pin the key.
+`kms-key` creates one symmetric KMS key per deployment under `alias/zolana-nitro-NAME`, sealed from creation.
+The image carries the key ARN in `/etc/zolana-nitro/kms-key`, and `measure` reads it back with the PCRs.
+Deploy refuses an image that names another key or measurements of another image.
+On a key still sealed from creation it deletes any stored seed and writes the bound policy.
+That policy lets the host role call `kms:Decrypt` only when the request carries an attestation whose PCR0, PCR1 and PCR2 equal the values from `measure`, and the encryption context `zolana-seed` equals the value drawn for the bind.
+It then calls `GenerateDataKeyWithoutPlaintext` under that context and stores the encrypted 32 byte seed at `install/hpke-seed.bin` and the context at `install/hpke-seed-context`.
+A resume keeps a key that already holds the bound policy, restores a missing context object, regenerates a missing seed under the same context, and refuses any other policy.
+The deployment never handles the plaintext seed.
+
+At boot each enclave connects to the parent on vsock CID 3, port 8200.
+The `zolana-kms` service answers with one JSON line that holds the ciphertext, its encryption context and fresh instance role credentials from IMDSv2, then closes.
+The enclave asks KMS to decrypt with its attestation document, so KMS encrypts the seed to a key that exists only inside that enclave.
+The parent relays that answer without being able to read it.
+The enclave fails to start when any step fails.
+A ciphertext under another key gets a refusal from KMS, because the key ARN comes from the measured image.
+A fresh ciphertext under the same key yields another HPKE key nobody knows.
+Deploy refuses enclaves that attest different keys, and a client that pins the key refuses it.
 
 ## How it works
 
@@ -34,7 +65,8 @@ The authorizer reads the key from Secrets Manager and accepts it in `X-API-Key`,
 `/proving-keys` stays public, as on the prover.
 The gateway keeps the path and the query, forwards the `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext` headers, and passes bodies through unchanged.
 For browsers it allows those headers in CORS preflight and exposes `Zolana-Tee`.
-It proxies to `socat` on port 3003, and `socat` connects to vsock port 3001 of enclave CID 16.
+It proxies round robin with keepalive to one `socat` per enclave.
+Enclave `i` has CID `16 + i`, and its `socat` listens on `127.0.0.1` port `3003 + 2i` and connects to vsock port 3001 of that CID.
 Inside the enclave a second `socat` forwards vsock port 3001 to the prover on `127.0.0.1:3001`.
 
 The enclave has no network of its own.
@@ -42,7 +74,7 @@ At boot the startup script maps each allowed host to its own loopback address in
 A `socat` listener on that address forwards to the parent over vsock, starting at port 8001.
 On the parent, one `vsock-proxy` per host forwards that port to the real host.
 Its allowlist holds exactly the hosts the image names.
-The image names the proving key host from `key_downloader.go` and, when built with one, the indexer host.
+The image names the proving key host from `key_downloader.go`, the indexer host when built with one, and the KMS host of its key's region.
 TLS terminates inside the enclave against the real hostname, so the parent relays only ciphertext.
 Proving keys download on first use into a tmpfs in enclave memory and verify against the lockfile digest.
 
@@ -54,9 +86,17 @@ A request without `Zolana-Tee` travels in plaintext, and the SDK policy decides 
 ## Sizing
 
 The default instance is `m6i.4xlarge`.
-The parent keeps 4 vCPUs and 16 GiB, and the enclave allocator reserves the rest.
-On `m6i.4xlarge` the enclave gets 12 vCPUs and 48 GiB.
-The parent keeps the core of CPU 0, which an enclave cannot take, plus room for Docker during the EIF build.
+Nitro confines an enclave to one NUMA node, so the parent runs one enclave per node that has at least 2 vCPUs outside the core of CPU 0.
+Each enclave takes its node's vCPUs except that core, and its node's memory less 2 GiB.
+No enclave exceeds the instance less 4 vCPUs and 16 GiB.
+On `m6i.4xlarge`, one node, the enclave gets 12 vCPUs and 48 GiB.
+On `c6a.24xlarge`, two nodes, the enclaves get 46 and 48 vCPUs and about 90 GiB each, and the parent keeps the core of CPU 0 and about 4 GiB.
+An image without the KMS key source runs only the largest of those enclaves, because separate enclaves would hold separate keys.
+
+The stock `nitro-enclaves-allocator` refuses a CPU pool that spans NUMA nodes.
+The `zolana-allocator` unit runs it once per enclave, each run with its own config under `NITRO_CLI_INSTALL_DIR`, which reserves huge pages on that node.
+It then writes the union of the enclave CPUs to the driver's pool.
+Each enclave runs in its own `zolana-enclave@i` unit, which restarts only that enclave.
 Inside the enclave the key tmpfs takes 6 GiB, and a test pins that it holds every served key plus the largest partial download.
 The prover heap limit is the enclave memory less the tmpfs and 2 GiB for the kernel and root file system.
 `--instance-type` accepts any x86 type with Nitro Enclaves support, 6 vCPUs and 40 GiB, and the enclave scales with it.
@@ -72,9 +112,16 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
 
 ## Steps
 
-1. Log in to the registry and build the image for `linux/amd64` with the repository root as context.
+1. Create the deployment's KMS key and keep the ARN it prints.
+   A second run prints the same ARN.
+
+   ```sh
+   kms_key=$(AWS_PROFILE=AdministratorAccess-558215002830 tools/nitro/aws_nitro.py kms-key NAME)
+   ```
+
+2. Log in to the registry and build the image for `linux/amd64` with the repository root as context.
    The tag names the commit, and the repository refuses to overwrite a tag.
-   This step locks in every byte the enclave measures, including the indexer URL.
+   This step locks in every byte the enclave measures, including the indexer URL and the KMS key.
 
    ```sh
    registry=558215002830.dkr.ecr.eu-north-1.amazonaws.com
@@ -82,12 +129,13 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
      | docker login --username AWS --password-stdin "$registry"
    docker buildx build --platform linux/amd64 -f prover/server/Dockerfile.nitro \
      --build-arg INDEXER_URL=https://INDEXER \
+     --build-arg KEY_SOURCE=kms --build-arg KMS_KEY_ARN="$kms_key" \
      -t "$registry/zolana-prover-nitro:TAG" --push .
    ```
 
    Omit `INDEXER_URL` for clients that send their own proof data.
 
-2. Resolve the pushed digest.
+3. Resolve the pushed digest.
    The digest, not the tag, identifies the image from here on.
 
    ```sh
@@ -95,24 +143,27 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
      tools/gpu/ecr-digest.sh zolana-prover-nitro TAG)
    ```
 
-3. Measure the image on your own machine.
+4. Measure the image on your own machine.
    The command pulls the digest with your registry login and builds the EIF in a pinned Amazon Linux 2023 container.
    That container installs the same `nitro-cli` release as the parent, and prints `PCR0`, `PCR1`, `PCR2`, `HashAlgorithm`, `image` and `nitro_cli`.
+   It adds the `kms_key` the image names, or `null` for an image without the KMS key source.
    This step locks in the measurements, and a second run on the same digest prints the same values.
 
    ```sh
    tools/nitro/aws_nitro.py measure --image "$registry/zolana-prover-nitro@$digest" > pcrs.json
    ```
 
-4. Deploy with the measured PCRs.
-   The command creates the stack, installs the host through SSM, builds the EIF and starts the enclave.
+5. Deploy with the measured PCRs.
+   The command refuses an image whose `kms_key` is not the key of `NAME`.
+   It creates the stack, binds the key policy to the PCRs of `pcrs.json`, stores a fresh encrypted seed, installs the host through SSM, builds the EIF and starts the enclaves.
    It waits for readiness and checks that CloudFront refuses a request without the key.
    It fails with `MEASUREMENT MISMATCH` when the PCRs the parent built differ from `pcrs.json`, and the deployment stays unfinished.
-   It then runs `cargo run -q -p xtask -- tee-check` from the repository root with a policy that pins the PCRs of `pcrs.json`, and passes the API key in `PROVER_API_KEY`.
+   It then reads the offered HPKE key twice per enclave through the gateway and refuses the deployment unless every answer names the same key.
+   It runs `cargo run -q -p xtask -- tee-check` from the repository root as many times, with a policy that pins the PCRs of `pcrs.json` and that key, and passes the API key in `PROVER_API_KEY`.
    `tee-check` verifies the attestation certificate chain to the AWS root, the PCRs, the nonce and the HPKE key binding.
    It then checks the proving keys over the encrypted channel.
-   The deployment stays unfinished until `tee-check` passes, so run deploy from a checkout of this repository with its Rust toolchain.
-   Deploy prints the URL, the API key secret ARN, the instance, the log group and the PCRs.
+   The deployment stays unfinished until every `tee-check` passes, so run deploy from a checkout of this repository with its Rust toolchain.
+   Deploy prints the URL, the API key secret ARN, the instance, the log group, the PCRs, the enclave count and `hpke_public_key`.
    The parent PCRs also stay in the stack bucket under `install/measurements.json`.
 
    ```sh
@@ -125,10 +176,11 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    `--plan` validates the stack without creating it and does not need `--expect-pcrs`.
    Repeat the command with the same arguments to resume a failed deployment.
 
-5. Pin the live enclave into the SDKs.
+6. Pin the live enclave into the SDKs.
    `tee-policy` reads the key from `PROVER_API_KEY`, which keeps it out of the process list.
    With `--expect-pcrs` it refuses a live enclave whose PCRs differ from `pcrs.json`.
    This step locks in the measurements every client accepts.
+   On a KMS deployment `--pin-key` also pins the attested HPKE key, and a later run refuses a prover with another key until `--replace`.
 
    ```sh
    PROVER_API_KEY=$(aws secretsmanager get-secret-value --profile AdministratorAccess-558215002830 \
@@ -136,7 +188,7 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
      cargo run -p xtask -- tee-policy https://DISTRIBUTION.cloudfront.net --replace --expect-pcrs pcrs.json
    ```
 
-6. Commit the policy files with the release.
+7. Commit the policy files with the release.
 
 ## Limits
 
@@ -144,15 +196,15 @@ No log or metric leaves the enclave, because the image opens no channel for them
 Parent logs stay in the journal of each `zolana-*` unit and in the gateway log group.
 Use SSM to read them.
 
-The enclave receives no secret, because the parent can read anything it passes.
-An indexer that requires an API key does not work, so use a keyless indexer or client-supplied proof data.
+The parent passes the enclave only the encrypted seed and role credentials, and the enclave trusts neither beyond what KMS proves.
+An indexer that requires an API key does not work, because the parent could read it, so use a keyless indexer or client-supplied proof data.
 
 The enclave serves the transfer, merge and custom ring keys.
 It does not serve the batch address-append keys of the forester, because the key tmpfs and the heap are sized for client keys.
 
-A deployment runs one enclave.
-A new image, indexer or instance type requires a new deployment name.
-`status NAME` prints the deployment, and `destroy NAME` deletes it with its bucket.
+A new image, indexer or instance type requires a new deployment name, and so a new KMS key and a new build.
+`status NAME` prints the deployment.
+`destroy NAME` deletes it with its bucket and schedules deletion of its KMS key after 7 days.
 
 ## Pitfalls
 
@@ -164,9 +216,17 @@ The image pins its Alpine package versions, and Alpine keeps only the newest bui
 An old commit stops building when a pinned package gets an update, so move the pins in `Dockerfile.nitro`.
 Measure and pin the pushed digest, never the commit.
 
-Each enclave start draws a new HPKE key.
+The image names one KMS key, so build one image per deployment, after `kms-key`.
+The key policy names the PCRs of one image.
+Nobody can change a bound policy, so a deploy that binds the wrong PCRs or host role leaves the key unusable, and only a deployment under a new name recovers.
+An enclave of any other image gets a refusal from KMS and does not start.
+
+An image without the KMS key source draws a new HPKE key at each enclave start.
 A crash, a resumed deployment and a reboot all restart the enclave.
 After an enclave restart the next call fails decryption, the SDK attests again and resends once.
+
+The allocator runs only while no enclave runs.
+Restart `zolana-allocator` after stopping every `zolana-enclave@` unit, never alone.
 
 The first proof for a key downloads and loads that key.
 A large key can exceed the 60 second CloudFront origin read timeout.

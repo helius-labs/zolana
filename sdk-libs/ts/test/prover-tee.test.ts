@@ -38,7 +38,11 @@ import { TeeSession, encryptedInit, type ProverCall } from "../src/client/prover
 import { composeSignal } from "../src/client/internal.js";
 import { attestationRetryDelayMs } from "../src/client/prover/retry.js";
 import { DEFAULT_TEE_POLICY_FILE } from "../src/client/prover/tee/default.js";
-import { defaultTeePolicy, teePolicyFromJson } from "../src/client/prover/tee/policy.js";
+import {
+  checkedTeePolicy,
+  defaultTeePolicy,
+  teePolicyFromJson,
+} from "../src/client/prover/tee/policy.js";
 import {
   PLATFORMS,
   type DstackTdxPolicy,
@@ -89,6 +93,13 @@ function check(run: () => unknown): string | undefined {
 }
 
 describe("TEE policy", () => {
+  const nitroPolicyJson = {
+    platform: "aws-nitro",
+    measurements: [],
+    gpu: "optional",
+    max_age_secs: 600,
+  };
+
   it("mirrors the Rust SDK's pinned policy file", () => {
     expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
   });
@@ -142,6 +153,17 @@ describe("TEE policy", () => {
       "tee.rtmr3",
     );
     expect(field({ ...probePolicyJson, platform: "aws-nitro" })).toBe("tee.pcr0");
+    for (const hpkeKey of [null, "ab".repeat(31), "AB".repeat(32), 7]) {
+      expect(field({ ...nitroPolicyJson, hpke_public_key: hpkeKey })).toBe("tee.hpke_public_key");
+    }
+  });
+
+  it("keeps a Nitro key pin optional and writes it only when set", () => {
+    const unpinned = teePolicyFromJson(nitroPolicyJson);
+    expect(Object.hasOwn(checkedTeePolicy(unpinned), "hpkePublicKey")).toBe(false);
+    const pinned = teePolicyFromJson({ ...nitroPolicyJson, hpke_public_key: "ab".repeat(32) });
+    expect(pinned).toMatchObject({ hpkePublicKey: "ab".repeat(32) });
+    expect(checkedTeePolicy(pinned)).toEqual(pinned);
   });
 });
 
@@ -612,10 +634,16 @@ describe("a prover that lost the attested key", () => {
     platform: keyof typeof fixtures,
     answer: () => Response,
     outcome: Readonly<Record<string, unknown>>,
+    pinKey = false,
   ): Promise<readonly (readonly [string, boolean])[]> {
     const [attestationFile, policyFile] = fixtures[platform];
     const testdata = (file: string): unknown => json(`../../../prover/tee/testdata/${file}`);
     const live = decode.record(testdata(attestationFile), "live");
+    const deployment = decode.record(
+      decode.record(testdata(policyFile), "policy")["deployment"],
+      "deployment",
+    );
+    const hpkeKey = decode.record(live["attestation"], "attestation")["hpke_public_key"];
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
     const at = Number(decode.integer(live["captured_at"], "captured_at"));
     const fill = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
@@ -628,7 +656,7 @@ describe("a prover that lost the attested key", () => {
     const requested: (readonly [string, boolean])[] = [];
     const prover = new ProverClient({
       url: "https://prover.invalid",
-      tee: teePolicyFromJson(decode.record(testdata(policyFile), "policy")["deployment"]),
+      tee: teePolicyFromJson(pinKey ? { ...deployment, hpke_public_key: hpkeKey } : deployment),
       fetch: (input, init) => {
         const path = new URL(String(input)).pathname;
         const headers = new Headers(init?.headers);
@@ -660,15 +688,19 @@ describe("a prover that lost the attested key", () => {
   const attestation = ["/tee/v1/attestation", false] as const;
   const health = ["/health", true] as const;
 
-  it("re-attests a Nitro enclave once and resends encrypted", async () => {
-    expect(
-      await calls(
-        "aws-nitro",
-        refusal("tee_decryption_failed"),
-        refusedWith("tee_decryption_failed"),
-      ),
-    ).toEqual([attestation, health, attestation, health]);
-  });
+  it.each([false, true])(
+    "re-attests a Nitro enclave once and resends encrypted, key pinned %s",
+    async (pinKey) => {
+      expect(
+        await calls(
+          "aws-nitro",
+          refusal("tee_decryption_failed"),
+          refusedWith("tee_decryption_failed"),
+          pinKey,
+        ),
+      ).toEqual([attestation, health, attestation, health]);
+    },
+  );
 
   it.each([
     ["a dstack key loss, its key is pinned", "dstack-tdx", "tee_decryption_failed"],
@@ -704,14 +736,15 @@ describe("AWS Nitro attestation", () => {
   const root = keys();
   const intermediate = keys();
   const leaf = keys();
-  const policy = teePolicyFromJson({
+  const policyJson = {
     platform: "aws-nitro",
     measurements: [
       { pcr0: bytesToHex(pcr(1)), pcr1: bytesToHex(pcr(2)), pcr2: bytesToHex(pcr(3)) },
     ],
     gpu: "optional",
     max_age_secs: 600,
-  });
+  };
+  const policy = teePolicyFromJson(policyJson);
 
   type CertificateSpec = Readonly<{
     subject: string;
@@ -1039,6 +1072,15 @@ describe("AWS Nitro attestation", () => {
     expect(check(() => verify(attestation(spec)))).toBe(expected);
   });
 
+  it("admits only the pinned key under a key pin", () => {
+    const pinned = (key: Uint8Array): unknown => {
+      const keyPolicy = teePolicyFromJson({ ...policyJson, hpke_public_key: bytesToHex(key) });
+      return check(() => verifyAttestation(attestation(), keyPolicy, nonce, nowSecs, platforms));
+    };
+    expect(pinned(hpkePublicKey)).toBeUndefined();
+    expect(pinned(new Uint8Array(32))).toBe("hpke_key");
+  });
+
   it("refuses a chain to another root", () => {
     const other = keys();
     const otherRoot = certificate({
@@ -1167,6 +1209,23 @@ describe("a live AWS Nitro attestation", () => {
     const prover = verifyAttestation(live["attestation"], policy, nonce, at);
     expect(prover.platform).toBe("aws-nitro");
     expect(prover.gpuVerified).toBe(false);
+  });
+
+  it("passes under a pin of its own key only", () => {
+    const deployment = decode.record(
+      decode.record(json("../../../prover/tee/testdata/nitro_live_policy.json"), "policy")[
+        "deployment"
+      ],
+      "deployment",
+    );
+    const pinned = (hpkeKey: unknown): unknown => {
+      const keyPolicy = teePolicyFromJson({ ...deployment, hpke_public_key: hpkeKey });
+      return check(() => verifyAttestation(live["attestation"], keyPolicy, nonce, at));
+    };
+    expect(
+      pinned(decode.record(live["attestation"], "attestation")["hpke_public_key"]),
+    ).toBeUndefined();
+    expect(pinned("00".repeat(32))).toBe("hpke_key");
   });
 
   it("refuses the same document for another nonce", () => {

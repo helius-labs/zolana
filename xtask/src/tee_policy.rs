@@ -29,29 +29,32 @@ pub struct TeePolicyOptions {
     /// Start a new pin instead of extending the pinned one.
     pub replace: bool,
     pub expect_pcrs: Option<PathBuf>,
+    pub pin_key: bool,
 }
 
 struct Pin<'a> {
     current: Option<&'a PlatformPolicy>,
     identity: &'a AttestedIdentity,
     built: Option<&'a NitroMeasurement>,
+    pin_key: bool,
 }
 
 impl TeePolicyOptions {
     pub fn parse(mut args: impl Iterator<Item = String>) -> Result<Self> {
-        let usage =
-            "usage: tee-policy <prover-url> [--gpu-required] [--replace] [--expect-pcrs <file>]";
+        let usage = "usage: tee-policy <prover-url> [--gpu-required] [--replace] [--expect-pcrs <file>] [--pin-key]";
         let mut options = Self {
             prover_url: args.next().context(usage)?,
             gpu: GpuRequirement::Optional,
             replace: false,
             expect_pcrs: None,
+            pin_key: false,
         };
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--gpu-required" => options.gpu = GpuRequirement::Required,
                 "--replace" => options.replace = true,
                 "--expect-pcrs" => options.expect_pcrs = Some(args.next().context(usage)?.into()),
+                "--pin-key" => options.pin_key = true,
                 other => bail!("tee-policy unexpected arg {other:?}"),
             }
         }
@@ -83,6 +86,7 @@ impl TeePolicyOptions {
             current: current.as_ref().map(TeePolicy::pins),
             identity: &identity,
             built: built.as_ref(),
+            pin_key: self.pin_key,
         }
         .extend()?;
         let policy = TeePolicy::new(pins).with_gpu(gpu)?;
@@ -111,6 +115,7 @@ impl Pin<'_> {
             current,
             identity,
             built,
+            pin_key,
         } = self;
         let found_platform = identity.platform.platform();
         if let Some(current) = current.filter(|pins| pins.platform() != found_platform) {
@@ -123,6 +128,9 @@ impl Pin<'_> {
             PlatformIdentity::DstackTdx(found) => {
                 if built.is_some() {
                     bail!("--expect-pcrs applies to an aws-nitro prover only");
+                }
+                if pin_key {
+                    bail!("--pin-key applies to an aws-nitro prover only, a dstack pin always holds the key");
                 }
                 let mut pins = match current {
                     Some(PlatformPolicy::DstackTdx(pins)) => pins.clone(),
@@ -158,6 +166,15 @@ impl Pin<'_> {
                     Some(PlatformPolicy::AwsNitro(pins)) => pins.clone(),
                     _ => NitroPolicy::default(),
                 };
+                if pins
+                    .hpke_public_key
+                    .is_some_and(|pinned| pinned != identity.hpke_public_key)
+                {
+                    bail!("prover holds another key than the pinned one, rerun with --replace");
+                }
+                if pin_key {
+                    pins.hpke_public_key = Some(identity.hpke_public_key);
+                }
                 push_new(&mut pins.measurements, found.measurement.clone());
                 Ok(PlatformPolicy::AwsNitro(pins))
             }
@@ -269,6 +286,70 @@ mod tests {
             pcr0: [1; 48],
             pcr1: [2; 48],
             pcr2: [pcr2; 48],
+        }
+    }
+
+    fn live(fixture: &str) -> AttestedIdentity {
+        let fixture: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        let attestation = serde_json::from_value(fixture["attestation"].clone()).unwrap();
+        inspect(attestation, fixture["captured_at"].as_u64().unwrap()).unwrap()
+    }
+
+    fn nitro_key(policy: &PlatformPolicy) -> Option<[u8; 32]> {
+        let PlatformPolicy::AwsNitro(pins) = policy else {
+            panic!("not a Nitro policy");
+        };
+        pins.hpke_public_key
+    }
+
+    #[test]
+    fn pin_key_pins_the_attested_nitro_key_and_refuses_dstack() {
+        let nitro = live(include_str!(
+            "../../prover/tee/testdata/nitro_live_attestation.json"
+        ));
+        let PlatformIdentity::AwsNitro(found) = &nitro.platform else {
+            panic!("not a Nitro attestation");
+        };
+        let pin = |current, pin_key| {
+            Pin {
+                current,
+                identity: &nitro,
+                built: Some(&found.measurement),
+                pin_key,
+            }
+            .extend()
+        };
+        assert_eq!(nitro_key(&pin(None, false).unwrap()), None);
+        let pinned = pin(None, true).unwrap();
+        assert_eq!(nitro_key(&pinned), Some(nitro.hpke_public_key));
+        assert_eq!(
+            nitro_key(&pin(Some(&pinned), false).unwrap()),
+            Some(nitro.hpke_public_key)
+        );
+        let other = PlatformPolicy::AwsNitro(NitroPolicy {
+            measurements: vec![found.measurement.clone()],
+            hpke_public_key: Some([0; 32]),
+        });
+        assert!(pin(Some(&other), true).is_err());
+        let unbuilt = Pin {
+            current: None,
+            identity: &nitro,
+            built: None,
+            pin_key: true,
+        };
+        assert!(unbuilt.extend().is_err());
+
+        let dstack = live(include_str!(
+            "../../prover/tee/testdata/live_attestation.json"
+        ));
+        for (pin_key, refused) in [(false, false), (true, true)] {
+            let pin = Pin {
+                current: None,
+                identity: &dstack,
+                built: None,
+                pin_key,
+            };
+            assert_eq!(pin.extend().is_err(), refused);
         }
     }
 
