@@ -31,16 +31,27 @@ theorem assertDistinctSlope_sound {Λ : ElemVal 8} {o : F}
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
     GatesDef.ne, exists_eq_left] at h
   obtain ⟨hne, -⟩ := h
-  intro h0
-  apply hne
-  rw [value_cast] at h0
-  simp only [slopeFactor, K_1176_eq] at h0 ⊢
-  linear_combination h0
+  have hv : ((Λ.value : ℤ) : F) = 0 + Λ.limbs.get 0 * 1 + Λ.limbs.get 1 * 4294967296 +
+      Λ.limbs.get 2 * K_390 + Λ.limbs.get 3 * K_391 + Λ.limbs.get 4 * K_392 + Λ.limbs.get 5 * K_393 +
+      Λ.limbs.get 6 * K_394 + Λ.limbs.get 7 * K_395 := by
+    rw [value_cast]; ring
+  rw [hv]
+  unfold slopeFactor
+  rw [← K_1176_eq]
+  exact hne
 
 /-- Integer limbs of a balanced hinted element: three pieces minus `2^31`. -/
 def balInt {n : ℕ} (g : List.Vector F n) (o : ℕ) : ℤ := pieceInt g o - 2 ^ 31
 
 def balRec : ℤ := rec8 (fun _ => 1)
+
+theorem rec8_bal_bounds {x : Fin 8 → ℤ} (h : ∀ i, -2 ^ 31 ≤ x i ∧ x i ≤ 2 ^ 31 - 1) :
+    -2 ^ 31 * balRec ≤ rec8 x ∧ rec8 x ≤ (2 ^ 31 - 1) * balRec := by
+  have h0 := h 0; have h1 := h 1; have h2 := h 2; have h3 := h 3
+  have h4 := h 4; have h5 := h 5; have h6 := h 6; have h7 := h 7
+  unfold balRec rec8
+  norm_num at *
+  constructor <;> linarith
 
 /-- The bounds `Field.HintBalanced` attaches. -/
 def balC : ElemC := uniC (-2 ^ 31) (2 ^ 31 - 1) (-2 ^ 31 * balRec) ((2 ^ 31 - 1) * balRec)
@@ -54,10 +65,7 @@ theorem bal_fits (hl : LookupSound RangeCheck 11) {n : ℕ} {g : List.Vector F n
     unfold balInt
     constructor <;> linarith
   apply fits_uni hb
-  have h0 := hb 0; have h1 := hb 1; have h2 := hb 2; have h3 := hb 3
-  have h4 := hb 4; have h5 := hb 5; have h6 := hb 6; have h7 := hb 7
-  simp only [balRec, rec8] at *
-  constructor <;> nlinarith
+  exact rec8_bal_bounds hb
 
 theorem balInt_cast {n : ℕ} (g : List.Vector F n) (o : ℕ) :
     ((balInt g o : ℤ) : F) =
@@ -81,7 +89,8 @@ The extra terms unfold local element names. -/
 syntax "limbs_tac" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 macro_rules
   | `(tactic| limbs_tac [$ts,*]) => `(tactic| (
-    simp only [limbLists, List.map, mkElem_limbs, vec8_toList, mkElem_int, ElemVal.limb_eq, $ts,*]
+    simp only [limbLists, List.map, linElem, linX, List.map_cons, List.map_nil, List.sum_cons,
+      List.sum_nil, mkElem_limbs, vec8_toList, mkElem_int, ElemVal.limb_eq, $ts,*]
     try simp only [List.Vector.get_eq_get_toList, Fin.coe_ofNat_eq_mod, List.Vector.toList_cons,
       List.Vector.toList_nil, List.get_eq_getElem, Nat.reduceMod, Nat.reduceMul, Nat.reduceAdd, List.getElem_cons_succ,
       List.getElem_cons_zero, getElem_eq_getD0, List.getD_cons_succ, List.getD_cons_zero, pieceInt_cast, balInt_cast, linElem, linX, List.map_cons, List.map_nil,
