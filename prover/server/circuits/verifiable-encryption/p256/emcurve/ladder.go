@@ -93,7 +93,6 @@ func (c *curve) scalarMulLadder(inputPoint *point, scalar *frElement) *point {
 	c.assertDistinctX(product.X, inputPoint.X)
 	c.assertDistinctX(product.X, tripledInput.X)
 	c.assertDistinctX(tripledProduct.X, inputPoint.X)
-	negatedInput := c.neg(inputPoint)
 	negatedProduct := c.neg(signedProduct)
 
 	// 4. Build the joint multiplication table and select entries two bits at a time.
@@ -133,10 +132,14 @@ func (c *curve) scalarMulLadder(inputPoint *point, scalar *frElement) *point {
 	acc = c.quadrupleAndAddLazy(acc, c.guardedAdd(last, tripledProduct), nil)
 	acc = &point{X: fp.Eval(T(1, acc.X)), Y: acc.Y}
 
-	acc = c.selectPoint(numeratorBits[0], acc, c.guardedAddReducing(negatedInput, acc, true, false))
-	acc = c.selectPoint(denominatorBits[0], acc, c.guardedAddReducing(negatedProduct, acc, false, false))
-	// 6. Require the final relation to bind the hinted product to the input scalar.
-	c.assertEqual(acc, tripledProduct)
+	// 6. Require acc = 3R + (1-d)R + (1-n)Q, assembled on the target side. When
+	// n = 1 the discarded sum adds R, which is x-distinct from 3R and 4R for every
+	// nonzero R, so the guard on the unselected branch is always satisfiable.
+	fourTimesProduct := c.guardedAdd(tripledProduct, signedProduct)
+	target := c.selectPoint(denominatorBits[0], tripledProduct, fourTimesProduct)
+	addend := c.selectPoint(numeratorBits[0], signedProduct, inputPoint)
+	target = c.selectPoint(numeratorBits[0], target, c.guardedAdd(addend, target))
+	c.assertEqual(acc, target)
 	return product
 }
 
