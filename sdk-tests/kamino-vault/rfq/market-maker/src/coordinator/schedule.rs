@@ -11,11 +11,11 @@ use crate::{
     error::MakerError,
     rebalance::{MakerAccounts, RebalanceOrder, RebalanceTail, ShieldPlan},
     scheduler::{
-        max_outputs_for,
-        payment::{own_value, plan_consolidate, plan_payment, TransferPlan},
-        select, select_all, Selection,
+        max_outputs_for, select, select_all,
+        transfer::{own_value, plan_consolidate, plan_transfer, TransferPlan},
+        Selection,
     },
-    step::{FillLeg, OperationId, ProofWork, Step, StepId, StepKind},
+    step::{FillTransfer, OperationId, ProofWork, Step, StepId, StepKind},
 };
 
 enum ScheduleOutcome {
@@ -33,7 +33,7 @@ pub(super) struct TransferStep {
     pub withdrawal: Option<WithdrawalTarget>,
     pub tail: Vec<Instruction>,
     pub vault_before: Option<VaultState>,
-    pub fill: Option<FillLeg>,
+    pub fill: Option<FillTransfer>,
 }
 
 impl Coordinator {
@@ -77,7 +77,7 @@ impl Coordinator {
 
     async fn schedule_fill(&mut self, id: OperationId, order: &FillOrder) -> ScheduleOutcome {
         let available = self.ledger.tracker.available(&order.asset);
-        let max_inputs = match self.budget.max_maker_inputs(&order.user_leg) {
+        let max_inputs = match self.budget.max_maker_inputs(&order.user_transfer) {
             Ok(max_inputs) => max_inputs,
             Err(error) => return ScheduleOutcome::Rejected(error.into()),
         };
@@ -88,7 +88,7 @@ impl Coordinator {
         };
         let max_outputs = match self
             .budget
-            .max_maker_outputs(&order.user_leg, selection.inputs.len())
+            .max_maker_outputs(&order.user_transfer, selection.inputs.len())
         {
             Ok(max_outputs) => max_outputs,
             Err(error) => return ScheduleOutcome::Rejected(error.into()),
@@ -107,12 +107,12 @@ impl Coordinator {
             .iter()
             .map(|input| input.utxo.wallet.nullifier)
             .collect();
-        let plan = match plan_payment(selection, order.recipient, order.amount, change_parts) {
+        let plan = match plan_transfer(selection, order.recipient, order.amount, change_parts) {
             Ok(plan) => plan,
             Err(error) => return ScheduleOutcome::Rejected(error),
         };
-        let fill = FillLeg {
-            user_leg: order.user_leg.clone(),
+        let fill = FillTransfer {
+            user_transfer: order.user_transfer.clone(),
             ttl: order.ttl,
             spends,
             message: None,

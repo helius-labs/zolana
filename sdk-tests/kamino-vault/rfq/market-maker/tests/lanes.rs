@@ -12,7 +12,7 @@ use zolana_program_test::localnet::FixtureLocalnet;
 
 use kamino_vault_market_maker::{ConcurrencyConfig, LaneProfile, MarketMaker, TokenConfig};
 use kamino_vault_rfq_sdk::{
-    kvault::VaultAccounts,
+    kvault::Pair,
     swap::{instructions, Direction, Holdings, Quote, SWAP_COMPUTE_BUDGET},
 };
 
@@ -24,10 +24,10 @@ use kamino_vault_rfq_example::{
 const TEST_NUMBER: u16 = 17;
 const EXTRA_USERS: u8 = 4;
 const USERS: usize = 5;
-const USER_USDC: u64 = 80_000_000;
-const BOOTSTRAP_USDC: u64 = 200_000_000;
-const LARGE_USDC: u64 = 70_000_000;
-const SMALL_USDC: u64 = 2_000_000;
+const USER_COLLATERAL: u64 = 80_000_000;
+const SEED_DEPOSIT: u64 = 200_000_000;
+const LARGE_COLLATERAL: u64 = 70_000_000;
+const SMALL_COLLATERAL: u64 = 2_000_000;
 const LARGE_LANES: [u64; 3] = [4, 8, 16];
 const SMALL_LANES: usize = 47;
 const LANES: usize = 50;
@@ -55,7 +55,7 @@ async fn large_swap_fills_from_large_lanes_while_small_swaps_run() -> Result<()>
         user,
         users,
         market_maker,
-        vault,
+        pair,
         ..
     } = setup_with(SetupConfig {
         extra_users: EXTRA_USERS,
@@ -71,22 +71,22 @@ async fn large_swap_fills_from_large_lanes_while_small_swaps_run() -> Result<()>
             lane_upkeep_delay: Some(Duration::ZERO),
             ..concurrency
         },
-        user_usdc: USER_USDC,
+        user_collateral: USER_COLLATERAL,
         ..SetupConfig::new(TEST_NUMBER)
     })
     .await?;
-    let bootstrap = market_maker
-        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC, 0)
+    let seeded = market_maker
+        .seed_inventory(&localnet, &pair, SEED_DEPOSIT, 0)
         .await?;
     let built = Instant::now();
-    wait_for_lanes(&market_maker, &vault, LANES).await?;
-    let lanes = market_maker.lanes(&vault.shares_mint);
+    wait_for_lanes(&market_maker, &pair, LANES).await?;
+    let lanes = market_maker.lanes(&pair.shares_mint);
     let largest: Vec<u64> = lanes.iter().take(3).map(|lane| lane.amount).collect();
     assert_eq!(
         largest,
         LARGE_LANES
             .iter()
-            .map(|divisor| bootstrap.shares / divisor)
+            .map(|divisor| seeded.shares / divisor)
             .collect::<Vec<_>>()
     );
     println!(
@@ -97,11 +97,11 @@ async fn large_swap_fills_from_large_lanes_while_small_swaps_run() -> Result<()>
     let localnet = Arc::new(localnet);
     let filled = Arc::new(Barrier::new(USERS));
     let mut tasks = JoinSet::new();
-    let amounts = std::iter::once(LARGE_USDC).chain(std::iter::repeat(SMALL_USDC));
+    let amounts = std::iter::once(LARGE_COLLATERAL).chain(std::iter::repeat(SMALL_COLLATERAL));
     for (user, amount_in) in std::iter::once(user).chain(users).zip(amounts) {
         tasks.spawn(swap(
             localnet.clone(),
-            vault,
+            pair,
             market_maker.clone(),
             user,
             amount_in,
@@ -153,36 +153,32 @@ async fn large_swap_fills_from_large_lanes_while_small_swaps_run() -> Result<()>
     for swap in &mut swapped {
         swap.user.sync(&localnet).await?;
         assert_eq!(
-            swap.user.holdings(&vault)?,
+            swap.user.holdings(&pair)?,
             Holdings {
-                usdc: USER_USDC - swap.quote.amount_in,
+                collateral: USER_COLLATERAL - swap.quote.amount_in,
                 shares: swap.quote.amount_out,
             }
         );
     }
     market_maker.sync().await?;
-    let usdc_received: u64 = swapped.iter().map(|swap| swap.quote.amount_in).sum();
+    let collateral_received: u64 = swapped.iter().map(|swap| swap.quote.amount_in).sum();
     let shares_paid: u64 = swapped.iter().map(|swap| swap.quote.amount_out).sum();
     assert_eq!(
-        market_maker.holdings(&vault),
+        market_maker.holdings(&pair),
         Holdings {
-            usdc: usdc_received,
-            shares: bootstrap.shares - shares_paid,
+            collateral: collateral_received,
+            shares: seeded.shares - shares_paid,
         }
     );
     market_maker.shutdown().await;
     Ok(())
 }
 
-async fn wait_for_lanes(
-    market_maker: &MarketMaker,
-    vault: &VaultAccounts,
-    lanes: usize,
-) -> Result<()> {
+async fn wait_for_lanes(market_maker: &MarketMaker, pair: &Pair, lanes: usize) -> Result<()> {
     let deadline = Instant::now() + BUILD_TIMEOUT;
     loop {
         market_maker.sync().await?;
-        let current = market_maker.lanes(&vault.shares_mint);
+        let current = market_maker.lanes(&pair.shares_mint);
         if current.len() == lanes && current.iter().all(|lane| !lane.reserved) {
             return Ok(());
         }
@@ -198,19 +194,19 @@ async fn wait_for_lanes(
 
 async fn swap(
     localnet: Arc<FixtureLocalnet>,
-    vault: VaultAccounts,
+    pair: Pair,
     market_maker: MarketMaker,
     user: User,
     amount_in: u64,
     filled: Arc<Barrier>,
 ) -> Result<Swapped> {
     let offer = market_maker
-        .quote(&localnet, &vault, Direction::Deposit, amount_in)
+        .quote(&localnet, &pair, Direction::Deposit, amount_in)
         .await?;
-    let order = user.order(&localnet, &vault, &offer, &[]).await?;
-    let fill = market_maker.fill(&localnet, &vault, &order.request).await?;
+    let order = user.order(&localnet, &pair, &offer).await?;
+    let fill = market_maker.fill(&localnet, &pair, &order.request).await?;
     filled.wait().await;
-    user.verify_quote(&localnet, &vault, &order, &fill.message)
+    user.verify_quote(&localnet, &pair, &order, &fill.message)
         .await?;
     let size = transaction_size(
         &market_maker.address(),

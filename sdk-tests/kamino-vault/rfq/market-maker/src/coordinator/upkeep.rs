@@ -10,9 +10,9 @@ use crate::{
     build::WithdrawalTarget,
     config::PairConfig,
     error::MakerError,
-    rebalance::{RebalanceOrder, VaultFlow},
+    rebalance::{RebalanceKind, RebalanceOrder},
     scheduler::{
-        payment::plan_consolidate,
+        transfer::plan_consolidate,
         upkeep::{Upkeep, UpkeepPolicy},
     },
     step::{StepId, StepKind},
@@ -85,14 +85,14 @@ impl Coordinator {
         if self.cancel.is_cancelled() || !self.queue.is_empty() || !self.steps.is_idle() {
             return;
         }
-        for pair in self.config.pairs.clone() {
+        for config in self.config.pairs.clone() {
             let tracker = &self.ledger.tracker;
-            if tracker.unindexed(&pair.vault.token_mint)
-                || tracker.unindexed(&pair.vault.shares_mint)
+            if tracker.unindexed(&config.pair.token_mint)
+                || tracker.unindexed(&config.pair.shares_mint)
             {
                 continue;
             }
-            match self.rebalance_need(&pair).await {
+            match self.rebalance_need(&config).await {
                 Ok(Some(order)) => {
                     self.trigger_rebalance(order).await;
                     return;
@@ -105,15 +105,21 @@ impl Coordinator {
 
     async fn rebalance_need(
         &self,
-        pair: &PairConfig,
+        config: &PairConfig,
     ) -> Result<Option<RebalanceOrder>, MakerError> {
         let tracker = &self.ledger.tracker;
-        let collateral = tracker.balance(&pair.vault.token_mint);
-        let shares = tracker.balance(&pair.vault.shares_mint);
-        let too_much_collateral = pair.collateral.range.filter(|range| collateral > range.max);
-        let too_few_shares = pair.shares.range.filter(|range| shares < range.min);
-        let too_little_collateral = pair.collateral.range.filter(|range| collateral < range.min);
-        let too_many_shares = pair.shares.range.filter(|range| shares > range.max);
+        let collateral = tracker.balance(&config.pair.token_mint);
+        let shares = tracker.balance(&config.pair.shares_mint);
+        let too_much_collateral = config
+            .collateral
+            .range
+            .filter(|range| collateral > range.max);
+        let too_few_shares = config.shares.range.filter(|range| shares < range.min);
+        let too_little_collateral = config
+            .collateral
+            .range
+            .filter(|range| collateral < range.min);
+        let too_many_shares = config.shares.range.filter(|range| shares > range.max);
         let any = too_much_collateral.is_some()
             || too_few_shares.is_some()
             || too_little_collateral.is_some()
@@ -121,20 +127,20 @@ impl Coordinator {
         if !any {
             return Ok(None);
         }
-        let order = |flow, amount| RebalanceOrder {
-            vault: pair.vault,
-            flow,
+        let order = |kind, amount| RebalanceOrder {
+            pair: config.pair,
+            kind,
             amount,
         };
-        let state = order(VaultFlow::Deposit, 0)
+        let state = order(RebalanceKind::Shares, 0)
             .vault_state(self.rpc.as_ref())
             .await?;
         let math = |error: anyhow::Error| MakerError::VaultMath {
-            vault: pair.vault.vault,
+            vault: config.pair.vault,
             reason: error.to_string(),
         };
-        let collateral_floor = pair.collateral.range.map_or(0, |range| range.min);
-        let shares_floor = pair.shares.range.map_or(0, |range| range.min);
+        let collateral_floor = config.collateral.range.map_or(0, |range| range.min);
+        let shares_floor = config.shares.range.map_or(0, |range| range.min);
         let deposit = match (too_much_collateral, too_few_shares) {
             (Some(range), _) => Some(collateral - range.middle()),
             (None, Some(range)) => Some(
@@ -147,7 +153,7 @@ impl Coordinator {
             (None, None) => None,
         };
         if let Some(amount) = deposit.filter(|amount| *amount > 0) {
-            return Ok(Some(order(VaultFlow::Deposit, amount)));
+            return Ok(Some(order(RebalanceKind::Shares, amount)));
         }
         let withdrawal = match (too_many_shares, too_little_collateral) {
             (Some(range), _) => Some(shares - range.middle()),
@@ -162,13 +168,13 @@ impl Coordinator {
         };
         Ok(withdrawal
             .filter(|amount| *amount > 0)
-            .map(|amount| order(VaultFlow::Withdrawal, amount)))
+            .map(|amount| order(RebalanceKind::Collateral, amount)))
     }
 
     async fn trigger_rebalance(&mut self, order: RebalanceOrder) {
-        let asset = match order.flow {
-            VaultFlow::Deposit => order.vault.token_mint,
-            VaultFlow::Withdrawal => order.vault.shares_mint,
+        let asset = match order.kind {
+            RebalanceKind::Shares => order.pair.token_mint,
+            RebalanceKind::Collateral => order.pair.shares_mint,
         };
         if let Err(error) = self.ledger.queue(asset, order.amount) {
             tracing::warn!(%error, "automatic rebalance cannot be queued");

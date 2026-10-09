@@ -14,7 +14,7 @@ use zolana_interface::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::WalletUtxo;
 
-use crate::kvault::{VaultAccounts, VaultState};
+use crate::kvault::{Pair, VaultState};
 
 const FULL_BPS: u64 = 10_000;
 pub const SWAP_COMPUTE_BUDGET: ComputeBudgetConfig = ComputeBudgetConfig::new(1_400_000);
@@ -50,22 +50,22 @@ pub enum SwapError {
     InsufficientFunds { asset: Address, required: u64 },
     #[error("the swap carries {count} interface transfers")]
     PublicTransfer { count: usize },
-    #[error("the transaction is not the user's leg followed by one maker transact")]
+    #[error("the transaction is not the user's transfer followed by one maker transact")]
     UnexpectedTransaction,
-    #[error("the transaction does not carry the user's leg as the user built it")]
-    UserLegAltered,
-    #[error("the maker's leg pays the user {received} outputs, expected one")]
+    #[error("the transaction does not carry the user's transfer as the user built it")]
+    UserTransferAltered,
+    #[error("the maker's transfer pays the user {received} outputs, expected one")]
     UnexpectedOutputs { received: usize },
     #[error("output {slot} does not open to its commitment")]
     CommitmentMismatch { slot: usize },
-    #[error("the user's leg pays the maker {received}, the quote takes {expected}")]
+    #[error("the user's transfer pays the maker {received}, the quote takes {expected}")]
     Underpaid { expected: u64, received: u64 },
     #[error("the fill pays {offered}, the vault rate minus the fee pays {expected}")]
     BelowRate { expected: u64, offered: u64 },
-    #[error("the user's leg takes {inputs} inputs, the quote allows {max}")]
-    UserLegTooWide { inputs: usize, max: usize },
-    #[error("the user's leg has {outputs} outputs, the quote expects {expected}")]
-    UserLegOutputs { outputs: usize, expected: usize },
+    #[error("the user's transfer takes {inputs} inputs, the quote allows {max}")]
+    UserTransferTooWide { inputs: usize, max: usize },
+    #[error("the user's transfer has {outputs} outputs, the quote expects {expected}")]
+    UserTransferOutputs { outputs: usize, expected: usize },
     #[error("the user's balance needs {needed} inputs, the quote allows {max}")]
     TooManyInputs { needed: usize, max: usize },
     #[error("no supported shape takes {inputs} inputs and {outputs} outputs")]
@@ -79,10 +79,10 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub fn assets(self, vault: &VaultAccounts) -> (Address, Address) {
+    pub fn assets(self, pair: &Pair) -> (Address, Address) {
         match self {
-            Self::Deposit => (vault.token_mint, vault.shares_mint),
-            Self::Withdrawal => (vault.shares_mint, vault.token_mint),
+            Self::Deposit => (pair.token_mint, pair.shares_mint),
+            Self::Withdrawal => (pair.shares_mint, pair.token_mint),
         }
     }
 }
@@ -128,7 +128,7 @@ pub struct Offer {
 pub struct SwapRequest {
     pub quote: Quote,
     pub user: ShieldedAddress,
-    pub leg: Instruction,
+    pub transfer: Instruction,
 }
 
 pub struct Order {
@@ -147,7 +147,7 @@ pub struct Fill {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Holdings {
-    pub usdc: u64,
+    pub collateral: u64,
     pub shares: u64,
 }
 
@@ -163,12 +163,12 @@ pub struct VaultOperation {
 
 pub fn swap_message(
     fee_payer: &Address,
-    legs: [Instruction; 2],
+    transfers: [Instruction; 2],
     blockhash: Hash,
 ) -> Result<VersionedMessage> {
     Ok(compile_message(
         fee_payer,
-        &legs,
+        &transfers,
         blockhash,
         SWAP_COMPUTE_BUDGET,
     )?)
@@ -218,6 +218,6 @@ pub fn transact_data(instruction: &Instruction) -> Result<TransactIxData> {
     TransactIxData::deserialize(payload).map_err(|e| anyhow!("decode transact: {e}"))
 }
 
-pub fn legs(message: &VersionedMessage) -> Result<Vec<TransactIxData>> {
+pub fn transfers(message: &VersionedMessage) -> Result<Vec<TransactIxData>> {
     instructions(message)?.iter().map(transact_data).collect()
 }

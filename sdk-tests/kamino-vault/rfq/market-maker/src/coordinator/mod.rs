@@ -36,7 +36,7 @@ pub struct FillOrder {
     pub asset: Address,
     pub amount: u64,
     pub recipient: ShieldedAddress,
-    pub user_leg: Instruction,
+    pub user_transfer: Instruction,
     pub inflow: Inflow,
     pub ttl: Duration,
 }

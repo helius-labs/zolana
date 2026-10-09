@@ -81,14 +81,14 @@ impl Coordinator {
     }
 
     async fn offer_fill(&mut self, id: StepId) {
-        let legs = self.steps.get(id).and_then(|step| {
+        let transfers = self.steps.get(id).and_then(|step| {
             let fill = step.fill.as_ref()?;
-            Some([fill.user_leg.clone(), step.instruction.clone()?])
+            Some([fill.user_transfer.clone(), step.instruction.clone()?])
         });
-        let Some(legs) = legs else {
+        let Some(transfers) = transfers else {
             return;
         };
-        if let Err(error) = self.budget.check(&legs) {
+        if let Err(error) = self.budget.check(&transfers) {
             self.abort(id, error.into(), Retry::Fail).await;
             return;
         }
@@ -99,7 +99,8 @@ impl Coordinator {
                 return;
             }
         };
-        let message = match compile_message(&self.payer, &legs, blockhash, SWAP_COMPUTE_BUDGET) {
+        let message = match compile_message(&self.payer, &transfers, blockhash, SWAP_COMPUTE_BUDGET)
+        {
             Ok(message) => message,
             Err(error) => {
                 self.abort(id, error.into(), Retry::Fail).await;
@@ -117,7 +118,7 @@ impl Coordinator {
         fill.last_valid_block_height = last_valid_block_height;
         fill.expires_at = Some(expires_at);
         step.state = StepState::AwaitingSignature;
-        let leg = Fill {
+        let transfer = Fill {
             step: id,
             message,
             spent: fill.spends.clone(),
@@ -138,7 +139,7 @@ impl Coordinator {
         let delivered = operation.is_some_and(|operation| {
             operation
                 .reply
-                .send(Ok(OperationOutcome::Filled(leg)))
+                .send(Ok(OperationOutcome::Filled(transfer)))
                 .is_ok()
         });
         if !delivered {

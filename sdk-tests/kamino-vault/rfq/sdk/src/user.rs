@@ -16,11 +16,11 @@ use zolana_transaction::{
 
 use crate::{
     budget::{smallest_shape, USER_OUTPUTS},
-    kvault::{VaultAccounts, VaultState},
+    kvault::{Pair, VaultState},
     swap::{instructions, transact_data, Offer, Order, Quote, SwapError, SwapRequest},
 };
 
-pub struct Payment {
+pub struct Transfer {
     pub inputs: Vec<WalletUtxo>,
     pub width: usize,
     pub amount: u64,
@@ -30,14 +30,18 @@ pub struct Payment {
     pub tree_id: u16,
 }
 
-pub struct Leg {
+pub struct TransferInstruction {
     pub instruction: Instruction,
     pub nullifiers: Vec<[u8; 32]>,
 }
 
-impl Payment {
-    pub fn prove<R: Rpc>(self, client: &ZolanaClient<R>, keypair: &ShieldedKeypair) -> Result<Leg> {
-        let Payment {
+impl Transfer {
+    pub fn prove<R: Rpc>(
+        self,
+        client: &ZolanaClient<R>,
+        keypair: &ShieldedKeypair,
+    ) -> Result<TransferInstruction> {
+        let Transfer {
             inputs,
             width,
             amount,
@@ -49,7 +53,7 @@ impl Payment {
         let asset = inputs
             .first()
             .map(|input| input.utxo.asset.asset)
-            .ok_or_else(|| anyhow!("payment without inputs"))?;
+            .ok_or_else(|| anyhow!("transfer without inputs"))?;
         let shape = smallest_shape(width.max(inputs.len()), USER_OUTPUTS).ok_or(
             SwapError::NoSupportedShape {
                 inputs: width,
@@ -71,7 +75,7 @@ impl Payment {
         let owner_signers = proof_inputs.owner_signer_pubkeys()?;
         let data = client
             .prove_transact(proof_inputs, None, keypair)
-            .map_err(|e| anyhow!("prove payment: {e:?}"))?;
+            .map_err(|e| anyhow!("prove transfer: {e:?}"))?;
         let instruction = Transact {
             payer,
             input_trees: vec![tree],
@@ -81,7 +85,7 @@ impl Payment {
             data,
         }
         .instruction();
-        Ok(Leg {
+        Ok(TransferInstruction {
             instruction,
             nullifiers,
         })
@@ -117,7 +121,7 @@ impl UserOrder {
             .into());
         }
         let quote = offer.quote;
-        let leg = Payment {
+        let transfer = Transfer {
             inputs: inputs.clone(),
             width: width.unwrap_or(inputs.len()),
             amount: quote.amount_in,
@@ -133,7 +137,7 @@ impl UserOrder {
             request: SwapRequest {
                 quote,
                 user: keypair.shielded_address()?,
-                leg: leg.instruction,
+                transfer: transfer.instruction,
             },
         })
     }
@@ -211,7 +215,7 @@ impl Receiver<'_> {
 pub struct QuoteCheck<'a> {
     pub order: &'a Order,
     pub message: &'a VersionedMessage,
-    pub vault: &'a VaultAccounts,
+    pub pair: &'a Pair,
     pub rate: &'a VaultState,
     pub fee_bps: u64,
 }
@@ -223,19 +227,19 @@ impl QuoteCheck<'_> {
             return Err(SwapError::UnexpectedTransaction.into());
         }
         let instructions = instructions(self.message)?;
-        let [user_leg, maker_leg] = instructions.as_slice() else {
+        let [user_transfer, maker_transfer] = instructions.as_slice() else {
             return Err(SwapError::UnexpectedTransaction.into());
         };
-        if *user_leg != order.request.leg {
-            return Err(SwapError::UserLegAltered.into());
+        if *user_transfer != order.request.transfer {
+            return Err(SwapError::UserTransferAltered.into());
         }
-        let user_data = transact_data(user_leg)?;
-        let maker_data = transact_data(maker_leg)?;
+        let user_data = transact_data(user_transfer)?;
+        let maker_data = transact_data(maker_transfer)?;
         let count = user_data.interface_transfers.len() + maker_data.interface_transfers.len();
         if count != 0 {
             return Err(SwapError::PublicTransfer { count }.into());
         }
-        let (_, asset_out) = order.offer.quote.direction.assets(self.vault);
+        let (_, asset_out) = order.offer.quote.direction.assets(self.pair);
         let received: Vec<Utxo> = receiver
             .received(&maker_data)?
             .into_iter()

@@ -60,7 +60,7 @@ pub fn own_value(selection: &Selection, spent: u64) -> Result<u64, MakerError> {
         })
 }
 
-pub fn plan_payment(
+pub fn plan_transfer(
     selection: Selection,
     recipient: ShieldedAddress,
     amount: u64,

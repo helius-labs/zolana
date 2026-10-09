@@ -54,7 +54,7 @@ pub fn smallest_shape(inputs: usize, outputs: usize) -> Option<Shape> {
 }
 
 #[derive(Clone, Copy)]
-struct LegTemplate {
+struct TransferTemplate {
     shape: Shape,
     owner_signer: Option<Address>,
     withdrawal: Option<TransactSplWithdrawalAccounts>,
@@ -116,7 +116,7 @@ impl SwapBudget {
         withdrawal: TransactSplWithdrawalAccounts,
         tail: &[Instruction],
     ) -> Result<TransactionSize, BudgetError> {
-        let consolidate = self.placeholder(LegTemplate {
+        let consolidate = self.placeholder(TransferTemplate {
             shape,
             owner_signer: None,
             withdrawal: Some(withdrawal),
@@ -136,7 +136,7 @@ impl SwapBudget {
             .collect();
         user_shapes.sort_by_key(|shape| std::cmp::Reverse(shape.n_inputs()));
         for shape in user_shapes {
-            let user = self.placeholder(LegTemplate {
+            let user = self.placeholder(TransferTemplate {
                 shape,
                 owner_signer: Some(PLACEHOLDER_USER),
                 withdrawal: None,
@@ -156,12 +156,12 @@ impl SwapBudget {
         })
     }
 
-    pub fn narrowest_user_leg(&self) -> Result<Instruction, BudgetError> {
+    pub fn narrowest_user_transfer(&self) -> Result<Instruction, BudgetError> {
         let shape = smallest_shape(1, USER_OUTPUTS).ok_or(BudgetError::NoSupportedShape {
             inputs: 1,
             outputs: USER_OUTPUTS,
         })?;
-        Ok(self.placeholder(LegTemplate {
+        Ok(self.placeholder(TransferTemplate {
             shape,
             owner_signer: Some(PLACEHOLDER_USER),
             withdrawal: None,
@@ -169,7 +169,7 @@ impl SwapBudget {
         }))
     }
 
-    pub fn max_maker_inputs(&self, user_leg: &Instruction) -> Result<usize, BudgetError> {
+    pub fn max_maker_inputs(&self, user_transfer: &Instruction) -> Result<usize, BudgetError> {
         let mut widest = 0;
         for shape in SPP_SUPPORTED_SHAPES
             .into_iter()
@@ -179,7 +179,7 @@ impl SwapBudget {
                 continue;
             }
             let maker = self.placeholder(self.maker_template(shape));
-            if self.size(&[user_leg.clone(), maker])?.fits() {
+            if self.size(&[user_transfer.clone(), maker])?.fits() {
                 widest = shape.n_inputs();
             }
         }
@@ -194,7 +194,7 @@ impl SwapBudget {
 
     pub fn max_maker_outputs(
         &self,
-        user_leg: &Instruction,
+        user_transfer: &Instruction,
         inputs: usize,
     ) -> Result<usize, BudgetError> {
         let mut fitting = 0;
@@ -206,7 +206,7 @@ impl SwapBudget {
                 continue;
             }
             let maker = self.placeholder(self.maker_template(shape));
-            if self.size(&[user_leg.clone(), maker])?.fits() {
+            if self.size(&[user_transfer.clone(), maker])?.fits() {
                 fitting = shape.n_outputs();
             }
         }
@@ -219,8 +219,8 @@ impl SwapBudget {
         Ok(fitting)
     }
 
-    pub fn check(&self, legs: &[Instruction]) -> Result<TransactionSize, BudgetError> {
-        let size = self.size(legs)?;
+    pub fn check(&self, transfers: &[Instruction]) -> Result<TransactionSize, BudgetError> {
+        let size = self.size(transfers)?;
         if size.fits() {
             Ok(size)
         } else {
@@ -231,12 +231,16 @@ impl SwapBudget {
         }
     }
 
-    fn size(&self, legs: &[Instruction]) -> Result<TransactionSize, BudgetError> {
-        Ok(transaction_size(&self.maker, legs, SWAP_COMPUTE_BUDGET)?)
+    fn size(&self, transfers: &[Instruction]) -> Result<TransactionSize, BudgetError> {
+        Ok(transaction_size(
+            &self.maker,
+            transfers,
+            SWAP_COMPUTE_BUDGET,
+        )?)
     }
 
-    fn maker_template(&self, shape: Shape) -> LegTemplate {
-        LegTemplate {
+    fn maker_template(&self, shape: Shape) -> TransferTemplate {
+        TransferTemplate {
             shape,
             owner_signer: None,
             withdrawal: None,
@@ -244,7 +248,7 @@ impl SwapBudget {
         }
     }
 
-    fn placeholder(&self, template: LegTemplate) -> Instruction {
+    fn placeholder(&self, template: TransferTemplate) -> Instruction {
         let data_len = self.data_len;
         let inputs = (0..template.shape.n_inputs())
             .map(|index| {

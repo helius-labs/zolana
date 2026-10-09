@@ -5,22 +5,22 @@ use zolana_interface::pda;
 use zolana_keypair::ShieldedAddress;
 
 use kamino_vault_rfq_sdk::{
-    kvault::{self, UserAccounts, VaultAccounts, VaultState},
+    kvault::{self, Pair, UserAccounts, VaultState},
     rebalance::ShieldLanes,
 };
 
 use super::{error::MakerError, scheduler::profile::LaneProfile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VaultFlow {
-    Deposit,
-    Withdrawal,
+pub enum RebalanceKind {
+    Shares,
+    Collateral,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct RebalanceOrder {
-    pub vault: VaultAccounts,
-    pub flow: VaultFlow,
+    pub pair: Pair,
+    pub kind: RebalanceKind,
     pub amount: u64,
 }
 
@@ -51,22 +51,22 @@ impl ShieldPlan<'_> {
 
 impl RebalanceOrder {
     pub fn shielded_asset(&self) -> Address {
-        match self.flow {
-            VaultFlow::Deposit => self.vault.shares_mint,
-            VaultFlow::Withdrawal => self.vault.token_mint,
+        match self.kind {
+            RebalanceKind::Shares => self.pair.shares_mint,
+            RebalanceKind::Collateral => self.pair.token_mint,
         }
     }
 
     pub async fn vault_state(&self, rpc: &dyn AsyncRpc) -> Result<VaultState, MakerError> {
         let account = rpc
-            .get_account(self.vault.vault)
+            .get_account(self.pair.vault)
             .await
             .map_err(MakerError::Rpc)?
             .ok_or(MakerError::VaultMissing {
-                vault: self.vault.vault,
+                vault: self.pair.vault,
             })?;
         VaultState::from_data(&account.data).map_err(|error| MakerError::VaultState {
-            vault: self.vault.vault,
+            vault: self.pair.vault,
             reason: error.to_string(),
         })
     }
@@ -78,27 +78,27 @@ impl RebalanceOrder {
         shield: &ShieldPlan,
         also_shield: Vec<(Address, u64)>,
     ) -> Result<RebalanceTail, MakerError> {
-        let vault = &self.vault;
-        let user = maker.public_accounts(vault);
+        let pair = &self.pair;
+        let user = maker.public_accounts(pair);
         let math = |error: anyhow::Error| MakerError::VaultMath {
-            vault: vault.vault,
+            vault: pair.vault,
             reason: error.to_string(),
         };
-        let (withdrawal, vault_instruction, shielded) = match self.flow {
-            VaultFlow::Deposit => {
+        let (withdrawal, vault_instruction, shielded) = match self.kind {
+            RebalanceKind::Shares => {
                 let outcome = before.deposit(self.amount).map_err(math)?;
                 let deposit = kvault::Deposit {
-                    vault,
+                    pair,
                     user: &user,
                     max_amount: outcome.tokens,
                 }
                 .instruction();
                 (outcome.tokens, deposit, outcome.shares)
             }
-            VaultFlow::Withdrawal => {
+            RebalanceKind::Collateral => {
                 let outcome = before.withdraw(self.amount).map_err(math)?;
                 let withdraw = kvault::WithdrawFromAvailable {
-                    vault,
+                    pair,
                     user: &user,
                     shares: outcome.shares,
                 }
@@ -124,11 +124,11 @@ impl RebalanceOrder {
 }
 
 impl MakerAccounts {
-    pub fn public_accounts(&self, vault: &VaultAccounts) -> UserAccounts {
+    pub fn public_accounts(&self, pair: &Pair) -> UserAccounts {
         UserAccounts {
             user: self.owner,
-            token_account: pda::associated_token_address(&self.owner, &vault.token_mint),
-            shares_account: pda::associated_token_address(&self.owner, &vault.shares_mint),
+            token_account: pda::associated_token_address(&self.owner, &pair.token_mint),
+            shares_account: pda::associated_token_address(&self.owner, &pair.shares_mint),
         }
     }
 

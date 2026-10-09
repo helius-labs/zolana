@@ -6,7 +6,7 @@ use kamino_vault_market_maker::{
     PairConfig, QuoteConfig, TokenConfig,
 };
 use kamino_vault_rfq_sdk::{
-    kvault::{self, InitVault, VaultAccounts},
+    kvault::{self, InitVault, Pair},
     swap::Holdings,
 };
 use solana_address::Address;
@@ -36,11 +36,11 @@ use zolana_transaction::AssetRegistry;
 use crate::user::User;
 
 pub const FEE_BPS: u64 = 30;
-pub const USER_SHIELD_USDC: u64 = 100_000_000;
+pub const USER_SHIELD_COLLATERAL: u64 = 100_000_000;
 const USER_UTXOS: u64 = 2;
 const MAKER_ACTOR: u8 = 0;
 const FIRST_USER_ACTOR: u8 = 1;
-pub const MARKET_MAKER_PUBLIC_USDC: u64 = 500_000_000;
+pub const MARKET_MAKER_PUBLIC_COLLATERAL: u64 = 500_000_000;
 const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 pub struct TestEnv {
@@ -48,8 +48,8 @@ pub struct TestEnv {
     pub user: User,
     pub users: Vec<User>,
     pub market_maker: MarketMaker,
-    pub usdc_mint: Address,
-    pub vault: VaultAccounts,
+    pub collateral_mint: Address,
+    pub pair: Pair,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +60,7 @@ pub struct SetupConfig {
     pub collateral: TokenConfig,
     pub shares: TokenConfig,
     pub quote_ttl: Duration,
-    pub user_usdc: u64,
+    pub user_collateral: u64,
 }
 
 impl SetupConfig {
@@ -72,7 +72,7 @@ impl SetupConfig {
             collateral: TokenConfig::default(),
             shares: TokenConfig::default(),
             quote_ttl: QuoteConfig::default().ttl,
-            user_usdc: USER_SHIELD_USDC,
+            user_collateral: USER_SHIELD_COLLATERAL,
         }
     }
 }
@@ -120,10 +120,10 @@ impl TestWallet {
         Ok(())
     }
 
-    pub fn holdings(&self, vault: &VaultAccounts) -> Result<Holdings> {
+    pub fn holdings(&self, pair: &Pair) -> Result<Holdings> {
         Ok(Holdings {
-            usdc: self.balance(vault.token_mint, None)?.amount,
-            shares: self.balance(vault.shares_mint, None)?.amount,
+            collateral: self.balance(pair.token_mint, None)?.amount,
+            shares: self.balance(pair.shares_mint, None)?.amount,
         })
     }
 }
@@ -179,12 +179,8 @@ pub fn landed(rpc: &SolanaRpc, signature: &Signature) -> Result<Landed> {
     })
 }
 
-pub fn public_balances(
-    rpc: &SolanaRpc,
-    owner: &Address,
-    vault: &VaultAccounts,
-) -> Result<Vec<u64>> {
-    [vault.token_mint, vault.shares_mint]
+pub fn public_balances(rpc: &SolanaRpc, owner: &Address, pair: &Pair) -> Result<Vec<u64>> {
+    [pair.token_mint, pair.shares_mint]
         .iter()
         .map(|mint| kvault::token_balance(rpc, &pda::associated_token_address(owner, mint)))
         .collect()
@@ -212,15 +208,15 @@ fn token_transfer_ix(
 fn create_vault(
     localnet: &FixtureLocalnet,
     payer: &Keypair,
-    usdc_mint: Address,
-) -> Result<VaultAccounts> {
+    collateral_mint: Address,
+) -> Result<Pair> {
     let rpc = localnet.client.rpc();
     let vault_keypair = Keypair::new();
-    let vault = VaultAccounts::new(vault_keypair.pubkey(), usdc_mint);
+    let pair = Pair::new(vault_keypair.pubkey(), collateral_mint);
     let rent = rpc.get_minimum_balance_for_rent_exemption(kvault::VAULT_STATE_SIZE)?;
     let create = system_create_account_ix(
         &payer.pubkey(),
-        &vault.vault,
+        &pair.vault,
         rent,
         kvault::VAULT_STATE_SIZE as u64,
         &kvault::PROGRAM_ID,
@@ -228,11 +224,11 @@ fn create_vault(
     let init = InitVault {
         admin: payer.pubkey(),
         admin_token_account: fixture::payer_token_account(),
-        accounts: vault,
+        pair,
     }
     .instruction();
     send(rpc, &[create, init], payer, &[payer, &vault_keypair])?;
-    Ok(vault)
+    Ok(pair)
 }
 
 fn register_share_mint(
@@ -262,8 +258,8 @@ struct Booted {
     localnet: FixtureLocalnet,
     users: Vec<TestWallet>,
     maker: TestWallet,
-    usdc_mint: Address,
-    vault: VaultAccounts,
+    collateral_mint: Address,
+    pair: Pair,
 }
 
 pub async fn setup(test: u16) -> Result<TestEnv> {
@@ -276,8 +272,8 @@ pub async fn setup_with(config: SetupConfig) -> Result<TestEnv> {
         localnet,
         users,
         maker,
-        usdc_mint,
-        vault,
+        collateral_mint,
+        pair,
     } = blocking(|| boot(ports, &config))?;
     let market_maker = MarketMaker::start(MarketMakerConfig {
         connection: ConnectionConfig {
@@ -291,7 +287,7 @@ pub async fn setup_with(config: SetupConfig) -> Result<TestEnv> {
             wallet: maker.wallet,
         },
         pairs: vec![PairConfig {
-            vault,
+            pair,
             collateral: config.collateral,
             shares: config.shares,
         }],
@@ -315,8 +311,8 @@ pub async fn setup_with(config: SetupConfig) -> Result<TestEnv> {
         user,
         users: users.collect(),
         market_maker,
-        usdc_mint,
-        vault,
+        collateral_mint,
+        pair,
     })
 }
 
@@ -342,25 +338,25 @@ fn boot(ports: LocalnetPorts, config: &SetupConfig) -> Result<Booted> {
         &LocalnetPaths::workspace(),
     )?;
     let rpc = localnet.client.rpc();
-    let usdc_mint = fixture::spl_mint();
-    let vault = create_vault(&localnet, &payer, usdc_mint)?;
-    let share_asset_id = register_share_mint(&localnet, &payer, vault.shares_mint)?;
+    let collateral_mint = fixture::spl_mint();
+    let pair = create_vault(&localnet, &payer, collateral_mint)?;
+    let share_asset_id = register_share_mint(&localnet, &payer, pair.shares_mint)?;
 
     let mut assets = AssetRegistry::default();
-    assets.insert(fixture::SPL_ASSET_ID, usdc_mint)?;
-    assets.insert(share_asset_id, vault.shares_mint)?;
+    assets.insert(fixture::SPL_ASSET_ID, collateral_mint)?;
+    assets.insert(share_asset_id, pair.shares_mint)?;
     let market_maker = TestWallet::new(MAKER_ACTOR, &assets)?;
 
-    for mint in [usdc_mint, vault.shares_mint] {
+    for mint in [collateral_mint, pair.shares_mint] {
         create_associated_token_account(rpc, &payer, &market_maker.address(), &mint)?;
     }
     send(
         rpc,
         &[token_transfer_ix(
             &fixture::payer_token_account(),
-            &pda::associated_token_address(&market_maker.address(), &usdc_mint),
+            &pda::associated_token_address(&market_maker.address(), &collateral_mint),
             &payer.pubkey(),
-            MARKET_MAKER_PUBLIC_USDC,
+            MARKET_MAKER_PUBLIC_COLLATERAL,
         )],
         &payer,
         &[&payer],
@@ -372,8 +368,8 @@ fn boot(ports: LocalnetPorts, config: &SetupConfig) -> Result<Booted> {
         for _ in 0..USER_UTXOS {
             let user_deposit = Deposit::new(DepositParams {
                 recipient: &user.keypair.shielded_address()?,
-                asset: usdc_mint,
-                amount: config.user_usdc / USER_UTXOS,
+                asset: collateral_mint,
+                amount: config.user_collateral / USER_UTXOS,
                 spl_token_account: Some(fixture::payer_token_account()),
                 spl_token_program: Some(spl_token_program_id()),
                 memo: None,
@@ -392,7 +388,7 @@ fn boot(ports: LocalnetPorts, config: &SetupConfig) -> Result<Booted> {
         localnet,
         users,
         maker: market_maker,
-        usdc_mint,
-        vault,
+        collateral_mint,
+        pair,
     })
 }

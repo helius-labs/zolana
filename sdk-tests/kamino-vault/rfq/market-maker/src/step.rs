@@ -52,8 +52,8 @@ impl StepState {
     }
 }
 
-pub struct FillLeg {
-    pub user_leg: Instruction,
+pub struct FillTransfer {
+    pub user_transfer: Instruction,
     pub ttl: Duration,
     pub spends: Vec<[u8; 32]>,
     pub message: Option<VersionedMessage>,
@@ -74,7 +74,7 @@ pub struct Step {
     pub instruction: Option<Instruction>,
     pub tail: Vec<Instruction>,
     pub vault_before: Option<VaultState>,
-    pub fill: Option<FillLeg>,
+    pub fill: Option<FillTransfer>,
     pub sends: Vec<Sent>,
     pub resend_failed: bool,
     pub state: StepState,

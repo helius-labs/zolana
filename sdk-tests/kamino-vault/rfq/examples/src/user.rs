@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 
 use anyhow::Result;
 use kamino_vault_rfq_sdk::{
-    kvault::{VaultAccounts, VaultState},
+    kvault::{Pair, VaultState},
     swap::{Holdings, Offer, Order, SwapError},
     user::{QuoteCheck, Receiver, UserOrder},
 };
@@ -38,31 +38,28 @@ impl User {
         blocking(|| self.wallet.sync(localnet))
     }
 
-    pub fn holdings(&self, vault: &VaultAccounts) -> Result<Holdings> {
-        self.wallet.holdings(vault)
+    pub fn holdings(&self, pair: &Pair) -> Result<Holdings> {
+        self.wallet.holdings(pair)
     }
 
     pub async fn order(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         offer: &Offer,
-        pending: &[[u8; 32]],
     ) -> Result<Order> {
-        self.order_with_width(localnet, vault, offer, pending, None)
-            .await
+        self.order_with_width(localnet, pair, offer, None).await
     }
 
     pub async fn order_with_width(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         offer: &Offer,
-        pending: &[[u8; 32]],
         width: Option<usize>,
     ) -> Result<Order> {
-        let (asset_in, _) = offer.quote.direction.assets(vault);
-        let inputs = self.select_inputs(asset_in, offer.quote.amount_in, pending)?;
+        let (asset_in, _) = offer.quote.direction.assets(pair);
+        let inputs = self.select_inputs(asset_in, offer.quote.amount_in)?;
         blocking(|| {
             UserOrder {
                 offer: *offer,
@@ -75,18 +72,12 @@ impl User {
         })
     }
 
-    fn select_inputs(
-        &self,
-        asset: Address,
-        amount: u64,
-        pending: &[[u8; 32]],
-    ) -> Result<Vec<WalletUtxo>> {
+    fn select_inputs(&self, asset: Address, amount: u64) -> Result<Vec<WalletUtxo>> {
         let mut candidates: Vec<WalletUtxo> = self
             .wallet
             .balance(asset, None)?
             .utxos
             .into_iter()
-            .filter(|utxo| !pending.contains(&utxo.nullifier))
             .collect();
         candidates.sort_by_key(|utxo| Reverse(utxo.utxo.amount));
         let mut inputs = Vec::new();
@@ -111,15 +102,15 @@ impl User {
     pub async fn verify_quote(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         order: &Order,
         message: &VersionedMessage,
     ) -> Result<()> {
-        let rate = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
+        let rate = blocking(|| VaultState::read(localnet.client.rpc(), &pair.vault))?;
         QuoteCheck {
             order,
             message,
-            vault,
+            pair,
             rate: &rate,
             fee_bps: self.fee_bps,
         }

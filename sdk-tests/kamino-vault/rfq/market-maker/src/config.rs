@@ -4,7 +4,7 @@ use solana_address::Address;
 use zolana_keypair::ShieldedKeypair;
 use zolana_test_utils::wallet::Wallet;
 
-use kamino_vault_rfq_sdk::kvault::VaultAccounts;
+use kamino_vault_rfq_sdk::kvault::Pair;
 
 use super::scheduler::profile::LaneProfile;
 
@@ -33,24 +33,24 @@ pub struct IdentityConfig {
 
 #[derive(Clone, Debug)]
 pub struct PairConfig {
-    pub vault: VaultAccounts,
+    pub pair: Pair,
     pub collateral: TokenConfig,
     pub shares: TokenConfig,
 }
 
 impl PairConfig {
-    pub fn new(vault: VaultAccounts) -> Self {
+    pub fn new(pair: Pair) -> Self {
         Self {
-            vault,
+            pair,
             collateral: TokenConfig::default(),
             shares: TokenConfig::default(),
         }
     }
 
     fn token(&self, asset: &Address) -> Option<&TokenConfig> {
-        if self.vault.token_mint == *asset {
+        if self.pair.token_mint == *asset {
             Some(&self.collateral)
-        } else if self.vault.shares_mint == *asset {
+        } else if self.pair.shares_mint == *asset {
             Some(&self.shares)
         } else {
             None
@@ -149,20 +149,20 @@ impl Settings {
     pub fn assets(&self) -> Vec<Address> {
         self.pairs
             .iter()
-            .flat_map(|pair| [pair.vault.token_mint, pair.vault.shares_mint])
+            .flat_map(|config| [config.pair.token_mint, config.pair.shares_mint])
             .collect()
     }
 
     pub fn range(&self, asset: &Address) -> Option<TargetRange> {
         self.pairs
             .iter()
-            .find_map(|pair| pair.token(asset).and_then(|token| token.range))
+            .find_map(|config| config.token(asset).and_then(|token| token.range))
     }
 
     pub fn profile(&self, asset: &Address) -> &LaneProfile {
         self.pairs
             .iter()
-            .find_map(|pair| pair.token(asset).and_then(|token| token.lanes.as_ref()))
+            .find_map(|config| config.token(asset).and_then(|token| token.lanes.as_ref()))
             .unwrap_or(&self.lanes)
     }
 }

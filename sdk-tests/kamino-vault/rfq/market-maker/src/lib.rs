@@ -36,7 +36,7 @@ use zolana_test_utils::wallet::Wallet;
 
 use kamino_vault_rfq_sdk::{
     budget::{smallest_shape, BudgetError, SwapBudget, MAKER_MIN_OUTPUTS, USER_OUTPUTS},
-    kvault::{VaultAccounts, VaultState},
+    kvault::{Pair, VaultState},
     rebalance::REBALANCE_COMPUTE_BUDGET,
     swap::{
         transact_data, Direction, Fill, Holdings, Offer, Quote, SwapError, SwapRequest,
@@ -55,7 +55,7 @@ use self::{
     },
     ledger::{Inflow, Ledger},
     prove::{ProofQueue, ProofQueueConfig},
-    rebalance::{MakerAccounts, RebalanceOrder, ShieldPlan, VaultFlow},
+    rebalance::{MakerAccounts, RebalanceKind, RebalanceOrder, ShieldPlan},
     scheduler::width,
     send::SendQueue,
     sync::AccountSync,
@@ -146,7 +146,7 @@ impl MarketMaker {
                 outputs: USER_OUTPUTS,
             },
         )?;
-        let max_maker_inputs = budget.max_maker_inputs(&budget.narrowest_user_leg()?)?;
+        let max_maker_inputs = budget.max_maker_inputs(&budget.narrowest_user_transfer()?)?;
 
         let proofs = Arc::new(ProofQueue::new(ProofQueueConfig {
             authority: keypair.clone(),
@@ -242,11 +242,11 @@ impl MarketMaker {
         self.inner.max_user_inputs
     }
 
-    pub fn holdings(&self, vault: &VaultAccounts) -> Holdings {
+    pub fn holdings(&self, pair: &Pair) -> Holdings {
         let tracker = &self.inner.ledger.tracker;
         Holdings {
-            usdc: tracker.balance(&vault.token_mint),
-            shares: tracker.balance(&vault.shares_mint),
+            collateral: tracker.balance(&pair.token_mint),
+            shares: tracker.balance(&pair.shares_mint),
         }
     }
 
@@ -271,13 +271,13 @@ impl MarketMaker {
     pub async fn quote(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         direction: Direction,
         amount_in: u64,
     ) -> Result<Offer> {
-        let rate = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
+        let rate = blocking(|| VaultState::read(localnet.client.rpc(), &pair.vault))?;
         let quote = Quote::price(&rate, direction, amount_in, self.inner.quotes.fee_bps)?;
-        let (asset_in, asset_out) = direction.assets(vault);
+        let (asset_in, asset_out) = direction.assets(pair);
         self.check_range(asset_out, quote.amount_out, false)?;
         self.check_range(asset_in, amount_in, true)?;
         Ok(Offer {
@@ -346,28 +346,20 @@ impl MarketMaker {
     pub async fn fill(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         request: &SwapRequest,
-    ) -> Result<Fill> {
-        self.fill_to(localnet, vault, request, request.user).await
-    }
-
-    pub async fn fill_to(
-        &self,
-        localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        request: &SwapRequest,
-        recipient: ShieldedAddress,
     ) -> Result<Fill> {
         let quote = request.quote;
-        let (asset_in, asset_out) = quote.direction.assets(vault);
-        let inflow = self.check_user_leg(localnet, asset_in, request).await?;
+        let (asset_in, asset_out) = quote.direction.assets(pair);
+        let inflow = self
+            .check_user_transfer(localnet, asset_in, request)
+            .await?;
         let outcome = self
             .operation(Operation::Fill(FillOrder {
                 asset: asset_out,
                 amount: quote.amount_out,
-                recipient,
-                user_leg: request.leg.clone(),
+                recipient: request.user,
+                user_transfer: request.transfer.clone(),
                 inflow,
                 ttl: self.inner.quotes.ttl,
             }))
@@ -392,13 +384,13 @@ impl MarketMaker {
         }
     }
 
-    async fn check_user_leg(
+    async fn check_user_transfer(
         &self,
         localnet: &FixtureLocalnet,
         asset_in: Address,
         request: &SwapRequest,
     ) -> Result<Inflow> {
-        let user_data = transact_data(&request.leg)?;
+        let user_data = transact_data(&request.transfer)?;
         if !user_data.interface_transfers.is_empty() {
             return Err(SwapError::PublicTransfer {
                 count: user_data.interface_transfers.len(),
@@ -407,14 +399,14 @@ impl MarketMaker {
         }
         let max = self.inner.max_user_inputs;
         if user_data.inputs.len() > max {
-            return Err(SwapError::UserLegTooWide {
+            return Err(SwapError::UserTransferTooWide {
                 inputs: user_data.inputs.len(),
                 max,
             }
             .into());
         }
         if user_data.outputs.len() != USER_OUTPUTS {
-            return Err(SwapError::UserLegOutputs {
+            return Err(SwapError::UserTransferOutputs {
                 outputs: user_data.outputs.len(),
                 expected: USER_OUTPUTS,
             }
@@ -530,25 +522,25 @@ impl MarketMaker {
         Ok(signature)
     }
 
-    pub async fn bootstrap(
+    pub async fn seed_inventory(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        usdc: u64,
+        pair: &Pair,
+        deposit: u64,
         collateral: u64,
     ) -> Result<VaultOperation> {
         let rpc = localnet.client.rpc();
-        let before = blocking(|| VaultState::read(rpc, &vault.vault))?;
+        let before = blocking(|| VaultState::read(rpc, &pair.vault))?;
         let order = RebalanceOrder {
-            vault: *vault,
-            flow: VaultFlow::Deposit,
-            amount: usdc,
+            pair: *pair,
+            kind: RebalanceKind::Shares,
+            amount: deposit,
         };
         let collateral_lanes = self
-            .shield_plan(&vault.token_mint)
+            .shield_plan(&pair.token_mint)
             .amounts(collateral)
             .into_iter()
-            .map(|amount| (vault.token_mint, amount))
+            .map(|amount| (pair.token_mint, amount))
             .collect();
         let tail = order.tail(
             before,
@@ -570,40 +562,40 @@ impl MarketMaker {
         }
         let keypair = self.inner.keypair.as_ref();
         let signature = blocking(|| send(rpc, &tail.instructions, keypair, &[keypair]))?;
-        self.settled(localnet, vault, before, signature, 0).await
+        self.settled(localnet, pair, before, signature, 0).await
     }
 
-    pub async fn rebalance_deposit(
+    pub async fn rebalance_shares(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        usdc: u64,
+        pair: &Pair,
+        collateral: u64,
     ) -> Result<VaultOperation> {
-        self.rebalance(localnet, vault, VaultFlow::Deposit, usdc)
+        self.rebalance(localnet, pair, RebalanceKind::Shares, collateral)
             .await
     }
 
-    pub async fn rebalance_withdraw(
+    pub async fn rebalance_collateral(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         shares: u64,
     ) -> Result<VaultOperation> {
-        self.rebalance(localnet, vault, VaultFlow::Withdrawal, shares)
+        self.rebalance(localnet, pair, RebalanceKind::Collateral, shares)
             .await
     }
 
     async fn rebalance(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
-        flow: VaultFlow,
+        pair: &Pair,
+        kind: RebalanceKind,
         amount: u64,
     ) -> Result<VaultOperation> {
         self.sync().await?;
-        let asset = match flow {
-            VaultFlow::Deposit => vault.token_mint,
-            VaultFlow::Withdrawal => vault.shares_mint,
+        let asset = match kind {
+            RebalanceKind::Shares => pair.token_mint,
+            RebalanceKind::Collateral => pair.shares_mint,
         };
         let (receipt, before) = self
             .consolidate_order(ConsolidateOrder {
@@ -614,21 +606,21 @@ impl MarketMaker {
                     token_program: pda::spl_token_program_id(),
                 }),
                 rebalance: Some(RebalanceOrder {
-                    vault: *vault,
-                    flow,
+                    pair: *pair,
+                    kind,
                     amount,
                 }),
             })
             .await?;
         let before = before.ok_or_else(|| anyhow!("a rebalance returned no vault state"))?;
-        self.settled(localnet, vault, before, receipt.signature, receipt.inputs)
+        self.settled(localnet, pair, before, receipt.signature, receipt.inputs)
             .await
     }
 
     async fn settled(
         &self,
         localnet: &FixtureLocalnet,
-        vault: &VaultAccounts,
+        pair: &Pair,
         before: VaultState,
         signature: Signature,
         inputs: usize,
@@ -636,7 +628,7 @@ impl MarketMaker {
         blocking(|| localnet.client.confirm_private_transaction_sync(signature))
             .map_err(|e| anyhow!("index vault operation {signature}: {e:?}"))?;
         self.sync().await?;
-        let after = blocking(|| VaultState::read(localnet.client.rpc(), &vault.vault))?;
+        let after = blocking(|| VaultState::read(localnet.client.rpc(), &pair.vault))?;
         Ok(VaultOperation {
             before,
             after,

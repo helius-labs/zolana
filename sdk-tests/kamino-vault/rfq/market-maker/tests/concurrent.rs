@@ -13,7 +13,7 @@ use zolana_program_test::localnet::FixtureLocalnet;
 
 use kamino_vault_market_maker::{ConcurrencyConfig, ConsolidateReceipt, LaneProfile, MarketMaker};
 use kamino_vault_rfq_sdk::{
-    kvault::{VaultAccounts, VaultState},
+    kvault::{Pair, VaultState},
     swap::{Direction, Holdings, Quote, VaultOperation},
 };
 
@@ -26,9 +26,9 @@ const TEST_NUMBER: u16 = 16;
 const LANES: usize = 4;
 const EXTRA_USERS: u8 = 7;
 const USERS: usize = 8;
-const BOOTSTRAP_USDC: u64 = 400_000_000;
-const DEPOSIT_USDC: u64 = 10_000_000;
-const USER_USDC: u64 = 40_000_000;
+const SEED_DEPOSIT: u64 = 400_000_000;
+const DEPOSIT_COLLATERAL: u64 = 10_000_000;
+const USER_COLLATERAL: u64 = 40_000_000;
 const MIN_LANE_VALUE: u64 = 1_000_000;
 
 struct Settled {
@@ -52,7 +52,7 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
         user,
         users,
         market_maker,
-        vault,
+        pair,
         ..
     } = setup_with(SetupConfig {
         extra_users: EXTRA_USERS,
@@ -60,14 +60,14 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
             lanes: LaneProfile::equal(LANES, MIN_LANE_VALUE),
             ..ConcurrencyConfig::default()
         },
-        user_usdc: USER_USDC,
+        user_collateral: USER_COLLATERAL,
         ..SetupConfig::new(TEST_NUMBER)
     })
     .await?;
-    let bootstrap = market_maker
-        .bootstrap(&localnet, &vault, BOOTSTRAP_USDC, 0)
+    let seeded = market_maker
+        .seed_inventory(&localnet, &pair, SEED_DEPOSIT, 0)
         .await?;
-    assert_eq!(market_maker.lanes(&vault.shares_mint).len(), LANES);
+    assert_eq!(market_maker.lanes(&pair.shares_mint).len(), LANES);
 
     let localnet = Arc::new(localnet);
     let gate = Arc::new(Gate {
@@ -80,7 +80,7 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
     for user in std::iter::once(user).chain(users) {
         tasks.spawn(deposit(
             localnet.clone(),
-            vault,
+            pair,
             market_maker.clone(),
             user,
             ordered.clone(),
@@ -121,31 +121,31 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
     for fill in &mut settled {
         fill.user.sync(&localnet).await?;
         assert_eq!(
-            fill.user.holdings(&vault)?,
+            fill.user.holdings(&pair)?,
             Holdings {
-                usdc: USER_USDC - DEPOSIT_USDC,
+                collateral: USER_COLLATERAL - DEPOSIT_COLLATERAL,
                 shares: fill.quote.amount_out,
             }
         );
         shares_paid += fill.quote.amount_out;
     }
     market_maker.sync().await?;
-    let usdc_received = DEPOSIT_USDC * u64::try_from(USERS)?;
+    let collateral_received = DEPOSIT_COLLATERAL * u64::try_from(USERS)?;
     assert_eq!(
-        market_maker.holdings(&vault),
+        market_maker.holdings(&pair),
         Holdings {
-            usdc: usdc_received,
-            shares: bootstrap.shares - shares_paid,
+            collateral: collateral_received,
+            shares: seeded.shares - shares_paid,
         }
     );
     assert_eq!(
-        market_maker.lanes(&vault.shares_mint).len(),
+        market_maker.lanes(&pair.shares_mint).len(),
         LANES + change_outputs - USERS
     );
-    assert_eq!(market_maker.lanes(&vault.token_mint).len(), USERS);
+    assert_eq!(market_maker.lanes(&pair.token_mint).len(), USERS);
 
-    let grown = market_maker.lanes(&vault.shares_mint).len();
-    let consolidation = market_maker.consolidate(vault.shares_mint).await?;
+    let grown = market_maker.lanes(&pair.shares_mint).len();
+    let consolidation = market_maker.consolidate(pair.shares_mint).await?;
     assert_eq!(
         consolidation,
         ConsolidateReceipt {
@@ -155,40 +155,40 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
         }
     );
     market_maker.sync().await?;
-    assert_eq!(market_maker.lanes(&vault.shares_mint).len(), LANES);
+    assert_eq!(market_maker.lanes(&pair.shares_mint).len(), LANES);
     assert_eq!(
-        market_maker.holdings(&vault),
+        market_maker.holdings(&pair),
         Holdings {
-            usdc: usdc_received,
-            shares: bootstrap.shares - shares_paid,
+            collateral: collateral_received,
+            shares: seeded.shares - shares_paid,
         }
     );
 
     let rpc = localnet.client.rpc();
-    let before_rebalance = blocking(|| VaultState::read(rpc, &vault.vault))?;
-    let predicted = before_rebalance.deposit(usdc_received)?;
+    let before_rebalance = blocking(|| VaultState::read(rpc, &pair.vault))?;
+    let predicted = before_rebalance.deposit(collateral_received)?;
     let rebalance = market_maker
-        .rebalance_deposit(&localnet, &vault, usdc_received)
+        .rebalance_shares(&localnet, &pair, collateral_received)
         .await?;
     assert_eq!(
         rebalance,
         VaultOperation {
             before: before_rebalance,
             after: predicted.after,
-            tokens: usdc_received,
+            tokens: collateral_received,
             shares: predicted.shares,
             inputs: USERS,
             signature: rebalance.signature,
         }
     );
     assert_eq!(
-        market_maker.holdings(&vault),
+        market_maker.holdings(&pair),
         Holdings {
-            usdc: 0,
-            shares: bootstrap.shares - shares_paid + rebalance.shares,
+            collateral: 0,
+            shares: seeded.shares - shares_paid + rebalance.shares,
         }
     );
-    assert_eq!(market_maker.lanes(&vault.token_mint), Vec::new());
+    assert_eq!(market_maker.lanes(&pair.token_mint), Vec::new());
     println!(
         "rebalance deposit of {} inputs: {} CU",
         rebalance.inputs,
@@ -200,23 +200,23 @@ async fn serves_many_rfqs_at_once() -> Result<()> {
 
 async fn deposit(
     localnet: Arc<FixtureLocalnet>,
-    vault: VaultAccounts,
+    pair: Pair,
     market_maker: MarketMaker,
     user: User,
     ordered: Arc<Barrier>,
     gate: Arc<Gate>,
 ) -> Result<Settled> {
     let offer = market_maker
-        .quote(&localnet, &vault, Direction::Deposit, DEPOSIT_USDC)
+        .quote(&localnet, &pair, Direction::Deposit, DEPOSIT_COLLATERAL)
         .await?;
-    let order = user.order(&localnet, &vault, &offer, &[]).await?;
+    let order = user.order(&localnet, &pair, &offer).await?;
     ordered.wait().await;
-    let fill = market_maker.fill(&localnet, &vault, &order.request).await?;
+    let fill = market_maker.fill(&localnet, &pair, &order.request).await?;
     let proved = Instant::now();
     if gate.tickets.fetch_add(1, Ordering::SeqCst) < LANES {
         gate.first_lanes.wait().await;
     }
-    user.verify_quote(&localnet, &vault, &order, &fill.message)
+    user.verify_quote(&localnet, &pair, &order, &fill.message)
         .await?;
     let user_signature = user.sign(&fill.message)?;
     let change_outputs = fill.change.len();

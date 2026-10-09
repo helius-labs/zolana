@@ -13,7 +13,7 @@ use zolana_transaction::{
     Mint, ShieldedKeys, SppProofOutputUtxo, TransactionError, Utxo, WalletUtxo,
 };
 
-use super::{error::MakerError, scheduler::payment::TransferPlan};
+use super::{error::MakerError, scheduler::transfer::TransferPlan};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WithdrawalTarget {

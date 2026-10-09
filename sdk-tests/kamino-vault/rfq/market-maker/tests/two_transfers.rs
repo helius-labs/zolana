@@ -5,15 +5,15 @@ use zolana_test_utils::wallet::Wallet;
 use zolana_transaction::WalletUtxo;
 
 use kamino_vault_rfq_sdk::{
-    swap::{legs, swap_message, Holdings},
-    user::Payment,
+    swap::{swap_message, transfers, Holdings},
+    user::Transfer,
 };
 
 use kamino_vault_rfq_example::setup::{
-    blocking, compute_units, setup, TestEnv, TestWallet, USER_SHIELD_USDC,
+    blocking, compute_units, setup, TestEnv, TestWallet, USER_SHIELD_COLLATERAL,
 };
 
-const MAKER_SHIELD_USDC: u64 = 50_000_000;
+const MAKER_SHIELD_COLLATERAL: u64 = 50_000_000;
 const USER_PAYS: u64 = 7_000_000;
 const MAKER_PAYS: u64 = 3_000_000;
 
@@ -23,26 +23,26 @@ async fn two_transacts_against_one_tree_settle_in_one_transaction() -> Result<()
         localnet,
         mut user,
         market_maker,
-        usdc_mint,
-        vault,
+        collateral_mint,
+        pair,
         ..
     } = setup(15).await?;
     let rpc = localnet.client.rpc();
     market_maker
-        .shield(&localnet, usdc_mint, MAKER_SHIELD_USDC)
+        .shield(&localnet, collateral_mint, MAKER_SHIELD_COLLATERAL)
         .await?;
 
     let first_utxo = |wallet: &Wallet| -> Result<WalletUtxo> {
         wallet
-            .balance(usdc_mint, None)?
+            .balance(collateral_mint, None)?
             .utxos
             .first()
             .cloned()
-            .ok_or_else(|| anyhow!("no usdc utxo"))
+            .ok_or_else(|| anyhow!("no collateral utxo"))
     };
     let user_wallet: &TestWallet = user.wallet();
-    let user_leg = blocking(|| {
-        Payment {
+    let user_transfer = blocking(|| {
+        Transfer {
             inputs: vec![first_utxo(user_wallet)?],
             width: 1,
             amount: USER_PAYS,
@@ -55,9 +55,9 @@ async fn two_transacts_against_one_tree_settle_in_one_transaction() -> Result<()
     })?;
     let user_identity = user.identity();
     let maker_address = market_maker.address();
-    let (maker_leg, maker_keypair) = market_maker
+    let (maker_transfer, maker_keypair) = market_maker
         .with_wallet(|wallet, keypair| -> Result<_> {
-            let leg = Payment {
+            let transfer = Transfer {
                 inputs: vec![first_utxo(wallet)?],
                 width: 1,
                 amount: MAKER_PAYS,
@@ -67,28 +67,28 @@ async fn two_transacts_against_one_tree_settle_in_one_transaction() -> Result<()
                 tree_id: localnet.tree_id,
             }
             .prove(&localnet.client, keypair)?;
-            Ok((leg, keypair.clone()))
+            Ok((transfer, keypair.clone()))
         })
         .await?;
     let nullifiers = [
-        *user_leg
+        *user_transfer
             .nullifiers
             .first()
-            .ok_or_else(|| anyhow!("user leg spends nothing"))?,
-        *maker_leg
+            .ok_or_else(|| anyhow!("user transfer spends nothing"))?,
+        *maker_transfer
             .nullifiers
             .first()
-            .ok_or_else(|| anyhow!("maker leg spends nothing"))?,
+            .ok_or_else(|| anyhow!("maker transfer spends nothing"))?,
     ];
     let (blockhash, _) = blocking(|| rpc.get_latest_blockhash())?;
     let message = swap_message(
         &maker_address,
-        [user_leg.instruction, maker_leg.instruction],
+        [user_transfer.instruction, maker_transfer.instruction],
         blockhash,
     )?;
-    let roots: Vec<_> = legs(&message)?
+    let roots: Vec<_> = transfers(&message)?
         .iter()
-        .map(|leg| leg.tree_contexts.clone())
+        .map(|transfer| transfer.tree_contexts.clone())
         .collect();
     assert_eq!(roots.first(), roots.get(1));
 
@@ -99,7 +99,7 @@ async fn two_transacts_against_one_tree_settle_in_one_transaction() -> Result<()
         )?)
     })?;
     blocking(|| localnet.client.confirm_private_transaction_sync(signature))
-        .map_err(|e| anyhow!("index two-leg transaction {signature}: {e:?}"))?;
+        .map_err(|e| anyhow!("index two-transfer transaction {signature}: {e:?}"))?;
     println!(
         "two 1x2 transacts in one transaction: {} CU",
         blocking(|| compute_units(rpc, &signature))?
@@ -117,16 +117,16 @@ async fn two_transacts_against_one_tree_settle_in_one_transaction() -> Result<()
     user.sync(&localnet).await?;
     market_maker.sync().await?;
     assert_eq!(
-        user.holdings(&vault)?,
+        user.holdings(&pair)?,
         Holdings {
-            usdc: USER_SHIELD_USDC - USER_PAYS + MAKER_PAYS,
+            collateral: USER_SHIELD_COLLATERAL - USER_PAYS + MAKER_PAYS,
             shares: 0,
         }
     );
     assert_eq!(
-        market_maker.holdings(&vault),
+        market_maker.holdings(&pair),
         Holdings {
-            usdc: MAKER_SHIELD_USDC + USER_PAYS - MAKER_PAYS,
+            collateral: MAKER_SHIELD_COLLATERAL + USER_PAYS - MAKER_PAYS,
             shares: 0,
         }
     );

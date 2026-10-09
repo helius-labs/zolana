@@ -61,7 +61,7 @@ pub fn global_config_account(admin: &Address) -> Account {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VaultAccounts {
+pub struct Pair {
     pub vault: Address,
     pub token_mint: Address,
     pub authority: Address,
@@ -69,7 +69,7 @@ pub struct VaultAccounts {
     pub shares_mint: Address,
 }
 
-impl VaultAccounts {
+impl Pair {
     pub fn new(vault: Address, token_mint: Address) -> Self {
         Self {
             vault,
@@ -84,7 +84,7 @@ impl VaultAccounts {
 pub struct InitVault {
     pub admin: Address,
     pub admin_token_account: Address,
-    pub accounts: VaultAccounts,
+    pub pair: Pair,
 }
 
 impl InitVault {
@@ -94,11 +94,11 @@ impl InitVault {
             program_id: PROGRAM_ID,
             accounts: vec![
                 AccountMeta::new(self.admin, true),
-                AccountMeta::new(self.accounts.vault, true),
-                AccountMeta::new_readonly(self.accounts.authority, false),
-                AccountMeta::new(self.accounts.token_vault, false),
-                AccountMeta::new_readonly(self.accounts.token_mint, false),
-                AccountMeta::new(self.accounts.shares_mint, false),
+                AccountMeta::new(self.pair.vault, true),
+                AccountMeta::new_readonly(self.pair.authority, false),
+                AccountMeta::new(self.pair.token_vault, false),
+                AccountMeta::new_readonly(self.pair.token_mint, false),
+                AccountMeta::new(self.pair.shares_mint, false),
                 AccountMeta::new(self.admin_token_account, false),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
                 AccountMeta::new_readonly(SYSVAR_RENT_ID, false),
@@ -117,7 +117,7 @@ pub struct UserAccounts {
 }
 
 pub struct Deposit<'a> {
-    pub vault: &'a VaultAccounts,
+    pub pair: &'a Pair,
     pub user: &'a UserAccounts,
     pub max_amount: u64,
 }
@@ -131,11 +131,11 @@ impl Deposit<'_> {
             program_id: PROGRAM_ID,
             accounts: vec![
                 AccountMeta::new(self.user.user, true),
-                AccountMeta::new(self.vault.vault, false),
-                AccountMeta::new(self.vault.token_vault, false),
-                AccountMeta::new_readonly(self.vault.token_mint, false),
-                AccountMeta::new_readonly(self.vault.authority, false),
-                AccountMeta::new(self.vault.shares_mint, false),
+                AccountMeta::new(self.pair.vault, false),
+                AccountMeta::new(self.pair.token_vault, false),
+                AccountMeta::new_readonly(self.pair.token_mint, false),
+                AccountMeta::new_readonly(self.pair.authority, false),
+                AccountMeta::new(self.pair.shares_mint, false),
                 AccountMeta::new(self.user.token_account, false),
                 AccountMeta::new(self.user.shares_account, false),
                 AccountMeta::new_readonly(KLEND_PROGRAM_ID, false),
@@ -150,7 +150,7 @@ impl Deposit<'_> {
 }
 
 pub struct WithdrawFromAvailable<'a> {
-    pub vault: &'a VaultAccounts,
+    pub pair: &'a Pair,
     pub user: &'a UserAccounts,
     pub shares: u64,
 }
@@ -164,14 +164,14 @@ impl WithdrawFromAvailable<'_> {
             program_id: PROGRAM_ID,
             accounts: vec![
                 AccountMeta::new_readonly(self.user.user, true),
-                AccountMeta::new(self.vault.vault, false),
+                AccountMeta::new(self.pair.vault, false),
                 AccountMeta::new_readonly(global_config(), false),
-                AccountMeta::new(self.vault.token_vault, false),
-                AccountMeta::new_readonly(self.vault.authority, false),
+                AccountMeta::new(self.pair.token_vault, false),
+                AccountMeta::new_readonly(self.pair.authority, false),
                 AccountMeta::new(self.user.token_account, false),
-                AccountMeta::new(self.vault.token_mint, false),
+                AccountMeta::new(self.pair.token_mint, false),
                 AccountMeta::new(self.user.shares_account, false),
-                AccountMeta::new(self.vault.shares_mint, false),
+                AccountMeta::new(self.pair.shares_mint, false),
                 AccountMeta::new_readonly(token_program, false),
                 AccountMeta::new_readonly(token_program, false),
                 AccountMeta::new_readonly(KLEND_PROGRAM_ID, false),
