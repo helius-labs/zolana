@@ -256,6 +256,15 @@ func renderShape(r emfield.CheckRecord) string {
 		strings.Join(elems, ",\n    "), strings.Join(terms, ", "), r.Degree, leanBool(r.Folded), leanBool(r.UsesCRT))
 }
 
+func carryGroupLiterals(r emfield.CheckRecord) []string {
+	groups := make([]string, len(r.CarryGroups))
+	for i, g := range r.CarryGroups {
+		inv := new(big.Int).ModInverse(new(big.Int).Lsh(big.NewInt(1), uint(r.LimbBits*(g.End-g.Start))), nativeModulus)
+		groups[i] = fmt.Sprintf("⟨%d, %d, %d, %s⟩", g.Start, g.End, g.CarryBits, inv.String())
+	}
+	return groups
+}
+
 func renderRecord(r emfield.CheckRecord) string {
 	switch r.Kind {
 	case emfield.KindLazy:
@@ -266,11 +275,7 @@ func renderRecord(r emfield.CheckRecord) string {
 		return fmt.Sprintf("{\n  m := %s\n  limbwise := %s\n  widths := %s\n  lo := %s\n  hi := %s }",
 			r.Modulus.String(), leanBool(r.Kind == emfield.KindCanonicalLimbwise), leanNatList(r.ResultWidths), leanIntList(e.Lo), leanIntList(e.Hi))
 	}
-	groups := make([]string, len(r.CarryGroups))
-	for i, g := range r.CarryGroups {
-		inv := new(big.Int).ModInverse(new(big.Int).Lsh(big.NewInt(1), uint(r.LimbBits*(g.End-g.Start))), nativeModulus)
-		groups[i] = fmt.Sprintf("⟨%d, %d, %d, %s⟩", g.Start, g.End, g.CarryBits, inv.String())
-	}
+	groups := carryGroupLiterals(r)
 	mInv := new(big.Int).ModInverse(new(big.Int).Mod(r.Modulus, nativeModulus), nativeModulus)
 	return fmt.Sprintf("{\n  %s\n  m := %s\n  mInv := %s\n  modulusLimbs := %s\n  pieceBits := %d\n  withResult := %s\n  resultWidths := %s\n"+
 		"  positions := %d\n  quotientBits := %d\n  quotientWidths := %s\n  offset := %s\n  offsetLimbs := %s\n"+

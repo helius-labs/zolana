@@ -158,13 +158,13 @@ func (w *instanceWriter) vector(n int) int {
 	var names []string
 	var idx []int
 	for j := 0; j < n; j++ {
-		names = append(names, fmt.Sprintf("v%d_%d", i, j))
+		names = append(names, fmt.Sprintf("(g%d.get (%d : Fin %d))", i, j, n))
 		idx = append(idx, w.atomCount+j)
 	}
 	w.atomCount += n
 	w.vecNames = append(w.vecNames, names)
 	w.vecIdx = append(w.vecIdx, idx)
-	w.pattern = append(w.pattern, fmt.Sprintf("⟨vl%d, hvl%d⟩", i, i))
+	w.pattern = append(w.pattern, fmt.Sprintf("g%d", i))
 	return i
 }
 
@@ -223,16 +223,20 @@ type limbLayout struct {
 
 func layoutFor(r emfield.CheckRecord) limbLayout {
 	var l limbLayout
+	total := 0
+	for _, e := range r.Elements {
+		total += len(e.Lo)
+	}
 	var xs, xa, is []string
 	for _, e := range r.Elements {
 		var a, b, c []string
-		for j := range e.Lo {
+		for range e.Lo {
+			atom := fmt.Sprintf("(L.get (%d : Fin %d))", l.n, total)
 			a = append(a, fmt.Sprintf("L.get %d", l.n))
-			b = append(b, fmt.Sprintf("a%d", l.n))
+			b = append(b, atom)
 			c = append(c, strconv.Itoa(l.n))
-			l.atoms = append(l.atoms, fmt.Sprintf("a%d", l.n))
+			l.atoms = append(l.atoms, atom)
 			l.n++
-			_ = j
 		}
 		xs = append(xs, "["+strings.Join(a, ", ")+"]")
 		xa = append(xa, "["+strings.Join(b, ", ")+"]")
@@ -263,17 +267,16 @@ func groupedFacts(pb int, widths []int, rcs []string) string {
 	return tupleOf(groups)
 }
 
+// consEqChain8 proves an equation between two eight-element lists elementwise.
+const consEqChain8 = "refine List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, " +
+	"List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, " +
+	"List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, rfl⟩⟩⟩⟩⟩⟩⟩⟩"
+
 func tupleOf(items []string) string {
 	if len(items) == 1 {
 		return items[0]
 	}
 	return "⟨" + strings.Join(items, ", ") + "⟩"
-}
-
-// listPattern spells a list pattern with cons cells; list literal patterns
-// longer than 32 elements are not accepted by the elaborator.
-func listPattern(items []string) string {
-	return strings.Join(items, " :: ") + " :: []"
 }
 
 func (w *instanceWriter) emitCheck(p rangeCheckPlan, pb int, cert, indent string) {
@@ -298,10 +301,7 @@ func (w *instanceWriter) emitCheck(p rangeCheckPlan, pb int, cert, indent string
 }
 
 func (w *instanceWriter) destructure(lay limbLayout, parts []string) {
-	w.line("  obtain ⟨l, hl⟩ := L")
-	w.line("  match l, hl with")
-	w.line("  | %s, _ =>", listPattern(lay.atoms))
-	w.line("  delta %s at h", strings.Join(parts, " "))
+	w.line("  delta %s at h", parts[0])
 	w.line("  elim_gates h")
 }
 
@@ -385,15 +385,8 @@ func renderCheckInstance(defs map[string]extractedDef, name string, r emfield.Ch
 	w.destructure(lay, parts)
 	w.line("  obtain ⟨%s⟩ := h", strings.Join(w.pattern, ", "))
 	atoms := append([]string{}, lay.atoms...)
-	if len(w.vecNames) > 0 {
-		var scrut, pats []string
-		for i, names := range w.vecNames {
-			scrut = append(scrut, fmt.Sprintf("vl%d, hvl%d", i, i))
-			pats = append(pats, listPattern(names)+", _")
-			atoms = append(atoms, names...)
-		}
-		w.line("  match %s with", strings.Join(scrut, ", "))
-		w.line("  | %s =>", strings.Join(pats, ", "))
+	for _, names := range w.vecNames {
+		atoms = append(atoms, names...)
 	}
 	w.line("  let env : ℕ → F := fun i => [%s].getD i 0", strings.Join(atoms, ", "))
 	w.line("  show CheckPolynomial.circuit basis %s %s _ _", cert, lay.xsAtoms)
@@ -409,10 +402,9 @@ func renderCheckInstance(defs map[string]extractedDef, name string, r emfield.Ch
 		w.line("  · show PiecesOk _ _ _ _")
 		w.line("    rw [evalE_atoms]")
 		w.line("    show PiecesOk _ _ _ [%s]", strings.Join(names, ", "))
-		w.line("    simp only [PiecesOk, nbPieces, %s, List.take, List.drop]", cert)
-		w.line("    norm_num")
-		w.line("    simp (config := {decide := true}) only [ComposeOk, LookupCheck, SmallCheck, if_true, if_false, true_and,")
-		w.line("      and_true]")
+		w.line("    simp (config := {decide := true}) only [PiecesOk, nbPieces, %s, List.take, List.drop, List.length_cons,", cert)
+		w.line("      List.length_nil, Nat.reduceAdd, Nat.reduceSub, Nat.reduceDiv, ComposeOk, LookupCheck, SmallCheck,")
+		w.line("      if_true, if_false, true_and, and_true]")
 		w.line("    exact %s", groupedFacts(pb, widths, rcs))
 	}
 	if withResult {
@@ -438,7 +430,8 @@ func renderCheckInstance(defs map[string]extractedDef, name string, r emfield.Ch
 	} else {
 		w.line("  · intro h; exact absurd h (by decide)")
 	}
-	w.line("  · simp only [carryChainE, %s]", cert)
+	w.line("  · rw [show %s.groups = [%s] from rfl]", cert, strings.Join(carryGroupLiterals(r), ", "))
+	w.line("    simp only [carryChainE]")
 	for _, g := range groups {
 		w.line("    refine ⟨?_, ?_⟩")
 		var sub instanceWriter
@@ -459,9 +452,9 @@ func renderCheckInstance(defs map[string]extractedDef, name string, r emfield.Ch
 	}
 	if withResult {
 		w.line("    refine ⟨_, ?_, hk⟩")
-		w.line("    simp only [%s, if_true, eLimbsOfPieces, nbPieces, List.take, List.drop, List.map, evalE]", cert)
-		w.line("    norm_num")
-		w.line("    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> ex_refl")
+		w.line("    simp only [%s, if_true, eLimbsOfPieces, nbPieces, List.take, List.drop, List.map, evalE,", cert)
+		w.line("      Option.some.injEq, Nat.reduceAdd, Nat.reduceSub, Nat.reduceDiv]")
+		w.line("    %s", consEqChain8)
 	} else {
 		w.line("    trivial")
 	}
@@ -501,9 +494,7 @@ func renderLazyInstance(defs map[string]extractedDef, name string, r emfield.Che
 	w.line("  refine ⟨_, ?_, h⟩")
 	w.line("  rw [map_exprVal_eq]")
 	w.line("  simp only [limbCount, List.range, List.range.loop, List.map]")
-	w.line("  refine List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl,")
-	w.line("    List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl,")
-	w.line("    List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, rfl⟩⟩⟩⟩⟩⟩⟩⟩")
+	w.line("  %s", consEqChain8)
 	w.line("")
 	w.line("theorem %s_sound (es : List (Σ w, ElemVal w)) (hb : ElemsMatch es %s.elems)", name, c)
 	w.line("    (L : List.Vector F %d) (hxs : limbLists es = %s)", lay.n, lay.xs)
