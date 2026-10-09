@@ -324,13 +324,13 @@ def groupsSound (b : BasisParams) : List CarryGroup → ℕ → Option ℕ → O
 
 def sound (b : BasisParams) : Bool :=
   c.toPolyShape.shapeSound b c.m &&
-  decide (0 < c.m) && decide (c.m < Order) &&
+  decide (0 < c.m) && c.m % Order != 0 &&
   c.modulusLimbs.length == limbCount &&
   recompose (c.modulusLimbs.map (fun l => (l : ℤ))) == c.m &&
   decide (0 < c.pieceBits) && decide (c.pieceBits ≤ 253) &&
   c.resultWidths.length == limbCount &&
   c.resultWidths.all (· ≤ 32) &&
-  decide (recompose (c.resultWidths.map fun w => (2 : ℤ) ^ w - 1) ≤ c.remainderMax) &&
+  (!c.withResult || decide (recompose (c.resultWidths.map fun w => (2 : ℤ) ^ w - 1) ≤ c.remainderMax)) &&
   (if c.fold then
     c.positions == limbCount && decide (c.quotientBits ≤ 253)
    else
