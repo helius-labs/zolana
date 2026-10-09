@@ -9,8 +9,6 @@ lexicographic comparison against `m - 1` (P-256 `p`), or a hinted gap to
 
 namespace ZolanaVE.Field
 
-open ZolanaProver (F Order)
-
 structure CanonicalCheckParams where
   m : ℕ
   limbwise : Bool

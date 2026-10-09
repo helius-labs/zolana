@@ -26,8 +26,6 @@ Layout decisions mirrored from Go:
 
 namespace ZolanaVE.Field
 
-open ZolanaProver (F Order)
-
 def limbCount : ℕ := 8
 
 structure TermC where
@@ -42,10 +40,12 @@ structure ElemC where
   vhi : ℤ
 deriving Inhabited, Repr
 
+/-- `inv` is `2^(-32 (stop - start)) mod Order`, the constant the carry gate multiplies by. -/
 structure CarryGroup where
   start : ℕ
   stop : ℕ
   carryBits : ℕ
+  inv : ℕ
 deriving Inhabited, Repr
 
 /-- Matrices shared by every check over the native field. `foldRows[i]` are
@@ -70,8 +70,10 @@ structure PolyShape where
   useCrt : Bool
 deriving Inhabited, Repr
 
+/-- `mInv` is `m⁻¹ mod Order`, the constant the folded quotient gate multiplies by. -/
 structure PlainCheckParams extends PolyShape where
   m : ℕ
+  mInv : ℕ
   modulusLimbs : List ℕ
   pieceBits : ℕ
   withResult : Bool
@@ -177,8 +179,7 @@ by `2^(32·len)` and range checks the shifted carry. -/
 def carryChain (res : ℕ → F) (rc : ℕ → F → Prop) : List CarryGroup → F → (F → Prop) → Prop
   | [], carry, k => k carry
   | g :: gs, carry, k =>
-    let c' := (sumRange (g.stop - g.start) (fun t => res (g.start + t) * pow32 t) + carry) *
-      (pow32 (g.stop - g.start))⁻¹
+    let c' := (sumRange (g.stop - g.start) (fun t => res (g.start + t) * pow32 t) + carry) * (g.inv : F)
     rc (g.carryBits + 1) (c' + (2 : F) ^ g.carryBits) ∧ carryChain res rc gs c' k
 
 namespace CheckPolynomial
@@ -190,7 +191,7 @@ def modLimb (j : ℕ) : F := (c.modulusLimbs.getD j 0 : F)
 /-- Quotient read from the native equation on the folded path. -/
 def foldQuotient (r : List F) : F :=
   (sumRange limbCount (fun j => exprVal b c.toPolyShape xs j * pow32 j) -
-    sumRange limbCount (fun j => r.getD j 0 * pow32 j)) * (c.m : F)⁻¹
+    sumRange limbCount (fun j => r.getD j 0 * pow32 j)) * (c.mInv : F)
 
 /-- Native value of `residualForm(pos)`. -/
 def residual (r ql : List F) (kq : F) (pos : ℕ) : F :=
@@ -318,13 +319,14 @@ def groupsSound (b : BasisParams) : List CarryGroup → ℕ → Option ℕ → O
     let len := g.stop - g.start
     let bound := carryIn + sumRange len (fun t => c.residualBound b (g.start + t) * 2 ^ (32 * t))
     if g.start = pos ∧ g.start < g.stop ∧ g.carryBits + 1 ≤ 253 ∧
+        (2 ^ (32 * len) * g.inv) % Order = 1 ∧
         bound + 2 ^ (32 * len + g.carryBits) < (Order : ℤ) then
       groupsSound b gs g.stop (some g.carryBits)
     else none
 
 def sound (b : BasisParams) : Bool :=
   c.toPolyShape.shapeSound b c.m &&
-  decide (0 < c.m) && c.m % Order != 0 &&
+  decide (0 < c.m) && (c.m * c.mInv) % Order == 1 &&
   c.modulusLimbs.length == limbCount &&
   recompose (c.modulusLimbs.map (fun l => (l : ℤ))) == c.m &&
   decide (0 < c.pieceBits) && decide (c.pieceBits ≤ 253) &&

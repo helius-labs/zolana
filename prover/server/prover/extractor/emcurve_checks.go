@@ -194,6 +194,8 @@ func RenderEmcurveCertificate(c *EmcurveChecks) string {
 	return b.String()
 }
 
+var nativeModulus = ecc.BN254.ScalarField()
+
 func leanInt(v *big.Int) string {
 	if v.Sign() < 0 {
 		return "(" + v.String() + ")"
@@ -267,12 +269,14 @@ func renderRecord(r emfield.CheckRecord) string {
 	}
 	groups := make([]string, len(r.CarryGroups))
 	for i, g := range r.CarryGroups {
-		groups[i] = fmt.Sprintf("⟨%d, %d, %d⟩", g.Start, g.End, g.CarryBits)
+		inv := new(big.Int).ModInverse(new(big.Int).Lsh(big.NewInt(1), uint(r.LimbBits*(g.End-g.Start))), nativeModulus)
+		groups[i] = fmt.Sprintf("⟨%d, %d, %d, %s⟩", g.Start, g.End, g.CarryBits, inv.String())
 	}
-	return fmt.Sprintf("{\n  %s\n  m := %s\n  modulusLimbs := %s\n  pieceBits := %d\n  withResult := %s\n  resultWidths := %s\n"+
+	mInv := new(big.Int).ModInverse(new(big.Int).Mod(r.Modulus, nativeModulus), nativeModulus)
+	return fmt.Sprintf("{\n  %s\n  m := %s\n  mInv := %s\n  modulusLimbs := %s\n  pieceBits := %d\n  withResult := %s\n  resultWidths := %s\n"+
 		"  positions := %d\n  quotientBits := %d\n  quotientWidths := %s\n  offset := %s\n  offsetLimbs := %s\n"+
 		"  remainderMax := %s\n  carryPositions := %d\n  groups := [%s]\n  checkTop := %s }",
-		renderShape(r), r.Modulus.String(), leanIntList(r.ModulusLimbs), r.PieceBits, leanBool(r.Kind == emfield.KindEval),
+		renderShape(r), r.Modulus.String(), mInv.String(), leanIntList(r.ModulusLimbs), r.PieceBits, leanBool(r.Kind == emfield.KindEval),
 		leanNatList(r.ResultWidths), r.Positions, r.QuotientBits, leanNatList(r.QuotientWidths), r.Offset.String(),
 		leanIntList(r.OffsetLimbs), r.RemainderMax.String(), r.CarryPositions, strings.Join(groups, ", "), leanBool(r.CheckTop))
 }

@@ -1,4 +1,5 @@
 import FormalVerification.Lemmas
+import VerifiableEncryption.Circuit.Prelude
 import VerifiableEncryption.Field.Poly
 
 /-!
@@ -18,7 +19,11 @@ idealised lookup argument.
 
 namespace ZolanaVE.Field
 
-open ZolanaProver (F Order)
+theorem order_eq : Order = ZolanaProver.Order := rfl
+
+/-- The extracted circuits use their own copy of the BN254 scalar modulus; its
+primality is the existing `bn254_Fr_prime` assumption. -/
+instance : Fact (Nat.Prime Order) := ⟨order_eq ▸ bn254_Fr_prime⟩
 
 def limbBase : ℤ := 2 ^ 32
 
