@@ -7,9 +7,9 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiTransactionStatusMeta,
 };
-use std::fmt;
-
 use std::convert::TryFrom;
+use std::fmt;
+use std::str::FromStr;
 
 use zolana_indexer_api::Hash;
 
@@ -187,17 +187,7 @@ pub fn parse_instruction_groups(
     versioned_transaction: VersionedTransaction,
     meta: UiTransactionStatusMeta,
 ) -> Result<Vec<InstructionGroup>, IngesterError> {
-    // Version 0 is the format that loads accounts through an address lookup
-    // table. Those transactions are not protocol transactions; skipping them
-    // keeps a block that also contains a legacy transfer ingestible.
-    if versioned_transaction
-        .message
-        .address_table_lookups()
-        .is_some()
-    {
-        return Ok(Vec::new());
-    }
-    let sdk_accounts = Vec::from(versioned_transaction.message.static_account_keys());
+    let sdk_accounts = account_keys(&versioned_transaction, &meta)?;
 
     // Parse outer instructions and bucket them into groups
     let mut instruction_groups: Vec<InstructionGroup> = versioned_transaction
@@ -290,6 +280,37 @@ pub fn parse_instruction_groups(
     Ok(instruction_groups)
 }
 
+/// The account list instruction indices address: the message's static keys,
+/// then the addresses the runtime loaded from lookup tables, writable before
+/// readonly.
+fn account_keys(
+    versioned_transaction: &VersionedTransaction,
+    meta: &UiTransactionStatusMeta,
+) -> Result<Vec<Pubkey>, IngesterError> {
+    let message = &versioned_transaction.message;
+    let mut accounts = Vec::from(message.static_account_keys());
+    let uses_lookup_tables = message
+        .address_table_lookups()
+        .is_some_and(|lookups| !lookups.is_empty());
+    match &meta.loaded_addresses {
+        OptionSerializer::Some(loaded) => {
+            for address in loaded.writable.iter().chain(loaded.readonly.iter()) {
+                accounts.push(Pubkey::from_str(address).map_err(|e| {
+                    IngesterError::ParserError(format!("invalid loaded address {address}: {e}"))
+                })?);
+            }
+        }
+        OptionSerializer::None | OptionSerializer::Skip => {
+            if uses_lookup_tables {
+                return Err(IngesterError::ParserError(
+                    "transaction loads accounts through lookup tables but its metadata carries no loaded addresses".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(accounts)
+}
+
 fn sdk_account(accounts: &[Pubkey], index: usize, context: &str) -> Result<Pubkey, IngesterError> {
     accounts.get(index).copied().ok_or_else(|| {
         IngesterError::ParserError(format!(
@@ -303,8 +324,6 @@ fn sdk_account(accounts: &[Pubkey], index: usize, context: &str) -> Result<Pubke
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     // Devnet slot 492480571.
@@ -333,6 +352,83 @@ mod tests {
         ],
         "version": 1
     }"#;
+
+    // Devnet slot 508799716: a version 0 shielded-pool deposit that loads no
+    // lookup table.
+    const VERSION_0_DEPOSIT: &str = r#"{"meta":{"err":null,"status":{"Ok":null},"fee":5000,"preBalances":[18676128,23930254400,1488440,1488440,1,0,1,1066800,833120,20369267856],"postBalances":[18671128,23930254400,1488440,1488440,1,0,1,1066800,833120,20369267856],"innerInstructions":[{"index":1,"instructions":[{"programIdIndex":9,"accounts":[2,7,3,0],"data":"gvPShZQhKrzGM","stackHeight":2},{"programIdIndex":8,"accounts":[],"data":"2DdzFKysLDBMuANPWmpuTgr2ryZH5x1FSSNwS4CEsHzfUUYutpUUePviBeUMPgHaak9C2bSszk1j7TupcjyEqL6Hfxg2iVRcA8Hu3Gj1JDSreoKxDuu3f2GqRh31fZkFjPC6epFhrXixiPbTgG2TNEEoJjCXNebDpDLJVu5jUgLbr4cP7VmJZkA1itFX2z2CSGS7gvYhZo4AJPAFVZnk7k9NNVox1MMzN1FDwxgrLdEXCMs5pFk4WT97B2yZu2vWYu4HK3X1vz4N5PbFMogKLTB3JW2Rb1vJjFbFoHh9wvMPP5jBRMYg77xvPz6GNv5CuFG7LUkseVLdBmQ7J9DaQVxYTfDbuHH4yEwbXq6bMuCbbkkiC52nxmouhdtAfewMN54uE4y1M3tqRBnqzUV8mQKMX3dKDfiGStZo1AdNzoyL19ehtQxLqzitYBvmhdFBMVpkoTo","stackHeight":2}]}],"logMessages":[],"preTokenBalances":[],"postTokenBalances":[],"rewards":null,"loadedAddresses":{"writable":[],"readonly":[]},"computeUnitsConsumed":40087},"transaction":["AZSgsUs1lwKuk4kV/H6lcBS5a56e8FQWjHKWRlumu0vlil0i9LgZCp+W2nkiVc9Zb0edmu3BVDS6Lew0HeBOTgeAAQAGCsfSAbFW5dtTfOyGP+aa31AAhlraMvr01WNI+HwfXnj4Hk9ymFddIGHbkm/tzOnMxAgnPI/mt9TyQf4neFNRTB3UtGd2T2ab3zqow7rwofyuLXareWMn9SQjQx3JlCGS4/YkxUKmeq/Dvvlm8ae/swUv/lHq63pMEfKVq/jXlR5IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACRAl70pEGVI/o1tvhbQHyNPcTif6PFmbxDicN9JkzvNgMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAA92q1xD/zyzGxEJO9jRGadeyivT3bWdb+3JLuYwBm9rINBRvfUS7uJgsVS3WBKq3rgM+6NmTWOTdYplwz8jXvPQbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpk3pKuioAJsyweIxrRiy3XifM4ZgELKGS1NLLkjOQgeADBgAFAtDdBgAIBwEACAkHAgNPDwEB/QEAbZ4EBn45csw2BgpGLXxaFYU26Iqa6lt7eNWhoK9/8Qkk8H1n/eQvbYjL1wzVNw1EHdRgxIjipVhTzDNeW10pEkBCDwAAAAAAAAQDAAAFDAIAAAAAAAAAAAAAAAA=","base64"],"version":0}"#;
+
+    // Devnet slot 508799716: a version 0 transaction whose instructions address
+    // four writable and one readonly lookup-table accounts.
+    const VERSION_0_WITH_LOOKUPS: &str = r#"{"meta":{"err":null,"status":{"Ok":null},"fee":5000,"preBalances":[49170000,1,833120,6329680,6329680,6329680,6329680,1188720],"postBalances":[49165000,1,833120,6329680,6329680,6329680,6329680,1188720],"innerInstructions":[],"logMessages":[],"preTokenBalances":[],"postTokenBalances":[],"rewards":null,"loadedAddresses":{"writable":["26bQ1aba173cQPgxFZFx4Es8dgXCLryzXmgLpezkxpY9","DuokWvuVUdQqtkCqzxVi9FMEG53S1RgkraSjC2y8tKbc","zsePY4VdVs1LxzziGXUnMjqNJrxqEgLUyzCWUt2uo7D","CMzRZeb4PpDVQVLvvEPcHEtfUEqV8BamPtn2unjkJ589"],"readonly":["EXjycYGbH88NdpgfcEkJqXp33T91NCcSFKiii9SazqAo"]},"computeUnitsConsumed":52124},"transaction":["AeQpRAf0XZzfGoWoD2sf1m7p3P5tjJgE99mMmhC+ll2h34wgXu+a6MkTwsdYQY8BMBFlBHDGeBI5+a9SRyHEaQSAAQACA5lN7tia5v412jQkNc+3acF3EgNzbNNPaZK9mqHQWbKkAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAACEi6WIL1dWYkvfRO/X7x1ySTrsxLqbiMKiaqVizLDcFJx7XF4pe3jPHCWGNhw1hD1sd7sVaJpHqoimEIM8kH2fBgEABQEAAAIAAQAFAgA1DAACAwAHA0eBsbaguODbBQCR+o3GpCQBjHzHagAAAAAM6BgsI9+xmgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACQAAAAAAAAIDAAcER4GxtqC44NsFECoE+YhKBACMfMdqAAAAAAToGCwj37GaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJAAAAAAAAAgMABwVHgbG2oLjg2wVgPYoHHmcAAIx8x2oAAAAADOgYLCPfsZoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAkAAAAAAAACAwAHBkeBsbaguODbBQDKDgu0/wgAjHzHagAAAAAM6BgsI9+xmgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACQAAAAAAAAGgsNHgDHZdpgBijSJJ3/eInwm2+5qV9SCpeBaAZBeeLAQuMDI0AQE=","base64"],"version":0}"#;
+
+    fn pubkey(key: &str) -> Pubkey {
+        Pubkey::from_str(key).unwrap()
+    }
+
+    #[test]
+    fn parses_version_0_transaction_without_lookups() {
+        let transaction: EncodedTransactionWithStatusMeta =
+            serde_json::from_str(VERSION_0_DEPOSIT).unwrap();
+        let shielded_pool = pubkey("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
+        let tree = pubkey("33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN");
+
+        let info = parse_transaction_info(transaction).unwrap();
+
+        assert_eq!(
+            info.signature,
+            Signature::from_str(
+                "3yMGsQ275aG65YsDoWEbNPNnGw7MuCq5MH2ne2PueBvcNGQ7ccKSkwhZgv2GmqXQYfBQpEF8eSvYTXdBKEA1Hn6r",
+            )
+            .unwrap()
+        );
+        assert_eq!(info.instruction_groups.len(), 3);
+        let deposit = &info.instruction_groups[1];
+        assert_eq!(deposit.outer_instruction.program_id, shielded_pool);
+        assert_eq!(deposit.outer_instruction.data[0], 15);
+        assert_eq!(deposit.outer_instruction.accounts[0], tree);
+        let emitted_event = &deposit.inner_instructions[1];
+        assert_eq!(emitted_event.program_id, shielded_pool);
+        assert_eq!(emitted_event.data[0], 14);
+        assert_eq!(emitted_event.stack_height, Some(2));
+    }
+
+    #[test]
+    fn resolves_lookup_table_accounts_from_loaded_addresses() {
+        let transaction: EncodedTransactionWithStatusMeta =
+            serde_json::from_str(VERSION_0_WITH_LOOKUPS).unwrap();
+
+        let info = parse_transaction_info(transaction).unwrap();
+
+        let accounts: Vec<Vec<Pubkey>> = info
+            .instruction_groups
+            .iter()
+            .skip(2)
+            .map(|group| group.outer_instruction.accounts.clone())
+            .collect();
+        let payer = pubkey("BKSJXEd9nmKPHK6UPVWF2CySZpfK1RoYExBzpiMSuGaX");
+        let readonly = pubkey("EXjycYGbH88NdpgfcEkJqXp33T91NCcSFKiii9SazqAo");
+        assert_eq!(
+            accounts,
+            [
+                "26bQ1aba173cQPgxFZFx4Es8dgXCLryzXmgLpezkxpY9",
+                "DuokWvuVUdQqtkCqzxVi9FMEG53S1RgkraSjC2y8tKbc",
+                "zsePY4VdVs1LxzziGXUnMjqNJrxqEgLUyzCWUt2uo7D",
+                "CMzRZeb4PpDVQVLvvEPcHEtfUEqV8BamPtn2unjkJ589",
+            ]
+            .map(|writable| vec![payer, readonly, pubkey(writable)])
+        );
+    }
+
+    #[test]
+    fn rejects_lookup_table_transaction_without_loaded_addresses() {
+        let mut transaction: EncodedTransactionWithStatusMeta =
+            serde_json::from_str(VERSION_0_WITH_LOOKUPS).unwrap();
+        transaction.meta.as_mut().unwrap().loaded_addresses = OptionSerializer::None;
+
+        let error = parse_transaction_info(transaction).unwrap_err();
+
+        assert!(error.to_string().contains("no loaded addresses"), "{error}");
+    }
 
     #[test]
     fn parses_version_1_transaction() {
