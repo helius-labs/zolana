@@ -1,4 +1,4 @@
-use std::{thread::sleep, time::Duration};
+use std::time::Duration;
 
 use solana_signature::Signature;
 
@@ -7,24 +7,9 @@ use crate::{
     rpc::{AsyncRpc, IndexerPollConfig, Rpc},
 };
 
-use super::{AsyncIndexer, BlockingIndexer, ZolanaClient};
+use super::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, ZolanaClient};
 
-impl<R: Rpc, I: BlockingIndexer> ZolanaClient<R, I> {
-    /// Wait until Solana confirms the transaction and Photon has indexed a
-    /// Rings event for it.
-    ///
-    /// Confirming first turns a transaction that failed on chain into a chain
-    /// error, instead of an indexer timeout that blames the wrong subsystem.
-    pub fn confirm_private_transaction_sync(
-        &self,
-        signature: Signature,
-    ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        wait_for_indexed_transaction(&self.indexer, signature, self.indexer_config.poll)
-    }
-}
-
-impl<R: AsyncRpc, I: AsyncIndexer> ZolanaClient<R, I> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
     ///
@@ -34,31 +19,23 @@ impl<R: AsyncRpc, I: AsyncIndexer> ZolanaClient<R, I> {
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
-        wait_for_indexed_transaction_async(&self.indexer, signature, self.indexer_config.poll).await
+        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll).await?;
+        wait_for_indexed_transaction(&self.indexer, signature, self.indexer_config.poll).await
+    }
+}
+
+impl<R: Rpc + Send + Sync + 'static, I: BlockingIndexer> ZolanaClient<R, I> {
+    /// See [`AsyncZolanaClient::confirm_private_transaction`].
+    pub fn confirm_private_transaction_sync(
+        &self,
+        signature: Signature,
+    ) -> Result<(), ClientError> {
+        self.block_on(self.client.confirm_private_transaction(signature))
     }
 }
 
 /// Poll the RPC until the signature reaches confirmed commitment.
-fn wait_for_rpc_confirmation<R: Rpc>(
-    rpc: &R,
-    signature: Signature,
-    retry: IndexerPollConfig,
-) -> Result<(), ClientError> {
-    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
-        if !delay.is_zero() {
-            sleep(delay);
-        }
-        if rpc.confirm_transaction(signature)? {
-            return Ok(());
-        }
-    }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
-}
-
-async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
+async fn wait_for_rpc_confirmation<R: AsyncRpc>(
     rpc: &R,
     signature: Signature,
     retry: IndexerPollConfig,
@@ -76,36 +53,14 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     )))
 }
 
-/// Poll Photon until it has indexed a Rings event for `signature`. Photon lags
-/// the chain, so an on-chain confirmation alone is not enough for a caller that
-/// reads its own outputs back immediately.
+/// Poll the indexer until it reports the transaction.
 ///
-/// Every Rings event of one Solana transaction is persisted in a single
+/// Photon writes every event of a transaction in one indexer slot inside one
 /// database transaction, so a single visible event proves the whole transaction
 /// is indexed. Matching the event against the transaction's view tags would add
 /// no guarantee and would reject legitimate transactions whose events share a
 /// tag.
-fn wait_for_indexed_transaction<I: Rpc>(
-    indexer: &I,
-    signature: Signature,
-    retry: IndexerPollConfig,
-) -> Result<(), ClientError> {
-    let mut last_error = None;
-    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
-        if !delay.is_zero() {
-            sleep(delay);
-        }
-        match indexer.get_shielded_transactions_by_signature(signature, None) {
-            Ok(response) if !response.transactions.is_empty() => return Ok(()),
-            Ok(_) => last_error = None,
-            Err(error) if indexer.should_retry(&error) => last_error = Some(error.to_string()),
-            Err(error) => return Err(error),
-        }
-    }
-    Err(indexer_poll_timeout(retry, last_error))
-}
-
-async fn wait_for_indexed_transaction_async<I: AsyncRpc>(
+async fn wait_for_indexed_transaction<I: AsyncRpc>(
     indexer: &I,
     signature: Signature,
     retry: IndexerPollConfig,

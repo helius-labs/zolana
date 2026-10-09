@@ -20,7 +20,7 @@ use zolana_client::{
         GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction, IndexerRpcConfig,
         MerkleContext, MerkleProof, NonInclusionProof,
     },
-    ClientError, Indexer, ProverClient, Rpc, RpcSendTransactionConfig, WitnessReader, ZolanaClient,
+    ClientError, ProverClient, Rpc, RpcSendTransactionConfig, WitnessReader, ZolanaClient,
 };
 use zolana_tree::TreeAccount;
 
@@ -64,10 +64,6 @@ impl ProgramTestHandle {
             .map(|indexed| indexed.signature)
             .map_err(|error| ClientError::Rpc(error.to_string()))
     }
-}
-
-impl Indexer for ProgramTestHandle {
-    type ProverClient = ProverClient;
 }
 
 impl WitnessReader for ProgramTestHandle {}

@@ -30,12 +30,10 @@ pub mod spendable;
 pub mod user_registry;
 
 pub use authority::ProofAuthority;
-#[cfg(all(feature = "indexer-api", feature = "reqwest"))]
-pub use client::PhotonIndexer;
 #[cfg(feature = "indexer-api")]
 pub use client::{
-    check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, Indexer,
-    SignedPrivateTransaction, Submission, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+    check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, SignedPrivateTransaction,
+    Submission, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
@@ -63,6 +61,7 @@ pub use prover::{spawn_prover, ProverLaunch};
 pub use rpc::solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
 };
+pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};

@@ -2,9 +2,14 @@ use std::sync::Arc;
 
 use solana_address::Address;
 use solana_hash::Hash;
+use solana_keypair::Signer;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
-use zolana_interface::{instruction::TransactIxData, pda};
+use solana_signature::Signature;
+use zolana_interface::{
+    instruction::{instruction_data::transact::TransactProof, TransactIxData},
+    pda,
+};
 use zolana_program::instruction::{Transact, TransactInterfaceTransferAccounts};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
@@ -13,19 +18,18 @@ use crate::{
     error::ClientError,
     prover::{
         transact::witness::{assemble, AssembledTransfer},
-        verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
-        witness::AsyncWitnessReader,
-        ProofCompressed, Prover, ProverExt, TransferProofResult,
+        verify_confidential_transfer_inputs, verify_confidential_transfer_proof, ProofCompressed,
+        Prover, TransferProofResult,
     },
     rpc::{
-        compile_message, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig, Rpc,
+        compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig, Rpc,
         SettlementAccountValidation,
     },
 };
 
 use super::{
-    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, BlockingIndexer,
-    TransferPreparation, ZolanaClient,
+    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, AsyncZolanaClient,
+    BlockingIndexer, TransferPreparation, ZolanaClient,
 };
 
 /// A signed shielded transaction ready for proof assembly and submission.
@@ -37,7 +41,7 @@ pub struct SignedPrivateTransaction {
     pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
 }
 
-impl<R, I: AsyncIndexer> ZolanaClient<R, I> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     /// Ask the configured prover for a default-ring Ed25519 transfer proof and
     /// verify it locally before returning its transaction wire encoding.
     pub async fn prove_confidential_transfer_result(
@@ -48,16 +52,14 @@ impl<R, I: AsyncIndexer> ZolanaClient<R, I> {
         verify_confidential_transfer_proof(result, &proof)?;
         ProofCompressed::try_from(proof)
     }
-}
 
-impl<R: Rpc, I: BlockingIndexer> ZolanaClient<R, I> {
     /// Fetch the input merkle proofs from the indexer and prove the transaction
     /// with the client's prover, returning the assembled `transact` instruction
     /// data ready for the [`Transact`] builder.
     ///
     /// `authority` completes the witness: the assembled inputs carry no
     /// nullifier secret, and it fills in the ones its owner holds.
-    pub fn prove_transact(
+    pub async fn prove_transact(
         &self,
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
@@ -71,26 +73,59 @@ impl<R: Rpc, I: BlockingIndexer> ZolanaClient<R, I> {
                         config: config.unwrap_or(self.indexer_config),
                     }
                     .prepare(authority)?,
-                )?
+                )
+                .await?
                 .data);
         }
-        let prover = self.prover();
         let commitments = proof_inputs.input_utxo_hashes()?;
-        let witnesses =
-            self.indexer
-                .input_witnesses(&commitments, &proof_inputs.dummy_nullifiers(), config)?;
-        prover.prove_transact(
+        let witnesses = self
+            .indexer
+            .input_witnesses(&commitments, &proof_inputs.dummy_nullifiers(), config)
+            .await?;
+        let mut assembled = assemble(
             proof_inputs,
             &witnesses.spend_proofs,
             &witnesses.dummy_nullifier_proofs,
-            authority,
-        )
+        )?;
+        let proof = self.prove_assembled(&mut assembled, authority).await?;
+        Ok(assembled.with_proof(proof))
+    }
+
+    /// Complete the inputs, prove them and verify the proof; one call rather
+    /// than "complete, then prove", since nothing between assembly and the
+    /// prover has any use for a witness carrying key material.
+    async fn prove_assembled(
+        &self,
+        assembled: &mut AssembledTransfer,
+        authority: &dyn ProofAuthority,
+    ) -> Result<TransactProof, ClientError> {
+        let inputs = &mut assembled.prover_inputs;
+        authority.complete_inputs(&mut inputs.inputs)?;
+        let proof = {
+            let _t = crate::prover::timing::Phase::start("prove_transfer", 0);
+            self.prove_transfer(inputs).await?
+        };
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
+        Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
+    }
+}
+
+impl<R: Rpc + Send + Sync + 'static, I: BlockingIndexer> ZolanaClient<R, I> {
+    /// See [`AsyncZolanaClient::prove_transact`].
+    pub fn prove_transact(
+        &self,
+        proof_inputs: SppProofInputs,
+        config: Option<IndexerRpcConfig>,
+        authority: &dyn ProofAuthority,
+    ) -> Result<TransactIxData, ClientError> {
+        self.block_on(self.client.prove_transact(proof_inputs, config, authority))
     }
 }
 
 /// A signed private transaction on its way to the chain: who pays, who
-/// completes the proof inputs, and what proves it. [`Self::finish_unsigned_sync`]
-/// and [`Self::finish_unsigned`] build the message the fee payer signs.
+/// completes the proof inputs, and what proves it. [`Self::finish_unsigned`]
+/// builds the message the fee payer signs; [`Self::send`] signs, sends and
+/// confirms it.
 pub struct Submission<'a> {
     pub signed: &'a SignedPrivateTransaction,
     pub fee_payer: Address,
@@ -99,8 +134,8 @@ pub struct Submission<'a> {
     pub authority: &'a dyn ProofAuthority,
     /// Proves this submission in place of the client's prover, for a caller
     /// that chooses where each transaction is proved. As with
-    /// [`ZolanaClient::with_prover`], the client then fetches the proof data
-    /// itself, so the submission never takes the prover server's indexed
+    /// [`AsyncZolanaClient::with_prover`], the client then fetches the proof
+    /// data itself, so the submission never takes the prover server's indexed
     /// route.
     pub prover: Option<Arc<dyn Prover>>,
 }
@@ -133,67 +168,9 @@ impl<'a> Submission<'a> {
     /// exceeded the blockhash lifetime and the transaction was rejected at
     /// submission, having already paid for the sync and the proof: an
     /// 80-worker run lost 297 of 337 transfers to "Blockhash not found".
-    pub fn finish_unsigned_sync<R: Rpc, I: BlockingIndexer>(
-        self,
-        client: &ZolanaClient<R, I>,
-    ) -> Result<VersionedMessage, ClientError> {
-        let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
-        let (trees, data) = match (&self.prover, client.indexed_prover()) {
-            (None, Some(server)) => {
-                let proved = server.prove_indexed(
-                    &client
-                        .transfer_preparation(self.signed)
-                        .prepare(self.authority)?,
-                )?;
-                (
-                    indexed_trees(proved.input_tree_ids, &self.signed.transaction),
-                    proved.data,
-                )
-            }
-            (prover, _) => {
-                let prover = prover.as_deref().unwrap_or_else(|| client.prover());
-                let commitments = self.signed.transaction.input_utxo_hashes()?;
-                // The overlap this used to hand-roll lives in the reader now,
-                // which runs all the round trips together rather than two.
-                let witnesses = client.indexer.input_witnesses(
-                    &commitments,
-                    &self.signed.transaction.dummy_nullifiers(),
-                    None,
-                )?;
-                let mut assembled = assemble(
-                    self.signed.transaction.clone(),
-                    &witnesses.spend_proofs,
-                    &witnesses.dummy_nullifier_proofs,
-                )?;
-                let proof = {
-                    let _t = crate::prover::timing::Phase::start("prove_transfer", 0);
-                    assembled.prove(prover, self.authority)?
-                };
-                (
-                    transact_trees(&assembled, &self.signed.transaction),
-                    assembled.with_proof(proof),
-                )
-            }
-        };
-        // Last thing before building, so the blockhash is as young as it can be
-        // when the transaction reaches the cluster.
-        let (recent_blockhash, _) = client.rpc().get_latest_blockhash()?;
-        build_unsigned_message(
-            client.compute_budget(),
-            self.fee_payer,
-            trees,
-            owner_signers,
-            self.signed.settlement_transfers.clone(),
-            data,
-            recent_blockhash,
-        )
-    }
-
-    /// Async counterpart of [`Self::finish_unsigned_sync`]; a prover of this
-    /// submission's own runs on Tokio's blocking pool.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
-        self,
-        client: &ZolanaClient<R, I>,
+        &self,
+        client: &AsyncZolanaClient<R, I>,
     ) -> Result<VersionedMessage, ClientError> {
         let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
         let (trees, data) = match (&self.prover, client.indexed_prover()) {
@@ -212,32 +189,45 @@ impl<'a> Submission<'a> {
             }
             (prover, _) => {
                 let commitments = self.signed.transaction.input_utxo_hashes()?;
-                let witnesses = AsyncWitnessReader::input_witnesses(
-                    &client.indexer,
-                    &commitments,
-                    &self.signed.transaction.dummy_nullifiers(),
-                    None,
-                )
-                .await?;
+                let witnesses = client
+                    .indexer
+                    .input_witnesses(
+                        &commitments,
+                        &self.signed.transaction.dummy_nullifiers(),
+                        None,
+                    )
+                    .await?;
                 let mut assembled = assemble(
                     self.signed.transaction.clone(),
                     &witnesses.spend_proofs,
                     &witnesses.dummy_nullifier_proofs,
                 )?;
-                let inputs = &mut assembled.prover_inputs;
-                self.authority.complete_inputs(&mut inputs.inputs)?;
                 let proof = match prover {
-                    Some(prover) => prove_on_blocking_pool(Arc::clone(prover), inputs).await?,
-                    None => client.prove_transfer(inputs).await?,
+                    Some(prover) => {
+                        let inputs = &mut assembled.prover_inputs;
+                        self.authority.complete_inputs(&mut inputs.inputs)?;
+                        let proof = prove_on_blocking_pool(Arc::clone(prover), inputs).await?;
+                        verify_confidential_transfer_inputs(
+                            inputs,
+                            assembled.public_input_hash,
+                            &proof,
+                        )?;
+                        ProofCompressed::try_from(proof)?.to_transact_proof()
+                    }
+                    None => {
+                        client
+                            .prove_assembled(&mut assembled, self.authority)
+                            .await?
+                    }
                 };
-                verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
-                let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
                 (
                     transact_trees(&assembled, &self.signed.transaction),
                     assembled.with_proof(proof),
                 )
             }
         };
+        // Last thing before building, so the blockhash is as young as it can be
+        // when the transaction reaches the cluster.
         let (recent_blockhash, _) = client.rpc().get_latest_blockhash().await?;
         build_unsigned_message(
             client.compute_budget(),
@@ -248,6 +238,39 @@ impl<'a> Submission<'a> {
             data,
             recent_blockhash,
         )
+    }
+
+    /// Prove, sign with `signers`, send through `client` and wait until the
+    /// transaction is confirmed and indexed. `signers` are the fee payer and
+    /// the native owners the transaction's inputs name; one keypair playing
+    /// both roles signs once.
+    pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
+        &self,
+        client: &AsyncZolanaClient<R, I>,
+        signers: &[&dyn Signer],
+    ) -> Result<Signature, ClientError> {
+        let message = self.finish_unsigned(client).await?;
+        let transaction = sign_transaction(message, signers)?;
+        let signature = client.process_transaction(transaction).await?;
+        client.confirm_private_transaction(signature).await?;
+        Ok(signature)
+    }
+
+    /// See [`Self::finish_unsigned`].
+    pub fn finish_unsigned_sync<R: Rpc + Send + Sync + 'static, I: BlockingIndexer>(
+        &self,
+        client: &ZolanaClient<R, I>,
+    ) -> Result<VersionedMessage, ClientError> {
+        client.block_on(self.finish_unsigned(&client.client))
+    }
+
+    /// See [`Self::send`].
+    pub fn send_sync<R: Rpc + Send + Sync + 'static, I: BlockingIndexer>(
+        &self,
+        client: &ZolanaClient<R, I>,
+        signers: &[&dyn Signer],
+    ) -> Result<Signature, ClientError> {
+        client.block_on(self.send(&client.client, signers))
     }
 }
 

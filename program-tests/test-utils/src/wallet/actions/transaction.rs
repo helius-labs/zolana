@@ -29,7 +29,7 @@ use zolana_client::user_registry::{
     try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use zolana_client::{
-    client::{AsyncIndexer, BlockingIndexer, Submission, ZolanaClient},
+    client::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, Submission, ZolanaClient},
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction,
@@ -740,7 +740,7 @@ pub async fn build_private_transaction<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R, I>,
+    client: &AsyncZolanaClient<R, I>,
     fee_payer: Pubkey,
 ) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
@@ -754,7 +754,7 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc, 
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R, I>,
+    client: &AsyncZolanaClient<R, I>,
     fee_payer: &dyn Signer,
 ) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_with_signers(transaction, wallet, authority, client, fee_payer, &[])
@@ -771,7 +771,7 @@ pub async fn sign_private_transaction_with_signers<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R, I>,
+    client: &AsyncZolanaClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
@@ -790,7 +790,7 @@ pub async fn sign_private_transaction_with_signers<
 /// holds the fee-payer key elsewhere (an HSM or a custodian).
 pub fn build_private_transaction_sync<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc,
+    R: Rpc + Send + Sync + 'static,
     I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
@@ -806,7 +806,7 @@ pub fn build_private_transaction_sync<
 
 pub fn sign_private_transaction_sync<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc,
+    R: Rpc + Send + Sync + 'static,
     I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
@@ -828,7 +828,7 @@ pub fn sign_private_transaction_sync<
 /// Synchronous counterpart of [`sign_private_transaction_with_signers`].
 pub fn sign_private_transaction_sync_with_signers<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc,
+    R: Rpc + Send + Sync + 'static,
     I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,

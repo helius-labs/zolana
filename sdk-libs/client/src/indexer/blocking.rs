@@ -63,8 +63,7 @@ impl ZolanaIndexer {
 
     /// The runtime this indexer's calls run on, for a prover client built
     /// beside it.
-    #[cfg(feature = "reqwest")]
-    pub(crate) fn runtime(&self) -> Arc<BlockingRuntime> {
+    pub fn runtime(&self) -> Arc<BlockingRuntime> {
         Arc::clone(&self.runtime)
     }
 

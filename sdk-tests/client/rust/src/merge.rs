@@ -30,7 +30,10 @@ pub fn merge_instruction_data(
     Ok(merge.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?))
 }
 
-pub fn landed_slot<R: Rpc>(client: &ZolanaClient<R>, signature: Signature) -> Result<u64> {
+pub fn landed_slot<R: Rpc + Send + Sync + 'static>(
+    client: &ZolanaClient<R>,
+    signature: Signature,
+) -> Result<u64> {
     client
         .get_signature_statuses(vec![signature])?
         .first()
@@ -78,7 +81,7 @@ pub fn assert_merge_output_is_predicted(
 }
 
 /// The recipient received the transfer and the sender kept the change.
-pub fn assert_balances_after_transfer<R: Rpc>(
+pub fn assert_balances_after_transfer<R: Rpc + Send + Sync + 'static>(
     client: &ZolanaClient<R>,
     sender: &ShieldedKeypair,
     recipient: &ShieldedKeypair,

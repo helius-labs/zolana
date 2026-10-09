@@ -1,28 +1,28 @@
 # Clients
 
-A `ZolanaClient` owns the three services a private transaction needs: the
-Solana RPC (`R`), the indexer (`I`) and the prover. The indexer fixes the
-client's mode.
+A client owns the three services a private transaction needs: the Solana
+RPC (`R`), the indexer (`I`) and the prover.
 
 ## Blocking and async
 
-`ZolanaClient<R>`, over a `ZolanaIndexer`, blocks and implements `Rpc`;
-`AsyncZolanaClient<R>`, over an `AsyncZolanaIndexer`, is `async` and
-implements `AsyncRpc`. Build either from URLs, naming the mode where nothing
-else does, since Rust does not infer a default type parameter:
+`AsyncZolanaClient<R, I>` is the client; `ZolanaClient<R, I>` is the same
+client for blocking callers, run on a Tokio runtime it owns, over a blocking
+`R` and `I` lifted onto the blocking pool by `Blocking`. There is one
+implementation of everything; the blocking client runs it to completion.
 
 ```rust
-let client = ZolanaClient::<_>::from_urls(rpc, indexer_url, prover_url)?;
+let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url)?;
 let client = AsyncZolanaClient::from_urls(rpc, indexer_url, prover_url)?;
 ```
 
-or from the services themselves: `ZolanaClient::new(rpc, indexer, prover)`.
-`from_urls` accepts https, or http to loopback only; `check_service_url` is
-that check for a caller building its own services.
+or from the services: `ZolanaClient::new(rpc, indexer, prover)` with a
+`ZolanaIndexer` and a `ProverClient`, `AsyncZolanaClient::new` with their
+`async` counterparts. `from_urls` accepts https, or http to loopback only;
+`check_service_url` is that check for a caller building its own services.
 
-A blocking client is the `async` one run on a Tokio runtime it owns, the way
-`solana_rpc_client` drives its nonblocking client. Use it from plain threads
-or inside a multi-thread runtime; a `current_thread` runtime cannot host it.
+Use the blocking client from plain threads or inside a multi-thread runtime,
+as `solana_rpc_client`'s blocking client; a `current_thread` runtime cannot
+host it.
 
 ## Your own HTTP client
 
@@ -42,23 +42,27 @@ Without the `reqwest` feature neither crate links reqwest and only
 ## Proving and submitting
 
 ```rust
-let message = Submission::new(&signed, fee_payer, &authority)
-    .finish_unsigned_sync(&client)?;            // async: .finish_unsigned(&client).await
+let signature = Submission::new(&signed, fee_payer, &authority)
+    .send_sync(&client, &[&fee_payer_keypair])?;   // async: .send(&client, ..).await
 ```
 
+proves, signs, sends and waits until the transaction is confirmed and
+indexed. `finish_unsigned_sync` / `finish_unsigned` stop at the unsigned
+message, for a fee payer whose key lives elsewhere. The message carries a
+blockhash fetched after proving.
+
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
-prover of the caller's, such as one on the device; `ZolanaClient::with_prover`
-builds a client that proves every submission that way. Either prover only
+prover of the caller's, such as one on the device; `with_prover` on either
+client builds one that proves every submission that way. Either prover only
 proves what the client hands it, so the client fetches the proof data itself
-and nothing reaches a prover server. The message carries a blockhash fetched
-after proving.
+and nothing reaches a prover server.
 
 A TEE policy belongs to the prover server client: pass
 `ProverClient::new(url).with_tee(policy)` to `ZolanaClient::new`.
 
 ## In process: litesvm
 
-`Indexer` is open. An indexer is anything that answers the indexer half of
+Any indexer serves a client. A blocking one answers the indexer half of
 `Rpc` and implements `WitnessReader`, which has a default over `Rpc`:
 `impl WitnessReader for MyIndexer {}`. `zolana_program_test::ZolanaProgramTest`
 is one: `harness.into_client(ProverClient::local())

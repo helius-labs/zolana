@@ -11,7 +11,7 @@ use zolana_interface::state::cache::CacheAccount;
 use zolana_program::instruction::MergeTransact;
 use zolana_transaction::instructions::{merge::MergeProofInputs, transact::SppProofInputs};
 
-pub fn assemble_cached_transfer<R: Rpc>(
+pub fn assemble_cached_transfer<R: Rpc + Send + Sync + 'static>(
     client: &ZolanaClient<R>,
     tree: Address,
     proof_inputs: SppProofInputs,
@@ -25,7 +25,7 @@ pub fn assemble_cached_transfer<R: Rpc>(
 /// Polls the cache account until `slot` holds `commitment`. A production client
 /// subscribes to the account instead; with several merges sharing one cache it
 /// checks the slots it needs rather than counting confirmations.
-pub fn wait_for_cache_commitment<R: Rpc>(
+pub fn wait_for_cache_commitment<R: Rpc + Send + Sync + 'static>(
     client: &ZolanaClient<R>,
     cache: Address,
     slot: u8,
@@ -45,7 +45,7 @@ pub fn wait_for_cache_commitment<R: Rpc>(
 
 /// The transfer closed the cache in the same transaction and the rent went back
 /// to the sponsor that funded it.
-pub fn assert_cache_closed_and_refunded<R: Rpc>(
+pub fn assert_cache_closed_and_refunded<R: Rpc + Send + Sync + 'static>(
     client: &ZolanaClient<R>,
     cache: Address,
     rent_sponsor: Address,

@@ -9,8 +9,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    sign_transaction, IndexerRequirement, ProofDataSource, ProverClient, Rpc,
-    SignedPrivateTransaction, Submission,
+    IndexerRequirement, ProofDataSource, ProverClient, Rpc, SignedPrivateTransaction, Submission,
 };
 use zolana_interface::state::read_tree_id;
 use zolana_keypair::ShieldedKeypair;
@@ -78,14 +77,10 @@ fn a_client_over_the_harness_proves_and_sends_a_transfer() {
             .expect("encrypt"),
         settlement_transfers: Vec::new(),
     };
-    let message = Submission::new(&signed, payer.pubkey(), &sender)
-        .finish_unsigned_sync(&client)
-        .expect("prove and build");
-    let transaction = sign_transaction(message, &[&payer]).expect("sign");
-    let signature = client.process_transaction(transaction).expect("send");
-    client
-        .confirm_private_transaction_sync(signature)
-        .expect("confirmed and indexed");
+    let signature = Submission::new(&signed, payer.pubkey(), &sender)
+        .send_sync(&client, &[&payer])
+        .expect("proved, sent, confirmed and indexed");
+    assert!(client.confirm_transaction(signature).expect("confirmed"));
     assert!(client
         .indexer()
         .lock()

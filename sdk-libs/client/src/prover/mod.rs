@@ -25,7 +25,7 @@ pub use backend::{Prover, ProverExt};
 pub use client::{spawn_prover, ProverLaunch};
 pub use client::{
     AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest, ProverClient,
-    ProverServer, PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
+    PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
 pub use endpoint::redact_api_key;
 pub use inputs::{

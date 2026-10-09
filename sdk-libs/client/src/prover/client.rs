@@ -253,34 +253,6 @@ pub struct AsyncProverClient {
     tee: Option<TeeSession>,
 }
 
-/// A prover server client, blocking or `async`: what a `ZolanaClient` reads
-/// and sets on the prover it was built with.
-pub trait ProverServer {
-    fn proof_data_source(&self) -> ProofDataSource;
-    #[must_use]
-    fn with_proof_data_source(self, source: ProofDataSource) -> Self;
-}
-
-impl ProverServer for ProverClient {
-    fn proof_data_source(&self) -> ProofDataSource {
-        ProverClient::proof_data_source(self)
-    }
-
-    fn with_proof_data_source(self, source: ProofDataSource) -> Self {
-        ProverClient::with_proof_data_source(self, source)
-    }
-}
-
-impl ProverServer for AsyncProverClient {
-    fn proof_data_source(&self) -> ProofDataSource {
-        AsyncProverClient::proof_data_source(self)
-    }
-
-    fn with_proof_data_source(self, source: ProofDataSource) -> Self {
-        AsyncProverClient::with_proof_data_source(self, source)
-    }
-}
-
 #[cfg(feature = "reqwest")]
 impl Default for ProverClient {
     fn default() -> Self {
@@ -306,6 +278,12 @@ impl ProverClient {
 
     pub fn proof_data_source(&self) -> ProofDataSource {
         self.client.proof_data_source()
+    }
+
+    /// The `async` client this one runs and the runtime it runs it on, for a
+    /// blocking `ZolanaClient` built around them.
+    pub fn into_parts(self) -> (AsyncProverClient, Arc<BlockingRuntime>) {
+        (self.client, self.runtime)
     }
 
     #[cfg(feature = "reqwest")]
