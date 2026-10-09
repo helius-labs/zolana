@@ -1,6 +1,9 @@
 package aes
 
-import "math/bits"
+import (
+	"math/big"
+	"math/bits"
+)
 
 var sbox0 = [256]byte{
 	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
@@ -42,3 +45,38 @@ func substitutionTables() [4][256]uint32 {
 const gfModulus = 0x11b
 
 var byteOrder = []int{0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11}
+
+// SubstitutionTable returns the substitution lookup entries in insertion order:
+// regions 0..3 hold the spread MixColumns words, region 4 the spread S-box bytes.
+func SubstitutionTable() []*big.Int {
+	entries := make([]*big.Int, 0, substitutionSize)
+	for region := 0; region < sboxRegion; region++ {
+		for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
+			entries = append(entries, spreadValue(uint64(substitutionWords[region][byteValue]), bitsPerByte*wordBytes))
+		}
+	}
+	for byteValue := 0; byteValue < tableRegionSize; byteValue++ {
+		entries = append(entries, spreadValue(uint64(sbox0[byteValue]), bitsPerByte))
+	}
+	return entries
+}
+
+func SpreadByteTable() []*big.Int {
+	entries := make([]*big.Int, tableRegionSize)
+	for byteValue := range entries {
+		entries[byteValue] = spreadValue(uint64(byteValue), bitsPerByte)
+	}
+	return entries
+}
+
+func ChunkParityTable() []int {
+	entries := make([]int, chunkRadix)
+	for chunk := range entries {
+		entries[chunk] = chunkParity(chunk)
+	}
+	return entries
+}
+
+func SboxTable() [256]byte {
+	return sbox0
+}
