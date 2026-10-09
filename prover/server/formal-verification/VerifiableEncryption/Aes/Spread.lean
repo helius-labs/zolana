@@ -203,12 +203,20 @@ theorem chunks_unique {n : ℕ} (chunks : Fin n → ℕ) (hc : ∀ k, chunks k <
   rw [h]
   exact (digit_of_digits chunks hc k).symm
 
-theorem chunksTable_spec : ∀ c, c < 1296 → AesTables.chunkParity.getD c 0 = chunkParity c := by
+theorem getD_map_range {f : ℕ → ℕ} {n a : ℕ} (h : a < n) : ((List.range n).map f).getD a 0 = f a := by
+  simp [List.getD_eq_getElem?_getD, List.getElem?_range h]
+
+theorem chunkParity_eq : AesTables.chunkParity = (List.range 1296).map chunkParity := by
   decide +kernel
 
-theorem bytesTable_spec : ∀ a, a < 256 →
-    AesTables.spreadBytes.getD a 0 = spreadBits 8 a := by
+theorem spreadBytes_eq : AesTables.spreadBytes = (List.range 256).map (spreadBits 8) := by
   decide +kernel
+
+theorem chunksTable_spec (c : ℕ) (hc : c < 1296) : AesTables.chunkParity.getD c 0 = chunkParity c := by
+  rw [chunkParity_eq, getD_map_range hc]
+
+theorem bytesTable_spec (a : ℕ) (ha : a < 256) : AesTables.spreadBytes.getD a 0 = spreadBits 8 a := by
+  rw [spreadBytes_eq, getD_map_range ha]
 
 theorem bytesTable_spread8 (b : BitVec 8) :
     AesTables.spreadBytes.getD b.toNat 0 = spread8 b :=
