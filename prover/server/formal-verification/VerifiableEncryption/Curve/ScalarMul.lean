@@ -484,6 +484,126 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   rw [pNT2] at pA5 pA7
   rw [← hT1eq] at pA1 pA2 pA6 pA7
   rw [← hT2eq] at pA1 pA3 pA5 pA7
+  unfold ScalarMulChecked_8_8_8_h903d3456_p6 at h
+  elim_gates_shallow h
+  unfold ScalarMulChecked_8_8_8_h903d3456_p7 at h
+  elim_gates_shallow h
+  generalize_rows h as rows, hrows
+  have htab : TableOK rows (mkPoint hQ') (mkPoint hRon) := by
+    intro i
+    fin_cases i
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA1X hA1Y hHA1 hA1 qHA1 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA1]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA5X hA5Y hHA5 hA5 qHA5 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA5]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA6X hA6Y hHA6 hA6 qHA6 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA6]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA0X hA0Y hHA0 hA0 qHA0 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA0]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA3X hA3Y hHA3 hA3 qHA3 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA3]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA7X hA7Y hHA7 hA7 qHA7 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA7]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA4X hA4Y hHA4 hA4 qHA4 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA4]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA2X hA2Y hHA2 hA2 qHA2 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA2]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA2X hA2Y hHA2 hA2 qHA2 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA2]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA4X hA4Y hHA4 hA4 qHA4 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA4]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA7X hA7Y hHA7 hA7 qHA7 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA7]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA3X hA3Y hHA3 hA3 qHA3 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA3]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA0X hA0Y hHA0 hA0 qHA0 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA0]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA6X hA6Y hHA6 hA6 qHA6 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA6]; try abel) (fun h1 => by norm_num at h1)
+    · rw [← hrows]
+      exact rowOK_of2 (s := (-1)) hA5X hA5Y hHA5 hA5 qHA5 (Or.inr rfl) (vec8_eta _)
+        (by rw [(packed_limbs_neg _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_neg _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun h1 => by norm_num at h1) (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA5]; try abel)
+    · rw [← hrows]
+      exact rowOK_of2 (s := 1) hA1X hA1Y hHA1 hA1 qHA1 (Or.inl rfl) (vec8_eta _)
+        (by rw [(packed_limbs_pos _).1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.1]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [(packed_limbs_pos _).2.2]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (by rw [value_cast]; simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, get2_0, get2_1]; ring)
+        (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA1]; try abel) (fun h1 => by norm_num at h1)
   sorry
 
 end ZolanaVE.P256
