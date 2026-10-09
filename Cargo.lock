@@ -7048,8 +7048,10 @@ dependencies = [
  "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-clock",
+ "solana-hash",
  "solana-instruction",
  "solana-keypair",
+ "solana-message",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rent 4.3.0",
@@ -7058,6 +7060,7 @@ dependencies = [
  "solana-system-interface 3.2.0",
  "spl-token",
  "spl-token-2022-interface 2.1.0",
+ "spp-batch-program",
  "tokio",
  "wincode",
  "zolana-account-checks",
@@ -9520,6 +9523,15 @@ dependencies = [
  "solana-zero-copy",
  "spl-discriminator",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spp-batch-program"
+version = "0.1.0"
+dependencies = [
+ "pinocchio 0.11.2",
+ "pinocchio-system",
+ "zolana-interface",
 ]
 
 [[package]]

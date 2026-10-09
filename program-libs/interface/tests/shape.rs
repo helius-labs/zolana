@@ -16,7 +16,7 @@ fn max_transaction_addresses_is_the_v1_message_limit() {
 
 #[test]
 fn signer_width_is_one_payer_plus_the_owner_slots_for_every_supported_shape() {
-    let expected: [(Shape, usize); 38] = [
+    let expected: [(Shape, usize); 47] = [
         (Shape::IN1_OUT2, 2),
         (Shape::IN1_OUT4, 2),
         (Shape::IN1_OUT8, 2),
@@ -39,22 +39,31 @@ fn signer_width_is_one_payer_plus_the_owner_slots_for_every_supported_shape() {
         (Shape::IN6_OUT4, 7),
         (Shape::IN5_OUT16, 6),
         (Shape::IN6_OUT8, 7),
+        (Shape::IN4_OUT32, 5),
         (Shape::IN8_OUT2, 9),
         (Shape::IN8_OUT4, 9),
         (Shape::IN8_OUT8, 9),
         (Shape::IN8_OUT16, 9),
+        (Shape::IN4_OUT64, 5),
         (Shape::IN12_OUT2, 13),
         (Shape::IN12_OUT4, 13),
         (Shape::IN12_OUT8, 13),
         (Shape::IN16_OUT2, 17),
         (Shape::IN16_OUT4, 17),
         (Shape::IN16_OUT8, 17),
+        (Shape::IN4_OUT146, 5),
+        (Shape::IN4_OUT148, 5),
         (Shape::IN24_OUT2, 25),
         (Shape::IN24_OUT4, 25),
         (Shape::IN32_OUT2, 29),
+        (Shape::IN16_OUT140, 17),
+        (Shape::IN16_OUT142, 17),
         (Shape::IN40_OUT2, 21),
         (Shape::IN48_OUT2, 13),
         (Shape::IN49_OUT2, 12),
+        (Shape::IN57_OUT120, 4),
+        (Shape::IN57_OUT121, 4),
+        (Shape::IN58_OUT121, 3),
     ];
     assert_eq!(
         expected.map(|(shape, _)| shape),

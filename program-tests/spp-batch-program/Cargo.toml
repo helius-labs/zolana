@@ -1,0 +1,30 @@
+[package]
+name = "spp-batch-program"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Test-only batch settlement program: fills a batch account over several write
+# transactions, then settles every recorded output through one SPP `transact`
+# CPI whose instruction data it assembles on the heap.
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+no-entrypoint = []
+
+[dependencies]
+pinocchio = { workspace = true, features = ["alloc", "cpi"] }
+pinocchio-system = { workspace = true }
+zolana-interface = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("no-entrypoint"))',
+]

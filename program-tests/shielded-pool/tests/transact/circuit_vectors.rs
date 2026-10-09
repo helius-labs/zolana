@@ -275,7 +275,7 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
         *signer = small_fe(0x40 + index as u8);
     }
     for (index, owner) in derived.output_owner_pk_hashes.iter_mut().enumerate() {
-        *owner = small_fe(0x70 + index as u8);
+        *owner = small_fe(0x70u8.wrapping_add(index as u8));
     }
     for (index, asset) in derived.public_slot_assets.iter_mut().enumerate() {
         *asset = small_fe(0x80 + index as u8);

@@ -84,7 +84,7 @@ fn process_resolved_transact(
     resolved_outputs: &[ResolvedOutput<'_>],
 ) -> ProgramResult {
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
-    let mut owner_hashes = Box::new(OwnerHashCache::new());
+    let mut owner_hashes = OwnerHashCache::with_output_capacity(resolved_outputs.len());
     // 5. Check accounts.
     let mut transact_accounts = if ix.circuit.is_ring() {
         let (transact_accounts, ring_program_id) =

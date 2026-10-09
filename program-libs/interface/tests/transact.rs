@@ -86,7 +86,7 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
 /// then `MAX_CACHE_WRITES` `(output, slot)` byte pairs, unused pairs `0xff`.
 #[test]
 fn cached_circuit_id_carries_one_write_pair_per_output() {
-    assert_eq!(MAX_CACHE_WRITES, MAX_OUTPUTS);
+    const { assert!(MAX_CACHE_WRITES <= MAX_OUTPUTS) };
     let mut write_slots = CacheAccess::NO_WRITES;
     for (output, entry) in write_slots.iter_mut().enumerate() {
         *entry = CacheWrite {

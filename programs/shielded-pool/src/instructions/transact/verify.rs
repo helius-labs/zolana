@@ -6,7 +6,9 @@ use light_array_map::pubkey_eq;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use zolana_hasher::zero_suffix_hash_chain::{
+    create_padded_right_hash_chain_4, create_zero_suffix_right_hash_chain_4, PADDED_CHAIN_MAX_WIDTH,
+};
 use zolana_hasher::{
     hash_chain::create_hash_chain_4_from_slice,
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
@@ -50,12 +52,19 @@ struct OwnerHashEntry {
 /// collection identifies an already-counted signer.
 #[derive(Default)]
 pub struct OwnerHashCache {
-    entries: RefArrayVec<OwnerHashEntry, MAX_OWNER_HASHES>,
+    entries: Vec<OwnerHashEntry>,
 }
 
 impl OwnerHashCache {
+    #[cfg(feature = "test-sbf")]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_output_capacity(n_outputs: usize) -> Self {
+        Self {
+            entries: Vec::with_capacity(MAX_SIGNERS + n_outputs),
+        }
     }
 
     #[cfg(feature = "test-sbf")]
@@ -75,13 +84,14 @@ impl OwnerHashCache {
     }
 
     fn insert(&mut self, owner_tag: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+        if self.entries.len() >= MAX_OWNER_HASHES {
+            return Err(ShieldedPoolError::InvalidTransactShape.into());
+        }
         let hash = solana_owner_identity(owner_tag)?;
-        self.entries
-            .try_push(OwnerHashEntry {
-                owner_tag: *owner_tag,
-                hash,
-            })
-            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+        self.entries.push(OwnerHashEntry {
+            owner_tag: *owner_tag,
+            hash,
+        });
         Ok(hash)
     }
 
@@ -129,7 +139,7 @@ pub struct TransactProofInputs {
     /// `tree_id_field` of the tree every output is appended to.
     pub output_tree_id: [u8; 32],
     pub signer_pk_hashes: [[u8; 32]; MAX_SIGNERS],
-    pub output_owner_pk_hashes: [[u8; 32]; MAX_OUTPUTS],
+    pub output_owner_pk_hashes: Vec<[u8; 32]>,
     pub external_data_hash: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
@@ -162,7 +172,7 @@ impl TransactProofInputs {
             tree_slots: RefArrayVec::new(),
             output_tree_id: [0u8; 32],
             signer_pk_hashes: [[0u8; 32]; MAX_SIGNERS],
-            output_owner_pk_hashes: [[0u8; 32]; MAX_OUTPUTS],
+            output_owner_pk_hashes: vec![[0u8; 32]; MAX_OUTPUTS],
             external_data_hash: [0u8; 32],
             public_slot_assets: [[0u8; 32]; N_PUBLIC_SLOTS],
             public_slot_amounts: [0i128; N_PUBLIC_SLOTS],
@@ -280,16 +290,14 @@ impl TransactProofInputs {
         match mode {
             OutputOwnerMode::None => {}
             OutputOwnerMode::All => {
-                for (index, output) in resolved_outputs.iter().enumerate() {
-                    self.output_owner_pk_hashes[index] =
-                        owner_hashes.output_owner_hash(&output.owner_tag)?;
+                for (slot, output) in self.output_owner_pk_hashes.iter_mut().zip(resolved_outputs) {
+                    *slot = owner_hashes.output_owner_hash(&output.owner_tag)?;
                 }
             }
             OutputOwnerMode::ConfidentialMarked => {
-                for (index, output) in resolved_outputs.iter().enumerate() {
+                for (slot, output) in self.output_owner_pk_hashes.iter_mut().zip(resolved_outputs) {
                     if output.data.is_some_and(is_confidential_encrypted_output) {
-                        self.output_owner_pk_hashes[index] =
-                            owner_hashes.output_owner_hash(&output.owner_tag)?;
+                        *slot = owner_hashes.output_owner_hash(&output.owner_tag)?;
                     }
                 }
             }
@@ -466,10 +474,8 @@ impl<'a> TransactProof<'a> {
             self.ix.inputs.iter().map(|input| &input.nullifier_hash),
             n_in,
         )?;
-        let output_chain = create_padded_right_hash_chain_4(
-            self.ix.outputs.iter().map(|output| output.utxo_hash),
-            n_out,
-        )?;
+        let output_chain =
+            padded_chain(self.ix.outputs.iter().map(|output| output.utxo_hash), n_out)?;
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed
@@ -508,10 +514,7 @@ impl<'a> TransactProof<'a> {
             self.derived.input_flags,
         ]);
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
-            fields.push(create_padded_right_hash_chain_4(
-                output_owner_pk_hashes,
-                n_out,
-            )?);
+            fields.push(padded_chain(output_owner_pk_hashes, n_out)?);
             // Every owner-signed circuit hashes the cache selection, so a spend
             // that uses no cache publishes an empty one rather than omitting it.
             // Ring authority binds none and never reaches here.
@@ -670,6 +673,24 @@ pub static SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
         0x2c, 0x57,
     ],
 ];
+
+/// [`create_padded_right_hash_chain_4`] up to its stack buffer width; a wider
+/// output chain is padded on the heap, since its slots exceed the SBF frame.
+fn padded_chain<'a>(
+    sent: impl IntoIterator<Item = &'a [u8; 32]>,
+    width: usize,
+) -> Result<[u8; 32], ProgramError> {
+    if width <= PADDED_CHAIN_MAX_WIDTH {
+        return create_padded_right_hash_chain_4(sent, width).map_err(Into::into);
+    }
+    let mut slots = vec![[0u8; 32]; width];
+    for (index, value) in sent.into_iter().enumerate() {
+        *slots
+            .get_mut(index)
+            .ok_or(ShieldedPoolError::InvalidTransactShape)? = *value;
+    }
+    create_zero_suffix_right_hash_chain_4(&slots).map_err(Into::into)
+}
 
 pub fn fixed_signer_hash_chain(
     unique_signer_pk_hashes: &[[u8; 32]],

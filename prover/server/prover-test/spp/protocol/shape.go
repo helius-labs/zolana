@@ -60,27 +60,71 @@ var SupportedShapes = []Shape{
 	{NInputs: 6, NOutputs: 4},
 	{NInputs: 5, NOutputs: 16},
 	{NInputs: 6, NOutputs: 8},
+	{NInputs: 4, NOutputs: 32},
 	{NInputs: 8, NOutputs: 2},
 	{NInputs: 8, NOutputs: 4},
 	{NInputs: 8, NOutputs: 8},
 	{NInputs: 8, NOutputs: 16},
+	{NInputs: 4, NOutputs: 64},
 	{NInputs: 12, NOutputs: 2},
 	{NInputs: 12, NOutputs: 4},
 	{NInputs: 12, NOutputs: 8},
 	{NInputs: 16, NOutputs: 2},
 	{NInputs: 16, NOutputs: 4},
 	{NInputs: 16, NOutputs: 8},
+	{NInputs: 4, NOutputs: 146},
+	{NInputs: 4, NOutputs: 148},
 	{NInputs: 24, NOutputs: 2},
 	{NInputs: 24, NOutputs: 4},
 	{NInputs: 32, NOutputs: 2},
+	{NInputs: 16, NOutputs: 140},
+	{NInputs: 16, NOutputs: 142},
 	{NInputs: 40, NOutputs: 2},
 	{NInputs: 48, NOutputs: 2},
 	{NInputs: 49, NOutputs: 2},
+	{NInputs: 57, NOutputs: 120},
+	{NInputs: 57, NOutputs: 121},
+	{NInputs: 58, NOutputs: 121},
 }
 
-// AutoShapes is the smallest-fit search order. Every supported shape is
-// reachable by automatic selection, so it is the full SupportedShapes list.
-var AutoShapes = SupportedShapes
+// BatchSettlementShapes are keyed for explicit declaration only; automatic
+// selection skips them. Mirrors BATCH_SETTLEMENT_SHAPES in
+// program-libs/interface/src/shape.rs.
+var BatchSettlementShapes = []Shape{
+	{NInputs: 4, NOutputs: 32},
+	{NInputs: 4, NOutputs: 64},
+	{NInputs: 4, NOutputs: 146},
+	{NInputs: 4, NOutputs: 148},
+	{NInputs: 16, NOutputs: 140},
+	{NInputs: 16, NOutputs: 142},
+	{NInputs: 57, NOutputs: 120},
+	{NInputs: 57, NOutputs: 121},
+	{NInputs: 58, NOutputs: 121},
+}
+
+// IsBatchSettlement reports whether the shape is one of BatchSettlementShapes.
+func (s Shape) IsBatchSettlement() bool {
+	for _, shape := range BatchSettlementShapes {
+		if shape == s {
+			return true
+		}
+	}
+	return false
+}
+
+// AutoShapes is the smallest-fit search order: every supported shape except
+// the BatchSettlementShapes, in SupportedShapes order.
+var AutoShapes = autoShapes()
+
+func autoShapes() []Shape {
+	shapes := make([]Shape, 0, len(SupportedShapes))
+	for _, shape := range SupportedShapes {
+		if !shape.IsBatchSettlement() {
+			shapes = append(shapes, shape)
+		}
+	}
+	return shapes
+}
 
 // SmallestSupportedShape returns the smallest shape with a key that holds the
 // given real input/output counts, searching the full validation set.

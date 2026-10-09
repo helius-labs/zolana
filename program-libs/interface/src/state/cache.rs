@@ -26,8 +26,6 @@ const EMPTY_SLOT: [u8; 32] = [0u8; 32];
 const _: () = assert!(MAX_TRANSACT_INPUTS <= ZERO_SUFFIX_CHAIN_MAX_WIDTH);
 const _: () = assert!(MAX_MERGE_INPUTS <= ZERO_SUFFIX_CHAIN_MAX_WIDTH);
 const _: () = assert!(MAX_OUTPUTS <= ZERO_SUFFIX_CHAIN_MAX_WIDTH);
-// One write pair per output of the widest shape, each to a distinct slot.
-const _: () = assert!(MAX_CACHE_WRITES >= MAX_OUTPUTS);
 const _: () = assert!(MAX_CACHE_WRITES <= CACHE_CAPACITY);
 
 /// Bind optional cache writes to the existing transaction external-data hash.

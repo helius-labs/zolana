@@ -1,4 +1,4 @@
-pub use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
+pub use zolana_interface::shape::{Shape, BATCH_SETTLEMENT_SHAPES, SPP_SUPPORTED_SHAPES};
 
 use crate::error::TransactionError;
 
@@ -9,10 +9,13 @@ use crate::error::TransactionError;
 /// does not. A wider balance merges first.
 pub const MAX_SPEND_INPUTS: usize = 40;
 
-/// Shapes automatic selection may pick: every supported shape, in proving
-/// cost order, so the first one that fits is the cheapest.
+/// Shapes automatic selection may pick: every supported shape except the
+/// [`BATCH_SETTLEMENT_SHAPES`], in proving cost order, so the first one that
+/// fits is the cheapest. Batch-settlement shapes are declared explicitly.
 pub fn auto_shapes() -> impl Iterator<Item = Shape> {
-    SPP_SUPPORTED_SHAPES.into_iter()
+    SPP_SUPPORTED_SHAPES
+        .into_iter()
+        .filter(|shape| !shape.is_batch_settlement())
 }
 
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
