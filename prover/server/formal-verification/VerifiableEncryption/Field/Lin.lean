@@ -159,6 +159,9 @@ theorem intCast_list_sum (l : List ℤ) : ((l.sum : ℤ) : R) = (l.map (Int.cast
   | nil => simp
   | cons a l ih => simp [ih]
 
+theorem sumRange_congr' {α : Type*} [AddCommMonoid α] {n : ℕ} {f g : ℕ → α} (h : ∀ i, f i = g i) :
+    sumRange n f = sumRange n g := by rw [funext h]
+
 theorem sumRange_add (n : ℕ) (f g : ℕ → R) :
     sumRange n (fun i => f i + g i) = sumRange n f + sumRange n g := by
   simp only [sumRange_eq, Finset.sum_add_distrib]

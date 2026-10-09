@@ -111,6 +111,33 @@ func TestEmcurveChecksMatchExtractedGadgets(t *testing.T) {
 	t.Logf("%d extracted check gadgets, %d records", len(extracted), len(recorded))
 }
 
+func TestEmcurveInstancesRender(t *testing.T) {
+	checks, err := CollectEmcurveChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	modules, err := extractVE()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := RenderEmcurveInstances(checks, modules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	theorems := 0
+	for _, src := range files {
+		theorems += strings.Count(src, "_sound (")
+	}
+	if theorems != 161 {
+		t.Fatalf("%d instance soundness theorems, want 161", theorems)
+	}
+	if dir := os.Getenv("EMCURVE_CHECKS_OUT"); dir != "" {
+		for module, src := range files {
+			write(t, filepath.Join(dir, "Field", strings.TrimPrefix(module, "VerifiableEncryption.Field.")+".lean"), src)
+		}
+	}
+}
+
 func write(t *testing.T, path, content string) {
 	t.Helper()
 	if !strings.HasSuffix(content, "\n") {
