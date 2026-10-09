@@ -37,8 +37,8 @@ type point struct {
 type curve struct {
 	api    frontend.API
 	layout emfield.Layout
-	fp     *emfield.Field
-	fr     *emfield.Field
+	fp     *fieldOps
+	fr     *fieldOps
 	a      *fpElement
 	b      *fpElement
 }
@@ -55,8 +55,8 @@ func newCurveFor(api frontend.API, lookups bool) *curve {
 	return &curve{
 		api:    api,
 		layout: layout,
-		fp:     fp,
-		fr:     fr,
+		fp:     &fieldOps{fp},
+		fr:     &fieldOps{fr},
 		a:      fp.Const(new(big.Int).Sub(params.P, big.NewInt(3))),
 		b:      fp.Const(params.B),
 	}
@@ -77,7 +77,7 @@ func (c *curve) neg(p *point) *point {
 }
 
 // add uses incomplete affine addition; callers must establish distinct x-coordinates.
-func (c *curve) add(p, q *point) *point {
+func (c *curve) addConstrained(p, q *point) *point {
 	fp := c.fp
 	coordinates := fp.Hint(p256AddHint, 2, nil, p.X, p.Y, q.X, q.Y)
 	xDifference := fp.Sub(q.X, p.X)
@@ -101,7 +101,7 @@ func (c *curve) addReducing(p, q *point, reduceX, reduceY bool) *point {
 	return &point{X: x, Y: y}
 }
 
-func (c *curve) triple(p *point) *point {
+func (c *curve) tripleConstrained(p *point) *point {
 	tangentSlope := c.tangent(p)
 	doubledX := c.evalOrLazy(false, T(1, tangentSlope, tangentSlope), T(-2, p.X))
 	returnSlope := c.fp.Sub(c.ratio(c.fp.MulConst(p.Y, 2), c.fp.Sub(p.X, doubledX)), tangentSlope)

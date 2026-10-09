@@ -29,7 +29,7 @@ type FieldMulCheck struct {
 
 func (c *FieldMulCheck) Define(api frontend.API) error {
 	fp := emfield.NewFor(api, elliptic.P256().Params().P, emfield.LookupLayout)
-	product := fp.Eval(emfield.T(1, fp.Reduced(c.A[:]), fp.Reduced(c.B[:])))
+	product := fp.GadgetEval(emfield.T(1, fp.Reduced(c.A[:]), fp.Reduced(c.B[:])))
 	for i, limb := range product.Limbs() {
 		api.AssertIsEqual(limb, c.Out[i])
 	}

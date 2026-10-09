@@ -140,7 +140,7 @@ func (c *curve) scalarMulLadder(inputPoint *point, scalar *frElement) *point {
 	return product
 }
 
-func (c *curve) quadrupleAndAddLazy(accumulator, selectedPoint *point, halfSlope frontend.Variable) *point {
+func (c *curve) quadrupleAndAddLazyConstrained(accumulator, selectedPoint *point, halfSlope frontend.Variable) *point {
 	fp := c.fp
 	tangentSlope := c.tangent(accumulator)
 	doubledX := fp.Lazy(T(1, tangentSlope, tangentSlope), T(-2, accumulator.X))
@@ -297,7 +297,7 @@ func (c *curve) unpackedY(packed []frontend.Variable) *fpElement {
 	return c.fp.WithBounds(yLimbs, lowerBounds, upperBounds)
 }
 
-func (c *curve) halfTangentSlope(t *point) *fpElement {
+func (c *curve) halfTangentSlopeConstrained(t *point) *fpElement {
 	fp := c.fp
 	lambda := c.hintSlope(p256HalfTangentHint, 1, nil, t.X, t.Y)[0]
 	square := fp.Lazy(T(1, lambda, lambda))
@@ -305,7 +305,7 @@ func (c *curve) halfTangentSlope(t *point) *fpElement {
 	return lambda
 }
 
-func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) {
+func (c *curve) assertDistinctSlopeConstrained(lambda *fpElement, other frontend.Variable) {
 	api := c.api
 	p := c.fp.Modulus()
 	pp := new(big.Int).Mul(p, p)
@@ -316,7 +316,7 @@ func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) 
 	api.AssertIsDifferent(api.Mul(factor(api.Sub(value, other)), factor(api.Add(value, other))), 0)
 }
 
-func (c *curve) assertDistinctX(p, q *fpElement) {
+func (c *curve) assertDistinctXConstrained(p, q *fpElement) {
 	c.api.AssertIsDifferent(c.xDifferenceSquares(p, q), 0)
 }
 

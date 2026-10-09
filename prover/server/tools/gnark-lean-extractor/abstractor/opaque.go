@@ -102,7 +102,14 @@ func writeHashed(sb *strings.Builder, v reflect.Value) {
 	}
 }
 
-// ParamHash returns the first 8 hex digits of the SHA-256 of the gadget's
+// HashedGadget supplies its own name hash instead of the field encoding of
+// ParamHash, for gadgets whose hash must match a key computed elsewhere. The
+// hash must cover every parameter that shapes the gadget body.
+type HashedGadget interface {
+	GadgetHash() string
+}
+
+// ParamHash returns, for a HashedGadget, its GadgetHash; otherwise the first 8 hex digits of the SHA-256 of the gadget's
 // exported parameter fields that are neither variables nor scalar integers
 // (bool, big.Int, *big.Int and slices or arrays of integers or of these). The
 // encoding is `Name=value;` per field in declaration order, with big integers
@@ -112,6 +119,9 @@ func writeHashed(sb *strings.Builder, v reflect.Value) {
 // Exported fields of any other kind panic: they would silently merge distinct
 // gadget bodies under one name.
 func ParamHash(gadget any) string {
+	if h, ok := gadget.(HashedGadget); ok {
+		return h.GadgetHash()
+	}
 	v := reflect.Indirect(reflect.ValueOf(gadget))
 	t := v.Type()
 	var sb strings.Builder

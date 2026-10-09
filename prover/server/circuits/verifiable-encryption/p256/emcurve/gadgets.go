@@ -35,19 +35,32 @@ func (g RowLookup) OpaqueOutputs() int {
 	return len(g.Rows[0])
 }
 
+// fieldOps routes the polynomial checks of every curve method through the
+// CheckPolynomial and Lazy extraction gadgets; on a builder they are the
+// plain Field methods.
+type fieldOps struct {
+	*emfield.Field
+}
+
+func (f *fieldOps) Eval(terms ...emfield.Term) *fpElement { return f.GadgetEval(terms...) }
+
+func (f *fieldOps) AssertZero(terms ...emfield.Term) { f.GadgetAssertZero(terms...) }
+
+func (f *fieldOps) Lazy(terms ...emfield.Term) *fpElement { return f.GadgetLazy(terms...) }
+
 const (
 	baseField  = 0
 	orderField = 1
 )
 
-func (c *curve) field(id int) *emfield.Field {
+func (c *curve) field(id int) *fieldOps {
 	if id == orderField {
 		return c.fr
 	}
 	return c.fp
 }
 
-func (c *curve) fieldID(f *emfield.Field) int {
+func (c *curve) fieldID(f *fieldOps) int {
 	if f == c.fr {
 		return orderField
 	}
@@ -152,7 +165,7 @@ func (g AssertCanonical) DefineGadget(api frontend.API) interface{} {
 	return nil
 }
 
-func (c *curve) assertCanonical(f *emfield.Field, e *fpElement) {
+func (c *curve) assertCanonical(f *fieldOps, e *fpElement) {
 	if !abstractor.Extracting(c.api) {
 		f.AssertCanonical(e)
 		return
