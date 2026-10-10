@@ -17,7 +17,7 @@ lean_lib FormalVerification {
 }
 
 lean_lib VerifiableEncryption {
-  globs := #[.submodules `VerifiableEncryption]
+  globs := #[.andSubmodules `VerifiableEncryption]
   moreLeanArgs := #["--tstack=65520", "-DmaxRecDepth=10000", "-DmaxHeartbeats=200000000"]
 }
 
