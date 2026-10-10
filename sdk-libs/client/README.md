@@ -76,17 +76,22 @@ let merge = MergeTransaction::new(inputs)?
     .with_output_tree_id(tree_id)
     .with_expiry(now + 600)
     .encrypt(&keys)?;
-let signature = MergeSubmission::new(&merge, owner, &address, &nullifier_key, fee_payer)
-    .send_sync(&client, &[&fee_payer_keypair])?;
+let submission = MergeSubmission::new(&merge, owner, &address, &nullifier_key);
+let signature = submission.send_sync(&client, &fee_payer)?;
 ```
 
 `with_output_tree_id` is required in practice: without it the merged UTXO is
 appended to tree 0. Pass the inputs' tree, or the tree the indexer names for
 new outputs when that one is full or paused.
 
-`MergeSubmission` checks the owner's record (merging enabled, same keys),
-fetches the witness, proves, verifies the proof, then signs, sends and waits
-as `Submission` does; `finish_unsigned_sync` stops at the message. Set an expiry: until it passes,
+`prove_sync` checks the owner's record (merging enabled, same keys), fetches
+the witness, proves and verifies the proof. The proof binds no fee payer, so
+the `ProvedMerge` it returns is for any payer: `proved.instruction(payer)` is
+the `merge_transact` to put in any message, for example a relayer's.
+`finish_unsigned_sync(&client, fee_payer)` builds the message the payer signs
+alone; `send_sync` signs, sends and waits as `Submission` does. As for
+`Submission`, the generics and the blocking or async choice sit on these
+methods, so `MergeSubmission` itself is a plain borrow. Set an expiry: until it passes,
 anyone holding the proof can submit it. The proof request carries the
 owner's nullifier secret, so a prover other than this process learns it and
 every merged amount; `MergeSubmission::with_prover` keeps it in process.

@@ -231,9 +231,8 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         ctx.material.owner_pubkey(),
         &address,
         &keypair.nullifier_key,
-        payer(&ctx),
     )
-    .send_sync(&client, &[&ctx.material.funding])?;
+    .send_sync(&client, &ctx.material.funding)?;
 
     println!(
         "ok merge inputs={} amount={} mint={} signature={}",

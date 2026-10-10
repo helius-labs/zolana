@@ -141,20 +141,21 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
         .encrypt(&wallet)
         .expect("encrypt");
     assert_eq!(merge.output_utxo.amount, 600_000);
-    let submission = MergeSubmission::new(
-        &merge,
-        owner.pubkey(),
-        &address,
-        &wallet.nullifier_key,
-        payer.pubkey(),
-    );
-    let unsigned = submission.finish_unsigned_sync(&client).expect("proved");
+    let submission = MergeSubmission::new(&merge, owner.pubkey(), &address, &wallet.nullifier_key);
+    // The proof binds no payer: any account can send the instruction.
+    let proved = submission.prove_sync(&client).expect("proved");
     assert_eq!(
-        unsigned.output_hash,
+        proved.output_hash,
         merge.output_hash().expect("output hash")
     );
+    let relayer = Keypair::new();
+    let instruction = proved.instruction(relayer.pubkey());
+    assert!(instruction
+        .accounts
+        .iter()
+        .any(|account| account.pubkey == relayer.pubkey() && account.is_signer));
     let signature = submission
-        .send_sync(&client, &[&payer])
+        .send_sync(&client, &payer)
         .expect("proved, sent, confirmed and indexed");
     assert!(client.confirm_transaction(signature).expect("confirmed"));
     let indexer = client.indexer().lock();
