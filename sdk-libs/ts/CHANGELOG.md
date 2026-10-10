@@ -225,6 +225,9 @@ Changed
 
 Fixed
 
+- A direct `decryptTransactions` call without `config.syncedAt` reset
+  `wallet.lastSynced` to zero, discarding the timestamp a completed sync had
+  recorded; the recorded timestamp now survives a direct decode pass.
 - A proof a prover of this release refused with `429` could be refused again
   on retry, `ZolanaClient` now asks that prover to queue the retried proof.
 - Wallet sync skipped the output of a merge with more than eight inputs, such

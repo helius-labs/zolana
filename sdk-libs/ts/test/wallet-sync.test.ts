@@ -481,6 +481,23 @@ describe("wallet sync", () => {
     expect(report).toMatchObject({ storedUtxos: 0, unparsedTransactions: 0 });
   });
 
+  it("keeps the recorded sync time when a direct decrypt records none", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    try {
+      await decryptTransactions({ wallet, keys, transactions: [], config: { syncedAt: 42n } });
+      expect(wallet.lastSynced).toBe(42n);
+
+      // A direct decode pass has no timestamp to record; the one a completed
+      // sync recorded earlier must survive it.
+      await decryptTransactions({ wallet, keys, transactions: [] });
+      expect(wallet.lastSynced).toBe(42n);
+    } finally {
+      keys.destroy();
+    }
+  });
+
   it("resumes each tag stream from where it was read to", async () => {
     // Without this every sync re-reads the wallet's whole history: 569 ECDH
     // operations for a wallet holding a handful of UTXOs, growing forever.
