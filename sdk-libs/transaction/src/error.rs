@@ -102,6 +102,14 @@ pub enum TransactionError {
     #[error("input slot 0 must be a real input utxo, not padding")]
     DummyInFirstInputSlot,
 
+    /// A transaction built from proof inputs pads itself; compact padding
+    /// passed in would lose its compact marker on the way to a wallet UTXO.
+    #[error("input {index} is compact padding; pass real inputs and let the transaction pad")]
+    CompactProofInput { index: usize },
+
+    #[error("input {index} reads from a cache, which a confidential transaction does not support")]
+    CachedProofInput { index: usize },
+
     #[error("input slot {index} is real but follows padding; padding inputs must come last")]
     RealInputAfterDummy { index: usize },
 

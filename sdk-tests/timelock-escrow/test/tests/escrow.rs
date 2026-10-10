@@ -21,7 +21,9 @@ use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
 use zolana_test_utils::wallet::sync_wallet;
 use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{
+        ConfidentialTransaction, ExternalData, SppProofInputs, SppProofOutputUtxo,
+    },
     Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -195,51 +197,29 @@ fn escrow_then_withdraw() -> Result<()> {
     let escrow_input_utxo = escrow_utxo
         .to_input_utxo(localnet.tree_id, escrow_state.leaf_index)
         .map_err(|e| anyhow!("escrow input_utxo: {e:?}"))?;
-    let input_utxos = vec![escrow_input_utxo];
-    // SPP has no 1x1 circuit: the withdraw is proved at 1x2, and the second
-    // output slot is compact padding the instruction leaves out.
-    let mut withdraw_outputs = vec![
-        source_output,
-        SppProofOutputUtxo {
-            compact: true,
-            ..Default::default()
-        },
-    ];
-    let blinding_seed = prepare_output_blindings(&input_utxos, &mut withdraw_outputs)?;
-    let [source_output, compact_output]: [_; 2] = withdraw_outputs
-        .try_into()
-        .map_err(|_| anyhow!("withdraw transaction must have two output slots"))?;
+    let mut withdraw = ConfidentialTransaction::from_proof_inputs(
+        vec![escrow_input_utxo],
+        creator_address.solana_address()?,
+    )
+    .and_then(|withdraw| withdraw.with_output_tree_id(localnet.tree_id))
+    .map_err(|e| anyhow!("withdraw transaction: {e:?}"))?;
+    withdraw
+        .add_output_utxo(source_output)
+        .map_err(|e| anyhow!("withdraw source output: {e:?}"))?;
+    let mut withdraw_spp_proof_inputs = withdraw
+        .encrypt(&creator.keypair)
+        .map_err(|e| anyhow!("encrypt withdraw: {e:?}"))?;
+    withdraw_spp_proof_inputs.external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
+    // Declared outputs keep their slots, so slot 0 is the blinded source output.
+    let source_output = withdraw_spp_proof_inputs
+        .output_utxos
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow!("withdraw transaction has no source output"))?;
     let source_output_blinding = source_output.blinding;
     let source_output_hash = source_output
         .hash(localnet.tree_id)
         .map_err(|e| anyhow!("source output hash: {e:?}"))?;
-
-    let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
-        .map_err(|e| anyhow!("withdraw transaction viewing key: {e:?}"))?;
-    let encoded = encrypt_transaction_data(
-        std::slice::from_ref(&source_output),
-        &transaction_viewing_key,
-        localnet.tree_id,
-    )
-    .map_err(|e| anyhow!("encode withdraw slots: {e:?}"))?;
-
-    let mut external_data = ExternalData::new(
-        *transaction_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![],
-    );
-    external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-    let withdraw_spp_proof_inputs = SppProofInputs {
-        input_utxos,
-        output_utxos: [encoded.output_utxos, vec![compact_output]].concat(),
-        external_data,
-        payer: creator_address.solana_address()?,
-        blinding_seed,
-        output_tree_id: localnet.tree_id,
-        cache_accounts: Default::default(),
-    };
 
     let withdraw_proof_inputs = WithdrawProofInputParams {
         escrow_utxo: escrow_utxo.clone(),
