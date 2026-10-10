@@ -1,0 +1,329 @@
+"""Generate VerifiableEncryption/Aes/EnvelopeAes.lean.
+
+Usage, from prover/server/formal-verification:
+
+    python3 scripts/gen_aes_envelope.py VerifiableEncryption/Aes/EnvelopeAes.lean
+
+The AES-CTR code of both envelope circuits is inline in their extracted bodies.
+It starts in part _p1 at the `AesKeyExpansion_32` call, whose continuation looks
+up nonce bytes 20 and 21 and calls part _p2. This script emits one theorem per
+envelope whose hypothesis is exactly that `AesKeyExpansion_32 ...` term, so the
+envelope proof applies it where its walk reaches the call:
+
+* `envelope16_aes`: Envelope_32_65_16_16; the AES segment runs to the end of the
+  body and the conclusion is the ctrEncrypt equation for the 16-byte ciphertext.
+* `envelopeMerge_aes`: EnvelopeMerge_32_65_40_4; three counter blocks (2, 3, 4,
+  the last one 8 bytes). The code after the last final round is emitted
+  verbatim as `EnvelopeMergeTail`, read from VerifiableEncryption/Circuit/Top.lean,
+  and the conclusion applies it to the three ciphertext blocks.
+
+The walk mirrors the gadget order of the extracted parts; rerun this script and
+rebuild after a re-extraction.
+"""
+import os
+import re
+import sys
+
+out_path = sys.argv[1]
+here = os.path.dirname(os.path.abspath(__file__))
+top_path = os.path.join(here, "..", "VerifiableEncryption", "Circuit", "Top.lean")
+with open(top_path) as f:
+    top_src = f.read()
+
+
+def definition(name):
+    for chunk in re.split(r"\n(?=def )", top_src):
+        if chunk.startswith(f"def {name} "):
+            return chunk
+    raise SystemExit(f"definition {name} not found")
+
+
+W = "(keyExpansion256 (keyBytes Key))"
+
+
+def blk(c):
+    return f"(counterBlock (nonceOf Nb) {c})"
+
+
+def T(c, r):
+    return f"(roundsFrom {W} {blk(c)} {r})"
+
+
+def RK(r):
+    return f"(fun i : Fin 16 => rkByte {W} ⟨16 * {r} + i.val, by omega⟩)"
+
+
+def column_source(c, r):
+    return 4 * ((c + r) % 4) + r
+
+
+lines = []
+emit = lines.append
+
+SIMP_H = "  simp (config := { maxSteps := 10000000 }) only [vec2_get0, vec2_get1, List.Vector.get_ofFn] at h"
+
+
+def lookups(count, name):
+    for n in count:
+        emit("  replace h := keyByte_step hL h")
+        emit(f"  obtain ⟨{name}{n}, h⟩ := h")
+
+
+def nonce_and_state0(counter):
+    lookups(range(2, 12), "hn")
+    for _ in range(12):
+        emit("  replace h := let_step h")
+    for g in range(3):
+        emit(f"  replace h := nonceWord_cps hL {W} (nonceOf Nb) {g} (by norm_num) rfl rfl rfl rfl h")
+
+
+def state0_entry_proof(counter, c, r):
+    si = column_source(c, r)
+    if si < 12:
+        return "rfl"
+    return f"(by rw [show columnSource {c} {r} = ⟨{si}, by norm_num⟩ from rfl, state0_{si}] <;> rfl)"
+
+
+def round1_columns(counter):
+    for c in (1, 2, 3):
+        es = " ".join(state0_entry_proof(counter, c, r) for r in range(4))
+        emit(f"  replace h := roundColumnLit_cps hL {T(counter, 0)} {RK(1)} {T(counter, 1)} "
+             f"(rounds_step _ _ 0 (by norm_num)) {c}")
+        emit(f"    {es} rfl rfl rfl rfl h")
+
+
+def rounds(counter, unfold_before=None):
+    for r in range(2, 14):
+        if unfold_before is not None and r == unfold_before[0]:
+            emit(f"  unfold {unfold_before[1]} at h")
+            emit(SIMP_H)
+        emit(f"  replace h := round4_cps hL {T(counter, r - 1)} {RK(r)} {T(counter, r)} "
+             f"(rounds_step _ _ {r - 1} (by norm_num))")
+        emit("    " + " ".join(["rfl"] * 16) + " h")
+
+
+def pt_index(pt_offset):
+    return "⟨i.val, by omega⟩" if pt_offset == 0 else f"⟨{pt_offset} + i.val, by omega⟩"
+
+
+def final16(counter, pt_offset):
+    emit(f"  replace h := finalRound_cps hL {T(counter, 13)} {RK(14)} "
+         f"(fun i : Fin 16 => bytesOf Pt {pt_index(pt_offset)})")
+    emit("    (by intro i; fin_cases i <;> rfl) (by intro i; fin_cases i <;> rfl)")
+    emit("    (by intro i; fin_cases i <;> rfl) h")
+
+
+def theorem_head(name, part2, extra_args, conclusion):
+    emit("set_option maxHeartbeats 4000000 in")
+    emit(f"theorem {name} (hL : AesLookupSem) {{Key Nb : List.Vector F 32}}")
+    for a in extra_args:
+        emit(f"    {a}")
+    emit(f"    (h : AesKeyExpansion_32 Key fun g397 => SpreadByteLookup (Nb.get 20) fun g398 =>")
+    emit(f"      SpreadByteLookup (Nb.get 21) fun g399 => {part2}) :")
+    emit("    (∀ n, Key.get n = ((keyBytes Key n).toNat : F)) ∧")
+    emit("    (∀ i : Fin 12, Nb.get ⟨20 + i.val, by omega⟩ = ((nonceOf Nb i).toNat : F)) ∧")
+    emit("    (∀ n, Pt.get n = ((bytesOf Pt n).toNat : F)) ∧")
+    for line in conclusion:
+        emit(f"    {line}")
+    emit("  replace h := keyExpansion_cps hL h")
+    emit("  obtain ⟨hk, h⟩ := h")
+    lookups(range(2), "hn")
+
+
+def nonce_facts():
+    emit("  · intro i")
+    emit("    fin_cases i")
+    for n in range(12):
+        emit(f"    · exact hn{n}")
+
+
+def pt_facts(count):
+    emit("  · intro n")
+    emit("    fin_cases n")
+    for n in range(count):
+        emit(f"    · exact hp{n}")
+
+
+emit("-- Code generated by scripts/gen_aes_envelope.py. DO NOT EDIT.")
+emit("")
+emit("import VerifiableEncryption.Aes.MultiBlock")
+emit("import VerifiableEncryption.Aes.Sound")
+emit("")
+emit("/-!")
+emit("The AES-CTR segments of the extracted envelope circuits. See")
+emit("`scripts/gen_aes_envelope.py` for the interface.")
+emit("-/")
+emit("")
+emit("namespace ZolanaVE.Aes")
+emit("")
+emit("open ZolanaVE")
+emit("")
+emit("/-- The nonce: bytes 20 to 31 of the KDF output bytes `Nb`. -/")
+emit("def nonceOf (Nb : List.Vector F 32) : Fin 12 → Byte :=")
+emit("  fun i => BitVec.ofNat 8 (Nb.get ⟨20 + i.val, by omega⟩).val")
+emit("")
+emit("variable [Fact (Nat.Prime Order)]")
+emit("")
+
+merge3 = definition("EnvelopeMerge_32_65_40_4_p3")
+sig_end = merge3.index(": Prop :=")
+signature = merge3[:sig_end]
+body = merge3[sig_end + len(": Prop :="):]
+param_types = dict(re.findall(r"\((\w+): ([^()]*(?:\([^()]*\))*[^()]*)\)", signature))
+final8 = re.search(r"AesFinalRound_16_8_8 .* fun (gate_\d+) =>\n", body)
+block3_out = final8.group(1)
+final16_in_p3 = re.search(r"AesFinalRound_16_16_16 .* fun (gate_\d+) =>\n", body)
+block2_out = final16_in_p3.group(1)
+tail = body[final8.end():].rstrip()
+bound = set(re.findall(r"(?:∃|fun )(gate_\d+)", tail))
+used = []
+for g in re.findall(r"gate_\d+", tail):
+    if g not in bound and g not in used:
+        used.append(g)
+block1_out = [g for g in used if g not in (block2_out, block3_out) and
+              param_types.get(g, "").strip() == "List.Vector F 16"]
+if len(block1_out) != 1:
+    raise SystemExit(f"cannot identify the block-1 output among {used}")
+block1_out = block1_out[0]
+passthrough = [g for g in used if g not in (block1_out, block2_out, block3_out)]
+tail_params = ["(Elements : List.Vector F 4)", "(Blinding : F)"]
+tail_params += [f"({g} : {param_types[g].strip()})" for g in passthrough]
+tail_params += [f"({block1_out} : List.Vector F 16)", f"({block2_out} : List.Vector F 16)",
+                f"({block3_out} : List.Vector F 8)"]
+emit("/-- The constraints of `EnvelopeMerge_32_65_40_4_p3` after its last final round, verbatim;")
+emit(f"`{block1_out}`, `{block2_out}` and `{block3_out}` are the three ciphertext blocks. -/")
+emit("def EnvelopeMergeTail " + " ".join(tail_params) + " : Prop :=")
+emit(tail)
+emit("")
+
+# Envelope_32_65_16_16
+emit("theorem colVec_round1 (w : Fin 60 → Word) (nonce : Fin 12 → Byte) {a b : ℕ} (ha : a < 256)")
+emit("    (hb : b < 256) (c : Fin 4) (hc : c ≠ 0) :")
+emit("    colVec (roundsFrom w (counterBlock nonce a) 1) c = colVec (roundsFrom w (counterBlock nonce b) 1) c := by")
+emit("  unfold colVec")
+emit("  congr 1")
+emit("  funext j")
+emit("  rw [round1_col_eq w nonce ha hb c hc j]")
+emit("")
+emit("theorem cachedSum_counter (w : Fin 60 → Word) (nonce : Fin 12 → Byte) {a b : ℕ} (ha : a < 256)")
+emit("    (hb : b < 256) (rk : Fin 4 → Byte) :")
+emit("    cachedSum (roundsFrom w (counterBlock nonce a) 0 0) (roundsFrom w (counterBlock nonce a) 0 5)")
+emit("      (roundsFrom w (counterBlock nonce a) 0 10) rk =")
+emit("    cachedSum (roundsFrom w (counterBlock nonce b) 0 0) (roundsFrom w (counterBlock nonce b) 0 5)")
+emit("      (roundsFrom w (counterBlock nonce b) 0 10) rk := by")
+emit("  rw [state0_ne15 w nonce ha hb 0 (by decide), state0_ne15 w nonce ha hb 5 (by decide),")
+emit("    state0_ne15 w nonce ha hb 10 (by decide)]")
+emit("")
+
+env16_part2 = ("Envelope_32_65_16_16_p2 Esk Rpk Pt RLo RHi ELo EHi Ct g259 g263 g364 Nb g397 g398 g399")
+theorem_head("envelope16_aes", env16_part2,
+             ["{Esk : List.Vector F 32} {Rpk : List.Vector F 65} {Pt Ct : List.Vector F 16}",
+              "{RLo RHi ELo EHi g259 g263 : F} {g364 : List.Vector F 2}"],
+             ["g259 = RLo ∧ g263 = RHi ∧ g364.get 0 = ELo ∧ g364.get 1 = EHi ∧",
+              "(∀ n, Ct.get n = ((bytesOf Ct n).toNat : F)) ∧",
+              "List.ofFn (bytesOf Ct) = ctrEncrypt (keyBytes Key) (nonceOf Nb) (List.ofFn (bytesOf Pt)) := by"])
+emit("  unfold Envelope_32_65_16_16_p2 at h")
+emit(SIMP_H)
+nonce_and_state0(2)
+lookups(range(16), "hp")
+round1_columns(2)
+emit(f"  replace h := cachedColumn_cps hL {T(2, 0)} {RK(1)} {T(2, 1)} (rounds_step _ _ 0 (by norm_num))")
+emit(f"    (rkByte {W} 15) (state0_15 _ _) rfl rfl rfl rfl rfl rfl rfl rfl h")
+rounds(2)
+final16(2, 0)
+emit("  simp only [gate_eq] at h")
+emit("  obtain ⟨r0, r1, r2, r3, " + ", ".join(f"e{n}" for n in range(16)) + ", -⟩ := h")
+emit("  have hc : ∀ i, Ct.get i = ((encryptBlock (keyBytes Key) (counterBlock (nonceOf Nb) 2) i ^^^")
+emit("      bytesOf Pt i).toNat : F) := by")
+emit("    intro i")
+emit("    rw [encryptBlock_byte]")
+emit("    fin_cases i")
+for n in range(16):
+    emit(f"    · exact e{n}.symm")
+emit("  have hcb : ∀ i, bytesOf Ct i =")
+emit("      encryptBlock (keyBytes Key) (counterBlock (nonceOf Nb) 2) i ^^^ bytesOf Pt i :=")
+emit("    fun i => bytesOf_natCast (hc i)")
+emit("  refine ⟨hk, ?_, ?_, r0, r1, r2, r3, fun n => by rw [hcb n, hc n], ?_⟩")
+nonce_facts()
+pt_facts(16)
+emit("  · rw [ctrEncrypt_one_block]")
+emit("    congr 1")
+emit("    funext i")
+emit("    rw [hcb i, BitVec.xor_comm]")
+emit("")
+
+# EnvelopeMerge_32_65_40_4
+merge_part2 = ("EnvelopeMerge_32_65_40_4_p2 Esk Rpk Pt Ctx El Bl gate_259 gate_263 gate_364 gate_381 "
+               "Nb g397 g398 g399")
+
+
+def c_block(counter, size, rk_offset_expr, pt_offset):
+    idx = "⟨i.val, by omega⟩" if size == 8 else "i"
+    return (f"(fun i : Fin {size} => sb ({T(counter, 13)} (columnSource (columnOf {idx}) "
+            f"(rowOf {idx}))) ^^^ rkByte {W} ⟨16 * 14 + i.val, by omega⟩ ^^^ "
+            f"bytesOf Pt {pt_index(pt_offset)})")
+
+
+theorem_head("envelopeMerge_aes", merge_part2,
+             ["{Esk : List.Vector F 32} {Rpk : List.Vector F 65} {Pt : List.Vector F 40} {Ctx Bl : F}",
+              "{El : List.Vector F 4} {gate_259 gate_263 gate_381 : F} {gate_364 : List.Vector F 2}"],
+             ["∃ c1 c2 : Fin 16 → Byte, ∃ c3 : Fin 8 → Byte,",
+              "  List.ofFn c1 ++ List.ofFn c2 ++ List.ofFn c3 =",
+              "    ctrEncrypt (keyBytes Key) (nonceOf Nb) (List.ofFn (bytesOf Pt)) ∧",
+              "  EnvelopeMergeTail El Bl " + " ".join(passthrough) +
+              " (List.Vector.ofFn fun i => ((c1 i).toNat : F))",
+              "    (List.Vector.ofFn fun i => ((c2 i).toNat : F)) (List.Vector.ofFn fun i => ((c3 i).toNat : F)) := by"])
+emit("  unfold EnvelopeMerge_32_65_40_4_p2 at h")
+emit(SIMP_H)
+nonce_and_state0(2)
+lookups(range(16), "hp")
+round1_columns(2)
+rk1 = f"(fun j : Fin 4 => rkByte {W} ⟨16 + j.val, by omega⟩)"
+emit(f"  replace h := cachedSum_cps hL ({T(2, 0)} 0) ({T(2, 0)} 5) ({T(2, 0)} 10) {rk1}")
+emit("    rfl rfl rfl rfl rfl rfl rfl h")
+
+
+def col_zero(counter, cb_lemma):
+    hsc = "rfl" if counter == 2 else \
+        f"(cachedSum_counter _ _ (by norm_num : {counter} < 256) (by norm_num : 2 < 256) _).symm"
+    emit(f"  replace h := colZero_cps hL {T(counter, 0)} {RK(1)} {T(counter, 1)} "
+         f"(rounds_step _ _ 0 (by norm_num))")
+    emit(f"    (rkByte {W} 15) {counter}#8 (state0_15c _ _ (by norm_num))")
+    emit(f"    (fun _ h' => {cb_lemma} hL _ rfl h') {hsc} h")
+
+
+col_zero(2, "counterByte_cps")
+rounds(2)
+final16(2, 0)
+lookups(range(16, 32), "hp")
+col_zero(3, "counterByte3_cps")
+for c in (1, 2, 3):
+    emit(f"  rw [colVec_round1 {W} (nonceOf Nb) (by norm_num : 2 < 256) (by norm_num : 3 < 256) {c} "
+         f"(by decide)] at h")
+rounds(3, unfold_before=(12, "EnvelopeMerge_32_65_40_4_p3"))
+final16(3, 16)
+lookups(range(32, 40), "hp")
+col_zero(4, "counterByte4_cps")
+for c in (1, 2, 3):
+    emit(f"  rw [colVec_round1 {W} (nonceOf Nb) (by norm_num : 3 < 256) (by norm_num : 4 < 256) {c} "
+         f"(by decide)] at h")
+rounds(4)
+emit(f"  replace h := finalRound8_cps hL {T(4, 13)} (fun i : Fin 8 => rkByte {W} ⟨16 * 14 + i.val, by omega⟩)")
+emit("    (fun i : Fin 8 => bytesOf Pt ⟨32 + i.val, by omega⟩)")
+emit("    (by intro i; fin_cases i <;> rfl) (by intro i; fin_cases i <;> rfl)")
+emit("    (by intro i; fin_cases i <;> rfl) h")
+emit("  refine ⟨hk, ?_, ?_, ?_⟩")
+nonce_facts()
+pt_facts(40)
+emit(f"  · refine ⟨{c_block(2, 16, None, 0)},")
+emit(f"      {c_block(3, 16, None, 16)},")
+emit(f"      {c_block(4, 8, None, 32)}, ?_, h⟩")
+emit("    rw [ctrEncrypt_40]")
+emit("    refine congrArg₂ (· ++ ·) (congrArg₂ (· ++ ·) ?_ ?_) ?_ <;> congr 1 <;> funext i <;>")
+emit("      rw [encryptBlock_byte] <;> exact BitVec.xor_comm _ _")
+emit("")
+emit("end ZolanaVE.Aes")
+emit("")
+
+with open(out_path, "w") as f:
+    f.write("\n".join(lines))
