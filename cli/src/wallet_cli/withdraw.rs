@@ -20,7 +20,7 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
+    let ctx = sync_context(&opts.network.sync, &rpc)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;

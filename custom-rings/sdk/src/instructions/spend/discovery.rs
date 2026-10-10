@@ -1,5 +1,7 @@
 use solana_address::Address;
-use zolana_client::{indexer::decode_shielded_transaction, AsyncRpc, ClientError, Rpc};
+use zolana_client::{
+    indexer::decode_shielded_transaction, AsyncRpc, ClientError, IndexerRpcConfig, Rpc,
+};
 use zolana_indexer_api::{Hash, RingSpendRecord, RingSpendRecordRequest, SerializablePubkey};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
@@ -49,9 +51,26 @@ pub struct ReadSpendRecord {
     pub ring: CustomRing,
     pub address_tree_id: u16,
     pub member: Member,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl ReadSpendRecord {
+    pub fn new(ring: CustomRing, address_tree_id: u16, member: Member) -> Self {
+        Self {
+            ring,
+            address_tree_id,
+            member,
+            indexer_config: None,
+        }
+    }
+
+    /// [`Self::read`] waits until the indexer has persisted
+    /// `config.require_slot`, so a spend just made is read.
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
+        self
+    }
+
     /// `None` until the member registers.
     pub fn read_current<I: Rpc, R: Rpc>(
         self,
@@ -110,7 +129,7 @@ impl ReadSpendRecord {
         let lookup = self.lookup()?;
         let lineages = Lineages {
             lookups: &[lookup],
-            config: None,
+            config: self.indexer_config,
         }
         .fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
@@ -123,7 +142,7 @@ impl ReadSpendRecord {
         let lookup = self.lookup()?;
         let lineages = Lineages {
             lookups: &[lookup],
-            config: None,
+            config: self.indexer_config,
         }
         .fetch_async(indexer)
         .await?;
@@ -365,12 +384,7 @@ mod tests {
     }
 
     fn read(rpc: &NullifierRpc) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        ReadSpendRecord {
-            ring: ring(),
-            address_tree_id: ADDRESS_TREE_ID,
-            member: member(),
-        }
-        .read(rpc)
+        ReadSpendRecord::new(ring(), ADDRESS_TREE_ID, member()).read(rpc)
     }
 
     #[test]
@@ -424,21 +438,17 @@ mod tests {
         let address = owner().spend_address(&member(), ADDRESS_TREE_ID).unwrap();
         let (record, hash, nullifier) = version_in(1, SECOND_TREE_ID);
         let transaction = spender_in(address, &record, hash, SECOND_TREE_ID);
-        let live = ReadSpendRecord {
-            ring: ring(),
-            address_tree_id: ADDRESS_TREE_ID,
-            member: member(),
-        }
-        .lookup()
-        .unwrap()
-        .decode(
-            &address,
-            SpentSlot {
-                transaction: &transaction,
-                slot: &transaction.output_slots[0],
-            },
-        )
-        .expect("decoded");
+        let live = ReadSpendRecord::new(ring(), ADDRESS_TREE_ID, member())
+            .lookup()
+            .unwrap()
+            .decode(
+                &address,
+                SpentSlot {
+                    transaction: &transaction,
+                    slot: &transaction.output_slots[0],
+                },
+            )
+            .expect("decoded");
         let pda = |tree_id| {
             zolana_interface::pda::nullifier_pda(&zolana_interface::pda::tree(tree_id), &nullifier)
                 .0
@@ -521,11 +531,7 @@ mod tests {
     }
 
     fn current(member: Member) -> ReadSpendRecord {
-        ReadSpendRecord {
-            ring: ring(),
-            address_tree_id: ADDRESS_TREE_ID,
-            member,
-        }
+        ReadSpendRecord::new(ring(), ADDRESS_TREE_ID, member)
     }
 
     #[test]

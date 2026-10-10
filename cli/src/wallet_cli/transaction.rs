@@ -24,7 +24,7 @@ use super::{
     material::WalletMaterial,
     resolve::{get_network, ResolvedNetworkOptions},
     spend::{send_private, Send},
-    sync::{sync_context, wait_for_indexed_leaf, SyncContext},
+    sync::{sync_context, sync_rpc, wait_for_indexed_leaf, SyncContext},
     util::{
         ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey,
         resolve_spl_token_program,
@@ -67,7 +67,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
+    let ctx = sync_context(&opts.network.sync, &rpc)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;
@@ -107,7 +107,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
 /// utxos those actions accept (only `plain` utxos can be split or merged).
 pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
-    let ctx = sync_context(&opts.sync)?;
+    let ctx = sync_context(&opts.sync, &sync_rpc(&opts.sync)?)?;
     let mut count = 0usize;
     for entry in ctx
         .spendable
@@ -139,7 +139,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
+    let ctx = sync_context(&opts.network.sync, &rpc)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
     let max_parts = Shape::IN1_OUT16.n_outputs() as u8;
@@ -224,7 +224,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
+    let ctx = sync_context(&opts.network.sync, &rpc)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
     let hashes = opts

@@ -153,13 +153,11 @@ impl<'a> MemberRecovery<'a> {
         let source_member = self.source.verify()?;
         let RecoveryEnvironment { ring, assets } = env;
         let auditor_pk = self.recovery.auditor.pubkey();
-        let mut scan = RingScan::new(self.recovery.ring_program_id, &auditor_pk)
+        let page = RingScan::new(self.recovery.ring_program_id, &auditor_pk)
             .with_page_size(self.recovery.page_size)
-            .with_max_pages(self.recovery.max_pages);
-        if let Some(config) = self.recovery.indexer_config {
-            scan = scan.with_indexer_config(config);
-        }
-        let page = scan.run(ring)?;
+            .with_max_pages(self.recovery.max_pages)
+            .indexer_config(self.recovery.indexer_config)
+            .run(ring)?;
         if page.next_cursor.is_some() {
             return Err(RecoveryError::IncompleteScan);
         }

@@ -40,7 +40,6 @@ struct Indexer {
     spends: Vec<ShieldedTransaction>,
     queried_tags: RefCell<Vec<Vec<[u8; 32]>>>,
     queried_nullifiers: RefCell<Vec<[u8; 32]>>,
-    /// The slot each read required the indexer to have persisted.
     required_slots: RefCell<Vec<Option<u64>>>,
 }
 
@@ -396,7 +395,6 @@ fn every_read_requires_the_slot_of_the_indexer_config() {
         .unwrap();
     assert_eq!(spendable.utxos().count(), 0);
     let required = indexer.required_slots.take();
-    // The tagged transactions, the deposits, and the spends of the deposit.
     assert!(required.len() >= 3, "{required:?}");
     assert!(
         required.iter().all(|slot| *slot == Some(42)),

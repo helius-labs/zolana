@@ -123,6 +123,12 @@ impl<'a> RingScan<'a> {
         self
     }
 
+    #[must_use = "use the updated scan"]
+    pub(crate) fn indexer_config(mut self, config: Option<IndexerRpcConfig>) -> Self {
+        self.indexer_config = config;
+        self
+    }
+
     pub fn run<I: Rpc, O: TransactionOrigin>(
         self,
         env: RingEnvironment<'_, I, O>,
@@ -231,12 +237,10 @@ impl<'a> RingAudit<'a> {
         let auditor_key = self.auditor.pubkey();
         let mut scan = RingScan::new(self.ring_program_id, &auditor_key)
             .with_page_size(self.page_size)
-            .with_max_pages(self.max_pages);
+            .with_max_pages(self.max_pages)
+            .indexer_config(self.indexer_config);
         if let Some(cursor) = self.cursor {
             scan = scan.with_cursor(cursor);
-        }
-        if let Some(config) = self.indexer_config {
-            scan = scan.with_indexer_config(config);
         }
         let page = scan.run(env)?;
         let transactions = page

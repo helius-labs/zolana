@@ -396,7 +396,6 @@ describe("wallet sync freshness", () => {
   // A Photon at slot 5 that reaches slot 10 after the first transaction tag
   // read. Every other read still answers at slot 5.
   function laggingClient(requireSlot: bigint) {
-    // The slot each tag read was answered at.
     const tagReads: number[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
       const { method } = JSON.parse(String(init?.body)) as { method: string };

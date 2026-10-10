@@ -270,15 +270,12 @@ struct History {
     transactions: Vec<ShieldedTransaction>,
     queried: RefCell<Vec<Vec<[u8; 32]>>>,
     foreign: Vec<Signature>,
-    /// The slot each read required.
     required_slots: RefCell<Vec<Option<u64>>>,
 }
 
-/// The slot the history is indexed to.
 const INDEXED: u64 = 100;
 
 impl History {
-    /// An indexer that lags fails a read that requires a later slot.
     fn read(&self, config: Option<IndexerRpcConfig>) -> Result<(), ClientError> {
         let required = config.and_then(|config| config.require_slot);
         self.required_slots.borrow_mut().push(required);
@@ -617,7 +614,6 @@ fn every_read_requires_the_slot_and_an_indexer_behind_it_fails_the_recovery() {
     let recovered = fixture.run(recovery(INDEXED), &history).expect("recover");
     assert_eq!(recovered.utxos, vec![merged]);
     let required = history.required_slots.take();
-    // The auditor scan, the deposit history and the spend history.
     assert!(required.len() >= 3, "{required:?}");
     assert!(required.iter().all(|slot| *slot == Some(INDEXED)));
 

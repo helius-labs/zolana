@@ -28,21 +28,34 @@ pub struct ReadEntry {
     pub namespace: Address,
     pub list_id: ListId,
     pub member: Member,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl ReadEntry {
+    pub fn new(address_tree_id: u16, namespace: Address, list_id: ListId, member: Member) -> Self {
+        Self {
+            address_tree_id,
+            namespace,
+            list_id,
+            member,
+            indexer_config: None,
+        }
+    }
+
+    /// Every request waits until the indexer has persisted
+    /// `config.require_slot`: an indexer behind the latest update reads back
+    /// the version before it.
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
+        self
+    }
+
     /// `None` when the address was never claimed, a cleared entry still reads back.
-    /// Each read waits as `config` says: an indexer behind the latest update
-    /// reads back the version before it.
-    pub fn read<I: Rpc>(
-        self,
-        indexer: &I,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<Option<LiveEntry>, EntryProofError> {
+    pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
         let lineages = Lineages {
             lookups: &[lookup],
-            config,
+            config: self.indexer_config,
         }
         .fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
@@ -51,12 +64,11 @@ impl ReadEntry {
     pub async fn read_async<I: AsyncRpc>(
         self,
         indexer: &I,
-        config: Option<IndexerRpcConfig>,
     ) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
         let lineages = Lineages {
             lookups: &[lookup],
-            config,
+            config: self.indexer_config,
         }
         .fetch_async(indexer)
         .await?;
@@ -449,8 +461,6 @@ pub(crate) mod tests {
         pub spenders: Vec<ShieldedTransaction>,
         pub page_size: Option<usize>,
         pub requests: Mutex<Vec<Vec<[u8; 32]>>>,
-        /// The slot each request required.
-        pub required_slots: Mutex<Vec<Option<u64>>>,
     }
 
     impl NullifierRpc {
@@ -459,7 +469,6 @@ pub(crate) mod tests {
                 spenders,
                 page_size: None,
                 requests: Mutex::new(Vec::new()),
-                required_slots: Mutex::new(Vec::new()),
             }
         }
 
@@ -467,12 +476,7 @@ pub(crate) mod tests {
             &self,
             nullifiers: Vec<[u8; 32]>,
             cursor: Option<Vec<u8>>,
-            config: Option<zolana_client::IndexerRpcConfig>,
         ) -> GetShieldedTransactionsByNullifiersResponse {
-            self.required_slots
-                .lock()
-                .expect("required slots")
-                .push(config.and_then(|config| config.require_slot));
             self.requests
                 .lock()
                 .expect("requests")
@@ -514,9 +518,9 @@ pub(crate) mod tests {
             nullifiers: Vec<[u8; 32]>,
             cursor: Option<Vec<u8>>,
             _limit: Option<u32>,
-            config: Option<zolana_client::IndexerRpcConfig>,
+            _config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Ok(self.page(nullifiers, cursor, config))
+            Ok(self.page(nullifiers, cursor))
         }
     }
 
@@ -527,20 +531,20 @@ pub(crate) mod tests {
             nullifiers: Vec<[u8; 32]>,
             cursor: Option<Vec<u8>>,
             _limit: Option<u32>,
-            config: Option<zolana_client::IndexerRpcConfig>,
+            _config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Ok(self.page(nullifiers, cursor, config))
+            Ok(self.page(nullifiers, cursor))
         }
     }
 
     fn read(lookup: EntryLookup, rpc: &NullifierRpc) -> Result<Option<LiveEntry>, EntryProofError> {
-        ReadEntry {
-            address_tree_id: lookup.address_tree_id,
-            namespace: namespace(),
-            list_id: lookup.list_id,
-            member: lookup.member,
-        }
-        .read(rpc, None)
+        ReadEntry::new(
+            lookup.address_tree_id,
+            namespace(),
+            lookup.list_id,
+            lookup.member,
+        )
+        .read(rpc)
     }
 
     #[test]
@@ -592,43 +596,10 @@ pub(crate) mod tests {
         );
         let rpc = NullifierRpc::new(lineage.spenders());
         let live = futures::executor::block_on(
-            ReadEntry {
-                address_tree_id: 0,
-                namespace: namespace(),
-                list_id: ListId::Block,
-                member: member(2),
-            }
-            .read_async(&rpc, None),
+            ReadEntry::new(0, namespace(), ListId::Block, member(2)).read_async(&rpc),
         )
         .expect("walk");
         assert_eq!(live, lineage.live());
-    }
-
-    #[test]
-    fn every_request_of_a_walk_requires_the_slot_of_the_config() {
-        let lineage = Lineage::new(
-            lookup(ListId::Allow, member(1)),
-            &[EntryState::Active, EntryState::Cleared],
-        );
-        let rpc = NullifierRpc::new(lineage.spenders());
-        let entry = || ReadEntry {
-            address_tree_id: 0,
-            namespace: namespace(),
-            list_id: ListId::Allow,
-            member: member(1),
-        };
-        let config = Some(IndexerRpcConfig::at_slot(42));
-        assert_eq!(entry().read(&rpc, config).expect("walk"), lineage.live());
-        assert_eq!(
-            futures::executor::block_on(entry().read_async(&rpc, config)).expect("walk"),
-            lineage.live()
-        );
-        let required = rpc.required_slots.lock().expect("required slots");
-        assert_eq!(required.len(), rpc.requests.lock().expect("requests").len());
-        assert!(
-            required.iter().all(|slot| *slot == Some(42)),
-            "{required:?}"
-        );
     }
 
     #[test]

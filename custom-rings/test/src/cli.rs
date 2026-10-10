@@ -86,13 +86,8 @@ impl RingProject {
             .address_tree_id();
         let deadline = Instant::now() + INDEXING_TIMEOUT;
         let live = loop {
-            let read = ReadEntry {
-                address_tree_id,
-                namespace,
-                list_id: write.list_id,
-                member,
-            };
-            match read.read(indexer, None) {
+            let read = ReadEntry::new(address_tree_id, namespace, write.list_id, member);
+            match read.read(indexer) {
                 Ok(Some(live)) if live.entry.state == write.state => break live,
                 _ if Instant::now() > deadline => {
                     bail!("{:?} {:?} entry not indexed", write.list_id, write.state)

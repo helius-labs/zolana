@@ -2,8 +2,8 @@ use std::{collections::BTreeSet, path::Path};
 
 use custom_ring_sdk::{
     ring_authority_width, CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput,
-    KeyRegistrationError, ReadSealedKey, SetDelegate, TransactSend, TransferProofEnvironment,
-    SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    KeyRegistrationError, ReadCurrentSealedKey, ReadEnvironment, SetDelegate, TransactSend,
+    TransferProofEnvironment, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -160,10 +160,6 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     .load(ctx)?;
     // 2. The auditor key decrypts recovery material, it does not sign.
     let auditor = ring_auditor_key(ctx, &auditor_key)?;
-    let registry = ctx
-        .ring
-        .read_key_registry_root(&ctx.rpc)?
-        .ok_or(DelegateError::NoKeyRegistry)?;
     let member = Member::owner_tag(
         &source
             .confidential_view_tag()
@@ -175,15 +171,18 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     let assets = assets::resolve(&ctx.rpc, mint)
         .map_err(TransactError::from)?
         .registry;
-    let read = ReadSealedKey {
+    let read = ReadCurrentSealedKey {
         ring: ctx.ring,
         member,
-        root: registry,
     };
-    let nullifier_key = match read.read(&indexer) {
-        Ok(entry) => entry
+    let nullifier_key = match read.read(ReadEnvironment {
+        indexer: &indexer,
+        rpc: &ctx.rpc,
+    }) {
+        Ok(Some(entry)) => entry
             .open(&auditor)
             .map_err(|error| DelegateError::Registry(Box::new(error)))?,
+        Ok(None) => return Err(DelegateError::NoKeyRegistry),
         Err(KeyRegistrationError::Client(error))
             if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
         {
@@ -261,7 +260,8 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         outputs,
     })
     .with_output_tree_id(tree_id)
-    .with_assets(&assets);
+    .with_assets(&assets)
+    .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?));
     if let Some(cosigner) = &cosigner {
         transfer = transfer.with_cosigner(cosigner.pubkey());
     }

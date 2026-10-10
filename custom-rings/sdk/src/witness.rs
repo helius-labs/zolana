@@ -6,7 +6,7 @@ use custom_ring_interface::PolicyConfig;
 use solana_account::Account;
 use solana_address::Address;
 use zolana_client::prover::indexed::{IndexedPolicyLookup, ProofDataSource};
-use zolana_client::{AsyncRpc, MerkleProof, NonInclusionProof, Rpc};
+use zolana_client::{AsyncRpc, IndexerRpcConfig, MerkleProof, NonInclusionProof, Rpc};
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::{
     instruction::instruction_data::transact::TreeContext,
@@ -120,6 +120,9 @@ pub struct CustomRingWitnessInput<'a> {
     pub velocity: VelocityProofInput,
     /// `None` with escrow off.
     pub key_registry: Option<KeyRegistry>,
+    /// The policy entries are read once the indexer has persisted
+    /// `require_slot`.
+    pub indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl<'a> CustomRingWitnessInput<'a> {
@@ -426,7 +429,7 @@ impl<'a> WitnessPlan<'a> {
     fn lineages(&self) -> Lineages<'_, EntryLookup> {
         Lineages {
             lookups: &self.lookups,
-            config: None,
+            config: self.input.indexer_config,
         }
     }
 
@@ -1171,6 +1174,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         let refused = OutputKey {
             owner_pk_hash: member
@@ -1218,6 +1222,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
 
         assert_eq!(
@@ -1242,6 +1247,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(2000);
         assert!(!input
@@ -1259,6 +1265,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         assert!(below
             .guard_exempts(&guarded, &member)
@@ -1280,6 +1287,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         assert!(!input
             .guard_exempts(&guarded, &member)
@@ -1293,6 +1301,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         assert!(split
             .guard_exempts(&guarded, &member)
@@ -1331,6 +1340,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         assert!(input.guard_exempts(rule, &owner).expect("at both limits"));
 
@@ -1343,6 +1353,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         assert!(!input
             .guard_exempts(rule, &owner)
@@ -1357,6 +1368,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         assert!(matches!(
             input.guard_exempts(rule, &owner),
@@ -1376,6 +1388,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         };
         let guarded = Rule::require(Subject::Sender, ListId::Allow).above(u64::MAX);
         assert!(!input.guard_exempts(&guarded, &member).expect("sender"));
@@ -1427,6 +1440,7 @@ mod tests {
                 ..velocity_off()
             },
             key_registry: None,
+            indexer_config: None,
         };
         assert_eq!(windowed.active_input_count(), 2);
         assert_eq!(
@@ -1647,6 +1661,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1691,6 +1706,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1714,6 +1730,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1744,6 +1761,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
@@ -1768,6 +1786,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1790,6 +1809,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1821,6 +1841,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1859,6 +1880,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1893,6 +1915,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -1927,6 +1950,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1949,6 +1973,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");
@@ -2032,6 +2057,7 @@ mod tests {
             output_tree_id: 0,
             velocity: velocity_off(),
             key_registry: None,
+            indexer_config: None,
         }
         .build_with_source(&rpc, &rpc, ProofDataSource::Client)
         .expect("witness");

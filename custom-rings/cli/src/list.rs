@@ -229,14 +229,14 @@ impl EntryMutation<'_> {
         let address_tree = PoolTree::address_tree(&config);
         // An indexer behind the last update would read back the state before
         // it, and a request for that state would end here unapplied.
-        let indexed = IndexerRpcConfig::at_slot(rpc.get_slot()?);
-        let live = ReadEntry {
-            address_tree_id: address_tree.id,
-            namespace: self.ring.namespace_pda(),
-            list_id: self.list_id,
-            member: self.member,
-        }
-        .read(environment.indexer, Some(indexed))?;
+        let live = ReadEntry::new(
+            address_tree.id,
+            self.ring.namespace_pda(),
+            self.list_id,
+            self.member,
+        )
+        .with_indexer_config(IndexerRpcConfig::at_slot(rpc.get_slot()?))
+        .read(environment.indexer)?;
         let proven = match live {
             None => CreateEntry {
                 ring: self.ring,
@@ -335,18 +335,16 @@ impl EntryArg {
             .ring
             .read_policy_config(&ctx.rpc)?
             .ok_or(ListError::NoPolicy)?;
-        let live = ReadEntry {
-            address_tree_id: config.address_tree_id(),
-            namespace: config
+        let live = ReadEntry::new(
+            config.address_tree_id(),
+            config
                 .source_for(self.list_id)
                 .unwrap_or_else(|| ctx.ring.namespace_pda()),
-            list_id: self.list_id,
-            member: self.member.member()?,
-        }
-        .read(
-            &ctx.indexer(),
-            Some(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?)),
-        )?
+            self.list_id,
+            self.member.member()?,
+        )
+        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?))
+        .read(&ctx.indexer())?
         .ok_or(ListError::NoEntry {
             list_id: self.list_id,
             member: self.member,

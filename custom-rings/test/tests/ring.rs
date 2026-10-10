@@ -2064,14 +2064,8 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         })
     };
     let member = Member::owner_tag(sender_address.as_array())?;
-    let read_record = || {
-        ReadSpendRecord {
-            ring,
-            address_tree_id: 0,
-            member,
-        }
-        .read_current(ReadEnvironment { indexer, rpc })
-    };
+    let read_record =
+        || ReadSpendRecord::new(ring, 0, member).read_current(ReadEnvironment { indexer, rpc });
 
     // Nothing moves before the sender registers.
     let unregistered = prove(prepare(notes.clone(), FIRST_SEND)?, None)
@@ -2127,12 +2121,8 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     let other_member = Member::owner_tag(other.pubkey().as_array())?;
     wait_for_spend_record(
         || {
-            ReadSpendRecord {
-                ring,
-                address_tree_id: 0,
-                member: other_member,
-            }
-            .read_current(ReadEnvironment { indexer, rpc })
+            ReadSpendRecord::new(ring, 0, other_member)
+                .read_current(ReadEnvironment { indexer, rpc })
         },
         0,
     )?;

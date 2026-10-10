@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 use zolana_transaction::{Address, SpendableDecryptionResult, SOL_MINT};
 
 use super::{
-    sync::sync_context,
+    sync::{sync_context, sync_rpc},
     util::{format_address, parse_address},
 };
 use crate::args::BalanceOptions;
@@ -32,7 +32,7 @@ fn amounts(
 }
 
 pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
-    let ctx = sync_context(&opts.sync)?;
+    let ctx = sync_context(&opts.sync, &sync_rpc(&opts.sync)?)?;
     let (default_ring, rings) = amounts(&ctx.spendable);
     let amount_of = |mint: Address| {
         default_ring
