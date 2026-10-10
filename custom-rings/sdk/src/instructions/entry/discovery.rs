@@ -4,7 +4,7 @@
 
 use solana_address::Address;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, OutputSlot, Rpc,
+    rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, IndexerRpcConfig, OutputSlot, Rpc,
     ShieldedTransaction,
 };
 use zolana_interface::event::OutputDataEncoding;
@@ -32,18 +32,34 @@ pub struct ReadEntry {
 
 impl ReadEntry {
     /// `None` when the address was never claimed, a cleared entry still reads back.
-    pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveEntry>, EntryProofError> {
+    /// Each read waits as `config` says: an indexer behind the latest update
+    /// reads back the version before it.
+    pub fn read<I: Rpc>(
+        self,
+        indexer: &I,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages { lookups: &[lookup] }.fetch(indexer)?;
+        let lineages = Lineages {
+            lookups: &[lookup],
+            config,
+        }
+        .fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
     }
 
     pub async fn read_async<I: AsyncRpc>(
         self,
         indexer: &I,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages { lookups: &[lookup] }.fetch_async(indexer).await?;
+        let lineages = Lineages {
+            lookups: &[lookup],
+            config,
+        }
+        .fetch_async(indexer)
+        .await?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -140,6 +156,7 @@ impl LineageLookup for EntryLookup {
 
 pub(crate) struct Lineages<'a, L> {
     pub lookups: &'a [L],
+    pub config: Option<IndexerRpcConfig>,
 }
 
 impl<L: LineageLookup> Lineages<'_, L> {
@@ -148,13 +165,14 @@ impl<L: LineageLookup> Lineages<'_, L> {
         self,
         indexer: &I,
     ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
+        let config = self.config;
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 query.nullifiers,
                 query.cursor,
                 None,
-                None,
+                config,
             )?;
             walk.absorb(page)?;
         }
@@ -165,10 +183,16 @@ impl<L: LineageLookup> Lineages<'_, L> {
         self,
         indexer: &I,
     ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
+        let config = self.config;
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer
-                .get_shielded_transactions_by_nullifiers(query.nullifiers, query.cursor, None, None)
+                .get_shielded_transactions_by_nullifiers(
+                    query.nullifiers,
+                    query.cursor,
+                    None,
+                    config,
+                )
                 .await?;
             walk.absorb(page)?;
         }
@@ -425,6 +449,8 @@ pub(crate) mod tests {
         pub spenders: Vec<ShieldedTransaction>,
         pub page_size: Option<usize>,
         pub requests: Mutex<Vec<Vec<[u8; 32]>>>,
+        /// The slot each request required.
+        pub required_slots: Mutex<Vec<Option<u64>>>,
     }
 
     impl NullifierRpc {
@@ -433,6 +459,7 @@ pub(crate) mod tests {
                 spenders,
                 page_size: None,
                 requests: Mutex::new(Vec::new()),
+                required_slots: Mutex::new(Vec::new()),
             }
         }
 
@@ -440,7 +467,12 @@ pub(crate) mod tests {
             &self,
             nullifiers: Vec<[u8; 32]>,
             cursor: Option<Vec<u8>>,
+            config: Option<zolana_client::IndexerRpcConfig>,
         ) -> GetShieldedTransactionsByNullifiersResponse {
+            self.required_slots
+                .lock()
+                .expect("required slots")
+                .push(config.and_then(|config| config.require_slot));
             self.requests
                 .lock()
                 .expect("requests")
@@ -482,9 +514,9 @@ pub(crate) mod tests {
             nullifiers: Vec<[u8; 32]>,
             cursor: Option<Vec<u8>>,
             _limit: Option<u32>,
-            _config: Option<zolana_client::IndexerRpcConfig>,
+            config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Ok(self.page(nullifiers, cursor))
+            Ok(self.page(nullifiers, cursor, config))
         }
     }
 
@@ -495,9 +527,9 @@ pub(crate) mod tests {
             nullifiers: Vec<[u8; 32]>,
             cursor: Option<Vec<u8>>,
             _limit: Option<u32>,
-            _config: Option<zolana_client::IndexerRpcConfig>,
+            config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Ok(self.page(nullifiers, cursor))
+            Ok(self.page(nullifiers, cursor, config))
         }
     }
 
@@ -508,7 +540,7 @@ pub(crate) mod tests {
             list_id: lookup.list_id,
             member: lookup.member,
         }
-        .read(rpc)
+        .read(rpc, None)
     }
 
     #[test]
@@ -566,10 +598,37 @@ pub(crate) mod tests {
                 list_id: ListId::Block,
                 member: member(2),
             }
-            .read_async(&rpc),
+            .read_async(&rpc, None),
         )
         .expect("walk");
         assert_eq!(live, lineage.live());
+    }
+
+    #[test]
+    fn every_request_of_a_walk_requires_the_slot_of_the_config() {
+        let lineage = Lineage::new(
+            lookup(ListId::Allow, member(1)),
+            &[EntryState::Active, EntryState::Cleared],
+        );
+        let rpc = NullifierRpc::new(lineage.spenders());
+        let entry = || ReadEntry {
+            address_tree_id: 0,
+            namespace: namespace(),
+            list_id: ListId::Allow,
+            member: member(1),
+        };
+        let config = Some(IndexerRpcConfig::at_slot(42));
+        assert_eq!(entry().read(&rpc, config).expect("walk"), lineage.live());
+        assert_eq!(
+            futures::executor::block_on(entry().read_async(&rpc, config)).expect("walk"),
+            lineage.live()
+        );
+        let required = rpc.required_slots.lock().expect("required slots");
+        assert_eq!(required.len(), rpc.requests.lock().expect("requests").len());
+        assert!(
+            required.iter().all(|slot| *slot == Some(42)),
+            "{required:?}"
+        );
     }
 
     #[test]
@@ -581,7 +640,12 @@ pub(crate) mod tests {
         let mut rpc = NullifierRpc::new(spenders);
         rpc.page_size = Some(1);
         let lookups = [first.lookup, second.lookup];
-        let lineages = Lineages { lookups: &lookups }.fetch(&rpc).expect("walk");
+        let lineages = Lineages {
+            lookups: &lookups,
+            config: None,
+        }
+        .fetch(&rpc)
+        .expect("walk");
         assert_eq!(lineages, vec![first.live(), second.live()]);
         // Two full claim pages end on an empty third, the next round is one empty page.
         assert_eq!(rpc.requests.lock().expect("requests").len(), 4);

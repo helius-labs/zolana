@@ -329,7 +329,7 @@ impl EntryWrite<'_> {
             list_id: entry.list_id,
             member: entry.member,
         }
-        .read(indexer)?
+        .read(indexer, None)?
         .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
         assert_eq!(live.entry, entry, "indexed entry equals the mutation");
         assert_eq!(

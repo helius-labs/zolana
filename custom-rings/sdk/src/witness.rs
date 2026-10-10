@@ -426,6 +426,7 @@ impl<'a> WitnessPlan<'a> {
     fn lineages(&self) -> Lineages<'_, EntryLookup> {
         Lineages {
             lookups: &self.lookups,
+            config: None,
         }
     }
 

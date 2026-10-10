@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
-use zolana_client::{EncryptedUtxoMatch, IndexerPollConfig, Rpc, SpendableUtxos, ZolanaIndexer};
+use zolana_client::{
+    EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, SpendableUtxos,
+    ZolanaIndexer,
+};
 use zolana_transaction::{Address, SpendableDecryptionResult};
 
 use super::{
@@ -34,7 +37,8 @@ pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
     Ok(())
 }
 
-/// The wallet's spendable UTXOs, read afresh from the indexer. The CLI's UTXOs
+/// The wallet's spendable UTXOs, read afresh from an indexer caught up with the
+/// RPC, so a spend another client just made is not selected again. The CLI's UTXOs
 /// all live on the default ring and carry its owner tag or, as deposits, its
 /// viewing key's tag. Anonymous transfers, tagged per counterparty, are not
 /// read; no CLI command produces them.
@@ -44,7 +48,13 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let material = load_sender_from_resolved_sync(&sync)?;
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
-    let spendable = SpendableUtxos::new(&material.keypair, &assets).fetch(&indexer)?;
+    let slot = SolanaRpc::new(sync.rpc_url.clone()).get_slot()?;
+    let spendable = SpendableUtxos::new(&material.keypair, &assets)
+        .with_indexer_config(IndexerRpcConfig {
+            poll: indexer_poll(),
+            require_slot: Some(slot),
+        })
+        .fetch(&indexer)?;
     Ok(SyncContext {
         material,
         spendable,

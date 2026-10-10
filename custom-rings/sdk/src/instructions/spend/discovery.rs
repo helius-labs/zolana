@@ -108,7 +108,11 @@ impl ReadSpendRecord {
     /// Unauthenticated history, unsuitable for transfer preparation.
     pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages { lookups: &[lookup] }.fetch(indexer)?;
+        let lineages = Lineages {
+            lookups: &[lookup],
+            config: None,
+        }
+        .fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -117,7 +121,12 @@ impl ReadSpendRecord {
         indexer: &I,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages { lookups: &[lookup] }.fetch_async(indexer).await?;
+        let lineages = Lineages {
+            lookups: &[lookup],
+            config: None,
+        }
+        .fetch_async(indexer)
+        .await?;
         Ok(lineages.into_iter().next().flatten())
     }
 

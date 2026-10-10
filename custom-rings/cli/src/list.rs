@@ -9,7 +9,7 @@ use custom_ring_sdk::{
 use solana_address::{error::ParseAddressError, Address};
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_ring_policy::{EntryState, ListId, Member, MemberError};
 use zolana_transaction::SOL_MINT;
 
@@ -42,6 +42,8 @@ pub enum ListError {
     Catalogue(#[from] Box<CatalogueError>),
     #[error(transparent)]
     Curator(#[from] CuratorError),
+    #[error(transparent)]
+    Client(Box<ClientError>),
     #[error("the ring has no policy config, run `zolana-ring init` first")]
     NoPolicy,
     #[error("{} entry for {member} does not exist", list_name(*list_id))]
@@ -110,6 +112,12 @@ impl From<EntryProofError> for ListError {
 impl From<CatalogueError> for ListError {
     fn from(error: CatalogueError) -> Self {
         Self::Catalogue(Box::new(error))
+    }
+}
+
+impl From<ClientError> for ListError {
+    fn from(error: ClientError) -> Self {
+        Self::Client(Box::new(error))
     }
 }
 
@@ -219,13 +227,16 @@ impl EntryMutation<'_> {
             });
         }
         let address_tree = PoolTree::address_tree(&config);
+        // An indexer behind the last update would read back the state before
+        // it, and a request for that state would end here unapplied.
+        let indexed = IndexerRpcConfig::at_slot(rpc.get_slot()?);
         let live = ReadEntry {
             address_tree_id: address_tree.id,
             namespace: self.ring.namespace_pda(),
             list_id: self.list_id,
             member: self.member,
         }
-        .read(environment.indexer)?;
+        .read(environment.indexer, Some(indexed))?;
         let proven = match live {
             None => CreateEntry {
                 ring: self.ring,
@@ -332,7 +343,10 @@ impl EntryArg {
             list_id: self.list_id,
             member: self.member.member()?,
         }
-        .read(&ctx.indexer())?
+        .read(
+            &ctx.indexer(),
+            Some(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?)),
+        )?
         .ok_or(ListError::NoEntry {
             list_id: self.list_id,
             member: self.member,

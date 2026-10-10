@@ -10,9 +10,9 @@ use zolana_client::{
 use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{
-    AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery, NoteDataHashes,
-    OriginError, RecoveredNotes, RecoveryEnvironment, RecoveryError, RingEnvironment, RingOrigin,
-    RingRecovery, SourceMember, TransactionOrigin,
+    AuditError, AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery,
+    NoteDataHashes, OriginError, RecoveredNotes, RecoveryEnvironment, RecoveryError,
+    RingEnvironment, RingOrigin, RingRecovery, SourceMember, TransactionOrigin,
 };
 use zolana_transaction::{
     instructions::merge::MergeTransaction,
@@ -270,19 +270,41 @@ struct History {
     transactions: Vec<ShieldedTransaction>,
     queried: RefCell<Vec<Vec<[u8; 32]>>>,
     foreign: Vec<Signature>,
+    /// The slot each read required.
+    required_slots: RefCell<Vec<Option<u64>>>,
+}
+
+/// The slot the history is indexed to.
+const INDEXED: u64 = 100;
+
+impl History {
+    /// An indexer that lags fails a read that requires a later slot.
+    fn read(&self, config: Option<IndexerRpcConfig>) -> Result<(), ClientError> {
+        let required = config.and_then(|config| config.require_slot);
+        self.required_slots.borrow_mut().push(required);
+        match required {
+            Some(required) if required > INDEXED => Err(ClientError::IndexerNotCaughtUp {
+                required,
+                indexed: INDEXED,
+                attempts: 1,
+            }),
+            _ => Ok(()),
+        }
+    }
 }
 
 impl Rpc for History {
     fn get_shielded_transactions_by_ring(
         &self,
         options: zolana_client::RingHistoryOptions,
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.read(config)?;
         assert_eq!(options.ring_program_id, RING);
         Ok(GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
-                slot: 100,
+                slot: INDEXED,
             },
             transactions: self.transactions.clone(),
             output_tree_id: None,
@@ -295,12 +317,13 @@ impl Rpc for History {
         tags: Vec<[u8; 32]>,
         _cursor: Option<Vec<u8>>,
         _limit: Option<u32>,
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.read(config)?;
         Ok(GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
-                slot: 100,
+                slot: INDEXED,
             },
             transactions: self
                 .transactions
@@ -327,13 +350,14 @@ impl Rpc for History {
         nullifiers: Vec<[u8; 32]>,
         _cursor: Option<Vec<u8>>,
         _limit: Option<u32>,
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.read(config)?;
         self.queried.borrow_mut().push(nullifiers.clone());
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: Context {
                 block_time: 0,
-                slot: 100,
+                slot: INDEXED,
             },
             transactions: self
                 .transactions
@@ -569,6 +593,40 @@ fn direct_deposits_are_reported_separately_without_claiming_they_are_unspent() {
     assert!(recovered.utxos.is_empty());
     assert!(recovered.unopened.is_empty());
     assert_eq!(recovered.unsupported_deposits, vec![held.utxo_hash]);
+}
+
+#[test]
+fn every_read_requires_the_slot_and_an_indexer_behind_it_fails_the_recovery() {
+    let fixture = Fixture::new();
+    let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
+    let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
+    let (merged, merge_tx) = fixture.merge(&[first, second], 7);
+    let history = History {
+        transactions: vec![first_tx, second_tx, merge_tx],
+        ..Default::default()
+    };
+    let recovery = |slot| {
+        RingRecovery::new(RING, &fixture.auditor)
+            .with_indexer_config(IndexerRpcConfig::at_slot(slot))
+            .for_member(SourceMember {
+                address: &fixture.address,
+                nullifier_key: &fixture.member.nullifier_key,
+            })
+    };
+
+    let recovered = fixture.run(recovery(INDEXED), &history).expect("recover");
+    assert_eq!(recovered.utxos, vec![merged]);
+    let required = history.required_slots.take();
+    // The auditor scan, the deposit history and the spend history.
+    assert!(required.len() >= 3, "{required:?}");
+    assert!(required.iter().all(|slot| *slot == Some(INDEXED)));
+
+    assert!(matches!(
+        fixture.run(recovery(INDEXED + 1), &history),
+        Err(RecoveryError::Audit(AuditError::Indexer(
+            ClientError::IndexerNotCaughtUp { .. }
+        )))
+    ));
 }
 
 #[test]

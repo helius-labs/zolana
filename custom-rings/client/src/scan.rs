@@ -19,7 +19,7 @@ use std::{
 };
 
 use solana_signature::Signature;
-use zolana_client::Rpc;
+use zolana_client::{IndexerRpcConfig, Rpc};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
@@ -62,6 +62,7 @@ pub struct RingScan<'a> {
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 #[must_use = "run or discard the audit explicitly"]
@@ -72,6 +73,7 @@ pub struct RingAudit<'a> {
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 const DEFAULT_MAX_PAGES: NonZeroUsize = match NonZeroUsize::new(32) {
@@ -91,6 +93,7 @@ impl<'a> RingScan<'a> {
             cursor: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
+            indexer_config: None,
         }
     }
 
@@ -112,6 +115,14 @@ impl<'a> RingScan<'a> {
         self
     }
 
+    /// Every page waits until the indexer has persisted
+    /// `config.require_slot`.
+    #[must_use = "use the updated scan"]
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
+        self
+    }
+
     pub fn run<I: Rpc, O: TransactionOrigin>(
         self,
         env: RingEnvironment<'_, I, O>,
@@ -125,7 +136,7 @@ impl<'a> RingScan<'a> {
                 vec![view_tag],
                 cursor.clone(),
                 Some(self.page_size.get()),
-                None,
+                self.indexer_config,
             )?;
             for tx in page.transactions {
                 if tx.ring_program_id != Some(self.ring_program_id) {
@@ -182,6 +193,7 @@ impl<'a> RingAudit<'a> {
             cursor: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
+            indexer_config: None,
         }
     }
 
@@ -203,6 +215,14 @@ impl<'a> RingAudit<'a> {
         self
     }
 
+    /// Every page waits until the indexer has persisted
+    /// `config.require_slot`.
+    #[must_use = "use the updated audit"]
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
+        self
+    }
+
     pub fn run<I: Rpc, O: TransactionOrigin>(
         self,
         env: RingEnvironment<'_, I, O>,
@@ -214,6 +234,9 @@ impl<'a> RingAudit<'a> {
             .with_max_pages(self.max_pages);
         if let Some(cursor) = self.cursor {
             scan = scan.with_cursor(cursor);
+        }
+        if let Some(config) = self.indexer_config {
+            scan = scan.with_indexer_config(config);
         }
         let page = scan.run(env)?;
         let transactions = page

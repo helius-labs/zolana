@@ -92,7 +92,7 @@ impl RingProject {
                 list_id: write.list_id,
                 member,
             };
-            match read.read(indexer) {
+            match read.read(indexer, None) {
                 Ok(Some(live)) if live.entry.state == write.state => break live,
                 _ if Instant::now() > deadline => {
                     bail!("{:?} {:?} entry not indexed", write.list_id, write.state)

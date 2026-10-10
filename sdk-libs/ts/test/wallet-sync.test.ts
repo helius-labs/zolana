@@ -57,6 +57,7 @@ import {
   anonymousSenderUtxos,
 } from "../src/transaction/serialization/codecs.js";
 import { KeyMemo } from "../src/transaction/wallet/key-memo.js";
+import { ZolanaClient } from "../src/client/client.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 import { syncPersistedWallet } from "../src/wallet/persisted.js";
 import { kitReads, solanaRpcReads, syncReads, plainCipher } from "./helpers/clients.js";
@@ -388,6 +389,69 @@ describe("wallet sync atomicity", () => {
       }),
     ).rejects.toMatchObject({ code: "WALLET_SYNC" });
     expect(getShieldedTransactionsByTags).not.toHaveBeenCalled();
+  });
+});
+
+describe("wallet sync freshness", () => {
+  // A Photon at slot 5 that reaches slot 10 after the first transaction tag
+  // read. Every other read still answers at slot 5.
+  function laggingClient(requireSlot: bigint) {
+    // The slot each tag read was answered at.
+    const tagReads: number[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const { method } = JSON.parse(String(init?.body)) as { method: string };
+      const byTags = method === "getShieldedTransactionsByTags";
+      const slot = byTags && tagReads.length > 0 ? 10 : 5;
+      if (byTags) tagReads.push(slot);
+      return Response.json({
+        id: "test-account",
+        jsonrpc: "2.0",
+        result: {
+          context: { blockTime: 1, slot },
+          [method === "getEncryptedUtxosByTags" ? "matches" : "transactions"]: [],
+        },
+      });
+    });
+    const client = new ZolanaClient({
+      fetch,
+      indexerConfig: { requireSlot, poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n } },
+    });
+    return { client, tagReads };
+  }
+
+  it("waits for the slot the client requires when the sync names none", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const { client, tagReads } = laggingClient(10n);
+    const byTags = vi.spyOn(client, "getShieldedTransactionsByTags");
+    const proofless = vi.spyOn(client, "getEncryptedUtxosByTags");
+
+    await syncWallet({ wallet, keys: LocalShieldedKeys.fromKeypair(keypair), client });
+
+    expect(byTags.mock.calls[0]?.[1]).toEqual({
+      poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n },
+      requireSlot: 10n,
+    });
+    expect(tagReads).toEqual([5, 10]);
+    // The gate is spent on the first request, later reads take what is there.
+    expect(proofless.mock.calls[0]?.[1]?.requireSlot).toBeUndefined();
+  });
+
+  it("lets the sync's own slot override the client's", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const { client, tagReads } = laggingClient(10n);
+    const byTags = vi.spyOn(client, "getShieldedTransactionsByTags");
+
+    await syncWallet({
+      wallet,
+      keys: LocalShieldedKeys.fromKeypair(keypair),
+      client,
+      config: { requireSlot: 3n },
+    });
+
+    expect(byTags.mock.calls[0]?.[1]?.requireSlot).toBe(3n);
+    expect(tagReads).toEqual([5]);
   });
 });
 

@@ -8,7 +8,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc};
 use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ViewingKey};
 use zolana_ring_client::{
@@ -193,6 +193,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     };
     // 3. Accept verified openings and report incomplete recovery.
     let recovered = RingRecovery::new(ctx.ring.program_id(), &auditor)
+        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?))
         .for_member(SourceMember {
             address: &source,
             nullifier_key: &nullifier_key,

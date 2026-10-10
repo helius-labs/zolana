@@ -22,6 +22,12 @@ Changed
   a URL posts every proof to `/v1/zolana/prove` and polls
   `/v1/zolana/prove/status`.
 
+Fixed
+
+- `syncWallet` ignored the `requireSlot` and `poll` of the client's
+  `indexerConfig` and now applies them, exposed as `SyncClient.indexerConfig`,
+  whenever `SyncWalletConfig.requireSlot` or `retry` is unset.
+
 ## 0.4.0-alpha — 2026-10-07
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the

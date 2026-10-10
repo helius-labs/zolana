@@ -278,7 +278,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
             list_id: ListId::Allow,
             member: Member::owner_tag(&output.owner_tag)?,
         }
-        .read(indexer)?
+        .read(indexer, None)?
         .ok_or_else(|| anyhow!("Allow entry of slot {}", output.slot_index))?;
         assert_eq!(
             live.entry.state,
