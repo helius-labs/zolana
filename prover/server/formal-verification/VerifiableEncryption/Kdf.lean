@@ -330,4 +330,164 @@ theorem KeySchedule_sound (poseidon : List F → F)
     simp only [kdf, packBE31, List.map_map]
     rfl
 
+/-! ### Step lemmas for the extracted `FieldBytesBE_32`
+
+The extracted gadget names every gate. The generated proof in
+`Kdf/FieldBytes.lean` keeps each gate as a local with its defining equation and
+threads three invariants through the gadget body: the running recomposition
+sum `psum`, the booleanity of the hinted digits `boolsUpTo`, and a reduction of
+the `MustBeLessOrEqCst` chain to its remaining lower positions. -/
+
+/-- Hinted digit `i` of the 254-digit `ToBinary` hint. -/
+def bitA (g : List.Vector F 254) (i : ℕ) : F := g.get ⟨i % 254, Nat.mod_lt _ (by norm_num)⟩
+
+/-- Recomposition `Σ_{j<i} g[j] * 2^j` in gnark's accumulation order. -/
+def psum (g : List.Vector F 254) : ℕ → F
+  | 0 => 0
+  | i+1 => psum g i + bitA g i * 2^i
+
+def boolsUpTo (g : List.Vector F 254) : ℕ → Prop
+  | 0 => True
+  | i+1 => boolsUpTo g i ∧ Gates.is_bool (bitA g i)
+
+theorem psum_step {g : List.Vector F 254} (i : ℕ) {acc m s c : F} (hacc : acc = psum g i)
+    (hc : c = 2^i) (hm : m = Gates.mul (bitA g i) c) (hs : s = Gates.add acc m) :
+    s = psum g (i+1) := by
+  subst hacc hc hm hs
+  rfl
+
+theorem psum_step0 {g : List.Vector F 254} {m s c : F} (hc : c = 2^0)
+    (hm : m = Gates.mul (bitA g 0) c) (hs : s = Gates.add (0:F) m) : s = psum g 1 :=
+  psum_step 0 rfl hc hm hs
+
+theorem chain_one_step {b : ℕ} {a : ℕ → F} {R : Prop} (i : ℕ) {p p' : F}
+    (hbit : b.testBit i = true) (hb : Gates.is_bool (a i)) (hp : p' = Gates.mul p (a i))
+    (hC : leqCstChain b a (i+1) p → R) : leqCstChain b a i p' → R := by
+  intro hr
+  apply hC
+  unfold leqCstChain
+  rw [if_pos hbit]
+  exact ⟨hb, p', hp, hr⟩
+
+theorem chain_zero_step {b : ℕ} {a : ℕ → F} {R : Prop} (i : ℕ) {p t u w : F}
+    (hbit : b.testBit i = false) (ht : t = Gates.sub (1:F) p) (hu : u = Gates.sub t (a i))
+    (hw : w = Gates.mul u (a i)) (heq : Gates.eq w (0:F))
+    (hC : leqCstChain b a (i+1) p → R) : leqCstChain b a i p → R := by
+  intro hr
+  apply hC
+  unfold leqCstChain
+  rw [if_neg (by simp [hbit])]
+  subst ht hu hw
+  exact ⟨heq, hr⟩
+
+lemma boolsUpTo_get {g : List.Vector F 254} :
+    ∀ {n : ℕ}, boolsUpTo g n → ∀ i < n, Gates.is_bool (bitA g i)
+  | 0, _, i, hi => absurd hi (Nat.not_lt_zero _)
+  | n+1, ⟨hn, hb⟩, i, hi => by
+    rcases Nat.lt_succ_iff_lt_or_eq.mp hi with h | rfl
+    · exact boolsUpTo_get hn i h
+    · exact hb
+
+lemma leqCstChain_congr {b : ℕ} {a a' : ℕ → F} :
+    ∀ (n : ℕ) (p : F), (∀ j < n, a j = a' j) → (leqCstChain b a n p ↔ leqCstChain b a' n p)
+  | 0, _, _ => Iff.rfl
+  | n+1, p, h => by
+    unfold leqCstChain
+    rw [h n (Nat.lt_succ_self n)]
+    have ih := fun q => leqCstChain_congr (b := b) (a := a) (a' := a') n q
+      (fun j hj => h j (Nat.lt_succ_of_lt hj))
+    split
+    · simp only [ih]
+    · simp only [ih]
+
+lemma bitA_toBitsLE (x : ℕ) (hx : x < 2^254) (i : ℕ) (hi : i < 254) :
+    bitA ((Fin.toBitsLE (⟨x, hx⟩ : Fin (2^254))).map Bool.toZMod) i = Bool.toZMod (x.testBit i) := by
+  unfold bitA
+  rw [List.Vector.get_map, List.Vector.get_eq_getElem', Fin.getElem_toBitsLE _ _ (Nat.mod_lt _ (by norm_num)),
+    Fin.val_mk, Nat.mod_eq_of_lt hi]
+
+lemma psum_bits (x : ℕ) (hx : x < 2^254) :
+    ∀ n ≤ 254, psum ((Fin.toBitsLE (⟨x, hx⟩ : Fin (2^254))).map Bool.toZMod) n = ((x % 2^n : ℕ) : F)
+  | 0, _ => by simp [psum, Nat.mod_one]
+  | n+1, hn => by
+    rw [psum, psum_bits x hx n (by omega), bitA_toBitsLE x hx n (by omega), Nat.mod_two_pow_succ' x n]
+    cases x.testBit n <;> simp [Bool.toZMod]
+
+/-- Booleanity, recomposition to `V` and the `p - 1` chain force the hinted
+digits to be the canonical bits of `V.val`. -/
+theorem fieldBytes_canonical {g : List.Vector F 254} {V s : F} (hB : boolsUpTo g 254)
+    (hs : s = psum g 254) (hrec : Gates.eq s V) (hC : leqCstChain (Order - 1) (bitA g) 254 1) :
+    ∀ i : Fin 254, g.get i = Bool.toZMod (V.val.testBit i.val) := by
+  have hbool : ∀ i : Fin 254, g.get i = Bool.toZMod (decide (g.get i = 1)) := by
+    intro i
+    have h := boolsUpTo_get hB i.val i.prop
+    unfold bitA at h
+    rw [show (⟨i.val % 254, _⟩ : Fin 254) = i from Fin.ext (Nat.mod_eq_of_lt i.prop)] at h
+    simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8] at h
+    rw [is_bool_is_bit] at h
+    rcases h with h | h <;> simp [h]
+  obtain ⟨bv, hg⟩ : ∃ bv : List.Vector Bool 254, g = bv.map Bool.toZMod := by
+    refine ⟨List.Vector.ofFn fun i => decide (g.get i = 1), ?_⟩
+    apply List.Vector.ext
+    intro i
+    rw [List.Vector.get_map, List.Vector.get_ofFn]
+    exact hbool i
+  obtain ⟨x, hx, hbv⟩ : ∃ (x : ℕ) (hx : x < 2^254), bv = Fin.toBitsLE (⟨x, hx⟩ : Fin (2^254)) :=
+    ⟨_, (Fin.ofBitsLE bv).prop, (Fin.toBitsLE_ofBitsLE_eq_self (v := bv)).symm⟩
+  subst hbv
+  subst hg
+  rw [psum_bits x hx 254 le_rfl, Nat.mod_eq_of_lt hx] at hs
+  subst hs
+  have hchain := (leqCstChain_congr 254 1 (fun j hj => bitA_toBitsLE x hx j hj)).mp hC
+  rw [← toZMod_true_F] at hchain
+  have hle := (leqCstChain_bits (Order - 1) x 254 true).mp hchain rfl
+  rw [Order_sub_one_mod, Nat.mod_eq_of_lt hx] at hle
+  have hxO : x < Order := by have := Order_pos; omega
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.eq] at hrec
+  have hval : V.val = x := by rw [← hrec, ZMod.val_cast_of_lt hxO]
+  intro i
+  rw [hval, List.Vector.get_map, List.Vector.get_eq_getElem', Fin.getElem_toBitsLE _ _ i.prop]
+
+lemma pad_zero (V : F) (j : ℕ) (hj : 254 ≤ j) : (0:F) = Bool.toZMod (V.val.testBit j) := by
+  rw [Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le (F.val_lt_2_254 V)
+    (Nat.pow_le_pow_right (by norm_num) hj))]
+  rfl
+
+theorem fb_byte (x : ℕ) (j : Fin 32) {e0 e1 e2 e3 e4 e5 e6 e7 b : F}
+    (h0 : e0 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 0)))
+    (h1 : e1 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 1)))
+    (h2 : e2 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 2)))
+    (h3 : e3 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 3)))
+    (h4 : e4 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 4)))
+    (h5 : e5 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 5)))
+    (h6 : e6 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 6)))
+    (h7 : e7 = Bool.toZMod (x.testBit ((31 - j.val) * 8 + 7)))
+    (h : Gates.from_binary vec![e0, e1, e2, e3, e4, e5, e6, e7] b) :
+    b = ((byteOf x j : ℕ) : F) := by
+  have hv : (vec![e0, e1, e2, e3, e4, e5, e6, e7] : List.Vector F 8) =
+      (Fin.toBitsLE (⟨byteOf x j, byteOf_lt _ _⟩ : Fin (2^8))).map Bool.toZMod := by
+    rw [← ofFn_testBit_eq_toBitsLE]
+    have hbit : ∀ m : ℕ, m < 8 → (byteOf x j).testBit m = x.testBit ((31 - j.val) * 8 + m) := by
+      intro m hm
+      unfold byteOf
+      rw [show (256:ℕ) = 2^8 by norm_num, Nat.testBit_mod_two_pow, ← pow_mul,
+        Nat.testBit_div_two_pow]
+      simp [hm, Nat.mul_comm 8, Nat.add_comm]
+    apply List.Vector.ext
+    intro m
+    rw [List.Vector.get_ofFn, hbit m.val m.prop]
+    fin_cases m
+    · exact h0
+    · exact h1
+    · exact h2
+    · exact h3
+    · exact h4
+    · exact h5
+    · exact h6
+    · exact h7
+  rw [hv] at h
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    Gates.from_binary_iff_eq_ofBitsLE_mod_order, Fin.ofBitsLE_toBitsLE_eq_self] at h
+  exact h
+
 end ZolanaVE.Kdf
