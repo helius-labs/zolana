@@ -1,4 +1,5 @@
 import FormalVerification.FullField
+import VerifiableEncryption.Circuit.Prelude
 
 /-!
 Semantics of the Poseidon key schedule (`poseidon_kdf.go`).
@@ -10,11 +11,18 @@ appends two constant-zero digits. `ToBinary256Mirror` follows that structure;
 `ToBinary256Mirror_rw` shows it forces the canonical decomposition of `v.val`.
 -/
 
-open ZolanaProver (F Order Gates)
-
 set_option maxHeartbeats 400000
+set_option linter.unusedSectionVars false
 
-namespace VerifiableEncryption
+namespace ZolanaVE.Kdf
+
+open ZolanaVE
+
+variable [Fact (Nat.Prime Order)]
+
+lemma order_lt_two_pow_254 : Order < 2^254 := by decide
+
+lemma F.val_lt_2_254 (v : F) : v.val < 2^254 := Nat.lt_trans v.val_lt order_lt_two_pow_254
 
 lemma F.val_lt_2_256 (v : F) : v.val < 2^256 :=
   Nat.lt_trans (F.val_lt_2_254 v) (by norm_num)
@@ -92,7 +100,7 @@ lemma toZMod_true_F : (Bool.toZMod true : F) = 1 := by simp
 lemma Order_pos : 0 < Order := by decide
 
 lemma Order_sub_one_mod : (Order - 1) % 2^254 = Order - 1 :=
-  Nat.mod_eq_of_lt (by have := Order_lt_2_254; omega)
+  Nat.mod_eq_of_lt (by have := order_lt_two_pow_254; omega)
 
 /-- The hinted digits of `ToBinary` beyond position 253 read as zero. -/
 def digitAt (bits : List.Vector F 254) (i : ℕ) : F :=
@@ -322,4 +330,4 @@ theorem KeySchedule_sound (poseidon : List F → F)
     simp only [kdf, packBE31, List.map_map]
     rfl
 
-end VerifiableEncryption
+end ZolanaVE.Kdf
