@@ -59,7 +59,7 @@ import { readCurrentSpendRecord } from "./spend-record-reader.js";
 const ZERO_NULLIFIER_SECRET = new Uint8Array(31) as Bytes31;
 
 /** Excludes the record slot from money openings for outflow accounting. */
-export interface RingMovement {
+export interface RingMoneyTransfer {
   readonly sender: Member;
   readonly ringProgramId: Address;
   readonly inputs: readonly ProofInputUtxo[];
@@ -102,7 +102,7 @@ export interface VelocityPlan {
 /** Binds record accounting to the money transfer and its output blindings. */
 export interface PlanVelocityInput {
   readonly facts: VelocityFacts;
-  readonly movement: RingMovement;
+  readonly moneyTransfer: RingMoneyTransfer;
   readonly firstNullifier: Bytes32;
   readonly outputBlindingSeed: Bytes32;
   /** The real money inputs and outputs, padding excluded; the record follows the last real output. */
@@ -127,23 +127,23 @@ export function recordShape(money: Shape): Shape {
 }
 
 /** The sender's outflow of one mint, inputs less the change kept inside the ring. */
-export function senderOutflow(movement: RingMovement, asset: Bytes32): bigint {
+export function senderOutflow(moneyTransfer: RingMoneyTransfer, asset: Bytes32): bigint {
   let inflow = 0n;
-  for (const input of movement.inputs) {
+  for (const input of moneyTransfer.inputs) {
     if (input.isDummy()) continue;
     if (equalBytes(memberOfAsset(input.utxo.asset), asset)) inflow += input.utxo.amount;
   }
   let change = 0n;
-  for (const output of movement.outputs) {
+  for (const output of moneyTransfer.outputs) {
     const owner = output.ownerAddress;
     if (owner === undefined) continue;
     const sameAsset = equalBytes(memberOfAsset(output.asset), asset);
     const sameOwner = equalBytes(
       memberOfIdentity(owner.signingPublicKey.ownerProofInputHash()),
-      movement.sender,
+      moneyTransfer.sender,
     );
     const inRing =
-      output.ringProgramId !== undefined && output.ringProgramId === movement.ringProgramId;
+      output.ringProgramId !== undefined && output.ringProgramId === moneyTransfer.ringProgramId;
     if (sameAsset && sameOwner && inRing) change += output.amount;
   }
   if (change > inflow) throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset } });
@@ -240,13 +240,13 @@ export function withRecordSlotSecret(
 
 export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   // 1. Charge outflow against counters from the current window only.
-  const { facts, movement } = input;
+  const { facts, moneyTransfer } = input;
   const shape = recordShape(input.moneyShape);
   const sameWindow = facts.live.record.window === facts.windowIndex;
   const previous = sameWindow ? facts.counters : undefined;
 
   const rows = facts.rows;
-  const { spent, approvalRequired } = chargeVelocityRows({ movement, rows, previous });
+  const { spent, approvalRequired } = chargeVelocityRows({ moneyTransfer, rows, previous });
 
   // 2. Bind successor counters to fresh salt and the SPP output blinding.
   const nextSalt = randomBlinding();
@@ -310,7 +310,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   const proofInput: CustomRingVelocityProofInput = Object.freeze({
     windowSlots: facts.windowSlots,
     rows: Object.freeze(rows.map((row) => Object.freeze({ ...row }))),
-    ringId: hashBytes(decodeAddress(movement.ringProgramId)) as Bytes32,
+    ringId: hashBytes(decodeAddress(moneyTransfer.ringProgramId)) as Bytes32,
     namespaceOwnerHash: ringNamespaceOwnerHash(facts.namespace),
     windowIndex: facts.windowIndex,
     approvalRequired,
@@ -342,7 +342,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
 /** Charges one transfer without a persistent spend record. */
 export function chargeRows(
   input: Readonly<{
-    movement: RingMovement;
+    moneyTransfer: RingMoneyTransfer;
     rows: readonly CustomRingVelocityRow[];
     namespaceOwnerHash: Bytes32;
   }>,
@@ -350,7 +350,7 @@ export function chargeRows(
   const { approvalRequired } = chargeVelocityRows(input);
   return Object.freeze({
     ...velocityProofInputOff({
-      ringId: hashBytes(decodeAddress(input.movement.ringProgramId)) as Bytes32,
+      ringId: hashBytes(decodeAddress(input.moneyTransfer.ringProgramId)) as Bytes32,
       namespaceOwnerHash: input.namespaceOwnerHash,
     }),
     rows: Object.freeze(input.rows.map((row) => Object.freeze({ ...row }))),
@@ -360,14 +360,14 @@ export function chargeRows(
 
 function chargeVelocityRows(
   input: Readonly<{
-    movement: RingMovement;
+    moneyTransfer: RingMoneyTransfer;
     rows: readonly CustomRingVelocityRow[];
     previous?: SpendCounters | undefined;
   }>,
 ): Readonly<{ spent: readonly bigint[]; approvalRequired: boolean }> {
   let approvalRequired = false;
   const spent = input.rows.map((row) => {
-    const outflow = senderOutflow(input.movement, row.asset);
+    const outflow = senderOutflow(input.moneyTransfer, row.asset);
     const before =
       input.previous === undefined ? 0n : spendCountersSpent(input.previous, row.asset);
     const charged = before + outflow;

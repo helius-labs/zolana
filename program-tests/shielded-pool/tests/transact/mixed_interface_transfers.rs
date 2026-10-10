@@ -261,10 +261,10 @@ fn real_witness_output(
 }
 
 fn public_slots(
-    movements: impl IntoIterator<Item = ([u8; 32], i64)>,
+    transfers: impl IntoIterator<Item = ([u8; 32], i64)>,
 ) -> ([[u8; 32]; N_PUBLIC_SLOTS], [[u8; 32]; N_PUBLIC_SLOTS]) {
     let mut aggregates: Vec<([u8; 32], i64)> = Vec::new();
-    for (asset, amount) in movements {
+    for (asset, amount) in transfers {
         if let Some((_, total)) = aggregates
             .iter_mut()
             .find(|(existing, _)| *existing == asset)
@@ -291,7 +291,7 @@ fn prove_spend(
     note: SpendNote,
     interface_transfers: Vec<InterfaceTransfer>,
     resolved_transfers: &[LegAccounts],
-    public_movements: impl IntoIterator<Item = ([u8; 32], i64)>,
+    public_transfers: impl IntoIterator<Item = ([u8; 32], i64)>,
     mut witness_outputs: Vec<WitnessOutput>,
 ) -> TransactIxData {
     assert_eq!(witness_outputs.len(), 2);
@@ -344,7 +344,7 @@ fn prove_spend(
     )
     .hash()
     .expect("private tx hash");
-    let (public_slot_assets, public_slot_amounts) = public_slots(public_movements);
+    let (public_slot_assets, public_slot_amounts) = public_slots(public_transfers);
     let payer_pubkey_hash =
         solana_owner_identity(&env.rpc.payer.pubkey().to_bytes()).expect("payer identity");
     let signer_hashes = [payer_pubkey_hash, [0u8; 32], [0u8; 32]];
