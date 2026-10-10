@@ -8,6 +8,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	verifiableencryption "zolana/prover/circuits/verifiable-encryption"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	"zolana/prover/circuits/verifiable-encryption/aes"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve"
@@ -118,6 +119,37 @@ func (c *KeySchedule) Define(api frontend.API) error {
 	for i := range nonce {
 		api.AssertIsEqual(nonce[i], c.Nonce[i])
 	}
+	return nil
+}
+
+// EnvelopeMerge is the envelope exactly as the default merge rail
+// (spp_merge/default.go) instantiates it: merge's secret tag and KDF label,
+// the 40-byte merge plaintext and the first nullifier as Context. Its public
+// outputs are what merge feeds onward: the four packed envelope elements of
+// the public input hash and the output blinding derived from the shared
+// secret.
+type EnvelopeMerge struct {
+	EphemeralSk [32]frontend.Variable
+	RecipientPk [65]frontend.Variable
+	Plaintext   [mergeshared.MergeCiphertextBytes]frontend.Variable
+	Context     frontend.Variable
+	Elements    [4]frontend.Variable `gnark:",public"`
+	Blinding    frontend.Variable    `gnark:",public"`
+}
+
+func (c *EnvelopeMerge) Define(api frontend.API) error {
+	encrypted := verifiableencryption.Envelope{
+		SecretTag:   mergeshared.MergeSecretTag,
+		KdfInfo:     mergeshared.MergeKdfInfo,
+		EphemeralSk: c.EphemeralSk,
+		RecipientPk: c.RecipientPk,
+		Plaintext:   c.Plaintext[:],
+		Context:     c.Context,
+	}.Encrypt(api)
+	for i, e := range mergeshared.EnvelopePublicElements(api, encrypted) {
+		api.AssertIsEqual(e, c.Elements[i])
+	}
+	api.AssertIsEqual(mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret), c.Blinding)
 	return nil
 }
 

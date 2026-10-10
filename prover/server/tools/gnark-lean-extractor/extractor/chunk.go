@@ -28,6 +28,23 @@ type ExportOptions struct {
 	// this many decimal digits by an abbreviation `K_<i>` (numbered in order
 	// of first use) declared after the prelude.
 	NamedConstantDigits int
+	// SeedConstants fixes the numbering of named constants: value i is K_i
+	// and new constants continue after them. Seeding with a previous
+	// output's declarations keeps every existing name stable when an
+	// extraction grows; seeded constants are declared even if unused.
+	SeedConstants []string
+}
+
+func seedConstants(opts ExportOptions) (map[string]string, []string) {
+	names := map[string]string{}
+	values := append([]string{}, opts.SeedConstants...)
+	for i, v := range values {
+		if _, ok := names[v]; ok {
+			panic("duplicate seeded constant " + v)
+		}
+		names[v] = fmt.Sprintf("K_%d", i)
+	}
+	return names, values
 }
 
 var (
@@ -41,7 +58,8 @@ var (
 func ExtractCircuitsWith(opts ExportOptions, namespace string, field ecc.ID, circuits ...frontend.Circuit) (string, error) {
 	exportMu.Lock()
 	defer exportMu.Unlock()
-	exportOptions, constantNames, constantValues = opts, map[string]string{}, nil
+	exportOptions = opts
+	constantNames, constantValues = seedConstants(opts)
 	defer func() { exportOptions, constantNames, constantValues = ExportOptions{}, nil, nil }()
 	return ExtractCircuits(namespace, field, circuits...)
 }

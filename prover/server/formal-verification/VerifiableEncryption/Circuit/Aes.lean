@@ -1219,4 +1219,63 @@ def AesFinalRound_16_16_16 (State: List.Vector F 16) (RoundKeySpread: List.Vecto
     AesDecodeWord_4 gate_82 fun gate_83 =>
     k vec![(gate_56.get (0 : Fin 4)), (gate_56.get (1 : Fin 4)), (gate_56.get (2 : Fin 4)), (gate_56.get (3 : Fin 4)), (gate_65.get (0 : Fin 4)), (gate_65.get (1 : Fin 4)), (gate_65.get (2 : Fin 4)), (gate_65.get (3 : Fin 4)), (gate_74.get (0 : Fin 4)), (gate_74.get (1 : Fin 4)), (gate_74.get (2 : Fin 4)), (gate_74.get (3 : Fin 4)), (gate_83.get (0 : Fin 4)), (gate_83.get (1 : Fin 4)), (gate_83.get (2 : Fin 4)), (gate_83.get (3 : Fin 4))]
 
+def AesCounterByte_3 (SpreadKeyByte: F) (k: F -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.add SpreadKeyByte (7:F) ∧
+    ∃gate_1, gate_1 = Gates.mul gate_0 (1:F) ∧
+    ∃gate_2, gate_2 = Gates.add (0:F) gate_1 ∧
+    AesDecodeWord_1 gate_2 fun gate_3 =>
+    k (gate_3.get (0 : Fin 1))
+
+def AesCounterByte_4 (SpreadKeyByte: F) (k: F -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.add SpreadKeyByte (36:F) ∧
+    ∃gate_1, gate_1 = Gates.mul gate_0 (1:F) ∧
+    ∃gate_2, gate_2 = Gates.add (0:F) gate_1 ∧
+    AesDecodeWord_1 gate_2 fun gate_3 =>
+    k (gate_3.get (0 : Fin 1))
+
+def AesFinalRound_16_8_8 (State: List.Vector F 16) (RoundKeySpread: List.Vector F 8) (PlaintextSpread: List.Vector F 8) (k: List.Vector F 8 -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.add (State.get (0 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_0 fun gate_1 =>
+    ∃gate_2, gate_2 = Gates.add (Gates.add gate_1 (RoundKeySpread.get (0 : Fin 8))) (PlaintextSpread.get (0 : Fin 8)) ∧
+    ∃gate_3, gate_3 = Gates.add (State.get (5 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_3 fun gate_4 =>
+    ∃gate_5, gate_5 = Gates.add (Gates.add gate_4 (RoundKeySpread.get (1 : Fin 8))) (PlaintextSpread.get (1 : Fin 8)) ∧
+    ∃gate_6, gate_6 = Gates.add (State.get (10 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_6 fun gate_7 =>
+    ∃gate_8, gate_8 = Gates.add (Gates.add gate_7 (RoundKeySpread.get (2 : Fin 8))) (PlaintextSpread.get (2 : Fin 8)) ∧
+    ∃gate_9, gate_9 = Gates.add (State.get (15 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_9 fun gate_10 =>
+    ∃gate_11, gate_11 = Gates.add (Gates.add gate_10 (RoundKeySpread.get (3 : Fin 8))) (PlaintextSpread.get (3 : Fin 8)) ∧
+    ∃gate_12, gate_12 = Gates.add (State.get (4 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_12 fun gate_13 =>
+    ∃gate_14, gate_14 = Gates.add (Gates.add gate_13 (RoundKeySpread.get (4 : Fin 8))) (PlaintextSpread.get (4 : Fin 8)) ∧
+    ∃gate_15, gate_15 = Gates.add (State.get (9 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_15 fun gate_16 =>
+    ∃gate_17, gate_17 = Gates.add (Gates.add gate_16 (RoundKeySpread.get (5 : Fin 8))) (PlaintextSpread.get (5 : Fin 8)) ∧
+    ∃gate_18, gate_18 = Gates.add (State.get (14 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_18 fun gate_19 =>
+    ∃gate_20, gate_20 = Gates.add (Gates.add gate_19 (RoundKeySpread.get (6 : Fin 8))) (PlaintextSpread.get (6 : Fin 8)) ∧
+    ∃gate_21, gate_21 = Gates.add (State.get (3 : Fin 16)) (1024:F) ∧
+    SubstitutionLookup gate_21 fun gate_22 =>
+    ∃gate_23, gate_23 = Gates.add (Gates.add gate_22 (RoundKeySpread.get (7 : Fin 8))) (PlaintextSpread.get (7 : Fin 8)) ∧
+    ∃gate_24, gate_24 = Gates.mul gate_2 (1:F) ∧
+    ∃gate_25, gate_25 = Gates.add (0:F) gate_24 ∧
+    ∃gate_26, gate_26 = Gates.mul gate_5 (1679616:F) ∧
+    ∃gate_27, gate_27 = Gates.add gate_25 gate_26 ∧
+    ∃gate_28, gate_28 = Gates.mul gate_8 (2821109907456:F) ∧
+    ∃gate_29, gate_29 = Gates.add gate_27 gate_28 ∧
+    ∃gate_30, gate_30 = Gates.mul gate_11 (4738381338321616896:F) ∧
+    ∃gate_31, gate_31 = Gates.add gate_29 gate_30 ∧
+    AesDecodeWord_4 gate_31 fun gate_32 =>
+    ∃gate_33, gate_33 = Gates.mul gate_14 (1:F) ∧
+    ∃gate_34, gate_34 = Gates.add (0:F) gate_33 ∧
+    ∃gate_35, gate_35 = Gates.mul gate_17 (1679616:F) ∧
+    ∃gate_36, gate_36 = Gates.add gate_34 gate_35 ∧
+    ∃gate_37, gate_37 = Gates.mul gate_20 (2821109907456:F) ∧
+    ∃gate_38, gate_38 = Gates.add gate_36 gate_37 ∧
+    ∃gate_39, gate_39 = Gates.mul gate_23 (4738381338321616896:F) ∧
+    ∃gate_40, gate_40 = Gates.add gate_38 gate_39 ∧
+    AesDecodeWord_4 gate_40 fun gate_41 =>
+    k vec![(gate_32.get (0 : Fin 4)), (gate_32.get (1 : Fin 4)), (gate_32.get (2 : Fin 4)), (gate_32.get (3 : Fin 4)), (gate_41.get (0 : Fin 4)), (gate_41.get (1 : Fin 4)), (gate_41.get (2 : Fin 4)), (gate_41.get (3 : Fin 4))]
+
 end ZolanaVE

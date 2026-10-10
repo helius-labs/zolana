@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	_ "embed"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,9 +37,20 @@ var veModuleLayout = leanextractor.ModuleLayout{
 
 const veModuleMaxLines = 40000
 
+// veConstantSeed lists the named constants K_0, K_1, ... of the committed
+// extraction, one decimal value per line. Seeding the extractor with it keeps
+// every K_i stable (the Lean proofs cite some by name) when circuits are
+// added; new constants continue after the seed. TestVEConstantSeedIsComplete
+// requires it to cover every constant (UPDATE_VE_CONSTANTS=1 rewrites it).
+//
+//go:embed ve_constants.txt
+var veConstantSeed string
+
 func extractVE() (map[string]string, error) {
+	opts := veExportOptions
+	opts.SeedConstants = strings.Fields(veConstantSeed)
 	return leanextractor.ExtractCircuitModules(
-		veExportOptions,
+		opts,
 		veModuleLayout,
 		"ZolanaVE",
 		ecc.BN254,
@@ -49,6 +61,7 @@ func extractVE() (map[string]string, error) {
 		&ve.AesCtrBlock{},
 		&ve.KeySchedule{},
 		&ve.Envelope{},
+		&ve.EnvelopeMerge{},
 	)
 }
 

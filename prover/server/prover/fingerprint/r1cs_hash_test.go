@@ -14,6 +14,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	ve "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 )
@@ -90,6 +91,34 @@ func (c *hashEnvelopeCircuit) Define(api frontend.API) error {
 	return nil
 }
 
+// hashEnvelopeMergeCircuit is the envelope as spp_merge/default.go instantiates
+// it: merge's tag and KDF label, the 40-byte plaintext, the first nullifier as
+// Context, and the elements and blinding merge derives from it.
+type hashEnvelopeMergeCircuit struct {
+	EphemeralSk [32]frontend.Variable
+	RecipientPk [65]frontend.Variable
+	Plaintext   [mergeshared.MergeCiphertextBytes]frontend.Variable
+	Context     frontend.Variable
+	Elements    [4]frontend.Variable `gnark:",public"`
+	Blinding    frontend.Variable    `gnark:",public"`
+}
+
+func (c *hashEnvelopeMergeCircuit) Define(api frontend.API) error {
+	encrypted := ve.Envelope{
+		SecretTag:   mergeshared.MergeSecretTag,
+		KdfInfo:     mergeshared.MergeKdfInfo,
+		EphemeralSk: c.EphemeralSk,
+		RecipientPk: c.RecipientPk,
+		Plaintext:   c.Plaintext[:],
+		Context:     c.Context,
+	}.Encrypt(api)
+	for i, e := range mergeshared.EnvelopePublicElements(api, encrypted) {
+		api.AssertIsEqual(e, c.Elements[i])
+	}
+	api.AssertIsEqual(mergeshared.MergeDerivedBlinding(api, encrypted.SharedSecret), c.Blinding)
+	return nil
+}
+
 func structuralDigest(cs constraint.ConstraintSystem) string {
 	h := sha256.New()
 	put := func(v ...int) {
@@ -149,6 +178,7 @@ func TestWriteR1CSHashes(t *testing.T) {
 		{"agree_key", &hashAgreeKeyCircuit{}},
 		{"derive_public_key", &hashDerivePublicKeyCircuit{}},
 		{"envelope_16", &hashEnvelopeCircuit{}},
+		{"envelope_merge_40", &hashEnvelopeMergeCircuit{}},
 	}
 	var lines []string
 	for _, c := range circuits {

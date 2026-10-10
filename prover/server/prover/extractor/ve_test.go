@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -102,6 +103,35 @@ func TestNoSelfReferentialBindings(t *testing.T) {
 		for _, line := range selfBindings(source) {
 			t.Errorf("%s: self-referential binding %s", name, strings.TrimSpace(line))
 		}
+	}
+}
+
+var namedConstant = regexp.MustCompile(`(?m)^abbrev K_(\d+) : F := (\d+)$`)
+
+// TestVEConstantSeedIsComplete requires ve_constants.txt to list every named
+// constant of the extraction, so a later change cannot renumber K_i.
+// UPDATE_VE_CONSTANTS=1 rewrites the seed from the current extraction.
+func TestVEConstantSeedIsComplete(t *testing.T) {
+	modules, err := extractVE()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []string
+	for i, m := range namedConstant.FindAllStringSubmatch(modules[veModuleLayout.Root+"."+veModuleLayout.Prelude], -1) {
+		if m[1] != strconv.Itoa(i) {
+			t.Fatalf("constant K_%s declared at position %d", m[1], i)
+		}
+		values = append(values, m[2])
+	}
+	want := strings.Join(values, "\n") + "\n"
+	if os.Getenv("UPDATE_VE_CONSTANTS") == "1" {
+		if err := os.WriteFile("ve_constants.txt", []byte(want), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if veConstantSeed != want {
+		t.Errorf("ve_constants.txt lists %d constants, the extraction declares %d; rerun with UPDATE_VE_CONSTANTS=1", len(strings.Fields(veConstantSeed)), len(values))
 	}
 }
 

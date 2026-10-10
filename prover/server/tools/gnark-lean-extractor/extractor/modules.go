@@ -63,7 +63,8 @@ func (l ModuleLayout) ruleFor(name string) (int, bool) {
 func ExtractCircuitModules(opts ExportOptions, layout ModuleLayout, namespace string, field ecc.ID, circuits ...frontend.Circuit) (map[string]string, error) {
 	exportMu.Lock()
 	defer exportMu.Unlock()
-	exportOptions, constantNames, constantValues = opts, map[string]string{}, nil
+	exportOptions = opts
+	constantNames, constantValues = seedConstants(opts)
 	defer func() { exportOptions, constantNames, constantValues = ExportOptions{}, nil, nil }()
 
 	ex, err := extractCircuits(field, circuits...)
