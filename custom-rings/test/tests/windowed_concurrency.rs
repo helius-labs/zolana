@@ -48,12 +48,8 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
     };
     let address_tree_id = tree_id(rpc, env.tree)?;
     let read = |member: Member| {
-        ReadSpendRecord {
-            ring,
-            address_tree_id,
-            member,
-        }
-        .read_current(ReadEnvironment { indexer, rpc })
+        ReadSpendRecord::new(ring, address_tree_id, member)
+            .read_current(ReadEnvironment { indexer, rpc })
     };
     let members = [
         ShieldedKeypair::new_ed25519()?,
@@ -161,12 +157,8 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
     env.fund(member.pubkey(), 1_000_000_000)?;
     let tag = Member::owner_tag(member.pubkey().as_array())?;
     let read = || {
-        ReadSpendRecord {
-            ring,
-            address_tree_id,
-            member: tag,
-        }
-        .read_current(ReadEnvironment { indexer, rpc })
+        ReadSpendRecord::new(ring, address_tree_id, tag)
+            .read_current(ReadEnvironment { indexer, rpc })
     };
     let registration = RegisterSpend {
         ring,

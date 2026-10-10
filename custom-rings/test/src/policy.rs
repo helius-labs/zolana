@@ -323,12 +323,12 @@ impl EntryWrite<'_> {
             ComputeBudgetConfig::new(ENTRY_MUTATION_COMPUTE_UNIT_LIMIT),
         )?;
         wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
-        let live = ReadEntry {
-            address_tree_id: address_tree.id,
-            namespace: self.ring.namespace_pda(),
-            list_id: entry.list_id,
-            member: entry.member,
-        }
+        let live = ReadEntry::new(
+            address_tree.id,
+            self.ring.namespace_pda(),
+            entry.list_id,
+            entry.member,
+        )
         .read(indexer)?
         .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
         assert_eq!(live.entry, entry, "indexed entry equals the mutation");

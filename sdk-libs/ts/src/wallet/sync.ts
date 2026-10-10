@@ -59,6 +59,8 @@ export interface SyncClient extends Pick<
 > {
   readonly solanaRpc?: KitRpcAccess["solanaRpc"];
   readonly commitment?: KitRpcAccess["commitment"];
+  /** The client's own indexer config, the fallback for an unset `requireSlot` and `retry`. */
+  readonly indexerConfig?: IndexerRpcConfig;
 }
 
 export interface SyncWalletConfig {
@@ -67,8 +69,12 @@ export interface SyncWalletConfig {
   readonly queryChunk?: number;
   /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
   readonly pageLimit?: number;
-  /** Slot the indexer must have persisted before its answers are used. */
+  /**
+   * Slot the indexer must have persisted before its answers are used. Unset
+   * applies the client's configured `indexerConfig.requireSlot`, if any.
+   */
   readonly requireSlot?: bigint;
+  /** Unset applies the client's configured `indexerConfig.poll`. */
   readonly retry?: IndexerPollConfig;
 }
 
@@ -515,7 +521,8 @@ async function runWalletSync(
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
-    const poll = input.config?.retry ?? DEFAULT_INDEXER_POLL_CONFIG;
+    const clientConfig = input.client.indexerConfig;
+    const poll = input.config?.retry ?? clientConfig?.poll ?? DEFAULT_INDEXER_POLL_CONFIG;
     const decryptConfig = {
       syncedAt: BigInt(Math.floor(Date.now() / 1_000)),
       ...(input.config?.depositPayloadDecoder === undefined
@@ -524,7 +531,7 @@ async function runWalletSync(
     };
     const validatedPoll = Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) });
     const ungated: IndexerRpcConfig = Object.freeze({ poll: validatedPoll });
-    const requireSlot = input.config?.requireSlot;
+    const requireSlot = input.config?.requireSlot ?? clientConfig?.requireSlot;
     // Freshness is established ONCE per sync, on the first indexer request, not on
     // every request. Applying it per request meant paying the wait per tag chunk,
     // per collector, per page.

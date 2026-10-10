@@ -272,12 +272,12 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
         .address_tree_id();
     for output in &transfer.outputs {
         assert_eq!(output.ring_program_id, Some(ring.program_id()));
-        let live = ReadEntry {
+        let live = ReadEntry::new(
             address_tree_id,
-            namespace: ring.namespace_pda(),
-            list_id: ListId::Allow,
-            member: Member::owner_tag(&output.owner_tag)?,
-        }
+            ring.namespace_pda(),
+            ListId::Allow,
+            Member::owner_tag(&output.owner_tag)?,
+        )
         .read(indexer)?
         .ok_or_else(|| anyhow!("Allow entry of slot {}", output.slot_index))?;
         assert_eq!(

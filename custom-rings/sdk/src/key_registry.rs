@@ -30,7 +30,7 @@ use crate::{
     instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
     projection::{retry_projection_lag, retry_projection_lag_async, ProjectionLag},
     to_instruction_proof, AccountReadError, AsyncTransferProofEnvironment, CurrentKeyRegistryRoot,
-    CustomRing, CustomRingProofError, TransferProofEnvironment,
+    CustomRing, CustomRingProofError, ReadEnvironment, TransferProofEnvironment,
 };
 
 #[derive(Debug, Error)]
@@ -294,6 +294,36 @@ pub struct ReadSealedKey {
     pub ring: CustomRing,
     pub member: Member,
     pub root: CurrentKeyRegistryRoot,
+}
+
+/// [`ReadSealedKey`] under the key registry's on-chain root, read again while
+/// the indexer has not caught up with it: a key registered moments ago is
+/// found rather than refused.
+#[must_use]
+pub struct ReadCurrentSealedKey {
+    pub ring: CustomRing,
+    pub member: Member,
+}
+
+impl ReadCurrentSealedKey {
+    /// `None` when the ring has no key registry.
+    pub fn read<I: Rpc, R: Rpc>(
+        self,
+        env: ReadEnvironment<'_, I, R>,
+    ) -> Result<Option<SealedKeyEntry>, KeyRegistrationError> {
+        retry_projection_lag(|| {
+            let Some(root) = self.ring.read_key_registry_root(env.rpc)? else {
+                return Ok(None);
+            };
+            ReadSealedKey {
+                ring: self.ring,
+                member: self.member,
+                root,
+            }
+            .read(env.indexer)
+            .map(Some)
+        })
+    }
 }
 
 /// Membership requires the recovered or expected nullifier public key to verify

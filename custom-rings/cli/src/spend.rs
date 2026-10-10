@@ -195,12 +195,10 @@ impl RecordQuery<'_> {
         &self,
         env: ReadEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<Option<LiveSpendRecord>, SpendError> {
-        Ok(ReadSpendRecord {
-            ring: self.ring,
-            address_tree_id: self.config.address_tree_id(),
-            member: self.member,
-        }
-        .read_current(env)?)
+        Ok(
+            ReadSpendRecord::new(self.ring, self.config.address_tree_id(), self.member)
+                .read_current(env)?,
+        )
     }
 }
 

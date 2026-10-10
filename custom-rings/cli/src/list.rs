@@ -9,7 +9,7 @@ use custom_ring_sdk::{
 use solana_address::{error::ParseAddressError, Address};
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_ring_policy::{EntryState, ListId, Member, MemberError};
 use zolana_transaction::SOL_MINT;
 
@@ -42,6 +42,8 @@ pub enum ListError {
     Catalogue(#[from] Box<CatalogueError>),
     #[error(transparent)]
     Curator(#[from] CuratorError),
+    #[error(transparent)]
+    Client(Box<ClientError>),
     #[error("the ring has no policy config, run `zolana-ring init` first")]
     NoPolicy,
     #[error("{} entry for {member} does not exist", list_name(*list_id))]
@@ -110,6 +112,12 @@ impl From<EntryProofError> for ListError {
 impl From<CatalogueError> for ListError {
     fn from(error: CatalogueError) -> Self {
         Self::Catalogue(Box::new(error))
+    }
+}
+
+impl From<ClientError> for ListError {
+    fn from(error: ClientError) -> Self {
+        Self::Client(Box::new(error))
     }
 }
 
@@ -219,12 +227,15 @@ impl EntryMutation<'_> {
             });
         }
         let address_tree = PoolTree::address_tree(&config);
-        let live = ReadEntry {
-            address_tree_id: address_tree.id,
-            namespace: self.ring.namespace_pda(),
-            list_id: self.list_id,
-            member: self.member,
-        }
+        // An indexer behind the last update would read back the state before
+        // it, and a request for that state would end here unapplied.
+        let live = ReadEntry::new(
+            address_tree.id,
+            self.ring.namespace_pda(),
+            self.list_id,
+            self.member,
+        )
+        .with_indexer_config(IndexerRpcConfig::at_slot(rpc.get_slot()?))
         .read(environment.indexer)?;
         let proven = match live {
             None => CreateEntry {
@@ -324,14 +335,15 @@ impl EntryArg {
             .ring
             .read_policy_config(&ctx.rpc)?
             .ok_or(ListError::NoPolicy)?;
-        let live = ReadEntry {
-            address_tree_id: config.address_tree_id(),
-            namespace: config
+        let live = ReadEntry::new(
+            config.address_tree_id(),
+            config
                 .source_for(self.list_id)
                 .unwrap_or_else(|| ctx.ring.namespace_pda()),
-            list_id: self.list_id,
-            member: self.member.member()?,
-        }
+            self.list_id,
+            self.member.member()?,
+        )
+        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?))
         .read(&ctx.indexer())?
         .ok_or(ListError::NoEntry {
             list_id: self.list_id,

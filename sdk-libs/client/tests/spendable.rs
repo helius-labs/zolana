@@ -40,6 +40,15 @@ struct Indexer {
     spends: Vec<ShieldedTransaction>,
     queried_tags: RefCell<Vec<Vec<[u8; 32]>>>,
     queried_nullifiers: RefCell<Vec<[u8; 32]>>,
+    required_slots: RefCell<Vec<Option<u64>>>,
+}
+
+impl Indexer {
+    fn read(&self, config: Option<IndexerRpcConfig>) {
+        self.required_slots
+            .borrow_mut()
+            .push(config.and_then(|config| config.require_slot));
+    }
 }
 
 fn page<T: Clone>(items: Vec<T>, cursor: Option<Vec<u8>>) -> (Vec<T>, Option<Vec<u8>>) {
@@ -59,8 +68,9 @@ impl Rpc for Indexer {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         _limit: Option<u32>,
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.read(config);
         self.queried_tags.borrow_mut().push(tags.clone());
         let matching = self
             .tagged
@@ -87,8 +97,9 @@ impl Rpc for Indexer {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         _limit: Option<u32>,
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+        self.read(config);
         let matching = self
             .deposits
             .iter()
@@ -110,8 +121,9 @@ impl Rpc for Indexer {
         nullifiers: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         _limit: Option<u32>,
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.read(config);
         if cursor.is_none() {
             self.queried_nullifiers
                 .borrow_mut()
@@ -359,6 +371,35 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
+}
+
+#[test]
+fn every_read_requires_the_slot_of_the_indexer_config() {
+    let owner = keypair(7);
+    let (first_deposit, first) = deposit(&owner, 30, 1);
+    let indexer = Indexer {
+        deposits: vec![first_deposit],
+        spends: vec![spend(&owner, &first, 2)],
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+
+    SpendableUtxos::new(&owner, &assets)
+        .fetch(&indexer)
+        .unwrap();
+    assert!(indexer.required_slots.take().iter().all(Option::is_none));
+
+    let spendable = SpendableUtxos::new(&owner, &assets)
+        .with_indexer_config(IndexerRpcConfig::at_slot(42))
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(spendable.utxos().count(), 0);
+    let required = indexer.required_slots.take();
+    assert!(required.len() >= 3, "{required:?}");
+    assert!(
+        required.iter().all(|slot| *slot == Some(42)),
+        "{required:?}"
+    );
 }
 
 #[test]

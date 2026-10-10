@@ -1,11 +1,14 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
-use zolana_client::{EncryptedUtxoMatch, IndexerPollConfig, Rpc, SpendableUtxos, ZolanaIndexer};
+use zolana_client::{
+    EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, SpendableUtxos,
+    ZolanaIndexer,
+};
 use zolana_transaction::{Address, SpendableDecryptionResult};
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
-    resolve::resolve_sync_with_config,
+    resolve::{resolve_sync, resolve_sync_with_config},
     util::format_address,
     INDEXER_POLL, INDEXER_TIMEOUT,
 };
@@ -21,7 +24,7 @@ pub(super) struct SyncContext {
 }
 
 pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
-    let ctx = sync_context(&opts)?;
+    let ctx = sync_context(&opts, &sync_rpc(&opts)?)?;
     println!("ok sync utxos={}", ctx.spendable.utxos().count());
     // UTXOs in these assets are left out until the asset is in the local
     // asset config.
@@ -34,22 +37,34 @@ pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
     Ok(())
 }
 
-/// The wallet's spendable UTXOs, read afresh from the indexer. The CLI's UTXOs
+/// The wallet's spendable UTXOs, read afresh from an indexer caught up with the
+/// RPC, so a spend another client just made is not selected again. The CLI's UTXOs
 /// all live on the default ring and carry its owner tag or, as deposits, its
 /// viewing key's tag. Anonymous transfers, tagged per counterparty, are not
 /// read; no CLI command produces them.
-pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
+pub(super) fn sync_context(opts: &SyncOptions, rpc: &SolanaRpc) -> Result<SyncContext> {
     let config = CliConfigFile::load()?;
     let sync = resolve_sync_with_config(opts, &config)?;
     let material = load_sender_from_resolved_sync(&sync)?;
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
-    let spendable = SpendableUtxos::new(&material.keypair, &assets).fetch(&indexer)?;
+    let slot = rpc.get_slot()?;
+    let spendable = SpendableUtxos::new(&material.keypair, &assets)
+        .with_indexer_config(IndexerRpcConfig {
+            poll: indexer_poll(),
+            require_slot: Some(slot),
+        })
+        .fetch(&indexer)?;
     Ok(SyncContext {
         material,
         spendable,
         local_assets: config.assets,
     })
+}
+
+/// The RPC of a command that reads the wallet without sending.
+pub(super) fn sync_rpc(opts: &SyncOptions) -> Result<SolanaRpc> {
+    Ok(SolanaRpc::new(resolve_sync(opts)?.rpc_url))
 }
 
 /// The CLI's indexer poll schedule: [`INDEXER_POLL`] between attempts (constant,

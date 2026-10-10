@@ -21,10 +21,10 @@ use zolana_client::prover::indexed::{
 use zolana_client::{
     input_utxos_from_nullifiers,
     prover::{Delivery, ExpectedProvingKey, ProveRequest},
-    AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
-    Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover, ProverClient, ProverExt,
-    RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation, SpendProof,
-    TransferInputUtxo,
+    AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, IndexerRpcConfig, MerkleProof,
+    NonInclusionProof, Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover,
+    ProverClient, ProverExt, RingTransferProofResult, RingTransferProver, Rpc,
+    SettlementAccountValidation, SpendProof, TransferInputUtxo,
 };
 use zolana_interface::event::{MessageData, OutputDataEncoding};
 use zolana_interface::{
@@ -87,6 +87,7 @@ pub struct CustomRingTransfer<'a> {
     transaction: ConfidentialTransaction,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     cosigner: Option<Address>,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 pub struct CustomRingTransferInput<'a> {
@@ -354,12 +355,22 @@ impl<'a> CustomRingTransfer<'a> {
             transaction: input.transaction,
             interface_transfer_accounts: Vec::new(),
             cosigner: None,
+            indexer_config: None,
         }
     }
 
     #[must_use = "use the updated transfer"]
     pub fn with_cosigner(mut self, cosigner: Address) -> Self {
         self.cosigner = Some(cosigner);
+        self
+    }
+
+    /// The policy entries the proof reads wait until the indexer has persisted
+    /// `config.require_slot`: an entry read behind the latest update fails the
+    /// proof on chain, or refuses a rule the update already satisfies.
+    #[must_use = "use the updated transfer"]
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
         self
     }
 
@@ -578,11 +589,11 @@ impl<'a> CustomRingTransfer<'a> {
             }),
             VelocityMode::PerWindow { window_slots } => {
                 Ok(SpendLimit::PerWindow(Box::new(VelocityLookup {
-                    read: ReadSpendRecord {
-                        ring: self.ring,
-                        address_tree_id: pinned.config.address_tree_id(),
-                        member: sender_member(&self.sender.address()?)?,
-                    },
+                    read: ReadSpendRecord::new(
+                        self.ring,
+                        pinned.config.address_tree_id(),
+                        sender_member(&self.sender.address()?)?,
+                    ),
                     context: VelocityContext {
                         namespace: self.ring.namespace_pda(),
                         owner: ListNamespace {
@@ -748,6 +759,7 @@ impl<'a> CustomRingTransfer<'a> {
             ring: self.ring,
             cosigner: self.cosigner,
             velocity: stage.proof_input,
+            indexer_config: self.indexer_config,
         })
     }
 }
@@ -1138,6 +1150,7 @@ pub(crate) struct PolicyTierInput<'a> {
     pub output_tree_id: u16,
     pub velocity: Option<VelocityProofInput>,
     pub key_registry: Option<KeyRegistry>,
+    pub indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl PolicyTierInput<'_> {
@@ -1200,6 +1213,7 @@ impl PolicyTierInput<'_> {
                 output_tree_id: self.output_tree_id,
                 velocity,
                 key_registry: self.key_registry,
+                indexer_config: self.indexer_config,
             },
         })
     }
@@ -1285,6 +1299,7 @@ struct StagedTransfer {
     ring: CustomRing,
     cosigner: Option<Address>,
     velocity: Option<VelocityProofInput>,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl StagedTransfer {
@@ -1307,6 +1322,7 @@ impl StagedTransfer {
             output_tree_id: self.proof_inputs.output_tree_id,
             velocity: self.velocity,
             key_registry,
+            indexer_config: self.indexer_config,
         }
         .with_config(pinned)
     }

@@ -9,7 +9,9 @@ use solana_instruction::Instruction;
 use zolana_client::prover::indexed::{
     IndexedTransferPreparation, IndexedTransferRail, ProofDataSource,
 };
-use zolana_client::{AsyncRpc, Proof, ProofAuthority, ProofInputUtxo, RingAuthorityProver, Rpc};
+use zolana_client::{
+    AsyncRpc, IndexerRpcConfig, Proof, ProofAuthority, ProofInputUtxo, RingAuthorityProver, Rpc,
+};
 use zolana_interface::instruction::TransactIxData;
 use zolana_keypair::{random_salt, NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_transaction::instructions::transact::SppProofInputs;
@@ -60,6 +62,7 @@ pub struct DelegateTransfer<'a> {
     output_tree_id: Option<u16>,
     assets: Option<&'a AssetRegistry>,
     cosigner: Option<Address>,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 #[must_use = "build or submit the proven move"]
@@ -89,6 +92,7 @@ impl<'a> DelegateTransfer<'a> {
             output_tree_id: None,
             assets: None,
             cosigner: None,
+            indexer_config: None,
         }
     }
 
@@ -108,6 +112,14 @@ impl<'a> DelegateTransfer<'a> {
     #[must_use = "use the updated move"]
     pub fn with_cosigner(mut self, cosigner: Address) -> Self {
         self.cosigner = Some(cosigner);
+        self
+    }
+
+    /// The policy entries the proof reads wait until the indexer has persisted
+    /// `config.require_slot`.
+    #[must_use = "use the updated move"]
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
         self
     }
 
@@ -308,6 +320,7 @@ impl<'a> DelegateTransfer<'a> {
             key_registry,
             ring: self.ring,
             cosigner: self.cosigner,
+            indexer_config: self.indexer_config,
         })
     }
 }
@@ -357,6 +370,7 @@ struct StagedDelegateTransfer {
     key_registry: KeyRegistry,
     ring: CustomRing,
     cosigner: Option<Address>,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl StagedDelegateTransfer {
@@ -372,6 +386,7 @@ impl StagedDelegateTransfer {
             output_tree_id: self.prepared.output_tree_id,
             velocity: None,
             key_registry: Some(self.key_registry),
+            indexer_config: self.indexer_config,
         }
     }
 

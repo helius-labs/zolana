@@ -14,7 +14,9 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_client::{
+    ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaIndexer,
+};
 use zolana_interface::pda;
 use zolana_keypair::{shielded::ShieldedAddress, KeypairError, ShieldedKeypair};
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
@@ -636,7 +638,9 @@ impl Deposited<'_> {
         if let Some(cosigner) = this.cosigner {
             transfer = transfer.with_cosigner(cosigner.pubkey());
         }
-        let proven = transfer.prove(env)?;
+        let proven = transfer
+            .with_indexer_config(IndexerRpcConfig::at_slot(env.rpc.get_slot()?))
+            .prove(env)?;
         if proven.approval_required && this.cosigner.is_none() {
             return Err(TransactError::ApprovalNeedsCoSigner);
         }

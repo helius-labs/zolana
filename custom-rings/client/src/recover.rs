@@ -7,7 +7,7 @@ use std::{
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
-use zolana_client::Rpc;
+use zolana_client::{IndexerRpcConfig, Rpc};
 use zolana_event::EncryptedRingDepositOutput;
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
@@ -42,6 +42,7 @@ pub struct RingRecovery<'a> {
     auditor: &'a ViewingKey,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 pub struct SourceMember<'a> {
@@ -89,6 +90,7 @@ impl<'a> RingRecovery<'a> {
             auditor,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
+            indexer_config: None,
         }
     }
 
@@ -101,6 +103,15 @@ impl<'a> RingRecovery<'a> {
     #[must_use = "use the updated recovery"]
     pub fn with_max_pages(mut self, max_pages: NonZeroUsize) -> Self {
         self.max_pages = max_pages;
+        self
+    }
+
+    /// Every indexer read waits until the indexer has persisted
+    /// `config.require_slot`; an indexer behind it would report a spent note
+    /// as unspent.
+    #[must_use = "use the updated recovery"]
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
         self
     }
 
@@ -145,6 +156,7 @@ impl<'a> MemberRecovery<'a> {
         let page = RingScan::new(self.recovery.ring_program_id, &auditor_pk)
             .with_page_size(self.recovery.page_size)
             .with_max_pages(self.recovery.max_pages)
+            .indexer_config(self.recovery.indexer_config)
             .run(ring)?;
         if page.next_cursor.is_some() {
             return Err(RecoveryError::IncompleteScan);
@@ -237,6 +249,7 @@ impl<'a> MemberRecovery<'a> {
             ring: self.recovery.ring_program_id,
             page_size: self.recovery.page_size,
             max_pages: self.recovery.max_pages,
+            indexer_config: self.recovery.indexer_config,
         })
         .read()?
         {
@@ -322,6 +335,7 @@ impl<'a> MemberRecovery<'a> {
                     indexer: ring.indexer,
                     nullifiers: &nullifiers,
                     remaining_queries: &mut remaining_queries,
+                    indexer_config: self.recovery.indexer_config,
                 }
                 .read()?;
                 for transaction in transactions {
@@ -419,6 +433,7 @@ struct DepositHistory<'a, I, O> {
     ring: Address,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 struct DepositHistoryEntry {
@@ -442,7 +457,7 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                     cursor: cursor.clone(),
                     limit: Some(self.page_size.get()),
                 },
-                None,
+                self.indexer_config,
             )?;
             for transaction in page.transactions {
                 if !transaction.proofless {
@@ -506,6 +521,7 @@ struct SpendHistory<'a, I> {
     indexer: &'a I,
     nullifiers: &'a [[u8; 32]],
     remaining_queries: &'a mut usize,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl<I: Rpc> SpendHistory<'_, I> {
@@ -522,7 +538,7 @@ impl<I: Rpc> SpendHistory<'_, I> {
                     batch.to_vec(),
                     cursor.clone(),
                     None,
-                    None,
+                    self.indexer_config,
                 )?;
                 transactions.extend(page.transactions);
                 if page.scanned_through.is_some() {
@@ -684,6 +700,7 @@ mod tests {
             indexer: &indexer,
             nullifiers: &nullifiers,
             remaining_queries: &mut remaining_queries,
+            indexer_config: None,
         }
         .read()
         .expect("history");
@@ -717,7 +734,8 @@ mod tests {
             SpendHistory {
                 indexer: &indexer,
                 nullifiers: &[[1; 32]],
-                remaining_queries: &mut remaining_queries
+                remaining_queries: &mut remaining_queries,
+                indexer_config: None,
             }
             .read(),
             Err(RecoveryError::Audit(AuditError::CursorNotAdvanced))

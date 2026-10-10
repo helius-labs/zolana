@@ -84,7 +84,8 @@ pub use crate::{
         },
     },
     key_registry::{
-        KeyRegistrationError, ProvenKeyRegistration, ReadSealedKey, RegisterKey, SealedKeyEntry,
+        KeyRegistrationError, ProvenKeyRegistration, ReadCurrentSealedKey, ReadSealedKey,
+        RegisterKey, SealedKeyEntry,
     },
     prepared_authority::{RingAuthorityProofInputs, RingAuthorityProofs},
     shared::{

@@ -4,7 +4,7 @@
 
 use solana_address::Address;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, OutputSlot, Rpc,
+    rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, IndexerRpcConfig, OutputSlot, Rpc,
     ShieldedTransaction,
 };
 use zolana_interface::event::OutputDataEncoding;
@@ -28,13 +28,36 @@ pub struct ReadEntry {
     pub namespace: Address,
     pub list_id: ListId,
     pub member: Member,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl ReadEntry {
+    pub fn new(address_tree_id: u16, namespace: Address, list_id: ListId, member: Member) -> Self {
+        Self {
+            address_tree_id,
+            namespace,
+            list_id,
+            member,
+            indexer_config: None,
+        }
+    }
+
+    /// Every request waits until the indexer has persisted
+    /// `config.require_slot`: an indexer behind the latest update reads back
+    /// the version before it.
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
+        self
+    }
+
     /// `None` when the address was never claimed, a cleared entry still reads back.
     pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages { lookups: &[lookup] }.fetch(indexer)?;
+        let lineages = Lineages {
+            lookups: &[lookup],
+            config: self.indexer_config,
+        }
+        .fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -43,7 +66,12 @@ impl ReadEntry {
         indexer: &I,
     ) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages { lookups: &[lookup] }.fetch_async(indexer).await?;
+        let lineages = Lineages {
+            lookups: &[lookup],
+            config: self.indexer_config,
+        }
+        .fetch_async(indexer)
+        .await?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -140,6 +168,7 @@ impl LineageLookup for EntryLookup {
 
 pub(crate) struct Lineages<'a, L> {
     pub lookups: &'a [L],
+    pub config: Option<IndexerRpcConfig>,
 }
 
 impl<L: LineageLookup> Lineages<'_, L> {
@@ -148,13 +177,14 @@ impl<L: LineageLookup> Lineages<'_, L> {
         self,
         indexer: &I,
     ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
+        let config = self.config;
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 query.nullifiers,
                 query.cursor,
                 None,
-                None,
+                config,
             )?;
             walk.absorb(page)?;
         }
@@ -165,10 +195,16 @@ impl<L: LineageLookup> Lineages<'_, L> {
         self,
         indexer: &I,
     ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
+        let config = self.config;
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer
-                .get_shielded_transactions_by_nullifiers(query.nullifiers, query.cursor, None, None)
+                .get_shielded_transactions_by_nullifiers(
+                    query.nullifiers,
+                    query.cursor,
+                    None,
+                    config,
+                )
                 .await?;
             walk.absorb(page)?;
         }
@@ -502,12 +538,12 @@ pub(crate) mod tests {
     }
 
     fn read(lookup: EntryLookup, rpc: &NullifierRpc) -> Result<Option<LiveEntry>, EntryProofError> {
-        ReadEntry {
-            address_tree_id: lookup.address_tree_id,
-            namespace: namespace(),
-            list_id: lookup.list_id,
-            member: lookup.member,
-        }
+        ReadEntry::new(
+            lookup.address_tree_id,
+            namespace(),
+            lookup.list_id,
+            lookup.member,
+        )
         .read(rpc)
     }
 
@@ -560,13 +596,7 @@ pub(crate) mod tests {
         );
         let rpc = NullifierRpc::new(lineage.spenders());
         let live = futures::executor::block_on(
-            ReadEntry {
-                address_tree_id: 0,
-                namespace: namespace(),
-                list_id: ListId::Block,
-                member: member(2),
-            }
-            .read_async(&rpc),
+            ReadEntry::new(0, namespace(), ListId::Block, member(2)).read_async(&rpc),
         )
         .expect("walk");
         assert_eq!(live, lineage.live());
@@ -581,7 +611,12 @@ pub(crate) mod tests {
         let mut rpc = NullifierRpc::new(spenders);
         rpc.page_size = Some(1);
         let lookups = [first.lookup, second.lookup];
-        let lineages = Lineages { lookups: &lookups }.fetch(&rpc).expect("walk");
+        let lineages = Lineages {
+            lookups: &lookups,
+            config: None,
+        }
+        .fetch(&rpc)
+        .expect("walk");
         assert_eq!(lineages, vec![first.live(), second.live()]);
         // Two full claim pages end on an empty third, the next round is one empty page.
         assert_eq!(rpc.requests.lock().expect("requests").len(), 4);
