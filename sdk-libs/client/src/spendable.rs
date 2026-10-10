@@ -12,7 +12,9 @@
 //!
 //! Both read UTXOs only in the assets of the [`AssetRegistry`] they are given
 //! and report the others as unknown; [`fetch_asset_id`] reads the id the pool
-//! registered for a mint, to add it.
+//! registered for a mint, to add it. An indexer that lags misses the latest
+//! spends; [`SpendableUtxos::with_indexer_config`] makes every read wait for a
+//! slot first.
 
 use std::collections::HashSet;
 
@@ -27,7 +29,7 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, Rpc, ShieldedTransaction},
+    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -36,6 +38,7 @@ pub struct SpendableUtxos<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
     ring_deposit_payload: Option<(Address, DepositPayload)>,
+    indexer_config: Option<IndexerRpcConfig>,
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
@@ -44,7 +47,20 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
             keys,
             assets,
             ring_deposit_payload: None,
+            indexer_config: None,
         }
+    }
+
+    /// Every indexer read waits, as `config` says, until the indexer has
+    /// persisted `config.require_slot`, and fails with
+    /// [`ClientError::IndexerNotCaughtUp`] when it does not. Pass a recent
+    /// Solana slot, so a spend another client just made is read, not missed:
+    /// selecting a UTXO the chain already spent costs a proof and a failed
+    /// transaction.
+    #[must_use]
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = Some(config);
+        self
     }
 
     /// For a ring program that frames the ciphertexts of its deposits. It
@@ -90,7 +106,10 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
         tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
 
         let mut seen = HashSet::new();
-        let mut batch = self.unseen(&mut seen, tagged_transactions(indexer, &tags)?)?;
+        let mut batch = self.unseen(
+            &mut seen,
+            tagged_transactions(indexer, &tags, self.indexer_config)?,
+        )?;
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
@@ -105,7 +124,10 @@ impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
                 .map(|utxo| utxo.nullifier)
                 .filter(|nullifier| queried.insert(*nullifier))
                 .collect();
-            batch = self.unseen(&mut seen, spending_transactions(indexer, &nullifiers)?)?;
+            batch = self.unseen(
+                &mut seen,
+                spending_transactions(indexer, &nullifiers, self.indexer_config)?,
+            )?;
             if batch.is_empty() {
                 return Ok(Fetched {
                     tags,
@@ -191,6 +213,7 @@ struct Fetched {
 fn tagged_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     tags: &[[u8; 32]],
+    config: Option<IndexerRpcConfig>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     let mut cursor = None;
@@ -199,7 +222,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
             tags.to_vec(),
             cursor,
             Some(PAGE_LIMIT),
-            None,
+            config,
         )?;
         transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
         let Some(next) = page.next_cursor else { break };
@@ -208,7 +231,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     let mut cursor = None;
     loop {
         let page =
-            indexer.get_encrypted_utxos_by_tags(tags.to_vec(), cursor, Some(PAGE_LIMIT), None)?;
+            indexer.get_encrypted_utxos_by_tags(tags.to_vec(), cursor, Some(PAGE_LIMIT), config)?;
         transactions.extend(
             page.matches
                 .into_iter()
@@ -224,6 +247,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
 fn spending_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
+    config: Option<IndexerRpcConfig>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
@@ -233,7 +257,7 @@ fn spending_transactions<I: Rpc + ?Sized>(
                 chunk.to_vec(),
                 cursor,
                 Some(PAGE_LIMIT),
-                None,
+                config,
             )?;
             transactions.extend(page.transactions);
             let Some(next) = page.next_cursor else { break };
