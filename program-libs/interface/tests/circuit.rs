@@ -1,5 +1,5 @@
 use zolana_interface::{
-    shape::{RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
+    shape::{BATCH_SETTLEMENT_SHAPES, RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
     verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
@@ -153,6 +153,15 @@ fn every_supported_shape_is_supported_on_every_owner_signed_rail() {
     }
 }
 
+/// Batch-settlement shapes keyed per rail: each rail's widest shapes fit its
+/// own instruction data under the CPI cap.
+#[cfg(feature = "verifying-keys")]
+const BATCH_CONFIDENTIAL: [(u8, u8); 5] = [(4, 32), (4, 64), (4, 148), (16, 142), (58, 121)];
+#[cfg(feature = "verifying-keys")]
+const BATCH_RING: [(u8, u8); 5] = [(4, 32), (4, 64), (4, 148), (16, 142), (57, 121)];
+#[cfg(feature = "verifying-keys")]
+const BATCH_P256: [(u8, u8); 5] = [(4, 32), (4, 64), (4, 146), (16, 140), (57, 120)];
+
 #[cfg(feature = "verifying-keys")]
 #[test]
 fn every_supported_shape_resolves_exactly_one_key() {
@@ -174,6 +183,18 @@ fn every_supported_shape_resolves_exactly_one_key() {
             ),
         ] {
             assert!(circuit.is_supported());
+            if BATCH_SETTLEMENT_SHAPES.contains(&shape) {
+                let keyed = match circuit.uncached() {
+                    CircuitId::ConfidentialEddsa(..) => &BATCH_CONFIDENTIAL,
+                    CircuitId::RingEddsa(..) => &BATCH_RING,
+                    _ => &BATCH_P256,
+                }
+                .contains(&(n_inputs, n_outputs));
+                assert_eq!(circuit.verifying_key().is_some(), keyed, "{circuit:?}");
+                if !keyed {
+                    continue;
+                }
+            }
             assert!(circuit.verifying_key().is_some());
             // The cache publishes values, not a circuit: a cached spend resolves
             // its rail's own key, so no cached key is generated into this crate.

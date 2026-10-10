@@ -1371,7 +1371,10 @@ fn pda_sender_owner_tags_resolve_for_self_paid_and_relayed_transactions() {
 fn builder_automatically_selects_every_supported_boundary() {
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
-    for shape in SPP_SUPPORTED_SHAPES {
+    for shape in SPP_SUPPORTED_SHAPES
+        .into_iter()
+        .filter(|shape| !shape.is_batch_settlement())
+    {
         let inputs = (0..shape.n_inputs())
             .map(|n| wallet_utxo(&owner, Mint::SOL, 20, 7, n as u8))
             .collect();

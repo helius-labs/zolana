@@ -140,8 +140,8 @@ fn decimal_field(decimal: &str) -> [u8; 32] {
 
 #[test]
 fn input_flags_width_at_the_widest_shape_exceeds_one_u128() {
-    assert_eq!(MAX_TRANSACT_INPUTS, 49);
-    assert_eq!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS), 148);
+    assert_eq!(MAX_TRANSACT_INPUTS, 58);
+    assert_eq!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS), 175);
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn input_flags_pack_every_slot_at_the_widest_shape() {
         let packed =
             pack_input_flags(allow_dummy_inputs, tree_indexes.iter().copied()).expect("packs");
         assert_eq!(packed, reference_flags(allow_dummy_inputs, &tree_indexes));
-        assert!(highest_set_bit(&packed).is_some_and(|bit| (128..148).contains(&bit)));
+        assert!(highest_set_bit(&packed).is_some_and(|bit| (148..175).contains(&bit)));
     }
 }
 

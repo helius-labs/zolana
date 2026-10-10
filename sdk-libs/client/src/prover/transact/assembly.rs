@@ -1,6 +1,8 @@
 use num_bigint::BigUint;
 use zolana_event::is_confidential_encrypted_output;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use zolana_hasher::zero_suffix_hash_chain::{
+    create_padded_right_hash_chain_4, create_zero_suffix_right_hash_chain_4,
+};
 use zolana_hasher::{
     hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::solana_owner_identity,
@@ -583,7 +585,7 @@ impl<Roots> PublicInputs<'_, Roots> {
         // the circuit width; compact padding contributes zeros.
         elements.extend([
             create_padded_right_hash_chain_4(self.nullifiers, self.nullifiers.len())?,
-            create_padded_right_hash_chain_4(self.output_hashes, self.output_hashes.len())?,
+            padded_output_chain(self.output_hashes, self.output_hashes.len())?,
             tree_id_field(self.output_tree_id),
             *self.private_tx,
         ]);
@@ -596,7 +598,7 @@ impl<Roots> PublicInputs<'_, Roots> {
             *self.input_flags,
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
-            elements.push(create_padded_right_hash_chain_4(
+            elements.push(padded_output_chain(
                 output_owner_pk_hashes,
                 self.output_hashes.len(),
             )?);
@@ -604,6 +606,18 @@ impl<Roots> PublicInputs<'_, Roots> {
         }
         Ok(elements)
     }
+}
+
+/// The right fold over `width` output slots, zero padded past `values`. Output
+/// chains reach 150 slots, wider than the stack buffer of
+/// `create_padded_right_hash_chain_4`.
+fn padded_output_chain(values: &[[u8; 32]], width: usize) -> Result<[u8; 32], ClientError> {
+    if values.len() > width {
+        return Err(zolana_hasher::HasherError::InvalidInputLength(width, values.len()).into());
+    }
+    let mut slots = values.to_vec();
+    slots.resize(width, [0u8; 32]);
+    Ok(create_zero_suffix_right_hash_chain_4(&slots)?)
 }
 
 /// Pair each published nullifier with the index of the tree its input is

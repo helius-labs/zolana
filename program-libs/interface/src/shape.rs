@@ -157,6 +157,42 @@ impl Shape {
         n_inputs: 49,
         n_outputs: 2,
     };
+    pub const IN4_OUT32: Self = Self {
+        n_inputs: 4,
+        n_outputs: 32,
+    };
+    pub const IN4_OUT64: Self = Self {
+        n_inputs: 4,
+        n_outputs: 64,
+    };
+    pub const IN4_OUT146: Self = Self {
+        n_inputs: 4,
+        n_outputs: 146,
+    };
+    pub const IN4_OUT148: Self = Self {
+        n_inputs: 4,
+        n_outputs: 148,
+    };
+    pub const IN16_OUT140: Self = Self {
+        n_inputs: 16,
+        n_outputs: 140,
+    };
+    pub const IN16_OUT142: Self = Self {
+        n_inputs: 16,
+        n_outputs: 142,
+    };
+    pub const IN57_OUT120: Self = Self {
+        n_inputs: 57,
+        n_outputs: 120,
+    };
+    pub const IN57_OUT121: Self = Self {
+        n_inputs: 57,
+        n_outputs: 121,
+    };
+    pub const IN58_OUT121: Self = Self {
+        n_inputs: 58,
+        n_outputs: 121,
+    };
 
     pub const fn new(n_inputs: usize, n_outputs: usize) -> Self {
         Self {
@@ -183,6 +219,19 @@ impl Shape {
     /// Whether the SPP prover has keys for this shape, see [`SPP_SUPPORTED_SHAPES`].
     pub const fn is_supported(self) -> bool {
         let mut shapes: &[Shape] = &SPP_SUPPORTED_SHAPES;
+        while let Some((shape, rest)) = shapes.split_first() {
+            if shape.n_inputs == self.n_inputs && shape.n_outputs == self.n_outputs {
+                return true;
+            }
+            shapes = rest;
+        }
+        false
+    }
+
+    /// Whether this is one of [`BATCH_SETTLEMENT_SHAPES`], which automatic
+    /// shape selection skips.
+    pub const fn is_batch_settlement(self) -> bool {
+        let mut shapes: &[Shape] = &BATCH_SETTLEMENT_SHAPES;
         while let Some((shape, rest)) = shapes.split_first() {
             if shape.n_inputs == self.n_inputs && shape.n_outputs == self.n_outputs {
                 return true;
@@ -251,10 +300,24 @@ const _: () = {
     }
 };
 
+/// Batch-settlement shapes: keyed for explicit declaration only, never picked
+/// by automatic shape selection.
+pub const BATCH_SETTLEMENT_SHAPES: [Shape; 9] = [
+    Shape::IN4_OUT32,
+    Shape::IN4_OUT64,
+    Shape::IN4_OUT146,
+    Shape::IN4_OUT148,
+    Shape::IN16_OUT140,
+    Shape::IN16_OUT142,
+    Shape::IN57_OUT120,
+    Shape::IN57_OUT121,
+    Shape::IN58_OUT121,
+];
+
 /// Shapes the SPP prover has keys for, ordered by proving cost so the first
 /// shape that fits is the cheapest. Slot-signed transactions declare their
 /// exact shape (they do not pad), so they validate against this full set.
-pub const SPP_SUPPORTED_SHAPES: [Shape; 38] = [
+pub const SPP_SUPPORTED_SHAPES: [Shape; 47] = [
     Shape::IN1_OUT2,
     Shape::IN1_OUT4,
     Shape::IN1_OUT8,
@@ -277,20 +340,29 @@ pub const SPP_SUPPORTED_SHAPES: [Shape; 38] = [
     Shape::IN6_OUT4,
     Shape::IN5_OUT16,
     Shape::IN6_OUT8,
+    Shape::IN4_OUT32,
     Shape::IN8_OUT2,
     Shape::IN8_OUT4,
     Shape::IN8_OUT8,
     Shape::IN8_OUT16,
+    Shape::IN4_OUT64,
     Shape::IN12_OUT2,
     Shape::IN12_OUT4,
     Shape::IN12_OUT8,
     Shape::IN16_OUT2,
     Shape::IN16_OUT4,
     Shape::IN16_OUT8,
+    Shape::IN4_OUT146,
+    Shape::IN4_OUT148,
     Shape::IN24_OUT2,
     Shape::IN24_OUT4,
     Shape::IN32_OUT2,
+    Shape::IN16_OUT140,
+    Shape::IN16_OUT142,
     Shape::IN40_OUT2,
     Shape::IN48_OUT2,
     Shape::IN49_OUT2,
+    Shape::IN57_OUT120,
+    Shape::IN57_OUT121,
+    Shape::IN58_OUT121,
 ];
