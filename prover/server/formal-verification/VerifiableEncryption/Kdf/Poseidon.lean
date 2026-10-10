@@ -141,6 +141,8 @@ theorem Poseidon_8_rw {v : List.Vector F 8} {k : F → Prop} :
     Poseidon_8 v 0 k ↔ k (poseidon₈ v) :=
   Iff.of_eq ((poseidon8_ua v 0).equiv k)
 
+attribute [irreducible] poseidon₂ poseidon₃ poseidon₇ poseidon₈
+
 /-- Poseidon over an input list, dispatching on the arity the circuits use. -/
 def poseidon (xs : List F) : F :=
   if h : xs.length = 2 then poseidon₂ ⟨xs, h⟩
