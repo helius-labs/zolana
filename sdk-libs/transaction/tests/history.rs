@@ -203,6 +203,36 @@ fn each_transaction_is_classified_by_the_wallets_utxos_it_moved() {
     assert!(classify(&[], transaction(9, 9, &[&their_input], &[&their_output])).is_empty());
 }
 
+/// The indexer lists a merge's output twice: under the merge, and as a
+/// proofless event of the same transaction. It is one merge of what it spent.
+#[test]
+fn a_utxo_listed_under_two_events_of_a_transaction_counts_once() {
+    let owner = keypair(1);
+    let inputs = [
+        wallet_utxo(&owner, Mint::SOL, 30, TREE, 1),
+        wallet_utxo(&owner, Mint::SOL, 20, TREE, 2),
+    ];
+    let merged = wallet_utxo(&owner, Mint::SOL, 50, TREE, 3);
+    let merge = transaction(7, 7, &[&inputs[0], &inputs[1]], &[&merged]);
+    let listed_again = ShieldedTransaction {
+        event_index: None,
+        proofless: true,
+        ..transaction(7, 7, &[], &[&merged])
+    };
+    let entries = History {
+        transactions: vec![merge.clone(), listed_again, merge],
+        utxos: vec![inputs[0].clone(), inputs[1].clone(), merged],
+        view_tags: BTreeSet::from([WALLET_TAG]),
+        ..History::default()
+    }
+    .entries();
+    let entries: Vec<_> = entries
+        .into_iter()
+        .map(|entry| (entry.kind, entry.amount))
+        .collect();
+    assert_eq!(entries, [(HistoryKind::SelfTransfer, 50)]);
+}
+
 #[test]
 fn entries_list_newest_first_with_one_entry_per_asset_and_transaction() {
     let owner = keypair(3);

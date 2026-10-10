@@ -11,7 +11,12 @@ import { Utxo, ProofInputUtxo, createProofOutput } from "../src/transaction/utxo
 import type { ProofInputUtxo as InputUtxo, ProofOutputUtxo } from "../src/transaction/utxo.js";
 import type { CustomRingVelocityRow } from "../src/client/prover/types.js";
 import { registerRingSpendInstruction } from "../src/ring/instructions.js";
-import { chargeRows, recordShape, senderOutflow, type RingMovement } from "../src/ring/velocity.js";
+import {
+  chargeRows,
+  recordShape,
+  senderOutflow,
+  type RingMoneyTransfer,
+} from "../src/ring/velocity.js";
 import { memberOfAsset, memberOfIdentity, type Member } from "../src/ring/policy.js";
 
 const filled = (byte: number): Bytes32 => new Uint8Array(32).fill(byte) as Bytes32;
@@ -60,11 +65,11 @@ function changeOutput(address: ShieldedAddress, amount: bigint): ProofOutputUtxo
   });
 }
 
-function movement(
+function moneyTransfer(
   sender: Member,
   inputs: readonly InputUtxo[],
   outputs: readonly ProofOutputUtxo[] = [],
-): RingMovement {
+): RingMoneyTransfer {
   return { sender, ringProgramId: RING, inputs, outputs };
 }
 
@@ -88,9 +93,12 @@ describe("velocity outflow and charge", () => {
   it("charges inputs less the sender's change inside the ring", () => {
     const { member, address } = senderIdentity();
     const asset = memberOfAsset(ASSET);
-    expect(senderOutflow(movement(member, [moneyInput(1000n)]), asset)).toBe(1000n);
+    expect(senderOutflow(moneyTransfer(member, [moneyInput(1000n)]), asset)).toBe(1000n);
     expect(
-      senderOutflow(movement(member, [moneyInput(1000n)], [changeOutput(address, 400n)]), asset),
+      senderOutflow(
+        moneyTransfer(member, [moneyInput(1000n)], [changeOutput(address, 400n)]),
+        asset,
+      ),
     ).toBe(600n);
   });
 
@@ -98,7 +106,10 @@ describe("velocity outflow and charge", () => {
     const { member } = senderIdentity();
     const half = (1n << 63n) + 1n;
     expect(() =>
-      senderOutflow(movement(member, [moneyInput(half), moneyInput(half)]), memberOfAsset(ASSET)),
+      senderOutflow(
+        moneyTransfer(member, [moneyInput(half), moneyInput(half)]),
+        memberOfAsset(ASSET),
+      ),
     ).toThrow(expect.objectContaining({ code: "RING_VELOCITY_OVERFLOW" }));
   });
 
@@ -108,7 +119,7 @@ describe("velocity outflow and charge", () => {
     const rows: readonly CustomRingVelocityRow[] = [{ asset, cap: 650n, cosignAbove: 300n }];
     const charge = (amount: bigint) =>
       chargeRows({
-        movement: movement(member, [moneyInput(amount)]),
+        moneyTransfer: moneyTransfer(member, [moneyInput(amount)]),
         rows,
         namespaceOwnerHash: NAMESPACE_OWNER,
       });
@@ -127,7 +138,7 @@ describe("velocity outflow and charge", () => {
     const rows: readonly CustomRingVelocityRow[] = [{ asset, cap: 0n, cosignAbove: 300n }];
     expect(
       chargeRows({
-        movement: movement(member, [moneyInput(300n)]),
+        moneyTransfer: moneyTransfer(member, [moneyInput(300n)]),
         rows,
         namespaceOwnerHash: NAMESPACE_OWNER,
       }).approvalRequired,

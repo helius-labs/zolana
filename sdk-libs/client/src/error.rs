@@ -218,12 +218,6 @@ pub enum ClientError {
     #[error("owner {owner} has not enabled the merge service on its user-registry record")]
     MergeDisabled { owner: Pubkey },
 
-    #[error("nothing to merge for asset {asset:?}: fewer than two plain utxos are available")]
-    NothingToMerge { asset: solana_address::Address },
-
-    #[error("merge input utxo {hash:?} was named more than once")]
-    DuplicateInputUtxo { hash: [u8; 32] },
-
     #[error("merging keypair signing key does not match the owner's registry record")]
     MergeSigningKeyMismatch,
 

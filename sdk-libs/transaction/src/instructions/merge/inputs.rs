@@ -19,11 +19,16 @@ pub(crate) fn validate_merge_inputs(
             max: MAX_MERGE_INPUTS,
         })?;
 
-    let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
+    let first = inputs.first().ok_or(TransactionError::NoInputs)?;
+    let (asset, tree_id) = (first.utxo.asset, first.tree_id);
     let mut total = 0u64;
     for (index, input_utxo) in inputs.iter().enumerate() {
         if input_utxo.utxo.asset != asset {
             return Err(TransactionError::MergeInputAssetMismatch { index });
+        }
+        // A merge resolves the roots of one input tree.
+        if input_utxo.tree_id != tree_id {
+            return Err(TransactionError::MergeInputTreeMismatch { index });
         }
         check(index, input_utxo)?;
         total = total

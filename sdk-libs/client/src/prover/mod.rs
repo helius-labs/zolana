@@ -16,7 +16,7 @@ pub mod tee;
 pub mod timing;
 pub mod transact;
 mod utxo;
-mod verify;
+pub(crate) mod verify;
 pub mod witness;
 
 pub use backend::{Prover, ProverExt};

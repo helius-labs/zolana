@@ -4,7 +4,6 @@
 
 pub mod create_associated_token_account;
 pub mod deposit;
-pub mod submit;
 pub mod transaction;
 
 pub use create_associated_token_account::{
@@ -14,15 +13,14 @@ pub use deposit::{
     build_deposit_transaction, build_deposit_transaction_sync, create_deposit, deposit, Deposit,
     DepositParams,
 };
-pub use submit::{submit_merge_transaction, SubmitMergeTransaction, SubmittedMerge};
 pub use transaction::{
     build_private_transaction, build_private_transaction_sync, sign_private_transaction,
     sign_private_transaction_sync, sign_private_transaction_sync_with_signers,
     sign_private_transaction_with_signers,
 };
 pub use transaction::{
-    create_merge, create_split, create_transfer, create_transfer_sync, create_withdrawal,
-    select_input_utxos, select_input_utxos_sync, CreatedMerge, CreatedSplit, CreatedTransfer,
-    CreatedWithdrawal, MergeParams, SelectedSpendInputs, SpendInputParams, SplitParams,
-    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
+    create_split, create_transfer, create_transfer_sync, create_withdrawal, select_input_utxos,
+    select_input_utxos_sync, CreatedSplit, CreatedTransfer, CreatedWithdrawal, SelectedSpendInputs,
+    SpendInputParams, SplitParams, TransferParams, TransferRecipient, UnsignedPrivateTransaction,
+    WithdrawalLeg, WithdrawalParams,
 };

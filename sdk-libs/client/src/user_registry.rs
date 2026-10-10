@@ -11,8 +11,8 @@ use zolana_keypair::{
 };
 use zolana_user_registry_interface::{
     instruction::{
-        p256_key_binding_message, p256_verify_instruction, register, update_keys, RegisterData,
-        UpdateKeysData, P256_KEY_BINDING_MESSAGE_LEN,
+        p256_key_binding_message, p256_verify_instruction, register, set_merging_enabled,
+        update_keys, RegisterData, UpdateKeysData, P256_KEY_BINDING_MESSAGE_LEN,
     },
     state::P256_PUBKEY_LEN,
     user_record_pda, user_registry_program_id, UserRecord,
@@ -401,6 +401,13 @@ fn register_instructions(
     let owner_p256 = data.owner_p256;
     let ix = register(user_record, owner, payer, data);
     compose_key_binding_instructions(user_record, owner, ix, owner_p256, proof)
+}
+
+/// The instruction that enables, or disables, merges of `owner`'s UTXOs. The
+/// owner signs it. While merging is enabled, a merge proved with the owner's
+/// nullifier secret is valid without the owner's signature.
+pub fn set_merging_enabled_instruction(owner: Pubkey, enabled: bool) -> Instruction {
+    set_merging_enabled(user_record_pda(&owner).0, owner, enabled)
 }
 
 pub fn fetch_user_record_checked<R: Rpc>(

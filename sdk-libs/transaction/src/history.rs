@@ -31,7 +31,7 @@
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
 };
 
 use solana_address::Address;
@@ -91,15 +91,15 @@ impl History {
     /// an asset, such as a zero-amount change output, has no entry for it.
     pub fn entries(&self) -> Vec<HistoryEntry> {
         let mut entries: Vec<_> = self
-            .movements()
+            .balance_changes()
             .into_iter()
-            .flat_map(|(tx_signature, movement)| movement.entries(tx_signature))
+            .flat_map(|(tx_signature, change)| change.entries(tx_signature))
             .collect();
         entries.sort_by_key(|entry| (Reverse(entry.slot), entry.tx_signature, entry.mint));
         entries
     }
 
-    fn movements(&self) -> BTreeMap<Signature, Movement> {
+    fn balance_changes(&self) -> BTreeMap<Signature, BalanceChange> {
         let by_hash: HashMap<_, _> = self
             .utxos
             .iter()
@@ -110,16 +110,22 @@ impl History {
             .iter()
             .map(|utxo| (utxo.nullifier, utxo))
             .collect();
-        let mut movements: BTreeMap<Signature, Movement> = BTreeMap::new();
+        let mut balance_changes: BTreeMap<Signature, BalanceChange> = BTreeMap::new();
         for tx in &self.transactions {
-            let movement = movements.entry(tx.tx_signature).or_default();
-            movement.slot = tx.slot;
-            movement.deposit |= tx.proofless;
+            let change = balance_changes.entry(tx.tx_signature).or_default();
+            change.slot = tx.slot;
+            change.deposit |= tx.proofless;
+            // The indexer can list a transaction's UTXO under more than one
+            // event, such as a merge's output, which it also lists as a
+            // proofless one: each UTXO counts once.
             for slot in &tx.output_slots {
                 match by_hash.get(&slot.output_context.hash) {
-                    Some(utxo) => add(&mut movement.received, utxo),
+                    Some(utxo) if change.counted.insert(utxo.utxo_hash) => {
+                        add(&mut change.received, utxo)
+                    }
+                    Some(_) => {}
                     None if self.view_tags.contains(&slot.view_tag) => {}
-                    None => movement.pays_another = true,
+                    None => change.pays_another = true,
                 }
             }
             for utxo in tx
@@ -127,26 +133,30 @@ impl History {
                 .iter()
                 .filter_map(|nullifier| by_nullifier.get(nullifier))
             {
-                add(&mut movement.spent, utxo);
+                if change.counted.insert(utxo.nullifier) {
+                    add(&mut change.spent, utxo);
+                }
             }
         }
-        movements
+        balance_changes
     }
 }
 
 /// What one Solana transaction did to the wallet's UTXOs, over all its
 /// shielded-pool events.
 #[derive(Debug, Default)]
-struct Movement {
+struct BalanceChange {
     slot: u64,
     deposit: bool,
     /// An output that is not the wallet's, under another wallet's tag.
     pays_another: bool,
     received: BTreeMap<Address, u64>,
     spent: BTreeMap<Address, u64>,
+    /// The hashes of the UTXOs received and the nullifiers of those spent.
+    counted: HashSet<[u8; 32]>,
 }
 
-impl Movement {
+impl BalanceChange {
     fn entries(self, tx_signature: Signature) -> impl Iterator<Item = HistoryEntry> {
         let mints: BTreeSet<Address> = self
             .received

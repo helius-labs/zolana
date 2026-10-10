@@ -28,8 +28,9 @@ pub mod user_registry;
 
 pub use authority::ProofAuthority;
 pub use client::{
-    check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc,
-    SignedPrivateTransaction, Submission, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+    check_merge_record, check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer,
+    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, Submission, ZolanaClient,
+    DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};

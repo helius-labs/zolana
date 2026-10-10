@@ -13,6 +13,7 @@
 
 mod blocking;
 mod confirmation;
+mod merge;
 mod nonblocking;
 mod transaction;
 mod validation;
@@ -29,12 +30,14 @@ use crate::{
     indexer::AsyncZolanaIndexer,
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
+        requests::CircuitRequest,
         witness::{AsyncWitnessReader, WitnessReader},
-        AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
+        AsyncProverClient, MergeInputs, Proof, Prover, ProverClient, TransferInputs,
     },
     rpc::{AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
 };
 
+pub use merge::{check_merge_record, MergeSubmission, ProvedMerge, MERGE_CU_LIMIT};
 pub use transaction::{SignedPrivateTransaction, Submission};
 pub use validation::check_service_url;
 
@@ -204,7 +207,22 @@ impl<R, I> AsyncZolanaClient<R, I> {
         match &self.prover {
             ProverBackend::Server(prover) => prover.prove_transfer(inputs).await,
             ProverBackend::Custom(prover) => {
-                prove_on_blocking_pool(Arc::clone(prover), inputs).await
+                prove_on_blocking_pool(
+                    Arc::clone(prover),
+                    crate::prover::requests::transfer(inputs)?,
+                )
+                .await
+            }
+        }
+    }
+
+    /// The merge proof, from the client's prover.
+    async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        match &self.prover {
+            ProverBackend::Server(prover) => prover.prove_merge(inputs).await,
+            ProverBackend::Custom(prover) => {
+                prove_on_blocking_pool(Arc::clone(prover), crate::prover::requests::merge(inputs)?)
+                    .await
             }
         }
     }
@@ -373,9 +391,8 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
 /// Tokio's blocking pool rather than on the worker that awaits it.
 async fn prove_on_blocking_pool(
     prover: Arc<dyn Prover>,
-    inputs: &TransferInputs,
+    request: CircuitRequest,
 ) -> Result<Proof, ClientError> {
-    let request = crate::prover::requests::transfer(inputs)?;
     tokio::task::spawn_blocking(move || prover.prove(&request))
         .await
         .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?

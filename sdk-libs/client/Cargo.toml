@@ -139,6 +139,10 @@ name = "multi_tree_spend"
 [[test]]
 name = "witness_trees"
 
+# Hermetic: a merge refuses a witness from another tree before proving.
+[[test]]
+name = "merge_witness_tree"
+
 # Hermetic: a loopback mock prover, no prover server.
 [[test]]
 name = "prover_retry"

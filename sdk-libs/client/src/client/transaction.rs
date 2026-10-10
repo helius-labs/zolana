@@ -206,7 +206,11 @@ impl<'a> Submission<'a> {
                     Some(prover) => {
                         let inputs = &mut assembled.prover_inputs;
                         self.authority.complete_inputs(&mut inputs.inputs)?;
-                        let proof = prove_on_blocking_pool(Arc::clone(prover), inputs).await?;
+                        let proof = prove_on_blocking_pool(
+                            Arc::clone(prover),
+                            crate::prover::requests::transfer(inputs)?,
+                        )
+                        .await?;
                         verify_confidential_transfer_inputs(
                             inputs,
                             assembled.public_input_hash,

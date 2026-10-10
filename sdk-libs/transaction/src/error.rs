@@ -161,14 +161,14 @@ pub enum TransactionError {
     #[error("no spendable balance of {asset}")]
     NoSpendableBalance { asset: Address },
 
-    #[error("balance is spread over {trees} trees; merge each tree first")]
-    BalanceOnSeveralTrees { trees: usize },
-
     #[error("{amount} needs more than {max_inputs} UTXOs; merge first")]
     SpendNeedsMerge { amount: u64, max_inputs: usize },
 
     #[error("{amount} needs UTXOs that are excluded from this spend")]
     SpendNeedsExcludedUtxos { amount: u64 },
+
+    #[error("nothing to merge for asset {asset}: fewer than two plain UTXOs on one tree")]
+    NothingToMerge { asset: Address },
 
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },
@@ -232,6 +232,9 @@ pub enum TransactionError {
 
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
+
+    #[error("merge input {index} is on another tree; a merge spends the UTXOs of one tree")]
+    MergeInputTreeMismatch { index: usize },
 
     #[error("merge input {index} has a different ring program id")]
     MergeInputRingMismatch { index: usize },

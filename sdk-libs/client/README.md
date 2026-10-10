@@ -63,6 +63,39 @@ and nothing reaches a prover server.
 A TEE policy belongs to the prover server client: pass
 `ProverClient::new(url).with_tee(policy)` to `ZolanaClient::new`.
 
+## Merging
+
+A merge turns up to 54 plain UTXOs of one asset on one tree into one. The
+owner enables it once with `set_merging_enabled_instruction(owner, true)`,
+which the owner signs; after that a merge needs no owner signature.
+
+```rust
+let inputs = select_merge(spendable.utxos(), asset, MERGE_DEFAULT_INPUT_COUNT, &reserved)?;
+let tree_id = inputs[0].tree_id();
+let merge = MergeTransaction::new(inputs)?
+    .with_output_tree_id(tree_id)
+    .with_expiry(now + 600)
+    .encrypt(&keys)?;
+let submission = MergeSubmission::new(&merge, owner, &address, &nullifier_key);
+let signature = submission.send_sync(&client, &fee_payer)?;
+```
+
+`with_output_tree_id` is required in practice: without it the merged UTXO is
+appended to tree 0. Pass the inputs' tree, or the tree the indexer names for
+new outputs when that one is full or paused.
+
+`prove_sync` checks the owner's record (merging enabled, same keys), fetches
+the witness, proves and verifies the proof. The proof binds no fee payer, so
+the `ProvedMerge` it returns is for any payer: `proved.instruction(payer)` is
+the `merge_transact` to put in any message, for example a relayer's.
+`finish_unsigned_sync(&client, fee_payer)` builds the message the payer signs
+alone; `send_sync` signs, sends and waits as `Submission` does. As for
+`Submission`, the generics and the blocking or async choice sit on these
+methods, so `MergeSubmission` itself is a plain borrow. Set an expiry: until it passes,
+anyone holding the proof can submit it. The proof request carries the
+owner's nullifier secret, so a prover other than this process learns it and
+every merged amount; `MergeSubmission::with_prover` keeps it in process.
+
 ## In process: litesvm
 
 Any indexer serves a client. A blocking one answers the indexer half of

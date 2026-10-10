@@ -288,10 +288,10 @@ function prepareTransferUnchecked(
     "external data hash",
   );
   const privateTxHash = bytesField(proofInputs.privateTxHash(), "private tx hash");
-  const movements = publicMovements(proofInputs);
-  const publicSlots = movements.assets.flatMap((asset, index) => [
+  const transfers = publicTransfers(proofInputs);
+  const publicSlots = transfers.assets.flatMap((asset, index) => [
     asset,
-    movements.amounts[index] ?? 0n,
+    transfers.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its tagged identity in
   // the vector, the payer in slot zero and unique non-payer owners after it,
@@ -328,8 +328,8 @@ function prepareTransferUnchecked(
     externalDataHash: asField(externalDataHash),
     privateTxHash: asField(privateTxHash),
     blindingSeed: asField(bytesField(proofInputs.blindingSeed, "blinding seed")),
-    publicAssets: Object.freeze(movements.assets.map(asField)),
-    publicAmounts: Object.freeze(movements.amounts.map(asField)),
+    publicAssets: Object.freeze(transfers.assets.map(asField)),
+    publicAmounts: Object.freeze(transfers.amounts.map(asField)),
     ringProgramId: asField(ringProgramId),
     signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     inputFlags: asField(flags),
@@ -1497,7 +1497,7 @@ function validateNullifierProof(
   }
 }
 
-function publicMovements(proofInputs: SppProofInputs): Readonly<{
+function publicTransfers(proofInputs: SppProofInputs): Readonly<{
   assets: readonly bigint[];
   amounts: readonly bigint[];
 }> {

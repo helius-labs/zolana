@@ -712,7 +712,7 @@ async function proveRingTransferStatement(
   if (policy !== undefined && policy.table.velocity.length !== 0 && flow.kind === "member") {
     // 2. Bind member outflow to the current counters and successor record.
     const sender = memberOfIdentity(prepared.owner.signingPublicKey.ownerProofInputHash());
-    const movement = {
+    const moneyTransfer = {
       sender,
       ringProgramId: input.ringProgramId,
       inputs: prepared.inputs,
@@ -720,7 +720,7 @@ async function proveRingTransferStatement(
     };
     if (policy.table.windowSlots === 0n) {
       velocity = chargeRows({
-        movement,
+        moneyTransfer,
         rows: policy.table.velocity,
         namespaceOwnerHash: policy.config.namespaceOwnerHash,
       });
@@ -753,7 +753,7 @@ async function proveRingTransferStatement(
       };
       plan = planVelocity({
         facts,
-        movement,
+        moneyTransfer,
         firstNullifier: prepared.firstNullifier,
         outputBlindingSeed: prepared.outputBlindingSeed(),
         moneyShape,

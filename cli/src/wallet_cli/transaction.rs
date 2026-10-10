@@ -1,41 +1,31 @@
+use std::collections::HashSet;
+
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use zolana_client::{
-    check_service_url,
-    indexer::ZolanaIndexer,
-    prover::{merge::MergeProver, ProverClient},
-    user_registry::{
-        fetch_user_record_checked, resolved_address_from_record, try_resolve_registered_address,
-    },
-    ClientError, ProofCompressed, ProverExt, Rpc, SolanaRpc, ZolanaClient,
+    check_service_url, indexer::ZolanaIndexer, prover::ProverClient,
+    user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, ZolanaClient,
 };
-use zolana_interface::{pda, shape::Shape};
-use zolana_program::instruction::MergeTransact;
+use zolana_interface::shape::Shape;
 use zolana_transaction::{
     instructions::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::ConfidentialTransaction,
     },
-    select_spend, spend_tree, Address, WalletUtxo, SOL_MINT,
+    select_merge, select_spend, Address, WalletUtxo, SOL_MINT,
 };
-use zolana_user_registry_interface::user_record_pda;
 
 use super::{
     material::WalletMaterial,
     resolve::{get_network, ResolvedNetworkOptions},
     spend::{send_private, Send},
-    sync::{sync_context, sync_rpc, wait_for_indexed_leaf, SyncContext},
+    sync::{sync_context, sync_rpc, SyncContext},
     util::{
         ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey,
         resolve_spl_token_program,
     },
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
-
-/// A `merge_transact` verifies a Groth16 proof on chain, above the default
-/// per-instruction budget. The widest shape, "Merge 54x1" in
-/// program-tests/shielded-pool/CU_BENCHMARK.md, measures 296,879 CU.
-const MERGE_CU_LIMIT: u32 = 1_400_000;
 
 pub(super) fn client(
     rpc: SolanaRpc,
@@ -188,23 +178,16 @@ fn split_input(
             .utxos()
             .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
             .ok_or_else(|| anyhow::anyhow!("utxo {} is not spendable", hex::encode(hash)))?,
-        None => {
-            let tree = pda::tree(spend_tree(
-                ctx.spendable.utxos(),
-                asset,
-                WalletUtxo::is_plain,
-            )?);
-            ctx.spendable
-                .utxos()
-                .filter(|entry| {
-                    entry.utxo.asset.asset == asset
-                        && pda::tree(entry.tree_id()) == tree
-                        && entry.is_plain()
-                        && entry.utxo.amount % parts == 0
-                })
-                .max_by_key(|entry| entry.utxo.amount)
-                .ok_or_else(|| anyhow::anyhow!("no plain utxo divides into {parts} parts"))?
-        }
+        None => ctx
+            .spendable
+            .utxos()
+            .filter(|entry| {
+                entry.utxo.asset.asset == asset
+                    && entry.is_plain()
+                    && entry.utxo.amount % parts == 0
+            })
+            .max_by_key(|entry| entry.utxo.amount)
+            .ok_or_else(|| anyhow::anyhow!("no plain utxo divides into {parts} parts"))?,
     };
     if !entry.is_plain() {
         bail!(
@@ -232,79 +215,24 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         .iter()
         .map(|hash| parse_hex_array::<32>(hash))
         .collect::<Result<Vec<_>>>()?;
-    let (tree, inputs) = merge_inputs(&ctx, asset, &hashes)?;
+    let inputs = merge_inputs(&ctx, asset, &hashes)?;
     let num_inputs = inputs.len();
+    let tree_id = inputs[0].tree_id();
 
-    let owner = ctx.material.owner_pubkey();
     let keypair = &ctx.material.keypair;
-    let record = fetch_user_record_checked(&client, owner)?;
-    if !record.merging_enabled {
-        return Err(ClientError::MergeDisabled { owner }.into());
-    }
-    // The program checks the merge keys against the record; check first, so a
-    // mismatch does not cost a proof.
-    if resolved_address_from_record(owner, &record)?.address != keypair.shielded_address()? {
-        bail!("the user registry holds other keys for {owner}");
-    }
-    let prepared = MergeTransaction::new(inputs)?.encrypt(keypair)?;
+    // The merged UTXO stays on the inputs' tree.
+    let prepared = MergeTransaction::new(inputs)?
+        .with_output_tree_id(tree_id)
+        .encrypt(keypair)?;
     let merged_amount = prepared.output_utxo.amount;
-    let proofs = client.get_input_merkle_proofs(&prepared.input_utxo_hashes()?, None)?;
-    let dummy_nullifiers = prepared.dummy_nullifiers();
-    let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
-        Vec::new()
-    } else {
-        client
-            .get_non_inclusion_proofs(tree, dummy_nullifiers, None)?
-            .proofs
-    };
-    // A merge proof verifies only against the tree its input proofs came
-    // from; check before paying for the proof.
-    let proof_trees = proofs
-        .iter()
-        .flat_map(|proof| {
-            [
-                proof.state.merkle_context.tree,
-                proof.nullifier.merkle_context.tree,
-            ]
-        })
-        .chain(
-            dummy_nullifier_proofs
-                .iter()
-                .map(|proof| proof.merkle_context.tree),
-        );
-    if let Some(other) = proof_trees
-        .into_iter()
-        .find(|proof_tree| *proof_tree != tree)
-    {
-        bail!("indexer returned proofs for tree {other}, expected {tree}");
-    }
-    let result = MergeProver {
-        transaction: prepared,
-        nullifier_key: keypair.nullifier_key.clone(),
-        proofs,
-        dummy_nullifier_proofs,
-        cache: None,
-    }
-    .build()?;
-    let proof = network.prover().prove_merge(&result.inputs)?;
-    let merge = MergeTransact {
-        input_tree: tree,
-        output_tree: tree,
-        payer: ctx.material.funding.pubkey(),
-        user_record: user_record_pda(&owner).0,
-        data: result.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?),
-        cache: None,
-    }
-    .instruction();
-    let signature = client.create_and_send_transaction(
-        &[merge],
-        payer(&ctx),
-        &[&ctx.material.funding],
-        zolana_client::ComputeBudgetConfig::new(MERGE_CU_LIMIT),
-    )?;
-    // A merge output is not on the view-tag confirmation path a transfer
-    // uses, so wait for its leaf before returning.
-    wait_for_indexed_leaf(&client, tree, result.output_hash)?;
+    let address = keypair.shielded_address()?;
+    let signature = MergeSubmission::new(
+        &prepared,
+        ctx.material.owner_pubkey(),
+        &address,
+        &keypair.nullifier_key,
+    )
+    .send_sync(&client, &ctx.material.funding)?;
 
     println!(
         "ok merge inputs={} amount={} mint={} signature={}",
@@ -317,34 +245,16 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
 }
 
 /// The named utxos, or up to the default merge width of the smallest plain
-/// utxos on the asset's one tree, and that tree. Every input is checked here,
-/// before the registry fetch and the proof requests.
-fn merge_inputs(
-    ctx: &SyncContext,
-    asset: Address,
-    hashes: &[[u8; 32]],
-) -> Result<(Address, Vec<WalletUtxo>)> {
+/// utxos of the asset's fuller tree. Every input is checked here, before the
+/// registry fetch and the proof requests.
+fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Result<Vec<WalletUtxo>> {
     if hashes.is_empty() {
-        let tree = pda::tree(spend_tree(
+        return Ok(select_merge(
             ctx.spendable.utxos(),
             asset,
-            WalletUtxo::is_plain,
+            MERGE_DEFAULT_INPUT_COUNT,
+            &HashSet::new(),
         )?);
-        let mut candidates: Vec<&WalletUtxo> = ctx
-            .spendable
-            .utxos()
-            .filter(|entry| {
-                entry.utxo.asset.asset == asset
-                    && pda::tree(entry.tree_id()) == tree
-                    && entry.is_plain()
-            })
-            .collect();
-        candidates.sort_by_key(|entry| entry.utxo.amount);
-        candidates.truncate(MERGE_DEFAULT_INPUT_COUNT);
-        if candidates.len() < 2 {
-            bail!("nothing to merge: fewer than two plain utxos");
-        }
-        return Ok((tree, candidates.into_iter().cloned().collect()));
     }
     if !(2..=MAX_MERGE_INPUTS).contains(&hashes.len()) {
         bail!("--input takes 2 to {MAX_MERGE_INPUTS} utxos");
@@ -370,10 +280,7 @@ fn merge_inputs(
         }
         selected.push(entry.clone());
     }
-    let Some(first) = selected.first() else {
-        bail!("--input takes 2 to {MAX_MERGE_INPUTS} utxos");
-    };
-    Ok((pda::tree(first.tree_id()), selected))
+    Ok(selected)
 }
 
 fn payer(ctx: &SyncContext) -> Address {

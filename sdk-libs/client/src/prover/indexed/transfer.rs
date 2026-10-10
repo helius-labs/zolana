@@ -215,7 +215,7 @@ impl IndexedTransferPreparation {
         let private_tx =
             PrivateTxHash::new(&input_hashes, &outputs.private_tx_output_hashes, &blinding)
                 .hash()?;
-        let movements = transaction.public_transfers()?;
+        let public_transfers = transaction.public_transfers()?;
         let signers = if authority_rail {
             vec![zolana_hasher::primitives::solana_owner_identity(
                 transaction.payer.as_array(),
@@ -264,7 +264,7 @@ impl IndexedTransferPreparation {
             output_tree_id: transaction.output_tree_id,
             private_tx: &private_tx,
             external_data_hash: &external_hash,
-            public_transfers: &movements,
+            public_transfers: &public_transfers,
             ring_program_id: &ring_program_id,
             input_flags: &flags,
             signer_pk_hashes: &signers,
@@ -308,8 +308,8 @@ impl IndexedTransferPreparation {
             blinding_seed: SecretField(Zeroizing::new(transaction.blinding_seed)),
             external_data_hash: hex_field(&external_hash),
             private_tx_hash: hex_field(&private_tx),
-            public_assets: movements.assets.iter().map(hex_field).collect(),
-            public_amounts: movements.amounts.iter().map(hex_field).collect(),
+            public_assets: public_transfers.assets.iter().map(hex_field).collect(),
+            public_amounts: public_transfers.amounts.iter().map(hex_field).collect(),
             ring_program_id: hex_field(&ring_program_id),
             signer_pk_hashes: signers.iter().map(hex_field).collect(),
             input_flags: hex_field(&flags),
