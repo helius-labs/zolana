@@ -23,9 +23,8 @@ theorem roundKey_eq_rkByte (w : Fin 60 → Word) (r : Fin 15) :
   simp only [roundKey, rkByte]
   rw [h1, h2]
 
-theorem state0_eq (w : Fin 60 → Word) (nonce : Fin 12 → Byte) (i : Fin 16) :
-    roundsFrom w (counterBlock nonce 2) 0 i =
-      counterBlock nonce 2 i ^^^ rkByte w ⟨i.val, by omega⟩ := by
+theorem state0_eq (w : Fin 60 → Word) (blk : Block) (i : Fin 16) :
+    roundsFrom w blk 0 i = blk i ^^^ rkByte w ⟨i.val, by omega⟩ := by
   rw [roundsFrom, addRoundKey, roundKey_eq_rkByte]
   have hi : (⟨16 * (0 : Fin 15).val + i.val, by omega⟩ : Fin 240) = ⟨i.val, by omega⟩ :=
     Fin.ext (by simp)
