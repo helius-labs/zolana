@@ -31,7 +31,7 @@
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
 };
 
 use solana_address::Address;
@@ -115,9 +115,15 @@ impl History {
             let movement = movements.entry(tx.tx_signature).or_default();
             movement.slot = tx.slot;
             movement.deposit |= tx.proofless;
+            // The indexer can list a transaction's UTXO under more than one
+            // event, such as a merge's output, which it also lists as a
+            // proofless one: each UTXO counts once.
             for slot in &tx.output_slots {
                 match by_hash.get(&slot.output_context.hash) {
-                    Some(utxo) => add(&mut movement.received, utxo),
+                    Some(utxo) if movement.counted.insert(utxo.utxo_hash) => {
+                        add(&mut movement.received, utxo)
+                    }
+                    Some(_) => {}
                     None if self.view_tags.contains(&slot.view_tag) => {}
                     None => movement.pays_another = true,
                 }
@@ -127,7 +133,9 @@ impl History {
                 .iter()
                 .filter_map(|nullifier| by_nullifier.get(nullifier))
             {
-                add(&mut movement.spent, utxo);
+                if movement.counted.insert(utxo.nullifier) {
+                    add(&mut movement.spent, utxo);
+                }
             }
         }
         movements
@@ -144,6 +152,8 @@ struct Movement {
     pays_another: bool,
     received: BTreeMap<Address, u64>,
     spent: BTreeMap<Address, u64>,
+    /// The hashes of the UTXOs received and the nullifiers of those spent.
+    counted: HashSet<[u8; 32]>,
 }
 
 impl Movement {
