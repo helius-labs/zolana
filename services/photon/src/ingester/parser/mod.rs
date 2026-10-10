@@ -104,11 +104,72 @@ where
             Ok(None) => {
                 log::debug!("Rings tree {} not discoverable, leaving it unknown", tree);
             }
-            Err(e) => {
-                log::warn!("Failed to discover Rings tree {}: {}", tree, e);
-            }
+            // The block batch fails and the ingest retry re-runs discovery;
+            // swallowing the error would commit the batch without the tree
+            // and silently drop every transaction that references it.
+            Err(e) => return Err(e),
         }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ingester::parser::state_update::RingsTransactionUpdate;
+    use sea_orm_migration::MigratorTrait;
+    use solana_signature::Signature;
+
+    async fn setup_test_db() -> sea_orm::DatabaseConnection {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        crate::migration::RingsMigrator::up(&db, None)
+            .await
+            .unwrap();
+        db
+    }
+
+    fn rings_transaction_referencing(output_tree: Pubkey) -> StateUpdate {
+        let mut state_update = StateUpdate::new();
+        state_update
+            .rings_transactions
+            .push(RingsTransactionUpdate {
+                signature: Signature::from([8; 64]),
+                event_index: 0,
+                slot: 1,
+                ring_config: None,
+                source_instruction_tag: 1,
+                output_tree: output_tree.to_bytes(),
+                first_output_leaf_index: 0,
+                tx_viewing_pk: None,
+                salt: None,
+                proofless: false,
+                encrypted_utxos: None,
+                raw_event: None,
+                parse_version: 1,
+                outputs: Vec::new(),
+                messages: Vec::new(),
+                nullifiers: Vec::new(),
+            });
+        state_update
+    }
+
+    /// A tree the indexer has never seen is discovered while its transactions
+    /// are parsed; a discovery failure must fail the batch so the ingest
+    /// retry re-runs it. Swallowing it would commit the batch without the
+    /// tree and silently drop every transaction that references it.
+    #[tokio::test]
+    async fn a_tree_discovery_failure_fails_the_batch() {
+        let db = setup_test_db().await;
+        let rpc = crate::rpc::RpcClient::new("http://localhost:1".to_string());
+        let mut resolver = TreeResolver::new(&rpc);
+        let state_update =
+            rings_transaction_referencing(solana_pubkey::Pubkey::new_from_array([7; 32]));
+
+        let error = discover_rings_trees(&db, &state_update, 1, &mut resolver)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, IngesterError::ParserError(_)));
+    }
 }
