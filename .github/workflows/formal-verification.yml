@@ -21,7 +21,10 @@ jobs:
     name: formal-verification / lean
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    timeout-minutes: 90
+    # A clean VerifiableEncryption build with two Lean processes took 49 min
+    # locally; a 4-core runner is estimated at 75-110 min on top of the
+    # existing steps.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -42,12 +45,29 @@ jobs:
           ./light-prover extract-circuit --output formal-verification/FormalVerification/Circuit.lean --state-tree-height 32 --nullifier-tree-height 40 --batch-size 8
           git diff --exit-code formal-verification/FormalVerification/Circuit.lean
 
-      - name: Extract verifiable-encryption circuits and check for drift
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Every generated module of the VerifiableEncryption library: the
+      # circuit extraction, the Go tables, certificates and instance modules,
+      # the Python proof generators that walk the extraction, and the library
+      # root. Mirrors `just regen-ve-formal`; the committed files must match.
+      - name: Regenerate verifiable-encryption modules and check for drift
         run: |
           cd prover/server
           ./light-prover extract-ve-circuit --output-dir formal-verification
-          git diff --exit-code formal-verification/VerifiableEncryption/
-          test -z "$(git status --porcelain formal-verification/VerifiableEncryption/)"
+          ./light-prover extract-ve-tables --output-dir formal-verification
+          cd formal-verification
+          python3 scripts/gen_field_bytes.py
+          python3 scripts/gen_envelope_bodies.py
+          python3 scripts/gen_aes_key_expansion.py VerifiableEncryption/Aes/KeyExpansion.lean
+          python3 scripts/gen_aes_ctr_block.py VerifiableEncryption/Aes/CtrBlock.lean
+          python3 scripts/gen_aes_envelope.py VerifiableEncryption/Aes/EnvelopeAes.lean
+          python3 scripts/gen_comb_limbs.py
+          python3 scripts/gen_ve_root.py
+          git diff --exit-code VerifiableEncryption/ VerifiableEncryption.lean
+          test -z "$(git status --porcelain VerifiableEncryption/ VerifiableEncryption.lean)"
 
       - name: Install Elan
         run: |
@@ -67,3 +87,10 @@ jobs:
           cd prover/server/formal-verification
           lake exe cache get || true
           lake build
+
+      # Single VerifiableEncryption modules peak at about 8.5 GB (AxiomsCurve),
+      # so at most two Lean processes run at once on the 16 GB runner.
+      - name: Build VerifiableEncryption (checks all theorems)
+        run: |
+          cd prover/server/formal-verification
+          LEAN_NUM_THREADS=2 lake build VerifiableEncryption

@@ -76,7 +76,27 @@ extract-circuit: build-binary
 lean-build:
     cd formal-verification && (lake exe cache get || true) && lake build
 
+# The VerifiableEncryption library peaks at about 8.5 GB per Lean process
+# (AxiomsCurve), so it builds with at most two concurrent Lean processes.
+lean-build-ve:
+    cd formal-verification && (lake exe cache get || true) && LEAN_NUM_THREADS=2 lake build VerifiableEncryption
+
 extract-ve-circuit: build-binary
     ./light-prover extract-ve-circuit --output-dir formal-verification
 
-verify: extract-circuit extract-ve-circuit lean-build
+# Regenerates every generated file of the VerifiableEncryption library in
+# dependency order: the circuit extraction, then the Go tables, certificates and
+# instance modules, then the Python proof generators that read the extraction,
+# and last the library root, which imports every module.
+regen-ve-formal: build-binary
+    ./light-prover extract-ve-circuit --output-dir formal-verification
+    ./light-prover extract-ve-tables --output-dir formal-verification
+    cd formal-verification && python3 scripts/gen_field_bytes.py
+    cd formal-verification && python3 scripts/gen_envelope_bodies.py
+    cd formal-verification && python3 scripts/gen_aes_key_expansion.py VerifiableEncryption/Aes/KeyExpansion.lean
+    cd formal-verification && python3 scripts/gen_aes_ctr_block.py VerifiableEncryption/Aes/CtrBlock.lean
+    cd formal-verification && python3 scripts/gen_aes_envelope.py VerifiableEncryption/Aes/EnvelopeAes.lean
+    cd formal-verification && python3 scripts/gen_comb_limbs.py
+    cd formal-verification && python3 scripts/gen_ve_root.py
+
+verify: extract-circuit regen-ve-formal lean-build lean-build-ve

@@ -394,6 +394,23 @@ func runCli() {
 				},
 			},
 			{
+				Name:  "extract-ve-tables",
+				Usage: "Generate the verifiable-encryption Lean tables, check certificates and instance modules",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output-dir", Usage: "Lake root (formal-verification) receiving the VerifiableEncryption modules", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					root := context.String("output-dir")
+					logging.Logger().Info().Msg("Generating verifiable-encryption tables and certificates")
+					written, err := extractor.ExtractVETables(root)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().Int("bytesWritten", written).Str("output", root).Msg("Lean tables written")
+					return nil
+				},
+			},
+			{
 				Name:  "download",
 				Usage: "Download proving keys",
 				Flags: []cli.Flag{

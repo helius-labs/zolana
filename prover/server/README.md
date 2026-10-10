@@ -62,6 +62,9 @@ This part explains the existing cli commands.
 8. extract-ve-circuit - Transpiles the verifiable-encryption circuits from gnark to Lean
    Flags:  
    1. output-dir *directory* - Lake root (formal-verification) receiving VerifiableEncryption/Circuit.lean and its modules
+9. extract-ve-tables - Generates the verifiable-encryption AES and comb tables, check certificates and field instance modules
+   Flags:  
+   1. output-dir *directory* - Lake root (formal-verification) receiving the VerifiableEncryption modules
 
 ## Running
 
@@ -162,6 +165,12 @@ AES-256-CTR) are extracted by `extract-ve-circuit` into
 modules in `VerifiableEncryption/Circuit/` (Lean library
 `VerifiableEncryption`, namespace `ZolanaVE`). The modules elaborate
 separately to bound memory; they are committed and diffed in CI.
+`just regen-ve-formal` regenerates every generated file of that library in
+dependency order: the circuit extraction, `extract-ve-tables` (AES and comb
+tables, polynomial-check certificates and field instance modules), the proof
+generators in `formal-verification/scripts`, and the library root.
+`just lean-build-ve` builds the library with at most two concurrent Lean
+processes (single modules peak at about 8.5 GB).
 Lookup arguments extract as Lean `opaque` predicates (`RangeCheck`,
 `RowLookup_*`, `SubstitutionLookup`, `SpreadByteLookup`, `ChunkParityLookup`)
 whose soundness is an explicit assumption; hint outputs extract as
