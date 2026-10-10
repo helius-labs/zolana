@@ -29,7 +29,9 @@ use zolana_client::user_registry::{
     try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use zolana_client::{
-    client::ZolanaClient,
+    client::{
+        AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc, Submission, ZolanaClient,
+    },
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction,
@@ -660,26 +662,29 @@ fn select_merge_inputs(
 
 /// Build the unsigned v1 message for a private transaction, for a signer that
 /// holds the fee-payer key elsewhere (an HSM or a custodian).
-pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
+pub async fn build_private_transaction<
+    A: WalletAuthority + ?Sized,
+    R: AsyncRpc,
+    I: AsyncIndexer,
+>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R>,
+    client: &AsyncZolanaClient<R, I>,
     fee_payer: Pubkey,
 ) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
-    client
-        .finish_submission_unsigned(&shielded, fee_payer, blockhash, &nullifier_key)
+    Submission::new(&shielded, fee_payer, &nullifier_key)
+        .finish_unsigned(client)
         .await
 }
 
-pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
+pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc, I: AsyncIndexer>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R>,
+    client: &AsyncZolanaClient<R, I>,
     fee_payer: &dyn Signer,
 ) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_with_signers(transaction, wallet, authority, client, fee_payer, &[])
@@ -688,19 +693,22 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
 
 /// Build and sign a private transaction with the fee payer and any additional
 /// native Ed25519 input owners committed by the shielded proof.
-pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, R: AsyncRpc>(
+pub async fn sign_private_transaction_with_signers<
+    A: WalletAuthority + ?Sized,
+    R: AsyncRpc,
+    I: AsyncIndexer,
+>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R>,
+    client: &AsyncZolanaClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
-    let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    let message = client
-        .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash, &nullifier_key)
+    let message = Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
+        .finish_unsigned(client)
         .await?;
     sign_transaction(
         message,
@@ -710,23 +718,31 @@ pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, 
 
 /// Build the unsigned v1 message for a private transaction, for a signer that
 /// holds the fee-payer key elsewhere (an HSM or a custodian).
-pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
+pub fn build_private_transaction_sync<
+    A: SyncWalletAuthority + ?Sized,
+    R: BlockingRpc,
+    I: BlockingIndexer,
+>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R>,
+    client: &ZolanaClient<R, I>,
     fee_payer: Pubkey,
 ) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     let nullifier_key = authority.spend_nullifier_key()?;
-    client.finish_submission_unsigned_sync(&shielded, fee_payer, &nullifier_key)
+    Submission::new(&shielded, fee_payer, &nullifier_key).finish_unsigned_sync(client)
 }
 
-pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
+pub fn sign_private_transaction_sync<
+    A: SyncWalletAuthority + ?Sized,
+    R: BlockingRpc,
+    I: BlockingIndexer,
+>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R>,
+    client: &ZolanaClient<R, I>,
     fee_payer: &dyn Signer,
 ) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_sync_with_signers(
@@ -742,12 +758,13 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + S
 /// Synchronous counterpart of [`sign_private_transaction_with_signers`].
 pub fn sign_private_transaction_sync_with_signers<
     A: SyncWalletAuthority + ?Sized,
-    R: Rpc + Sync,
+    R: BlockingRpc,
+    I: BlockingIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R>,
+    client: &ZolanaClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
@@ -760,7 +777,8 @@ pub fn sign_private_transaction_sync_with_signers<
     let nullifier_key = authority.spend_nullifier_key()?;
     let message = {
         let _t = timing::Phase::start("finish_submission", 0);
-        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), &nullifier_key)?
+        Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
+            .finish_unsigned_sync(client)?
     };
     sign_transaction(
         message,

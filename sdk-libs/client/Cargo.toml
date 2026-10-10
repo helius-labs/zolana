@@ -8,14 +8,18 @@ repository.workspace = true
 autotests = false
 
 [features]
-default = []
-socks = ["reqwest/socks"]
-indexer-api = ["dep:zolana-api"]
+default = ["reqwest"]
+# The `reqwest` HTTP clients: the prover clients' `new` and `local`, proxies
+# and the local prover launcher. Without it a prover client is built with
+# `with_client` over the application's own transport. `solana-rpc` still
+# links reqwest through `solana-rpc-client`.
+reqwest = ["dep:reqwest", "zolana-api/reqwest"]
+socks = ["reqwest", "reqwest/socks"]
 solana-rpc = ["dep:bs58", "dep:base64", "dep:solana-rpc-client", "dep:solana-commitment-config"]
-client = ["indexer-api", "solana-rpc"]
+client = ["solana-rpc"]
 # Gates the test binaries that spawn the local prover, so a plain
 # `cargo test -p zolana-client` stays hermetic by construction.
-proofs = []
+proofs = ["reqwest"]
 
 [dependencies]
 zolana-interface = { workspace = true }
@@ -28,7 +32,7 @@ zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
-zolana-api = { workspace = true, optional = true }
+zolana-api = { workspace = true, default-features = false }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 solana-address = { workspace = true }
@@ -45,7 +49,9 @@ httpdate = { workspace = true }
 p384 = { workspace = true }
 rand_core = { workspace = true }
 sha2 = { workspace = true }
-reqwest = { workspace = true, features = ["blocking"] }
+http = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 x509-cert = { workspace = true }
@@ -111,11 +117,11 @@ name = "merge_transaction_size"
 
 [[test]]
 name = "indexer"
-required-features = ["indexer-api"]
+required-features = ["reqwest"]
 
 [[test]]
 name = "client"
-required-features = ["indexer-api"]
+required-features = ["reqwest"]
 
 # Hermetic: pure witness assembly, no prover server, so no `proofs` gate.
 [[test]]
@@ -136,6 +142,10 @@ name = "witness_trees"
 # Hermetic: a loopback mock prover, no prover server.
 [[test]]
 name = "prover_retry"
+
+# Hermetic: a fake HTTP client in place of a prover.
+[[test]]
+name = "prover_http_client"
 
 [[test]]
 name = "transaction_proving"

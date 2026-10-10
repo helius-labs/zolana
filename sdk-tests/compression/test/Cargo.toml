@@ -14,7 +14,7 @@ solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program = { workspace = true, features = ["compression"] }

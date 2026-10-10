@@ -313,6 +313,53 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
     );
 }
 
+/// Answers each indexer request with the next scripted JSON-RPC result.
+#[derive(Debug)]
+struct ScriptedClient(std::sync::Mutex<Vec<Value>>);
+
+impl zolana_api::HttpClient for ScriptedClient {
+    fn send<'a>(&'a self, _request: zolana_api::HttpRequest) -> zolana_api::HttpFuture<'a> {
+        let body = self.0.lock().unwrap().remove(0);
+        Box::pin(async move {
+            Ok(zolana_api::HttpResponse {
+                status: reqwest::StatusCode::OK,
+                headers: reqwest::header::HeaderMap::new(),
+                body: serde_json::to_vec(&body).unwrap(),
+            })
+        })
+    }
+}
+
+/// A transfer spends a UTXO the indexer may not have written yet, so a
+/// merkle-proof read waits until every leaf it asked for is indexed. The
+/// blocking indexer runs this same async path.
+#[tokio::test]
+async fn merkle_proofs_wait_until_every_leaf_is_indexed() {
+    let tree = Address::new_from_array(bytes32(31));
+    let leaf = bytes32(32);
+    let proof = json!({
+        "leaf": encode_hash_string(leaf),
+        "merkleContext": { "treeType": 1, "tree": encode_pubkey_string(tree) },
+        "path": [encode_hash_string(bytes32(34))],
+        "leafIndex": 9,
+        "root": encode_hash_string(bytes32(36)),
+        "rootSeq": 10,
+        "rootIndex": 11,
+    });
+    let context = json!({ "blockTime": 80, "slot": 1 });
+    let client = ScriptedClient(std::sync::Mutex::new(vec![
+        rpc_result(json!({ "context": context, "proofs": [] })),
+        rpc_result(json!({ "context": context, "proofs": [proof] })),
+    ]));
+    let api = zolana_api::ZolanaApi::with_client("http://indexer.invalid", client);
+
+    let got = AsyncZolanaIndexer::with_api(api)
+        .get_merkle_proofs(tree, vec![leaf], None)
+        .await
+        .expect("merkle proofs");
+    assert_eq!(got.proofs.len(), 1);
+}
+
 #[test]
 fn get_merkle_proofs_encodes_tree_and_maps_root_metadata() {
     let tree = Address::new_from_array(bytes32(31));

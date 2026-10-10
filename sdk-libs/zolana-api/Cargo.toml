@@ -6,9 +6,18 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["reqwest"]
+# The `reqwest` HTTP clients and the constructors that build one. Without it
+# an application brings its own `HttpClient` through `with_client`.
+reqwest = ["dep:reqwest"]
+
 [dependencies]
-reqwest = { workspace = true, features = ["blocking"] }
+http = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time"] }
+zeroize = { workspace = true }
 zolana-indexer-api = { workspace = true }

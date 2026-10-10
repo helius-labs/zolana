@@ -46,7 +46,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 wincode = { workspace = true }
 zeroize = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api"] }
+zolana-client = { workspace = true }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }

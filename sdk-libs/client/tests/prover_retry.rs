@@ -1,6 +1,7 @@
 //! The prover client against a mock prover: a prover without a queue sheds
 //! queued requests with a 429 and the client retries them, and a gateway URL's
-//! `api-key` rides on every request and stays out of error text.
+//! `api-key` rides on every request and stays out of error text. A response
+//! is decoded into a proof or refused.
 
 use std::{
     io::{Read, Write},
@@ -62,8 +63,11 @@ fn queued_then_proof() -> Vec<(u16, Value)> {
     ]
 }
 
-/// Joining returns the requested paths.
-fn serve(responses: Vec<(u16, Value)>) -> (String, thread::JoinHandle<Vec<String>>) {
+/// Answers each request with the next status and body; joining returns the
+/// requested paths.
+fn serve(
+    responses: Vec<(u16, impl ToString + Send + 'static)>,
+) -> (String, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock prover");
     let url = format!(
         "http://{}",
@@ -195,6 +199,40 @@ async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
         server.join().expect("mock prover thread"),
         ["/prove/test", "/prove/test", "/prove/test"]
     );
+}
+
+/// A proof comes alone or in a `{ proof, .. }` envelope; a null proof, a
+/// proof that does not parse and a body that is not JSON are refused. The
+/// proving-key checks have their own tests.
+#[test]
+fn a_prover_response_is_decoded_or_refused() {
+    for (response, expected) in [
+        (proof().to_string(), "ok"),
+        (
+            json!({ "proof": proof(), "proofDurationMs": 7 }).to_string(),
+            "ok",
+        ),
+        (
+            json!({ "proof": null }).to_string(),
+            "prover server error: server returned a null proof",
+        ),
+        (
+            json!({ "proof": { "ar": ["0x1"], "provingKeySha256": "07".repeat(32) } }).to_string(),
+            "proof parse error: could not parse proof",
+        ),
+        (
+            "not json".to_string(),
+            "proof parse error: invalid response JSON",
+        ),
+    ] {
+        let (url, server) = serve(vec![(200, response.clone())]);
+        let outcome = match ProverClient::new(url).prove(&IN_RESPONSE) {
+            Ok(_) => "ok".to_string(),
+            Err(error) => error.to_string(),
+        };
+        server.join().expect("mock prover thread");
+        assert!(outcome.starts_with(expected), "{response}: {outcome}");
+    }
 }
 
 // The key used to ride inside the path (`...?api-key=<key>/prove`), and the

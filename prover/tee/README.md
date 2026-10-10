@@ -26,7 +26,7 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncProverClient::with_tee` make every call attested and encrypted, and `ZolanaClient::with_prover_tee` does the same for both of its prover clients.
+In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncProverClient::with_tee` make every call attested and encrypted, and a `ZolanaClient` attests through the prover client it is built with.
 `ProverClient::attest` returns the verified `AttestedProver` on demand.
 The `zolana` commands that prove take `--prover-tee`, or `ZOLANA_PROVER_TEE`, and `zolana vks check --prover-url <url> --prover-tee` attests a prover before it checks its proving keys.
 In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.

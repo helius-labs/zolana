@@ -64,7 +64,7 @@ instructions, and circuits.
   `solana-instruction`/`solana-address` for wire types, plus the program and
   prover crates.
 - test: `zolana-program-test` + `zolana-test-utils` for the harness,
-  `zolana-client` (+`indexer-api`, `solana-rpc`), `mollusk-svm` +
+  `zolana-client` (+`solana-rpc`), `mollusk-svm` +
   `light-program-profiler` for benchmarks.
 
 ## Key Artifacts

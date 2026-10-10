@@ -17,14 +17,14 @@ pub mod timing;
 pub mod transact;
 mod utxo;
 mod verify;
-#[cfg(feature = "indexer-api")]
 pub mod witness;
 
 pub use backend::{Prover, ProverExt};
+#[cfg(feature = "reqwest")]
+pub use client::{spawn_prover, ProverLaunch};
 pub use client::{
-    spawn_prover, AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest,
-    ProverClient, ProverLaunch, PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH,
-    SERVER_ADDRESS,
+    AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest, ProverClient,
+    PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
 pub use endpoint::redact_api_key;
 pub use inputs::{

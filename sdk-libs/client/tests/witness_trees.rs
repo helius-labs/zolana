@@ -1,4 +1,5 @@
-#![cfg(feature = "indexer-api")]
+#![cfg(feature = "reqwest")]
+
 //! The witness reader's tree handling, pinned through its public surface.
 //!
 //! `WitnessReader::input_witnesses` takes no tree: each input names the raw id

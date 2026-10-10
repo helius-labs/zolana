@@ -5,16 +5,20 @@
 
 use std::collections::BTreeMap;
 
+use num_bigint::BigUint;
 use thiserror::Error;
-use zolana_client::ProofInputUtxo;
+use zolana_client::{ProofInputUtxo, NULLIFIER_TREE_HEIGHT};
 use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::{P256Pubkey, PublicKey};
-use zolana_merkle_tree::MerkleTree;
+use zolana_merkle_tree::{
+    indexed::{IndexedMerkleTree, NonInclusionProof},
+    MerkleTree,
+};
 use zolana_transaction::{
-    owner_utxo_hash, Address, Data, DataRecord, OutputContext, OutputSlot, ShieldedTransaction,
-    TransactionError, Utxo,
+    instructions::transact::BN254_MODULUS_DEC, owner_utxo_hash, Address, Data, DataRecord,
+    OutputContext, OutputSlot, ShieldedTransaction, TransactionError, Utxo,
 };
 
 #[derive(Debug, Error)]
@@ -34,6 +38,17 @@ pub enum IndexerError {
     InvalidProoflessPayload,
     #[error("no indexed output with utxo_hash {0:?}")]
     UnknownUtxoHash([u8; 32]),
+    #[error("no indexed output with utxo_hash {utxo_hash:?} in tree {tree}")]
+    UnknownLeaf { tree: Address, utxo_hash: [u8; 32] },
+}
+
+/// The inclusion proof of one leaf: its index, its sibling path and the
+/// reference root the path leads to.
+#[derive(Clone, Debug)]
+pub struct LeafProof {
+    pub leaf_index: u64,
+    pub path: Vec<[u8; 32]>,
+    pub root: [u8; 32],
 }
 
 /// One indexed shielded output.
@@ -78,6 +93,12 @@ impl IndexedUtxo {
 
 pub struct TestIndexer {
     trees: BTreeMap<Address, MerkleTree<Poseidon>>,
+    /// The nullifier tree at its initial state, which every pool tree shares:
+    /// a spend queues its nullifiers on chain, and appending the queue to the
+    /// tree is a forester's batch, which this indexer does not replay. A proof
+    /// served after such a batch no longer matches the chain, and
+    /// [`crate::ProgramTestHandle`] reports that rather than serving it.
+    nullifier_tree: IndexedMerkleTree<Poseidon, usize>,
     utxos: Vec<IndexedUtxo>,
     nullifiers: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
@@ -93,6 +114,7 @@ impl TestIndexer {
     pub fn new() -> Self {
         Self {
             trees: BTreeMap::new(),
+            nullifier_tree: initial_nullifier_tree(),
             utxos: Vec::new(),
             nullifiers: Vec::new(),
             transactions: Vec::new(),
@@ -193,6 +215,44 @@ impl TestIndexer {
             .push(shielded_transaction_from_general_event(
                 signature, event, proofless, tree_id,
             ));
+    }
+
+    /// The inclusion proof of `utxo_hash` in `tree`.
+    pub fn merkle_proof(
+        &self,
+        tree: &Address,
+        utxo_hash: &[u8; 32],
+    ) -> Result<LeafProof, IndexerError> {
+        let unknown = || IndexerError::UnknownLeaf {
+            tree: *tree,
+            utxo_hash: *utxo_hash,
+        };
+        let utxo = self
+            .utxos
+            .iter()
+            .find(|utxo| &utxo.output_tree == tree && &utxo.utxo_hash == utxo_hash)
+            .ok_or_else(unknown)?;
+        let reference = self.trees.get(tree).ok_or_else(unknown)?;
+        let path = reference
+            .get_proof_of_leaf(utxo.leaf_index as usize, true)
+            .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))?
+            .to_vec();
+        Ok(LeafProof {
+            leaf_index: utxo.leaf_index,
+            path,
+            root: reference.root(),
+        })
+    }
+
+    /// The non-inclusion proof of `nullifier` against the nullifier tree, see
+    /// [`Self`]'s note on its state.
+    pub fn non_inclusion_proof(
+        &self,
+        nullifier: &[u8; 32],
+    ) -> Result<NonInclusionProof, IndexerError> {
+        self.nullifier_tree
+            .get_non_inclusion_proof(&BigUint::from_bytes_be(nullifier))
+            .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))
     }
 
     /// The reference root for `tree`, or the empty root before its first output.
@@ -312,6 +372,15 @@ impl TestIndexer {
         });
         Ok(())
     }
+}
+
+/// The nullifier tree as `create_tree` initializes it on chain: one sentinel
+/// leaf whose range runs to the field modulus.
+fn initial_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
+    let upper_bound =
+        BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("the BN254 modulus") - 1u32;
+    IndexedMerkleTree::new_with_next_value(NULLIFIER_TREE_HEIGHT, 0, upper_bound)
+        .expect("the initial nullifier tree")
 }
 
 /// `tree_id` is the raw id of `event.output_tree`. The event carries the tree

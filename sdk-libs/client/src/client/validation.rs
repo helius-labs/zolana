@@ -3,8 +3,12 @@ use solana_pubkey::Pubkey;
 
 use crate::error::ClientError;
 
-/// Reject a service URL that would carry shielded material in plaintext.
-pub(super) fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> {
+/// Reject a service URL that would carry shielded material in plaintext:
+/// anything but https, or http to loopback. [`ZolanaClient::from_urls`] runs
+/// it; a caller building its own indexer and prover clients runs it itself.
+///
+/// [`ZolanaClient::from_urls`]: super::ZolanaClient::from_urls
+pub fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> {
     let insecure = || ClientError::InsecureServiceUrl {
         field,
         url: url.to_string(),

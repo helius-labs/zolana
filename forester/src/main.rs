@@ -9,8 +9,8 @@ use forester::{
     run::RunOptions,
 };
 
-// Plain `fn main` (no Tokio runtime): the prover and photon clients use
-// `reqwest::blocking`, which panics inside an async runtime.
+// Plain `fn main`: the prover and photon clients block, each on a Tokio
+// runtime of its own.
 fn main() -> ExitCode {
     dotenvy::dotenv().ok();
     forester::logging::setup();

@@ -9,7 +9,7 @@ autotests = false
 
 [features]
 default = []
-localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
+localnet = ["zolana-client/solana-rpc"]
 # Gates the Groth16-backed test binaries that spawn the local prover, so a
 # plain `cargo test -p shielded-pool-tests` stays hermetic by construction.
 proofs = []
@@ -218,6 +218,13 @@ path = "tests/deposit/mutation.rs"
 [[test]]
 name = "transact_functional"
 path = "tests/transact/functional.rs"
+required-features = ["proofs"]
+
+# A ZolanaClient whose RPC and indexer are the litesvm harness: proves through
+# the workspace prover, sends and confirms in process.
+[[test]]
+name = "client_litesvm"
+path = "tests/client/litesvm.rs"
 required-features = ["proofs"]
 
 [[test]]

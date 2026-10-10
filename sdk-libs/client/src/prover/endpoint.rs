@@ -1,6 +1,6 @@
 //! Prover URLs, and keeping a gateway `api-key` out of printed ones.
 
-use reqwest::Url;
+use url::Url;
 
 use crate::{
     error::ClientError,
@@ -85,6 +85,7 @@ impl ProverEndpoint {
 
 /// Mask the `api-key` in the URL reqwest puts in its error text, which reaches
 /// CLI output and service logs. The host and path stay, to say what failed.
+#[cfg(feature = "reqwest")]
 pub(crate) fn scrub(mut error: reqwest::Error) -> reqwest::Error {
     if let Some(url) = error.url_mut() {
         redact_in_place(url);

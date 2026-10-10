@@ -10,16 +10,16 @@
 //! they drop, and inert otherwise.
 //!
 //! Feature flags:
-//! - `(none)`: prover client + RPC traits
-//! - `indexer-api`: Photon indexer adapter and [`ZolanaClient`]
+//! - `(none)`: [`ZolanaClient`], the indexer and prover clients and the RPC
+//!   traits, over an HTTP client the caller brings (`with_client`)
+//! - `reqwest` (default): the `reqwest` HTTP clients, the `new` and `local`
+//!   constructors, proxies and the local prover launcher
 //! - `solana-rpc`: concrete Solana RPC adapters
-//! - `client`: `indexer-api` + `solana-rpc`
+//! - `client`: `solana-rpc`, the set the CLI and the examples enable
 
 pub mod authority;
-#[cfg(feature = "indexer-api")]
 pub mod client;
 pub mod error;
-#[cfg(feature = "indexer-api")]
 pub mod indexer;
 pub mod prover;
 pub mod rpc;
@@ -27,32 +27,35 @@ pub mod spendable;
 pub mod user_registry;
 
 pub use authority::ProofAuthority;
-#[cfg(feature = "indexer-api")]
-pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
+pub use client::{
+    check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc,
+    SignedPrivateTransaction, Submission, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+};
 pub use error::ClientError;
-#[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::timing;
-#[cfg(feature = "indexer-api")]
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
     attach_input_proofs,
     indexed::ProofDataSource,
-    input_utxos_from_nullifiers, spawn_prover,
+    input_utxos_from_nullifiers,
     transact::{assemble, assemble_with_dummy_policy, AssembledTransfer, SpendProof},
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, CacheReadInputs, Commitments,
     CompressedCommitments, Delivery, IndexerRequirement, MergeProofResult, MergeProver, Proof,
-    ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverExt, ProverLaunch,
-    PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
-    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
-    RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,
-    TransferP256Inputs, TransferProofResult, TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverExt, PublicInputs,
+    PublicTransfers, RingAuthorityProofResult, RingAuthorityProver, RingTransferP256ProofResult,
+    RingTransferP256Prover, RingTransferProofResult, RingTransferProver, Shape, TransferInput,
+    TransferInputUtxo, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
+    TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
+#[cfg(feature = "reqwest")]
+pub use prover::{spawn_prover, ProverLaunch};
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
 };
+pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};

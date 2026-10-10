@@ -28,10 +28,10 @@ use crate::{
     },
 };
 
-use super::{TransferPreparation, ZolanaClient};
+use super::{AsyncIndexer, AsyncZolanaClient, TransferPreparation};
 
 #[async_trait]
-impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address).await
     }
@@ -121,7 +121,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     }
 
     fn should_retry(&self, error: &ClientError) -> bool {
-        self.rpc.should_retry(error) || self.async_indexer.should_retry(error)
+        self.rpc.should_retry(error) || self.indexer.should_retry(error)
     }
 
     async fn get_encrypted_utxos_by_tags(
@@ -131,7 +131,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_encrypted_utxos_by_tags(
                 tags,
                 cursor,
@@ -148,7 +148,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_shielded_transactions_by_tags(
                 tags,
                 cursor,
@@ -163,7 +163,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         options: RingHistoryOptions,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
             .await
     }
@@ -173,7 +173,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         signature: Signature,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_shielded_transactions_by_signature(
                 signature,
                 Some(config.unwrap_or(self.indexer_config)),
@@ -188,7 +188,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_shielded_transactions_by_nullifiers(
                 nullifiers,
                 cursor,
@@ -202,7 +202,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         &self,
         tags: Vec<[u8; 32]>,
     ) -> Result<ShieldedTransactionStream, ClientError> {
-        self.async_indexer
+        self.indexer
             .subscribe_to_shielded_transactions_by_tags(tags)
             .await
     }
@@ -213,7 +213,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_merkle_proofs(
                 tree_account,
                 leaves,
@@ -228,7 +228,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_non_inclusion_proofs(
                 tree_account,
                 leaves,
@@ -243,7 +243,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Ok(AsyncWitnessReader::input_witnesses(
-            &self.async_indexer,
+            &self.indexer,
             input_utxos,
             &[],
             Some(config.unwrap_or(self.indexer_config)),
@@ -256,23 +256,21 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         &self,
         request: RingSpendRecordRequest,
     ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.async_indexer.get_ring_spend_record(request).await
+        self.indexer.get_ring_spend_record(request).await
     }
 
     async fn get_ring_key_registry_entry(
         &self,
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.async_indexer
-            .get_ring_key_registry_entry(request)
-            .await
+        self.indexer.get_ring_key_registry_entry(request).await
     }
 
     async fn get_ring_key_registry_register_proof(
         &self,
         request: RingMemberProofRequest,
     ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_ring_key_registry_register_proof(request)
             .await
     }
@@ -282,7 +280,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         owners: Vec<Address>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetUserRecordsResponse, ClientError> {
-        self.async_indexer
+        self.indexer
             .get_user_records(owners, Some(config.unwrap_or(self.indexer_config)))
             .await
     }
@@ -292,14 +290,14 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
-        if self.proves_indexed_async() {
-            let proved = self
-                .indexed_transfer_async(
-                    TransferPreparation {
+        if let Some(server) = self.indexed_prover() {
+            let proved = server
+                .prove_indexed(
+                    &TransferPreparation {
                         transaction,
                         config: self.indexer_config,
-                    },
-                    authority,
+                    }
+                    .prepare(authority)?,
                 )
                 .await?;
             return Ok(ProveResult {
@@ -310,7 +308,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         }
         let commitments = transaction.input_utxo_hashes()?;
         let witnesses = AsyncWitnessReader::input_witnesses(
-            &self.async_indexer,
+            &self.indexer,
             &commitments,
             &transaction.dummy_nullifiers(),
             None,
@@ -323,7 +321,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         )?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.prove_transfer_async(inputs).await?;
+        let proof = self.prove_transfer(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {

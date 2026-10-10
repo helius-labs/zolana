@@ -44,13 +44,51 @@ pub struct InputWitnesses {
 /// The inputs name their own trees, so no caller supplies one. Inputs from
 /// several trees are fetched per tree and the results are put back in the
 /// caller's order.
+///
+/// The default reads through [`Rpc`], one tree after another, so an
+/// in-process indexer that answers [`Rpc`] needs only
+/// `impl WitnessReader for MyIndexer {}`. [`ZolanaIndexer`] overrides it to
+/// run the round trips together.
 pub trait WitnessReader {
     fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],
         dummy_nullifiers: &[[u8; 32]],
         config: Option<IndexerRpcConfig>,
-    ) -> Result<InputWitnesses, ClientError>;
+    ) -> Result<InputWitnesses, ClientError>
+    where
+        Self: Rpc,
+    {
+        let groups = group_by_tree(inputs);
+        let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
+            Vec::new()
+        } else {
+            let tree = pda::tree(padding_tree_id(&groups)?);
+            self.get_non_inclusion_proofs(tree, dummy_nullifiers.to_vec(), config)?
+                .proofs
+        };
+        let mut placed = Vec::with_capacity(inputs.len());
+        for group in &groups {
+            let tree = pda::tree(group.tree_id);
+            let state = self.get_merkle_proofs(tree, group.leaves(), config)?;
+            let nullifier = self.get_non_inclusion_proofs(tree, group.nullifiers(), config)?;
+            placed.extend(
+                group.positions.iter().copied().zip(validate_spend_proofs(
+                    group
+                        .positions
+                        .iter()
+                        .copied()
+                        .zip(group.inputs.iter().copied()),
+                    state.proofs,
+                    nullifier.proofs,
+                )?),
+            );
+        }
+        Ok(InputWitnesses {
+            spend_proofs: scatter(placed),
+            dummy_nullifier_proofs,
+        })
+    }
 }
 
 /// The async counterpart. Separate from [`WitnessReader`] because the trait
@@ -138,76 +176,12 @@ impl WitnessReader for ZolanaIndexer {
         dummy_nullifiers: &[[u8; 32]],
         config: Option<IndexerRpcConfig>,
     ) -> Result<InputWitnesses, ClientError> {
-        let groups = group_by_tree(inputs);
-        let dummy_tree = if dummy_nullifiers.is_empty() {
-            None
-        } else {
-            Some(pda::tree(padding_tree_id(&groups)?))
-        };
-
-        // Independent round trips (317ms and 114ms on devnet for the first
-        // two), run together for the reason the async path uses `try_join!`:
-        // different methods, none consuming another's output. Serially this
-        // cost the sum on every transfer. A second input tree adds two more
-        // requests, which overlap with the rest rather than queueing behind
-        // them.
-        let (per_tree, dummy) = std::thread::scope(|scope| {
-            let per_tree: Vec<_> = groups
-                .iter()
-                .map(|group| {
-                    let tree = pda::tree(group.tree_id);
-                    let state = scope.spawn(move || {
-                        let _t = crate::prover::timing::Phase::start("get_merkle_proofs", 0);
-                        self.get_merkle_proofs(tree, group.leaves(), config)
-                    });
-                    let nullifier = scope.spawn(move || {
-                        let _t = crate::prover::timing::Phase::start("get_non_inclusion_proofs", 0);
-                        self.get_non_inclusion_proofs(tree, group.nullifiers(), config)
-                    });
-                    (state, nullifier)
-                })
-                .collect();
-            let dummy = scope.spawn(|| {
-                let Some(tree) = dummy_tree else {
-                    return Ok(Vec::new());
-                };
-                let _t = crate::prover::timing::Phase::start("get_dummy_non_inclusion_proofs", 0);
-                self.get_non_inclusion_proofs(tree, dummy_nullifiers.to_vec(), config)
-                    .map(|response| response.proofs)
-            });
-            let per_tree: Vec<_> = per_tree
-                .into_iter()
-                .map(|(state, nullifier)| (state.join(), nullifier.join()))
-                .collect();
-            (per_tree, dummy.join())
-        });
-        // A panic in any of them is a bug in the indexer client, not an
-        // unreachable indexer.
-        let dummy_nullifier_proofs =
-            dummy.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
-
-        let mut placed = Vec::with_capacity(inputs.len());
-        for (group, (state, nullifier)) in groups.iter().zip(per_tree) {
-            let state = state.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
-            let nullifier =
-                nullifier.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
-            placed.extend(
-                group.positions.iter().copied().zip(validate_spend_proofs(
-                    group
-                        .positions
-                        .iter()
-                        .copied()
-                        .zip(group.inputs.iter().copied()),
-                    state.proofs,
-                    nullifier.proofs,
-                )?),
-            );
-        }
-
-        Ok(InputWitnesses {
-            spend_proofs: scatter(placed),
-            dummy_nullifier_proofs,
-        })
+        self.block_on(AsyncWitnessReader::input_witnesses(
+            self.async_indexer(),
+            inputs,
+            dummy_nullifiers,
+            config,
+        ))
     }
 }
 

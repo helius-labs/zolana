@@ -19,8 +19,8 @@ use std::{
 
 use solana_address::Address;
 use zolana_client::{
-    AsyncProverClient, AsyncZolanaIndexer, IndexerRequirement, ProofDataSource, ProverClient,
-    ProverLaunch, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+    IndexerRequirement, ProofDataSource, ProverClient, ProverLaunch, Rpc, SolanaRpc, ZolanaClient,
+    ZolanaIndexer,
 };
 use zolana_interface::{pda, state::tree::read_tree_id, SHIELDED_POOL_PROGRAM_ID};
 
@@ -341,8 +341,6 @@ fn connect(
         rpc,
         ZolanaIndexer::new(ports.photon_url()),
         ProverClient::default(),
-        AsyncZolanaIndexer::new(ports.photon_url()),
-        AsyncProverClient::default(),
     )
     .with_proof_data_source(ProofDataSource::Client);
     Ok((client, tree_id))

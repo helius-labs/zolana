@@ -21,9 +21,8 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
-    ComputeBudgetConfig, IndexerRequirement, ProverClient, ProverLaunch, Rpc, SolanaRpc,
-    ZolanaClient, ZolanaIndexer,
+    prover::SERVER_ADDRESS, ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient,
+    ProverLaunch, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     pda,
@@ -509,13 +508,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     let sender = new_actor(&mut rpc, &assets)?;
     let recipient = new_actor(&mut rpc, &assets)?;
 
-    let client = ZolanaClient::new(
-        rpc,
-        indexer,
-        ProverClient::default(),
-        AsyncZolanaIndexer::new(indexer_url.clone()),
-        AsyncProverClient::default(),
-    );
+    let client = ZolanaClient::new(rpc, indexer, ProverClient::default());
 
     Ok(TestEnv {
         client,

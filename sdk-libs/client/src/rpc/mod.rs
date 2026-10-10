@@ -1,3 +1,4 @@
+mod blocking;
 mod compute_budget;
 mod constants;
 pub mod retry;
@@ -8,6 +9,7 @@ mod transaction;
 pub mod transaction_size;
 mod types;
 
+pub use blocking::Blocking;
 pub use compute_budget::ComputeBudgetConfig;
 pub use constants::{MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};

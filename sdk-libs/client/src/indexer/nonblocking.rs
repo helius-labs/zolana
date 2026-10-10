@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use solana_address::Address;
@@ -28,12 +28,24 @@ use super::{
     error::indexer_error,
 };
 
+const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
+/// First wait after an incomplete answer.
+///
+/// A transfer spends a UTXO the indexer has only just written, so the first
+/// attempt often lands a few milliseconds early and this sleep is on the
+/// critical path of every transfer. A flat 500ms charged the tail's wait to
+/// every caller; starting short and backing off keeps the 60s ceiling for an
+/// indexer that is genuinely behind.
+const MERKLE_PROOF_POLL_START: Duration = Duration::from_millis(25);
+const MERKLE_PROOF_POLL_MAX: Duration = Duration::from_millis(500);
+
 #[derive(Clone, Debug)]
 pub struct AsyncZolanaIndexer {
     api: ZolanaApi,
 }
 
 impl AsyncZolanaIndexer {
+    #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
             api: ZolanaApi::new(url),
@@ -212,20 +224,19 @@ impl AsyncRpc for AsyncZolanaIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        wait_for_indexer_async(
-            config,
-            |response: &GetMerkleProofsResponse| response.context,
-            || async {
-                let response = self
-                    .api
+        let single = || async {
+            let response = {
+                let _t = crate::prover::timing::Phase::start("merkle_http", 0);
+                self.api
                     .get_merkle_proofs(
                         encode_pubkey(tree_account),
                         leaves.iter().copied().map(encode_hash).collect(),
                     )
                     .await
-                    .map_err(indexer_error)?;
-
-                Ok(GetMerkleProofsResponse {
+            };
+            response
+                .map_err(indexer_error)
+                .map(|response| GetMerkleProofsResponse {
                     context: convert_context(response.context),
                     proofs: response
                         .proofs
@@ -233,9 +244,39 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         .map(convert_merkle_proof)
                         .collect(),
                 })
-            },
-        )
-        .await
+        };
+
+        // A caller that named a slot wants that guarantee, so honour it directly and
+        // skip the completeness-polling path below.
+        if let Some(config) = config.filter(|config| config.require_slot.is_some()) {
+            return wait_for_indexer_async(
+                Some(config),
+                |response: &GetMerkleProofsResponse| response.context,
+                single,
+            )
+            .await;
+        }
+
+        let expected = leaves.len();
+        let started = Instant::now();
+        let mut last_error = None;
+        let mut wait = MERKLE_PROOF_POLL_START;
+        loop {
+            match single().await {
+                Ok(response) if response.proofs.len() >= expected => return Ok(response),
+                Ok(_) => {}
+                Err(error) => last_error = Some(error),
+            }
+            if started.elapsed() >= MERKLE_PROOF_POLL_TIMEOUT {
+                return Err(last_error.unwrap_or_else(|| {
+                    ClientError::Rpc(format!(
+                        "merkle proofs for {expected} leaves not indexed within {MERKLE_PROOF_POLL_TIMEOUT:?}"
+                    ))
+                }));
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(MERKLE_PROOF_POLL_MAX);
+        }
     }
 
     async fn get_non_inclusion_proofs(

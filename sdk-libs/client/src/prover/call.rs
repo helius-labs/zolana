@@ -1,15 +1,22 @@
 //! One prover HTTP exchange, shared by the blocking and async clients and
 //! encrypted to the attested key when the client requires a TEE.
 
-use std::time::Duration;
+use std::{mem, time::Duration};
 
-use reqwest::{Method, StatusCode, Url};
+use http::{
+    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
+    Method, StatusCode,
+};
+use url::Url;
+use zeroize::Zeroizing;
+use zolana_api::{ApiError, HttpRequest};
 
+#[cfg(feature = "reqwest")]
+use crate::prover::endpoint::scrub;
 use crate::{
     error::ClientError,
     prover::{
         client::Delivery,
-        endpoint::scrub,
         tee::{
             EncryptedRequest, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, VERSION,
         },
@@ -26,8 +33,11 @@ pub(crate) struct Call<'a> {
 
 /// Where an exchange stopped, so each caller keeps its own retry rules.
 pub(crate) enum CallError {
-    Connect(reqwest::Error),
-    Read(reqwest::Error),
+    /// No response arrived.
+    Connect(ApiError),
+    /// The status arrived and the body was lost: the prover may have acted
+    /// on the request.
+    Read(ApiError),
     Refused(ClientError),
 }
 
@@ -39,8 +49,8 @@ pub(crate) struct Recipient<'s> {
 
 /// A call as sent, keeping the key that decrypts its answer.
 pub(crate) struct Prepared<'s> {
-    pub headers: Vec<(&'static str, String)>,
-    pub body: Option<Vec<u8>>,
+    pub headers: HeaderMap,
+    pub body: Option<Zeroizing<Vec<u8>>>,
     encrypted: Option<Encrypted<'s>>,
 }
 
@@ -69,31 +79,33 @@ impl<'a> Call<'a> {
         }
     }
 
-    pub fn post(url: &'a Url, body: &'a str, delivery: Delivery) -> Self {
+    pub fn post(url: &'a Url, body: &'a str, delivery: Delivery, timeout: Duration) -> Self {
         Self {
             method: Method::POST,
             url,
             body: Some(body),
             delivery: Some(delivery),
-            timeout: None,
+            timeout: Some(timeout),
         }
     }
 
     /// `recipient` is set exactly when the client requires a TEE.
     pub fn prepare<'s>(&self, recipient: Option<Recipient<'s>>) -> Result<Prepared<'s>, CallError> {
-        let mut headers = Vec::new();
+        let mut headers = HeaderMap::new();
         match self.delivery {
-            Some(Delivery::InResponse) => headers.push(("X-Sync", "true".to_string())),
-            Some(Delivery::Queued) => headers.push(("X-Async", "true".to_string())),
+            Some(Delivery::InResponse) => insert(&mut headers, "X-Sync", "true")?,
+            Some(Delivery::Queued) => insert(&mut headers, "X-Async", "true")?,
             None => {}
         }
         let Some(recipient) = recipient else {
             if self.body.is_some() {
-                headers.push(("Content-Type", "application/json".to_string()));
+                insert(&mut headers, CONTENT_TYPE.as_str(), "application/json")?;
             }
             return Ok(Prepared {
                 headers,
-                body: self.body.map(|body| body.as_bytes().to_vec()),
+                body: self
+                    .body
+                    .map(|body| Zeroizing::new(body.as_bytes().to_vec())),
                 encrypted: None,
             });
         };
@@ -104,14 +116,22 @@ impl<'a> Call<'a> {
             self.body.unwrap_or_default().as_bytes(),
         )
         .map_err(CallError::Refused)?;
-        headers.push((HEADER_VERSION, VERSION.to_string()));
-        headers.push((HEADER_ENC, encrypted.enc.clone()));
+        insert(&mut headers, HEADER_VERSION, VERSION)?;
+        insert(&mut headers, HEADER_ENC, &encrypted.enc)?;
         let body = if self.method == Method::GET {
-            headers.push((HEADER_CIPHERTEXT, hex::encode(&encrypted.body)));
+            insert(
+                &mut headers,
+                HEADER_CIPHERTEXT,
+                hex::encode(&encrypted.body),
+            )?;
             None
         } else {
-            headers.push(("Content-Type", "application/octet-stream".to_string()));
-            Some(encrypted.body.clone())
+            insert(
+                &mut headers,
+                CONTENT_TYPE.as_str(),
+                "application/octet-stream",
+            )?;
+            Some(Zeroizing::new(encrypted.body.clone()))
         };
         Ok(Prepared {
             headers,
@@ -125,6 +145,15 @@ impl<'a> Call<'a> {
 }
 
 impl<'s> Prepared<'s> {
+    /// The request to send; it takes the prepared headers and body.
+    pub fn request(&mut self, call: &Call<'_>) -> HttpRequest {
+        let mut request = HttpRequest::new(call.method.clone(), call.url.as_str());
+        request.headers = mem::take(&mut self.headers);
+        request.body = self.body.take().unwrap_or_default();
+        request.timeout = call.timeout;
+        request
+    }
+
     pub fn finish(
         &self,
         status: StatusCode,
@@ -148,6 +177,22 @@ impl<'s> Prepared<'s> {
     }
 }
 
+fn insert(
+    headers: &mut HeaderMap,
+    name: &'static str,
+    value: impl AsRef<str>,
+) -> Result<(), CallError> {
+    let name = HeaderName::from_bytes(name.as_bytes());
+    let value = HeaderValue::from_str(value.as_ref());
+    let (Ok(name), Ok(value)) = (name, value) else {
+        return Err(CallError::Refused(ClientError::Prover(
+            "invalid prover request header".into(),
+        )));
+    };
+    headers.insert(name, value);
+    Ok(())
+}
+
 impl Answer<'_> {
     pub fn into_parts(self) -> (StatusCode, String) {
         match self {
@@ -163,15 +208,32 @@ impl Recipient<'_> {
 }
 
 impl CallError {
+    pub fn transport(error: ApiError) -> Self {
+        match error {
+            ApiError::ResponseLost(_) => Self::Read(error),
+            error => Self::Connect(error),
+        }
+    }
+
     /// `label` names the call in a transport failure.
     pub fn into_client_error(self, label: &str) -> ClientError {
         match self {
-            Self::Connect(e) => ClientError::ProverServer(format!("{label} failed: {}", scrub(e))),
-            Self::Read(e) => {
-                ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+            Self::Connect(e) => {
+                ClientError::ProverServer(format!("{label} failed: {}", transport_error(e)))
             }
+            Self::Read(e) => ClientError::ProverServer(e.to_string()),
             Self::Refused(error) => error,
         }
+    }
+}
+
+/// The failure's text, `api-key` masked: a `reqwest` error through `scrub`,
+/// which keeps its own wording, and any other through `ApiError`'s display.
+pub(crate) fn transport_error(error: ApiError) -> String {
+    match error {
+        #[cfg(feature = "reqwest")]
+        ApiError::Request(error) => scrub(error).to_string(),
+        error => error.to_string(),
     }
 }
 
@@ -233,21 +295,18 @@ mod tests {
         let session = session();
         let prepared = encrypted(&session, &Call::get(&url, Duration::from_secs(1)));
         assert!(prepared.body.is_none());
-        assert!(prepared
-            .headers
-            .iter()
-            .any(|(name, _)| *name == HEADER_CIPHERTEXT));
+        assert!(prepared.headers.contains_key(HEADER_CIPHERTEXT));
     }
 
     #[test]
     fn an_encrypted_post_keeps_its_bytes_in_the_body() {
         let url = Url::parse("https://prover.example/prove/merge").unwrap();
         let session = session();
-        let prepared = encrypted(&session, &Call::post(&url, "{}", Delivery::Queued));
+        let prepared = encrypted(
+            &session,
+            &Call::post(&url, "{}", Delivery::Queued, Duration::from_secs(1)),
+        );
         assert!(prepared.body.is_some());
-        assert!(!prepared
-            .headers
-            .iter()
-            .any(|(name, _)| *name == HEADER_CIPHERTEXT));
+        assert!(!prepared.headers.contains_key(HEADER_CIPHERTEXT));
     }
 }

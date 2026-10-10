@@ -4,8 +4,9 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use http::StatusCode;
 use rand_core::{OsRng, TryRngCore};
-use reqwest::{StatusCode, Url};
+use url::Url;
 
 use super::{
     platform::Anchors,
@@ -25,8 +26,7 @@ pub(crate) struct TeeSession {
     anchors: Anchors,
     attested: Mutex<Option<(AttestedProver, Instant)>>,
     // One attestation at a time, the server answers only a few quotes at once.
-    attesting: Mutex<()>,
-    attesting_async: tokio::sync::Mutex<()>,
+    attesting: tokio::sync::Mutex<()>,
     // Bumped per finished attestation, a waiting call takes its failure instead of retrying.
     outcome: Mutex<(u64, Option<SharedFailure>)>,
 }
@@ -61,8 +61,7 @@ impl TeeSession {
             policy,
             anchors: Anchors::PRODUCTION,
             attested: Mutex::new(None),
-            attesting: Mutex::new(()),
-            attesting_async: tokio::sync::Mutex::new(()),
+            attesting: tokio::sync::Mutex::new(()),
             outcome: Mutex::new((0, None)),
         }
     }
@@ -76,38 +75,16 @@ impl TeeSession {
     }
 
     /// Runs `attest` while no other attestation of this session runs.
-    pub fn attest_exclusive(&self, attest: impl FnOnce() -> AttestResult) -> AttestResult {
-        let _attesting = lock(&self.attesting);
-        self.settle(attest())
-    }
-
-    /// Async counterpart of [`Self::attest_exclusive`].
-    pub async fn attest_exclusive_async<F: Future<Output = AttestResult>>(
+    pub async fn attest_exclusive<F: Future<Output = AttestResult>>(
         &self,
         attest: impl FnOnce() -> F,
     ) -> AttestResult {
-        let _attesting = self.attesting_async.lock().await;
+        let _attesting = self.attesting.lock().await;
         self.settle(attest().await)
     }
 
     /// The cached key, else the outcome of the attestation this call waited on, else `attest`.
-    pub fn key_or_attest(
-        &self,
-        attest: impl FnOnce() -> AttestResult,
-    ) -> Result<[u8; 32], ClientError> {
-        if let Some(key) = self.attested_key() {
-            return Ok(key);
-        }
-        let round = self.round();
-        let _attesting = lock(&self.attesting);
-        if let Some(joined) = self.joined(round) {
-            return joined;
-        }
-        self.settle(attest()).map(|prover| prover.hpke_public_key)
-    }
-
-    /// Async counterpart of [`Self::key_or_attest`].
-    pub async fn key_or_attest_async<F: Future<Output = AttestResult>>(
+    pub async fn key_or_attest<F: Future<Output = AttestResult>>(
         &self,
         attest: impl FnOnce() -> F,
     ) -> Result<[u8; 32], ClientError> {
@@ -115,7 +92,7 @@ impl TeeSession {
             return Ok(key);
         }
         let round = self.round();
-        let _attesting = self.attesting_async.lock().await;
+        let _attesting = self.attesting.lock().await;
         if let Some(joined) = self.joined(round) {
             return joined;
         }
@@ -267,7 +244,7 @@ impl TeeSession {
         Ok((inner, text))
     }
 
-    pub fn is_encrypted(headers: &reqwest::header::HeaderMap) -> bool {
+    pub fn is_encrypted(headers: &http::HeaderMap) -> bool {
         headers
             .get(HEADER_VERSION)
             .is_some_and(|value| value.as_bytes() == VERSION.as_bytes())
@@ -283,10 +260,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use std::{
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        },
+        sync::atomic::{AtomicUsize, Ordering},
         thread,
         time::Duration,
     };
@@ -321,29 +295,12 @@ mod tests {
         Ok(prover)
     }
 
-    #[test]
-    fn concurrent_calls_share_one_attestation() {
-        let session = Arc::new(session());
-        let attestations = Arc::new(AtomicUsize::new(0));
-        let keys: Vec<_> = (0..4)
-            .map(|_| {
-                let (session, attestations) = (session.clone(), attestations.clone());
-                thread::spawn(move || session.key_or_attest(|| attest(&session, &attestations)))
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|handle| handle.join().unwrap().unwrap())
-            .collect();
-        assert_eq!(attestations.load(Ordering::SeqCst), 1);
-        assert!(keys.iter().all(|key| *key == [7; 32]));
-    }
-
     #[tokio::test]
-    async fn concurrent_async_calls_share_one_attestation() {
+    async fn concurrent_calls_share_one_attestation() {
         let session = session();
         let attestations = AtomicUsize::new(0);
         let call = || {
-            session.key_or_attest_async(|| async {
+            session.key_or_attest(|| async {
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 attest(&session, &attestations)
             })
@@ -363,25 +320,18 @@ mod tests {
         assert_eq!(session.attested_key(), None);
     }
 
-    #[test]
-    fn calls_waiting_on_a_failed_attestation_share_its_failure() {
-        let session = Arc::new(session());
-        let attestations = Arc::new(AtomicUsize::new(0));
-        let results: Vec<_> = (0..4)
-            .map(|_| {
-                let (session, attestations) = (session.clone(), attestations.clone());
-                thread::spawn(move || {
-                    session.key_or_attest(|| {
-                        attestations.fetch_add(1, Ordering::SeqCst);
-                        thread::sleep(Duration::from_millis(50));
-                        Err(TeeError::ReportDataMismatch.into())
-                    })
-                })
+    #[tokio::test]
+    async fn calls_waiting_on_a_failed_attestation_share_its_failure() {
+        let session = session();
+        let attestations = AtomicUsize::new(0);
+        let call = || {
+            session.key_or_attest(|| async {
+                attestations.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Err(TeeError::ReportDataMismatch.into())
             })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|handle| handle.join().unwrap())
-            .collect();
+        };
+        let results = futures::future::join_all((0..4).map(|_| call())).await;
         assert_eq!(attestations.load(Ordering::SeqCst), 1);
         assert!(results
             .iter()
