@@ -54,7 +54,9 @@ module points at this directory with a `replace` directive.
   bodies otherwise exceed `maxRecDepth` and parse in superlinear time.
   `NamedConstantDigits` replaces constants of at least that many digits by
   `abbrev K_<i> : F := <value>` declarations after the prelude, numbered in
-  order of first use.
+  order of first use. `SeedConstants` fixes the numbering of known constants
+  (value i is `K_i`, declared even if unused); new constants continue after
+  them, so adding circuits never renumbers existing names.
 - `ExtractCircuitModules(opts, ModuleLayout{...}, ...)` splits an extraction
   into Lean modules `<Root>.<name>` that elaborate separately: a prelude
   module (Order, F, Gates, named constants, opaque gadgets), modules assigned
