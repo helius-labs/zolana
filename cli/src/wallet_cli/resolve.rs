@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use zolana_client::{prover::tee::TeePolicy, ProverClient};
+use zolana_client::prover::tee::TeePolicy;
 
 use crate::{
     args::{NetworkWalletOptions, SyncOptions},
@@ -26,16 +26,6 @@ pub(crate) struct ResolvedNetworkOptions {
     pub(crate) prover_url: String,
     pub(crate) prover_tee: Option<TeePolicy>,
     pub(crate) airdrop_lamports: Option<u64>,
-}
-
-impl ResolvedNetworkOptions {
-    pub(crate) fn prover(&self) -> ProverClient {
-        let prover = ProverClient::new(self.prover_url.clone());
-        match &self.prover_tee {
-            Some(policy) => prover.with_tee(policy.clone()),
-            None => prover,
-        }
-    }
 }
 
 pub(crate) fn resolve_sync(opts: &SyncOptions) -> Result<ResolvedSyncOptions> {

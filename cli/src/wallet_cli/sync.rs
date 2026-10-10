@@ -4,7 +4,7 @@ use zolana_client::{
     EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, SpendableUtxos,
     ZolanaIndexer,
 };
-use zolana_transaction::{Address, SpendableDecryptionResult};
+use zolana_transaction::SpendableDecryptionResult;
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
@@ -99,23 +99,4 @@ pub(super) fn wait_for_indexed_utxo(
         .into_iter()
         .find(|item| item.tx_signature == signature)
         .with_context(|| format!("Photon returned no indexed output for {signature}"))
-}
-
-/// Poll the indexer until `leaf` is present in `tree`. Merge's `merge_transact`
-/// output is not on the view-tag confirmation path a transfer uses, so a caller
-/// that reads the consolidated note back immediately must wait for its state leaf
-/// to be appended.
-pub(super) fn wait_for_indexed_leaf<R: Rpc>(rpc: &R, tree: Address, leaf: [u8; 32]) -> Result<()> {
-    indexer_poll()
-        .poll_until(
-            || rpc.get_merkle_proofs(tree, vec![leaf], None),
-            |response| {
-                response
-                    .proofs
-                    .iter()
-                    .any(|proof| proof.leaf == leaf && proof.merkle_context.tree == tree)
-            },
-        )
-        .context("timed out waiting for Photon to index leaf")?;
-    Ok(())
 }

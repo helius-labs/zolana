@@ -161,14 +161,14 @@ pub enum TransactionError {
     #[error("no spendable balance of {asset}")]
     NoSpendableBalance { asset: Address },
 
-    #[error("balance is spread over {trees} trees; merge each tree first")]
-    BalanceOnSeveralTrees { trees: usize },
-
     #[error("{amount} needs more than {max_inputs} UTXOs; merge first")]
     SpendNeedsMerge { amount: u64, max_inputs: usize },
 
     #[error("{amount} needs UTXOs that are excluded from this spend")]
     SpendNeedsExcludedUtxos { amount: u64 },
+
+    #[error("nothing to merge for asset {asset}: fewer than two plain UTXOs on one tree")]
+    NothingToMerge { asset: Address },
 
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },

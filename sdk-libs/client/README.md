@@ -63,6 +63,30 @@ and nothing reaches a prover server.
 A TEE policy belongs to the prover server client: pass
 `ProverClient::new(url).with_tee(policy)` to `ZolanaClient::new`.
 
+## Merging
+
+A merge turns up to 54 plain UTXOs of one asset on one tree into one. The
+owner enables it once with `set_merging_enabled_instruction(owner, true)`,
+which the owner signs; after that a merge needs no owner signature.
+
+```rust
+let inputs = select_merge(spendable.utxos(), asset, MERGE_DEFAULT_INPUT_COUNT, &reserved)?;
+let tree_id = inputs[0].tree_id();
+let merge = MergeTransaction::new(inputs)?
+    .with_output_tree_id(tree_id)
+    .with_expiry(now + 600)
+    .encrypt(&keys)?;
+let signature = MergeSubmission::new(&merge, owner, &address, &nullifier_key, fee_payer)
+    .send_sync(&client, &[&fee_payer_keypair])?;
+```
+
+checks the owner's record (merging enabled, same keys), fetches the witness,
+proves, verifies the proof, then signs, sends and waits as `Submission` does;
+`finish_unsigned_sync` stops at the message. Set an expiry: until it passes,
+anyone holding the proof can submit it. The proof request carries the
+owner's nullifier secret, so a prover other than this process learns it and
+every merged amount; `MergeSubmission::with_prover` keeps it in process.
+
 ## In process: litesvm
 
 Any indexer serves a client. A blocking one answers the indexer half of

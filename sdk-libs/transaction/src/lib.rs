@@ -38,7 +38,7 @@ pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
     TransactionKeyRequest,
 };
-pub use selection::{select_spend, select_spend_excluding, spend_tree};
+pub use selection::{select_merge, select_spend, select_spend_excluding};
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };

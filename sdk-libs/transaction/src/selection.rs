@@ -3,15 +3,22 @@
 //! A spend takes default-ring UTXOs of one asset, the largest first, at most
 //! [`MAX_SPEND_INPUTS`] of them and from at most [`MAX_INPUT_TREES`] trees,
 //! since a proof resolves roots for that many. A balance that needs more
-//! UTXOs or more trees is merged first. A merge takes the UTXOs of one tree,
-//! which [`spend_tree`] finds.
+//! UTXOs or more trees is merged first: a merge takes plain UTXOs of one tree,
+//! the smallest first, which [`select_merge`] picks.
 
-use std::{cmp::Reverse, collections::HashSet};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, HashSet},
+};
 
 use solana_address::Address;
 use zolana_interface::MAX_INPUT_TREES;
 
-use crate::{error::TransactionError, instructions::transact::MAX_SPEND_INPUTS, utxo::WalletUtxo};
+use crate::{
+    error::TransactionError,
+    instructions::{merge::MAX_MERGE_INPUTS, transact::MAX_SPEND_INPUTS},
+    utxo::WalletUtxo,
+};
 
 /// The UTXOs a default-ring spend of `amount` of `asset` takes from `utxos`:
 /// the largest first, until they cover `amount`. Zero-amount UTXOs are left
@@ -55,25 +62,42 @@ pub fn select_spend_excluding<'a>(
     })
 }
 
-/// The single tree holding the UTXOs of `asset` that `eligible` accepts, the
-/// tree a merge of them consolidates on.
-pub fn spend_tree<'a>(
+/// The UTXOs a merge of `asset` takes from `utxos`: the plain ones of the tree
+/// that holds the most of them, the smallest first, at most `max_inputs`
+/// (capped at [`MAX_MERGE_INPUTS`]), leaving out those whose nullifier is in
+/// `excluded`, such as the UTXOs of a prepared spend. Zero-amount UTXOs are
+/// left out. Fails with [`TransactionError::NothingToMerge`] when fewer than
+/// two remain.
+///
+/// A merge publishes one input tree, so a balance on two trees is merged one
+/// tree at a time; the fuller tree goes first.
+pub fn select_merge<'a>(
     utxos: impl IntoIterator<Item = &'a WalletUtxo>,
     asset: Address,
-    eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<u16, TransactionError> {
-    let mut trees: Vec<u16> = utxos
-        .into_iter()
-        .filter(|utxo| utxo.utxo.asset.asset == asset && eligible(utxo))
-        .map(WalletUtxo::tree_id)
-        .collect();
-    trees.sort_unstable();
-    trees.dedup();
-    match trees.as_slice() {
-        [tree] => Ok(*tree),
-        [] => Err(TransactionError::NoSpendableBalance { asset }),
-        _ => Err(TransactionError::BalanceOnSeveralTrees { trees: trees.len() }),
+    max_inputs: usize,
+    excluded: &HashSet<[u8; 32]>,
+) -> Result<Vec<WalletUtxo>, TransactionError> {
+    let mut trees: BTreeMap<u16, Vec<&WalletUtxo>> = BTreeMap::new();
+    for utxo in utxos.into_iter().filter(|utxo| {
+        utxo.utxo.asset.asset == asset
+            && utxo.utxo.amount > 0
+            && utxo.is_plain()
+            && !excluded.contains(&utxo.nullifier)
+    }) {
+        trees.entry(utxo.tree_id()).or_default().push(utxo);
     }
+    // The lowest tree id wins a tie, so the choice does not depend on order.
+    let mut selected = trees
+        .into_values()
+        .rev()
+        .max_by_key(Vec::len)
+        .unwrap_or_default();
+    if selected.len() < 2 {
+        return Err(TransactionError::NothingToMerge { asset });
+    }
+    selected.sort_by_key(|utxo| utxo.utxo.amount);
+    selected.truncate(max_inputs.min(MAX_MERGE_INPUTS));
+    Ok(selected.into_iter().cloned().collect())
 }
 
 fn candidates<'a>(

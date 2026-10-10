@@ -1,5 +1,6 @@
 //! Which UTXOs a spend takes: largest first, at most `MAX_SPEND_INPUTS` from
 //! at most `MAX_INPUT_TREES` trees, leaving out excluded and zero-amount UTXOs.
+//! Which a merge takes: the smallest plain UTXOs of one tree.
 mod common;
 
 use std::collections::HashSet;
@@ -8,8 +9,9 @@ use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use zolana_interface::MAX_INPUT_TREES;
 use zolana_transaction::{
-    error::TransactionError, instructions::transact::MAX_SPEND_INPUTS, select_spend,
-    select_spend_excluding, spend_tree, Mint, WalletUtxo,
+    error::TransactionError,
+    instructions::{merge::MAX_MERGE_INPUTS, transact::MAX_SPEND_INPUTS},
+    select_merge, select_spend, select_spend_excluding, Mint, WalletUtxo,
 };
 
 const TOKEN: Mint = Mint::new(Address::new_from_array([7; 32]), 2);
@@ -127,33 +129,75 @@ fn spans_at_most_max_input_trees() {
 }
 
 #[test]
-fn a_merge_takes_the_one_tree_of_its_eligible_utxos() {
+fn a_merge_takes_the_smallest_plain_utxos_of_the_fuller_tree() {
     let owner = keypair(1);
-    let mut with_data = wallet_utxo(&owner, Mint::SOL, 10, 1, 3);
+    let mut with_data = wallet_utxo(&owner, Mint::SOL, 1, 0, 9);
     with_data.data_hash = Some([4; 32]);
     let wallet = vec![
+        wallet_utxo(&owner, Mint::SOL, 30, 0, 1),
+        wallet_utxo(&owner, Mint::SOL, 10, 0, 2),
+        wallet_utxo(&owner, Mint::SOL, 20, 0, 3),
+        wallet_utxo(&owner, Mint::SOL, 0, 0, 4),
+        with_data,
+        wallet_utxo(&owner, TOKEN, 5, 0, 5),
+        wallet_utxo(&owner, Mint::SOL, 5, 1, 6),
+        wallet_utxo(&owner, Mint::SOL, 6, 1, 7),
+    ];
+    let none = HashSet::new();
+    let merged = select_merge(&wallet, Mint::SOL.asset, 8, &none).unwrap();
+    assert_eq!(amounts(&merged), [10, 20, 30]);
+    assert!(merged.iter().all(|utxo| utxo.tree_id() == 0));
+    // At most `max_inputs`, the smallest kept.
+    let merged = select_merge(&wallet, Mint::SOL.asset, 2, &none).unwrap();
+    assert_eq!(amounts(&merged), [10, 20]);
+    // Excluded UTXOs leave tree 0 with one; tree 1 has two.
+    let excluded = HashSet::from([wallet[0].nullifier, wallet[1].nullifier]);
+    let merged = select_merge(&wallet, Mint::SOL.asset, 8, &excluded).unwrap();
+    assert_eq!(amounts(&merged), [5, 6]);
+    assert!(merged.iter().all(|utxo| utxo.tree_id() == 1));
+}
+
+#[test]
+fn a_tie_between_trees_goes_to_the_lower_tree() {
+    let owner = keypair(1);
+    let wallet = vec![
+        wallet_utxo(&owner, Mint::SOL, 1, 3, 1),
+        wallet_utxo(&owner, Mint::SOL, 2, 3, 2),
+        wallet_utxo(&owner, Mint::SOL, 3, 2, 3),
+        wallet_utxo(&owner, Mint::SOL, 4, 2, 4),
+    ];
+    let merged = select_merge(&wallet, Mint::SOL.asset, 8, &HashSet::new()).unwrap();
+    assert!(merged.iter().all(|utxo| utxo.tree_id() == 2));
+}
+
+#[test]
+fn a_merge_takes_at_most_max_merge_inputs() {
+    let owner = keypair(1);
+    let wallet: Vec<_> = (0..60u8)
+        .map(|nonce| wallet_utxo(&owner, Mint::SOL, 100 - u64::from(nonce), 0, nonce))
+        .collect();
+    let merged = select_merge(&wallet, Mint::SOL.asset, usize::MAX, &HashSet::new()).unwrap();
+    assert_eq!(merged.len(), MAX_MERGE_INPUTS);
+    assert_eq!(merged[0].utxo.amount, 41);
+}
+
+#[test]
+fn nothing_to_merge_below_two_utxos_on_a_tree() {
+    let owner = keypair(1);
+    let wallet = [
         wallet_utxo(&owner, Mint::SOL, 10, 0, 1),
         wallet_utxo(&owner, Mint::SOL, 10, 1, 2),
-        with_data,
     ];
-    assert_eq!(
-        spend_tree(&wallet, Mint::SOL.asset, WalletUtxo::is_plain),
-        Err(TransactionError::BalanceOnSeveralTrees { trees: 2 })
-    );
-    assert_eq!(
-        spend_tree(&wallet[..1], Mint::SOL.asset, WalletUtxo::is_plain),
-        Ok(0)
-    );
-    assert_eq!(
-        spend_tree(&wallet[2..], Mint::SOL.asset, WalletUtxo::is_plain),
-        Err(TransactionError::NoSpendableBalance {
-            asset: Mint::SOL.asset
-        })
-    );
-    assert_eq!(
-        spend_tree(&wallet, TOKEN.asset, WalletUtxo::is_plain),
-        Err(TransactionError::NoSpendableBalance { asset: TOKEN.asset })
-    );
+    for (utxos, asset) in [
+        (&wallet[..], Mint::SOL.asset),
+        (&wallet[..1], Mint::SOL.asset),
+        (&wallet[..], TOKEN.asset),
+    ] {
+        assert_eq!(
+            select_merge(utxos, asset, 8, &HashSet::new()),
+            Err(TransactionError::NothingToMerge { asset })
+        );
+    }
 }
 
 #[test]
