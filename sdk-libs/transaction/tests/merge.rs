@@ -311,6 +311,14 @@ fn merge_requires_one_mint_and_checked_total() {
             Some(TransactionError::MergeInputAssetMismatch { index: 1 })
         );
     }
+    let two_trees = vec![
+        wallet_utxo(&owner, Mint::SOL, 1, 0, 1),
+        wallet_utxo(&owner, Mint::SOL, 1, 1, 2),
+    ];
+    assert_eq!(
+        MergeTransaction::new(two_trees).err(),
+        Some(TransactionError::MergeInputTreeMismatch { index: 1 })
+    );
     let exact = vec![
         wallet_utxo(&owner, Mint::SOL, u64::MAX - 1, 0, 1),
         wallet_utxo(&owner, Mint::SOL, 1, 0, 2),

@@ -198,6 +198,19 @@ fn nothing_to_merge_below_two_utxos_on_a_tree() {
             Err(TransactionError::NothingToMerge { asset })
         );
     }
+    // A merge of fewer than two is no merge, whatever `max_inputs` allows.
+    let one_tree = [
+        wallet_utxo(&owner, Mint::SOL, 10, 0, 3),
+        wallet_utxo(&owner, Mint::SOL, 20, 0, 4),
+    ];
+    for max_inputs in [0, 1] {
+        assert_eq!(
+            select_merge(&one_tree, Mint::SOL.asset, max_inputs, &HashSet::new()),
+            Err(TransactionError::NothingToMerge {
+                asset: Mint::SOL.asset
+            })
+        );
+    }
 }
 
 #[test]

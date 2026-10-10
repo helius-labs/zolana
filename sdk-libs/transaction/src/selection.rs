@@ -92,11 +92,11 @@ pub fn select_merge<'a>(
         .rev()
         .max_by_key(Vec::len)
         .unwrap_or_default();
+    selected.sort_by_key(|utxo| utxo.utxo.amount);
+    selected.truncate(max_inputs.min(MAX_MERGE_INPUTS));
     if selected.len() < 2 {
         return Err(TransactionError::NothingToMerge { asset });
     }
-    selected.sort_by_key(|utxo| utxo.utxo.amount);
-    selected.truncate(max_inputs.min(MAX_MERGE_INPUTS));
     Ok(selected.into_iter().cloned().collect())
 }
 

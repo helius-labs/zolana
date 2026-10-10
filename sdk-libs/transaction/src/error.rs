@@ -233,6 +233,9 @@ pub enum TransactionError {
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("merge input {index} is on another tree; a merge spends the UTXOs of one tree")]
+    MergeInputTreeMismatch { index: usize },
+
     #[error("merge input {index} has a different ring program id")]
     MergeInputRingMismatch { index: usize },
 

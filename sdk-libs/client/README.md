@@ -80,9 +80,13 @@ let signature = MergeSubmission::new(&merge, owner, &address, &nullifier_key, fe
     .send_sync(&client, &[&fee_payer_keypair])?;
 ```
 
-checks the owner's record (merging enabled, same keys), fetches the witness,
-proves, verifies the proof, then signs, sends and waits as `Submission` does;
-`finish_unsigned_sync` stops at the message. Set an expiry: until it passes,
+`with_output_tree_id` is required in practice: without it the merged UTXO is
+appended to tree 0. Pass the inputs' tree, or the tree the indexer names for
+new outputs when that one is full or paused.
+
+`MergeSubmission` checks the owner's record (merging enabled, same keys),
+fetches the witness, proves, verifies the proof, then signs, sends and waits
+as `Submission` does; `finish_unsigned_sync` stops at the message. Set an expiry: until it passes,
 anyone holding the proof can submit it. The proof request carries the
 owner's nullifier secret, so a prover other than this process learns it and
 every merged amount; `MergeSubmission::with_prover` keeps it in process.

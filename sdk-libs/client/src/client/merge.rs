@@ -188,7 +188,8 @@ impl<'a> MergeSubmission<'a> {
 
 /// Whether `record`, `owner`'s user record, lets `address` merge: merging is
 /// enabled, and the record holds `address`'s signing, nullifier and viewing
-/// keys. The program checks the same, so a mismatch caught here saves a proof.
+/// keys. The program checks all but the viewing key, so a mismatch caught here
+/// saves a proof; a viewing key mismatch means the local keys are stale.
 pub fn check_merge_record(
     record: &UserRecord,
     owner: Address,
@@ -218,8 +219,8 @@ pub fn check_merge_record(
     Ok(())
 }
 
-/// The one tree a merge's inputs sit in; [`MergeTransaction::new`] admits no
-/// other.
+/// The one tree a merge's inputs sit in; [`MergeTransaction::new`] refuses
+/// inputs on several.
 ///
 /// [`MergeTransaction::new`]: zolana_transaction::instructions::merge::MergeTransaction::new
 fn input_tree_id(merge: &MergeProofInputs) -> Result<u16, ClientError> {
