@@ -35,6 +35,10 @@ pub trait Prover: Send + Sync {
     ///
     /// Anything a request carries is a [`ProveRequest`] method, so a new one
     /// leaves this signature, and every implementation, unchanged.
+    ///
+    /// An implementation returns its own failures as
+    /// [`ClientError::ProverFailed`], which every client path passes on
+    /// unchanged, so its caller can read them back.
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError>;
 }
 

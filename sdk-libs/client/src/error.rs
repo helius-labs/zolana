@@ -286,6 +286,12 @@ pub enum ClientError {
     #[error("prover process error: {0}")]
     Prover(String),
 
+    /// A [`Prover`](crate::Prover) implementation's own failure, kept whole:
+    /// the caller downcasts [`std::error::Error::source`] to tell what failed,
+    /// such as a prover that was busy or a proving key that did not download.
+    #[error("prover failed: {0}")]
+    ProverFailed(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error(
         "prover used proving key {key} with sha256 {reported}, the verifying key pins {expected}"
     )]
@@ -482,5 +488,23 @@ impl ClientError {
             Self::Rpc(message) => Self::Rpc(format!("{signature}: {message}")),
             other => other,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+    #[error("busy")]
+    struct Busy;
+
+    /// The failure a prover returns is the one its caller reads back.
+    #[test]
+    fn a_prover_failure_downcasts_to_the_provers_own_error() {
+        let failure = ClientError::ProverFailed(Box::new(Busy));
+        let source = std::error::Error::source(&failure).expect("source");
+        assert_eq!(source.downcast_ref::<Busy>(), Some(&Busy));
+        assert_eq!(failure.to_string(), "prover failed: busy");
     }
 }
