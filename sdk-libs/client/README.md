@@ -130,7 +130,7 @@ Prover fetching sends locally prepared inputs to `/prove/<key>/indexed`. The pro
 resolves Merkle paths and root contexts. The SDK binds the returned roots to
 its original public statement and verifies the proof before returning
 transaction data. `IndexerRpcConfig.require_slot` sets the minimum indexer
-context slot for `ZolanaClient` transactions; `UtxoScanner::with_indexer_config`
+context slot for `ZolanaClient` transactions; `UtxoScan::with_indexer_config`
 applies it to wallet discovery, so a spend another client just made is read.
 Wallet discovery and chain account reads still use the SDK's configured services.
 

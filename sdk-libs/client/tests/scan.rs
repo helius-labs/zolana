@@ -1,4 +1,4 @@
-//! `UtxoScanner::fetch` against an in-memory indexer that pages as Photon
+//! `UtxoScan::fetch` against an in-memory indexer that pages as Photon
 //! does, and `fetch_asset_id` against in-memory accounts.
 
 use std::{
@@ -13,7 +13,7 @@ use solana_signature::Signature;
 use zolana_client::{
     fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, UtxoScanner,
+    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, UtxoScan,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -44,6 +44,8 @@ struct Indexer {
     reads: RefCell<Vec<&'static str>>,
     /// Rows per page; one when zero.
     page_size: usize,
+    /// Answers every page as full, with the cursor it was given.
+    stuck_cursor: bool,
 }
 
 impl Indexer {
@@ -67,6 +69,13 @@ impl Indexer {
     /// full page names no end even when nothing follows it.
     fn page<T: Clone>(&self, items: Vec<T>, cursor: Option<Vec<u8>>) -> Page<T> {
         let size = self.page_size.max(1);
+        if self.stuck_cursor {
+            return Page {
+                rows: items.into_iter().take(size).collect(),
+                next_cursor: Some(cursor.unwrap_or_default()),
+                scanned_through: None,
+            };
+        }
         let start = cursor.map_or(0, |cursor| usize::from(cursor[0]));
         let len = items.len();
         let rows: Vec<T> = items.into_iter().skip(start).take(size).collect();
@@ -353,7 +362,7 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = UtxoScanner::new(&owner, &assets)
+    let spendable = UtxoScan::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
@@ -403,7 +412,7 @@ fn a_stream_ends_at_a_page_short_of_the_page_size() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = UtxoScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    let scan = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
     assert_eq!(scan.spendable.utxos().count(), 3);
 
     // A full page is followed to the empty page that ends the stream; a
@@ -414,6 +423,25 @@ fn a_stream_ends_at_a_page_short_of_the_page_size() {
         indexer.reads_of("get_shielded_transactions_by_nullifiers"),
         1
     );
+}
+
+/// An indexer that hands back the cursor it was given would be paged
+/// forever.
+#[test]
+fn a_cursor_that_does_not_advance_fails_instead_of_paging_forever() {
+    let owner = keypair(7);
+    let (first_deposit, _) = deposit(&owner, 30, 1);
+    let indexer = Indexer {
+        deposits: vec![first_deposit],
+        stuck_cursor: true,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+
+    assert!(matches!(
+        UtxoScan::new(&owner, &assets).fetch(&indexer),
+        Err(ClientError::IndexerCursorNotAdvanced)
+    ));
 }
 
 #[test]
@@ -427,10 +455,10 @@ fn every_read_requires_the_slot_of_the_indexer_config() {
     };
     let assets = AssetRegistry::default();
 
-    UtxoScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
     assert!(indexer.required_slots.take().iter().all(Option::is_none));
 
-    let spendable = UtxoScanner::new(&owner, &assets)
+    let spendable = UtxoScan::new(&owner, &assets)
         .with_indexer_config(IndexerRpcConfig::at_slot(42))
         .fetch(&indexer)
         .unwrap()
@@ -466,7 +494,7 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = UtxoScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    let scan = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
     let (spendable, history) = (scan.spendable, scan.history);
 
     assert_eq!(
@@ -532,7 +560,7 @@ fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = UtxoScanner::new(&owner, &assets)
+    let spendable = UtxoScan::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
@@ -606,21 +634,21 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
     };
     let assets = AssetRegistry::default();
 
-    let framed = UtxoScanner::new(&owner, &assets)
+    let framed = UtxoScan::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
     assert_eq!(framed.utxos().count(), 0);
 
     // Another ring's framing never reads this ring's deposits.
-    let other_ring = UtxoScanner::new(&owner, &assets)
+    let other_ring = UtxoScan::new(&owner, &assets)
         .with_ring_deposit_payload(Address::new_from_array([5; 32]), unframe)
         .fetch(&indexer)
         .unwrap()
         .spendable;
     assert_eq!(other_ring.utxos().count(), 0);
 
-    let unframed = UtxoScanner::new(&owner, &assets)
+    let unframed = UtxoScan::new(&owner, &assets)
         .with_ring_deposit_payload(ring, unframe)
         .fetch(&indexer)
         .unwrap()
@@ -635,7 +663,7 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
         Err(TransactionError::Deserialize("bad frame".into()))
     };
     assert!(matches!(
-        UtxoScanner::new(&owner, &assets)
+        UtxoScan::new(&owner, &assets)
             .with_ring_deposit_payload(ring, reject)
             .fetch(&indexer),
         Err(ClientError::Transaction(TransactionError::Deserialize(_)))
