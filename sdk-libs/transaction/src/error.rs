@@ -269,14 +269,6 @@ pub enum TransactionError {
     #[error("no viewing key held matches the one the request names")]
     UnknownViewingKey,
 
-    /// The seed is the right width but is not a valid signature over the
-    /// canonical derivation message for this key, so it cannot be the seed this
-    /// wallet's roles expand from. Distinct from
-    /// [`zolana_keypair::KeypairError::InvalidDerivationSeed`], which is a
-    /// wrong-width seed.
-    #[error("derivation seed is not a valid signature over the derivation message for this key")]
-    InvalidDerivationSeed,
-
     /// A key holder answered a derivation batch with fewer values than it was
     /// asked for. Keys held in this process answer one per request; only a
     /// remote holder can come up short.

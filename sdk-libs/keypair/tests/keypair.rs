@@ -230,6 +230,8 @@ fn role_expansion_from_a_device_seed_matches_the_software_path() {
     cases::derivation::expand_roles_matches_the_software_constructor();
     cases::derivation::expand_roles_rejects_a_seed_of_the_wrong_width();
     cases::derivation::expand_roles_rejects_the_pda_curve();
+    cases::derivation::ed25519_roles_from_a_signature_match_the_owners_keypair();
+    cases::derivation::ed25519_roles_refuse_another_keys_signature();
 }
 
 #[test]

@@ -20,7 +20,7 @@ use crate::{
     constants::{BLINDING_LEN, P256_PUBKEY_LEN},
     error::KeypairError,
     nullifier_key::NullifierKey,
-    pubkey::{Curve, P256Pubkey},
+    pubkey::{Curve, P256Pubkey, PublicKey},
     viewing_key::{ViewTag, ViewingKey},
 };
 
@@ -255,6 +255,21 @@ pub(crate) fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&prk);
     out
+}
+
+/// The role keys of the ed25519 account `owner`, from its signature over
+/// [`ed25519_derivation_message`] made outside this process (a wallet
+/// adapter, a keystore). The signature is checked against `owner` first: a
+/// signer that signed something else, or signs differently each time, would
+/// expand into keys no later session finds again.
+pub fn expand_ed25519_roles(
+    owner: &[u8; 32],
+    seed: &[u8; ED25519_SEED_LEN],
+) -> Result<(NullifierKey, ViewingKey), KeypairError> {
+    if !PublicKey::from_ed25519(owner).verify_message(&ed25519_derivation_message(owner), seed) {
+        return Err(KeypairError::DerivationSeedNotSigned);
+    }
+    expand_roles(seed, Curve::Ed25519)
 }
 
 /// Expands both role secrets from a `derivation_seed` produced by a

@@ -5,7 +5,7 @@ use zolana_keypair::{
     derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
-    Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
+    NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 use zolana_transaction::{
     serialization::{
@@ -260,15 +260,9 @@ impl ClientEd25519WalletAuthority {
         derivation_seed: &[u8; derivation::ED25519_SEED_LEN],
     ) -> Result<Self, TransactionError> {
         let solana_pubkey = solana_pubkey.into();
-        let ed25519_pubkey = *solana_pubkey.as_array();
-        let signing_pubkey = PublicKey::from_ed25519(&ed25519_pubkey);
-        let message = derivation::ed25519_derivation_message(&ed25519_pubkey);
-        if !signing_pubkey.verify_message(&message, derivation_seed) {
-            return Err(TransactionError::InvalidDerivationSeed);
-        }
-
         let (nullifier_key, viewing_key) =
-            derivation::expand_roles(derivation_seed, Curve::Ed25519)?;
+            derivation::expand_ed25519_roles(solana_pubkey.as_array(), derivation_seed)?;
+        let signing_pubkey = PublicKey::from_ed25519(solana_pubkey.as_array());
         Ok(Self {
             solana_pubkey,
             signing_pubkey,
@@ -679,7 +673,10 @@ mod tests {
         .err()
         .expect("mutated seed must fail");
 
-        assert_eq!(error, TransactionError::InvalidDerivationSeed);
+        assert_eq!(
+            error,
+            TransactionError::Keypair(zolana_keypair::KeypairError::DerivationSeedNotSigned)
+        );
     }
 
     #[test]

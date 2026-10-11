@@ -1,11 +1,12 @@
 use zolana_keypair::{
     derivation::{
-        ed25519_derivation_message, expand_roles, is_derivation_input, DERIVATION_PAYLOAD_PREFIX,
-        DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOM_SEP_KEY, DOM_SEP_NONCE,
-        DOM_SEP_SILO, DST_DERIVE_P_DERIVE, DST_VIEW_ROOT_P_CONST, ED25519_DERIVATION_MSG,
-        ED25519_SEED_LEN, ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER, HPKE_PREFIX, INFO_NF_KEY_ECDH,
-        INFO_NF_KEY_ED25519, INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_PDA_NF_KEY,
-        INFO_PDA_VIEW_KEY, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
+        ed25519_derivation_message, expand_ed25519_roles, expand_roles, is_derivation_input,
+        DERIVATION_PAYLOAD_PREFIX, DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+        DOM_SEP_KEY, DOM_SEP_NONCE, DOM_SEP_SILO, DST_DERIVE_P_DERIVE, DST_VIEW_ROOT_P_CONST,
+        ED25519_DERIVATION_MSG, ED25519_SEED_LEN, ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER,
+        HPKE_PREFIX, INFO_NF_KEY_ECDH, INFO_NF_KEY_ED25519, INFO_PAIR_DOMAIN_PREFIX,
+        INFO_PAIR_HINT_PREFIX, INFO_PDA_NF_KEY, INFO_PDA_VIEW_KEY,
+        INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
         INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING,
         INFO_VIEW_KEY_ECDH, INFO_VIEW_KEY_ED25519, MERGE_INFO, OFFCHAIN_MESSAGE_MAGIC,
         P256_SEED_LEN, TSPP_APPLICATION_DOMAIN,
@@ -146,6 +147,47 @@ pub(crate) fn expand_roles_rejects_a_seed_of_the_wrong_width() {
         }
         assert!(expand_roles(&vec![7u8; expected], curve).is_ok());
     }
+}
+
+/// A derivation signature made outside the process (a wallet adapter, a
+/// keystore) expands into the roles the owner's own keypair derives.
+pub(crate) fn ed25519_roles_from_a_signature_match_the_owners_keypair() {
+    let signing_key = SigningKey::from_ed25519_bytes(&[5u8; 32]);
+    let owner = signing_key.pubkey().as_ed25519().expect("ed25519 owner");
+    let seed: [u8; ED25519_SEED_LEN] = signing_key
+        .derivation_seed()
+        .expect("derivation seed")
+        .as_slice()
+        .try_into()
+        .expect("64-byte seed");
+    let (nullifier_key, viewing_key) =
+        expand_ed25519_roles(&owner, &seed).expect("roles expand from the signature");
+    let software = ShieldedKeypair::from_keypair(signing_key).expect("software keypair");
+
+    assert_eq!(*nullifier_key.secret(), *software.nullifier_key.secret());
+    assert_eq!(
+        *viewing_key.secret_bytes(),
+        *software.viewing_key.secret_bytes()
+    );
+}
+
+/// Another key's signature is refused before anything expands from it.
+pub(crate) fn ed25519_roles_refuse_another_keys_signature() {
+    let owner = SigningKey::from_ed25519_bytes(&[5u8; 32])
+        .pubkey()
+        .as_ed25519()
+        .expect("ed25519 owner");
+    let other: [u8; ED25519_SEED_LEN] = SigningKey::from_ed25519_bytes(&[6u8; 32])
+        .derivation_seed()
+        .expect("derivation seed")
+        .as_slice()
+        .try_into()
+        .expect("64-byte seed");
+
+    assert!(matches!(
+        expand_ed25519_roles(&owner, &other),
+        Err(KeypairError::DerivationSeedNotSigned)
+    ));
 }
 
 /// A PDA holds no signing secret, so it has no seed and no roles to expand.

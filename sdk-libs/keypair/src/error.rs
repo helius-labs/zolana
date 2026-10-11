@@ -40,6 +40,12 @@ pub enum KeypairError {
     #[error("derivation seed is {got} bytes, expected {expected} on this rail")]
     InvalidDerivationSeed { got: usize, expected: usize },
 
+    /// The seed is the right width but is not the owner's signature over the
+    /// derivation message, so it cannot be the seed this wallet's roles
+    /// expand from.
+    #[error("derivation seed is not the owner's signature over the derivation message")]
+    DerivationSeedNotSigned,
+
     #[error("HKDF expansion failed")]
     Hkdf,
 
