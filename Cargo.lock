@@ -12184,6 +12184,7 @@ dependencies = [
  "borsh",
  "solana-instruction",
  "solana-pubkey 4.2.1",
+ "solana-sdk-ids",
  "solana-secp256r1-program",
 ]
 

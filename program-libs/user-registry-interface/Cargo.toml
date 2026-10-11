@@ -8,16 +8,20 @@ publish = false
 
 [features]
 default = []
-# Host-side PDA derivation only; `solana` adds the instruction builders and
-# their P-256 verification dependency.
+# Host-side PDA derivation only; `solana` adds the instruction builders.
 pda = ["solana-pubkey/curve25519"]
-solana = ["pda", "dep:solana-instruction", "dep:solana-secp256r1-program"]
+solana = ["pda", "dep:solana-instruction", "dep:solana-sdk-ids"]
 
 [dependencies]
 borsh = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
-solana-secp256r1-program = { workspace = true, optional = true }
+solana-sdk-ids = { workspace = true, optional = true }
 # `borsh` activates solana-address/borsh so `Pubkey` (an alias of Address) derives
 # Borsh for `UserRecord`; required because the isolated SBF build does not get it
 # via workspace feature unification.
 solana-pubkey = { workspace = true, features = ["borsh"] }
+
+[dev-dependencies]
+# Checks `p256_verify_instruction` against the precompile's own builder,
+# which links OpenSSL; tests only.
+solana-secp256r1-program = { workspace = true }

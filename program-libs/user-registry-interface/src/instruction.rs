@@ -145,21 +145,69 @@ mod builders {
     }
 
     /// Build the top-level secp256r1 verification instruction that must
-    /// immediately precede a P-256 registry register/update instruction.
+    /// immediately precede a P-256 registry register/update instruction: one
+    /// signature, with the public key, signature and message in this
+    /// instruction's own data. Laid out here, as the precompile reads it, so
+    /// that clients do not link OpenSSL for the precompile's own builder.
     pub fn p256_verify_instruction(
         message: &[u8],
         signature: &[u8; 64],
         pubkey: &[u8; 33],
     ) -> Instruction {
-        solana_secp256r1_program::new_secp256r1_instruction_with_signature(
-            message, signature, pubkey,
-        )
+        /// The number of signatures and a padding byte, then one entry of
+        /// seven `u16` offsets.
+        const DATA_START: usize = 2 + 14;
+        /// The offsets point into this instruction.
+        const THIS_INSTRUCTION: u16 = u16::MAX;
+        let public_key_offset = DATA_START;
+        let signature_offset = public_key_offset + pubkey.len();
+        let message_offset = signature_offset + signature.len();
+        let mut data = Vec::with_capacity(message_offset + message.len());
+        data.extend_from_slice(&[1, 0]);
+        for field in [
+            signature_offset as u16,
+            THIS_INSTRUCTION,
+            public_key_offset as u16,
+            THIS_INSTRUCTION,
+            message_offset as u16,
+            message.len() as u16,
+            THIS_INSTRUCTION,
+        ] {
+            data.extend_from_slice(&field.to_le_bytes());
+        }
+        data.extend_from_slice(pubkey);
+        data.extend_from_slice(signature);
+        data.extend_from_slice(message);
+        Instruction {
+            program_id: solana_sdk_ids::secp256r1_program::ID,
+            accounts: Vec::new(),
+            data,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "solana")]
+    #[test]
+    fn p256_verify_instruction_matches_the_precompile_builder() {
+        let signature = [7u8; 64];
+        let pubkey = [2u8; 33];
+        for message in [
+            &b""[..],
+            &[9u8; 1][..],
+            &[5u8; P256_KEY_BINDING_MESSAGE_LEN][..],
+        ] {
+            assert_eq!(
+                p256_verify_instruction(message, &signature, &pubkey),
+                solana_secp256r1_program::new_secp256r1_instruction_with_signature(
+                    message, &signature, &pubkey,
+                ),
+            );
+        }
+    }
 
     #[test]
     fn p256_binding_message_has_stable_layout() {
