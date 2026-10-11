@@ -1,0 +1,18 @@
+[package]
+name = "k-lend-rfq-example"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+autoexamples = false
+
+[dev-dependencies]
+anyhow = { workspace = true }
+k-lend-market-maker = { path = "../market-maker" }
+k-lend-rfq-sdk = { path = "../sdk" }
+k-lend-rfq-test-utils = { path = "../test-utils" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+zolana-program-test = { workspace = true, features = ["localnet"] }
+
+[[example]]
+name = "deposit_and_withdraw"
+path = "examples/deposit_and_withdraw.rs"

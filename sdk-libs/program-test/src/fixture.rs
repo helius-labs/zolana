@@ -198,7 +198,7 @@ pub fn account_json(pubkey: &Address, account: &Account) -> String {
     )
 }
 
-fn write_account_json(
+pub(crate) fn write_account_json(
     dir: &Path,
     pubkey: &Address,
     account: &Account,

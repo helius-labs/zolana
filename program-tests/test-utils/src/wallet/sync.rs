@@ -217,7 +217,7 @@ where
         let _round_tail = timing::Phase::start("collect_sort_and_decrypt", round);
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
-        txs.sort_by_key(|a| (a.slot, a.tx_signature));
+        txs.sort_by_key(|a| (a.slot, a.tx_signature, a.event_index));
         let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
         deposits.sort_by(|a, b| {
             (
@@ -359,7 +359,7 @@ where
         fetched_proofless?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
-        txs.sort_by_key(|a| (a.slot, a.tx_signature));
+        txs.sort_by_key(|a| (a.slot, a.tx_signature, a.event_index));
         let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
         deposits.sort_by(|a, b| {
             (
@@ -699,8 +699,8 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
                     }
-                    let key = tx.tx_signature.to_string();
-                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                    out.entry(event_key(&tx))
+                        .or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
@@ -742,8 +742,8 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
                     }
-                    let key = tx.tx_signature.to_string();
-                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                    out.entry(event_key(&tx))
+                        .or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
@@ -786,8 +786,8 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
                     rpc_config,
                 )?;
                 for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
-                    let key = tx.tx_signature.to_string();
-                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                    out.entry(event_key(&tx))
+                        .or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
@@ -826,8 +826,8 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                     )
                     .await?;
                 for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
-                    let key = tx.tx_signature.to_string();
-                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                    out.entry(event_key(&tx))
+                        .or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
@@ -986,6 +986,10 @@ fn proofless_deposit_from_indexed_match(
         ring_config: None,
         ring_program_id: None,
     }))
+}
+
+fn event_key(tx: &RpcShieldedTransaction) -> String {
+    format!("{}:{}", tx.tx_signature, tx.event_index.unwrap_or_default())
 }
 
 fn convert_sync_transaction(

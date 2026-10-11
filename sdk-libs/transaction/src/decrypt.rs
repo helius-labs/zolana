@@ -86,6 +86,11 @@ impl DecryptionResult {
     /// among them, or one still pending from an earlier call, is rebuilt from
     /// every candidate held so far, so its inputs may come from any call: a
     /// client that reads its transactions in rounds decrypts each one once.
+    /// Stored UTXOs are retained, including spent ones needed by later merge
+    /// reconstruction. Repeated verification of the whole result costs work
+    /// proportional to this retained history. Incremental callers should verify
+    /// newly decoded/rebuilt notes and retain only live notes plus inputs needed
+    /// by `pending_merges`; spend tombstones can be stored separately.
     /// Left unchanged on error.
     pub fn extend<K: ShieldedKeys + ?Sized>(
         &mut self,

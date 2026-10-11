@@ -1,0 +1,116 @@
+use anyhow::{anyhow, Result};
+use zolana_program_test::localnet::FixtureLocalnet;
+
+use k_lend_market_maker::Holdings;
+use k_lend_market_maker::MarketMaker;
+use k_lend_rfq_sdk::{
+    pair::Pair,
+    swap::{Direction, Quote},
+};
+
+use k_lend_rfq_test_utils::{
+    chain::blocking,
+    setup::{setup, TestEnv, USER_SHIELD_COLLATERAL},
+    user::User,
+};
+
+const MARKET_MAKER_SEED_DEPOSIT: u64 = 200_000_000;
+const MARKET_MAKER_COLLATERAL: u64 = 50_000_000;
+const DEPOSIT_COLLATERAL: u64 = 40_000_000;
+const WITHDRAW_SHARES: u64 = 15_000_000;
+
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() -> Result<()> {
+    let TestEnv {
+        localnet,
+        mut user,
+        market_maker,
+        pair,
+        ..
+    } = setup(12).await?;
+
+    // Market maker setup: deposit USDC into kVault and keep the shares and some
+    // USDC in its private balance, so it can serve both directions.
+    market_maker
+        .seed_inventory(&pair, MARKET_MAKER_SEED_DEPOSIT, MARKET_MAKER_COLLATERAL)
+        .await?;
+
+    // Deposit: the user swaps private USDC for kVault shares.
+    let deposit = swap(
+        &localnet,
+        &pair,
+        &mut user,
+        &market_maker,
+        Direction::Deposit,
+        DEPOSIT_COLLATERAL,
+    )
+    .await?;
+    assert_eq!(
+        user.holdings(&pair)?,
+        Holdings {
+            collateral: USER_SHIELD_COLLATERAL - DEPOSIT_COLLATERAL,
+            shares: deposit.amount_out,
+        }
+    );
+
+    // Withdrawal: the user swaps part of its shares back for USDC.
+    let withdrawal = swap(
+        &localnet,
+        &pair,
+        &mut user,
+        &market_maker,
+        Direction::Withdrawal,
+        WITHDRAW_SHARES,
+    )
+    .await?;
+    assert_eq!(
+        user.holdings(&pair)?,
+        Holdings {
+            collateral: USER_SHIELD_COLLATERAL - DEPOSIT_COLLATERAL + withdrawal.amount_out,
+            shares: deposit.amount_out - WITHDRAW_SHARES,
+        }
+    );
+
+    market_maker.shutdown().await;
+    Ok(())
+}
+
+async fn swap(
+    localnet: &FixtureLocalnet,
+    pair: &Pair,
+    user: &mut User,
+    market_maker: &MarketMaker,
+    direction: Direction,
+    amount_in: u64,
+) -> Result<Quote> {
+    // 1-2. The user requests a quote; the market maker returns `amount_out`
+    // at the vault rate minus its fee, and the user's input cap.
+    let offer = market_maker.quote(pair, direction, amount_in).await?;
+    println!(
+        "{direction:?}: {amount_in} in, {} out",
+        offer.quote.amount_out
+    );
+
+    // 3. The user proves its transfer: its UTXOs in, `amount_in` to the
+    // market maker and change back to itself.
+    let order = user.order(localnet, pair, &offer).await?;
+
+    // 4. The market maker checks the user transfer, proves its own transfer
+    // paying `amount_out` to the user, and builds the transaction.
+    let fill = market_maker.fill(pair, &order.request).await?;
+
+    // 5. The user checks that the market maker's transfer pays the quoted
+    // amount, then signs.
+    user.verify_quote(localnet, pair, &order, &fill.fill.message)
+        .await?;
+    let user_signature = user.sign(&fill.fill.message)?;
+
+    // 6. The market maker adds its signature and sends the transaction.
+    let signature = market_maker.settle(&fill.fill, user_signature).await?;
+
+    blocking(|| localnet.client.confirm_private_transaction_sync(signature))
+        .map_err(|e| anyhow!("index swap {signature}: {e:?}"))?;
+    user.sync(localnet).await?;
+    market_maker.sync().await?;
+    Ok(offer.quote)
+}

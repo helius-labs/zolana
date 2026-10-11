@@ -1,0 +1,24 @@
+[package]
+name = "k-lend-rfq-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+anyhow = { workspace = true }
+borsh = { workspace = true }
+bytemuck = { workspace = true, features = ["min_const_generics"] }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-message = { workspace = true }
+spl-discriminator = "0.5"
+thiserror = { workspace = true }
+zolana-client = { workspace = true, features = ["client"] }
+zolana-event = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program = { workspace = true }
+zolana-transaction = { workspace = true }

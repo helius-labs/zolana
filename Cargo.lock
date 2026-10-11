@@ -2363,6 +2363,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4234,6 +4248,100 @@ dependencies = [
  "signature 2.2.0",
  "simple_asn1",
  "zeroize",
+]
+
+[[package]]
+name = "k-lend-market-maker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dashmap",
+ "futures",
+ "k-lend-market-maker",
+ "k-lend-rfq-sdk",
+ "k-lend-rfq-test-utils",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-commitment-config",
+ "solana-hash",
+ "solana-instruction",
+ "solana-instruction-error",
+ "solana-message",
+ "solana-rpc-client-api",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-error",
+ "solana-transaction-status-client-types",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "k-lend-rfq-example"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "k-lend-market-maker",
+ "k-lend-rfq-sdk",
+ "k-lend-rfq-test-utils",
+ "tokio",
+ "zolana-program-test",
+]
+
+[[package]]
+name = "k-lend-rfq-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "bytemuck",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-message",
+ "spl-discriminator",
+ "thiserror 2.0.20",
+ "zolana-client",
+ "zolana-event",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "k-lend-rfq-test-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "k-lend-market-maker",
+ "k-lend-rfq-sdk",
+ "sha2 0.10.9",
+ "solana-account 4.3.2",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction-status-client-types",
+ "tokio",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
 ]
 
 [[package]]
@@ -10255,6 +10363,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",
