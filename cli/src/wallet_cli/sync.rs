@@ -54,7 +54,8 @@ pub(super) fn sync_context(opts: &SyncOptions, rpc: &SolanaRpc) -> Result<SyncCo
             poll: indexer_poll(),
             require_slot: Some(slot),
         })
-        .fetch(&indexer)?;
+        .fetch(&indexer)?
+        .spendable;
     Ok(SyncContext {
         material,
         spendable,
