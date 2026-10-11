@@ -1,4 +1,4 @@
-//! `WalletScanner::fetch` against an in-memory indexer that pages as Photon
+//! `UtxoScanner::fetch` against an in-memory indexer that pages as Photon
 //! does, and `fetch_asset_id` against in-memory accounts.
 
 use std::{
@@ -13,7 +13,7 @@ use solana_signature::Signature;
 use zolana_client::{
     fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, WalletScanner,
+    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, UtxoScanner,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -353,7 +353,7 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = WalletScanner::new(&owner, &assets)
+    let spendable = UtxoScanner::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
@@ -403,7 +403,7 @@ fn a_stream_ends_at_a_page_short_of_the_page_size() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = WalletScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    let scan = UtxoScanner::new(&owner, &assets).fetch(&indexer).unwrap();
     assert_eq!(scan.spendable.utxos().count(), 3);
 
     // A full page is followed to the empty page that ends the stream; a
@@ -427,10 +427,10 @@ fn every_read_requires_the_slot_of_the_indexer_config() {
     };
     let assets = AssetRegistry::default();
 
-    WalletScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    UtxoScanner::new(&owner, &assets).fetch(&indexer).unwrap();
     assert!(indexer.required_slots.take().iter().all(Option::is_none));
 
-    let spendable = WalletScanner::new(&owner, &assets)
+    let spendable = UtxoScanner::new(&owner, &assets)
         .with_indexer_config(IndexerRpcConfig::at_slot(42))
         .fetch(&indexer)
         .unwrap()
@@ -466,7 +466,7 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = WalletScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    let scan = UtxoScanner::new(&owner, &assets).fetch(&indexer).unwrap();
     let (spendable, history) = (scan.spendable, scan.history);
 
     assert_eq!(
@@ -532,7 +532,7 @@ fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = WalletScanner::new(&owner, &assets)
+    let spendable = UtxoScanner::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
@@ -606,21 +606,21 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
     };
     let assets = AssetRegistry::default();
 
-    let framed = WalletScanner::new(&owner, &assets)
+    let framed = UtxoScanner::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
     assert_eq!(framed.utxos().count(), 0);
 
     // Another ring's framing never reads this ring's deposits.
-    let other_ring = WalletScanner::new(&owner, &assets)
+    let other_ring = UtxoScanner::new(&owner, &assets)
         .with_ring_deposit_payload(Address::new_from_array([5; 32]), unframe)
         .fetch(&indexer)
         .unwrap()
         .spendable;
     assert_eq!(other_ring.utxos().count(), 0);
 
-    let unframed = WalletScanner::new(&owner, &assets)
+    let unframed = UtxoScanner::new(&owner, &assets)
         .with_ring_deposit_payload(ring, unframe)
         .fetch(&indexer)
         .unwrap()
@@ -635,7 +635,7 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
         Err(TransactionError::Deserialize("bad frame".into()))
     };
     assert!(matches!(
-        WalletScanner::new(&owner, &assets)
+        UtxoScanner::new(&owner, &assets)
             .with_ring_deposit_payload(ring, reject)
             .fetch(&indexer),
         Err(ClientError::Transaction(TransactionError::Deserialize(_)))

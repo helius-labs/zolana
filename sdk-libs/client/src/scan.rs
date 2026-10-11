@@ -1,19 +1,19 @@
 //! A wallet's spendable UTXOs and its history, read from the indexer.
 //!
-//! Stateless: [`WalletScanner::fetch`] reads the transactions tagged for the
+//! Stateless: [`UtxoScanner::fetch`] reads the transactions tagged for the
 //! wallet and decrypts them, then reads the transactions that spent the UTXOs
 //! it found, until a round finds nothing new. A merge, or a spend another
 //! client made, can carry none of the wallet's tags; only the nullifier rounds
 //! find those. Each round decrypts only the transactions it fetched and queries
 //! only the nullifiers it has not queried, so with a remote key holder a round
 //! costs round trips for what is new, not for everything found so far. The
-//! [`WalletScan`] it returns holds the spendable UTXOs and the history, the
+//! [`UtxoScan`] it returns holds the spendable UTXOs and the history, the
 //! transactions read and the spent UTXOs as well.
 //!
 //! It reads UTXOs only in the assets of the [`AssetRegistry`] it is given and
 //! reports the others as unknown; [`fetch_asset_id`] reads the id the pool
 //! registered for a mint, to add it. An indexer that lags misses the latest
-//! spends; [`WalletScanner::with_indexer_config`] makes every read wait for a
+//! spends; [`UtxoScanner::with_indexer_config`] makes every read wait for a
 //! slot first.
 
 use std::collections::HashSet;
@@ -34,9 +34,9 @@ use crate::{
 
 const PAGE_LIMIT: u32 = 1_000;
 
-/// What [`WalletScanner::fetch`] read.
+/// What [`UtxoScanner::fetch`] read.
 #[derive(Clone, Debug)]
-pub struct WalletScan {
+pub struct UtxoScan {
     /// The UTXOs not spent, and the balances they add up to.
     pub spendable: SpendableDecryptionResult,
     /// Every transaction read, every UTXO the wallet owns among them, spent or
@@ -45,14 +45,14 @@ pub struct WalletScan {
     pub history: History,
 }
 
-pub struct WalletScanner<'a, K: ?Sized> {
+pub struct UtxoScanner<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
     ring_deposit_payload: Option<(Address, DepositPayload)>,
     indexer_config: Option<IndexerRpcConfig>,
 }
 
-impl<'a, K: ShieldedKeys + ?Sized> WalletScanner<'a, K> {
+impl<'a, K: ShieldedKeys + ?Sized> UtxoScanner<'a, K> {
     pub fn new(keys: &'a K, assets: &'a AssetRegistry) -> Self {
         Self {
             keys,
@@ -90,9 +90,9 @@ impl<'a, K: ShieldedKeys + ?Sized> WalletScanner<'a, K> {
     /// outputs carry, and with each held viewing key's tag, which deposits
     /// carry, then the transactions that spent what they hold. Anonymous
     /// transfers, tagged per counterparty, are not read.
-    pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<WalletScan, ClientError> {
+    pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScan, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
-        Ok(WalletScan {
+        Ok(UtxoScan {
             spendable: fetched.spendable,
             history: History {
                 utxos: fetched.owned.utxos,
