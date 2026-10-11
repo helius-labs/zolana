@@ -9,7 +9,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc, SpendableUtxos};
+use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc, WalletScanner};
 use zolana_interface::pda;
 use zolana_keypair::{KeypairError, ShieldedKeypair};
 use zolana_transaction::{SpendableDecryptionResult, TransactionError, WalletUtxo, SOL_MINT};
@@ -76,7 +76,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         payment: None,
     }
     .load(ctx)?;
-    let sender_utxos = SpendableUtxos::new(&sender, &registry)
+    let sender_utxos = WalletScanner::new(&sender, &registry)
         .with_ring_deposit_payload(ctx.ring.program_id(), zolana_ring_client::deposit_payload)
         .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?));
 

@@ -95,7 +95,7 @@ p384 = { workspace = true, features = ["alloc"] }
 x509-cert = { workspace = true, features = ["builder"] }
 
 [[test]]
-name = "spendable"
+name = "scan"
 
 [[test]]
 name = "rpc"

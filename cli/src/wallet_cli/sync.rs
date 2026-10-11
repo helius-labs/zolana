@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
 use zolana_client::{
-    EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, SpendableUtxos,
+    EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, WalletScanner,
     ZolanaIndexer,
 };
 use zolana_transaction::SpendableDecryptionResult;
@@ -49,7 +49,7 @@ pub(super) fn sync_context(opts: &SyncOptions, rpc: &SolanaRpc) -> Result<SyncCo
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let slot = rpc.get_slot()?;
-    let spendable = SpendableUtxos::new(&material.keypair, &assets)
+    let spendable = WalletScanner::new(&material.keypair, &assets)
         .with_indexer_config(IndexerRpcConfig {
             poll: indexer_poll(),
             require_slot: Some(slot),

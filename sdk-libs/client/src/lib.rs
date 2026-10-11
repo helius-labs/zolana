@@ -23,7 +23,7 @@ pub mod error;
 pub mod indexer;
 pub mod prover;
 pub mod rpc;
-pub mod spendable;
+pub mod scan;
 pub mod user_registry;
 
 pub use authority::ProofAuthority;
@@ -72,7 +72,7 @@ pub use rpc::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
-pub use spendable::{fetch_asset_id, SpendableUtxos, WalletScan};
+pub use scan::{fetch_asset_id, WalletScan, WalletScanner};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

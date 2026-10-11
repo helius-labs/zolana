@@ -1,6 +1,6 @@
 //! A wallet's spendable UTXOs and its history, read from the indexer.
 //!
-//! Stateless: [`SpendableUtxos::fetch`] reads the transactions tagged for the
+//! Stateless: [`WalletScanner::fetch`] reads the transactions tagged for the
 //! wallet and decrypts them, then reads the transactions that spent the UTXOs
 //! it found, until a round finds nothing new. A merge, or a spend another
 //! client made, can carry none of the wallet's tags; only the nullifier rounds
@@ -13,7 +13,7 @@
 //! It reads UTXOs only in the assets of the [`AssetRegistry`] it is given and
 //! reports the others as unknown; [`fetch_asset_id`] reads the id the pool
 //! registered for a mint, to add it. An indexer that lags misses the latest
-//! spends; [`SpendableUtxos::with_indexer_config`] makes every read wait for a
+//! spends; [`WalletScanner::with_indexer_config`] makes every read wait for a
 //! slot first.
 
 use std::collections::HashSet;
@@ -34,7 +34,7 @@ use crate::{
 
 const PAGE_LIMIT: u32 = 1_000;
 
-/// What [`SpendableUtxos::fetch`] read.
+/// What [`WalletScanner::fetch`] read.
 #[derive(Clone, Debug)]
 pub struct WalletScan {
     /// The UTXOs not spent, and the balances they add up to.
@@ -45,14 +45,14 @@ pub struct WalletScan {
     pub history: History,
 }
 
-pub struct SpendableUtxos<'a, K: ?Sized> {
+pub struct WalletScanner<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
     ring_deposit_payload: Option<(Address, DepositPayload)>,
     indexer_config: Option<IndexerRpcConfig>,
 }
 
-impl<'a, K: ShieldedKeys + ?Sized> SpendableUtxos<'a, K> {
+impl<'a, K: ShieldedKeys + ?Sized> WalletScanner<'a, K> {
     pub fn new(keys: &'a K, assets: &'a AssetRegistry) -> Self {
         Self {
             keys,

@@ -1,5 +1,5 @@
-//! `SpendableUtxos::fetch` against an in-memory indexer that pages one result
-//! at a time, and `fetch_asset_id` against in-memory accounts.
+//! `WalletScanner::fetch` against an in-memory indexer that pages as Photon
+//! does, and `fetch_asset_id` against in-memory accounts.
 
 use std::{
     cell::RefCell,
@@ -13,7 +13,7 @@ use solana_signature::Signature;
 use zolana_client::{
     fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, SpendableUtxos,
+    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, WalletScanner,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -40,33 +40,48 @@ struct Indexer {
     queried_tags: RefCell<Vec<Vec<[u8; 32]>>>,
     queried_nullifiers: RefCell<Vec<[u8; 32]>>,
     required_slots: RefCell<Vec<Option<u64>>>,
+    /// Each request's method.
+    reads: RefCell<Vec<&'static str>>,
+    /// Rows per page; one when zero.
+    page_size: usize,
 }
 
 impl Indexer {
-    fn read(&self, config: Option<IndexerRpcConfig>) {
+    fn read(&self, method: &'static str, config: Option<IndexerRpcConfig>) {
+        self.reads.borrow_mut().push(method);
         self.required_slots
             .borrow_mut()
             .push(config.and_then(|config| config.require_slot));
     }
+
+    fn reads_of(&self, method: &str) -> usize {
+        self.reads
+            .borrow()
+            .iter()
+            .filter(|read| **read == method)
+            .count()
+    }
+
+    /// A page as Photon serves one: a cursor on any page with a row, and
+    /// `scanned_through` only on a page with fewer rows than the page size. A
+    /// full page names no end even when nothing follows it.
+    fn page<T: Clone>(&self, items: Vec<T>, cursor: Option<Vec<u8>>) -> Page<T> {
+        let size = self.page_size.max(1);
+        let start = cursor.map_or(0, |cursor| usize::from(cursor[0]));
+        let len = items.len();
+        let rows: Vec<T> = items.into_iter().skip(start).take(size).collect();
+        Page {
+            next_cursor: (!rows.is_empty()).then(|| vec![(start + rows.len()) as u8]),
+            scanned_through: (rows.len() < size).then(|| vec![len as u8]),
+            rows,
+        }
+    }
 }
 
-/// One result per page, as Photon pages: a cursor on any page with a row,
-/// and `scanned_through` on the page that ends the stream.
 struct Page<T> {
     rows: Vec<T>,
     next_cursor: Option<Vec<u8>>,
     scanned_through: Option<Vec<u8>>,
-}
-
-fn page<T: Clone>(items: Vec<T>, cursor: Option<Vec<u8>>) -> Page<T> {
-    let start = cursor.map_or(0, |cursor| usize::from(cursor[0]));
-    let len = items.len();
-    let rows: Vec<T> = items.into_iter().skip(start).take(1).collect();
-    Page {
-        next_cursor: (!rows.is_empty()).then(|| vec![start as u8 + 1]),
-        scanned_through: (start + 1 >= len).then(|| vec![len as u8]),
-        rows,
-    }
 }
 
 const CONTEXT: Context = Context {
@@ -82,7 +97,7 @@ impl Rpc for Indexer {
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.read(config);
+        self.read("get_shielded_transactions_by_tags", config);
         self.queried_tags.borrow_mut().push(tags.clone());
         let matching = self
             .tagged
@@ -98,7 +113,7 @@ impl Rpc for Indexer {
             rows: transactions,
             next_cursor,
             scanned_through,
-        } = page(matching, cursor);
+        } = self.page(matching, cursor);
         Ok(GetShieldedTransactionsByTagsResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
@@ -115,7 +130,7 @@ impl Rpc for Indexer {
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.read(config);
+        self.read("get_encrypted_utxos_by_tags", config);
         let matching = self
             .deposits
             .iter()
@@ -126,7 +141,7 @@ impl Rpc for Indexer {
             rows: matches,
             next_cursor,
             scanned_through,
-        } = page(matching, cursor);
+        } = self.page(matching, cursor);
         Ok(GetEncryptedUtxosByTagsResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
@@ -143,7 +158,7 @@ impl Rpc for Indexer {
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.read(config);
+        self.read("get_shielded_transactions_by_nullifiers", config);
         if cursor.is_none() {
             self.queried_nullifiers
                 .borrow_mut()
@@ -159,7 +174,7 @@ impl Rpc for Indexer {
             rows: transactions,
             next_cursor,
             scanned_through,
-        } = page(matching, cursor);
+        } = self.page(matching, cursor);
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
@@ -338,7 +353,7 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = SpendableUtxos::new(&owner, &assets)
+    let spendable = WalletScanner::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
@@ -357,14 +372,48 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
         indexer.queried_tags.borrow().first(),
         Some(&vec![owner_tag, address.viewing_pubkey.x()])
     );
-    // The one tagged transaction's page ends the stream: no empty page after it.
-    assert_eq!(indexer.queried_tags.borrow().len(), 1);
     // Each round queries only the UTXOs found since the last one.
     let queried = indexer.queried_nullifiers.borrow();
     let mut unique = queried.clone();
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
+}
+
+#[test]
+fn a_stream_ends_at_a_page_short_of_the_page_size() {
+    let owner = keypair(9);
+    let owner_tag = owner
+        .shielded_address()
+        .unwrap()
+        .signing_pubkey
+        .confidential_view_tag()
+        .unwrap();
+    let (first_deposit, first) = deposit(&owner, 10, 1);
+    let (second_deposit, second) = deposit(&owner, 20, 2);
+    let (third_deposit, _) = deposit(&owner, 30, 3);
+    let (first_merge, _) = merge(&owner, &[&first], owner_tag, 4);
+    let (second_merge, _) = merge(&owner, &[&second], owner_tag, 5);
+    let indexer = Indexer {
+        // Two tagged transactions fill a page exactly, three deposits take one
+        // more, and no transaction spends what they hold.
+        tagged: vec![first_merge, second_merge],
+        deposits: vec![first_deposit, second_deposit, third_deposit],
+        page_size: 2,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let scan = WalletScanner::new(&owner, &assets).fetch(&indexer).unwrap();
+    assert_eq!(scan.spendable.utxos().count(), 3);
+
+    // A full page is followed to the empty page that ends the stream; a
+    // shorter page ends it.
+    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 2);
+    assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 2);
+    assert_eq!(
+        indexer.reads_of("get_shielded_transactions_by_nullifiers"),
+        1
+    );
 }
 
 #[test]
@@ -378,12 +427,10 @@ fn every_read_requires_the_slot_of_the_indexer_config() {
     };
     let assets = AssetRegistry::default();
 
-    SpendableUtxos::new(&owner, &assets)
-        .fetch(&indexer)
-        .unwrap();
+    WalletScanner::new(&owner, &assets).fetch(&indexer).unwrap();
     assert!(indexer.required_slots.take().iter().all(Option::is_none));
 
-    let spendable = SpendableUtxos::new(&owner, &assets)
+    let spendable = WalletScanner::new(&owner, &assets)
         .with_indexer_config(IndexerRpcConfig::at_slot(42))
         .fetch(&indexer)
         .unwrap()
@@ -419,9 +466,7 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = SpendableUtxos::new(&owner, &assets)
-        .fetch(&indexer)
-        .unwrap();
+    let scan = WalletScanner::new(&owner, &assets).fetch(&indexer).unwrap();
     let (spendable, history) = (scan.spendable, scan.history);
 
     assert_eq!(
@@ -487,7 +532,7 @@ fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = SpendableUtxos::new(&owner, &assets)
+    let spendable = WalletScanner::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
@@ -561,21 +606,21 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
     };
     let assets = AssetRegistry::default();
 
-    let framed = SpendableUtxos::new(&owner, &assets)
+    let framed = WalletScanner::new(&owner, &assets)
         .fetch(&indexer)
         .unwrap()
         .spendable;
     assert_eq!(framed.utxos().count(), 0);
 
     // Another ring's framing never reads this ring's deposits.
-    let other_ring = SpendableUtxos::new(&owner, &assets)
+    let other_ring = WalletScanner::new(&owner, &assets)
         .with_ring_deposit_payload(Address::new_from_array([5; 32]), unframe)
         .fetch(&indexer)
         .unwrap()
         .spendable;
     assert_eq!(other_ring.utxos().count(), 0);
 
-    let unframed = SpendableUtxos::new(&owner, &assets)
+    let unframed = WalletScanner::new(&owner, &assets)
         .with_ring_deposit_payload(ring, unframe)
         .fetch(&indexer)
         .unwrap()
@@ -590,7 +635,7 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
         Err(TransactionError::Deserialize("bad frame".into()))
     };
     assert!(matches!(
-        SpendableUtxos::new(&owner, &assets)
+        WalletScanner::new(&owner, &assets)
             .with_ring_deposit_payload(ring, reject)
             .fetch(&indexer),
         Err(ClientError::Transaction(TransactionError::Deserialize(_)))
