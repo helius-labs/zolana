@@ -2,6 +2,8 @@ import type { RequestContext } from "../interface/types.js";
 
 import { TransportFailure } from "./transport.js";
 
+const MAX_TIMER_DELAY_MS = 0x7fff_ffff;
+
 export interface ComposedSignal {
   readonly signal: AbortSignal;
   readonly timedOut: () => boolean;
@@ -25,10 +27,19 @@ export function composeSignal(context: RequestContext | undefined): ComposedSign
   };
   context?.signal?.addEventListener("abort", abortFromCaller, { once: true });
   if (timeoutMs !== undefined) {
-    timeout = setTimeout(() => {
+    const startedAt = performance.now();
+    const expire = (): void => {
+      const remaining = timeoutMs - (performance.now() - startedAt);
+      if (remaining > 0) {
+        // Native timers overflow above 2^31 - 1 ms. Recheck elapsed time so a
+        // delayed callback does not extend the caller's original deadline.
+        timeout = setTimeout(expire, Math.min(remaining, MAX_TIMER_DELAY_MS));
+        return;
+      }
       didTimeOut = true;
       controller.abort();
-    }, timeoutMs);
+    };
+    timeout = setTimeout(expire, Math.min(timeoutMs, MAX_TIMER_DELAY_MS));
   }
 
   return {

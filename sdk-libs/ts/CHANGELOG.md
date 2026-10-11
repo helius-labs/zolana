@@ -24,6 +24,8 @@ Changed
 
 Fixed
 
+- `RequestContext.timeoutMs` values above 2,147,483,647 ms no longer overflow
+  the timer and abort requests immediately.
 - `syncWallet` ignored the `requireSlot` and `poll` of the client's
   `indexerConfig` and now applies them, exposed as `SyncClient.indexerConfig`,
   whenever `SyncWalletConfig.requireSlot` or `retry` is unset.
