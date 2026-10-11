@@ -39,9 +39,9 @@ pub(super) fn send_private(
         transaction: transaction.encrypt(keypair)?,
         settlement_transfers,
     };
-    let message = Submission::new(&signed, ctx.material.funding.pubkey(), keypair)
+    let unsigned = Submission::new(&signed, ctx.material.funding.pubkey(), keypair)
         .finish_unsigned_sync(client)?;
-    let transaction = sign_transaction(message, &[&ctx.material.funding])?;
+    let transaction = sign_transaction(unsigned.message, &[&ctx.material.funding])?;
     let signature = match send {
         Send::Fast => client.rpc().send_transaction_with_config(
             &transaction,

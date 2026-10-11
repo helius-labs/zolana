@@ -38,7 +38,7 @@ use crate::{
 };
 
 pub use merge::{check_merge_record, MergeSubmission, ProvedMerge, MERGE_CU_LIMIT};
-pub use transaction::{SignedPrivateTransaction, Submission};
+pub use transaction::{SignedPrivateTransaction, Submission, UnsignedMessage};
 pub use validation::check_service_url;
 
 /// Compute-unit ceiling a private transaction is submitted with unless the

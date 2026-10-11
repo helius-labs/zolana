@@ -122,10 +122,18 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
     }
 }
 
+/// A message awaiting its signatures, and the last block height at which its
+/// blockhash lets it land.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnsignedMessage {
+    pub message: VersionedMessage,
+    pub last_valid_block_height: u64,
+}
+
 /// A signed private transaction on its way to the chain: who pays, who
 /// completes the proof inputs, and what proves it. [`Self::finish_unsigned`]
-/// builds the message the fee payer signs; [`Self::send`] signs, sends and
-/// confirms it.
+/// builds the message its signers sign, for signers outside this client;
+/// [`Self::send`] signs, sends and confirms it.
 pub struct Submission<'a> {
     pub signed: &'a SignedPrivateTransaction,
     pub fee_payer: Address,
@@ -160,7 +168,8 @@ impl<'a> Submission<'a> {
         self
     }
 
-    /// The unsigned v1 message of this submission, proved through `client`.
+    /// The unsigned v1 message of this submission, proved through `client`,
+    /// and the last block height it can land at.
     ///
     /// Fetches the blockhash itself, after proving rather than before.
     /// Callers used to fetch one and hand it in, which put a multi-second
@@ -171,7 +180,7 @@ impl<'a> Submission<'a> {
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
-    ) -> Result<VersionedMessage, ClientError> {
+    ) -> Result<UnsignedMessage, ClientError> {
         let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
         let (trees, data) = match (&self.prover, client.indexed_prover()) {
             (None, Some(server)) => {
@@ -232,16 +241,20 @@ impl<'a> Submission<'a> {
         };
         // Last thing before building, so the blockhash is as young as it can be
         // when the transaction reaches the cluster.
-        let (recent_blockhash, _) = client.rpc().get_latest_blockhash().await?;
-        build_unsigned_message(
-            client.compute_budget(),
-            self.fee_payer,
-            trees,
-            owner_signers,
-            self.signed.settlement_transfers.clone(),
-            data,
-            recent_blockhash,
-        )
+        let (recent_blockhash, last_valid_block_height) =
+            client.rpc().get_latest_blockhash().await?;
+        Ok(UnsignedMessage {
+            message: build_unsigned_message(
+                client.compute_budget(),
+                self.fee_payer,
+                trees,
+                owner_signers,
+                self.signed.settlement_transfers.clone(),
+                data,
+                recent_blockhash,
+            )?,
+            last_valid_block_height,
+        })
     }
 
     /// Prove, sign with `signers`, send through `client` and wait until the
@@ -253,8 +266,8 @@ impl<'a> Submission<'a> {
         client: &AsyncZolanaClient<R, I>,
         signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
-        let message = self.finish_unsigned(client).await?;
-        let transaction = sign_transaction(message, signers)?;
+        let unsigned = self.finish_unsigned(client).await?;
+        let transaction = sign_transaction(unsigned.message, signers)?;
         let signature = client.process_transaction(transaction).await?;
         client.confirm_private_transaction(signature).await?;
         Ok(signature)
@@ -264,7 +277,7 @@ impl<'a> Submission<'a> {
     pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
         client: &ZolanaClient<R, I>,
-    ) -> Result<VersionedMessage, ClientError> {
+    ) -> Result<UnsignedMessage, ClientError> {
         client.block_on(self.finish_unsigned(&client.client))
     }
 

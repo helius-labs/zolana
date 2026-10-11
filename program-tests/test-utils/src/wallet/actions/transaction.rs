@@ -18,7 +18,6 @@ use zolana_transaction::{
 
 use crate::wallet::{ApprovalRequest, SyncWalletAuthority, Wallet, WalletAuthority};
 
-use solana_message::VersionedMessage;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 
@@ -31,7 +30,7 @@ use zolana_client::{
     },
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
-    SignedPrivateTransaction,
+    SignedPrivateTransaction, UnsignedMessage,
 };
 
 #[derive(Clone)]
@@ -552,7 +551,7 @@ pub async fn build_private_transaction<
     authority: &A,
     client: &AsyncZolanaClient<R, I>,
     fee_payer: Pubkey,
-) -> Result<VersionedMessage, ClientError> {
+) -> Result<UnsignedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
     Submission::new(&shielded, fee_payer, &nullifier_key)
@@ -587,11 +586,11 @@ pub async fn sign_private_transaction_with_signers<
 ) -> Result<VersionedTransaction, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    let message = Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
+    let unsigned = Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
         .finish_unsigned(client)
         .await?;
     sign_transaction(
-        message,
+        unsigned.message,
         &native_signers(fee_payer, additional_native_signers),
     )
 }
@@ -608,7 +607,7 @@ pub fn build_private_transaction_sync<
     authority: &A,
     client: &ZolanaClient<R, I>,
     fee_payer: Pubkey,
-) -> Result<VersionedMessage, ClientError> {
+) -> Result<UnsignedMessage, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     let nullifier_key = authority.spend_nullifier_key()?;
     Submission::new(&shielded, fee_payer, &nullifier_key).finish_unsigned_sync(client)
@@ -655,13 +654,13 @@ pub fn sign_private_transaction_sync_with_signers<
     // The message carries its own blockhash, fetched after proving, so there is
     // no separate one here to keep in step with it.
     let nullifier_key = authority.spend_nullifier_key()?;
-    let message = {
+    let unsigned = {
         let _t = timing::Phase::start("finish_submission", 0);
         Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
             .finish_unsigned_sync(client)?
     };
     sign_transaction(
-        message,
+        unsigned.message,
         &native_signers(fee_payer, additional_native_signers),
     )
 }

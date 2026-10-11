@@ -8,7 +8,6 @@ use std::sync::Arc;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
-use solana_message::VersionedMessage;
 use solana_signature::Signature;
 use zolana_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
 use zolana_keypair::{Curve, NullifierKey, ShieldedAddress};
@@ -31,7 +30,7 @@ use crate::{
 
 use super::{
     prove_on_blocking_pool, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc,
-    ZolanaClient,
+    UnsignedMessage, ZolanaClient,
 };
 
 /// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 54x1"
@@ -161,23 +160,28 @@ impl<'a> MergeSubmission<'a> {
     }
 
     /// The unsigned v1 message of this merge, which `fee_payer` pays for and
-    /// signs alone. The blockhash is fetched after proving.
+    /// signs alone, and the last block height it can land at. The blockhash
+    /// is fetched after proving.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
         fee_payer: Address,
-    ) -> Result<VersionedMessage, ClientError> {
+    ) -> Result<UnsignedMessage, ClientError> {
         let merge = self.prove(client).await?.instruction(fee_payer);
         let mut compute_budget = client.compute_budget();
         compute_budget.cu_limit = MERGE_CU_LIMIT;
         // Last thing before building, so the blockhash is as young as it can be.
-        let (recent_blockhash, _) = client.rpc().get_latest_blockhash().await?;
-        compile_message(
-            &fee_payer,
-            core::slice::from_ref(&merge),
-            recent_blockhash,
-            compute_budget,
-        )
+        let (recent_blockhash, last_valid_block_height) =
+            client.rpc().get_latest_blockhash().await?;
+        Ok(UnsignedMessage {
+            message: compile_message(
+                &fee_payer,
+                core::slice::from_ref(&merge),
+                recent_blockhash,
+                compute_budget,
+            )?,
+            last_valid_block_height,
+        })
     }
 
     /// Prove, sign with `fee_payer`, send through `client` and wait until the
@@ -187,9 +191,9 @@ impl<'a> MergeSubmission<'a> {
         client: &AsyncZolanaClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
-        let message = self.finish_unsigned(client, fee_payer.pubkey()).await?;
+        let unsigned = self.finish_unsigned(client, fee_payer.pubkey()).await?;
         let signature = client
-            .process_transaction(sign_transaction(message, &[fee_payer])?)
+            .process_transaction(sign_transaction(unsigned.message, &[fee_payer])?)
             .await?;
         client.confirm_private_transaction(signature).await?;
         Ok(signature)
@@ -208,7 +212,7 @@ impl<'a> MergeSubmission<'a> {
         &self,
         client: &ZolanaClient<R, I>,
         fee_payer: Address,
-    ) -> Result<VersionedMessage, ClientError> {
+    ) -> Result<UnsignedMessage, ClientError> {
         client.block_on(self.finish_unsigned(&client.client, fee_payer))
     }
 
