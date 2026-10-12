@@ -661,7 +661,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
 
     // Client-side rejections: the proof builders refuse inputs the circuits
     // would reject, so a bad payload never reaches proving.
-    client_side_rejections(&env, pair, maker_encryption_pubkey)?;
+    client_side_rejections(&env, pair)?;
 
     Ok(())
 }
@@ -669,14 +669,11 @@ fn zero_price_and_authority_checks() -> Result<()> {
 // The proof-input builders mirror the circuits' constraints and bail before
 // proving: an over-cap order, a booked overdraw, and an over-credited
 // rebalance are all client errors, not on-chain ones.
-fn client_side_rejections(
-    env: &TestEnv,
-    pair: Pubkey,
-    maker_encryption_pubkey: [u8; 33],
-) -> Result<()> {
+fn client_side_rejections(env: &TestEnv, pair: Pubkey) -> Result<()> {
+    let pool_viewing_pubkey =
+        shared::pool_authority_identity(&env.authority.keypair, &pair)?.viewing_pubkey();
     let pool_authority =
-        dynamic_swap_sdk::state::pool_authority_address(&pair, &maker_encryption_pubkey)
-            .map_err(|e| anyhow!("pool authority address: {e:?}"))?;
+        dynamic_swap_sdk::state::pool_authority_address(&pair, pool_viewing_pubkey);
     let destination_asset =
         asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
 

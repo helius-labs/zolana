@@ -409,9 +409,12 @@ pub fn discover_pool_notes_with_retry(
 ) -> Result<Vec<dynamic_swap_sdk::discovery::DiscoveredPoolNote>> {
     const MAX_ATTEMPTS: usize = 40;
     for _ in 0..MAX_ATTEMPTS {
-        let notes =
-            dynamic_swap_sdk::discovery::discover_pool_notes(env.localnet.client.indexer(), owner)
-                .map_err(|e| anyhow!("discover pool notes: {e:?}"))?;
+        let notes = dynamic_swap_sdk::discovery::discover_pool_notes(
+            env.localnet.client.indexer(),
+            owner,
+            env.destination_mint(),
+        )
+        .map_err(|e| anyhow!("discover pool notes: {e:?}"))?;
         if notes.len() >= expected_min {
             return Ok(notes);
         }

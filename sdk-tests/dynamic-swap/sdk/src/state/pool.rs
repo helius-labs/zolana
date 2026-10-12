@@ -37,20 +37,19 @@ pub fn pool_authority_owner_hash(pair: &Pubkey) -> Result<[u8; 32]> {
 }
 
 /// The pool_authority's shielded address for `pair`, built from public data
-/// plus the maker encryption pubkey published in the `Pair` account. Pool-note
-/// outputs (settle change, rebalance outputs) encrypt their confidential slots
-/// to `viewing_pubkey` so the maker can recover them by scanning.
-pub fn pool_authority_address(
-    pair: &Pubkey,
-    maker_encryption_pubkey: &[u8; 33],
-) -> Result<ShieldedAddress> {
+/// plus the pool-role viewing pubkey from `pool_authority_identity`. The maker
+/// must share this key with callers constructing confidential pool outputs.
+/// `Pair::maker_encryption_pubkey` belongs to the escrow role and cannot be
+/// used here. Confidential payloads, when emitted, encrypt to this pool key
+/// so discovery can read them. Payloadless rebalance outputs require retaining
+/// their preimages locally.
+pub fn pool_authority_address(pair: &Pubkey, pool_viewing_pubkey: P256Pubkey) -> ShieldedAddress {
     let pda = crate::pool_authority_pda(pair);
-    let viewing_pubkey = P256Pubkey::from_bytes(*maker_encryption_pubkey).map_err(err)?;
-    Ok(ShieldedAddress::for_pda(
+    ShieldedAddress::for_pda(
         &pda,
         dynamic_swap_program::ESCROW_NULLIFIER_PUBKEY,
-        viewing_pubkey,
-    ))
+        pool_viewing_pubkey,
+    )
 }
 
 /// The maker's pool_authority identity for `pair`: the PDA-role viewing key
@@ -94,7 +93,7 @@ impl PoolUtxo {
 
     /// The pool note as a transact output, owned by the pool authority's
     /// address (see `pool_authority_address`). Its confidential slot encrypts
-    /// to the maker encryption pubkey and its note carries `booked` (see
+    /// to the pool-role viewing pubkey and its note carries `booked` (see
     /// `encode_pool_note`); together with the slot's own plaintext (asset,
     /// amount, blinding) that is the complete pool note data the maker needs
     /// to spend it.
@@ -181,6 +180,31 @@ mod tests {
     use zolana_transaction::DataRecord;
 
     use super::*;
+
+    #[test]
+    fn public_pool_address_matches_identity_and_decrypts_outputs() {
+        let maker_viewing_key = ViewingKey::new();
+        let pair = Pubkey::new_unique();
+        let identity = pool_authority_identity(&pair, &maker_viewing_key).unwrap();
+        let address = pool_authority_address(&pair, identity.viewing_pubkey());
+        assert_eq!(address, identity.shielded_address().unwrap());
+        let escrow = crate::state::escrow_authority_identity(&pair, &maker_viewing_key).unwrap();
+        assert_ne!(address.viewing_pubkey, escrow.viewing_pubkey());
+
+        let tx_key = ViewingKey::new();
+        let plaintext = vec![7u8; 128];
+        let salt = [2; 16];
+        let ciphertext = tx_key
+            .encrypt_slot(&address.viewing_pubkey, &plaintext, salt, 3)
+            .unwrap();
+        assert_eq!(
+            identity
+                .viewing_key()
+                .decrypt_utxo(&ciphertext, &tx_key.pubkey(), salt, 3)
+                .unwrap(),
+            plaintext
+        );
+    }
 
     #[test]
     fn pool_note_round_trips() {
