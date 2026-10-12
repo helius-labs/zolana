@@ -1,7 +1,7 @@
 # light-prover, with only the release-asset proving keys.
 #
-# Object-store keys are NOT baked in. They are distributed separately and fetched at runtime
-# by EnsureProvingKey (prover/common/key_downloader.go):
+# Object-store keys are NOT baked in. They are distributed separately and
+# fetched at runtime by EnsureProvingKey (prover/common/key_downloader.go):
 #   - proving-keys.lock is embedded into the binary (//go:embed), pinning the
 #     sha256, byte size and version-hashed prefix of every key
 #   - the downloader is cache-first: an on-disk key is verified against the
@@ -15,7 +15,9 @@
 #
 # Keys proving-keys.lock marks `source: release` (the custom-ring keys, about
 # 1.1 GB) are the exception: the downloader never fetches them, so they are
-# baked in, checked against their pinned sha256.
+# baked into /proving-keys, checked against their pinned sha256. Their layer
+# sits under the binary and has zeroed mtimes, so its digest depends on the key
+# bytes alone. A volume mounted at /proving-keys hides them and must hold them.
 #
 # One image serves both roles. The client prover and the forester prover differ
 # only in flags -- circuit selection and concurrency -- and in which keys they
@@ -55,16 +57,17 @@ RUN set -eu; \
     while read -r name sha256; do \
         curl -fsSL --retry 3 --connect-timeout 10 -o "/release-keys/$name" "$RELEASE_KEYS_URL/$name"; \
         echo "$sha256  /release-keys/$name" | sha256sum -c -; \
-    done < /tmp/release-keys
+    done < /tmp/release-keys; \
+    touch -d @0 /release-keys /release-keys/*
 
 FROM gcr.io/distroless/base-debian11:nonroot@sha256:68b0f492c1eb077f71d384b544456dac4afb282372966917df32b3923f65ad0d
 
+COPY --chown=nonroot:nonroot --from=release-keys /release-keys/ /proving-keys/
 COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 
 WORKDIR /proving-keys
 
 COPY --chown=nonroot:nonroot --from=builder /tmp/empty_proving_keys /proving-keys/
-COPY --chown=nonroot:nonroot --from=release-keys /release-keys/ /proving-keys/
 
 WORKDIR /
 

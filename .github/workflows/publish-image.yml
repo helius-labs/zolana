@@ -185,9 +185,8 @@ jobs:
               echo "description=Zolana shielded-pool indexer" >> "$GITHUB_OUTPUT"
               ;;
             prover)
-              # The image without object-store keys. prover/server/Dockerfile
-              # bakes 1.4-3.9 GB of keys that are fetched and verified at runtime
-              # anyway.
+              # Bakes only the custom-ring keys; object-store keys are fetched at
+              # runtime and verified. prover/server/Dockerfile bakes all of them.
               echo "repository=zolana-prover" >> "$GITHUB_OUTPUT"
               echo "context=prover/server" >> "$GITHUB_OUTPUT"
               echo "file=prover/server/Dockerfile.light" >> "$GITHUB_OUTPUT"

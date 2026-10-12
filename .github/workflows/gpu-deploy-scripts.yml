@@ -1,7 +1,7 @@
 name: gpu-deploy-scripts
 
-# The GPU deployment scripts and their tests read tools/gpu and the Aeglos build
-# files, so nothing else triggers them.
+# The GPU and Nitro deployment scripts, and the prover image checks, read only
+# these paths, so nothing else triggers them.
 on:
   push:
     branches: [main]
@@ -14,6 +14,9 @@ on:
       - "prover/server/prover/backend/aeglos-source.lock"
       - "prover/server/nitro/**"
       - "prover/server/Dockerfile.nitro"
+      - "prover/server/Dockerfile.light"
+      - "tools/images/**"
+      - "justfile"
       - "prover/server/main.go"
       - "prover/server/prover/common/key_downloader.go"
       - "prover/server/prover/provingkeys/proving-keys.lock"
@@ -30,6 +33,9 @@ on:
       - "prover/server/prover/backend/aeglos-source.lock"
       - "prover/server/nitro/**"
       - "prover/server/Dockerfile.nitro"
+      - "prover/server/Dockerfile.light"
+      - "tools/images/**"
+      - "justfile"
       - "prover/server/main.go"
       - "prover/server/prover/common/key_downloader.go"
       - "prover/server/prover/provingkeys/proving-keys.lock"
@@ -54,3 +60,4 @@ jobs:
       - run: python3 -m unittest discover -s tools/nitro -p 'test_*.py'
         env:
           NITRO_GATEWAY_TEST: '1'
+      - run: python3 -m unittest discover -s tools/images -p 'test_*.py'
