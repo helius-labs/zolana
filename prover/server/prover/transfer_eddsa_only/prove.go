@@ -6,17 +6,7 @@ import (
 
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	"github.com/helius-labs/zolana/prover/server/prover/timing"
-
-	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/prover/backend"
 )
-
-type TransferProof struct {
-	System     *common.TransferProofSystem
-	Parameters *TransferParameters
-	Timing     *timing.Trace
-}
 
 func (p *TransferParameters) ValidateShape() error {
 	if len(p.Inputs) != int(p.NInputs) {
@@ -54,22 +44,4 @@ func (p *TransferParameters) ValidateShape() error {
 		return err
 	}
 	return nil
-}
-
-func (request TransferProof) Prove() (*common.Proof, error) {
-	ps, params := request.System, request.Parameters
-	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
-		if err := params.ValidateShape(); err != nil {
-			return nil, err
-		}
-		assignment, err := params.CreateWitness()
-		if err != nil {
-			return nil, fmt.Errorf("create transfer witness: %w", err)
-		}
-		return assignment, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }
