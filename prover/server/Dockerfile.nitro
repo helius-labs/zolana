@@ -27,6 +27,23 @@ RUN mkdir /out \
     && printf '%s\n' "$KMS_KEY_ARN" > /out/kms-key \
     && printf '%s\n' "$INDEXER_URL" > /out/indexer-url
 
+# The proving keys proving-keys.lock marks as release assets, which the prover
+# never downloads, checked against their pinned sha256.
+FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS release-keys
+
+RUN apk add --no-cache curl=8.14.1-r3 jq=1.8.2-r0
+ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v16
+COPY prover/server/prover/provingkeys/proving-keys.lock /tmp/proving-keys.lock
+RUN set -eu; \
+    mkdir /release-keys; \
+    jq -r '.keys | to_entries[] | select(.value.source == "release") | "\(.key) \(.value.sha256)"' \
+        /tmp/proving-keys.lock > /tmp/release-keys; \
+    [ -s /tmp/release-keys ]; \
+    while read -r name sha256; do \
+        curl -fsSL --retry 3 --connect-timeout 10 -o "/release-keys/$name" "$RELEASE_KEYS_URL/$name"; \
+        echo "$sha256  /release-keys/$name" | sha256sum -c -; \
+    done < /tmp/release-keys
+
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 
 RUN apk add --no-cache \
@@ -40,6 +57,7 @@ RUN apk add --no-cache \
     && mkdir /proving-keys
 COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 COPY --from=builder /out/ /etc/zolana-nitro/
+COPY --from=release-keys /release-keys/ /usr/share/zolana/release-keys/
 COPY prover/server/nitro/entrypoint.sh /usr/local/bin/zolana-enclave
 COPY LICENSE THIRD_PARTY_NOTICES /usr/share/licenses/zolana/
 

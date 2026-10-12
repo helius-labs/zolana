@@ -15,6 +15,8 @@ watch() {
 
 ip link set lo up
 mount -t tmpfs -o "size=${keys_mib}m,mode=0700,uid=65532,gid=65532" proving-keys /proving-keys
+mv /usr/share/zolana/release-keys/*.key /proving-keys/
+chown 65532:65532 /proving-keys/*.key
 chown 65532:65532 /dev/nsm
 
 # TLS to these names terminates in the enclave.

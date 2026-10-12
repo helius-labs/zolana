@@ -1416,7 +1416,7 @@ class ImageTests(unittest.TestCase):
         bases = re.findall(
             r"^FROM (\S+)", (SERVER / "Dockerfile.nitro").read_text(), re.M
         )
-        self.assertEqual(len(bases), 2)
+        self.assertEqual(len(bases), 3)
         self.assertTrue(
             all(re.search(r"@sha256:[0-9a-f]{64}$", base) for base in bases)
         )
