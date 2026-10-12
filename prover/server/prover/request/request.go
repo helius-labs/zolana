@@ -11,7 +11,6 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
-	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -106,19 +105,13 @@ func canonical(value reflect.Value) bool {
 	return true
 }
 
-// Prover runs Groth16 on the assignment assign builds.
-type Prover func(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error)
-
 // Prove proves r with system and reports the system's proving-key digest on
 // the proof. A nil prove runs gnark's CPU prover.
-func (r *Request) Prove(system *common.TransferProofSystem, prove Prover) (*common.Proof, error) {
+func (r *Request) Prove(system *common.TransferProofSystem, prove common.Prover) (*common.Proof, error) {
 	if err := r.check(system); err != nil {
 		return nil, err
 	}
-	if prove == nil {
-		prove = cpuProve
-	}
-	proof, err := prove(system.ConstraintSystem, system.ProvingKey, r.assignment)
+	proof, err := prove.Run(system.ConstraintSystem, system.ProvingKey, r.assignment)
 	if err != nil {
 		return nil, err
 	}
@@ -155,18 +148,6 @@ func (r *Request) check(system *common.TransferProofSystem) error {
 			system.CircuitType, system.NInputs, system.NOutputs, r.Circuit, r.Inputs, r.Outputs)
 	}
 	return nil
-}
-
-func cpuProve(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {
-	assignment, err := assign()
-	if err != nil {
-		return nil, err
-	}
-	full, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("create witness: %w", err)
-	}
-	return groth16.Prove(ccs, pk, full)
 }
 
 func (r *Request) assignment() (frontend.Circuit, error) {

@@ -3,13 +3,11 @@ package transfereddsaonly
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"math/big"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	"github.com/helius-labs/zolana/prover/server/prover/timing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -22,7 +20,7 @@ import (
 type P256Proof struct {
 	System     *common.TransferProofSystem
 	Parameters *P256TransferParameters
-	Timing     *timing.Trace
+	Prover     common.Prover
 }
 
 // P256TransferParameters is the flat witness for CustomRingP256Circuit.
@@ -333,7 +331,7 @@ func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSy
 
 func (request P256Proof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
-	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+	proof, err := request.Prover.Run(ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
 		if err := params.ValidateShape(); err != nil {
 			return nil, err
 		}

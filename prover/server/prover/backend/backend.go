@@ -12,6 +12,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
 )
 
@@ -99,6 +100,13 @@ func ProveAssignment(trace *timing.Trace, ccs constraint.ConstraintSystem, key g
 		return nil, fmt.Errorf("prove: %w", err)
 	}
 	return proof, nil
+}
+
+// Prover proves with the process's backend, timed on trace.
+func Prover(trace *timing.Trace) common.Prover {
+	return func(ccs constraint.ConstraintSystem, key groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {
+		return ProveAssignment(trace, ccs, key, assign)
+	}
 }
 
 func Close() error {

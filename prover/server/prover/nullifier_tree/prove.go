@@ -3,9 +3,7 @@ package nullifiertree
 import (
 	"fmt"
 
-	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	"github.com/helius-labs/zolana/prover/server/prover/timing"
 
 	"github.com/consensys/gnark/frontend"
 )
@@ -59,12 +57,12 @@ func (p *BatchAddressAppendParameters) ValidateShape() error {
 type BatchAddressAppendProof struct {
 	System     *common.BatchProofSystem
 	Parameters *BatchAddressAppendParameters
-	Timing     *timing.Trace
+	Prover     common.Prover
 }
 
 func (request BatchAddressAppendProof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
-	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+	proof, err := request.Prover.Run(ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
 		if err := params.ValidateShape(); err != nil {
 			return nil, err
 		}
