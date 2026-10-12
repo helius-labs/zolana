@@ -65,8 +65,12 @@ jobs:
             || { echo "::error::kms_key_arn is not a KMS key ARN" >&2; exit 1; }
           [[ -n $BUCKET ]] || { echo "::error::vars.NITRO_EIF_BUCKET is not set" >&2; exit 1; }
           commit=${GITHUB_SHA:0:12}
-          echo "tag=prover-nitro-zolana-$commit-$DEPLOYMENT" >> "$GITHUB_OUTPUT"
-          echo "prefix=s3://$BUCKET/$DEPLOYMENT/$commit" >> "$GITHUB_OUTPUT"
+          {
+            echo "deployment=$DEPLOYMENT"
+            echo "kms_key_arn=$KMS_KEY_ARN"
+            echo "tag=prover-nitro-zolana-$commit-$DEPLOYMENT"
+            echo "prefix=s3://$BUCKET/$DEPLOYMENT/$commit"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
@@ -99,7 +103,7 @@ jobs:
             GOAMD64=${{ steps.prover-build.outputs.goamd64 }}
             PROVER_PGO=${{ steps.prover-build.outputs.pgo }}
             KEY_SOURCE=kms
-            KMS_KEY_ARN=${{ inputs.kms_key_arn }}
+            KMS_KEY_ARN=${{ steps.plan.outputs.kms_key_arn }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ steps.plan.outputs.tag }}
           labels: |
@@ -116,7 +120,7 @@ jobs:
       - name: Build and measure the EIF
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.build.outputs.digest }}
-          KMS_KEY_ARN: ${{ inputs.kms_key_arn }}
+          KMS_KEY_ARN: ${{ steps.plan.outputs.kms_key_arn }}
         run: |
           docker pull --quiet --platform linux/amd64 "$IMAGE"
           prover/server/nitro/build-eif.sh "$IMAGE" eif
@@ -130,7 +134,7 @@ jobs:
       - name: Upload the EIF
         env:
           PREFIX: ${{ steps.plan.outputs.prefix }}
-          DEPLOYMENT: ${{ inputs.deployment }}
+          DEPLOYMENT: ${{ steps.plan.outputs.deployment }}
         run: |
           bucket=${PREFIX#s3://}
           bucket=${bucket%%/*}
