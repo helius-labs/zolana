@@ -112,12 +112,8 @@ type Prover func(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign 
 // Prove proves r with system and reports the system's proving-key digest on
 // the proof. A nil prove runs gnark's CPU prover.
 func (r *Request) Prove(system *common.TransferProofSystem, prove Prover) (*common.Proof, error) {
-	if system == nil {
-		return nil, ErrSystem
-	}
-	if system.CircuitType != r.Circuit || system.NInputs != r.Inputs || system.NOutputs != r.Outputs {
-		return nil, fmt.Errorf("%w: %s %dx%d system for a %s %dx%d request", ErrSystem,
-			system.CircuitType, system.NInputs, system.NOutputs, r.Circuit, r.Inputs, r.Outputs)
+	if err := r.check(system); err != nil {
+		return nil, err
 	}
 	if prove == nil {
 		prove = cpuProve
@@ -131,7 +127,10 @@ func (r *Request) Prove(system *common.TransferProofSystem, prove Prover) (*comm
 
 // Verify checks proof against r's public inputs.
 func (r *Request) Verify(system *common.TransferProofSystem, proof *common.Proof) error {
-	if system == nil || proof == nil || proof.Proof == nil {
+	if err := r.check(system); err != nil {
+		return err
+	}
+	if proof == nil || proof.Proof == nil {
 		return ErrSystem
 	}
 	assignment, err := r.assignment()
@@ -143,6 +142,19 @@ func (r *Request) Verify(system *common.TransferProofSystem, proof *common.Proof
 		return fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
 	return groth16.Verify(proof.Proof, system.VerifyingKey, public)
+}
+
+// check rejects a system for another circuit or shape. Every transfer and merge
+// circuit exposes only PublicInputHash, so Groth16 cannot tell them apart.
+func (r *Request) check(system *common.TransferProofSystem) error {
+	if system == nil {
+		return ErrSystem
+	}
+	if system.CircuitType != r.Circuit || system.NInputs != r.Inputs || system.NOutputs != r.Outputs {
+		return fmt.Errorf("%w: %s %dx%d system for a %s %dx%d request", ErrSystem,
+			system.CircuitType, system.NInputs, system.NOutputs, r.Circuit, r.Inputs, r.Outputs)
+	}
+	return nil
 }
 
 func cpuProve(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {

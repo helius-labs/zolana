@@ -224,4 +224,14 @@ func TestProveReportsTheKeyAndVerifies(t *testing.T) {
 	if _, err := request.Prove(&other, nil); !errors.Is(err, ErrSystem) {
 		t.Fatalf("a 2x3 system proved a 2x2 request: %v", err)
 	}
+	if err := request.Verify(&other, proof); !errors.Is(err, ErrSystem) {
+		t.Fatalf("a 2x3 system verified a 2x2 request: %v", err)
+	}
+	ring, err := Parse([]byte(strings.Replace(fixture(t), `"transfer-confidential"`, `"transfer-ring"`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ring.Verify(system, proof); !errors.Is(err, ErrSystem) {
+		t.Fatalf("a transfer-confidential proof verified a transfer-ring request: %v", err)
+	}
 }
