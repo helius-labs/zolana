@@ -240,6 +240,15 @@ pub struct ProverClient {
     runtime: Arc<BlockingRuntime>,
 }
 
+/// The default deployment's session for a remote prover other than the Helius
+/// gateway. A release without a default deployment pins nothing.
+fn default_tee(endpoint: &ProverEndpoint) -> Option<TeeSession> {
+    if endpoint.is_loopback() || endpoint.is_gateway() {
+        return None;
+    }
+    TeePolicy::default_deployment().ok().map(TeeSession::new)
+}
+
 /// Async client for the transfer proving endpoints of the prover server.
 pub struct AsyncProverClient {
     endpoint: ProverEndpoint,
@@ -320,6 +329,18 @@ impl ProverClient {
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.client = self.client.with_tee(policy);
         self
+    }
+
+    /// Send plaintext requests; see [`AsyncProverClient::without_tee`].
+    #[must_use]
+    pub fn without_tee(mut self) -> Self {
+        self.client = self.client.without_tee();
+        self
+    }
+
+    /// Whether calls go only to an attested prover, encrypted.
+    pub fn has_tee(&self) -> bool {
+        self.client.has_tee()
     }
 
     /// Attest the prover now against the [`Self::with_tee`] policy.
@@ -685,16 +706,21 @@ impl AsyncProverClient {
     /// Send every request through `http` instead of the default client.
     ///
     /// Async counterpart of [`ProverClient::with_client`].
+    ///
+    /// Calls go encrypted to a prover attesting to the default deployment,
+    /// except to a loopback prover and to the Helius gateway, which cannot
+    /// relay encrypted requests. [`Self::with_tee`] and [`Self::without_tee`]
+    /// override that.
     pub fn with_client(server_address: String, http: impl HttpClient + 'static) -> Self {
         let endpoint = ProverEndpoint::parse(&server_address);
         Self {
             proof_data_source: ProofDataSource::for_endpoint(&endpoint),
+            tee: default_tee(&endpoint),
             endpoint,
             http: Arc::new(http),
             async_poll: AsyncPollConfig::default(),
             proof_timeout: Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS),
             delivery: Delivery::InResponse,
-            tee: None,
         }
     }
 
@@ -726,6 +752,19 @@ impl AsyncProverClient {
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.tee = Some(TeeSession::new(policy));
         self
+    }
+
+    /// Send plaintext requests, which carry every proof's witness: only for a
+    /// prover the caller runs or otherwise trusts with it.
+    #[must_use]
+    pub fn without_tee(mut self) -> Self {
+        self.tee = None;
+        self
+    }
+
+    /// Whether calls go only to an attested prover, encrypted.
+    pub fn has_tee(&self) -> bool {
+        self.tee.is_some()
     }
 
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
@@ -1362,6 +1401,38 @@ mod tests {
     }
 
     #[test]
+    fn a_remote_prover_attests_to_the_default_deployment_unless_told_not_to() {
+        let remote = AsyncProverClient::new("https://prover.example".into());
+        assert_eq!(
+            remote.has_tee(),
+            TeePolicy::default_deployment().is_ok(),
+            "a remote prover takes the release pin"
+        );
+        assert!(!remote.without_tee().has_tee());
+        for plaintext in [
+            "http://127.0.0.1:3001",
+            "http://localhost:3001",
+            "http://[::1]:3001",
+            "https://devnet.helius-rpc.com/v1/zolana?api-key=k",
+        ] {
+            assert!(
+                !AsyncProverClient::new(plaintext.into()).has_tee(),
+                "{plaintext}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_tee_prover_takes_client_proof_data() {
+        let prover = AsyncProverClient::new(crate::prover::tee::DEFAULT_PROVER_URL.into());
+        assert_eq!(prover.proof_data_source(), ProofDataSource::Client);
+        assert_eq!(
+            AsyncProverClient::new("https://prover.example".into()).proof_data_source(),
+            ProofDataSource::Prover
+        );
+    }
+
+    #[test]
     fn blocking_proxy_routes_submission_and_polling() {
         for socks in [false, true]
             .into_iter()
@@ -1369,6 +1440,7 @@ mod tests {
         {
             let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
             let client = queued_prover_client("http://prover.invalid:3001")
+                .without_tee()
                 .with_proxy(proxy.url())
                 .unwrap();
             client
@@ -1386,6 +1458,7 @@ mod tests {
         {
             let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
             let client = async_prover_client("http://prover.invalid:3001")
+                .without_tee()
                 .with_proxy(proxy.url())
                 .unwrap();
             client

@@ -31,18 +31,11 @@ pub(super) fn client(
     rpc: SolanaRpc,
     network: &ResolvedNetworkOptions,
 ) -> Result<ZolanaClient<SolanaRpc>> {
-    let Some(policy) = &network.prover_tee else {
-        return Ok(ZolanaClient::from_urls(
-            rpc,
-            &network.sync.indexer_url,
-            network.prover_url.clone(),
-        )?);
-    };
-    // The policy is the prover client's, so the client is built around one
-    // that carries it; the transport check `from_urls` runs still runs.
     check_service_url(&network.sync.indexer_url, "indexer_url")?;
     check_service_url(&network.prover_url, "prover_url")?;
-    let prover = ProverClient::new(network.prover_url.clone()).with_tee(policy.clone());
+    let prover = network
+        .prover_tee
+        .apply(ProverClient::new(network.prover_url.clone()))?;
     Ok(ZolanaClient::new(
         rpc,
         ZolanaIndexer::new(&network.sync.indexer_url),

@@ -2,10 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use zolana_client::prover::tee::TeePolicy;
 
 use crate::{
-    args::{NetworkWalletOptions, SyncOptions},
+    args::{NetworkWalletOptions, ProverTeeOptions, SyncOptions},
     cli_config::{
         resolve_indexer_url, resolve_keypair_path, resolve_prover_url, resolve_rpc_url,
         resolve_tree, CliConfigFile,
@@ -24,7 +23,7 @@ pub(crate) struct ResolvedNetworkOptions {
     pub(crate) sync: ResolvedSyncOptions,
     pub(crate) tree: Pubkey,
     pub(crate) prover_url: String,
-    pub(crate) prover_tee: Option<TeePolicy>,
+    pub(crate) prover_tee: ProverTeeOptions,
     pub(crate) airdrop_lamports: Option<u64>,
 }
 
@@ -59,7 +58,10 @@ pub(crate) fn get_network_with_config(
         sync,
         tree,
         prover_url: resolve_prover_url(opts.prover_url.as_deref(), config),
-        prover_tee: opts.tee.policy()?,
+        prover_tee: {
+            opts.tee.policy()?;
+            opts.tee.clone()
+        },
         airdrop_lamports: opts.airdrop_lamports,
     })
 }
@@ -72,10 +74,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{
-        args::{ProverTeeOptions, WalletKeypairOptions},
-        cli_config::CONFIG_ENV_LOCK,
-    };
+    use crate::{args::WalletKeypairOptions, cli_config::CONFIG_ENV_LOCK};
 
     fn temp_config(tree: Option<&str>) -> String {
         let stamp = SystemTime::now()

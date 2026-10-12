@@ -40,9 +40,9 @@ pub enum ProofDataSource {
 
 impl ProofDataSource {
     /// Prover-side proof data, except on the Helius gateway, which has no
-    /// indexed route.
+    /// indexed route, and on the default TEE prover, which has no indexer.
     pub(crate) fn for_endpoint(endpoint: &ProverEndpoint) -> Self {
-        if endpoint.is_gateway() {
+        if endpoint.is_gateway() || endpoint.is_default_tee_prover() {
             Self::Client
         } else {
             Self::default()

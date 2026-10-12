@@ -13,7 +13,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
-import { isZolanaGateway, resolveClientEndpoints } from "../endpoint.js";
+import { isDefaultTeeProver, isZolanaGateway, resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -145,7 +145,10 @@ const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
-  /** `"prover"` unless set, `"client"` on the Helius gateway, which refuses `"prover"`. */
+  /**
+   * `"prover"` unless set; `"client"` on the Helius gateway and on the default
+   * TEE prover, which both refuse `"prover"`.
+   */
   readonly proofDataSource?: ProofDataSource;
   /**
    * Serves the indexer and the prover too, unless either names its own URL.
@@ -175,10 +178,12 @@ export interface ZolanaClientConfig {
   readonly indexerConfig?: IndexerRpcConfig;
   readonly proverAsyncPoll?: AsyncPollConfig;
   /**
-   * Encrypts every prover call to a prover that attests to the policy, usually
-   * `defaultTeePolicy()`.
+   * Encrypts every prover call to a prover that attests to the policy. Left
+   * out, a remote prover other than the Helius gateway must attest to
+   * `defaultTeePolicy()`; `false` sends plaintext, which carries every proof's
+   * witness, so only for a prover you run or trust with it.
    */
-  readonly proverTee?: TeePolicy;
+  readonly proverTee?: TeePolicy | false;
   readonly fetch?: typeof globalThis.fetch;
   /**
    * Permit plain http to non-loopback indexer and prover URLs.
@@ -304,12 +309,13 @@ export class ZolanaClient
         cause,
       });
     }
-    // The Helius gateway has no indexed route, so proof data comes from the client there.
-    const gateway = isZolanaGateway(proverUrl);
-    if (input.proofDataSource === "prover" && gateway) {
+    // The Helius gateway has no indexed route and the default TEE prover no
+    // indexer, so proof data comes from the client there.
+    const clientData = isZolanaGateway(proverUrl) || isDefaultTeeProver(proverUrl);
+    if (input.proofDataSource === "prover" && clientData) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }
-    this.#proofDataSource = input.proofDataSource ?? (gateway ? "client" : "prover");
+    this.#proofDataSource = input.proofDataSource ?? (clientData ? "client" : "prover");
 
     this.#computeUnitLimit = checkedComputeUnitLimit(
       input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,

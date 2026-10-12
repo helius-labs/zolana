@@ -47,9 +47,16 @@ import {
   sleep,
   type ComposedSignal,
 } from "../internal.js";
-import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
+import {
+  TransportFailure,
+  checkedFetch,
+  isLoopbackHost,
+  readBoundedJson,
+} from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import { DEFAULT_TEE_POLICY_FILE } from "./tee/default.js";
+import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
@@ -160,6 +167,24 @@ export interface ProvingKeyReport {
   readonly keys: readonly ProvingKeyCheck[];
 }
 
+/**
+ * The session a prover gets: the caller's policy, none for `false`, else the
+ * pinned default deployment except on loopback and on the Helius gateway, which
+ * cannot relay encrypted requests.
+ */
+function teeSession(
+  tee: TeePolicy | false | undefined,
+  url: URL,
+  gateway: boolean,
+): TeeSession | undefined {
+  if (tee === false) return undefined;
+  if (tee !== undefined) return new TeeSession(tee);
+  if (gateway || isLoopbackHost(url.hostname) || DEFAULT_TEE_POLICY_FILE.deployment === null) {
+    return undefined;
+  }
+  return new TeeSession(defaultTeePolicy());
+}
+
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
@@ -177,9 +202,11 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy.
+       * attests to the policy. Left out, a remote prover other than the Helius
+       * gateway gets `defaultTeePolicy()`; `false` sends plaintext, which carries
+       * every proof's witness.
        */
-      tee?: TeePolicy;
+      tee?: TeePolicy | false;
     }>,
   ) {
     const candidate: unknown = input;
@@ -197,7 +224,7 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+    this.#tee = teeSession(input.tee, url, this.#keyless);
   }
 
   /** Attests the prover now against the `tee` policy. */

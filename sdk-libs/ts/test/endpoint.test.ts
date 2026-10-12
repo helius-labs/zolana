@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { checkedServiceUrl } from "../src/client/internal.js";
 import {
+  DEFAULT_TEE_PROVER_ENDPOINT,
   LOCALNET_PHOTON_ENDPOINT,
   LOCALNET_PROVER_ENDPOINT,
   LOCALNET_SOLANA_ENDPOINT,
+  isDefaultTeeProver,
   isZolanaGateway,
   resolveClientEndpoints,
 } from "../src/endpoint.js";
@@ -19,16 +21,36 @@ describe("resolveClientEndpoints", () => {
     expect([resolved.photonField, resolved.proverField]).toEqual(["solanaRpcUrl", "solanaRpcUrl"]);
   });
 
-  it("serves the indexer and the prover from a Helius RPC host's zolana namespace", () => {
+  it("serves the indexer from a Helius RPC host's zolana namespace", () => {
     const resolved = resolveClientEndpoints({ solanaRpcUrl: HELIUS });
     expect(resolved.solana).toBe(HELIUS);
-    for (const url of [resolved.photon, resolved.prover]) {
-      expect(String(url)).toBe("https://devnet.helius-rpc.com/v1/zolana?api-key=k");
-      expect(isZolanaGateway(new URL(url))).toBe(true);
-    }
+    expect(String(resolved.photon)).toBe("https://devnet.helius-rpc.com/v1/zolana?api-key=k");
+    expect(isZolanaGateway(new URL(resolved.photon))).toBe(true);
     const custom = resolveClientEndpoints({ solanaRpcUrl: "https://devnet.helius-rpc.com/custom" });
     expect(custom.photon).toBe("https://devnet.helius-rpc.com/custom");
     expect(isZolanaGateway(new URL("https://prover.example/v1/zolana"))).toBe(false);
+  });
+
+  it("sends a Helius devnet RPC URL's proofs to the default TEE prover, without its api key", () => {
+    for (const rpc of [HELIUS, "https://beta-devnet.helius-rpc.com/?api-key=k"]) {
+      const resolved = resolveClientEndpoints({ solanaRpcUrl: rpc });
+      expect(resolved.prover).toBe(DEFAULT_TEE_PROVER_ENDPOINT);
+      expect(resolved.proverField).toBe("solanaRpcUrl");
+      expect(isDefaultTeeProver(new URL(resolved.prover))).toBe(true);
+    }
+    const named = resolveClientEndpoints({
+      solanaRpcUrl: HELIUS,
+      proverUrl: "https://prover.example",
+    });
+    expect(named.prover).toBe("https://prover.example");
+  });
+
+  it("keeps a non-devnet Helius RPC URL's proofs on its gateway", () => {
+    const resolved = resolveClientEndpoints({
+      solanaRpcUrl: "https://mainnet.helius-rpc.com/?api-key=k",
+    });
+    expect(String(resolved.prover)).toBe("https://mainnet.helius-rpc.com/v1/zolana?api-key=k");
+    expect(isZolanaGateway(new URL(resolved.prover))).toBe(true);
   });
 
   it("resolves localnet to accepted service urls", () => {

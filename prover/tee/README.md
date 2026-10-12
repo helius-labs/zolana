@@ -26,15 +26,12 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncProverClient::with_tee` make every call attested and encrypted, and a `ZolanaClient` attests through the prover client it is built with.
-`ProverClient::attest` returns the verified `AttestedProver` on demand.
-The `zolana` commands that prove take `--prover-tee`, or `ZOLANA_PROVER_TEE`, and `zolana vks check --prover-url <url> --prover-tee` attests a prover before it checks its proving keys.
-In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.
-Without a policy the clients send plaintext requests, which the server still accepts.
-
-The SDK pins no default deployment, so TEE stays opt-in.
-`deployments/nitro-c7a.json` pins the running prover, an AWS Nitro c7a.24xlarge enclave at `https://d3psb33kf6y5qv.cloudfront.net`.
-Load a pin with `TeePolicy::from_file_json` in Rust or `teePolicyFromJson(pin.deployment)` in TypeScript, and give the client the prover URL with its `api-key` query parameter.
+The SDK pins one deployment, the devnet Nitro Enclave prover at `https://d55y5ksdsm1vw.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+Every prover client requires a remote prover to attest to that pin and encrypts each call to it, except a loopback prover and the Helius gateway, which cannot relay encrypted requests.
+In Rust, `ProverClient::without_tee` and `AsyncProverClient::without_tee` send plaintext and `with_tee` takes another policy; `ProverClient::attest` returns the verified `AttestedProver` on demand.
+In TypeScript, `tee: false` on `ProverClient` and `proverTee: false` on `ZolanaClient` send plaintext, and a `ZolanaClient` given a Helius devnet RPC URL proves through the pinned prover.
+The `zolana` commands that prove take `--no-prover-tee` to send plaintext, `--prover-tee` to require the pin from a loopback prover or the gateway too, and `--prover-tee-policy <file>` for another pin; `zolana vks check --prover-url <url>` attests a TEE prover before it checks its proving keys.
+Plaintext requests carry every proof's witness, so send them only to a prover you run or trust with it.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
 ## Roles
@@ -89,7 +86,7 @@ The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prov
 
 ## Limits
 
-- An SDK with no deployment pin refuses `TeePolicy::default_deployment()` and `defaultTeePolicy()`. An explicit verified policy is required.
+- A release that pins no deployment refuses `TeePolicy::default_deployment()` and `defaultTeePolicy()`, and its clients send plaintext unless given a policy.
 - Old SDK releases refuse an updated prover, because the update changes the compose hash they pin. Ship the SDK release that carries the new hash together with the update.
 - The HPKE key has no forward secrecy, because it derives from the app key. Rotate by releasing a new app with `--replace` and a matching SDK release.
 - The verifiers accept only dstack runtime events of the version 1 digest format, which the 0.5 OS images emit. An OS image that emits the version 2 format fails attestation.

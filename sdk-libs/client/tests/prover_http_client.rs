@@ -195,6 +195,7 @@ fn assert_queued_route(requests: &[HttpRequest]) {
 fn a_proof_in_the_response_goes_through_the_client() {
     let (client, requests) = FakeClient::answering(proof_in_response());
     ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .expect("the proof");
     assert_sync_route(&requests.lock().unwrap());
@@ -204,6 +205,7 @@ fn a_proof_in_the_response_goes_through_the_client() {
 async fn an_async_proof_in_the_response_goes_through_the_client() {
     let (client, requests) = FakeClient::answering(proof_in_response());
     AsyncProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .await
         .expect("the proof");
@@ -214,6 +216,7 @@ async fn an_async_proof_in_the_response_goes_through_the_client() {
 fn a_queued_proof_is_polled_through_the_client() {
     let (client, requests) = FakeClient::answering(queued_then_proof());
     ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&QUEUED)
         .expect("the queued proof");
     assert_queued_route(&requests.lock().unwrap());
@@ -223,6 +226,7 @@ fn a_queued_proof_is_polled_through_the_client() {
 async fn an_async_queued_proof_is_polled_through_the_client() {
     let (client, requests) = FakeClient::answering(queued_then_proof());
     AsyncProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&QUEUED)
         .await
         .expect("the queued proof");
@@ -233,6 +237,7 @@ async fn an_async_queued_proof_is_polled_through_the_client() {
 fn the_proving_keys_are_read_through_the_client() {
     let (client, requests) = FakeClient::answering(proving_keys());
     let report = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .check_proving_keys()
         .expect("a matching prover");
     assert_eq!(report.prefix, "proving-keys/test");
@@ -250,6 +255,7 @@ fn the_client_answers_as_the_prover_does() {
     shed_then_queued.extend(queued_then_proof());
     let (client, requests) = FakeClient::answering(shed_then_queued);
     ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .expect("the proof from the queue");
     let requests = requests.lock().unwrap();
@@ -261,7 +267,9 @@ fn the_client_answers_as_the_prover_does() {
     other_key["provingKeySha256"] = json!("08".repeat(32));
     let (client, _) = FakeClient::answering(vec![Ok((200, json!({ "proof": other_key })))]);
     assert!(matches!(
-        ProverClient::with_client(PROVER_URL.to_string(), client).prove(&IN_RESPONSE),
+        ProverClient::with_client(PROVER_URL.to_string(), client)
+            .without_tee()
+            .prove(&IN_RESPONSE),
         Err(ClientError::ProvingKeyMismatch { .. })
     ));
 }
@@ -274,6 +282,7 @@ fn a_client_failure_is_retried_and_reported() {
     failed_then_proof.extend(proof_in_response());
     let (client, requests) = FakeClient::answering(failed_then_proof);
     ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .expect("the proof on the second attempt");
     let requests = requests.lock().unwrap();
@@ -283,6 +292,7 @@ fn a_client_failure_is_retried_and_reported() {
 
     let (client, _) = FakeClient::answering(vec![Err(Failure::NoResponse("offline"))]);
     let error = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .check_proving_keys()
         .expect_err("the client fails");
     assert_eq!(
@@ -303,10 +313,12 @@ fn a_client_failure_keeps_the_api_key_out() {
     };
     let (client, _) = FakeClient::answering(failing(1));
     let check = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .check_proving_keys()
         .expect_err("the client fails");
     let (client, _) = FakeClient::answering(failing(3));
     let proof = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .expect_err("every attempt fails");
     for error in [check, proof] {
@@ -322,6 +334,7 @@ fn a_client_failure_keeps_the_api_key_out() {
 fn a_lost_proof_response_is_not_resubmitted() {
     let (client, requests) = FakeClient::answering(vec![Err(Failure::BodyLost("reset"))]);
     let error = ProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .expect_err("the body is lost");
     assert_eq!(
@@ -337,6 +350,7 @@ fn a_lost_proof_response_is_not_resubmitted() {
 async fn an_async_lost_proof_response_is_not_resubmitted() {
     let (client, requests) = FakeClient::answering(vec![Err(Failure::BodyLost("reset"))]);
     let error = AsyncProverClient::with_client(PROVER_URL.to_string(), client)
+        .without_tee()
         .prove(&IN_RESPONSE)
         .await
         .expect_err("the body is lost");
@@ -407,6 +421,7 @@ impl HttpClient for HungClient {
 #[tokio::test]
 async fn a_hung_client_is_cut_off_at_the_proof_timeout() {
     let error = AsyncProverClient::with_client(PROVER_URL.to_string(), HungClient)
+        .without_tee()
         .with_proof_timeout(Duration::from_millis(20))
         .prove(&IN_RESPONSE)
         .await

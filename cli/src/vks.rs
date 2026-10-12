@@ -106,9 +106,8 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
         // The markers matched the same verifying keys, so a matching prover
         // proves with exactly the keys the program verifies against.
         let shown = redact_api_key(&prover_url);
-        let mut prover = ProverClient::new(prover_url);
-        if let Some(policy) = opts.tee.policy()? {
-            prover = prover.with_tee(policy);
+        let prover = opts.tee.apply(ProverClient::new(prover_url))?;
+        if prover.has_tee() {
             let attested = prover
                 .attest()
                 .with_context(|| format!("prover {shown} failed TEE attestation"))?;
