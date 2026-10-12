@@ -146,7 +146,7 @@ dashboard reports protocol and service health.
 | ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
 | Indexer    | `https://d2xah7tnhdhcom.cloudfront.net`            | Fetches encrypted state.                                                                  |
-| Prover     | `https://d21ni15goiip6l.cloudfront.net`            | Generates ZK proofs.                                                                      |
+| Prover     | `https://d55y5ksdsm1vw.cloudfront.net`             | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
 | Ring RPC   | `https://d24brah9h1i4q9.cloudfront.net`            | Releases and uses custom-ring auditor keys.                                               |
 | Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
@@ -154,7 +154,7 @@ dashboard reports protocol and service health.
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
   indexerUrl: "https://d2xah7tnhdhcom.cloudfront.net",
-  proverUrl: "https://d21ni15goiip6l.cloudfront.net",
+  proverUrl: "https://d55y5ksdsm1vw.cloudfront.net",
 });
 ```
 

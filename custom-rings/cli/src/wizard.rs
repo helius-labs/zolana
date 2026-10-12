@@ -329,6 +329,7 @@ impl Wizard<'_> {
             prover,
             ring_rpc,
             ring_rpc_pubkey,
+            prover_tee: None,
         })
     }
 
@@ -738,6 +739,7 @@ pub(crate) mod tests {
             prover: "http://127.0.0.1:3001".to_owned(),
             ring_rpc: "http://127.0.0.1:8785".to_owned(),
             ring_rpc_pubkey: None,
+            prover_tee: None,
         }
     }
 

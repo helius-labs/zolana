@@ -609,7 +609,7 @@ impl Context {
     }
 
     pub fn prover(&self) -> ProverClient {
-        ProverClient::new(self.config.urls().prover.clone())
+        self.config.urls().prover_client()
     }
 
     /// `unpinned` applies only when ring.toml pins no service key.
