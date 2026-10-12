@@ -56,9 +56,6 @@ func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*co
 	return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", circuit))
 }
 
-// request proves the transfer and merge circuits through the request package,
-// the path the local provers share, so a body proves the same statement here
-// and on a device.
 func (p circuitProver) request(payload []byte) (*common.Proof, *Error) {
 	finishParameters := p.trace.Start("parameters")
 	req, err := request.Parse(payload)

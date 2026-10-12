@@ -19,13 +19,9 @@ import (
 	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
-// requestFixture is the 2x2 transfer_confidential /prove body the request
-// package's tests and the local provers' demos prove.
 const requestFixture = "../../../prover/request/testdata/transfer-2x2.json"
 
-// TestRequestFixture regenerates the fixture from these helpers, a
-// deterministic satisfying witness, and fails when the committed copy differs.
-// After a circuit change, rewrite it:
+// TestRequestFixture fails when the committed 2x2 request is stale. Rewrite it:
 //
 //	UPDATE_REQUEST_FIXTURE=1 go test ./circuits/spp_transaction/shared -run TestRequestFixture
 func TestRequestFixture(t *testing.T) {

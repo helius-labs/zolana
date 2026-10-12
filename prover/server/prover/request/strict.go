@@ -13,13 +13,10 @@ import (
 	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
-// MaxBodyBytes bounds a body ParseStrict reads; the largest merge is under 1 MiB.
 const MaxBodyBytes = 8 << 20
 
-// ParseStrict is Parse for a prover built against one client release. The body
-// must spell out exactly its circuit's fields, each once and with a value,
-// since an absent value would otherwise prove as zero; its shape must be one
-// the circuit supports, and its key one that exists.
+// ParseStrict is Parse that also requires exactly the circuit's fields, each
+// once and non-empty, a supported shape and an existing key.
 func ParseStrict(body []byte) (*Request, error) {
 	if len(body) > MaxBodyBytes {
 		return nil, fmt.Errorf("%w: body exceeds %d bytes", ErrMalformed, MaxBodyBytes)
@@ -60,8 +57,7 @@ func ParseStrict(body []byte) (*Request, error) {
 	return request, nil
 }
 
-// exactly reads one JSON value of type expected: every struct field present
-// once and no other, strings non-empty, numbers unsigned 32-bit integers.
+// exactly reads one JSON value matching expected.
 func exactly(decoder *json.Decoder, expected reflect.Type, depth int) error {
 	if depth > 32 {
 		return fmt.Errorf("nested too deeply")
@@ -138,8 +134,8 @@ func exactly(decoder *json.Decoder, expected reflect.Type, depth int) error {
 	return nil
 }
 
-// jsonFields maps each JSON key of a struct to its type, promoting the fields
-// of an untagged embedded struct as encoding/json does.
+// jsonFields maps a struct's JSON keys to their types, promoting untagged
+// embedded structs as encoding/json does.
 func jsonFields(expected reflect.Type, fields map[string]reflect.Type) {
 	for index := 0; index < expected.NumField(); index++ {
 		field := expected.Field(index)

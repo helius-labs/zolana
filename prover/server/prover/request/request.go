@@ -1,7 +1,5 @@
-// Package request decodes and proves the body of a /prove request for the
-// transfer and merge circuits. The prover server and the local provers built
-// on this module (the browser and mobile SDKs) all prove through it, so a body
-// one of them accepts proves the same statement on the others.
+// Package request decodes and proves /prove bodies for the transfer and merge
+// circuits.
 package request
 
 import (
@@ -22,12 +20,9 @@ import (
 )
 
 var (
-	// ErrMalformed wraps every failure to decode or validate a body.
-	ErrMalformed = errors.New("malformed proof request")
-	// ErrUnsupported is a circuit or shape this package does not prove.
+	ErrMalformed   = errors.New("malformed proof request")
 	ErrUnsupported = errors.New("unsupported proof request")
-	// ErrSystem is a proving system loaded for another circuit or shape.
-	ErrSystem = errors.New("proving system does not match the request")
+	ErrSystem      = errors.New("proving system does not match the request")
 )
 
 type parameters interface {
@@ -35,22 +30,18 @@ type parameters interface {
 	CreateWitness() (frontend.Circuit, error)
 }
 
-// Request is a decoded /prove body and the proving key it names.
+// Request is a decoded /prove body and the proving key it needs.
 type Request struct {
 	Circuit common.CircuitType
 	Inputs  uint32
 	Outputs uint32
-	// KeyFile is the proving key file the body needs, as proving-keys.lock
-	// names it, or empty when the shape has none.
+	// KeyFile is empty when no key exists for the shape.
 	KeyFile string
 	params  parameters
 }
 
-// Parse decodes body for the transfer and merge circuits and names its key.
-// It accepts what the prover server has always accepted: unknown fields are
-// ignored, an absent value decodes as zero, and a transfer's shape is checked
-// when it is proved. Every value must be a canonical BN254 field element.
-// Local provers, which are built for one SDK release, use ParseStrict.
+// Parse decodes body leniently: unknown fields are ignored and absent values
+// decode as zero. Values must be canonical field elements.
 func Parse(body []byte) (*Request, error) {
 	var envelope struct {
 		CircuitType common.CircuitType `json:"circuitType"`
@@ -71,8 +62,7 @@ func Parse(body []byte) (*Request, error) {
 		if err := json.Unmarshal(body, params); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 		}
-		// A merge carries no shape field: the input count is its shape, so it
-		// is checked before the key is named from it.
+		// The input count is the merge's shape and selects its key.
 		if err := params.ValidateShape(); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 		}
@@ -87,9 +77,8 @@ func Parse(body []byte) (*Request, error) {
 	return request, nil
 }
 
-// canonical reports whether every big.Int reachable from value is in
-// [0, BN254 scalar field modulus). gnark reduces larger values silently,
-// which would prove a statement other than the one the body spells out.
+// canonical reports whether every big.Int in value is below the BN254 scalar
+// field modulus; gnark would otherwise reduce it silently.
 func canonical(value reflect.Value) bool {
 	if value.Type() == reflect.TypeOf((*big.Int)(nil)) {
 		if value.IsNil() {
@@ -117,16 +106,18 @@ func canonical(value reflect.Value) bool {
 	return true
 }
 
-// Prover runs Groth16 on the assignment assign builds. The prover server
-// passes its backend, which can prove on a GPU; a local prover passes its own.
+// Prover runs Groth16 on the assignment assign builds.
 type Prover func(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error)
 
-// Prove proves r with system, which must be the system r.KeyFile names, and
-// reports the system's proving-key digest on the proof. A nil prove runs
-// gnark's CPU prover; the server passes its backend.
+// Prove proves r with system and reports the system's proving-key digest on
+// the proof. A nil prove runs gnark's CPU prover.
 func (r *Request) Prove(system *common.TransferProofSystem, prove Prover) (*common.Proof, error) {
-	if system == nil || system.CircuitType != r.Circuit || system.NInputs != r.Inputs || system.NOutputs != r.Outputs {
+	if system == nil {
 		return nil, ErrSystem
+	}
+	if system.CircuitType != r.Circuit || system.NInputs != r.Inputs || system.NOutputs != r.Outputs {
+		return nil, fmt.Errorf("%w: %s %dx%d system for a %s %dx%d request", ErrSystem,
+			system.CircuitType, system.NInputs, system.NOutputs, r.Circuit, r.Inputs, r.Outputs)
 	}
 	if prove == nil {
 		prove = cpuProve
@@ -138,7 +129,7 @@ func (r *Request) Prove(system *common.TransferProofSystem, prove Prover) (*comm
 	return &common.Proof{Proof: proof, ProvingKeySha256: system.ProvingKeySha256}, nil
 }
 
-// Verify checks proof against r's public inputs with system's verifying key.
+// Verify checks proof against r's public inputs.
 func (r *Request) Verify(system *common.TransferProofSystem, proof *common.Proof) error {
 	if system == nil || proof == nil || proof.Proof == nil {
 		return ErrSystem

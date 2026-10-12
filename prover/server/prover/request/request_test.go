@@ -20,8 +20,6 @@ import (
 	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
-// fixture is the 2x2 transfer_confidential body the shared circuit tests
-// regenerate (TestRequestFixture).
 func fixture(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile("testdata/transfer-2x2.json")
@@ -46,7 +44,6 @@ func TestParseNamesTheKey(t *testing.T) {
 	}
 }
 
-// The server keeps accepting what it always has; only ParseStrict tightens it.
 func TestParseKeepsTheServerContract(t *testing.T) {
 	body := fixture(t)
 	for name, input := range map[string]string{
@@ -60,8 +57,6 @@ func TestParseKeepsTheServerContract(t *testing.T) {
 			t.Fatalf("ParseStrict accepted %s: %v", name, err)
 		}
 	}
-	// A shape without a key is named empty and left to the caller, as the
-	// server's admission and key manager report it.
 	unsupported := strings.Replace(strings.Replace(body, `"nInputs":2`, `"nInputs":7`, 1), `"nOutputs":2`, `"nOutputs":7`, 1)
 	request, err := Parse([]byte(unsupported))
 	if err != nil || request.KeyFile != "" {
@@ -113,7 +108,6 @@ func TestParseStrictRejectsAdversarialInput(t *testing.T) {
 	}
 }
 
-// Every field of the schema, at every depth, is required by ParseStrict.
 func TestParseStrictRequiresEveryField(t *testing.T) {
 	var object map[string]any
 	if err := json.Unmarshal([]byte(fixture(t)), &object); err != nil {
