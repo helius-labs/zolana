@@ -5,10 +5,15 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/consensys/gnark/backend/groth16"
+	"github.com/consensys/gnark/constraint"
+	"github.com/consensys/gnark/frontend"
+
+	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
-	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	nullifiertree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
+	"github.com/helius-labs/zolana/prover/server/prover/request"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
 	transfereddsaonly "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
@@ -41,32 +46,38 @@ func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*co
 		return p.batchAddressAppend(payload)
 	case common.TransferConfidentialCircuitType,
 		common.TransferRingCircuitType,
-		common.TransferRingAuthorityCircuitType:
-		return p.transfer(payload)
+		common.TransferRingAuthorityCircuitType,
+		common.MergeCircuitType,
+		common.MergeRingCircuitType:
+		return p.request(payload)
 	case common.TransferP256RingCircuitType:
 		return p.p256Transfer(payload)
-	case common.MergeCircuitType, common.MergeRingCircuitType:
-		return p.merge(circuit, payload)
 	}
 	return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", circuit))
 }
 
-func (p circuitProver) transfer(payload []byte) (*common.Proof, *Error) {
-	var params transfereddsaonly.TransferParameters
-	if failure := p.decode(payload, &params); failure != nil {
-		return nil, failure
+// request proves the transfer and merge circuits through the request package,
+// the path the local provers share, so a body proves the same statement here
+// and on a device.
+func (p circuitProver) request(payload []byte) (*common.Proof, *Error) {
+	finishParameters := p.trace.Start("parameters")
+	req, err := request.Parse(payload)
+	finishParameters()
+	if err != nil {
+		return nil, malformedBodyError(err)
 	}
-	circuit := params.Variant.CircuitType()
-	if failure := p.admission.admit(common.TransferKeyFile(circuit, params.NInputs, params.NOutputs)); failure != nil {
+	if failure := p.admission.admit(req.KeyFile); failure != nil {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetTransferSystem(circuit, params.NInputs, params.NOutputs)
+	ps, err := p.keys.GetTransferSystem(req.Circuit, req.Inputs, req.Outputs)
 	finishKeys()
 	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
+		return nil, provingError(fmt.Errorf("%s: %w", req.Circuit, err))
 	}
-	return proved(transfereddsaonly.TransferProof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
+	return proved(req.Prove(ps, func(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {
+		return backend.ProveAssignment(p.trace, ccs, pk, assign)
+	}))
 }
 
 func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
@@ -84,29 +95,6 @@ func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
 		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
 	}
 	return proved(transfereddsaonly.P256Proof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
-}
-
-func (p circuitProver) merge(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {
-	var params mergeprover.MergeParameters
-	if failure := p.decode(payload, &params); failure != nil {
-		return nil, failure
-	}
-	// Merge parameters carry no shape field; the declared input count is the
-	// shape. Validate it before a key lookup so an unsupported count fails as a
-	// bad request rather than a missing key.
-	if err := params.ValidateShape(); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	if failure := p.admission.admit(common.TransferKeyFile(circuit, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)); failure != nil {
-		return nil, failure
-	}
-	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetTransferSystem(circuit, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("%s: %w", circuit, err))
-	}
-	return proved(mergeprover.MergeProof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
 }
 
 func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {

@@ -7,17 +7,7 @@ import (
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	"github.com/helius-labs/zolana/prover/server/prover/timing"
-
-	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/prover/backend"
 )
-
-type MergeProof struct {
-	System     *common.TransferProofSystem
-	Parameters *MergeParameters
-	Timing     *timing.Trace
-}
 
 // ValidateShape checks the parameter arity is a supported merge shape, and the
 // Merkle path heights and tree slot layout are right, before witness
@@ -50,31 +40,4 @@ func (p *MergeParameters) ValidateShape() error {
 		return fmt.Errorf("merge: outputTreeId is required")
 	}
 	return nil
-}
-
-func (request MergeProof) Prove() (*common.Proof, error) {
-	ps, params := request.System, request.Parameters
-	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
-		if err := params.ValidateShape(); err != nil {
-			return nil, err
-		}
-		// The witness is allocated from the parameter count, so a proof system for
-		// another shape would only surface as gnark's opaque witness-size error.
-		if got := uint32(len(params.Inputs)); got != ps.NInputs {
-			return nil, fmt.Errorf(
-				"merge: proof system is %d-in but the request has %d inputs",
-				ps.NInputs,
-				got,
-			)
-		}
-		assignment, err := params.CreateWitness()
-		if err != nil {
-			return nil, fmt.Errorf("create merge witness: %w", err)
-		}
-		return assignment, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }
