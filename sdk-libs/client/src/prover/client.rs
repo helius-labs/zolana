@@ -943,6 +943,9 @@ impl AsyncProverClient {
         &self,
         request: ProofRequest<'_>,
     ) -> Result<T, ClientError> {
+        if self.tee.is_none() && !self.endpoint.is_loopback() {
+            return Err(ClientError::Tee(TeeError::NoPolicy));
+        }
         let ProofRequest {
             body,
             delivery,
@@ -1314,6 +1317,28 @@ mod tests {
     use super::*;
     use crate::prover::tee::NitroFixture;
 
+    #[derive(Debug)]
+    struct NoRequests;
+
+    impl BlockingHttpClient for NoRequests {
+        fn send(&self, _request: HttpRequest) -> Result<HttpResponse, ApiError> {
+            panic!("a remote witness reached the HTTP transport")
+        }
+    }
+
+    #[test]
+    fn remote_proof_requires_a_tee_policy_before_http() {
+        let client = ProverClient::with_client("https://prover.example".into(), NoRequests);
+        assert!(matches!(
+            client.send(
+                r#"{"privateWitness":"secret"}"#,
+                Delivery::InResponse,
+                &test_key()
+            ),
+            Err(ClientError::Tee(TeeError::NoPolicy))
+        ));
+    }
+
     #[test]
     fn proxy_urls_require_an_explicit_supported_scheme() {
         for url in [
@@ -1354,8 +1379,8 @@ mod tests {
             assert_paths(
                 &requests,
                 [
-                    "http://prover.invalid:3001/prove/test",
-                    "http://prover.invalid:3001/prove/test/status?jobId=proxy-job",
+                    "http://127.0.0.1:3001/prove/test",
+                    "http://127.0.0.1:3001/prove/test/status?jobId=proxy-job",
                 ],
             );
         }
@@ -1368,7 +1393,7 @@ mod tests {
             .filter(|socks| !socks || cfg!(feature = "socks"))
         {
             let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
-            let client = queued_prover_client("http://prover.invalid:3001")
+            let client = queued_prover_client("http://127.0.0.1:3001")
                 .with_proxy(proxy.url())
                 .unwrap();
             client
@@ -1385,7 +1410,7 @@ mod tests {
             .filter(|socks| !socks || cfg!(feature = "socks"))
         {
             let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
-            let client = async_prover_client("http://prover.invalid:3001")
+            let client = async_prover_client("http://127.0.0.1:3001")
                 .with_proxy(proxy.url())
                 .unwrap();
             client
@@ -2549,56 +2574,32 @@ mod tests {
     }
 
     /// The Helius gateway routes proofs only to the key-less `/prove` and
-    /// `/prove/status`, and has no indexed route.
+    /// `/prove/status`, and refuses a plaintext proof before transport.
     #[test]
     fn the_helius_gateway_gets_key_less_paths_and_client_proof_data() {
-        let server = MockServer::respond_with(vec![
-            MockResponse::json(429, json!({ "code": "prover_busy" })),
-            MockResponse::json(202, json!({ "jobId": "gateway-job" })),
-            MockResponse::json(
-                200,
-                json!({ "status": "completed", "result": { "proof": gnark_proof() } }),
-            ),
-        ]);
-        let address: std::net::SocketAddr = server
-            .url()
-            .trim_start_matches("http://")
-            .parse()
-            .expect("mock server address");
-        let http = reqwest::blocking::Client::builder()
-            .resolve("beta-devnet.helius-rpc.com", address)
-            .build()
-            .expect("client");
-        let gateway = ProverClient::with_client(
-            format!(
-                "http://beta-devnet.helius-rpc.com:{}/v1/zolana?api-key=secret",
-                address.port()
-            ),
-            http,
-        )
-        .with_async_poll_config(AsyncPollConfig {
-            poll_interval_secs: 1,
-            max_wait_secs: 1,
-        });
-        assert_eq!(gateway.proof_data_source(), ProofDataSource::Client);
-        gateway
-            .send("{}", Delivery::InResponse, &test_key())
-            .expect("the gateway proves on its key-less path");
-        assert_paths(
-            &server.requests(),
-            [
-                "/v1/zolana/prove?api-key=secret",
-                "/v1/zolana/prove?api-key=secret",
-                "/v1/zolana/prove/status?api-key=secret&jobId=gateway-job",
-            ],
+        let url = "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=secret";
+        let endpoint = ProverEndpoint::parse(url);
+        assert_eq!(
+            ProofRoute::Complete
+                .url(&endpoint, &test_key())
+                .unwrap()
+                .as_str(),
+            "https://beta-devnet.helius-rpc.com/v1/zolana/prove?api-key=secret"
         );
+        assert_eq!(
+            endpoint.status_url(&test_key(), "gateway-job").unwrap().as_str(),
+            "https://beta-devnet.helius-rpc.com/v1/zolana/prove/status?api-key=secret&jobId=gateway-job"
+        );
+        let gateway = ProverClient::with_client(url.into(), NoRequests);
+        assert_eq!(gateway.proof_data_source(), ProofDataSource::Client);
+        assert!(matches!(
+            gateway.send("{}", Delivery::InResponse, &test_key()),
+            Err(ClientError::Tee(TeeError::NoPolicy))
+        ));
 
-        let (request, _) = indexed_fixture();
-        let refused = ProverClient::new("https://beta-devnet.helius-rpc.com/v1/zolana".into())
-            .with_proof_data_source(ProofDataSource::Prover)
-            .prove_indexed(&request);
+        let refused = ProofRoute::Indexed.url(&endpoint, &test_key());
         let Err(ClientError::Prover(message)) = refused else {
-            panic!("the gateway refuses an indexed proof before sending it");
+            panic!("the gateway has no indexed proof route");
         };
         assert!(message.contains("no indexed prove route"), "{message}");
         assert_eq!(

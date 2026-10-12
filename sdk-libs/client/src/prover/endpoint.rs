@@ -1,6 +1,6 @@
 //! Prover URLs, and keeping a gateway `api-key` out of printed ones.
 
-use url::Url;
+use url::{Host, Url};
 
 use crate::{
     error::ClientError,
@@ -27,6 +27,20 @@ impl ProverEndpoint {
         Self {
             base: Url::parse(url).ok(),
         }
+    }
+
+    /// Plain witness traffic is permitted only to a prover on this host.
+    /// Any other address needs an attested encryption policy before proving.
+    pub(crate) fn is_loopback(&self) -> bool {
+        self.base.as_ref().is_some_and(|url| match url.host() {
+            Some(Host::Domain(host)) => {
+                let host = host.trim_end_matches('.');
+                host == "localhost" || host.ends_with(".localhost")
+            }
+            Some(Host::Ipv4(address)) => address.is_loopback(),
+            Some(Host::Ipv6(address)) => address.is_loopback(),
+            None => false,
+        })
     }
 
     /// Whether this is the Helius gateway's zolana namespace on a
@@ -144,6 +158,26 @@ mod tests {
 
     fn url(base: &str, path: &str) -> String {
         ProverEndpoint::parse(base).url(path).unwrap().into()
+    }
+
+    #[test]
+    fn plaintext_proving_is_local_only() {
+        for url in [
+            "http://localhost:3001",
+            "https://node.localhost:3001",
+            "http://127.0.0.2:3001",
+            "http://[::1]:3001",
+        ] {
+            assert!(ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
+        for url in [
+            "https://prover.example",
+            "https://localhost.example",
+            "http://10.0.0.1:3001",
+            "not a url",
+        ] {
+            assert!(!ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
     }
 
     #[test]

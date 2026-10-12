@@ -7,6 +7,10 @@ prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
 path. A Nitro Enclave prover can be held to one encryption key.
 
+Breaking
+
+- `ZolanaClient` refuses to send proofs to a non-loopback prover without `proverTee` → pass an attestation policy for the remote deployment or use a loopback prover for local development.
+
 Added
 
 - `AwsNitroPolicy.hpkePublicKey` optionally pins the prover's encryption key, and

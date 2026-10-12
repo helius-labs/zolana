@@ -9,7 +9,11 @@ JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana
 | `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
 | any prover route, encrypted | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
 
-The prover serves a request without `Zolana-Tee` in plaintext, so the TEE requirement is the client's choice.
+In TEE mode the prover rejects proof requests without `Zolana-Tee` before reading
+their bodies. The attestation, health, readiness, gateway auth probe and public
+proving-key digest routes are the only plaintext exceptions. A remote SDK client
+requires an attestation policy before sending a proof. A local non-TEE prover can
+still accept plaintext on loopback.
 The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/zolana` gateway prefix.
 
 ## Attestation
@@ -136,6 +140,7 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 | 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
 | 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
 | 400 | `tee_version_unsupported` | `Zolana-Tee` names another version |
+| 400 | `tee_required` | a non-public route on a TEE prover has no `Zolana-Tee` header; its body is not read |
 | 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Zolana-Tee-Enc` or GET `Zolana-Tee-Ciphertext`, a `Zolana-Tee-Enc` not of 32 bytes, or a body over the size cap |
 | 400 | `tee_decryption_failed` | the encrypted request does not decrypt under the held key |
 

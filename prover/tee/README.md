@@ -30,9 +30,14 @@ In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncPr
 `ProverClient::attest` returns the verified `AttestedProver` on demand.
 The `zolana` commands that prove take `--prover-tee`, or `ZOLANA_PROVER_TEE`, and `zolana vks check --prover-url <url> --prover-tee` attests a prover before it checks its proving keys.
 In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.
-Without a policy the clients send plaintext requests, which the server still accepts.
+Remote prover clients require a TEE policy before submitting a proof. A loopback
+prover can still be used without one for local development. A server started with
+`--tee` rejects plaintext proof requests before reading the body. Its attestation,
+health, readiness, gateway auth probe and public proving-key digest routes remain
+available without encryption.
 
-The SDK pins no default deployment, so TEE stays opt-in.
+The SDK pins no default deployment. Callers must supply a policy for a remote
+prover; local loopback proving remains available without one.
 `deployments/nitro-c7a.json` pins the running prover, an AWS Nitro c7a.24xlarge enclave at `https://d3psb33kf6y5qv.cloudfront.net`.
 Load a pin with `TeePolicy::from_file_json` in Rust or `teePolicyFromJson(pin.deployment)` in TypeScript, and give the client the prover URL with its `api-key` query parameter.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
@@ -103,4 +108,4 @@ The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prov
 - Phala's `deploy` defaults to public logs. A log line holding a request body is then readable by anyone, so the script passes `--no-public-logs`.
 - With public logs off, Phala serves no container logs to the owner either. Reading a fault takes a redeploy with `--public-logs`, and a release with logs off afterwards.
 - A prover URL without `api-key` fails attestation, because the attestation route sits behind the prover API key like the proof routes.
-- A client built without a policy sends plaintext to the same prover and sees no error. Set the policy where the client is built, not per call.
+- A remote client without a policy refuses to submit a proof. Set the policy where the client is built, not per call. A TEE prover also rejects plaintext proof requests from older clients; its HTTP gateway may already have received their bodies, so update clients before directing them to a TEE deployment.

@@ -47,7 +47,12 @@ import {
   sleep,
   type ComposedSignal,
 } from "../internal.js";
-import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
+import {
+  TransportFailure,
+  checkedFetch,
+  isLoopbackHost,
+  readBoundedJson,
+} from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
 import type { TeePolicy } from "./tee/registry.js";
@@ -439,6 +444,11 @@ export class ProverClient {
     key: ExpectedProvingKey,
     context?: RequestContext,
   ): Promise<unknown> {
+    if (this.#tee === undefined && !isLoopbackHost(this.#url.hostname)) {
+      throw new ClientError("CLIENT_PROVER_TEE_ATTESTATION", {
+        details: { check: "policy_required" },
+      });
+    }
     if (route === "indexed" && this.#keyless) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }
@@ -525,10 +535,7 @@ export class ProverClient {
    * On the Helius gateway, `/prove`, where the prover reads the key from the body.
    */
   #keyUrl(key: ExpectedProvingKey): URL {
-    const url = new URL(this.#url);
-    if (this.#keyless) return url;
-    url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
-    return url;
+    return proofKeyUrl(this.#url, key, this.#keyless);
   }
 
   async #poll(
@@ -626,6 +633,13 @@ export class ProverClient {
       }
     }
   }
+}
+
+/** The proving key path, or the gateway's key-less path, with its query intact. */
+export function proofKeyUrl(base: URL, key: ExpectedProvingKey, keyless: boolean): URL {
+  const url = new URL(base);
+  if (!keyless) url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+  return url;
 }
 
 type ProverKeyStatus = Readonly<{
