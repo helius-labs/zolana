@@ -53,12 +53,12 @@ theorem CheckPolynomial_48_hf7042422_sound (hl : LookupSound RangeCheck 11) (es 
     (h : CheckPolynomial_48_hf7042422 L) : cert_hf7042422.exprValue (values es) ≡ 0 [ZMOD cert_hf7042422.m] :=
   assertZero_instance_sound basis cert_hf7042422 basis_sound cert_hf7042422_sound rfl hl es hb hxs (CheckPolynomial_48_hf7042422_mirror L h)
 
-theorem Lazy_24_h0f279e18_mirror (L : List.Vector F 24) (k : List.Vector F 8 → Prop) (h : Lazy_24_h0f279e18 L k) :
-    Lazy.circuit basis lazy_h0f279e18 [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]] (fun o => ∃ v : List.Vector F 8, o = v.toList ∧ k v) := by
-  delta Lazy_24_h0f279e18 at h
+theorem Lazy_24_h0b39a3e2_mirror (L : List.Vector F 24) (k : List.Vector F 8 → Prop) (h : Lazy_24_h0b39a3e2 L k) :
+    Lazy.circuit basis lazy_h0b39a3e2 [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]] (fun o => ∃ v : List.Vector F 8, o = v.toList ∧ k v) := by
+  delta Lazy_24_h0b39a3e2 at h
   elim_gates h
   let env : ℕ → F := fun i => [(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24)), (L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24)), (L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))].getD i 0
-  show Lazy.circuit basis lazy_h0f279e18 [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] _
+  show Lazy.circuit basis lazy_h0b39a3e2 [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] _
   rw [show [[(L.get (0 : Fin 24)), (L.get (1 : Fin 24)), (L.get (2 : Fin 24)), (L.get (3 : Fin 24)), (L.get (4 : Fin 24)), (L.get (5 : Fin 24)), (L.get (6 : Fin 24)), (L.get (7 : Fin 24))], [(L.get (8 : Fin 24)), (L.get (9 : Fin 24)), (L.get (10 : Fin 24)), (L.get (11 : Fin 24)), (L.get (12 : Fin 24)), (L.get (13 : Fin 24)), (L.get (14 : Fin 24)), (L.get (15 : Fin 24))], [(L.get (16 : Fin 24)), (L.get (17 : Fin 24)), (L.get (18 : Fin 24)), (L.get (19 : Fin 24)), (L.get (20 : Fin 24)), (L.get (21 : Fin 24)), (L.get (22 : Fin 24)), (L.get (23 : Fin 24))]] = ([[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15], [16, 17, 18, 19, 20, 21, 22, 23]] : List (List ℕ)).map (fun is => is.map env) from rfl,
     ← evalLE_atoms env]
   refine ⟨_, ?_, h⟩
@@ -66,9 +66,9 @@ theorem Lazy_24_h0f279e18_mirror (L : List.Vector F 24) (k : List.Vector F 8 →
   simp only [limbCount, List.range, List.range.loop, List.map]
   refine List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, List.cons_eq_cons.mpr ⟨by ex_refl, rfl⟩⟩⟩⟩⟩⟩⟩⟩
 
-theorem Lazy_24_h0f279e18_sound (es : List (Σ w, ElemVal w)) (hb : ElemsMatch es lazy_h0f279e18.elems)
+theorem Lazy_24_h0b39a3e2_sound (es : List (Σ w, ElemVal w)) (hb : ElemsMatch es lazy_h0b39a3e2.elems)
     (L : List.Vector F 24) (hxs : limbLists es = [[L.get 0, L.get 1, L.get 2, L.get 3, L.get 4, L.get 5, L.get 6, L.get 7], [L.get 8, L.get 9, L.get 10, L.get 11, L.get 12, L.get 13, L.get 14, L.get 15], [L.get 16, L.get 17, L.get 18, L.get 19, L.get 20, L.get 21, L.get 22, L.get 23]])
-    {k : List.Vector F 8 → Prop} (h : Lazy_24_h0f279e18 L k) : LazySound lazy_h0f279e18 es k :=
-  lazy_instance_sound basis lazy_h0f279e18 basis_sound lazy_h0f279e18_sound es hb hxs (Lazy_24_h0f279e18_mirror L k h)
+    {k : List.Vector F 8 → Prop} (h : Lazy_24_h0b39a3e2 L k) : LazySound lazy_h0b39a3e2 es k :=
+  lazy_instance_sound basis lazy_h0b39a3e2 basis_sound lazy_h0b39a3e2_sound es hb hxs (Lazy_24_h0b39a3e2_mirror L k h)
 
 end ZolanaVE

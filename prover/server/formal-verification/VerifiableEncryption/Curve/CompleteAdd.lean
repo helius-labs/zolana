@@ -1,5 +1,6 @@
 import VerifiableEncryption.Curve.QuadStep
 import VerifiableEncryption.Curve.LadderAux
+import VerifiableEncryption.Curve.BitElem
 
 /-!
 `completeAdd`: addition or doubling of two points, rejecting inverse points.
@@ -8,23 +9,6 @@ import VerifiableEncryption.Curve.LadderAux
 namespace ZolanaVE.P256
 
 open ZolanaVE.Field ZolanaVE.EmcurveChecks
-
-/-- A boolean native value as a one-limb element. -/
-def bitElem (b : Bool) : ElemVal 1 where
-  limbs := (if b then 1 else 0) ::ᵥ List.Vector.nil
-  ints := (if b then 1 else 0) ::ᵥ List.Vector.nil
-  lo := 0 ::ᵥ List.Vector.nil
-  hi := 1 ::ᵥ List.Vector.nil
-  vlo := 0
-  vhi := 1
-  h_cast := by intro i; fin_cases i; cases b <;> simp
-  h_lo := by intro i; fin_cases i; cases b <;> simp
-  h_hi := by intro i; fin_cases i; cases b <;> simp
-  h_vlo := by cases b <;> simp [recompose, evalAt_cons]
-  h_vhi := by cases b <;> simp [recompose, evalAt_cons]
-
-theorem bitElem_value (b : Bool) : (bitElem b).value = if b then 1 else 0 := by
-  cases b <;> simp [bitElem, ElemVal.value, recompose, evalAt_cons]
 
 theorem completeAdd_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hQX : QX.bnd = reducedC) (hQY : QY.bnd = reducedC)

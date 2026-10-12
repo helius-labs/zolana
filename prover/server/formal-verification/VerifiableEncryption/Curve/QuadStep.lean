@@ -1,9 +1,7 @@
 import VerifiableEncryption.Curve.AddStep
 import VerifiableEncryption.Curve.QuadAdd
-import VerifiableEncryption.Field.Instances2
-import VerifiableEncryption.Field.Instances3
-import VerifiableEncryption.Field.Instances4
-import VerifiableEncryption.Field.Instances5
+import VerifiableEncryption.Curve.BitElem
+import VerifiableEncryption.Field.AllInstances
 
 /-!
 The extracted `QuadrupleAndAddLazy` step gadgets.
@@ -39,9 +37,10 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hee995b41 ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
-        slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∧
         ∃ dX dY μ ν iX : Fp, QuadAddCons (AX.value : Fp) (AY.value : Fp) (SX.value : Fp) (SY.value : Fp)
-          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) := by
+          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
+          (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∨
+            LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ) := by
   unfold QuadrupleAndAddLazy_8_8_8_8_h320f0a4e QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p1
     QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 at h
   elim_gates h
@@ -87,17 +86,33 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
   set M := mkElem _ _ (bal_fits hl hp2) with hM
   have hMb : M.bnd = balC := rfl
   set XD := linElem [(1, SX), (-1, DX)] with hXD
-  obtain ⟨hc3, hds, h⟩ := h
+  obtain ⟨hc3, guardZero, hzero, hc5, h⟩ := h
   have c3 := CheckPolynomial_32_hdaa6ee4a_sound hl [⟨8, M⟩, ⟨8, XD⟩, ⟨8, SY⟩, ⟨8, DY⟩]
     (elemsMatch_of (by
       show [M.bnd, XD.bnd, SY.bnd, DY.bnd] = _
       rw [hXD, linElem_bnd]; simp only [List.map]; rw [hSX, hDXb, hSY, hDYb]; rfl))
     _ (by limbs_tac [hM, hXD]) hc3
-  have gs := assertDistinctSlope_sound (Λ := L) (o := hs) (by
-    convert hds using 2
-    apply List.Vector.toList_injective
-    limbs_tac [hL])
-  clear hds
+  change GatesDef.is_zero _ guardZero at hzero
+  have hzeroNative : GatesDef.is_zero
+      (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs)) guardZero := by
+    have hv : ((L.value : ℤ) : F) = 0 + L.limbs.get 0 * 1 + L.limbs.get 1 * 4294967296 +
+        L.limbs.get 2 * K_390 + L.limbs.get 3 * K_391 + L.limbs.get 4 * K_392 +
+        L.limbs.get 5 * K_393 + L.limbs.get 6 * K_394 + L.limbs.get 7 * K_395 := by
+      rw [value_cast]; ring
+    rw [hv]
+    unfold slopeFactor
+    rw [← K_1176_eq]
+    convert hzero using 1 <;> limbs_tac [hL]
+  obtain ⟨b, hb, hnativeNonzero⟩ := isZero_bit hzeroNative
+  set YS := linElem [(1, DY), (1, SY)] with hYS
+  set XS := linElem [(1, DX), (1, SX)] with hXS
+  have c5 := CheckPolynomial_49_ha68a8775_sound hl
+    [⟨1, bitElem b⟩, ⟨8, M⟩, ⟨8, YS⟩, ⟨8, XS⟩, ⟨8, DX⟩, ⟨8, SX⟩, ⟨8, aElem⟩]
+    (elemsMatch_of (by
+      show [(bitElem b).bnd, M.bnd, YS.bnd, XS.bnd, DX.bnd, SX.bnd, aElem.bnd] = _
+      rw [hYS, hXS, linElem_bnd, linElem_bnd]; simp only [List.map]
+      rw [hDYb, hSY, hDXb, hSX]; rfl))
+    _ (by limbs_tac [hM, hYS, hXS, bitElem, ← hb, aElem, aLimbs]) hc5
   obtain ⟨IX, hIXlo, hIXhi, hIXvlo, hIXvhi, h, vIX⟩ :=
     Lazy_24_hdbbbc800_sound [⟨8, M⟩, ⟨8, DX⟩, ⟨8, SX⟩]
       (elemsMatch_of (by show [M.bnd, DX.bnd, SX.bnd] = _; rw [hDXb, hSX]; rfl))
@@ -146,7 +161,7 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
       _ (by limbs_tac [hMN, hOXD, hM, hN, hXD]) h
   have hOYb := lazy_bnd hOYlo hOYhi hOYvlo hOYvhi
   clear hOYlo hOYhi hOYvlo hOYvhi
-  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, gs, DX.value, DY.value, M.value, N.value,
+  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, DX.value, DY.value, M.value, N.value,
     IX.value, ?_⟩
   have e1 : cert_h6485b116.exprValue (values [⟨8, L⟩, ⟨8, AY⟩, ⟨8, AX⟩, ⟨8, aElem⟩]) =
       2 * (L.value * AY.value) - 3 * (AX.value * AX.value) - aElem.value := by
@@ -202,9 +217,29 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
   rw [vMN, vOXD] at vOY
   push_cast at c1 vDX vDY c3 vIX c4 vOX vOY
   rw [va] at c1
-  exact ⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
+  refine ⟨⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
     by linear_combination c3, by linear_combination vIX, by linear_combination c4,
-    by linear_combination vOX, by linear_combination vOY⟩
+    by linear_combination vOX, by linear_combination vOY⟩, ?_⟩
+  cases b with
+  | false => exact Or.inl (hnativeNonzero rfl)
+  | true =>
+    apply Or.inr
+    have ef : cert_ha68a8775.exprValue
+        (values [⟨1, bitElem true⟩, ⟨8, M⟩, ⟨8, YS⟩, ⟨8, XS⟩,
+          ⟨8, DX⟩, ⟨8, SX⟩, ⟨8, aElem⟩]) =
+        M.value * YS.value - XS.value * XS.value + DX.value * SX.value - aElem.value := by
+      simp [PolyShape.exprValue, values, cert_ha68a8775, bitElem_value]; ring
+    have mf : (cert_ha68a8775.m : ℤ) = p := rfl
+    rw [ef, mf, modEq_p_iff] at c5
+    have vYS : YS.value = DY.value + SY.value := by
+      rw [hYS, linElem_value]; simp; try ring
+    have vXS : XS.value = DX.value + SX.value := by
+      rw [hXS, linElem_value]; simp; try ring
+    rw [vYS, vXS] at c5
+    push_cast at c5
+    rw [va] at c5
+    unfold LastSlope
+    linear_combination c5
 
 theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = reducedC) (hAY : AY.bnd = reducedC)
@@ -214,9 +249,10 @@ theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_h57fc266d ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
-        slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∧
         ∃ dX dY μ ν iX : Fp, QuadAddCons (AX.value : Fp) (AY.value : Fp) (SX.value : Fp) (SY.value : Fp)
-          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) := by
+          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
+          (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∨
+            LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ) := by
   unfold QuadrupleAndAddLazy_8_8_8_8_he10e6061 QuadrupleAndAddLazy_8_8_8_8_he10e6061_p1
     QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2 at h
   elim_gates h
@@ -262,17 +298,33 @@ theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
   set M := mkElem _ _ (bal_fits hl hp2) with hM
   have hMb : M.bnd = balC := rfl
   set XD := linElem [(1, SX), (-1, DX)] with hXD
-  obtain ⟨hc3, hds, h⟩ := h
+  obtain ⟨hc3, guardZero, hzero, hc5, h⟩ := h
   have c3 := CheckPolynomial_32_hf71c5652_sound hl [⟨8, M⟩, ⟨8, XD⟩, ⟨8, SY⟩, ⟨8, DY⟩]
     (elemsMatch_of (by
       show [M.bnd, XD.bnd, SY.bnd, DY.bnd] = _
       rw [hXD, linElem_bnd]; simp only [List.map]; rw [hSX, hDXb, hSY, hDYb]; rfl))
     _ (by limbs_tac [hM, hXD]) hc3
-  have gs := assertDistinctSlope_sound (Λ := L) (o := hs) (by
-    convert hds using 2
-    apply List.Vector.toList_injective
-    limbs_tac [hL])
-  clear hds
+  change GatesDef.is_zero _ guardZero at hzero
+  have hzeroNative : GatesDef.is_zero
+      (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs)) guardZero := by
+    have hv : ((L.value : ℤ) : F) = 0 + L.limbs.get 0 * 1 + L.limbs.get 1 * 4294967296 +
+        L.limbs.get 2 * K_390 + L.limbs.get 3 * K_391 + L.limbs.get 4 * K_392 +
+        L.limbs.get 5 * K_393 + L.limbs.get 6 * K_394 + L.limbs.get 7 * K_395 := by
+      rw [value_cast]; ring
+    rw [hv]
+    unfold slopeFactor
+    rw [← K_1176_eq]
+    convert hzero using 1 <;> limbs_tac [hL]
+  obtain ⟨b, hb, hnativeNonzero⟩ := isZero_bit hzeroNative
+  set YS := linElem [(1, DY), (1, SY)] with hYS
+  set XS := linElem [(1, DX), (1, SX)] with hXS
+  have c5 := CheckPolynomial_49_h8696e642_sound hl
+    [⟨1, bitElem b⟩, ⟨8, M⟩, ⟨8, YS⟩, ⟨8, XS⟩, ⟨8, DX⟩, ⟨8, SX⟩, ⟨8, aElem⟩]
+    (elemsMatch_of (by
+      show [(bitElem b).bnd, M.bnd, YS.bnd, XS.bnd, DX.bnd, SX.bnd, aElem.bnd] = _
+      rw [hYS, hXS, linElem_bnd, linElem_bnd]; simp only [List.map]
+      rw [hDYb, hSY, hDXb, hSX]; rfl))
+    _ (by limbs_tac [hM, hYS, hXS, bitElem, ← hb, aElem, aLimbs]) hc5
   obtain ⟨IX, hIXlo, hIXhi, hIXvlo, hIXvhi, h, vIX⟩ :=
     Lazy_24_h33616364_sound [⟨8, M⟩, ⟨8, DX⟩, ⟨8, SX⟩]
       (elemsMatch_of (by show [M.bnd, DX.bnd, SX.bnd] = _; rw [hDXb, hSX]; rfl))
@@ -321,7 +373,7 @@ theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
       _ (by limbs_tac [hMN, hOXD, hM, hN, hXD]) h
   have hOYb := lazy_bnd hOYlo hOYhi hOYvlo hOYvhi
   clear hOYlo hOYhi hOYvlo hOYvhi
-  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, gs, DX.value, DY.value, M.value, N.value,
+  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, DX.value, DY.value, M.value, N.value,
     IX.value, ?_⟩
   have e1 : cert_h35a4bc86.exprValue (values [⟨8, L⟩, ⟨8, AY⟩, ⟨8, AX⟩, ⟨8, aElem⟩]) =
       2 * (L.value * AY.value) - 3 * (AX.value * AX.value) - aElem.value := by
@@ -377,9 +429,29 @@ theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
   rw [vMN, vOXD] at vOY
   push_cast at c1 vDX vDY c3 vIX c4 vOX vOY
   rw [va] at c1
-  exact ⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
+  refine ⟨⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
     by linear_combination c3, by linear_combination vIX, by linear_combination c4,
-    by linear_combination vOX, by linear_combination vOY⟩
+    by linear_combination vOX, by linear_combination vOY⟩, ?_⟩
+  cases b with
+  | false => exact Or.inl (hnativeNonzero rfl)
+  | true =>
+    apply Or.inr
+    have ef : cert_h8696e642.exprValue
+        (values [⟨1, bitElem true⟩, ⟨8, M⟩, ⟨8, YS⟩, ⟨8, XS⟩,
+          ⟨8, DX⟩, ⟨8, SX⟩, ⟨8, aElem⟩]) =
+        M.value * YS.value - XS.value * XS.value + DX.value * SX.value - aElem.value := by
+      simp [PolyShape.exprValue, values, cert_h8696e642, bitElem_value]; ring
+    have mf : (cert_h8696e642.m : ℤ) = p := rfl
+    rw [ef, mf, modEq_p_iff] at c5
+    have vYS : YS.value = DY.value + SY.value := by
+      rw [hYS, linElem_value]; simp; try ring
+    have vXS : XS.value = DX.value + SX.value := by
+      rw [hXS, linElem_value]; simp; try ring
+    rw [vYS, vXS] at c5
+    push_cast at c5
+    rw [va] at c5
+    unfold LastSlope
+    linear_combination c5
 
 theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_h57fc266d)
@@ -389,9 +461,10 @@ theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hee995b41 ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
-        slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∧
         ∃ dX dY μ ν iX : Fp, QuadAddCons (AX.value : Fp) (AY.value : Fp) (SX.value : Fp) (SY.value : Fp)
-          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) := by
+          (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
+          (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∨
+            LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ) := by
   unfold QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p1
     QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2 at h
   elim_gates h
@@ -437,17 +510,33 @@ theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
   set M := mkElem _ _ (bal_fits hl hp2) with hM
   have hMb : M.bnd = balC := rfl
   set XD := linElem [(1, SX), (-1, DX)] with hXD
-  obtain ⟨hc3, hds, h⟩ := h
+  obtain ⟨hc3, guardZero, hzero, hc5, h⟩ := h
   have c3 := CheckPolynomial_32_h63304ca5_sound hl [⟨8, M⟩, ⟨8, XD⟩, ⟨8, SY⟩, ⟨8, DY⟩]
     (elemsMatch_of (by
       show [M.bnd, XD.bnd, SY.bnd, DY.bnd] = _
       rw [hXD, linElem_bnd]; simp only [List.map]; rw [hSX, hDXb, hSY, hDYb]; rfl))
     _ (by limbs_tac [hM, hXD]) hc3
-  have gs := assertDistinctSlope_sound (Λ := L) (o := hs) (by
-    convert hds using 2
-    apply List.Vector.toList_injective
-    limbs_tac [hL])
-  clear hds
+  change GatesDef.is_zero _ guardZero at hzero
+  have hzeroNative : GatesDef.is_zero
+      (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs)) guardZero := by
+    have hv : ((L.value : ℤ) : F) = 0 + L.limbs.get 0 * 1 + L.limbs.get 1 * 4294967296 +
+        L.limbs.get 2 * K_390 + L.limbs.get 3 * K_391 + L.limbs.get 4 * K_392 +
+        L.limbs.get 5 * K_393 + L.limbs.get 6 * K_394 + L.limbs.get 7 * K_395 := by
+      rw [value_cast]; ring
+    rw [hv]
+    unfold slopeFactor
+    rw [← K_1176_eq]
+    convert hzero using 1 <;> limbs_tac [hL]
+  obtain ⟨b, hb, hnativeNonzero⟩ := isZero_bit hzeroNative
+  set YS := linElem [(1, DY), (1, SY)] with hYS
+  set XS := linElem [(1, DX), (1, SX)] with hXS
+  have c5 := CheckPolynomial_49_h9104a5ae_sound hl
+    [⟨1, bitElem b⟩, ⟨8, M⟩, ⟨8, YS⟩, ⟨8, XS⟩, ⟨8, DX⟩, ⟨8, SX⟩, ⟨8, aElem⟩]
+    (elemsMatch_of (by
+      show [(bitElem b).bnd, M.bnd, YS.bnd, XS.bnd, DX.bnd, SX.bnd, aElem.bnd] = _
+      rw [hYS, hXS, linElem_bnd, linElem_bnd]; simp only [List.map]
+      rw [hDYb, hSY, hDXb, hSX]; rfl))
+    _ (by limbs_tac [hM, hYS, hXS, bitElem, ← hb, aElem, aLimbs]) hc5
   obtain ⟨IX, hIXlo, hIXhi, hIXvlo, hIXvhi, h, vIX⟩ :=
     Lazy_24_hdbbbc800_sound [⟨8, M⟩, ⟨8, DX⟩, ⟨8, SX⟩]
       (elemsMatch_of (by show [M.bnd, DX.bnd, SX.bnd] = _; rw [hDXb, hSX]; rfl))
@@ -496,7 +585,7 @@ theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
       _ (by limbs_tac [hMN, hOXD, hM, hN, hXD]) h
   have hOYb := lazy_bnd hOYlo hOYhi hOYvlo hOYvhi
   clear hOYlo hOYhi hOYvlo hOYvhi
-  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, gs, DX.value, DY.value, M.value, N.value,
+  refine ⟨OX, OY, hOXb, hOYb, by convert h using 2, L, hLb, DX.value, DY.value, M.value, N.value,
     IX.value, ?_⟩
   have e1 : cert_hcedf35dc.exprValue (values [⟨8, L⟩, ⟨8, AY⟩, ⟨8, AX⟩, ⟨8, aElem⟩]) =
       2 * (L.value * AY.value) - 3 * (AX.value * AX.value) - aElem.value := by
@@ -552,9 +641,29 @@ theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
   rw [vMN, vOXD] at vOY
   push_cast at c1 vDX vDY c3 vIX c4 vOX vOY
   rw [va] at c1
-  exact ⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
+  refine ⟨⟨by linear_combination c1, by linear_combination vDX, by linear_combination vDY,
     by linear_combination c3, by linear_combination vIX, by linear_combination c4,
-    by linear_combination vOX, by linear_combination vOY⟩
+    by linear_combination vOX, by linear_combination vOY⟩, ?_⟩
+  cases b with
+  | false => exact Or.inl (hnativeNonzero rfl)
+  | true =>
+    apply Or.inr
+    have ef : cert_h9104a5ae.exprValue
+        (values [⟨1, bitElem true⟩, ⟨8, M⟩, ⟨8, YS⟩, ⟨8, XS⟩,
+          ⟨8, DX⟩, ⟨8, SX⟩, ⟨8, aElem⟩]) =
+        M.value * YS.value - XS.value * XS.value + DX.value * SX.value - aElem.value := by
+      simp [PolyShape.exprValue, values, cert_h9104a5ae, bitElem_value]; ring
+    have mf : (cert_h9104a5ae.m : ℤ) = p := rfl
+    rw [ef, mf, modEq_p_iff] at c5
+    have vYS : YS.value = DY.value + SY.value := by
+      rw [hYS, linElem_value]; simp; try ring
+    have vXS : XS.value = DX.value + SX.value := by
+      rw [hXS, linElem_value]; simp; try ring
+    rw [vYS, vXS] at c5
+    push_cast at c5
+    rw [va] at c5
+    unfold LastSlope
+    linear_combination c5
 
 theorem quadAdd_h4e58d4bc_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_hee995b41)

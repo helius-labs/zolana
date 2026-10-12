@@ -152,7 +152,19 @@ func (c *curve) quadrupleAndAddLazyConstrained(accumulator, selectedPoint *point
 	chordSlope := c.hintSlope(p256ImplicitChordHint, 1, nil, tangentSlope, accumulator.X, doubledX, accumulator.Y, selectedPoint.X, selectedPoint.Y)[0]
 	fp.AssertZero(T(1, chordSlope, xDifference), T(-1, selectedPoint.Y), T(1, doubledY))
 	if halfSlope != nil {
-		c.assertDistinctSlope(tangentSlope, halfSlope)
+		// The native product can vanish for different P-256 slopes. In that
+		// case constrain the full P-256 chord equation instead of rejecting
+		// the valid point. IsZero fixes the branch; it is not a hint choice.
+		nativeProduct := c.nativeSlopeDifferenceProduct(tangentSlope, halfSlope)
+		guardZero := c.api.IsZero(nativeProduct)
+		guard := fp.Bounded([]frontend.Variable{guardZero}, []int{1})
+		xSum := fp.Add(doubledX, selectedPoint.X)
+		fp.AssertZero(
+			T(1, guard, chordSlope, fp.Add(doubledY, selectedPoint.Y)),
+			T(-1, guard, xSum, xSum),
+			T(1, guard, doubledX, selectedPoint.X),
+			T(-1, guard, c.a),
+		)
 	} else {
 		xSum := fp.Add(doubledX, selectedPoint.X)
 		fp.AssertZero(T(1, chordSlope, fp.Add(doubledY, selectedPoint.Y)), T(-1, xSum, xSum), T(1, doubledX, selectedPoint.X), T(-1, c.a))
@@ -308,7 +320,7 @@ func (c *curve) halfTangentSlopeConstrained(t *point) *fpElement {
 	return lambda
 }
 
-func (c *curve) assertDistinctSlopeConstrained(lambda *fpElement, other frontend.Variable) {
+func (c *curve) nativeSlopeDifferenceProduct(lambda *fpElement, other frontend.Variable) frontend.Variable {
 	api := c.api
 	p := c.fp.Modulus()
 	pp := new(big.Int).Mul(p, p)
@@ -316,7 +328,11 @@ func (c *curve) assertDistinctSlopeConstrained(lambda *fpElement, other frontend
 	factor := func(d frontend.Variable) frontend.Variable {
 		return api.Mul(d, api.Sub(api.Mul(d, d), pp))
 	}
-	api.AssertIsDifferent(api.Mul(factor(api.Sub(value, other)), factor(api.Add(value, other))), 0)
+	return api.Mul(factor(api.Sub(value, other)), factor(api.Add(value, other)))
+}
+
+func (c *curve) assertDistinctSlopeConstrained(lambda *fpElement, other frontend.Variable) {
+	c.api.AssertIsDifferent(c.nativeSlopeDifferenceProduct(lambda, other), 0)
 }
 
 func (c *curve) assertDistinctXConstrained(p, q *fpElement) {

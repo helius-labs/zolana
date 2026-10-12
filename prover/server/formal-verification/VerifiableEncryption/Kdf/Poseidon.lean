@@ -1,10 +1,16 @@
 import VerifiableEncryption.Circuit.Kdf
+import VerifiableEncryption.Kdf.Poseidon.Width3
+import VerifiableEncryption.Kdf.Poseidon.Layers
 import ProvenZk
 
 /-!
 The extracted Poseidon permutations of arity 2, 3, 7 and 8 are functions: each
 round gadget assigns its output uniquely, so `Poseidon_n xs 0 k ↔ k (poseidonₙ xs)`.
 Determinism is all the key schedule needs; no collision resistance is assumed.
+Width-three round assignments below additionally use independent upstream M/P
+parameters and mathematical round semantics. All four public hashes use the
+independent optimized specification and frozen parameters. Their rewrite
+lemmas check the extracted schedules against those independent functions.
 -/
 
 set_option linter.unusedSectionVars false
@@ -24,17 +30,21 @@ macro "round_unique" d:ident : tactic =>
              exact UniqueAssignment.constant _ id))
 
 def fullRound3_ua (S A : List.Vector F 3) :
-    UniqueAssignment (PoseidonFullRound_3_3 S A) id := by
-  round_unique PoseidonFullRound_3_3
+    UniqueAssignment (PoseidonFullRound_3_3 S A) id :=
+  ⟨PoseidonSpecification.fullRound3 S A,
+    fun k => propext (PoseidonSpecification.fullRound3_rw S A k)⟩
 def fullRoundP3_ua (S A : List.Vector F 3) :
-    UniqueAssignment (PoseidonFullRoundP_3_3 S A) id := by
-  round_unique PoseidonFullRoundP_3_3
+    UniqueAssignment (PoseidonFullRoundP_3_3 S A) id :=
+  ⟨PoseidonSpecification.transitionRound3 S A,
+    fun k => propext (PoseidonSpecification.transitionRound3_rw S A k)⟩
 def partialRound3_ua (St : List.Vector F 3) (A : F) (S : List.Vector F 5) :
-    UniqueAssignment (PoseidonPartialRound_3_5 St A S) id := by
-  round_unique PoseidonPartialRound_3_5
+    UniqueAssignment (PoseidonPartialRound_3_5 St A S) id :=
+  ⟨PoseidonSpecification.partialRound3 St A S,
+    fun k => propext (PoseidonSpecification.partialRound3_rw St A S k)⟩
 def finalRound3_ua (S : List.Vector F 3) :
-    UniqueAssignment (PoseidonFinalRound_3 S) id := by
-  round_unique PoseidonFinalRound_3
+    UniqueAssignment (PoseidonFinalRound_3 S) id :=
+  ⟨PoseidonSpecification.finalRound3 S,
+    fun k => propext (PoseidonSpecification.finalRound3_rw S k)⟩
 
 def fullRound4_ua (S A : List.Vector F 4) :
     UniqueAssignment (PoseidonFullRound_4_4 S A) id := by
@@ -120,26 +130,26 @@ def poseidon8_ua (inp : List.Vector F 8) (initState : F) :
   refine UniqueAssignment.compose (finalRound9_ua _) fun _ => ?_
   exact UniqueAssignment.constant' _ _ _ rfl
 
-def poseidon₂ (v : List.Vector F 2) : F := (poseidon2_ua v 0).val
-def poseidon₃ (v : List.Vector F 3) : F := (poseidon3_ua v 0).val
-def poseidon₇ (v : List.Vector F 7) : F := (poseidon7_ua v 0).val
-def poseidon₈ (v : List.Vector F 8) : F := (poseidon8_ua v 0).val
+def poseidon₂ (v : List.Vector F 2) : F := PoseidonSpecification.poseidon2 v
+def poseidon₃ (v : List.Vector F 3) : F := PoseidonSpecification.poseidon3 v
+def poseidon₇ (v : List.Vector F 7) : F := PoseidonSpecification.poseidon7 v
+def poseidon₈ (v : List.Vector F 8) : F := PoseidonSpecification.poseidon8 v
 
 theorem Poseidon_2_rw {v : List.Vector F 2} {k : F → Prop} :
     Poseidon_2 v 0 k ↔ k (poseidon₂ v) :=
-  Iff.of_eq ((poseidon2_ua v 0).equiv k)
+  PoseidonSpecification.Poseidon_2_spec_rw v k
 
 theorem Poseidon_3_rw {v : List.Vector F 3} {k : F → Prop} :
     Poseidon_3 v 0 k ↔ k (poseidon₃ v) :=
-  Iff.of_eq ((poseidon3_ua v 0).equiv k)
+  PoseidonSpecification.Poseidon_3_spec_rw v k
 
 theorem Poseidon_7_rw {v : List.Vector F 7} {k : F → Prop} :
     Poseidon_7 v 0 k ↔ k (poseidon₇ v) :=
-  Iff.of_eq ((poseidon7_ua v 0).equiv k)
+  PoseidonSpecification.Poseidon_7_spec_rw v k
 
 theorem Poseidon_8_rw {v : List.Vector F 8} {k : F → Prop} :
     Poseidon_8 v 0 k ↔ k (poseidon₈ v) :=
-  Iff.of_eq ((poseidon8_ua v 0).equiv k)
+  PoseidonSpecification.Poseidon_8_spec_rw v k
 
 attribute [irreducible] poseidon₂ poseidon₃ poseidon₇ poseidon₈
 

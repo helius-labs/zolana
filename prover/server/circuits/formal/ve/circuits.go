@@ -7,8 +7,8 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	verifiableencryption "zolana/prover/circuits/verifiable-encryption"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
+	verifiableencryption "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/circuits/verifiable-encryption/aes"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve"
@@ -49,6 +49,18 @@ func (c *GuardedAdd) Define(api frontend.API) error {
 		api.AssertIsEqual(rx[i], c.RX[i])
 		api.AssertIsEqual(ry[i], c.RY[i])
 	}
+	return nil
+}
+
+// NativeSlopeGuard keeps the actual standalone guard available to its
+// deterministic implication and concrete rejected-slope certificate.
+type NativeSlopeGuard struct {
+	Lambda [8]frontend.Variable
+	Other  frontend.Variable
+}
+
+func (c *NativeSlopeGuard) Define(api frontend.API) error {
+	emcurve.FormalNativeSlopeGuard(api, c.Lambda[:], c.Other)
 	return nil
 }
 

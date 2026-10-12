@@ -21,8 +21,8 @@ namespace ZolanaVE.Field
 
 theorem order_eq : Order = ZolanaProver.Order := rfl
 
-/-- The extracted circuits use their own copy of the BN254 scalar modulus; its
-primality is the existing `bn254_Fr_prime` assumption. -/
+/-- The extracted circuits use their own copy of the BN254 scalar modulus;
+`bn254_Fr_prime` now refers to recursive Lucas certificate proof source. -/
 instance : Fact (Nat.Prime Order) := ⟨order_eq ▸ bn254_Fr_prime⟩
 
 def limbBase : ℤ := 2 ^ 32

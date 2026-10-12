@@ -1,10 +1,6 @@
 import VerifiableEncryption.Curve.Native
 import VerifiableEncryption.Curve.Steps
-import VerifiableEncryption.Field.Instances
-import VerifiableEncryption.Field.Instances2
-import VerifiableEncryption.Field.Instances3
-import VerifiableEncryption.Field.Instances4
-import VerifiableEncryption.Field.Instances5
+import VerifiableEncryption.Field.AllInstances
 
 /-!
 `curve.add` (incomplete affine addition with hinted result coordinates).

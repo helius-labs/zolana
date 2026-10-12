@@ -1,4 +1,5 @@
 import VerifiableEncryption.Curve.CombBase
+import VerifiableEncryption.Curve.CombConstants
 
 /-!
 Soundness of the extracted fixed-base scalar multiplication `scalarMulBase`.
@@ -8,9 +9,6 @@ namespace ZolanaVE.P256
 
 open ZolanaVE.Field ZolanaVE.EmcurveChecks ZolanaVE.CombLimbs ZolanaVE.P256.Comb
 
-/-- Limbs of `2^256 mod n`, the recoding constant. -/
-def twoPowLimbs (i : Fin 8) : ℤ :=
-  [60611247, 205927741, 1491624315, 1125713234, 0, 0, 4294967295, 0].getD i 0
 
 theorem twoPow_modEq : rec8 twoPowLimbs ≡ 2 ^ 256 [ZMOD n] := by
   unfold Int.ModEq

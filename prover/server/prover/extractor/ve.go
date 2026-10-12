@@ -56,6 +56,7 @@ func extractVE() (map[string]string, error) {
 		ecc.BN254,
 		&ve.FieldMulCheck{},
 		&ve.GuardedAdd{},
+		&ve.NativeSlopeGuard{},
 		&ve.AgreeKey{},
 		&ve.DerivePublicKey{},
 		&ve.AesCtrBlock{},

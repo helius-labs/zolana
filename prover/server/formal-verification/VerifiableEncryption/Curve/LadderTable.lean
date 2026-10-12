@@ -48,16 +48,20 @@ theorem ladder_step_h320f0a4e (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨i, hi, hk⟩ := hr _ _ _ h
   obtain ⟨X, Y, hXY, hs, hq, hXb, hYb, hxl, hyl, hhs, hlt, hqs, hquart, hpt⟩ := ht i
   rw [hxl, hyl, hhs] at hk
-  obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, gs, dX, dY, μ, ν, iX, c⟩ :=
+  obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, dX, dY, μ, ν, iX, c, hguard⟩ :=
     quadAdd_h320f0a4e_sound hl AX AY X Y hAX hAY hXb hYb hk
-  have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
-  have hne' : (L.value : Fp) ≠ (hq : Fp) ∧ (L.value : Fp) ≠ -(hq : Fp) := by
-    rcases hqs with rfl | rfl
-    · exact hne
-    · push_cast; exact ⟨hne.2, by rw [neg_neg]; exact hne.1⟩
-  obtain ⟨hD, hDeq⟩ := tangent_double hA c.tangent c.dx c.dy
-  have hx := step_guard hA (by linear_combination c.tangent) hXY hquart hne' hD hDeq
-  obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c (Or.inl hx)
+  have hstep : dX ≠ (X.value : Fp) ∨ LastSlope (X.value : Fp) (Y.value : Fp) dX dY μ := by
+    rcases hguard with gs | hlast
+    · have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
+      have hne' : (L.value : Fp) ≠ (hq : Fp) ∧ (L.value : Fp) ≠ -(hq : Fp) := by
+        rcases hqs with rfl | rfl
+        · exact hne
+        · push_cast; exact ⟨hne.2, by rw [neg_neg]; exact hne.1⟩
+      obtain ⟨hD, hDeq⟩ := tangent_double hA c.tangent c.dx c.dy
+      have hx := step_guard hA (by linear_combination c.tangent) hXY hquart hne' hD hDeq
+      exact Or.inl hx
+    · exact Or.inr hlast
+  obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c hstep
   exact ⟨i, hi, OX, OY, hOX, hOY, hk', hO, by rw [hOeq, hpt]⟩
 
 theorem ladder_step_he10e6061 (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
@@ -79,16 +83,20 @@ theorem ladder_step_he10e6061 (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨i, hi, hk⟩ := hr _ _ _ h
   obtain ⟨X, Y, hXY, hs, hq, hXb, hYb, hxl, hyl, hhs, hlt, hqs, hquart, hpt⟩ := ht i
   rw [hxl, hyl, hhs] at hk
-  obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, gs, dX, dY, μ, ν, iX, c⟩ :=
+  obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, dX, dY, μ, ν, iX, c, hguard⟩ :=
     quadAdd_he10e6061_sound hl AX AY X Y hAX hAY hXb hYb hk
-  have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
-  have hne' : (L.value : Fp) ≠ (hq : Fp) ∧ (L.value : Fp) ≠ -(hq : Fp) := by
-    rcases hqs with rfl | rfl
-    · exact hne
-    · push_cast; exact ⟨hne.2, by rw [neg_neg]; exact hne.1⟩
-  obtain ⟨hD, hDeq⟩ := tangent_double hA c.tangent c.dx c.dy
-  have hx := step_guard hA (by linear_combination c.tangent) hXY hquart hne' hD hDeq
-  obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c (Or.inl hx)
+  have hstep : dX ≠ (X.value : Fp) ∨ LastSlope (X.value : Fp) (Y.value : Fp) dX dY μ := by
+    rcases hguard with gs | hlast
+    · have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
+      have hne' : (L.value : Fp) ≠ (hq : Fp) ∧ (L.value : Fp) ≠ -(hq : Fp) := by
+        rcases hqs with rfl | rfl
+        · exact hne
+        · push_cast; exact ⟨hne.2, by rw [neg_neg]; exact hne.1⟩
+      obtain ⟨hD, hDeq⟩ := tangent_double hA c.tangent c.dx c.dy
+      have hx := step_guard hA (by linear_combination c.tangent) hXY hquart hne' hD hDeq
+      exact Or.inl hx
+    · exact Or.inr hlast
+  obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c hstep
   exact ⟨i, hi, OX, OY, hOX, hOY, hk', hO, by rw [hOeq, hpt]⟩
 
 theorem ladder_step_h8a920ea3 (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
@@ -110,16 +118,20 @@ theorem ladder_step_h8a920ea3 (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨i, hi, hk⟩ := hr _ _ _ h
   obtain ⟨X, Y, hXY, hs, hq, hXb, hYb, hxl, hyl, hhs, hlt, hqs, hquart, hpt⟩ := ht i
   rw [hxl, hyl, hhs] at hk
-  obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, gs, dX, dY, μ, ν, iX, c⟩ :=
+  obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, dX, dY, μ, ν, iX, c, hguard⟩ :=
     quadAdd_h8a920ea3_sound hl AX AY X Y hAX hAY hXb hYb hk
-  have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
-  have hne' : (L.value : Fp) ≠ (hq : Fp) ∧ (L.value : Fp) ≠ -(hq : Fp) := by
-    rcases hqs with rfl | rfl
-    · exact hne
-    · push_cast; exact ⟨hne.2, by rw [neg_neg]; exact hne.1⟩
-  obtain ⟨hD, hDeq⟩ := tangent_double hA c.tangent c.dx c.dy
-  have hx := step_guard hA (by linear_combination c.tangent) hXY hquart hne' hD hDeq
-  obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c (Or.inl hx)
+  have hstep : dX ≠ (X.value : Fp) ∨ LastSlope (X.value : Fp) (Y.value : Fp) dX dY μ := by
+    rcases hguard with gs | hlast
+    · have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
+      have hne' : (L.value : Fp) ≠ (hq : Fp) ∧ (L.value : Fp) ≠ -(hq : Fp) := by
+        rcases hqs with rfl | rfl
+        · exact hne
+        · push_cast; exact ⟨hne.2, by rw [neg_neg]; exact hne.1⟩
+      obtain ⟨hD, hDeq⟩ := tangent_double hA c.tangent c.dx c.dy
+      have hx := step_guard hA (by linear_combination c.tangent) hXY hquart hne' hD hDeq
+      exact Or.inl hx
+    · exact Or.inr hlast
+  obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c hstep
   exact ⟨i, hi, OX, OY, hOX, hOY, hk', hO, by rw [hOeq, hpt]⟩
 
 theorem unpackC_eq : unpackC = ⟨[-(2 ^ 96 - 1), 0, 0, -(2 ^ 96 - 1), 0, 0, -(2 ^ 64 - 1), 0],

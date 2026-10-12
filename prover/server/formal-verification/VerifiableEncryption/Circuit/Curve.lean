@@ -4,6 +4,7 @@ import VerifiableEncryption.Circuit.Field2
 import VerifiableEncryption.Circuit.Field3
 import VerifiableEncryption.Circuit.Field4
 import VerifiableEncryption.Circuit.Field5
+import VerifiableEncryption.Circuit.Field6
 
 set_option linter.unusedVariables false
 
@@ -414,6 +415,35 @@ def Add_8_8_8_8_hd2848b17 (PX: List.Vector F 8) (PY: List.Vector F 8) (QX: List.
     ∃gate_198, gate_198 = Gates.add gate_182 gate_197 ∧
     ∃gate_199, gate_199 = Gates.mul (PY.get (3 : Fin 8)) (-1:F) ∧
     Add_8_8_8_8_hd2848b17_p1 PX PY QX QY gate_9 gate_18 gate_27 gate_36 gate_45 gate_54 gate_63 gate_72 gate_81 gate_90 gate_99 gate_108 gate_117 gate_126 gate_135 gate_144 gate_162 gate_164 gate_166 gate_168 gate_170 gate_172 gate_174 gate_176 gate_184 gate_186 gate_188 gate_190 gate_192 gate_194 gate_196 gate_198 gate_199 k
+
+def AssertDistinctSlope_8_h16c15a53 (Lambda: List.Vector F 8) (Other: F) : Prop :=
+    ∃gate_0, gate_0 = Gates.mul (Lambda.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_1, gate_1 = Gates.add (0:F) gate_0 ∧
+    ∃gate_2, gate_2 = Gates.mul (Lambda.get (1 : Fin 8)) (4294967296:F) ∧
+    ∃gate_3, gate_3 = Gates.add gate_1 gate_2 ∧
+    ∃gate_4, gate_4 = Gates.mul (Lambda.get (2 : Fin 8)) K_390 ∧
+    ∃gate_5, gate_5 = Gates.add gate_3 gate_4 ∧
+    ∃gate_6, gate_6 = Gates.mul (Lambda.get (3 : Fin 8)) K_391 ∧
+    ∃gate_7, gate_7 = Gates.add gate_5 gate_6 ∧
+    ∃gate_8, gate_8 = Gates.mul (Lambda.get (4 : Fin 8)) K_392 ∧
+    ∃gate_9, gate_9 = Gates.add gate_7 gate_8 ∧
+    ∃gate_10, gate_10 = Gates.mul (Lambda.get (5 : Fin 8)) K_393 ∧
+    ∃gate_11, gate_11 = Gates.add gate_9 gate_10 ∧
+    ∃gate_12, gate_12 = Gates.mul (Lambda.get (6 : Fin 8)) K_394 ∧
+    ∃gate_13, gate_13 = Gates.add gate_11 gate_12 ∧
+    ∃gate_14, gate_14 = Gates.mul (Lambda.get (7 : Fin 8)) K_395 ∧
+    ∃gate_15, gate_15 = Gates.add gate_13 gate_14 ∧
+    ∃gate_16, gate_16 = Gates.sub gate_15 Other ∧
+    ∃gate_17, gate_17 = Gates.mul gate_16 gate_16 ∧
+    ∃gate_18, gate_18 = Gates.sub gate_17 K_1176 ∧
+    ∃gate_19, gate_19 = Gates.mul gate_16 gate_18 ∧
+    ∃gate_20, gate_20 = Gates.add gate_15 Other ∧
+    ∃gate_21, gate_21 = Gates.mul gate_20 gate_20 ∧
+    ∃gate_22, gate_22 = Gates.sub gate_21 K_1176 ∧
+    ∃gate_23, gate_23 = Gates.mul gate_20 gate_22 ∧
+    ∃gate_24, gate_24 = Gates.mul gate_19 gate_23 ∧
+    Gates.ne gate_24 (0:F) ∧
+    True
 
 def AssertOnCurve_8_8_habd58e5e (X: List.Vector F 8) (Y: List.Vector F 8) : Prop :=
     Lazy_8_h2d947ec4 X fun gate_0 =>
@@ -2401,84 +2431,145 @@ def HalfTangentSlope_8_8_habd58e5e (X: List.Vector F 8) (Y: List.Vector F 8) (k:
     CheckPolynomial_40_h0930c075 vec![(gate_82.get (0 : Fin 8)), (gate_82.get (1 : Fin 8)), (gate_82.get (2 : Fin 8)), (gate_82.get (3 : Fin 8)), (gate_82.get (4 : Fin 8)), (gate_82.get (5 : Fin 8)), (gate_82.get (6 : Fin 8)), (gate_82.get (7 : Fin 8)), (X.get (0 : Fin 8)), (X.get (1 : Fin 8)), (X.get (2 : Fin 8)), (X.get (3 : Fin 8)), (X.get (4 : Fin 8)), (X.get (5 : Fin 8)), (X.get (6 : Fin 8)), (X.get (7 : Fin 8)), gate_11, gate_21, gate_31, gate_41, gate_51, gate_61, gate_71, gate_81, (Y.get (0 : Fin 8)), (Y.get (1 : Fin 8)), (Y.get (2 : Fin 8)), (Y.get (3 : Fin 8)), (Y.get (4 : Fin 8)), (Y.get (5 : Fin 8)), (Y.get (6 : Fin 8)), (Y.get (7 : Fin 8)), (4294967292:F), (4294967295:F), (4294967295:F), (0:F), (0:F), (0:F), (1:F), (4294967295:F)] ∧
     k vec![gate_11, gate_21, gate_31, gate_41, gate_51, gate_61, gate_71, gate_81]
 
-def AssertDistinctSlope_8_h16c15a53 (Lambda: List.Vector F 8) (Other: F) : Prop :=
-    ∃gate_0, gate_0 = Gates.mul (Lambda.get (0 : Fin 8)) (1:F) ∧
-    ∃gate_1, gate_1 = Gates.add (0:F) gate_0 ∧
-    ∃gate_2, gate_2 = Gates.mul (Lambda.get (1 : Fin 8)) (4294967296:F) ∧
-    ∃gate_3, gate_3 = Gates.add gate_1 gate_2 ∧
-    ∃gate_4, gate_4 = Gates.mul (Lambda.get (2 : Fin 8)) K_390 ∧
-    ∃gate_5, gate_5 = Gates.add gate_3 gate_4 ∧
-    ∃gate_6, gate_6 = Gates.mul (Lambda.get (3 : Fin 8)) K_391 ∧
-    ∃gate_7, gate_7 = Gates.add gate_5 gate_6 ∧
-    ∃gate_8, gate_8 = Gates.mul (Lambda.get (4 : Fin 8)) K_392 ∧
-    ∃gate_9, gate_9 = Gates.add gate_7 gate_8 ∧
-    ∃gate_10, gate_10 = Gates.mul (Lambda.get (5 : Fin 8)) K_393 ∧
-    ∃gate_11, gate_11 = Gates.add gate_9 gate_10 ∧
-    ∃gate_12, gate_12 = Gates.mul (Lambda.get (6 : Fin 8)) K_394 ∧
-    ∃gate_13, gate_13 = Gates.add gate_11 gate_12 ∧
-    ∃gate_14, gate_14 = Gates.mul (Lambda.get (7 : Fin 8)) K_395 ∧
-    ∃gate_15, gate_15 = Gates.add gate_13 gate_14 ∧
-    ∃gate_16, gate_16 = Gates.sub gate_15 Other ∧
-    ∃gate_17, gate_17 = Gates.mul gate_16 gate_16 ∧
-    ∃gate_18, gate_18 = Gates.sub gate_17 K_1176 ∧
-    ∃gate_19, gate_19 = Gates.mul gate_16 gate_18 ∧
-    ∃gate_20, gate_20 = Gates.add gate_15 Other ∧
-    ∃gate_21, gate_21 = Gates.mul gate_20 gate_20 ∧
-    ∃gate_22, gate_22 = Gates.sub gate_21 K_1176 ∧
-    ∃gate_23, gate_23 = Gates.mul gate_20 gate_22 ∧
-    ∃gate_24, gate_24 = Gates.mul gate_19 gate_23 ∧
-    Gates.ne gate_24 (0:F) ∧
-    True
-
-def QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_83: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_200: F) (gate_210: F) (gate_220: F) (gate_230: F) (gate_255: F) (gate_265: F) (gate_275: F) (gate_285: F) (gate_295: F) (gate_305: F) (gate_315: F) (gate_381: List.Vector F 8) (gate_385: F) (gate_387: F) (gate_389: F) (gate_391: F) (gate_393: F) (gate_395: F) (gate_397: F) (gate_399: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
-    ∃gate_400, gate_400 = Gates.mul gate_255 (1:F) ∧
-    ∃gate_401, gate_401 = Gates.add gate_385 gate_400 ∧
-    ∃gate_402, gate_402 = Gates.mul gate_265 (1:F) ∧
-    ∃gate_403, gate_403 = Gates.add gate_387 gate_402 ∧
-    ∃gate_404, gate_404 = Gates.mul gate_275 (1:F) ∧
-    ∃gate_405, gate_405 = Gates.add gate_389 gate_404 ∧
-    ∃gate_406, gate_406 = Gates.mul gate_285 (1:F) ∧
-    ∃gate_407, gate_407 = Gates.add gate_391 gate_406 ∧
-    ∃gate_408, gate_408 = Gates.mul gate_295 (1:F) ∧
-    ∃gate_409, gate_409 = Gates.add gate_393 gate_408 ∧
-    ∃gate_410, gate_410 = Gates.mul gate_305 (1:F) ∧
-    ∃gate_411, gate_411 = Gates.add gate_395 gate_410 ∧
-    ∃gate_412, gate_412 = Gates.mul gate_315 (1:F) ∧
-    ∃gate_413, gate_413 = Gates.add gate_397 gate_412 ∧
-    ∃gate_414, gate_414 = Gates.mul (gate_381.get (0 : Fin 8)) (1:F) ∧
+def QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_83: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_200: F) (gate_210: F) (gate_220: F) (gate_230: F) (gate_323: List.Vector F 8) (gate_325: List.Vector F 24) (gate_335: F) (gate_345: F) (gate_355: F) (gate_365: F) (gate_375: F) (gate_385: F) (gate_395: F) (gate_398: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
+    ∃gate_400, gate_400 = Gates.mul (gate_325.get (22 : Fin 24)) (2048:F) ∧
+    ∃gate_401, gate_401 = Gates.add gate_398 gate_400 ∧
+    RangeCheck 10 (gate_325.get (23 : Fin 24)) ∧
+    ∃gate_403, gate_403 = Gates.mul (gate_325.get (23 : Fin 24)) (4194304:F) ∧
+    ∃gate_404, gate_404 = Gates.add gate_401 gate_403 ∧
+    ∃gate_405, gate_405 = Gates.sub gate_404 (2147483648:F) ∧
+    ∃gate_406, gate_406 = Gates.mul (gate_323.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_407, gate_407 = Gates.add (0:F) gate_406 ∧
+    ∃gate_408, gate_408 = Gates.mul (gate_323.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_409, gate_409 = Gates.add (0:F) gate_408 ∧
+    ∃gate_410, gate_410 = Gates.mul (gate_323.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_411, gate_411 = Gates.add (0:F) gate_410 ∧
+    ∃gate_412, gate_412 = Gates.mul (gate_323.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_413, gate_413 = Gates.add (0:F) gate_412 ∧
+    ∃gate_414, gate_414 = Gates.mul (gate_323.get (4 : Fin 8)) (1:F) ∧
     ∃gate_415, gate_415 = Gates.add (0:F) gate_414 ∧
-    ∃gate_416, gate_416 = Gates.mul (gate_381.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_416, gate_416 = Gates.mul (gate_323.get (5 : Fin 8)) (1:F) ∧
     ∃gate_417, gate_417 = Gates.add (0:F) gate_416 ∧
-    ∃gate_418, gate_418 = Gates.mul (gate_381.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_418, gate_418 = Gates.mul (gate_323.get (6 : Fin 8)) (1:F) ∧
     ∃gate_419, gate_419 = Gates.add (0:F) gate_418 ∧
-    ∃gate_420, gate_420 = Gates.mul (gate_381.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_420, gate_420 = Gates.mul (gate_323.get (7 : Fin 8)) (1:F) ∧
     ∃gate_421, gate_421 = Gates.add (0:F) gate_420 ∧
-    ∃gate_422, gate_422 = Gates.mul (gate_381.get (4 : Fin 8)) (1:F) ∧
-    ∃gate_423, gate_423 = Gates.add (0:F) gate_422 ∧
-    ∃gate_424, gate_424 = Gates.mul (gate_381.get (5 : Fin 8)) (1:F) ∧
-    ∃gate_425, gate_425 = Gates.add (0:F) gate_424 ∧
-    ∃gate_426, gate_426 = Gates.mul (gate_381.get (6 : Fin 8)) (1:F) ∧
-    ∃gate_427, gate_427 = Gates.add (0:F) gate_426 ∧
-    ∃gate_428, gate_428 = Gates.mul (gate_381.get (7 : Fin 8)) (1:F) ∧
-    ∃gate_429, gate_429 = Gates.add (0:F) gate_428 ∧
-    ∃gate_430, gate_430 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_422, gate_422 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_423, gate_423 = Gates.add gate_407 gate_422 ∧
+    ∃gate_424, gate_424 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_425, gate_425 = Gates.add gate_409 gate_424 ∧
+    ∃gate_426, gate_426 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_427, gate_427 = Gates.add gate_411 gate_426 ∧
+    ∃gate_428, gate_428 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_429, gate_429 = Gates.add gate_413 gate_428 ∧
+    ∃gate_430, gate_430 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
     ∃gate_431, gate_431 = Gates.add gate_415 gate_430 ∧
-    ∃gate_432, gate_432 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_432, gate_432 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
     ∃gate_433, gate_433 = Gates.add gate_417 gate_432 ∧
-    ∃gate_434, gate_434 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_434, gate_434 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
     ∃gate_435, gate_435 = Gates.add gate_419 gate_434 ∧
-    ∃gate_436, gate_436 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_436, gate_436 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
     ∃gate_437, gate_437 = Gates.add gate_421 gate_436 ∧
-    ∃gate_438, gate_438 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
-    ∃gate_439, gate_439 = Gates.add gate_423 gate_438 ∧
-    ∃gate_440, gate_440 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
-    ∃gate_441, gate_441 = Gates.add gate_425 gate_440 ∧
-    ∃gate_442, gate_442 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
-    ∃gate_443, gate_443 = Gates.add gate_427 gate_442 ∧
-    ∃gate_444, gate_444 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
-    ∃gate_445, gate_445 = Gates.add gate_429 gate_444 ∧
-    Lazy_40_h57fc266d vec![gate_399, gate_401, gate_403, gate_405, gate_407, gate_409, gate_411, gate_413, gate_431, gate_433, gate_435, gate_437, gate_439, gate_441, gate_443, gate_445, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] fun gate_446 =>
-    k vec![gate_381, gate_446]
+    CheckPolynomial_40_h78e663c8 vec![gate_335, gate_345, gate_355, gate_365, gate_375, gate_385, gate_395, gate_405, gate_423, gate_425, gate_427, gate_429, gate_431, gate_433, gate_435, gate_437, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] ∧
+    ∃gate_439, gate_439 = Gates.mul gate_335 (1:F) ∧
+    ∃gate_440, gate_440 = Gates.add (0:F) gate_439 ∧
+    ∃gate_441, gate_441 = Gates.mul gate_345 (1:F) ∧
+    ∃gate_442, gate_442 = Gates.add (0:F) gate_441 ∧
+    ∃gate_443, gate_443 = Gates.mul gate_355 (1:F) ∧
+    ∃gate_444, gate_444 = Gates.add (0:F) gate_443 ∧
+    ∃gate_445, gate_445 = Gates.mul gate_365 (1:F) ∧
+    ∃gate_446, gate_446 = Gates.add (0:F) gate_445 ∧
+    ∃gate_447, gate_447 = Gates.mul gate_375 (1:F) ∧
+    ∃gate_448, gate_448 = Gates.add (0:F) gate_447 ∧
+    ∃gate_449, gate_449 = Gates.mul gate_385 (1:F) ∧
+    ∃gate_450, gate_450 = Gates.add (0:F) gate_449 ∧
+    ∃gate_451, gate_451 = Gates.mul gate_395 (1:F) ∧
+    ∃gate_452, gate_452 = Gates.add (0:F) gate_451 ∧
+    ∃gate_453, gate_453 = Gates.mul gate_405 (1:F) ∧
+    ∃gate_454, gate_454 = Gates.add (0:F) gate_453 ∧
+    ∃gate_455, gate_455 = Gates.mul gate_160 (2:F) ∧
+    ∃gate_456, gate_456 = Gates.add gate_440 gate_455 ∧
+    ∃gate_457, gate_457 = Gates.mul gate_170 (2:F) ∧
+    ∃gate_458, gate_458 = Gates.add gate_442 gate_457 ∧
+    ∃gate_459, gate_459 = Gates.mul gate_180 (2:F) ∧
+    ∃gate_460, gate_460 = Gates.add gate_444 gate_459 ∧
+    ∃gate_461, gate_461 = Gates.mul gate_190 (2:F) ∧
+    ∃gate_462, gate_462 = Gates.add gate_446 gate_461 ∧
+    ∃gate_463, gate_463 = Gates.mul gate_200 (2:F) ∧
+    ∃gate_464, gate_464 = Gates.add gate_448 gate_463 ∧
+    ∃gate_465, gate_465 = Gates.mul gate_210 (2:F) ∧
+    ∃gate_466, gate_466 = Gates.add gate_450 gate_465 ∧
+    ∃gate_467, gate_467 = Gates.mul gate_220 (2:F) ∧
+    ∃gate_468, gate_468 = Gates.add gate_452 gate_467 ∧
+    ∃gate_469, gate_469 = Gates.mul gate_230 (2:F) ∧
+    ∃gate_470, gate_470 = Gates.add gate_454 gate_469 ∧
+    Lazy_24_h9c68f146 vec![gate_335, gate_345, gate_355, gate_365, gate_375, gate_385, gate_395, gate_405, gate_456, gate_458, gate_460, gate_462, gate_464, gate_466, gate_468, gate_470, (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_471 =>
+    ∃gate_472, gate_472 = Gates.mul gate_160 (1:F) ∧
+    ∃gate_473, gate_473 = Gates.add (0:F) gate_472 ∧
+    ∃gate_474, gate_474 = Gates.mul gate_170 (1:F) ∧
+    ∃gate_475, gate_475 = Gates.add (0:F) gate_474 ∧
+    ∃gate_476, gate_476 = Gates.mul gate_180 (1:F) ∧
+    ∃gate_477, gate_477 = Gates.add (0:F) gate_476 ∧
+    ∃gate_478, gate_478 = Gates.mul gate_190 (1:F) ∧
+    ∃gate_479, gate_479 = Gates.add (0:F) gate_478 ∧
+    ∃gate_480, gate_480 = Gates.mul gate_200 (1:F) ∧
+    ∃gate_481, gate_481 = Gates.add (0:F) gate_480 ∧
+    ∃gate_482, gate_482 = Gates.mul gate_210 (1:F) ∧
+    ∃gate_483, gate_483 = Gates.add (0:F) gate_482 ∧
+    ∃gate_484, gate_484 = Gates.mul gate_220 (1:F) ∧
+    ∃gate_485, gate_485 = Gates.add (0:F) gate_484 ∧
+    ∃gate_486, gate_486 = Gates.mul gate_230 (1:F) ∧
+    ∃gate_487, gate_487 = Gates.add (0:F) gate_486 ∧
+    ∃gate_488, gate_488 = Gates.mul gate_335 (1:F) ∧
+    ∃gate_489, gate_489 = Gates.add gate_473 gate_488 ∧
+    ∃gate_490, gate_490 = Gates.mul gate_345 (1:F) ∧
+    ∃gate_491, gate_491 = Gates.add gate_475 gate_490 ∧
+    ∃gate_492, gate_492 = Gates.mul gate_355 (1:F) ∧
+    ∃gate_493, gate_493 = Gates.add gate_477 gate_492 ∧
+    ∃gate_494, gate_494 = Gates.mul gate_365 (1:F) ∧
+    ∃gate_495, gate_495 = Gates.add gate_479 gate_494 ∧
+    ∃gate_496, gate_496 = Gates.mul gate_375 (1:F) ∧
+    ∃gate_497, gate_497 = Gates.add gate_481 gate_496 ∧
+    ∃gate_498, gate_498 = Gates.mul gate_385 (1:F) ∧
+    ∃gate_499, gate_499 = Gates.add gate_483 gate_498 ∧
+    ∃gate_500, gate_500 = Gates.mul gate_395 (1:F) ∧
+    ∃gate_501, gate_501 = Gates.add gate_485 gate_500 ∧
+    ∃gate_502, gate_502 = Gates.mul gate_405 (1:F) ∧
+    ∃gate_503, gate_503 = Gates.add gate_487 gate_502 ∧
+    ∃gate_504, gate_504 = Gates.mul (gate_471.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_505, gate_505 = Gates.add (0:F) gate_504 ∧
+    ∃gate_506, gate_506 = Gates.mul (gate_471.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_507, gate_507 = Gates.add (0:F) gate_506 ∧
+    ∃gate_508, gate_508 = Gates.mul (gate_471.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_509, gate_509 = Gates.add (0:F) gate_508 ∧
+    ∃gate_510, gate_510 = Gates.mul (gate_471.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_511, gate_511 = Gates.add (0:F) gate_510 ∧
+    ∃gate_512, gate_512 = Gates.mul (gate_471.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_513, gate_513 = Gates.add (0:F) gate_512 ∧
+    ∃gate_514, gate_514 = Gates.mul (gate_471.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_515, gate_515 = Gates.add (0:F) gate_514 ∧
+    ∃gate_516, gate_516 = Gates.mul (gate_471.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_517, gate_517 = Gates.add (0:F) gate_516 ∧
+    ∃gate_518, gate_518 = Gates.mul (gate_471.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_519, gate_519 = Gates.add (0:F) gate_518 ∧
+    ∃gate_520, gate_520 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_521, gate_521 = Gates.add gate_505 gate_520 ∧
+    ∃gate_522, gate_522 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_523, gate_523 = Gates.add gate_507 gate_522 ∧
+    ∃gate_524, gate_524 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_525, gate_525 = Gates.add gate_509 gate_524 ∧
+    ∃gate_526, gate_526 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_527, gate_527 = Gates.add gate_511 gate_526 ∧
+    ∃gate_528, gate_528 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
+    ∃gate_529, gate_529 = Gates.add gate_513 gate_528 ∧
+    ∃gate_530, gate_530 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
+    ∃gate_531, gate_531 = Gates.add gate_515 gate_530 ∧
+    ∃gate_532, gate_532 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
+    ∃gate_533, gate_533 = Gates.add gate_517 gate_532 ∧
+    ∃gate_534, gate_534 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
+    ∃gate_535, gate_535 = Gates.add gate_519 gate_534 ∧
+    Lazy_40_h57fc266d vec![gate_489, gate_491, gate_493, gate_495, gate_497, gate_499, gate_501, gate_503, gate_521, gate_523, gate_525, gate_527, gate_529, gate_531, gate_533, gate_535, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] fun gate_536 =>
+    k vec![gate_471, gate_536]
 
 def QuadrupleAndAddLazy_8_8_8_8_he10e6061_p1 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_11: F) (gate_21: F) (gate_31: F) (gate_41: F) (gate_51: F) (gate_61: F) (gate_71: F) (gate_81: F) (gate_83: List.Vector F 8) (gate_116: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_150: List.Vector F 24) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_199: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
     ∃gate_200, gate_200 = Gates.sub gate_199 (2147483648:F) ∧
@@ -2513,175 +2604,175 @@ def QuadrupleAndAddLazy_8_8_8_8_he10e6061_p1 (AccX: List.Vector F 8) (AccY: List
     ∃gate_229, gate_229 = Gates.add gate_226 gate_228 ∧
     ∃gate_230, gate_230 = Gates.sub gate_229 (2147483648:F) ∧
     CheckPolynomial_32_hf71c5652 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8)), (gate_116.get (0 : Fin 8)), (gate_116.get (1 : Fin 8)), (gate_116.get (2 : Fin 8)), (gate_116.get (3 : Fin 8)), (gate_116.get (4 : Fin 8)), (gate_116.get (5 : Fin 8)), (gate_116.get (6 : Fin 8)), (gate_116.get (7 : Fin 8))] ∧
-    AssertDistinctSlope_8_h16c15a53 vec![gate_11, gate_21, gate_31, gate_41, gate_51, gate_61, gate_71, gate_81] HalfSlope ∧
-    Lazy_24_h33616364 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_233 =>
-    ∃gate_234 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256ImplicitSecondSlopeHint
-    ∃gate_235 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.BalanceHint
-    RangeCheck 11 (gate_235.get (0 : Fin 24)) ∧
-    ∃gate_237, gate_237 = Gates.mul (gate_235.get (0 : Fin 24)) (1:F) ∧
-    ∃gate_238, gate_238 = Gates.add (0:F) gate_237 ∧
-    RangeCheck 11 (gate_235.get (1 : Fin 24)) ∧
-    ∃gate_240, gate_240 = Gates.mul (gate_235.get (1 : Fin 24)) (2048:F) ∧
-    ∃gate_241, gate_241 = Gates.add gate_238 gate_240 ∧
-    RangeCheck 10 (gate_235.get (2 : Fin 24)) ∧
-    ∃gate_243, gate_243 = Gates.mul (gate_235.get (2 : Fin 24)) (4194304:F) ∧
-    ∃gate_244, gate_244 = Gates.add gate_241 gate_243 ∧
-    ∃gate_245, gate_245 = Gates.sub gate_244 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (3 : Fin 24)) ∧
-    ∃gate_247, gate_247 = Gates.mul (gate_235.get (3 : Fin 24)) (1:F) ∧
-    ∃gate_248, gate_248 = Gates.add (0:F) gate_247 ∧
-    RangeCheck 11 (gate_235.get (4 : Fin 24)) ∧
-    ∃gate_250, gate_250 = Gates.mul (gate_235.get (4 : Fin 24)) (2048:F) ∧
-    ∃gate_251, gate_251 = Gates.add gate_248 gate_250 ∧
-    RangeCheck 10 (gate_235.get (5 : Fin 24)) ∧
-    ∃gate_253, gate_253 = Gates.mul (gate_235.get (5 : Fin 24)) (4194304:F) ∧
-    ∃gate_254, gate_254 = Gates.add gate_251 gate_253 ∧
-    ∃gate_255, gate_255 = Gates.sub gate_254 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (6 : Fin 24)) ∧
-    ∃gate_257, gate_257 = Gates.mul (gate_235.get (6 : Fin 24)) (1:F) ∧
-    ∃gate_258, gate_258 = Gates.add (0:F) gate_257 ∧
-    RangeCheck 11 (gate_235.get (7 : Fin 24)) ∧
-    ∃gate_260, gate_260 = Gates.mul (gate_235.get (7 : Fin 24)) (2048:F) ∧
-    ∃gate_261, gate_261 = Gates.add gate_258 gate_260 ∧
-    RangeCheck 10 (gate_235.get (8 : Fin 24)) ∧
-    ∃gate_263, gate_263 = Gates.mul (gate_235.get (8 : Fin 24)) (4194304:F) ∧
-    ∃gate_264, gate_264 = Gates.add gate_261 gate_263 ∧
-    ∃gate_265, gate_265 = Gates.sub gate_264 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (9 : Fin 24)) ∧
-    ∃gate_267, gate_267 = Gates.mul (gate_235.get (9 : Fin 24)) (1:F) ∧
-    ∃gate_268, gate_268 = Gates.add (0:F) gate_267 ∧
-    RangeCheck 11 (gate_235.get (10 : Fin 24)) ∧
-    ∃gate_270, gate_270 = Gates.mul (gate_235.get (10 : Fin 24)) (2048:F) ∧
-    ∃gate_271, gate_271 = Gates.add gate_268 gate_270 ∧
-    RangeCheck 10 (gate_235.get (11 : Fin 24)) ∧
-    ∃gate_273, gate_273 = Gates.mul (gate_235.get (11 : Fin 24)) (4194304:F) ∧
-    ∃gate_274, gate_274 = Gates.add gate_271 gate_273 ∧
-    ∃gate_275, gate_275 = Gates.sub gate_274 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (12 : Fin 24)) ∧
-    ∃gate_277, gate_277 = Gates.mul (gate_235.get (12 : Fin 24)) (1:F) ∧
-    ∃gate_278, gate_278 = Gates.add (0:F) gate_277 ∧
-    RangeCheck 11 (gate_235.get (13 : Fin 24)) ∧
-    ∃gate_280, gate_280 = Gates.mul (gate_235.get (13 : Fin 24)) (2048:F) ∧
-    ∃gate_281, gate_281 = Gates.add gate_278 gate_280 ∧
-    RangeCheck 10 (gate_235.get (14 : Fin 24)) ∧
-    ∃gate_283, gate_283 = Gates.mul (gate_235.get (14 : Fin 24)) (4194304:F) ∧
-    ∃gate_284, gate_284 = Gates.add gate_281 gate_283 ∧
-    ∃gate_285, gate_285 = Gates.sub gate_284 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (15 : Fin 24)) ∧
-    ∃gate_287, gate_287 = Gates.mul (gate_235.get (15 : Fin 24)) (1:F) ∧
-    ∃gate_288, gate_288 = Gates.add (0:F) gate_287 ∧
-    RangeCheck 11 (gate_235.get (16 : Fin 24)) ∧
-    ∃gate_290, gate_290 = Gates.mul (gate_235.get (16 : Fin 24)) (2048:F) ∧
-    ∃gate_291, gate_291 = Gates.add gate_288 gate_290 ∧
-    RangeCheck 10 (gate_235.get (17 : Fin 24)) ∧
-    ∃gate_293, gate_293 = Gates.mul (gate_235.get (17 : Fin 24)) (4194304:F) ∧
-    ∃gate_294, gate_294 = Gates.add gate_291 gate_293 ∧
-    ∃gate_295, gate_295 = Gates.sub gate_294 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (18 : Fin 24)) ∧
-    ∃gate_297, gate_297 = Gates.mul (gate_235.get (18 : Fin 24)) (1:F) ∧
-    ∃gate_298, gate_298 = Gates.add (0:F) gate_297 ∧
-    RangeCheck 11 (gate_235.get (19 : Fin 24)) ∧
-    ∃gate_300, gate_300 = Gates.mul (gate_235.get (19 : Fin 24)) (2048:F) ∧
-    ∃gate_301, gate_301 = Gates.add gate_298 gate_300 ∧
-    RangeCheck 10 (gate_235.get (20 : Fin 24)) ∧
-    ∃gate_303, gate_303 = Gates.mul (gate_235.get (20 : Fin 24)) (4194304:F) ∧
-    ∃gate_304, gate_304 = Gates.add gate_301 gate_303 ∧
-    ∃gate_305, gate_305 = Gates.sub gate_304 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (21 : Fin 24)) ∧
-    ∃gate_307, gate_307 = Gates.mul (gate_235.get (21 : Fin 24)) (1:F) ∧
-    ∃gate_308, gate_308 = Gates.add (0:F) gate_307 ∧
-    RangeCheck 11 (gate_235.get (22 : Fin 24)) ∧
-    ∃gate_310, gate_310 = Gates.mul (gate_235.get (22 : Fin 24)) (2048:F) ∧
-    ∃gate_311, gate_311 = Gates.add gate_308 gate_310 ∧
-    RangeCheck 10 (gate_235.get (23 : Fin 24)) ∧
-    ∃gate_313, gate_313 = Gates.mul (gate_235.get (23 : Fin 24)) (4194304:F) ∧
-    ∃gate_314, gate_314 = Gates.add gate_311 gate_313 ∧
-    ∃gate_315, gate_315 = Gates.sub gate_314 (2147483648:F) ∧
-    ∃gate_316, gate_316 = Gates.mul (gate_233.get (0 : Fin 8)) (1:F) ∧
-    ∃gate_317, gate_317 = Gates.add (0:F) gate_316 ∧
-    ∃gate_318, gate_318 = Gates.mul (gate_233.get (1 : Fin 8)) (1:F) ∧
-    ∃gate_319, gate_319 = Gates.add (0:F) gate_318 ∧
-    ∃gate_320, gate_320 = Gates.mul (gate_233.get (2 : Fin 8)) (1:F) ∧
-    ∃gate_321, gate_321 = Gates.add (0:F) gate_320 ∧
-    ∃gate_322, gate_322 = Gates.mul (gate_233.get (3 : Fin 8)) (1:F) ∧
-    ∃gate_323, gate_323 = Gates.add (0:F) gate_322 ∧
-    ∃gate_324, gate_324 = Gates.mul (gate_233.get (4 : Fin 8)) (1:F) ∧
-    ∃gate_325, gate_325 = Gates.add (0:F) gate_324 ∧
-    ∃gate_326, gate_326 = Gates.mul (gate_233.get (5 : Fin 8)) (1:F) ∧
-    ∃gate_327, gate_327 = Gates.add (0:F) gate_326 ∧
-    ∃gate_328, gate_328 = Gates.mul (gate_233.get (6 : Fin 8)) (1:F) ∧
-    ∃gate_329, gate_329 = Gates.add (0:F) gate_328 ∧
-    ∃gate_330, gate_330 = Gates.mul (gate_233.get (7 : Fin 8)) (1:F) ∧
-    ∃gate_331, gate_331 = Gates.add (0:F) gate_330 ∧
-    ∃gate_332, gate_332 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
-    ∃gate_333, gate_333 = Gates.add gate_317 gate_332 ∧
-    ∃gate_334, gate_334 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
-    ∃gate_335, gate_335 = Gates.add gate_319 gate_334 ∧
-    ∃gate_336, gate_336 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
-    ∃gate_337, gate_337 = Gates.add gate_321 gate_336 ∧
-    ∃gate_338, gate_338 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
-    ∃gate_339, gate_339 = Gates.add gate_323 gate_338 ∧
-    ∃gate_340, gate_340 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
-    ∃gate_341, gate_341 = Gates.add gate_325 gate_340 ∧
-    ∃gate_342, gate_342 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
-    ∃gate_343, gate_343 = Gates.add gate_327 gate_342 ∧
-    ∃gate_344, gate_344 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
-    ∃gate_345, gate_345 = Gates.add gate_329 gate_344 ∧
-    ∃gate_346, gate_346 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
-    ∃gate_347, gate_347 = Gates.add gate_331 gate_346 ∧
-    CheckPolynomial_40_h78e663c8 vec![gate_245, gate_255, gate_265, gate_275, gate_285, gate_295, gate_305, gate_315, gate_333, gate_335, gate_337, gate_339, gate_341, gate_343, gate_345, gate_347, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] ∧
-    ∃gate_349, gate_349 = Gates.mul gate_245 (1:F) ∧
-    ∃gate_350, gate_350 = Gates.add (0:F) gate_349 ∧
-    ∃gate_351, gate_351 = Gates.mul gate_255 (1:F) ∧
-    ∃gate_352, gate_352 = Gates.add (0:F) gate_351 ∧
-    ∃gate_353, gate_353 = Gates.mul gate_265 (1:F) ∧
-    ∃gate_354, gate_354 = Gates.add (0:F) gate_353 ∧
-    ∃gate_355, gate_355 = Gates.mul gate_275 (1:F) ∧
-    ∃gate_356, gate_356 = Gates.add (0:F) gate_355 ∧
-    ∃gate_357, gate_357 = Gates.mul gate_285 (1:F) ∧
+    ∃gate_232, gate_232 = Gates.mul gate_11 (1:F) ∧
+    ∃gate_233, gate_233 = Gates.add (0:F) gate_232 ∧
+    ∃gate_234, gate_234 = Gates.mul gate_21 (4294967296:F) ∧
+    ∃gate_235, gate_235 = Gates.add gate_233 gate_234 ∧
+    ∃gate_236, gate_236 = Gates.mul gate_31 K_390 ∧
+    ∃gate_237, gate_237 = Gates.add gate_235 gate_236 ∧
+    ∃gate_238, gate_238 = Gates.mul gate_41 K_391 ∧
+    ∃gate_239, gate_239 = Gates.add gate_237 gate_238 ∧
+    ∃gate_240, gate_240 = Gates.mul gate_51 K_392 ∧
+    ∃gate_241, gate_241 = Gates.add gate_239 gate_240 ∧
+    ∃gate_242, gate_242 = Gates.mul gate_61 K_393 ∧
+    ∃gate_243, gate_243 = Gates.add gate_241 gate_242 ∧
+    ∃gate_244, gate_244 = Gates.mul gate_71 K_394 ∧
+    ∃gate_245, gate_245 = Gates.add gate_243 gate_244 ∧
+    ∃gate_246, gate_246 = Gates.mul gate_81 K_395 ∧
+    ∃gate_247, gate_247 = Gates.add gate_245 gate_246 ∧
+    ∃gate_248, gate_248 = Gates.sub gate_247 HalfSlope ∧
+    ∃gate_249, gate_249 = Gates.mul gate_248 gate_248 ∧
+    ∃gate_250, gate_250 = Gates.sub gate_249 K_1176 ∧
+    ∃gate_251, gate_251 = Gates.mul gate_248 gate_250 ∧
+    ∃gate_252, gate_252 = Gates.add gate_247 HalfSlope ∧
+    ∃gate_253, gate_253 = Gates.mul gate_252 gate_252 ∧
+    ∃gate_254, gate_254 = Gates.sub gate_253 K_1176 ∧
+    ∃gate_255, gate_255 = Gates.mul gate_252 gate_254 ∧
+    ∃gate_256, gate_256 = Gates.mul gate_251 gate_255 ∧
+    ∃gate_257, Gates.is_zero gate_256 gate_257 ∧
+    ∃gate_258, gate_258 = Gates.mul (gate_83.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_259, gate_259 = Gates.add (0:F) gate_258 ∧
+    ∃gate_260, gate_260 = Gates.mul (gate_83.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_261, gate_261 = Gates.add (0:F) gate_260 ∧
+    ∃gate_262, gate_262 = Gates.mul (gate_83.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_263, gate_263 = Gates.add (0:F) gate_262 ∧
+    ∃gate_264, gate_264 = Gates.mul (gate_83.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_265, gate_265 = Gates.add (0:F) gate_264 ∧
+    ∃gate_266, gate_266 = Gates.mul (gate_83.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_267, gate_267 = Gates.add (0:F) gate_266 ∧
+    ∃gate_268, gate_268 = Gates.mul (gate_83.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_269, gate_269 = Gates.add (0:F) gate_268 ∧
+    ∃gate_270, gate_270 = Gates.mul (gate_83.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_271, gate_271 = Gates.add (0:F) gate_270 ∧
+    ∃gate_272, gate_272 = Gates.mul (gate_83.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_273, gate_273 = Gates.add (0:F) gate_272 ∧
+    ∃gate_274, gate_274 = Gates.mul (SelectedX.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_275, gate_275 = Gates.add gate_259 gate_274 ∧
+    ∃gate_276, gate_276 = Gates.mul (SelectedX.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_277, gate_277 = Gates.add gate_261 gate_276 ∧
+    ∃gate_278, gate_278 = Gates.mul (SelectedX.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_279, gate_279 = Gates.add gate_263 gate_278 ∧
+    ∃gate_280, gate_280 = Gates.mul (SelectedX.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_281, gate_281 = Gates.add gate_265 gate_280 ∧
+    ∃gate_282, gate_282 = Gates.mul (SelectedX.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_283, gate_283 = Gates.add gate_267 gate_282 ∧
+    ∃gate_284, gate_284 = Gates.mul (SelectedX.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_285, gate_285 = Gates.add gate_269 gate_284 ∧
+    ∃gate_286, gate_286 = Gates.mul (SelectedX.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_287, gate_287 = Gates.add gate_271 gate_286 ∧
+    ∃gate_288, gate_288 = Gates.mul (SelectedX.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_289, gate_289 = Gates.add gate_273 gate_288 ∧
+    ∃gate_290, gate_290 = Gates.mul (gate_116.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_291, gate_291 = Gates.add (0:F) gate_290 ∧
+    ∃gate_292, gate_292 = Gates.mul (gate_116.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_293, gate_293 = Gates.add (0:F) gate_292 ∧
+    ∃gate_294, gate_294 = Gates.mul (gate_116.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_295, gate_295 = Gates.add (0:F) gate_294 ∧
+    ∃gate_296, gate_296 = Gates.mul (gate_116.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_297, gate_297 = Gates.add (0:F) gate_296 ∧
+    ∃gate_298, gate_298 = Gates.mul (gate_116.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_299, gate_299 = Gates.add (0:F) gate_298 ∧
+    ∃gate_300, gate_300 = Gates.mul (gate_116.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_301, gate_301 = Gates.add (0:F) gate_300 ∧
+    ∃gate_302, gate_302 = Gates.mul (gate_116.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_303, gate_303 = Gates.add (0:F) gate_302 ∧
+    ∃gate_304, gate_304 = Gates.mul (gate_116.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_305, gate_305 = Gates.add (0:F) gate_304 ∧
+    ∃gate_306, gate_306 = Gates.mul (SelectedY.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_307, gate_307 = Gates.add gate_291 gate_306 ∧
+    ∃gate_308, gate_308 = Gates.mul (SelectedY.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_309, gate_309 = Gates.add gate_293 gate_308 ∧
+    ∃gate_310, gate_310 = Gates.mul (SelectedY.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_311, gate_311 = Gates.add gate_295 gate_310 ∧
+    ∃gate_312, gate_312 = Gates.mul (SelectedY.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_313, gate_313 = Gates.add gate_297 gate_312 ∧
+    ∃gate_314, gate_314 = Gates.mul (SelectedY.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_315, gate_315 = Gates.add gate_299 gate_314 ∧
+    ∃gate_316, gate_316 = Gates.mul (SelectedY.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_317, gate_317 = Gates.add gate_301 gate_316 ∧
+    ∃gate_318, gate_318 = Gates.mul (SelectedY.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_319, gate_319 = Gates.add gate_303 gate_318 ∧
+    ∃gate_320, gate_320 = Gates.mul (SelectedY.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_321, gate_321 = Gates.add gate_305 gate_320 ∧
+    CheckPolynomial_49_h8696e642 vec![gate_257, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_307, gate_309, gate_311, gate_313, gate_315, gate_317, gate_319, gate_321, gate_275, gate_277, gate_279, gate_281, gate_283, gate_285, gate_287, gate_289, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8)), (4294967292:F), (4294967295:F), (4294967295:F), (0:F), (0:F), (0:F), (1:F), (4294967295:F)] ∧
+    Lazy_24_h33616364 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_323 =>
+    ∃gate_324 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256ImplicitSecondSlopeHint
+    ∃gate_325 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.BalanceHint
+    RangeCheck 11 (gate_325.get (0 : Fin 24)) ∧
+    ∃gate_327, gate_327 = Gates.mul (gate_325.get (0 : Fin 24)) (1:F) ∧
+    ∃gate_328, gate_328 = Gates.add (0:F) gate_327 ∧
+    RangeCheck 11 (gate_325.get (1 : Fin 24)) ∧
+    ∃gate_330, gate_330 = Gates.mul (gate_325.get (1 : Fin 24)) (2048:F) ∧
+    ∃gate_331, gate_331 = Gates.add gate_328 gate_330 ∧
+    RangeCheck 10 (gate_325.get (2 : Fin 24)) ∧
+    ∃gate_333, gate_333 = Gates.mul (gate_325.get (2 : Fin 24)) (4194304:F) ∧
+    ∃gate_334, gate_334 = Gates.add gate_331 gate_333 ∧
+    ∃gate_335, gate_335 = Gates.sub gate_334 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (3 : Fin 24)) ∧
+    ∃gate_337, gate_337 = Gates.mul (gate_325.get (3 : Fin 24)) (1:F) ∧
+    ∃gate_338, gate_338 = Gates.add (0:F) gate_337 ∧
+    RangeCheck 11 (gate_325.get (4 : Fin 24)) ∧
+    ∃gate_340, gate_340 = Gates.mul (gate_325.get (4 : Fin 24)) (2048:F) ∧
+    ∃gate_341, gate_341 = Gates.add gate_338 gate_340 ∧
+    RangeCheck 10 (gate_325.get (5 : Fin 24)) ∧
+    ∃gate_343, gate_343 = Gates.mul (gate_325.get (5 : Fin 24)) (4194304:F) ∧
+    ∃gate_344, gate_344 = Gates.add gate_341 gate_343 ∧
+    ∃gate_345, gate_345 = Gates.sub gate_344 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (6 : Fin 24)) ∧
+    ∃gate_347, gate_347 = Gates.mul (gate_325.get (6 : Fin 24)) (1:F) ∧
+    ∃gate_348, gate_348 = Gates.add (0:F) gate_347 ∧
+    RangeCheck 11 (gate_325.get (7 : Fin 24)) ∧
+    ∃gate_350, gate_350 = Gates.mul (gate_325.get (7 : Fin 24)) (2048:F) ∧
+    ∃gate_351, gate_351 = Gates.add gate_348 gate_350 ∧
+    RangeCheck 10 (gate_325.get (8 : Fin 24)) ∧
+    ∃gate_353, gate_353 = Gates.mul (gate_325.get (8 : Fin 24)) (4194304:F) ∧
+    ∃gate_354, gate_354 = Gates.add gate_351 gate_353 ∧
+    ∃gate_355, gate_355 = Gates.sub gate_354 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (9 : Fin 24)) ∧
+    ∃gate_357, gate_357 = Gates.mul (gate_325.get (9 : Fin 24)) (1:F) ∧
     ∃gate_358, gate_358 = Gates.add (0:F) gate_357 ∧
-    ∃gate_359, gate_359 = Gates.mul gate_295 (1:F) ∧
-    ∃gate_360, gate_360 = Gates.add (0:F) gate_359 ∧
-    ∃gate_361, gate_361 = Gates.mul gate_305 (1:F) ∧
-    ∃gate_362, gate_362 = Gates.add (0:F) gate_361 ∧
-    ∃gate_363, gate_363 = Gates.mul gate_315 (1:F) ∧
-    ∃gate_364, gate_364 = Gates.add (0:F) gate_363 ∧
-    ∃gate_365, gate_365 = Gates.mul gate_160 (2:F) ∧
-    ∃gate_366, gate_366 = Gates.add gate_350 gate_365 ∧
-    ∃gate_367, gate_367 = Gates.mul gate_170 (2:F) ∧
-    ∃gate_368, gate_368 = Gates.add gate_352 gate_367 ∧
-    ∃gate_369, gate_369 = Gates.mul gate_180 (2:F) ∧
-    ∃gate_370, gate_370 = Gates.add gate_354 gate_369 ∧
-    ∃gate_371, gate_371 = Gates.mul gate_190 (2:F) ∧
-    ∃gate_372, gate_372 = Gates.add gate_356 gate_371 ∧
-    ∃gate_373, gate_373 = Gates.mul gate_200 (2:F) ∧
-    ∃gate_374, gate_374 = Gates.add gate_358 gate_373 ∧
-    ∃gate_375, gate_375 = Gates.mul gate_210 (2:F) ∧
-    ∃gate_376, gate_376 = Gates.add gate_360 gate_375 ∧
-    ∃gate_377, gate_377 = Gates.mul gate_220 (2:F) ∧
-    ∃gate_378, gate_378 = Gates.add gate_362 gate_377 ∧
-    ∃gate_379, gate_379 = Gates.mul gate_230 (2:F) ∧
-    ∃gate_380, gate_380 = Gates.add gate_364 gate_379 ∧
-    Lazy_24_h9c68f146 vec![gate_245, gate_255, gate_265, gate_275, gate_285, gate_295, gate_305, gate_315, gate_366, gate_368, gate_370, gate_372, gate_374, gate_376, gate_378, gate_380, (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_381 =>
-    ∃gate_382, gate_382 = Gates.mul gate_160 (1:F) ∧
-    ∃gate_383, gate_383 = Gates.add (0:F) gate_382 ∧
-    ∃gate_384, gate_384 = Gates.mul gate_170 (1:F) ∧
-    ∃gate_385, gate_385 = Gates.add (0:F) gate_384 ∧
-    ∃gate_386, gate_386 = Gates.mul gate_180 (1:F) ∧
-    ∃gate_387, gate_387 = Gates.add (0:F) gate_386 ∧
-    ∃gate_388, gate_388 = Gates.mul gate_190 (1:F) ∧
-    ∃gate_389, gate_389 = Gates.add (0:F) gate_388 ∧
-    ∃gate_390, gate_390 = Gates.mul gate_200 (1:F) ∧
-    ∃gate_391, gate_391 = Gates.add (0:F) gate_390 ∧
-    ∃gate_392, gate_392 = Gates.mul gate_210 (1:F) ∧
-    ∃gate_393, gate_393 = Gates.add (0:F) gate_392 ∧
-    ∃gate_394, gate_394 = Gates.mul gate_220 (1:F) ∧
-    ∃gate_395, gate_395 = Gates.add (0:F) gate_394 ∧
-    ∃gate_396, gate_396 = Gates.mul gate_230 (1:F) ∧
-    ∃gate_397, gate_397 = Gates.add (0:F) gate_396 ∧
-    ∃gate_398, gate_398 = Gates.mul gate_245 (1:F) ∧
-    ∃gate_399, gate_399 = Gates.add gate_383 gate_398 ∧
-    QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2 AccX AccY SelectedX SelectedY HalfSlope gate_83 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_160 gate_170 gate_180 gate_190 gate_200 gate_210 gate_220 gate_230 gate_255 gate_265 gate_275 gate_285 gate_295 gate_305 gate_315 gate_381 gate_385 gate_387 gate_389 gate_391 gate_393 gate_395 gate_397 gate_399 k
+    RangeCheck 11 (gate_325.get (10 : Fin 24)) ∧
+    ∃gate_360, gate_360 = Gates.mul (gate_325.get (10 : Fin 24)) (2048:F) ∧
+    ∃gate_361, gate_361 = Gates.add gate_358 gate_360 ∧
+    RangeCheck 10 (gate_325.get (11 : Fin 24)) ∧
+    ∃gate_363, gate_363 = Gates.mul (gate_325.get (11 : Fin 24)) (4194304:F) ∧
+    ∃gate_364, gate_364 = Gates.add gate_361 gate_363 ∧
+    ∃gate_365, gate_365 = Gates.sub gate_364 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (12 : Fin 24)) ∧
+    ∃gate_367, gate_367 = Gates.mul (gate_325.get (12 : Fin 24)) (1:F) ∧
+    ∃gate_368, gate_368 = Gates.add (0:F) gate_367 ∧
+    RangeCheck 11 (gate_325.get (13 : Fin 24)) ∧
+    ∃gate_370, gate_370 = Gates.mul (gate_325.get (13 : Fin 24)) (2048:F) ∧
+    ∃gate_371, gate_371 = Gates.add gate_368 gate_370 ∧
+    RangeCheck 10 (gate_325.get (14 : Fin 24)) ∧
+    ∃gate_373, gate_373 = Gates.mul (gate_325.get (14 : Fin 24)) (4194304:F) ∧
+    ∃gate_374, gate_374 = Gates.add gate_371 gate_373 ∧
+    ∃gate_375, gate_375 = Gates.sub gate_374 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (15 : Fin 24)) ∧
+    ∃gate_377, gate_377 = Gates.mul (gate_325.get (15 : Fin 24)) (1:F) ∧
+    ∃gate_378, gate_378 = Gates.add (0:F) gate_377 ∧
+    RangeCheck 11 (gate_325.get (16 : Fin 24)) ∧
+    ∃gate_380, gate_380 = Gates.mul (gate_325.get (16 : Fin 24)) (2048:F) ∧
+    ∃gate_381, gate_381 = Gates.add gate_378 gate_380 ∧
+    RangeCheck 10 (gate_325.get (17 : Fin 24)) ∧
+    ∃gate_383, gate_383 = Gates.mul (gate_325.get (17 : Fin 24)) (4194304:F) ∧
+    ∃gate_384, gate_384 = Gates.add gate_381 gate_383 ∧
+    ∃gate_385, gate_385 = Gates.sub gate_384 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (18 : Fin 24)) ∧
+    ∃gate_387, gate_387 = Gates.mul (gate_325.get (18 : Fin 24)) (1:F) ∧
+    ∃gate_388, gate_388 = Gates.add (0:F) gate_387 ∧
+    RangeCheck 11 (gate_325.get (19 : Fin 24)) ∧
+    ∃gate_390, gate_390 = Gates.mul (gate_325.get (19 : Fin 24)) (2048:F) ∧
+    ∃gate_391, gate_391 = Gates.add gate_388 gate_390 ∧
+    RangeCheck 10 (gate_325.get (20 : Fin 24)) ∧
+    ∃gate_393, gate_393 = Gates.mul (gate_325.get (20 : Fin 24)) (4194304:F) ∧
+    ∃gate_394, gate_394 = Gates.add gate_391 gate_393 ∧
+    ∃gate_395, gate_395 = Gates.sub gate_394 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (21 : Fin 24)) ∧
+    ∃gate_397, gate_397 = Gates.mul (gate_325.get (21 : Fin 24)) (1:F) ∧
+    ∃gate_398, gate_398 = Gates.add (0:F) gate_397 ∧
+    RangeCheck 11 (gate_325.get (22 : Fin 24)) ∧
+    QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2 AccX AccY SelectedX SelectedY HalfSlope gate_83 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_160 gate_170 gate_180 gate_190 gate_200 gate_210 gate_220 gate_230 gate_323 gate_325 gate_335 gate_345 gate_355 gate_365 gate_375 gate_385 gate_395 gate_398 k
 
 def QuadrupleAndAddLazy_8_8_8_8_he10e6061 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256TangentHint
@@ -2886,55 +2977,145 @@ def QuadrupleAndAddLazy_8_8_8_8_he10e6061 (AccX: List.Vector F 8) (AccY: List.Ve
     ∃gate_199, gate_199 = Gates.add gate_196 gate_198 ∧
     QuadrupleAndAddLazy_8_8_8_8_he10e6061_p1 AccX AccY SelectedX SelectedY HalfSlope gate_11 gate_21 gate_31 gate_41 gate_51 gate_61 gate_71 gate_81 gate_83 gate_116 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_150 gate_160 gate_170 gate_180 gate_190 gate_199 k
 
-def QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_83: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_200: F) (gate_210: F) (gate_220: F) (gate_230: F) (gate_255: F) (gate_265: F) (gate_275: F) (gate_285: F) (gate_295: F) (gate_305: F) (gate_315: F) (gate_381: List.Vector F 8) (gate_385: F) (gate_387: F) (gate_389: F) (gate_391: F) (gate_393: F) (gate_395: F) (gate_397: F) (gate_399: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
-    ∃gate_400, gate_400 = Gates.mul gate_255 (1:F) ∧
-    ∃gate_401, gate_401 = Gates.add gate_385 gate_400 ∧
-    ∃gate_402, gate_402 = Gates.mul gate_265 (1:F) ∧
-    ∃gate_403, gate_403 = Gates.add gate_387 gate_402 ∧
-    ∃gate_404, gate_404 = Gates.mul gate_275 (1:F) ∧
-    ∃gate_405, gate_405 = Gates.add gate_389 gate_404 ∧
-    ∃gate_406, gate_406 = Gates.mul gate_285 (1:F) ∧
-    ∃gate_407, gate_407 = Gates.add gate_391 gate_406 ∧
-    ∃gate_408, gate_408 = Gates.mul gate_295 (1:F) ∧
-    ∃gate_409, gate_409 = Gates.add gate_393 gate_408 ∧
-    ∃gate_410, gate_410 = Gates.mul gate_305 (1:F) ∧
-    ∃gate_411, gate_411 = Gates.add gate_395 gate_410 ∧
-    ∃gate_412, gate_412 = Gates.mul gate_315 (1:F) ∧
-    ∃gate_413, gate_413 = Gates.add gate_397 gate_412 ∧
-    ∃gate_414, gate_414 = Gates.mul (gate_381.get (0 : Fin 8)) (1:F) ∧
+def QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_83: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_200: F) (gate_210: F) (gate_220: F) (gate_230: F) (gate_323: List.Vector F 8) (gate_325: List.Vector F 24) (gate_335: F) (gate_345: F) (gate_355: F) (gate_365: F) (gate_375: F) (gate_385: F) (gate_395: F) (gate_398: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
+    ∃gate_400, gate_400 = Gates.mul (gate_325.get (22 : Fin 24)) (2048:F) ∧
+    ∃gate_401, gate_401 = Gates.add gate_398 gate_400 ∧
+    RangeCheck 10 (gate_325.get (23 : Fin 24)) ∧
+    ∃gate_403, gate_403 = Gates.mul (gate_325.get (23 : Fin 24)) (4194304:F) ∧
+    ∃gate_404, gate_404 = Gates.add gate_401 gate_403 ∧
+    ∃gate_405, gate_405 = Gates.sub gate_404 (2147483648:F) ∧
+    ∃gate_406, gate_406 = Gates.mul (gate_323.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_407, gate_407 = Gates.add (0:F) gate_406 ∧
+    ∃gate_408, gate_408 = Gates.mul (gate_323.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_409, gate_409 = Gates.add (0:F) gate_408 ∧
+    ∃gate_410, gate_410 = Gates.mul (gate_323.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_411, gate_411 = Gates.add (0:F) gate_410 ∧
+    ∃gate_412, gate_412 = Gates.mul (gate_323.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_413, gate_413 = Gates.add (0:F) gate_412 ∧
+    ∃gate_414, gate_414 = Gates.mul (gate_323.get (4 : Fin 8)) (1:F) ∧
     ∃gate_415, gate_415 = Gates.add (0:F) gate_414 ∧
-    ∃gate_416, gate_416 = Gates.mul (gate_381.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_416, gate_416 = Gates.mul (gate_323.get (5 : Fin 8)) (1:F) ∧
     ∃gate_417, gate_417 = Gates.add (0:F) gate_416 ∧
-    ∃gate_418, gate_418 = Gates.mul (gate_381.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_418, gate_418 = Gates.mul (gate_323.get (6 : Fin 8)) (1:F) ∧
     ∃gate_419, gate_419 = Gates.add (0:F) gate_418 ∧
-    ∃gate_420, gate_420 = Gates.mul (gate_381.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_420, gate_420 = Gates.mul (gate_323.get (7 : Fin 8)) (1:F) ∧
     ∃gate_421, gate_421 = Gates.add (0:F) gate_420 ∧
-    ∃gate_422, gate_422 = Gates.mul (gate_381.get (4 : Fin 8)) (1:F) ∧
-    ∃gate_423, gate_423 = Gates.add (0:F) gate_422 ∧
-    ∃gate_424, gate_424 = Gates.mul (gate_381.get (5 : Fin 8)) (1:F) ∧
-    ∃gate_425, gate_425 = Gates.add (0:F) gate_424 ∧
-    ∃gate_426, gate_426 = Gates.mul (gate_381.get (6 : Fin 8)) (1:F) ∧
-    ∃gate_427, gate_427 = Gates.add (0:F) gate_426 ∧
-    ∃gate_428, gate_428 = Gates.mul (gate_381.get (7 : Fin 8)) (1:F) ∧
-    ∃gate_429, gate_429 = Gates.add (0:F) gate_428 ∧
-    ∃gate_430, gate_430 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_422, gate_422 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_423, gate_423 = Gates.add gate_407 gate_422 ∧
+    ∃gate_424, gate_424 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_425, gate_425 = Gates.add gate_409 gate_424 ∧
+    ∃gate_426, gate_426 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_427, gate_427 = Gates.add gate_411 gate_426 ∧
+    ∃gate_428, gate_428 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_429, gate_429 = Gates.add gate_413 gate_428 ∧
+    ∃gate_430, gate_430 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
     ∃gate_431, gate_431 = Gates.add gate_415 gate_430 ∧
-    ∃gate_432, gate_432 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_432, gate_432 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
     ∃gate_433, gate_433 = Gates.add gate_417 gate_432 ∧
-    ∃gate_434, gate_434 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_434, gate_434 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
     ∃gate_435, gate_435 = Gates.add gate_419 gate_434 ∧
-    ∃gate_436, gate_436 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_436, gate_436 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
     ∃gate_437, gate_437 = Gates.add gate_421 gate_436 ∧
-    ∃gate_438, gate_438 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
-    ∃gate_439, gate_439 = Gates.add gate_423 gate_438 ∧
-    ∃gate_440, gate_440 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
-    ∃gate_441, gate_441 = Gates.add gate_425 gate_440 ∧
-    ∃gate_442, gate_442 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
-    ∃gate_443, gate_443 = Gates.add gate_427 gate_442 ∧
-    ∃gate_444, gate_444 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
-    ∃gate_445, gate_445 = Gates.add gate_429 gate_444 ∧
-    Lazy_40_hee995b41 vec![gate_399, gate_401, gate_403, gate_405, gate_407, gate_409, gate_411, gate_413, gate_431, gate_433, gate_435, gate_437, gate_439, gate_441, gate_443, gate_445, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] fun gate_446 =>
-    k vec![gate_381, gate_446]
+    CheckPolynomial_40_h4960297a vec![gate_335, gate_345, gate_355, gate_365, gate_375, gate_385, gate_395, gate_405, gate_423, gate_425, gate_427, gate_429, gate_431, gate_433, gate_435, gate_437, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] ∧
+    ∃gate_439, gate_439 = Gates.mul gate_335 (1:F) ∧
+    ∃gate_440, gate_440 = Gates.add (0:F) gate_439 ∧
+    ∃gate_441, gate_441 = Gates.mul gate_345 (1:F) ∧
+    ∃gate_442, gate_442 = Gates.add (0:F) gate_441 ∧
+    ∃gate_443, gate_443 = Gates.mul gate_355 (1:F) ∧
+    ∃gate_444, gate_444 = Gates.add (0:F) gate_443 ∧
+    ∃gate_445, gate_445 = Gates.mul gate_365 (1:F) ∧
+    ∃gate_446, gate_446 = Gates.add (0:F) gate_445 ∧
+    ∃gate_447, gate_447 = Gates.mul gate_375 (1:F) ∧
+    ∃gate_448, gate_448 = Gates.add (0:F) gate_447 ∧
+    ∃gate_449, gate_449 = Gates.mul gate_385 (1:F) ∧
+    ∃gate_450, gate_450 = Gates.add (0:F) gate_449 ∧
+    ∃gate_451, gate_451 = Gates.mul gate_395 (1:F) ∧
+    ∃gate_452, gate_452 = Gates.add (0:F) gate_451 ∧
+    ∃gate_453, gate_453 = Gates.mul gate_405 (1:F) ∧
+    ∃gate_454, gate_454 = Gates.add (0:F) gate_453 ∧
+    ∃gate_455, gate_455 = Gates.mul gate_160 (2:F) ∧
+    ∃gate_456, gate_456 = Gates.add gate_440 gate_455 ∧
+    ∃gate_457, gate_457 = Gates.mul gate_170 (2:F) ∧
+    ∃gate_458, gate_458 = Gates.add gate_442 gate_457 ∧
+    ∃gate_459, gate_459 = Gates.mul gate_180 (2:F) ∧
+    ∃gate_460, gate_460 = Gates.add gate_444 gate_459 ∧
+    ∃gate_461, gate_461 = Gates.mul gate_190 (2:F) ∧
+    ∃gate_462, gate_462 = Gates.add gate_446 gate_461 ∧
+    ∃gate_463, gate_463 = Gates.mul gate_200 (2:F) ∧
+    ∃gate_464, gate_464 = Gates.add gate_448 gate_463 ∧
+    ∃gate_465, gate_465 = Gates.mul gate_210 (2:F) ∧
+    ∃gate_466, gate_466 = Gates.add gate_450 gate_465 ∧
+    ∃gate_467, gate_467 = Gates.mul gate_220 (2:F) ∧
+    ∃gate_468, gate_468 = Gates.add gate_452 gate_467 ∧
+    ∃gate_469, gate_469 = Gates.mul gate_230 (2:F) ∧
+    ∃gate_470, gate_470 = Gates.add gate_454 gate_469 ∧
+    Lazy_24_h9c68f146 vec![gate_335, gate_345, gate_355, gate_365, gate_375, gate_385, gate_395, gate_405, gate_456, gate_458, gate_460, gate_462, gate_464, gate_466, gate_468, gate_470, (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_471 =>
+    ∃gate_472, gate_472 = Gates.mul gate_160 (1:F) ∧
+    ∃gate_473, gate_473 = Gates.add (0:F) gate_472 ∧
+    ∃gate_474, gate_474 = Gates.mul gate_170 (1:F) ∧
+    ∃gate_475, gate_475 = Gates.add (0:F) gate_474 ∧
+    ∃gate_476, gate_476 = Gates.mul gate_180 (1:F) ∧
+    ∃gate_477, gate_477 = Gates.add (0:F) gate_476 ∧
+    ∃gate_478, gate_478 = Gates.mul gate_190 (1:F) ∧
+    ∃gate_479, gate_479 = Gates.add (0:F) gate_478 ∧
+    ∃gate_480, gate_480 = Gates.mul gate_200 (1:F) ∧
+    ∃gate_481, gate_481 = Gates.add (0:F) gate_480 ∧
+    ∃gate_482, gate_482 = Gates.mul gate_210 (1:F) ∧
+    ∃gate_483, gate_483 = Gates.add (0:F) gate_482 ∧
+    ∃gate_484, gate_484 = Gates.mul gate_220 (1:F) ∧
+    ∃gate_485, gate_485 = Gates.add (0:F) gate_484 ∧
+    ∃gate_486, gate_486 = Gates.mul gate_230 (1:F) ∧
+    ∃gate_487, gate_487 = Gates.add (0:F) gate_486 ∧
+    ∃gate_488, gate_488 = Gates.mul gate_335 (1:F) ∧
+    ∃gate_489, gate_489 = Gates.add gate_473 gate_488 ∧
+    ∃gate_490, gate_490 = Gates.mul gate_345 (1:F) ∧
+    ∃gate_491, gate_491 = Gates.add gate_475 gate_490 ∧
+    ∃gate_492, gate_492 = Gates.mul gate_355 (1:F) ∧
+    ∃gate_493, gate_493 = Gates.add gate_477 gate_492 ∧
+    ∃gate_494, gate_494 = Gates.mul gate_365 (1:F) ∧
+    ∃gate_495, gate_495 = Gates.add gate_479 gate_494 ∧
+    ∃gate_496, gate_496 = Gates.mul gate_375 (1:F) ∧
+    ∃gate_497, gate_497 = Gates.add gate_481 gate_496 ∧
+    ∃gate_498, gate_498 = Gates.mul gate_385 (1:F) ∧
+    ∃gate_499, gate_499 = Gates.add gate_483 gate_498 ∧
+    ∃gate_500, gate_500 = Gates.mul gate_395 (1:F) ∧
+    ∃gate_501, gate_501 = Gates.add gate_485 gate_500 ∧
+    ∃gate_502, gate_502 = Gates.mul gate_405 (1:F) ∧
+    ∃gate_503, gate_503 = Gates.add gate_487 gate_502 ∧
+    ∃gate_504, gate_504 = Gates.mul (gate_471.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_505, gate_505 = Gates.add (0:F) gate_504 ∧
+    ∃gate_506, gate_506 = Gates.mul (gate_471.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_507, gate_507 = Gates.add (0:F) gate_506 ∧
+    ∃gate_508, gate_508 = Gates.mul (gate_471.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_509, gate_509 = Gates.add (0:F) gate_508 ∧
+    ∃gate_510, gate_510 = Gates.mul (gate_471.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_511, gate_511 = Gates.add (0:F) gate_510 ∧
+    ∃gate_512, gate_512 = Gates.mul (gate_471.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_513, gate_513 = Gates.add (0:F) gate_512 ∧
+    ∃gate_514, gate_514 = Gates.mul (gate_471.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_515, gate_515 = Gates.add (0:F) gate_514 ∧
+    ∃gate_516, gate_516 = Gates.mul (gate_471.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_517, gate_517 = Gates.add (0:F) gate_516 ∧
+    ∃gate_518, gate_518 = Gates.mul (gate_471.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_519, gate_519 = Gates.add (0:F) gate_518 ∧
+    ∃gate_520, gate_520 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_521, gate_521 = Gates.add gate_505 gate_520 ∧
+    ∃gate_522, gate_522 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_523, gate_523 = Gates.add gate_507 gate_522 ∧
+    ∃gate_524, gate_524 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_525, gate_525 = Gates.add gate_509 gate_524 ∧
+    ∃gate_526, gate_526 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_527, gate_527 = Gates.add gate_511 gate_526 ∧
+    ∃gate_528, gate_528 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
+    ∃gate_529, gate_529 = Gates.add gate_513 gate_528 ∧
+    ∃gate_530, gate_530 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
+    ∃gate_531, gate_531 = Gates.add gate_515 gate_530 ∧
+    ∃gate_532, gate_532 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
+    ∃gate_533, gate_533 = Gates.add gate_517 gate_532 ∧
+    ∃gate_534, gate_534 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
+    ∃gate_535, gate_535 = Gates.add gate_519 gate_534 ∧
+    Lazy_40_hee995b41 vec![gate_489, gate_491, gate_493, gate_495, gate_497, gate_499, gate_501, gate_503, gate_521, gate_523, gate_525, gate_527, gate_529, gate_531, gate_533, gate_535, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] fun gate_536 =>
+    k vec![gate_471, gate_536]
 
 def QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p1 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_11: F) (gate_21: F) (gate_31: F) (gate_41: F) (gate_51: F) (gate_61: F) (gate_71: F) (gate_81: F) (gate_83: List.Vector F 8) (gate_116: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_150: List.Vector F 24) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_199: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
     ∃gate_200, gate_200 = Gates.sub gate_199 (2147483648:F) ∧
@@ -2969,175 +3150,175 @@ def QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p1 (AccX: List.Vector F 8) (AccY: List
     ∃gate_229, gate_229 = Gates.add gate_226 gate_228 ∧
     ∃gate_230, gate_230 = Gates.sub gate_229 (2147483648:F) ∧
     CheckPolynomial_32_h63304ca5 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8)), (gate_116.get (0 : Fin 8)), (gate_116.get (1 : Fin 8)), (gate_116.get (2 : Fin 8)), (gate_116.get (3 : Fin 8)), (gate_116.get (4 : Fin 8)), (gate_116.get (5 : Fin 8)), (gate_116.get (6 : Fin 8)), (gate_116.get (7 : Fin 8))] ∧
-    AssertDistinctSlope_8_h16c15a53 vec![gate_11, gate_21, gate_31, gate_41, gate_51, gate_61, gate_71, gate_81] HalfSlope ∧
-    Lazy_24_hdbbbc800 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_233 =>
-    ∃gate_234 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256ImplicitSecondSlopeHint
-    ∃gate_235 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.BalanceHint
-    RangeCheck 11 (gate_235.get (0 : Fin 24)) ∧
-    ∃gate_237, gate_237 = Gates.mul (gate_235.get (0 : Fin 24)) (1:F) ∧
-    ∃gate_238, gate_238 = Gates.add (0:F) gate_237 ∧
-    RangeCheck 11 (gate_235.get (1 : Fin 24)) ∧
-    ∃gate_240, gate_240 = Gates.mul (gate_235.get (1 : Fin 24)) (2048:F) ∧
-    ∃gate_241, gate_241 = Gates.add gate_238 gate_240 ∧
-    RangeCheck 10 (gate_235.get (2 : Fin 24)) ∧
-    ∃gate_243, gate_243 = Gates.mul (gate_235.get (2 : Fin 24)) (4194304:F) ∧
-    ∃gate_244, gate_244 = Gates.add gate_241 gate_243 ∧
-    ∃gate_245, gate_245 = Gates.sub gate_244 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (3 : Fin 24)) ∧
-    ∃gate_247, gate_247 = Gates.mul (gate_235.get (3 : Fin 24)) (1:F) ∧
-    ∃gate_248, gate_248 = Gates.add (0:F) gate_247 ∧
-    RangeCheck 11 (gate_235.get (4 : Fin 24)) ∧
-    ∃gate_250, gate_250 = Gates.mul (gate_235.get (4 : Fin 24)) (2048:F) ∧
-    ∃gate_251, gate_251 = Gates.add gate_248 gate_250 ∧
-    RangeCheck 10 (gate_235.get (5 : Fin 24)) ∧
-    ∃gate_253, gate_253 = Gates.mul (gate_235.get (5 : Fin 24)) (4194304:F) ∧
-    ∃gate_254, gate_254 = Gates.add gate_251 gate_253 ∧
-    ∃gate_255, gate_255 = Gates.sub gate_254 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (6 : Fin 24)) ∧
-    ∃gate_257, gate_257 = Gates.mul (gate_235.get (6 : Fin 24)) (1:F) ∧
-    ∃gate_258, gate_258 = Gates.add (0:F) gate_257 ∧
-    RangeCheck 11 (gate_235.get (7 : Fin 24)) ∧
-    ∃gate_260, gate_260 = Gates.mul (gate_235.get (7 : Fin 24)) (2048:F) ∧
-    ∃gate_261, gate_261 = Gates.add gate_258 gate_260 ∧
-    RangeCheck 10 (gate_235.get (8 : Fin 24)) ∧
-    ∃gate_263, gate_263 = Gates.mul (gate_235.get (8 : Fin 24)) (4194304:F) ∧
-    ∃gate_264, gate_264 = Gates.add gate_261 gate_263 ∧
-    ∃gate_265, gate_265 = Gates.sub gate_264 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (9 : Fin 24)) ∧
-    ∃gate_267, gate_267 = Gates.mul (gate_235.get (9 : Fin 24)) (1:F) ∧
-    ∃gate_268, gate_268 = Gates.add (0:F) gate_267 ∧
-    RangeCheck 11 (gate_235.get (10 : Fin 24)) ∧
-    ∃gate_270, gate_270 = Gates.mul (gate_235.get (10 : Fin 24)) (2048:F) ∧
-    ∃gate_271, gate_271 = Gates.add gate_268 gate_270 ∧
-    RangeCheck 10 (gate_235.get (11 : Fin 24)) ∧
-    ∃gate_273, gate_273 = Gates.mul (gate_235.get (11 : Fin 24)) (4194304:F) ∧
-    ∃gate_274, gate_274 = Gates.add gate_271 gate_273 ∧
-    ∃gate_275, gate_275 = Gates.sub gate_274 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (12 : Fin 24)) ∧
-    ∃gate_277, gate_277 = Gates.mul (gate_235.get (12 : Fin 24)) (1:F) ∧
-    ∃gate_278, gate_278 = Gates.add (0:F) gate_277 ∧
-    RangeCheck 11 (gate_235.get (13 : Fin 24)) ∧
-    ∃gate_280, gate_280 = Gates.mul (gate_235.get (13 : Fin 24)) (2048:F) ∧
-    ∃gate_281, gate_281 = Gates.add gate_278 gate_280 ∧
-    RangeCheck 10 (gate_235.get (14 : Fin 24)) ∧
-    ∃gate_283, gate_283 = Gates.mul (gate_235.get (14 : Fin 24)) (4194304:F) ∧
-    ∃gate_284, gate_284 = Gates.add gate_281 gate_283 ∧
-    ∃gate_285, gate_285 = Gates.sub gate_284 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (15 : Fin 24)) ∧
-    ∃gate_287, gate_287 = Gates.mul (gate_235.get (15 : Fin 24)) (1:F) ∧
-    ∃gate_288, gate_288 = Gates.add (0:F) gate_287 ∧
-    RangeCheck 11 (gate_235.get (16 : Fin 24)) ∧
-    ∃gate_290, gate_290 = Gates.mul (gate_235.get (16 : Fin 24)) (2048:F) ∧
-    ∃gate_291, gate_291 = Gates.add gate_288 gate_290 ∧
-    RangeCheck 10 (gate_235.get (17 : Fin 24)) ∧
-    ∃gate_293, gate_293 = Gates.mul (gate_235.get (17 : Fin 24)) (4194304:F) ∧
-    ∃gate_294, gate_294 = Gates.add gate_291 gate_293 ∧
-    ∃gate_295, gate_295 = Gates.sub gate_294 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (18 : Fin 24)) ∧
-    ∃gate_297, gate_297 = Gates.mul (gate_235.get (18 : Fin 24)) (1:F) ∧
-    ∃gate_298, gate_298 = Gates.add (0:F) gate_297 ∧
-    RangeCheck 11 (gate_235.get (19 : Fin 24)) ∧
-    ∃gate_300, gate_300 = Gates.mul (gate_235.get (19 : Fin 24)) (2048:F) ∧
-    ∃gate_301, gate_301 = Gates.add gate_298 gate_300 ∧
-    RangeCheck 10 (gate_235.get (20 : Fin 24)) ∧
-    ∃gate_303, gate_303 = Gates.mul (gate_235.get (20 : Fin 24)) (4194304:F) ∧
-    ∃gate_304, gate_304 = Gates.add gate_301 gate_303 ∧
-    ∃gate_305, gate_305 = Gates.sub gate_304 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (21 : Fin 24)) ∧
-    ∃gate_307, gate_307 = Gates.mul (gate_235.get (21 : Fin 24)) (1:F) ∧
-    ∃gate_308, gate_308 = Gates.add (0:F) gate_307 ∧
-    RangeCheck 11 (gate_235.get (22 : Fin 24)) ∧
-    ∃gate_310, gate_310 = Gates.mul (gate_235.get (22 : Fin 24)) (2048:F) ∧
-    ∃gate_311, gate_311 = Gates.add gate_308 gate_310 ∧
-    RangeCheck 10 (gate_235.get (23 : Fin 24)) ∧
-    ∃gate_313, gate_313 = Gates.mul (gate_235.get (23 : Fin 24)) (4194304:F) ∧
-    ∃gate_314, gate_314 = Gates.add gate_311 gate_313 ∧
-    ∃gate_315, gate_315 = Gates.sub gate_314 (2147483648:F) ∧
-    ∃gate_316, gate_316 = Gates.mul (gate_233.get (0 : Fin 8)) (1:F) ∧
-    ∃gate_317, gate_317 = Gates.add (0:F) gate_316 ∧
-    ∃gate_318, gate_318 = Gates.mul (gate_233.get (1 : Fin 8)) (1:F) ∧
-    ∃gate_319, gate_319 = Gates.add (0:F) gate_318 ∧
-    ∃gate_320, gate_320 = Gates.mul (gate_233.get (2 : Fin 8)) (1:F) ∧
-    ∃gate_321, gate_321 = Gates.add (0:F) gate_320 ∧
-    ∃gate_322, gate_322 = Gates.mul (gate_233.get (3 : Fin 8)) (1:F) ∧
-    ∃gate_323, gate_323 = Gates.add (0:F) gate_322 ∧
-    ∃gate_324, gate_324 = Gates.mul (gate_233.get (4 : Fin 8)) (1:F) ∧
-    ∃gate_325, gate_325 = Gates.add (0:F) gate_324 ∧
-    ∃gate_326, gate_326 = Gates.mul (gate_233.get (5 : Fin 8)) (1:F) ∧
-    ∃gate_327, gate_327 = Gates.add (0:F) gate_326 ∧
-    ∃gate_328, gate_328 = Gates.mul (gate_233.get (6 : Fin 8)) (1:F) ∧
-    ∃gate_329, gate_329 = Gates.add (0:F) gate_328 ∧
-    ∃gate_330, gate_330 = Gates.mul (gate_233.get (7 : Fin 8)) (1:F) ∧
-    ∃gate_331, gate_331 = Gates.add (0:F) gate_330 ∧
-    ∃gate_332, gate_332 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
-    ∃gate_333, gate_333 = Gates.add gate_317 gate_332 ∧
-    ∃gate_334, gate_334 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
-    ∃gate_335, gate_335 = Gates.add gate_319 gate_334 ∧
-    ∃gate_336, gate_336 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
-    ∃gate_337, gate_337 = Gates.add gate_321 gate_336 ∧
-    ∃gate_338, gate_338 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
-    ∃gate_339, gate_339 = Gates.add gate_323 gate_338 ∧
-    ∃gate_340, gate_340 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
-    ∃gate_341, gate_341 = Gates.add gate_325 gate_340 ∧
-    ∃gate_342, gate_342 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
-    ∃gate_343, gate_343 = Gates.add gate_327 gate_342 ∧
-    ∃gate_344, gate_344 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
-    ∃gate_345, gate_345 = Gates.add gate_329 gate_344 ∧
-    ∃gate_346, gate_346 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
-    ∃gate_347, gate_347 = Gates.add gate_331 gate_346 ∧
-    CheckPolynomial_40_h4960297a vec![gate_245, gate_255, gate_265, gate_275, gate_285, gate_295, gate_305, gate_315, gate_333, gate_335, gate_337, gate_339, gate_341, gate_343, gate_345, gate_347, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] ∧
-    ∃gate_349, gate_349 = Gates.mul gate_245 (1:F) ∧
-    ∃gate_350, gate_350 = Gates.add (0:F) gate_349 ∧
-    ∃gate_351, gate_351 = Gates.mul gate_255 (1:F) ∧
-    ∃gate_352, gate_352 = Gates.add (0:F) gate_351 ∧
-    ∃gate_353, gate_353 = Gates.mul gate_265 (1:F) ∧
-    ∃gate_354, gate_354 = Gates.add (0:F) gate_353 ∧
-    ∃gate_355, gate_355 = Gates.mul gate_275 (1:F) ∧
-    ∃gate_356, gate_356 = Gates.add (0:F) gate_355 ∧
-    ∃gate_357, gate_357 = Gates.mul gate_285 (1:F) ∧
+    ∃gate_232, gate_232 = Gates.mul gate_11 (1:F) ∧
+    ∃gate_233, gate_233 = Gates.add (0:F) gate_232 ∧
+    ∃gate_234, gate_234 = Gates.mul gate_21 (4294967296:F) ∧
+    ∃gate_235, gate_235 = Gates.add gate_233 gate_234 ∧
+    ∃gate_236, gate_236 = Gates.mul gate_31 K_390 ∧
+    ∃gate_237, gate_237 = Gates.add gate_235 gate_236 ∧
+    ∃gate_238, gate_238 = Gates.mul gate_41 K_391 ∧
+    ∃gate_239, gate_239 = Gates.add gate_237 gate_238 ∧
+    ∃gate_240, gate_240 = Gates.mul gate_51 K_392 ∧
+    ∃gate_241, gate_241 = Gates.add gate_239 gate_240 ∧
+    ∃gate_242, gate_242 = Gates.mul gate_61 K_393 ∧
+    ∃gate_243, gate_243 = Gates.add gate_241 gate_242 ∧
+    ∃gate_244, gate_244 = Gates.mul gate_71 K_394 ∧
+    ∃gate_245, gate_245 = Gates.add gate_243 gate_244 ∧
+    ∃gate_246, gate_246 = Gates.mul gate_81 K_395 ∧
+    ∃gate_247, gate_247 = Gates.add gate_245 gate_246 ∧
+    ∃gate_248, gate_248 = Gates.sub gate_247 HalfSlope ∧
+    ∃gate_249, gate_249 = Gates.mul gate_248 gate_248 ∧
+    ∃gate_250, gate_250 = Gates.sub gate_249 K_1176 ∧
+    ∃gate_251, gate_251 = Gates.mul gate_248 gate_250 ∧
+    ∃gate_252, gate_252 = Gates.add gate_247 HalfSlope ∧
+    ∃gate_253, gate_253 = Gates.mul gate_252 gate_252 ∧
+    ∃gate_254, gate_254 = Gates.sub gate_253 K_1176 ∧
+    ∃gate_255, gate_255 = Gates.mul gate_252 gate_254 ∧
+    ∃gate_256, gate_256 = Gates.mul gate_251 gate_255 ∧
+    ∃gate_257, Gates.is_zero gate_256 gate_257 ∧
+    ∃gate_258, gate_258 = Gates.mul (gate_83.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_259, gate_259 = Gates.add (0:F) gate_258 ∧
+    ∃gate_260, gate_260 = Gates.mul (gate_83.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_261, gate_261 = Gates.add (0:F) gate_260 ∧
+    ∃gate_262, gate_262 = Gates.mul (gate_83.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_263, gate_263 = Gates.add (0:F) gate_262 ∧
+    ∃gate_264, gate_264 = Gates.mul (gate_83.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_265, gate_265 = Gates.add (0:F) gate_264 ∧
+    ∃gate_266, gate_266 = Gates.mul (gate_83.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_267, gate_267 = Gates.add (0:F) gate_266 ∧
+    ∃gate_268, gate_268 = Gates.mul (gate_83.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_269, gate_269 = Gates.add (0:F) gate_268 ∧
+    ∃gate_270, gate_270 = Gates.mul (gate_83.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_271, gate_271 = Gates.add (0:F) gate_270 ∧
+    ∃gate_272, gate_272 = Gates.mul (gate_83.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_273, gate_273 = Gates.add (0:F) gate_272 ∧
+    ∃gate_274, gate_274 = Gates.mul (SelectedX.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_275, gate_275 = Gates.add gate_259 gate_274 ∧
+    ∃gate_276, gate_276 = Gates.mul (SelectedX.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_277, gate_277 = Gates.add gate_261 gate_276 ∧
+    ∃gate_278, gate_278 = Gates.mul (SelectedX.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_279, gate_279 = Gates.add gate_263 gate_278 ∧
+    ∃gate_280, gate_280 = Gates.mul (SelectedX.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_281, gate_281 = Gates.add gate_265 gate_280 ∧
+    ∃gate_282, gate_282 = Gates.mul (SelectedX.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_283, gate_283 = Gates.add gate_267 gate_282 ∧
+    ∃gate_284, gate_284 = Gates.mul (SelectedX.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_285, gate_285 = Gates.add gate_269 gate_284 ∧
+    ∃gate_286, gate_286 = Gates.mul (SelectedX.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_287, gate_287 = Gates.add gate_271 gate_286 ∧
+    ∃gate_288, gate_288 = Gates.mul (SelectedX.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_289, gate_289 = Gates.add gate_273 gate_288 ∧
+    ∃gate_290, gate_290 = Gates.mul (gate_116.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_291, gate_291 = Gates.add (0:F) gate_290 ∧
+    ∃gate_292, gate_292 = Gates.mul (gate_116.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_293, gate_293 = Gates.add (0:F) gate_292 ∧
+    ∃gate_294, gate_294 = Gates.mul (gate_116.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_295, gate_295 = Gates.add (0:F) gate_294 ∧
+    ∃gate_296, gate_296 = Gates.mul (gate_116.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_297, gate_297 = Gates.add (0:F) gate_296 ∧
+    ∃gate_298, gate_298 = Gates.mul (gate_116.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_299, gate_299 = Gates.add (0:F) gate_298 ∧
+    ∃gate_300, gate_300 = Gates.mul (gate_116.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_301, gate_301 = Gates.add (0:F) gate_300 ∧
+    ∃gate_302, gate_302 = Gates.mul (gate_116.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_303, gate_303 = Gates.add (0:F) gate_302 ∧
+    ∃gate_304, gate_304 = Gates.mul (gate_116.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_305, gate_305 = Gates.add (0:F) gate_304 ∧
+    ∃gate_306, gate_306 = Gates.mul (SelectedY.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_307, gate_307 = Gates.add gate_291 gate_306 ∧
+    ∃gate_308, gate_308 = Gates.mul (SelectedY.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_309, gate_309 = Gates.add gate_293 gate_308 ∧
+    ∃gate_310, gate_310 = Gates.mul (SelectedY.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_311, gate_311 = Gates.add gate_295 gate_310 ∧
+    ∃gate_312, gate_312 = Gates.mul (SelectedY.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_313, gate_313 = Gates.add gate_297 gate_312 ∧
+    ∃gate_314, gate_314 = Gates.mul (SelectedY.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_315, gate_315 = Gates.add gate_299 gate_314 ∧
+    ∃gate_316, gate_316 = Gates.mul (SelectedY.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_317, gate_317 = Gates.add gate_301 gate_316 ∧
+    ∃gate_318, gate_318 = Gates.mul (SelectedY.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_319, gate_319 = Gates.add gate_303 gate_318 ∧
+    ∃gate_320, gate_320 = Gates.mul (SelectedY.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_321, gate_321 = Gates.add gate_305 gate_320 ∧
+    CheckPolynomial_49_h9104a5ae vec![gate_257, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_307, gate_309, gate_311, gate_313, gate_315, gate_317, gate_319, gate_321, gate_275, gate_277, gate_279, gate_281, gate_283, gate_285, gate_287, gate_289, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8)), (4294967292:F), (4294967295:F), (4294967295:F), (0:F), (0:F), (0:F), (1:F), (4294967295:F)] ∧
+    Lazy_24_hdbbbc800 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_323 =>
+    ∃gate_324 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256ImplicitSecondSlopeHint
+    ∃gate_325 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.BalanceHint
+    RangeCheck 11 (gate_325.get (0 : Fin 24)) ∧
+    ∃gate_327, gate_327 = Gates.mul (gate_325.get (0 : Fin 24)) (1:F) ∧
+    ∃gate_328, gate_328 = Gates.add (0:F) gate_327 ∧
+    RangeCheck 11 (gate_325.get (1 : Fin 24)) ∧
+    ∃gate_330, gate_330 = Gates.mul (gate_325.get (1 : Fin 24)) (2048:F) ∧
+    ∃gate_331, gate_331 = Gates.add gate_328 gate_330 ∧
+    RangeCheck 10 (gate_325.get (2 : Fin 24)) ∧
+    ∃gate_333, gate_333 = Gates.mul (gate_325.get (2 : Fin 24)) (4194304:F) ∧
+    ∃gate_334, gate_334 = Gates.add gate_331 gate_333 ∧
+    ∃gate_335, gate_335 = Gates.sub gate_334 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (3 : Fin 24)) ∧
+    ∃gate_337, gate_337 = Gates.mul (gate_325.get (3 : Fin 24)) (1:F) ∧
+    ∃gate_338, gate_338 = Gates.add (0:F) gate_337 ∧
+    RangeCheck 11 (gate_325.get (4 : Fin 24)) ∧
+    ∃gate_340, gate_340 = Gates.mul (gate_325.get (4 : Fin 24)) (2048:F) ∧
+    ∃gate_341, gate_341 = Gates.add gate_338 gate_340 ∧
+    RangeCheck 10 (gate_325.get (5 : Fin 24)) ∧
+    ∃gate_343, gate_343 = Gates.mul (gate_325.get (5 : Fin 24)) (4194304:F) ∧
+    ∃gate_344, gate_344 = Gates.add gate_341 gate_343 ∧
+    ∃gate_345, gate_345 = Gates.sub gate_344 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (6 : Fin 24)) ∧
+    ∃gate_347, gate_347 = Gates.mul (gate_325.get (6 : Fin 24)) (1:F) ∧
+    ∃gate_348, gate_348 = Gates.add (0:F) gate_347 ∧
+    RangeCheck 11 (gate_325.get (7 : Fin 24)) ∧
+    ∃gate_350, gate_350 = Gates.mul (gate_325.get (7 : Fin 24)) (2048:F) ∧
+    ∃gate_351, gate_351 = Gates.add gate_348 gate_350 ∧
+    RangeCheck 10 (gate_325.get (8 : Fin 24)) ∧
+    ∃gate_353, gate_353 = Gates.mul (gate_325.get (8 : Fin 24)) (4194304:F) ∧
+    ∃gate_354, gate_354 = Gates.add gate_351 gate_353 ∧
+    ∃gate_355, gate_355 = Gates.sub gate_354 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (9 : Fin 24)) ∧
+    ∃gate_357, gate_357 = Gates.mul (gate_325.get (9 : Fin 24)) (1:F) ∧
     ∃gate_358, gate_358 = Gates.add (0:F) gate_357 ∧
-    ∃gate_359, gate_359 = Gates.mul gate_295 (1:F) ∧
-    ∃gate_360, gate_360 = Gates.add (0:F) gate_359 ∧
-    ∃gate_361, gate_361 = Gates.mul gate_305 (1:F) ∧
-    ∃gate_362, gate_362 = Gates.add (0:F) gate_361 ∧
-    ∃gate_363, gate_363 = Gates.mul gate_315 (1:F) ∧
-    ∃gate_364, gate_364 = Gates.add (0:F) gate_363 ∧
-    ∃gate_365, gate_365 = Gates.mul gate_160 (2:F) ∧
-    ∃gate_366, gate_366 = Gates.add gate_350 gate_365 ∧
-    ∃gate_367, gate_367 = Gates.mul gate_170 (2:F) ∧
-    ∃gate_368, gate_368 = Gates.add gate_352 gate_367 ∧
-    ∃gate_369, gate_369 = Gates.mul gate_180 (2:F) ∧
-    ∃gate_370, gate_370 = Gates.add gate_354 gate_369 ∧
-    ∃gate_371, gate_371 = Gates.mul gate_190 (2:F) ∧
-    ∃gate_372, gate_372 = Gates.add gate_356 gate_371 ∧
-    ∃gate_373, gate_373 = Gates.mul gate_200 (2:F) ∧
-    ∃gate_374, gate_374 = Gates.add gate_358 gate_373 ∧
-    ∃gate_375, gate_375 = Gates.mul gate_210 (2:F) ∧
-    ∃gate_376, gate_376 = Gates.add gate_360 gate_375 ∧
-    ∃gate_377, gate_377 = Gates.mul gate_220 (2:F) ∧
-    ∃gate_378, gate_378 = Gates.add gate_362 gate_377 ∧
-    ∃gate_379, gate_379 = Gates.mul gate_230 (2:F) ∧
-    ∃gate_380, gate_380 = Gates.add gate_364 gate_379 ∧
-    Lazy_24_h9c68f146 vec![gate_245, gate_255, gate_265, gate_275, gate_285, gate_295, gate_305, gate_315, gate_366, gate_368, gate_370, gate_372, gate_374, gate_376, gate_378, gate_380, (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_381 =>
-    ∃gate_382, gate_382 = Gates.mul gate_160 (1:F) ∧
-    ∃gate_383, gate_383 = Gates.add (0:F) gate_382 ∧
-    ∃gate_384, gate_384 = Gates.mul gate_170 (1:F) ∧
-    ∃gate_385, gate_385 = Gates.add (0:F) gate_384 ∧
-    ∃gate_386, gate_386 = Gates.mul gate_180 (1:F) ∧
-    ∃gate_387, gate_387 = Gates.add (0:F) gate_386 ∧
-    ∃gate_388, gate_388 = Gates.mul gate_190 (1:F) ∧
-    ∃gate_389, gate_389 = Gates.add (0:F) gate_388 ∧
-    ∃gate_390, gate_390 = Gates.mul gate_200 (1:F) ∧
-    ∃gate_391, gate_391 = Gates.add (0:F) gate_390 ∧
-    ∃gate_392, gate_392 = Gates.mul gate_210 (1:F) ∧
-    ∃gate_393, gate_393 = Gates.add (0:F) gate_392 ∧
-    ∃gate_394, gate_394 = Gates.mul gate_220 (1:F) ∧
-    ∃gate_395, gate_395 = Gates.add (0:F) gate_394 ∧
-    ∃gate_396, gate_396 = Gates.mul gate_230 (1:F) ∧
-    ∃gate_397, gate_397 = Gates.add (0:F) gate_396 ∧
-    ∃gate_398, gate_398 = Gates.mul gate_245 (1:F) ∧
-    ∃gate_399, gate_399 = Gates.add gate_383 gate_398 ∧
-    QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2 AccX AccY SelectedX SelectedY HalfSlope gate_83 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_160 gate_170 gate_180 gate_190 gate_200 gate_210 gate_220 gate_230 gate_255 gate_265 gate_275 gate_285 gate_295 gate_305 gate_315 gate_381 gate_385 gate_387 gate_389 gate_391 gate_393 gate_395 gate_397 gate_399 k
+    RangeCheck 11 (gate_325.get (10 : Fin 24)) ∧
+    ∃gate_360, gate_360 = Gates.mul (gate_325.get (10 : Fin 24)) (2048:F) ∧
+    ∃gate_361, gate_361 = Gates.add gate_358 gate_360 ∧
+    RangeCheck 10 (gate_325.get (11 : Fin 24)) ∧
+    ∃gate_363, gate_363 = Gates.mul (gate_325.get (11 : Fin 24)) (4194304:F) ∧
+    ∃gate_364, gate_364 = Gates.add gate_361 gate_363 ∧
+    ∃gate_365, gate_365 = Gates.sub gate_364 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (12 : Fin 24)) ∧
+    ∃gate_367, gate_367 = Gates.mul (gate_325.get (12 : Fin 24)) (1:F) ∧
+    ∃gate_368, gate_368 = Gates.add (0:F) gate_367 ∧
+    RangeCheck 11 (gate_325.get (13 : Fin 24)) ∧
+    ∃gate_370, gate_370 = Gates.mul (gate_325.get (13 : Fin 24)) (2048:F) ∧
+    ∃gate_371, gate_371 = Gates.add gate_368 gate_370 ∧
+    RangeCheck 10 (gate_325.get (14 : Fin 24)) ∧
+    ∃gate_373, gate_373 = Gates.mul (gate_325.get (14 : Fin 24)) (4194304:F) ∧
+    ∃gate_374, gate_374 = Gates.add gate_371 gate_373 ∧
+    ∃gate_375, gate_375 = Gates.sub gate_374 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (15 : Fin 24)) ∧
+    ∃gate_377, gate_377 = Gates.mul (gate_325.get (15 : Fin 24)) (1:F) ∧
+    ∃gate_378, gate_378 = Gates.add (0:F) gate_377 ∧
+    RangeCheck 11 (gate_325.get (16 : Fin 24)) ∧
+    ∃gate_380, gate_380 = Gates.mul (gate_325.get (16 : Fin 24)) (2048:F) ∧
+    ∃gate_381, gate_381 = Gates.add gate_378 gate_380 ∧
+    RangeCheck 10 (gate_325.get (17 : Fin 24)) ∧
+    ∃gate_383, gate_383 = Gates.mul (gate_325.get (17 : Fin 24)) (4194304:F) ∧
+    ∃gate_384, gate_384 = Gates.add gate_381 gate_383 ∧
+    ∃gate_385, gate_385 = Gates.sub gate_384 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (18 : Fin 24)) ∧
+    ∃gate_387, gate_387 = Gates.mul (gate_325.get (18 : Fin 24)) (1:F) ∧
+    ∃gate_388, gate_388 = Gates.add (0:F) gate_387 ∧
+    RangeCheck 11 (gate_325.get (19 : Fin 24)) ∧
+    ∃gate_390, gate_390 = Gates.mul (gate_325.get (19 : Fin 24)) (2048:F) ∧
+    ∃gate_391, gate_391 = Gates.add gate_388 gate_390 ∧
+    RangeCheck 10 (gate_325.get (20 : Fin 24)) ∧
+    ∃gate_393, gate_393 = Gates.mul (gate_325.get (20 : Fin 24)) (4194304:F) ∧
+    ∃gate_394, gate_394 = Gates.add gate_391 gate_393 ∧
+    ∃gate_395, gate_395 = Gates.sub gate_394 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (21 : Fin 24)) ∧
+    ∃gate_397, gate_397 = Gates.mul (gate_325.get (21 : Fin 24)) (1:F) ∧
+    ∃gate_398, gate_398 = Gates.add (0:F) gate_397 ∧
+    RangeCheck 11 (gate_325.get (22 : Fin 24)) ∧
+    QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2 AccX AccY SelectedX SelectedY HalfSlope gate_83 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_160 gate_170 gate_180 gate_190 gate_200 gate_210 gate_220 gate_230 gate_323 gate_325 gate_335 gate_345 gate_355 gate_365 gate_375 gate_385 gate_395 gate_398 k
 
 def QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256TangentHint
@@ -3342,55 +3523,145 @@ def QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 (AccX: List.Vector F 8) (AccY: List.Ve
     ∃gate_199, gate_199 = Gates.add gate_196 gate_198 ∧
     QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p1 AccX AccY SelectedX SelectedY HalfSlope gate_11 gate_21 gate_31 gate_41 gate_51 gate_61 gate_71 gate_81 gate_83 gate_116 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_150 gate_160 gate_170 gate_180 gate_190 gate_199 k
 
-def QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_83: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_200: F) (gate_210: F) (gate_220: F) (gate_230: F) (gate_255: F) (gate_265: F) (gate_275: F) (gate_285: F) (gate_295: F) (gate_305: F) (gate_315: F) (gate_381: List.Vector F 8) (gate_385: F) (gate_387: F) (gate_389: F) (gate_391: F) (gate_393: F) (gate_395: F) (gate_397: F) (gate_399: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
-    ∃gate_400, gate_400 = Gates.mul gate_255 (1:F) ∧
-    ∃gate_401, gate_401 = Gates.add gate_385 gate_400 ∧
-    ∃gate_402, gate_402 = Gates.mul gate_265 (1:F) ∧
-    ∃gate_403, gate_403 = Gates.add gate_387 gate_402 ∧
-    ∃gate_404, gate_404 = Gates.mul gate_275 (1:F) ∧
-    ∃gate_405, gate_405 = Gates.add gate_389 gate_404 ∧
-    ∃gate_406, gate_406 = Gates.mul gate_285 (1:F) ∧
-    ∃gate_407, gate_407 = Gates.add gate_391 gate_406 ∧
-    ∃gate_408, gate_408 = Gates.mul gate_295 (1:F) ∧
-    ∃gate_409, gate_409 = Gates.add gate_393 gate_408 ∧
-    ∃gate_410, gate_410 = Gates.mul gate_305 (1:F) ∧
-    ∃gate_411, gate_411 = Gates.add gate_395 gate_410 ∧
-    ∃gate_412, gate_412 = Gates.mul gate_315 (1:F) ∧
-    ∃gate_413, gate_413 = Gates.add gate_397 gate_412 ∧
-    ∃gate_414, gate_414 = Gates.mul (gate_381.get (0 : Fin 8)) (1:F) ∧
+def QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_83: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_200: F) (gate_210: F) (gate_220: F) (gate_230: F) (gate_323: List.Vector F 8) (gate_325: List.Vector F 24) (gate_335: F) (gate_345: F) (gate_355: F) (gate_365: F) (gate_375: F) (gate_385: F) (gate_395: F) (gate_398: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
+    ∃gate_400, gate_400 = Gates.mul (gate_325.get (22 : Fin 24)) (2048:F) ∧
+    ∃gate_401, gate_401 = Gates.add gate_398 gate_400 ∧
+    RangeCheck 10 (gate_325.get (23 : Fin 24)) ∧
+    ∃gate_403, gate_403 = Gates.mul (gate_325.get (23 : Fin 24)) (4194304:F) ∧
+    ∃gate_404, gate_404 = Gates.add gate_401 gate_403 ∧
+    ∃gate_405, gate_405 = Gates.sub gate_404 (2147483648:F) ∧
+    ∃gate_406, gate_406 = Gates.mul (gate_323.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_407, gate_407 = Gates.add (0:F) gate_406 ∧
+    ∃gate_408, gate_408 = Gates.mul (gate_323.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_409, gate_409 = Gates.add (0:F) gate_408 ∧
+    ∃gate_410, gate_410 = Gates.mul (gate_323.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_411, gate_411 = Gates.add (0:F) gate_410 ∧
+    ∃gate_412, gate_412 = Gates.mul (gate_323.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_413, gate_413 = Gates.add (0:F) gate_412 ∧
+    ∃gate_414, gate_414 = Gates.mul (gate_323.get (4 : Fin 8)) (1:F) ∧
     ∃gate_415, gate_415 = Gates.add (0:F) gate_414 ∧
-    ∃gate_416, gate_416 = Gates.mul (gate_381.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_416, gate_416 = Gates.mul (gate_323.get (5 : Fin 8)) (1:F) ∧
     ∃gate_417, gate_417 = Gates.add (0:F) gate_416 ∧
-    ∃gate_418, gate_418 = Gates.mul (gate_381.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_418, gate_418 = Gates.mul (gate_323.get (6 : Fin 8)) (1:F) ∧
     ∃gate_419, gate_419 = Gates.add (0:F) gate_418 ∧
-    ∃gate_420, gate_420 = Gates.mul (gate_381.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_420, gate_420 = Gates.mul (gate_323.get (7 : Fin 8)) (1:F) ∧
     ∃gate_421, gate_421 = Gates.add (0:F) gate_420 ∧
-    ∃gate_422, gate_422 = Gates.mul (gate_381.get (4 : Fin 8)) (1:F) ∧
-    ∃gate_423, gate_423 = Gates.add (0:F) gate_422 ∧
-    ∃gate_424, gate_424 = Gates.mul (gate_381.get (5 : Fin 8)) (1:F) ∧
-    ∃gate_425, gate_425 = Gates.add (0:F) gate_424 ∧
-    ∃gate_426, gate_426 = Gates.mul (gate_381.get (6 : Fin 8)) (1:F) ∧
-    ∃gate_427, gate_427 = Gates.add (0:F) gate_426 ∧
-    ∃gate_428, gate_428 = Gates.mul (gate_381.get (7 : Fin 8)) (1:F) ∧
-    ∃gate_429, gate_429 = Gates.add (0:F) gate_428 ∧
-    ∃gate_430, gate_430 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_422, gate_422 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_423, gate_423 = Gates.add gate_407 gate_422 ∧
+    ∃gate_424, gate_424 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_425, gate_425 = Gates.add gate_409 gate_424 ∧
+    ∃gate_426, gate_426 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_427, gate_427 = Gates.add gate_411 gate_426 ∧
+    ∃gate_428, gate_428 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_429, gate_429 = Gates.add gate_413 gate_428 ∧
+    ∃gate_430, gate_430 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
     ∃gate_431, gate_431 = Gates.add gate_415 gate_430 ∧
-    ∃gate_432, gate_432 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_432, gate_432 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
     ∃gate_433, gate_433 = Gates.add gate_417 gate_432 ∧
-    ∃gate_434, gate_434 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_434, gate_434 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
     ∃gate_435, gate_435 = Gates.add gate_419 gate_434 ∧
-    ∃gate_436, gate_436 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_436, gate_436 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
     ∃gate_437, gate_437 = Gates.add gate_421 gate_436 ∧
-    ∃gate_438, gate_438 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
-    ∃gate_439, gate_439 = Gates.add gate_423 gate_438 ∧
-    ∃gate_440, gate_440 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
-    ∃gate_441, gate_441 = Gates.add gate_425 gate_440 ∧
-    ∃gate_442, gate_442 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
-    ∃gate_443, gate_443 = Gates.add gate_427 gate_442 ∧
-    ∃gate_444, gate_444 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
-    ∃gate_445, gate_445 = Gates.add gate_429 gate_444 ∧
-    Lazy_40_hee995b41 vec![gate_399, gate_401, gate_403, gate_405, gate_407, gate_409, gate_411, gate_413, gate_431, gate_433, gate_435, gate_437, gate_439, gate_441, gate_443, gate_445, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] fun gate_446 =>
-    k vec![gate_381, gate_446]
+    CheckPolynomial_40_h4960297a vec![gate_335, gate_345, gate_355, gate_365, gate_375, gate_385, gate_395, gate_405, gate_423, gate_425, gate_427, gate_429, gate_431, gate_433, gate_435, gate_437, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] ∧
+    ∃gate_439, gate_439 = Gates.mul gate_335 (1:F) ∧
+    ∃gate_440, gate_440 = Gates.add (0:F) gate_439 ∧
+    ∃gate_441, gate_441 = Gates.mul gate_345 (1:F) ∧
+    ∃gate_442, gate_442 = Gates.add (0:F) gate_441 ∧
+    ∃gate_443, gate_443 = Gates.mul gate_355 (1:F) ∧
+    ∃gate_444, gate_444 = Gates.add (0:F) gate_443 ∧
+    ∃gate_445, gate_445 = Gates.mul gate_365 (1:F) ∧
+    ∃gate_446, gate_446 = Gates.add (0:F) gate_445 ∧
+    ∃gate_447, gate_447 = Gates.mul gate_375 (1:F) ∧
+    ∃gate_448, gate_448 = Gates.add (0:F) gate_447 ∧
+    ∃gate_449, gate_449 = Gates.mul gate_385 (1:F) ∧
+    ∃gate_450, gate_450 = Gates.add (0:F) gate_449 ∧
+    ∃gate_451, gate_451 = Gates.mul gate_395 (1:F) ∧
+    ∃gate_452, gate_452 = Gates.add (0:F) gate_451 ∧
+    ∃gate_453, gate_453 = Gates.mul gate_405 (1:F) ∧
+    ∃gate_454, gate_454 = Gates.add (0:F) gate_453 ∧
+    ∃gate_455, gate_455 = Gates.mul gate_160 (2:F) ∧
+    ∃gate_456, gate_456 = Gates.add gate_440 gate_455 ∧
+    ∃gate_457, gate_457 = Gates.mul gate_170 (2:F) ∧
+    ∃gate_458, gate_458 = Gates.add gate_442 gate_457 ∧
+    ∃gate_459, gate_459 = Gates.mul gate_180 (2:F) ∧
+    ∃gate_460, gate_460 = Gates.add gate_444 gate_459 ∧
+    ∃gate_461, gate_461 = Gates.mul gate_190 (2:F) ∧
+    ∃gate_462, gate_462 = Gates.add gate_446 gate_461 ∧
+    ∃gate_463, gate_463 = Gates.mul gate_200 (2:F) ∧
+    ∃gate_464, gate_464 = Gates.add gate_448 gate_463 ∧
+    ∃gate_465, gate_465 = Gates.mul gate_210 (2:F) ∧
+    ∃gate_466, gate_466 = Gates.add gate_450 gate_465 ∧
+    ∃gate_467, gate_467 = Gates.mul gate_220 (2:F) ∧
+    ∃gate_468, gate_468 = Gates.add gate_452 gate_467 ∧
+    ∃gate_469, gate_469 = Gates.mul gate_230 (2:F) ∧
+    ∃gate_470, gate_470 = Gates.add gate_454 gate_469 ∧
+    Lazy_24_h9c68f146 vec![gate_335, gate_345, gate_355, gate_365, gate_375, gate_385, gate_395, gate_405, gate_456, gate_458, gate_460, gate_462, gate_464, gate_466, gate_468, gate_470, (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_471 =>
+    ∃gate_472, gate_472 = Gates.mul gate_160 (1:F) ∧
+    ∃gate_473, gate_473 = Gates.add (0:F) gate_472 ∧
+    ∃gate_474, gate_474 = Gates.mul gate_170 (1:F) ∧
+    ∃gate_475, gate_475 = Gates.add (0:F) gate_474 ∧
+    ∃gate_476, gate_476 = Gates.mul gate_180 (1:F) ∧
+    ∃gate_477, gate_477 = Gates.add (0:F) gate_476 ∧
+    ∃gate_478, gate_478 = Gates.mul gate_190 (1:F) ∧
+    ∃gate_479, gate_479 = Gates.add (0:F) gate_478 ∧
+    ∃gate_480, gate_480 = Gates.mul gate_200 (1:F) ∧
+    ∃gate_481, gate_481 = Gates.add (0:F) gate_480 ∧
+    ∃gate_482, gate_482 = Gates.mul gate_210 (1:F) ∧
+    ∃gate_483, gate_483 = Gates.add (0:F) gate_482 ∧
+    ∃gate_484, gate_484 = Gates.mul gate_220 (1:F) ∧
+    ∃gate_485, gate_485 = Gates.add (0:F) gate_484 ∧
+    ∃gate_486, gate_486 = Gates.mul gate_230 (1:F) ∧
+    ∃gate_487, gate_487 = Gates.add (0:F) gate_486 ∧
+    ∃gate_488, gate_488 = Gates.mul gate_335 (1:F) ∧
+    ∃gate_489, gate_489 = Gates.add gate_473 gate_488 ∧
+    ∃gate_490, gate_490 = Gates.mul gate_345 (1:F) ∧
+    ∃gate_491, gate_491 = Gates.add gate_475 gate_490 ∧
+    ∃gate_492, gate_492 = Gates.mul gate_355 (1:F) ∧
+    ∃gate_493, gate_493 = Gates.add gate_477 gate_492 ∧
+    ∃gate_494, gate_494 = Gates.mul gate_365 (1:F) ∧
+    ∃gate_495, gate_495 = Gates.add gate_479 gate_494 ∧
+    ∃gate_496, gate_496 = Gates.mul gate_375 (1:F) ∧
+    ∃gate_497, gate_497 = Gates.add gate_481 gate_496 ∧
+    ∃gate_498, gate_498 = Gates.mul gate_385 (1:F) ∧
+    ∃gate_499, gate_499 = Gates.add gate_483 gate_498 ∧
+    ∃gate_500, gate_500 = Gates.mul gate_395 (1:F) ∧
+    ∃gate_501, gate_501 = Gates.add gate_485 gate_500 ∧
+    ∃gate_502, gate_502 = Gates.mul gate_405 (1:F) ∧
+    ∃gate_503, gate_503 = Gates.add gate_487 gate_502 ∧
+    ∃gate_504, gate_504 = Gates.mul (gate_471.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_505, gate_505 = Gates.add (0:F) gate_504 ∧
+    ∃gate_506, gate_506 = Gates.mul (gate_471.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_507, gate_507 = Gates.add (0:F) gate_506 ∧
+    ∃gate_508, gate_508 = Gates.mul (gate_471.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_509, gate_509 = Gates.add (0:F) gate_508 ∧
+    ∃gate_510, gate_510 = Gates.mul (gate_471.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_511, gate_511 = Gates.add (0:F) gate_510 ∧
+    ∃gate_512, gate_512 = Gates.mul (gate_471.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_513, gate_513 = Gates.add (0:F) gate_512 ∧
+    ∃gate_514, gate_514 = Gates.mul (gate_471.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_515, gate_515 = Gates.add (0:F) gate_514 ∧
+    ∃gate_516, gate_516 = Gates.mul (gate_471.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_517, gate_517 = Gates.add (0:F) gate_516 ∧
+    ∃gate_518, gate_518 = Gates.mul (gate_471.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_519, gate_519 = Gates.add (0:F) gate_518 ∧
+    ∃gate_520, gate_520 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
+    ∃gate_521, gate_521 = Gates.add gate_505 gate_520 ∧
+    ∃gate_522, gate_522 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
+    ∃gate_523, gate_523 = Gates.add gate_507 gate_522 ∧
+    ∃gate_524, gate_524 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
+    ∃gate_525, gate_525 = Gates.add gate_509 gate_524 ∧
+    ∃gate_526, gate_526 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
+    ∃gate_527, gate_527 = Gates.add gate_511 gate_526 ∧
+    ∃gate_528, gate_528 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
+    ∃gate_529, gate_529 = Gates.add gate_513 gate_528 ∧
+    ∃gate_530, gate_530 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
+    ∃gate_531, gate_531 = Gates.add gate_515 gate_530 ∧
+    ∃gate_532, gate_532 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
+    ∃gate_533, gate_533 = Gates.add gate_517 gate_532 ∧
+    ∃gate_534, gate_534 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
+    ∃gate_535, gate_535 = Gates.add gate_519 gate_534 ∧
+    Lazy_40_hee995b41 vec![gate_489, gate_491, gate_493, gate_495, gate_497, gate_499, gate_501, gate_503, gate_521, gate_523, gate_525, gate_527, gate_529, gate_531, gate_533, gate_535, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] fun gate_536 =>
+    k vec![gate_471, gate_536]
 
 def QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p1 (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (gate_11: F) (gate_21: F) (gate_31: F) (gate_41: F) (gate_51: F) (gate_61: F) (gate_71: F) (gate_81: F) (gate_83: List.Vector F 8) (gate_116: List.Vector F 8) (gate_134: F) (gate_136: F) (gate_138: F) (gate_140: F) (gate_142: F) (gate_144: F) (gate_146: F) (gate_148: F) (gate_150: List.Vector F 24) (gate_160: F) (gate_170: F) (gate_180: F) (gate_190: F) (gate_199: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
     ∃gate_200, gate_200 = Gates.sub gate_199 (2147483648:F) ∧
@@ -3425,175 +3696,175 @@ def QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p1 (AccX: List.Vector F 8) (AccY: List
     ∃gate_229, gate_229 = Gates.add gate_226 gate_228 ∧
     ∃gate_230, gate_230 = Gates.sub gate_229 (2147483648:F) ∧
     CheckPolynomial_32_hdaa6ee4a vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8)), (gate_116.get (0 : Fin 8)), (gate_116.get (1 : Fin 8)), (gate_116.get (2 : Fin 8)), (gate_116.get (3 : Fin 8)), (gate_116.get (4 : Fin 8)), (gate_116.get (5 : Fin 8)), (gate_116.get (6 : Fin 8)), (gate_116.get (7 : Fin 8))] ∧
-    AssertDistinctSlope_8_h16c15a53 vec![gate_11, gate_21, gate_31, gate_41, gate_51, gate_61, gate_71, gate_81] HalfSlope ∧
-    Lazy_24_hdbbbc800 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_233 =>
-    ∃gate_234 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256ImplicitSecondSlopeHint
-    ∃gate_235 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.BalanceHint
-    RangeCheck 11 (gate_235.get (0 : Fin 24)) ∧
-    ∃gate_237, gate_237 = Gates.mul (gate_235.get (0 : Fin 24)) (1:F) ∧
-    ∃gate_238, gate_238 = Gates.add (0:F) gate_237 ∧
-    RangeCheck 11 (gate_235.get (1 : Fin 24)) ∧
-    ∃gate_240, gate_240 = Gates.mul (gate_235.get (1 : Fin 24)) (2048:F) ∧
-    ∃gate_241, gate_241 = Gates.add gate_238 gate_240 ∧
-    RangeCheck 10 (gate_235.get (2 : Fin 24)) ∧
-    ∃gate_243, gate_243 = Gates.mul (gate_235.get (2 : Fin 24)) (4194304:F) ∧
-    ∃gate_244, gate_244 = Gates.add gate_241 gate_243 ∧
-    ∃gate_245, gate_245 = Gates.sub gate_244 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (3 : Fin 24)) ∧
-    ∃gate_247, gate_247 = Gates.mul (gate_235.get (3 : Fin 24)) (1:F) ∧
-    ∃gate_248, gate_248 = Gates.add (0:F) gate_247 ∧
-    RangeCheck 11 (gate_235.get (4 : Fin 24)) ∧
-    ∃gate_250, gate_250 = Gates.mul (gate_235.get (4 : Fin 24)) (2048:F) ∧
-    ∃gate_251, gate_251 = Gates.add gate_248 gate_250 ∧
-    RangeCheck 10 (gate_235.get (5 : Fin 24)) ∧
-    ∃gate_253, gate_253 = Gates.mul (gate_235.get (5 : Fin 24)) (4194304:F) ∧
-    ∃gate_254, gate_254 = Gates.add gate_251 gate_253 ∧
-    ∃gate_255, gate_255 = Gates.sub gate_254 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (6 : Fin 24)) ∧
-    ∃gate_257, gate_257 = Gates.mul (gate_235.get (6 : Fin 24)) (1:F) ∧
-    ∃gate_258, gate_258 = Gates.add (0:F) gate_257 ∧
-    RangeCheck 11 (gate_235.get (7 : Fin 24)) ∧
-    ∃gate_260, gate_260 = Gates.mul (gate_235.get (7 : Fin 24)) (2048:F) ∧
-    ∃gate_261, gate_261 = Gates.add gate_258 gate_260 ∧
-    RangeCheck 10 (gate_235.get (8 : Fin 24)) ∧
-    ∃gate_263, gate_263 = Gates.mul (gate_235.get (8 : Fin 24)) (4194304:F) ∧
-    ∃gate_264, gate_264 = Gates.add gate_261 gate_263 ∧
-    ∃gate_265, gate_265 = Gates.sub gate_264 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (9 : Fin 24)) ∧
-    ∃gate_267, gate_267 = Gates.mul (gate_235.get (9 : Fin 24)) (1:F) ∧
-    ∃gate_268, gate_268 = Gates.add (0:F) gate_267 ∧
-    RangeCheck 11 (gate_235.get (10 : Fin 24)) ∧
-    ∃gate_270, gate_270 = Gates.mul (gate_235.get (10 : Fin 24)) (2048:F) ∧
-    ∃gate_271, gate_271 = Gates.add gate_268 gate_270 ∧
-    RangeCheck 10 (gate_235.get (11 : Fin 24)) ∧
-    ∃gate_273, gate_273 = Gates.mul (gate_235.get (11 : Fin 24)) (4194304:F) ∧
-    ∃gate_274, gate_274 = Gates.add gate_271 gate_273 ∧
-    ∃gate_275, gate_275 = Gates.sub gate_274 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (12 : Fin 24)) ∧
-    ∃gate_277, gate_277 = Gates.mul (gate_235.get (12 : Fin 24)) (1:F) ∧
-    ∃gate_278, gate_278 = Gates.add (0:F) gate_277 ∧
-    RangeCheck 11 (gate_235.get (13 : Fin 24)) ∧
-    ∃gate_280, gate_280 = Gates.mul (gate_235.get (13 : Fin 24)) (2048:F) ∧
-    ∃gate_281, gate_281 = Gates.add gate_278 gate_280 ∧
-    RangeCheck 10 (gate_235.get (14 : Fin 24)) ∧
-    ∃gate_283, gate_283 = Gates.mul (gate_235.get (14 : Fin 24)) (4194304:F) ∧
-    ∃gate_284, gate_284 = Gates.add gate_281 gate_283 ∧
-    ∃gate_285, gate_285 = Gates.sub gate_284 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (15 : Fin 24)) ∧
-    ∃gate_287, gate_287 = Gates.mul (gate_235.get (15 : Fin 24)) (1:F) ∧
-    ∃gate_288, gate_288 = Gates.add (0:F) gate_287 ∧
-    RangeCheck 11 (gate_235.get (16 : Fin 24)) ∧
-    ∃gate_290, gate_290 = Gates.mul (gate_235.get (16 : Fin 24)) (2048:F) ∧
-    ∃gate_291, gate_291 = Gates.add gate_288 gate_290 ∧
-    RangeCheck 10 (gate_235.get (17 : Fin 24)) ∧
-    ∃gate_293, gate_293 = Gates.mul (gate_235.get (17 : Fin 24)) (4194304:F) ∧
-    ∃gate_294, gate_294 = Gates.add gate_291 gate_293 ∧
-    ∃gate_295, gate_295 = Gates.sub gate_294 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (18 : Fin 24)) ∧
-    ∃gate_297, gate_297 = Gates.mul (gate_235.get (18 : Fin 24)) (1:F) ∧
-    ∃gate_298, gate_298 = Gates.add (0:F) gate_297 ∧
-    RangeCheck 11 (gate_235.get (19 : Fin 24)) ∧
-    ∃gate_300, gate_300 = Gates.mul (gate_235.get (19 : Fin 24)) (2048:F) ∧
-    ∃gate_301, gate_301 = Gates.add gate_298 gate_300 ∧
-    RangeCheck 10 (gate_235.get (20 : Fin 24)) ∧
-    ∃gate_303, gate_303 = Gates.mul (gate_235.get (20 : Fin 24)) (4194304:F) ∧
-    ∃gate_304, gate_304 = Gates.add gate_301 gate_303 ∧
-    ∃gate_305, gate_305 = Gates.sub gate_304 (2147483648:F) ∧
-    RangeCheck 11 (gate_235.get (21 : Fin 24)) ∧
-    ∃gate_307, gate_307 = Gates.mul (gate_235.get (21 : Fin 24)) (1:F) ∧
-    ∃gate_308, gate_308 = Gates.add (0:F) gate_307 ∧
-    RangeCheck 11 (gate_235.get (22 : Fin 24)) ∧
-    ∃gate_310, gate_310 = Gates.mul (gate_235.get (22 : Fin 24)) (2048:F) ∧
-    ∃gate_311, gate_311 = Gates.add gate_308 gate_310 ∧
-    RangeCheck 10 (gate_235.get (23 : Fin 24)) ∧
-    ∃gate_313, gate_313 = Gates.mul (gate_235.get (23 : Fin 24)) (4194304:F) ∧
-    ∃gate_314, gate_314 = Gates.add gate_311 gate_313 ∧
-    ∃gate_315, gate_315 = Gates.sub gate_314 (2147483648:F) ∧
-    ∃gate_316, gate_316 = Gates.mul (gate_233.get (0 : Fin 8)) (1:F) ∧
-    ∃gate_317, gate_317 = Gates.add (0:F) gate_316 ∧
-    ∃gate_318, gate_318 = Gates.mul (gate_233.get (1 : Fin 8)) (1:F) ∧
-    ∃gate_319, gate_319 = Gates.add (0:F) gate_318 ∧
-    ∃gate_320, gate_320 = Gates.mul (gate_233.get (2 : Fin 8)) (1:F) ∧
-    ∃gate_321, gate_321 = Gates.add (0:F) gate_320 ∧
-    ∃gate_322, gate_322 = Gates.mul (gate_233.get (3 : Fin 8)) (1:F) ∧
-    ∃gate_323, gate_323 = Gates.add (0:F) gate_322 ∧
-    ∃gate_324, gate_324 = Gates.mul (gate_233.get (4 : Fin 8)) (1:F) ∧
-    ∃gate_325, gate_325 = Gates.add (0:F) gate_324 ∧
-    ∃gate_326, gate_326 = Gates.mul (gate_233.get (5 : Fin 8)) (1:F) ∧
-    ∃gate_327, gate_327 = Gates.add (0:F) gate_326 ∧
-    ∃gate_328, gate_328 = Gates.mul (gate_233.get (6 : Fin 8)) (1:F) ∧
-    ∃gate_329, gate_329 = Gates.add (0:F) gate_328 ∧
-    ∃gate_330, gate_330 = Gates.mul (gate_233.get (7 : Fin 8)) (1:F) ∧
-    ∃gate_331, gate_331 = Gates.add (0:F) gate_330 ∧
-    ∃gate_332, gate_332 = Gates.mul (gate_83.get (0 : Fin 8)) (-1:F) ∧
-    ∃gate_333, gate_333 = Gates.add gate_317 gate_332 ∧
-    ∃gate_334, gate_334 = Gates.mul (gate_83.get (1 : Fin 8)) (-1:F) ∧
-    ∃gate_335, gate_335 = Gates.add gate_319 gate_334 ∧
-    ∃gate_336, gate_336 = Gates.mul (gate_83.get (2 : Fin 8)) (-1:F) ∧
-    ∃gate_337, gate_337 = Gates.add gate_321 gate_336 ∧
-    ∃gate_338, gate_338 = Gates.mul (gate_83.get (3 : Fin 8)) (-1:F) ∧
-    ∃gate_339, gate_339 = Gates.add gate_323 gate_338 ∧
-    ∃gate_340, gate_340 = Gates.mul (gate_83.get (4 : Fin 8)) (-1:F) ∧
-    ∃gate_341, gate_341 = Gates.add gate_325 gate_340 ∧
-    ∃gate_342, gate_342 = Gates.mul (gate_83.get (5 : Fin 8)) (-1:F) ∧
-    ∃gate_343, gate_343 = Gates.add gate_327 gate_342 ∧
-    ∃gate_344, gate_344 = Gates.mul (gate_83.get (6 : Fin 8)) (-1:F) ∧
-    ∃gate_345, gate_345 = Gates.add gate_329 gate_344 ∧
-    ∃gate_346, gate_346 = Gates.mul (gate_83.get (7 : Fin 8)) (-1:F) ∧
-    ∃gate_347, gate_347 = Gates.add gate_331 gate_346 ∧
-    CheckPolynomial_40_h4960297a vec![gate_245, gate_255, gate_265, gate_275, gate_285, gate_295, gate_305, gate_315, gate_333, gate_335, gate_337, gate_339, gate_341, gate_343, gate_345, gate_347, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_134, gate_136, gate_138, gate_140, gate_142, gate_144, gate_146, gate_148, (SelectedY.get (0 : Fin 8)), (SelectedY.get (1 : Fin 8)), (SelectedY.get (2 : Fin 8)), (SelectedY.get (3 : Fin 8)), (SelectedY.get (4 : Fin 8)), (SelectedY.get (5 : Fin 8)), (SelectedY.get (6 : Fin 8)), (SelectedY.get (7 : Fin 8))] ∧
-    ∃gate_349, gate_349 = Gates.mul gate_245 (1:F) ∧
-    ∃gate_350, gate_350 = Gates.add (0:F) gate_349 ∧
-    ∃gate_351, gate_351 = Gates.mul gate_255 (1:F) ∧
-    ∃gate_352, gate_352 = Gates.add (0:F) gate_351 ∧
-    ∃gate_353, gate_353 = Gates.mul gate_265 (1:F) ∧
-    ∃gate_354, gate_354 = Gates.add (0:F) gate_353 ∧
-    ∃gate_355, gate_355 = Gates.mul gate_275 (1:F) ∧
-    ∃gate_356, gate_356 = Gates.add (0:F) gate_355 ∧
-    ∃gate_357, gate_357 = Gates.mul gate_285 (1:F) ∧
+    ∃gate_232, gate_232 = Gates.mul gate_11 (1:F) ∧
+    ∃gate_233, gate_233 = Gates.add (0:F) gate_232 ∧
+    ∃gate_234, gate_234 = Gates.mul gate_21 (4294967296:F) ∧
+    ∃gate_235, gate_235 = Gates.add gate_233 gate_234 ∧
+    ∃gate_236, gate_236 = Gates.mul gate_31 K_390 ∧
+    ∃gate_237, gate_237 = Gates.add gate_235 gate_236 ∧
+    ∃gate_238, gate_238 = Gates.mul gate_41 K_391 ∧
+    ∃gate_239, gate_239 = Gates.add gate_237 gate_238 ∧
+    ∃gate_240, gate_240 = Gates.mul gate_51 K_392 ∧
+    ∃gate_241, gate_241 = Gates.add gate_239 gate_240 ∧
+    ∃gate_242, gate_242 = Gates.mul gate_61 K_393 ∧
+    ∃gate_243, gate_243 = Gates.add gate_241 gate_242 ∧
+    ∃gate_244, gate_244 = Gates.mul gate_71 K_394 ∧
+    ∃gate_245, gate_245 = Gates.add gate_243 gate_244 ∧
+    ∃gate_246, gate_246 = Gates.mul gate_81 K_395 ∧
+    ∃gate_247, gate_247 = Gates.add gate_245 gate_246 ∧
+    ∃gate_248, gate_248 = Gates.sub gate_247 HalfSlope ∧
+    ∃gate_249, gate_249 = Gates.mul gate_248 gate_248 ∧
+    ∃gate_250, gate_250 = Gates.sub gate_249 K_1176 ∧
+    ∃gate_251, gate_251 = Gates.mul gate_248 gate_250 ∧
+    ∃gate_252, gate_252 = Gates.add gate_247 HalfSlope ∧
+    ∃gate_253, gate_253 = Gates.mul gate_252 gate_252 ∧
+    ∃gate_254, gate_254 = Gates.sub gate_253 K_1176 ∧
+    ∃gate_255, gate_255 = Gates.mul gate_252 gate_254 ∧
+    ∃gate_256, gate_256 = Gates.mul gate_251 gate_255 ∧
+    ∃gate_257, Gates.is_zero gate_256 gate_257 ∧
+    ∃gate_258, gate_258 = Gates.mul (gate_83.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_259, gate_259 = Gates.add (0:F) gate_258 ∧
+    ∃gate_260, gate_260 = Gates.mul (gate_83.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_261, gate_261 = Gates.add (0:F) gate_260 ∧
+    ∃gate_262, gate_262 = Gates.mul (gate_83.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_263, gate_263 = Gates.add (0:F) gate_262 ∧
+    ∃gate_264, gate_264 = Gates.mul (gate_83.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_265, gate_265 = Gates.add (0:F) gate_264 ∧
+    ∃gate_266, gate_266 = Gates.mul (gate_83.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_267, gate_267 = Gates.add (0:F) gate_266 ∧
+    ∃gate_268, gate_268 = Gates.mul (gate_83.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_269, gate_269 = Gates.add (0:F) gate_268 ∧
+    ∃gate_270, gate_270 = Gates.mul (gate_83.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_271, gate_271 = Gates.add (0:F) gate_270 ∧
+    ∃gate_272, gate_272 = Gates.mul (gate_83.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_273, gate_273 = Gates.add (0:F) gate_272 ∧
+    ∃gate_274, gate_274 = Gates.mul (SelectedX.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_275, gate_275 = Gates.add gate_259 gate_274 ∧
+    ∃gate_276, gate_276 = Gates.mul (SelectedX.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_277, gate_277 = Gates.add gate_261 gate_276 ∧
+    ∃gate_278, gate_278 = Gates.mul (SelectedX.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_279, gate_279 = Gates.add gate_263 gate_278 ∧
+    ∃gate_280, gate_280 = Gates.mul (SelectedX.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_281, gate_281 = Gates.add gate_265 gate_280 ∧
+    ∃gate_282, gate_282 = Gates.mul (SelectedX.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_283, gate_283 = Gates.add gate_267 gate_282 ∧
+    ∃gate_284, gate_284 = Gates.mul (SelectedX.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_285, gate_285 = Gates.add gate_269 gate_284 ∧
+    ∃gate_286, gate_286 = Gates.mul (SelectedX.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_287, gate_287 = Gates.add gate_271 gate_286 ∧
+    ∃gate_288, gate_288 = Gates.mul (SelectedX.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_289, gate_289 = Gates.add gate_273 gate_288 ∧
+    ∃gate_290, gate_290 = Gates.mul (gate_116.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_291, gate_291 = Gates.add (0:F) gate_290 ∧
+    ∃gate_292, gate_292 = Gates.mul (gate_116.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_293, gate_293 = Gates.add (0:F) gate_292 ∧
+    ∃gate_294, gate_294 = Gates.mul (gate_116.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_295, gate_295 = Gates.add (0:F) gate_294 ∧
+    ∃gate_296, gate_296 = Gates.mul (gate_116.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_297, gate_297 = Gates.add (0:F) gate_296 ∧
+    ∃gate_298, gate_298 = Gates.mul (gate_116.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_299, gate_299 = Gates.add (0:F) gate_298 ∧
+    ∃gate_300, gate_300 = Gates.mul (gate_116.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_301, gate_301 = Gates.add (0:F) gate_300 ∧
+    ∃gate_302, gate_302 = Gates.mul (gate_116.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_303, gate_303 = Gates.add (0:F) gate_302 ∧
+    ∃gate_304, gate_304 = Gates.mul (gate_116.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_305, gate_305 = Gates.add (0:F) gate_304 ∧
+    ∃gate_306, gate_306 = Gates.mul (SelectedY.get (0 : Fin 8)) (1:F) ∧
+    ∃gate_307, gate_307 = Gates.add gate_291 gate_306 ∧
+    ∃gate_308, gate_308 = Gates.mul (SelectedY.get (1 : Fin 8)) (1:F) ∧
+    ∃gate_309, gate_309 = Gates.add gate_293 gate_308 ∧
+    ∃gate_310, gate_310 = Gates.mul (SelectedY.get (2 : Fin 8)) (1:F) ∧
+    ∃gate_311, gate_311 = Gates.add gate_295 gate_310 ∧
+    ∃gate_312, gate_312 = Gates.mul (SelectedY.get (3 : Fin 8)) (1:F) ∧
+    ∃gate_313, gate_313 = Gates.add gate_297 gate_312 ∧
+    ∃gate_314, gate_314 = Gates.mul (SelectedY.get (4 : Fin 8)) (1:F) ∧
+    ∃gate_315, gate_315 = Gates.add gate_299 gate_314 ∧
+    ∃gate_316, gate_316 = Gates.mul (SelectedY.get (5 : Fin 8)) (1:F) ∧
+    ∃gate_317, gate_317 = Gates.add gate_301 gate_316 ∧
+    ∃gate_318, gate_318 = Gates.mul (SelectedY.get (6 : Fin 8)) (1:F) ∧
+    ∃gate_319, gate_319 = Gates.add gate_303 gate_318 ∧
+    ∃gate_320, gate_320 = Gates.mul (SelectedY.get (7 : Fin 8)) (1:F) ∧
+    ∃gate_321, gate_321 = Gates.add gate_305 gate_320 ∧
+    CheckPolynomial_49_ha68a8775 vec![gate_257, gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, gate_307, gate_309, gate_311, gate_313, gate_315, gate_317, gate_319, gate_321, gate_275, gate_277, gate_279, gate_281, gate_283, gate_285, gate_287, gate_289, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8)), (4294967292:F), (4294967295:F), (4294967295:F), (0:F), (0:F), (0:F), (1:F), (4294967295:F)] ∧
+    Lazy_24_hdbbbc800 vec![gate_160, gate_170, gate_180, gate_190, gate_200, gate_210, gate_220, gate_230, (gate_83.get (0 : Fin 8)), (gate_83.get (1 : Fin 8)), (gate_83.get (2 : Fin 8)), (gate_83.get (3 : Fin 8)), (gate_83.get (4 : Fin 8)), (gate_83.get (5 : Fin 8)), (gate_83.get (6 : Fin 8)), (gate_83.get (7 : Fin 8)), (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_323 =>
+    ∃gate_324 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256ImplicitSecondSlopeHint
+    ∃gate_325 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.BalanceHint
+    RangeCheck 11 (gate_325.get (0 : Fin 24)) ∧
+    ∃gate_327, gate_327 = Gates.mul (gate_325.get (0 : Fin 24)) (1:F) ∧
+    ∃gate_328, gate_328 = Gates.add (0:F) gate_327 ∧
+    RangeCheck 11 (gate_325.get (1 : Fin 24)) ∧
+    ∃gate_330, gate_330 = Gates.mul (gate_325.get (1 : Fin 24)) (2048:F) ∧
+    ∃gate_331, gate_331 = Gates.add gate_328 gate_330 ∧
+    RangeCheck 10 (gate_325.get (2 : Fin 24)) ∧
+    ∃gate_333, gate_333 = Gates.mul (gate_325.get (2 : Fin 24)) (4194304:F) ∧
+    ∃gate_334, gate_334 = Gates.add gate_331 gate_333 ∧
+    ∃gate_335, gate_335 = Gates.sub gate_334 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (3 : Fin 24)) ∧
+    ∃gate_337, gate_337 = Gates.mul (gate_325.get (3 : Fin 24)) (1:F) ∧
+    ∃gate_338, gate_338 = Gates.add (0:F) gate_337 ∧
+    RangeCheck 11 (gate_325.get (4 : Fin 24)) ∧
+    ∃gate_340, gate_340 = Gates.mul (gate_325.get (4 : Fin 24)) (2048:F) ∧
+    ∃gate_341, gate_341 = Gates.add gate_338 gate_340 ∧
+    RangeCheck 10 (gate_325.get (5 : Fin 24)) ∧
+    ∃gate_343, gate_343 = Gates.mul (gate_325.get (5 : Fin 24)) (4194304:F) ∧
+    ∃gate_344, gate_344 = Gates.add gate_341 gate_343 ∧
+    ∃gate_345, gate_345 = Gates.sub gate_344 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (6 : Fin 24)) ∧
+    ∃gate_347, gate_347 = Gates.mul (gate_325.get (6 : Fin 24)) (1:F) ∧
+    ∃gate_348, gate_348 = Gates.add (0:F) gate_347 ∧
+    RangeCheck 11 (gate_325.get (7 : Fin 24)) ∧
+    ∃gate_350, gate_350 = Gates.mul (gate_325.get (7 : Fin 24)) (2048:F) ∧
+    ∃gate_351, gate_351 = Gates.add gate_348 gate_350 ∧
+    RangeCheck 10 (gate_325.get (8 : Fin 24)) ∧
+    ∃gate_353, gate_353 = Gates.mul (gate_325.get (8 : Fin 24)) (4194304:F) ∧
+    ∃gate_354, gate_354 = Gates.add gate_351 gate_353 ∧
+    ∃gate_355, gate_355 = Gates.sub gate_354 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (9 : Fin 24)) ∧
+    ∃gate_357, gate_357 = Gates.mul (gate_325.get (9 : Fin 24)) (1:F) ∧
     ∃gate_358, gate_358 = Gates.add (0:F) gate_357 ∧
-    ∃gate_359, gate_359 = Gates.mul gate_295 (1:F) ∧
-    ∃gate_360, gate_360 = Gates.add (0:F) gate_359 ∧
-    ∃gate_361, gate_361 = Gates.mul gate_305 (1:F) ∧
-    ∃gate_362, gate_362 = Gates.add (0:F) gate_361 ∧
-    ∃gate_363, gate_363 = Gates.mul gate_315 (1:F) ∧
-    ∃gate_364, gate_364 = Gates.add (0:F) gate_363 ∧
-    ∃gate_365, gate_365 = Gates.mul gate_160 (2:F) ∧
-    ∃gate_366, gate_366 = Gates.add gate_350 gate_365 ∧
-    ∃gate_367, gate_367 = Gates.mul gate_170 (2:F) ∧
-    ∃gate_368, gate_368 = Gates.add gate_352 gate_367 ∧
-    ∃gate_369, gate_369 = Gates.mul gate_180 (2:F) ∧
-    ∃gate_370, gate_370 = Gates.add gate_354 gate_369 ∧
-    ∃gate_371, gate_371 = Gates.mul gate_190 (2:F) ∧
-    ∃gate_372, gate_372 = Gates.add gate_356 gate_371 ∧
-    ∃gate_373, gate_373 = Gates.mul gate_200 (2:F) ∧
-    ∃gate_374, gate_374 = Gates.add gate_358 gate_373 ∧
-    ∃gate_375, gate_375 = Gates.mul gate_210 (2:F) ∧
-    ∃gate_376, gate_376 = Gates.add gate_360 gate_375 ∧
-    ∃gate_377, gate_377 = Gates.mul gate_220 (2:F) ∧
-    ∃gate_378, gate_378 = Gates.add gate_362 gate_377 ∧
-    ∃gate_379, gate_379 = Gates.mul gate_230 (2:F) ∧
-    ∃gate_380, gate_380 = Gates.add gate_364 gate_379 ∧
-    Lazy_24_h9c68f146 vec![gate_245, gate_255, gate_265, gate_275, gate_285, gate_295, gate_305, gate_315, gate_366, gate_368, gate_370, gate_372, gate_374, gate_376, gate_378, gate_380, (SelectedX.get (0 : Fin 8)), (SelectedX.get (1 : Fin 8)), (SelectedX.get (2 : Fin 8)), (SelectedX.get (3 : Fin 8)), (SelectedX.get (4 : Fin 8)), (SelectedX.get (5 : Fin 8)), (SelectedX.get (6 : Fin 8)), (SelectedX.get (7 : Fin 8))] fun gate_381 =>
-    ∃gate_382, gate_382 = Gates.mul gate_160 (1:F) ∧
-    ∃gate_383, gate_383 = Gates.add (0:F) gate_382 ∧
-    ∃gate_384, gate_384 = Gates.mul gate_170 (1:F) ∧
-    ∃gate_385, gate_385 = Gates.add (0:F) gate_384 ∧
-    ∃gate_386, gate_386 = Gates.mul gate_180 (1:F) ∧
-    ∃gate_387, gate_387 = Gates.add (0:F) gate_386 ∧
-    ∃gate_388, gate_388 = Gates.mul gate_190 (1:F) ∧
-    ∃gate_389, gate_389 = Gates.add (0:F) gate_388 ∧
-    ∃gate_390, gate_390 = Gates.mul gate_200 (1:F) ∧
-    ∃gate_391, gate_391 = Gates.add (0:F) gate_390 ∧
-    ∃gate_392, gate_392 = Gates.mul gate_210 (1:F) ∧
-    ∃gate_393, gate_393 = Gates.add (0:F) gate_392 ∧
-    ∃gate_394, gate_394 = Gates.mul gate_220 (1:F) ∧
-    ∃gate_395, gate_395 = Gates.add (0:F) gate_394 ∧
-    ∃gate_396, gate_396 = Gates.mul gate_230 (1:F) ∧
-    ∃gate_397, gate_397 = Gates.add (0:F) gate_396 ∧
-    ∃gate_398, gate_398 = Gates.mul gate_245 (1:F) ∧
-    ∃gate_399, gate_399 = Gates.add gate_383 gate_398 ∧
-    QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 AccX AccY SelectedX SelectedY HalfSlope gate_83 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_160 gate_170 gate_180 gate_190 gate_200 gate_210 gate_220 gate_230 gate_255 gate_265 gate_275 gate_285 gate_295 gate_305 gate_315 gate_381 gate_385 gate_387 gate_389 gate_391 gate_393 gate_395 gate_397 gate_399 k
+    RangeCheck 11 (gate_325.get (10 : Fin 24)) ∧
+    ∃gate_360, gate_360 = Gates.mul (gate_325.get (10 : Fin 24)) (2048:F) ∧
+    ∃gate_361, gate_361 = Gates.add gate_358 gate_360 ∧
+    RangeCheck 10 (gate_325.get (11 : Fin 24)) ∧
+    ∃gate_363, gate_363 = Gates.mul (gate_325.get (11 : Fin 24)) (4194304:F) ∧
+    ∃gate_364, gate_364 = Gates.add gate_361 gate_363 ∧
+    ∃gate_365, gate_365 = Gates.sub gate_364 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (12 : Fin 24)) ∧
+    ∃gate_367, gate_367 = Gates.mul (gate_325.get (12 : Fin 24)) (1:F) ∧
+    ∃gate_368, gate_368 = Gates.add (0:F) gate_367 ∧
+    RangeCheck 11 (gate_325.get (13 : Fin 24)) ∧
+    ∃gate_370, gate_370 = Gates.mul (gate_325.get (13 : Fin 24)) (2048:F) ∧
+    ∃gate_371, gate_371 = Gates.add gate_368 gate_370 ∧
+    RangeCheck 10 (gate_325.get (14 : Fin 24)) ∧
+    ∃gate_373, gate_373 = Gates.mul (gate_325.get (14 : Fin 24)) (4194304:F) ∧
+    ∃gate_374, gate_374 = Gates.add gate_371 gate_373 ∧
+    ∃gate_375, gate_375 = Gates.sub gate_374 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (15 : Fin 24)) ∧
+    ∃gate_377, gate_377 = Gates.mul (gate_325.get (15 : Fin 24)) (1:F) ∧
+    ∃gate_378, gate_378 = Gates.add (0:F) gate_377 ∧
+    RangeCheck 11 (gate_325.get (16 : Fin 24)) ∧
+    ∃gate_380, gate_380 = Gates.mul (gate_325.get (16 : Fin 24)) (2048:F) ∧
+    ∃gate_381, gate_381 = Gates.add gate_378 gate_380 ∧
+    RangeCheck 10 (gate_325.get (17 : Fin 24)) ∧
+    ∃gate_383, gate_383 = Gates.mul (gate_325.get (17 : Fin 24)) (4194304:F) ∧
+    ∃gate_384, gate_384 = Gates.add gate_381 gate_383 ∧
+    ∃gate_385, gate_385 = Gates.sub gate_384 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (18 : Fin 24)) ∧
+    ∃gate_387, gate_387 = Gates.mul (gate_325.get (18 : Fin 24)) (1:F) ∧
+    ∃gate_388, gate_388 = Gates.add (0:F) gate_387 ∧
+    RangeCheck 11 (gate_325.get (19 : Fin 24)) ∧
+    ∃gate_390, gate_390 = Gates.mul (gate_325.get (19 : Fin 24)) (2048:F) ∧
+    ∃gate_391, gate_391 = Gates.add gate_388 gate_390 ∧
+    RangeCheck 10 (gate_325.get (20 : Fin 24)) ∧
+    ∃gate_393, gate_393 = Gates.mul (gate_325.get (20 : Fin 24)) (4194304:F) ∧
+    ∃gate_394, gate_394 = Gates.add gate_391 gate_393 ∧
+    ∃gate_395, gate_395 = Gates.sub gate_394 (2147483648:F) ∧
+    RangeCheck 11 (gate_325.get (21 : Fin 24)) ∧
+    ∃gate_397, gate_397 = Gates.mul (gate_325.get (21 : Fin 24)) (1:F) ∧
+    ∃gate_398, gate_398 = Gates.add (0:F) gate_397 ∧
+    RangeCheck 11 (gate_325.get (22 : Fin 24)) ∧
+    QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 AccX AccY SelectedX SelectedY HalfSlope gate_83 gate_134 gate_136 gate_138 gate_140 gate_142 gate_144 gate_146 gate_148 gate_160 gate_170 gate_180 gate_190 gate_200 gate_210 gate_220 gate_230 gate_323 gate_325 gate_335 gate_345 gate_355 gate_365 gate_375 gate_385 gate_395 gate_398 k
 
 def QuadrupleAndAddLazy_8_8_8_8_h320f0a4e (AccX: List.Vector F 8) (AccY: List.Vector F 8) (SelectedX: List.Vector F 8) (SelectedY: List.Vector F 8) (HalfSlope: F) (k: List.Vector (List.Vector F 8) 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 24, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256TangentHint

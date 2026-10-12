@@ -1,5 +1,6 @@
 import VerifiableEncryption.Field.Lazy
 import VerifiableEncryption.Circuit.Field
+import VerifiableEncryption.Circuit.Field6
 import VerifiableEncryption.Circuit.Field5
 
 /-!

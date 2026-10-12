@@ -1,11 +1,11 @@
 import VerifiableEncryption.Top
 
 /-!
-Pinned axiom sets of the top theorems (AES and KDF results: Lean's three axioms, `bn254_Fr_prime` where the native field instance is used). A change in the trusted base of
+Pinned axiom sets of the top theorems (AES and KDF results: Lean's three axioms; native-field primality has recursive Lucas certificate proof source). A change in the trusted base of
 any of them fails this module.
 -/
 
-/-- info: 'ZolanaVE.top_aesCtr_sound' depends on axioms: [bn254_Fr_prime, propext, Classical.choice, Quot.sound] -/
+/-- info: 'ZolanaVE.top_aesCtr_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms ZolanaVE.top_aesCtr_sound
 

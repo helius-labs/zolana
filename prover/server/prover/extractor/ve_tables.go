@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,8 @@ import (
 // ExtractVETables writes the generated data and certificate modules of the
 // VerifiableEncryption library under the Lake root leanRoot: AesTables.lean,
 // CombTables.lean, EmcurveChecks.lean, Field/Certificate.lean and the
-// Field/Instances*.lean modules (stale instance modules are removed first).
+// Field/Instances*.lean and completeness proof-source modules (stale instance
+// modules are removed first).
 // The instance modules are derived from the in-memory circuit extraction, so
 // they agree with extract-ve-circuit. It returns the bytes written.
 func ExtractVETables(leanRoot string) (int, error) {
@@ -33,7 +35,12 @@ func ExtractVETables(leanRoot string) (int, error) {
 		filepath.Join(lib, "Field", "Certificate.lean"): RenderEmcurveCertificate(checks),
 	}
 	for module, source := range instances {
-		files[filepath.Join(lib, "Field", strings.TrimPrefix(module, "VerifiableEncryption.Field.")+".lean")] = source
+		const prefix = "VerifiableEncryption."
+		if !strings.HasPrefix(module, prefix) {
+			return 0, fmt.Errorf("generated module %q is outside VerifiableEncryption", module)
+		}
+		relative := strings.ReplaceAll(strings.TrimPrefix(module, prefix), ".", string(filepath.Separator))
+		files[filepath.Join(lib, relative+".lean")] = source
 	}
 	stale, err := filepath.Glob(filepath.Join(lib, "Field", "Instances*.lean"))
 	if err != nil {

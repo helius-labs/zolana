@@ -1,6 +1,6 @@
 import VerifiableEncryption.Circuit.Prelude
 import VerifiableEncryption.Circuit.Field
-import VerifiableEncryption.Circuit.Field5
+import VerifiableEncryption.Circuit.Field6
 import VerifiableEncryption.Circuit.Curve
 import VerifiableEncryption.Circuit.Aes
 import VerifiableEncryption.Circuit.Kdf
@@ -42,6 +42,10 @@ def GuardedAdd_8_8_8_8_8_8 (PX: List.Vector F 8) (PY: List.Vector F 8) (QX: List
     Gates.eq ((gate_1.get (1 : Fin 2)).get (6 : Fin 8)) (RY.get (6 : Fin 8)) ∧
     Gates.eq ((gate_1.get (0 : Fin 2)).get (7 : Fin 8)) (RX.get (7 : Fin 8)) ∧
     Gates.eq ((gate_1.get (1 : Fin 2)).get (7 : Fin 8)) (RY.get (7 : Fin 8)) ∧
+    True
+
+def NativeSlopeGuard_8 (Lambda: List.Vector F 8) (Other: F): Prop :=
+    AssertDistinctSlope_8_h16c15a53 Lambda Other ∧
     True
 
 def AgreeKey_32_65_6_p1 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vector F 65) (Packed: List.Vector F 6) (gate_72: F) (gate_80: F) (gate_88: F) (gate_96: F) (gate_104: F) (gate_112: F) (gate_120: F) (gate_128: F) (gate_136: F) (gate_144: F) (gate_152: F) (gate_160: F) (gate_168: F) (gate_176: F) (gate_184: F) (gate_192: F) (gate_198: F) (gate_199: F): Prop :=

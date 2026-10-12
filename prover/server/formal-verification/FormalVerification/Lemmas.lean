@@ -1,10 +1,12 @@
 import Mathlib
 import ProvenZk
 import FormalVerification.Circuit
+import VerifiableEncryption.ParameterCertificates.BN254
 
 open ZolanaProver (F Order)
 
-axiom bn254_Fr_prime : Nat.Prime Order
+/-- Native-field primality from a kernel-checked recursive Lucas certificate. -/
+theorem bn254_Fr_prime : Nat.Prime Order := ZolanaVE.ParameterCertificates.BN254.scalar_prime
 instance : Fact (Nat.Prime Order) := Fact.mk bn254_Fr_prime
 
 instance : Membership α (MerkleTree α H d) where

@@ -2,6 +2,7 @@ import «ProvenZk»
 import FormalVerification.Circuit
 import FormalVerification.Lemmas
 import FormalVerification.Merkle
+import FormalVerification.MerkleSecurity
 
 open ZolanaProver (F)
 
@@ -15,23 +16,19 @@ abbrev B := 8
 theorem poseidon₂_testVector :
   poseidon₂ vec![1, 2] = 7853200120776062878684798364095072458815029376092732009249414926327459813530 := by native_decide
 
-axiom poseidon₂_collisionResistant : CollisionResistant poseidon₂
-instance : Fact (CollisionResistant poseidon₂) := ⟨poseidon₂_collisionResistant⟩
-
-axiom poseidon₂_nez : poseidon₂_no_zero_preimage
-instance : Fact poseidon₂_no_zero_preimage := ⟨poseidon₂_nez⟩
-
 namespace InclusionCircuit
 
-/-- The inclusion circuit is satisfiable with public input hash `ih` iff every
-`leaves[i]` is a leaf of the state tree with root `roots[i]` (and `ih` is the
-chained hash of the two public columns). -/
-theorem sound_and_complete
+/-- Acceptance gives membership or explicit colliding compression inputs. -/
+theorem membership_or_collision
   {trees : List.Vector (MerkleTree F poseidon₂ SD) B}
-  {leaves : List.Vector F B}:
-    (∃ih p₁ p₂, InclusionCircuit ih (trees.map (·.root)) leaves p₁ p₂)
-    ↔ ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i]
-  := by simp [InclusionCircuit_correct]
+  {leaves indices : List.Vector F B}
+  {proofs : List.Vector (List.Vector F SD) B} {ih : F}
+  (h : InclusionCircuit ih (trees.map (·.root)) leaves indices proofs) :
+    (∀ i : Fin B, leaves.get i ∈ trees.get i) ∨ HashReduction.Collision poseidon₂ := by
+  classical
+  by_cases hm : ∀ i : Fin B, leaves.get i ∈ trees.get i
+  · exact Or.inl hm
+  · exact Or.inr (HashReduction.inclusion_collision h (not_forall.mp hm))
 
 /-- The public input hash is determined by the public columns. -/
 theorem inputHash_deterministic:
@@ -42,33 +39,37 @@ theorem inputHash_deterministic:
   intros
   simp_all
 
-/-- The public input hash binds the public columns: equal hashes imply equal
-roots and leaves. -/
-theorem inputHash_injective:
-    InclusionCircuit h trees₁ leaves₁ i₁ p₁ →
-    InclusionCircuit h trees₂ leaves₂ i₂ p₂ →
-    trees₁ = trees₂ ∧ leaves₁ = leaves₂ := by
-  simp only [InclusionCircuit_rw]
-  rintro ⟨h₁, _⟩ ⟨h₂, _⟩
-  -- Term-level: `cases h₁` (subst) forces deep whnf through `inputHash`/`poseidon₂`.
-  exact inputHash_correct.mp (h₁.symm.trans h₂)
+/-- Different accepted public columns with the same hash give a collision. -/
+theorem inputHash_binding_collision
+    (h₁ : InclusionCircuit h trees₁ leaves₁ i₁ p₁)
+    (h₂ : InclusionCircuit h trees₂ leaves₂ i₂ p₂)
+    (hne : trees₁ ≠ trees₂ ∨ leaves₁ ≠ leaves₂) :
+    HashReduction.Collision poseidon₂ := by
+  simp only [InclusionCircuit_rw] at h₁ h₂
+  rcases HashReduction.inputHash_correct_or_collision (h₁.1.symm.trans h₂.1) with
+    ⟨ht, hl⟩ | hc
+  · rcases hne with hn | hn
+    · exact False.elim (hn ht)
+    · exact False.elim (hn hl)
+  · exact hc
 
 end InclusionCircuit
 
 namespace NonInclusionCircuit
 
-/-- The non-inclusion circuit is satisfiable with public input hash `ih` iff
-every `leaves[i]` lies strictly inside a stored range of the nullifier range
-vector with root `roots[i]` — i.e. it is provably absent from the tree. -/
-theorem sound_and_complete
+/-- Incorrect accepted range membership gives a collision or a zero preimage. -/
+theorem membership_or_collision_or_zero
   {trees : List.Vector (RangeVector (2^AD)) B}
-  {leaves : List.Vector F B}:
-    (∃ih p₁ p₂ p₃ p₄,
-      NonInclusionCircuit ih (trees.map (·.root)) leaves p₁ p₂ p₃ p₄)
-    ↔ ∀i (_: i∈[0:B]), leaves[i].val ∈ trees[i]
-  := by
-    conv => lhs; arg 1; intro ih; rw [NonInclusionCircuit_correct]
-    simp
+  {leaves lo hi indices : List.Vector F B}
+  {proofs : List.Vector (List.Vector F AD) B} {ih : F}
+  (h : NonInclusionCircuit ih (trees.map (·.root)) leaves lo hi indices proofs) :
+    (∀ i : Fin B, (leaves.get i).val ∈ trees.get i) ∨
+      HashReduction.Collision poseidon₂ ∨
+        ∃ i : Fin B, poseidon₂ vec![lo.get i, hi.get i] = 0 := by
+  classical
+  by_cases hm : ∀ i : Fin B, (leaves.get i).val ∈ trees.get i
+  · exact Or.inl hm
+  · exact Or.inr (HashReduction.nonInclusion_collision_or_zero h (not_forall.mp hm))
 
 theorem inputHash_deterministic:
     NonInclusionCircuit h₁ trees leaves lo₁ hi₁ i₁ p₁ →
@@ -78,13 +79,18 @@ theorem inputHash_deterministic:
   rintro ⟨e₁, _⟩ ⟨e₂, _⟩
   exact e₁.trans e₂.symm
 
-theorem inputHash_injective:
-    NonInclusionCircuit h trees₁ leaves₁ lo₁ hi₁ i₁ p₁ →
-    NonInclusionCircuit h trees₂ leaves₂ lo₂ hi₂ i₂ p₂ →
-    trees₁ = trees₂ ∧ leaves₁ = leaves₂ := by
-  simp only [NonInclusionCircuit_rw]
-  rintro ⟨h₁, _⟩ ⟨h₂, _⟩
-  exact inputHash_correct.mp (h₁.symm.trans h₂)
+theorem inputHash_binding_collision
+    (h₁ : NonInclusionCircuit h trees₁ leaves₁ lo₁ hi₁ i₁ p₁)
+    (h₂ : NonInclusionCircuit h trees₂ leaves₂ lo₂ hi₂ i₂ p₂)
+    (hne : trees₁ ≠ trees₂ ∨ leaves₁ ≠ leaves₂) :
+    HashReduction.Collision poseidon₂ := by
+  simp only [NonInclusionCircuit_rw] at h₁ h₂
+  rcases HashReduction.inputHash_correct_or_collision (h₁.1.symm.trans h₂.1) with
+    ⟨ht, hl⟩ | hc
+  · rcases hne with hn | hn
+    · exact False.elim (hn ht)
+    · exact False.elim (hn hl)
+  · exact hc
 
 end NonInclusionCircuit
 
