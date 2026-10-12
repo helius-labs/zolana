@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/internal/p256key"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/internal/p256key"
 )
 
 func fe(v int64) *big.Int {

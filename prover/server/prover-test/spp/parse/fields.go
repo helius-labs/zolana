@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"strings"
 
-	"zolana/prover/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 )
 
 func OptionalField(value string) (*big.Int, error) {

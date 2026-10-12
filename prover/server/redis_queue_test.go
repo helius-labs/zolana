@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/server"
 	"io"
 	"math/big"
 	"net/http"
@@ -11,8 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"zolana/prover/prover/common"
-	"zolana/prover/server"
 
 	"github.com/alicebob/miniredis/v2"
 	bn254 "github.com/consensys/gnark-crypto/ecc/bn254"

@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 )
 
 // sweepShapes are the narrowest and widest shape of every output column. Each

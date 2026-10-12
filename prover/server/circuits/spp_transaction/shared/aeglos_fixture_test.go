@@ -8,12 +8,12 @@ import (
 	"testing/cryptotest"
 
 	"github.com/consensys/gnark/frontend"
-	customring "zolana/prover/circuits/spp_transaction/custom"
-	defaultring "zolana/prover/circuits/spp_transaction/default"
-	"zolana/prover/prover-test/aeglosfixture"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
-	"zolana/prover/prover/provingkeys"
+	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
+	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
+	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 )
 
 func TestExportAeglosTransferFixtures(t *testing.T) {

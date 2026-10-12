@@ -13,11 +13,11 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/custom_rings/circuits/base/audittest"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // The host side of this test recomputes the whole statement outside the

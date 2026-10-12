@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
-	prooftranscript "zolana/prover/prover/transcript"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	prooftranscript "github.com/helius-labs/zolana/prover/server/prover/transcript"
 )
 
 // HashChain folds values from left to right:

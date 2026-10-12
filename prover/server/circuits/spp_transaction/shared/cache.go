@@ -1,7 +1,7 @@
 package shared
 
 import (
-	"zolana/prover/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
 )

@@ -4,8 +4,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // NonInclusionProof models the nullifier-tree non-inclusion block

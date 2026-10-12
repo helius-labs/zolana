@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 )
 
 func BenchmarkProveByShape(b *testing.B) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	txcircuit "zolana/prover/circuits/spp_transaction/shared"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 func TestTransferSetupInputCount(t *testing.T) {

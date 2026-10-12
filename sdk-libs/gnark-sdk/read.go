@@ -4,8 +4,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // UtxoRead proves a UTXO is unspent without spending it: its hash is a leaf of

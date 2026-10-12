@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	customring "zolana/prover/circuits/spp_transaction/custom"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {

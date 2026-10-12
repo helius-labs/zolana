@@ -3,8 +3,8 @@ package nullifiertree
 import (
 	"fmt"
 
-	circuit "zolana/prover/circuits"
-	"zolana/prover/logging"
+	circuit "github.com/helius-labs/zolana/prover/server/circuits"
+	"github.com/helius-labs/zolana/prover/server/logging"
 
 	"github.com/consensys/gnark/frontend"
 )

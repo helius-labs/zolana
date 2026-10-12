@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"
 
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func compressedAssignment(t *testing.T, chain func(policy []*big.Int, disclosure *big.Int) []*big.Int) *CompressedPolicyCircuit {

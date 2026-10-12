@@ -6,7 +6,7 @@ require (
 	github.com/consensys/gnark v0.16.3
 	github.com/consensys/gnark-crypto v0.21.0
 	github.com/reilabs/gnark-lean-extractor/v3 v3.0.0
-	zolana/prover v0.0.0
+	github.com/helius-labs/zolana/prover/server v0.0.0
 )
 
 require (
@@ -25,6 +25,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-replace zolana/prover => ../../prover/server
+replace github.com/helius-labs/zolana/prover/server => ../../prover/server
 
 replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107

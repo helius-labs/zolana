@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/indexed"
-	transfer "zolana/prover/prover/transfer_eddsa_only"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/indexed"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
 func servedKeys(t *testing.T, patterns ...string) *ServedKeys {

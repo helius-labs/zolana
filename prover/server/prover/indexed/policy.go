@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover/common"
-	ring "zolana/prover/prover/custom_ring"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
 
 func policyCircuit(circuit common.CircuitType) bool {

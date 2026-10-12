@@ -13,13 +13,13 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	ve "zolana/prover/circuits/verifiable-encryption"
-	"zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/custom_rings/circuits/deposit"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
-	"zolana/prover/prover/common"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // Rust and TypeScript tests share the same disclosure statement.

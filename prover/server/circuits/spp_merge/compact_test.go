@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"
 
-	merge "zolana/prover/circuits/spp_merge"
+	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
 )
 
 // padFixtureCompact publishes 0 for every dummy slot of the fixture: compact

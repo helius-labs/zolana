@@ -5,8 +5,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	"zolana/prover/circuits/gadget"
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 )
 
 // Properties:

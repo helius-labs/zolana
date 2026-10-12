@@ -6,7 +6,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 
-	merkletree "zolana/prover/merkle-tree"
+	merkletree "github.com/helius-labs/zolana/prover/server/merkle-tree"
 )
 
 type KeyRegistryLeaf struct {

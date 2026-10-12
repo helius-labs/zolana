@@ -2,10 +2,10 @@ package server
 
 import (
 	"crypto/subtle"
+	"github.com/helius-labs/zolana/prover/server/logging"
 	"net/http"
 	"os"
 	"strings"
-	"zolana/prover/logging"
 )
 
 type authMiddleware struct {

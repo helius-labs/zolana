@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	customring "zolana/prover/circuits/spp_transaction/custom"
-	defaultring "zolana/prover/circuits/spp_transaction/default"
-	. "zolana/prover/circuits/spp_transaction/shared"
+	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
+	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
+	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark/frontend"
 )

@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // Every UTXO inside the ring and the blinding derived as the rail derives it, the policy statement binds the rail's preimage unchanged.

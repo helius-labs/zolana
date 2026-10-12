@@ -13,9 +13,9 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"
-	"zolana/prover/prover/common"
-	nullifiertree "zolana/prover/prover/nullifier_tree"
-	"zolana/prover/prover/transcript"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	nullifiertree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
+	"github.com/helius-labs/zolana/prover/server/prover/transcript"
 )
 
 func batchFixture(t *testing.T) (BatchRequest, []Hash) {

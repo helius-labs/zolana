@@ -7,9 +7,9 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"
 
-	"zolana/prover/custom_rings/circuits/deposit"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func zeroedKeyPath() [registry.Height]*big.Int {

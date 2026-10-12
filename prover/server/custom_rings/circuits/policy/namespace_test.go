@@ -8,10 +8,10 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"
 
-	spp "zolana/prover/circuits/spp_transaction/custom"
-	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func TestWindowedPolicyAllowsDummyInputs(t *testing.T) {

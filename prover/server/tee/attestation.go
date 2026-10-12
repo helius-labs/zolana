@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"zolana/prover/logging"
+	"github.com/helius-labs/zolana/prover/server/logging"
 )
 
 const AttestationPath = "/tee/v1/attestation"

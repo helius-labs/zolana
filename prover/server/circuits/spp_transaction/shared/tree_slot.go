@@ -3,7 +3,7 @@ package shared
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
 // TreeSlot is one tree account inputs may be spent from: its raw u16 id and

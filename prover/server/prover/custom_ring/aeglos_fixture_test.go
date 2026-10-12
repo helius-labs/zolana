@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/custom_rings/circuits/base/audittest"
-	"zolana/prover/prover-test/aeglosfixture"
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func TestExportAeglosRingFixtures(t *testing.T) {

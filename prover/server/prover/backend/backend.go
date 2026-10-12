@@ -11,8 +11,8 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/logging"
-	"zolana/prover/prover/timing"
+	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 )
 
 type prover interface {

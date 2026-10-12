@@ -3,7 +3,7 @@ package shared
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
 // Domain separators (32-bit ASCII tags) for the deterministic merge-output

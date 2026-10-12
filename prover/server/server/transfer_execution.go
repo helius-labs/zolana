@@ -3,7 +3,7 @@ package server
 import (
 	"sync"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 type Execution struct {

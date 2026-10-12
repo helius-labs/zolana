@@ -6,9 +6,9 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"zolana/gnarksdk"
-	spp "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover-test/spp/protocol"
 )
 
 type readCircuit struct {

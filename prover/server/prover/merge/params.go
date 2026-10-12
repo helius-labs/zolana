@@ -3,7 +3,7 @@ package merge
 import (
 	"math/big"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // InputParams mirrors merge.Input. Only the free per-slot UTXO fields are

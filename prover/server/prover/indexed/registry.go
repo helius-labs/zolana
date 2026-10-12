@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover/common"
-	ring "zolana/prover/prover/custom_ring"
-	"zolana/prover/prover/transcript"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
+	"github.com/helius-labs/zolana/prover/server/prover/transcript"
 )
 
 type RegistryRequest struct {

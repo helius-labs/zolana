@@ -2,10 +2,10 @@ package nullifiertreetest
 
 import (
 	"fmt"
+	merkletree "github.com/helius-labs/zolana/prover/server/merkle-tree"
+	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
 	"os"
 	"testing"
-	merkletree "zolana/prover/merkle-tree"
-	"zolana/prover/prover-test/aeglosfixture"
 )
 
 func TestExportAeglosForesterFixtures(t *testing.T) {

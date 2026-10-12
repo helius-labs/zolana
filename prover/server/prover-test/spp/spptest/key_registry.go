@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	merkletree "zolana/prover/merkle-tree"
+	merkletree "github.com/helius-labs/zolana/prover/server/merkle-tree"
 )
 
 // KeyRegistry appends member keys after the sentinel, ordering is left to the program.

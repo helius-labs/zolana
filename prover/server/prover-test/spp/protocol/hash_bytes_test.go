@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 )
 
 func TestHashBytesSemantics(t *testing.T) {

@@ -3,6 +3,10 @@ package main_test
 import (
 	"bytes"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/logging"
+	nullifiertreetest "github.com/helius-labs/zolana/prover/server/prover-test/nullifier_tree"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/server"
 	"io"
 	"math/big"
 	"net/http"
@@ -10,10 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"zolana/prover/logging"
-	nullifiertreetest "zolana/prover/prover-test/nullifier_tree"
-	"zolana/prover/prover/common"
-	"zolana/prover/server"
 
 	gnarkLogger "github.com/consensys/gnark/logger"
 )

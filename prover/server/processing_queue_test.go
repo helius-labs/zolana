@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"zolana/prover/server"
+	"github.com/helius-labs/zolana/prover/server/server"
 )
 
 // A worker removes its processing entry by value, because a Redis list offers

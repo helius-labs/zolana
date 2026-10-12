@@ -10,7 +10,7 @@ package ringutils
 import (
 	"github.com/consensys/gnark/frontend"
 
-	transaction "zolana/prover/circuits/spp_transaction/shared"
+	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // NumInputs and NumOutputs fix the circuit shape. Padding slots drop out of the

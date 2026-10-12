@@ -7,7 +7,7 @@ import (
 
 func TestRejectSlowBuilds(t *testing.T) {
 	for _, setting := range []debug.BuildSetting{
-		{Key: "-gcflags", Value: "all=-N -l"}, {Key: "-gcflags", Value: "zolana/prover/...=-l"},
+		{Key: "-gcflags", Value: "all=-N -l"}, {Key: "-gcflags", Value: "github.com/helius-labs/zolana/prover/server/...=-l"},
 		{Key: "-race", Value: "true"}, {Key: "-tags", Value: "icicle,purego"},
 		{Key: "-tags", Value: "noasm"},
 	} {

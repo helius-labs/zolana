@@ -16,7 +16,7 @@ import (
 
 const (
 	DefaultSocket = "/var/run/dstack.sock"
-	keyPath       = "zolana/prover/hpke/v1"
+	keyPath       = "github.com/helius-labs/zolana/prover/server/hpke/v1"
 )
 
 type DstackConfig struct {

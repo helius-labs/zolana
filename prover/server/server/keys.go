@@ -2,11 +2,11 @@ package server
 
 import (
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"net/http"
 	"path"
 	"slices"
 	"strings"
-	"zolana/prover/prover/common"
 )
 
 // A proof is sent to the path of the proving key that proves it:

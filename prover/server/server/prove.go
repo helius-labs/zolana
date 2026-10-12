@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"zolana/prover/prover/common"
-	customring "zolana/prover/prover/custom_ring"
-	mergeprover "zolana/prover/prover/merge"
-	nullifiertree "zolana/prover/prover/nullifier_tree"
-	"zolana/prover/prover/timing"
-	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
+	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
+	nullifiertree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
+	transfereddsaonly "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
 var (

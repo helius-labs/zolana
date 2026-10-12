@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	txcircuit "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover/common"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // TestP256TransferParametersJSONRoundTrip pins the P256 rail's request schema

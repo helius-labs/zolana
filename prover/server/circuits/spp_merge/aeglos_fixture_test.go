@@ -3,11 +3,11 @@ package merge_test
 import (
 	"fmt"
 	"github.com/consensys/gnark/frontend"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
 	"math/big"
 	"os"
 	"testing"
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	"zolana/prover/prover-test/aeglosfixture"
 )
 
 func TestExportAeglosMergeFixtures(t *testing.T) {

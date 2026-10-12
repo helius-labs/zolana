@@ -2,8 +2,8 @@ package shared_test
 
 import (
 	"fmt"
+	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"testing"
-	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"

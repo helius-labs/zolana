@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 )
 
 // Sha256BEField hashes bytes, clears the most significant byte, and returns a BN254 field value.

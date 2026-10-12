@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	"zolana/prover/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
 // checkSources fixes one namespace owner per list and identifies configured

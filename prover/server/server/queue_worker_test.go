@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"zolana/prover/prover/indexed"
+	"github.com/helius-labs/zolana/prover/server/prover/indexed"
 
 	"github.com/alicebob/miniredis/v2"
 	redisserver "github.com/alicebob/miniredis/v2/server"

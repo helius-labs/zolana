@@ -9,7 +9,7 @@ import (
 
 	"github.com/consensys/gnark/constraint"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 func TestRingKeysCarryTheCompiledCircuits(t *testing.T) {

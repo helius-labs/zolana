@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"zolana/prover/logging"
-	"zolana/prover/prover/timing"
+	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"

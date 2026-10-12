@@ -8,10 +8,10 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 
-	merge "zolana/prover/circuits/spp_merge"
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/spptest"
+	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // Regression tests for INV-MERGE-16 (pre-PR164): the old spp_merge circuit left

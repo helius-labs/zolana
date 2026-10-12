@@ -4,7 +4,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	gadgetlib "zolana/prover/circuits/gadget"
+	gadgetlib "github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
 // Returns array of all owner pubkeys of input UTXOs that signed.

@@ -2,9 +2,9 @@ package main_test
 
 import (
 	"encoding/json"
+	"github.com/helius-labs/zolana/prover/server/server"
 	"testing"
 	"time"
-	"zolana/prover/server"
 
 	"github.com/google/uuid"
 )

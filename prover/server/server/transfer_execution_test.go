@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 func TestTransferExecutionSharesHTTPAndQueueCapacity(t *testing.T) {

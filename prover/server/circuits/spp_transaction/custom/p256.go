@@ -1,8 +1,8 @@
 package customring
 
 import (
-	"zolana/prover/circuits/gadget"
-	"zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"

@@ -10,7 +10,7 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
-	merge "zolana/prover/circuits/spp_merge"
+	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
 )
 
 func TestMergeRingCircuitValidatesPublicSignalLayout(t *testing.T) {

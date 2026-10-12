@@ -9,12 +9,12 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
-	base "zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/custom_rings/circuits/base/audittest"
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
-	"zolana/prover/prover/common"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 func TestCustomRingProofVerifies(t *testing.T) {

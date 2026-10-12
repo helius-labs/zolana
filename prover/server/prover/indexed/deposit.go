@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"zolana/prover/custom_rings/circuits/deposit"
-	"zolana/prover/prover/common"
-	ring "zolana/prover/prover/custom_ring"
-	"zolana/prover/prover/timing"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 )
 
 func decodeDeposit(data []byte) (Request, *ring.DepositParameters, error) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	txcircuit "zolana/prover/circuits/spp_transaction/shared"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 func entryOrZero(values []*big.Int, i int) *big.Int {

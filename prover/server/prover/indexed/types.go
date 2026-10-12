@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"strings"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )

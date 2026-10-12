@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"math/big"
 
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/timing"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 
 	"github.com/consensys/gnark/frontend"
-	"zolana/prover/prover/backend"
+	"github.com/helius-labs/zolana/prover/server/prover/backend"
 )
 
 type MergeProof struct {

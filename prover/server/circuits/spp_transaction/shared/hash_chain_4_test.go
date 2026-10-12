@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"testing"
 
-	"zolana/prover/circuits/gadget"
-	"zolana/prover/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"

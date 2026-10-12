@@ -3,8 +3,8 @@ package read
 import (
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"zolana/gnarksdk"
-	"zolana/prover/circuits/gadget"
 )
 
 // Circuit proves a compressed account UTXO is unspent: its hash is a leaf of

@@ -5,10 +5,10 @@ import (
 	"math/big"
 	"testing"
 
-	customring "zolana/prover/circuits/spp_transaction/custom"
-	txcircuit "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"

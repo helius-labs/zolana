@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"zolana/prover/tee"
+	"github.com/helius-labs/zolana/prover/server/tee"
 )
 
 func TestTEERejectsQueueBeforeStarting(t *testing.T) {

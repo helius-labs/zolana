@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/provingkeys"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 )
 
 func TestProvingKeysHandlerReportsEveryLockfileKey(t *testing.T) {

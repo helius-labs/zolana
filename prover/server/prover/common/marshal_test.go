@@ -47,3 +47,13 @@ func TestCommittedProofJSONRoundTrip(t *testing.T) {
 		t.Fatal("decoded proof commitment PoK does not match")
 	}
 }
+
+// A malformed witness value must not come back in the error: a prover
+// relays FromHex failures to its caller.
+func TestFromHexDoesNotEchoTheInput(t *testing.T) {
+	var value big.Int
+	err := FromHex(&value, "review-private-sentinel")
+	if err == nil || err.Error() != "invalid number" {
+		t.Fatalf("got %v", err)
+	}
+}
