@@ -1,0 +1,152 @@
+# Publishes a Nitro Enclave prover for one deployment: the image built from
+# prover/server/Dockerfile.nitro with that deployment's KMS key ARN, and the
+# enclave image file (EIF) built from it with the pinned nitro-cli, with its PCRs.
+#
+# One build per deployment, because the image names its KMS key and the PCRs
+# measure that name. zolana-infra pins the EIF by sha256 and its PCRs in the
+# environment's nitro_prover, and binds the KMS key policy to the same PCRs.
+#
+#   image  <registry>/zolana-prover-nitro:prover-nitro-zolana-<sha12>-<deployment>
+#   EIF    s3://<NITRO_EIF_BUCKET>/<deployment>/<sha12>/prover.eif
+#          s3://<NITRO_EIF_BUCKET>/<deployment>/<sha12>/measurements.json
+#
+# Requires, in the image-publish environment:
+#   vars.AWS_IMAGE_PUBLISHER_ROLE_ARN  image_publisher_role_arn from infra/bootstrap
+#   vars.NITRO_EIF_BUCKET              nitro_eif_bucket from infra/bootstrap
+
+name: publish-nitro
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment:
+        description: Deployment name, as in zolana-infra (e.g. devnet-c-tee-1)
+        required: true
+        type: string
+      kms_key_arn:
+        description: The deployment's KMS key ARN, from zolana-infra's nitro_prover output
+        required: true
+        type: string
+
+concurrency:
+  group: publish-nitro-${{ inputs.deployment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+  REGISTRY: 558215002830.dkr.ecr.eu-north-1.amazonaws.com
+  REPOSITORY: zolana-prover-nitro
+
+jobs:
+  publish:
+    name: publish / ${{ inputs.deployment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: image-publish
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Resolve the build
+        id: plan
+        env:
+          DEPLOYMENT: ${{ inputs.deployment }}
+          KMS_KEY_ARN: ${{ inputs.kms_key_arn }}
+          BUCKET: ${{ vars.NITRO_EIF_BUCKET }}
+        run: |
+          [[ $DEPLOYMENT =~ ^[a-z0-9][a-z0-9-]{0,39}$ ]] \
+            || { echo "::error::deployment must be up to 40 lowercase letters, digits or hyphens" >&2; exit 1; }
+          [[ $KMS_KEY_ARN =~ ^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$ ]] \
+            || { echo "::error::kms_key_arn is not a KMS key ARN" >&2; exit 1; }
+          [[ -n $BUCKET ]] || { echo "::error::vars.NITRO_EIF_BUCKET is not set" >&2; exit 1; }
+          commit=${GITHUB_SHA:0:12}
+          echo "tag=prover-nitro-zolana-$commit-$DEPLOYMENT" >> "$GITHUB_OUTPUT"
+          echo "prefix=s3://$BUCKET/$DEPLOYMENT/$commit" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          role-session-name: zolana-prover-nitro-publish
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
+      # The EIF upload below refuses an existing object by itself.
+      - name: Refuse to overwrite a published image
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageTag=$TAG" > /dev/null 2>&1; then
+            echo "::error::$REPOSITORY:$TAG is already published" >&2
+            exit 1
+          fi
+      - name: Read prover build settings
+        id: prover-build
+        run: |
+          source prover/server/release-build.env
+          echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
+          echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: build
+        with:
+          context: .
+          file: prover/server/Dockerfile.nitro
+          platforms: linux/amd64
+          build-args: |
+            GOAMD64=${{ steps.prover-build.outputs.goamd64 }}
+            PROVER_PGO=${{ steps.prover-build.outputs.pgo }}
+            KEY_SOURCE=kms
+            KMS_KEY_ARN=${{ inputs.kms_key_arn }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ steps.plan.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=Zolana Nitro Enclave prover
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
+          cache-from: type=gha,scope=publish-nitro
+          cache-to: type=gha,mode=max,scope=publish-nitro
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Build and measure the EIF
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.build.outputs.digest }}
+          KMS_KEY_ARN: ${{ inputs.kms_key_arn }}
+        run: |
+          docker pull --quiet --platform linux/amd64 "$IMAGE"
+          prover/server/nitro/build-eif.sh "$IMAGE" eif
+          [[ $(jq -r .kms_key eif/measurements.json) == "$KMS_KEY_ARN" ]] \
+            || { echo "::error::the image names another KMS key" >&2; exit 1; }
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            eif/prover.eif
+            eif/measurements.json
+      - name: Upload the EIF
+        env:
+          PREFIX: ${{ steps.plan.outputs.prefix }}
+          DEPLOYMENT: ${{ inputs.deployment }}
+        run: |
+          bucket=${PREFIX#s3://}
+          bucket=${bucket%%/*}
+          key=${PREFIX#s3://"$bucket"/}
+          for file in prover.eif measurements.json; do
+            aws s3api put-object --bucket "$bucket" --key "$key/$file" --body "eif/$file" \
+              --if-none-match '*' > /dev/null
+          done
+          {
+            echo "### Nitro prover for $DEPLOYMENT"
+            echo
+            echo "- image: \`$(jq -r .image eif/measurements.json)\`"
+            echo "- EIF: \`$PREFIX/prover.eif\`"
+            echo "- EIF sha256: \`$(jq -r .eif_sha256 eif/measurements.json)\`"
+            echo
+            echo '```json'
+            jq '{pcr0: .PCR0, pcr1: .PCR1, pcr2: .PCR2}' eif/measurements.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
