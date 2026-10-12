@@ -5,7 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
 // DomSepCRShared is the shared-secret domain separator, the ASCII tag "CR_S"

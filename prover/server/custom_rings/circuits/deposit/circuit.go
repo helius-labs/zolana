@@ -6,12 +6,12 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	"zolana/prover/circuits/gadget"
-	ve "zolana/prover/circuits/verifiable-encryption"
-	"zolana/prover/circuits/verifiable-encryption/aes"
-	"zolana/prover/circuits/verifiable-encryption/p256"
-	"zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 const MaxDeposits = 8

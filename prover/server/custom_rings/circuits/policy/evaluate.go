@@ -6,7 +6,7 @@ package policy
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // constrainRules requires every applicable rule to be satisfied or exempt.

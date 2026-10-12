@@ -9,8 +9,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	transaction "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover/common"
+	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // defaultTestNInputs is the merge shape these parameter tests build. Every

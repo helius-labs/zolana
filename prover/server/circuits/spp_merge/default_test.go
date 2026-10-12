@@ -11,9 +11,9 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
-	merge "zolana/prover/circuits/spp_merge"
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	"zolana/prover/prover-test/spp/protocol"
+	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 )
 
 // TestMergeCircuitCompiles is a smoke test: every supported merge input count

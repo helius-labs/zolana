@@ -2,12 +2,12 @@ package common
 
 import (
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/logging"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
-	"zolana/prover/logging"
 )
 
 type LazyKeyManager struct {

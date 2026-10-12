@@ -7,9 +7,9 @@ import (
 	"sort"
 	"testing"
 
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover/provingkeys"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 )
 
 func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {

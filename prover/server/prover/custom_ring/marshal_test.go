@@ -12,12 +12,12 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/circuits/verifiable-encryption/p256"
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover-test/spp/spptest"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 func sampleBaseParams() *BaseParameters {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/server"
 	"testing"
 	"time"
-	"zolana/prover/prover/common"
-	"zolana/prover/server"
 )
 
 // The dedup lookups had no test coverage at all, which is how an O(n) scan of

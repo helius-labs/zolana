@@ -3,7 +3,7 @@ package nullifiertree
 import (
 	"fmt"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"

@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"zolana/prover/logging"
+	"github.com/helius-labs/zolana/prover/server/logging"
 )
 
 const (

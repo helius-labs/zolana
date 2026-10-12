@@ -4,8 +4,8 @@ import (
 	"math/big"
 
 	"github.com/consensys/gnark/frontend"
-	"zolana/prover/circuits/gadget"
-	"zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 const (

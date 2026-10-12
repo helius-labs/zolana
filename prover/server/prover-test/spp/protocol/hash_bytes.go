@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 )
 
 const hashBytesChunkSize = 31

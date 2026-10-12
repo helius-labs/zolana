@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-	"zolana/prover/prover/timing"
 )
 
 type Config struct {

@@ -14,9 +14,9 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/std"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/provingkeys"
 )
 
 func TestGPUBackendTransfer(t *testing.T) {

@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/indexed"
 	"os"
 	"strconv"
 	"sync"
 	"time"
-	"zolana/prover/logging"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/indexed"
 )
 
 const (

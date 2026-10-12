@@ -11,8 +11,8 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"golang.org/x/crypto/hkdf"
-	"zolana/prover/prover-test/spp/protocol"
 )
 
 type CounterDisclosure struct {

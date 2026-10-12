@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"zolana/prover/prover/common"
-	prooftranscript "zolana/prover/prover/transcript"
-	transfer "zolana/prover/prover/transfer_eddsa_only"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	prooftranscript "github.com/helius-labs/zolana/prover/server/prover/transcript"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

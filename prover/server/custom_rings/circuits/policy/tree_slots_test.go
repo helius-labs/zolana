@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // Chain positions after the eleven audit elements.

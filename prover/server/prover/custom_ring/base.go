@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
-	base "zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/prover/common"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // BaseParameters is the audit statement witness, the prefix of the folded

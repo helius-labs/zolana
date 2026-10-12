@@ -1,4 +1,4 @@
-module zolana/prover
+module github.com/helius-labs/zolana/prover/server
 
 go 1.27.1
 

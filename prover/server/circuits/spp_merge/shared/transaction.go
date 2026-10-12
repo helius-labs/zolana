@@ -7,8 +7,8 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 const (

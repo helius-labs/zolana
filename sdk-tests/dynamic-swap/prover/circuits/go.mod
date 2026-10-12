@@ -24,11 +24,11 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	zolana/prover v0.0.0 // indirect
+	github.com/helius-labs/zolana/prover/server v0.0.0 // indirect
 )
 
 replace zolana/gnarksdk => ../../../../sdk-libs/gnark-sdk
 
-replace zolana/prover => ../../../../prover/server
+replace github.com/helius-labs/zolana/prover/server => ../../../../prover/server
 
 replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107

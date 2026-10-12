@@ -4,10 +4,10 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	"zolana/prover/circuits/gadget"
-	"zolana/prover/circuits/verifiable-encryption/p256"
-	base "zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 // Separates the nullifier key ciphertext from the audit ciphertext, equals Rust NF_KEY_ENC_INFO.

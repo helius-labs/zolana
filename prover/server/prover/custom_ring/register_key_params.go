@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 type KeyRegisterParameters struct {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	txcircuit "zolana/prover/circuits/spp_transaction/shared"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // inputFlagsVectorPath is the cross-language known-answer file: the Rust and

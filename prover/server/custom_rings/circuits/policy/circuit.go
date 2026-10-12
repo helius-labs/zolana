@@ -7,10 +7,10 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	"zolana/prover/circuits/gadget"
-	"zolana/prover/circuits/spp_transaction/shared"
-	base "zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 // SourceWires binds a list to its namespace owner through the policy hash.

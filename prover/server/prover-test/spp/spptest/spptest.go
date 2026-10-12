@@ -11,10 +11,10 @@ import (
 	mrand "math/rand"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/internal/p256key"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/internal/p256key"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"
@@ -220,10 +220,10 @@ func UnusedP256Witness(msg []byte) (gnarkecdsa.PublicKey[emulated.P256Fp, emulat
 		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, err
 	}
 	return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{
-			X: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.X),
-			Y: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.Y),
-		}, gnarkecdsa.Signature[emulated.P256Fr]{
-			R: emulated.ValueOf[emulated.P256Fr](r),
-			S: emulated.ValueOf[emulated.P256Fr](s),
-		}, nil
+		X: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.X),
+		Y: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.Y),
+	}, gnarkecdsa.Signature[emulated.P256Fr]{
+		R: emulated.ValueOf[emulated.P256Fr](r),
+		S: emulated.ValueOf[emulated.P256Fr](s),
+	}, nil
 }

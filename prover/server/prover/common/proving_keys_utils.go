@@ -3,10 +3,10 @@ package common
 import (
 	"bytes"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/logging"
 	"io"
 	"os"
 	"path/filepath"
-	"zolana/prover/logging"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"

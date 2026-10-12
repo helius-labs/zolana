@@ -3,8 +3,8 @@ package merge
 import (
 	"fmt"
 
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	"zolana/prover/prover/common"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"

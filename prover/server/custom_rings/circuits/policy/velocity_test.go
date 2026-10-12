@@ -9,7 +9,7 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 	"github.com/consensys/gnark/test"
 
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // The counter carries inside the window, resets across a boundary, and the

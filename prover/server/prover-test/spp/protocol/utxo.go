@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 )
 
 // solAssetValue is the UTXO asset field for native SOL: the default (all-zero)

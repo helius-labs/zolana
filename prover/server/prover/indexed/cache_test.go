@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"zolana/prover/prover/common"
-	transfer "zolana/prover/prover/transfer_eddsa_only"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
 func cachedRequest(t *testing.T, request Request) Request {

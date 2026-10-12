@@ -6,8 +6,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	"zolana/prover/circuits/gadget"
-	merkletree "zolana/prover/merkle-tree"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	merkletree "github.com/helius-labs/zolana/prover/server/merkle-tree"
 )
 
 type Leaf struct {

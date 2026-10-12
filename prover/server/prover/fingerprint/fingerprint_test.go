@@ -22,10 +22,10 @@ import (
 
 	"github.com/consensys/gnark/constraint"
 
-	customring "zolana/prover/prover/custom_ring"
-	mergeprover "zolana/prover/prover/merge"
-	nulltree "zolana/prover/prover/nullifier_tree"
-	eddsaprover "zolana/prover/prover/transfer_eddsa_only"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
+	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
+	nulltree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
+	eddsaprover "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
 type fingerprint struct {

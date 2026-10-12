@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 type DelegatePolicyParameters struct {

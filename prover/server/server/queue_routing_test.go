@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/indexed"
 	"strings"
 	"testing"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/indexed"
 )
 
 // Transfer/merge circuits share zk_transfer_queue; address-append keeps its own;

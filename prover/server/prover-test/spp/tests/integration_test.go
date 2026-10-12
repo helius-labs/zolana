@@ -5,10 +5,10 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/spp/internal/p256key"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
-	txprover "zolana/prover/prover-test/spp/prover/transaction"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/internal/p256key"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	txprover "github.com/helius-labs/zolana/prover/server/prover-test/spp/prover/transaction"
 )
 
 // The P256 ownership rail is removed: requests carrying P256-owned inputs are

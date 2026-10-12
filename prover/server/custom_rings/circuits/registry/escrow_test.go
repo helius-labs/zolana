@@ -8,7 +8,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func TestZeroNullifierPkIsThePoseidonOfZero(t *testing.T) {

@@ -3,7 +3,7 @@ package gnarksdk
 import (
 	"github.com/consensys/gnark/frontend"
 
-	spp "zolana/prover/circuits/spp_transaction/shared"
+	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // Utxo is one UTXO's witness, in the field order and with the field names

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"zolana/prover/prover/timing"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 )
 
 func TestRequestTimingOptIn(t *testing.T) {

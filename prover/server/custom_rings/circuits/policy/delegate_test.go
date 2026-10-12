@@ -8,7 +8,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {

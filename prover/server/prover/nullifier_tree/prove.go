@@ -3,9 +3,9 @@ package nullifiertree
 import (
 	"fmt"
 
-	"zolana/prover/prover/backend"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/timing"
+	"github.com/helius-labs/zolana/prover/server/prover/backend"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 
 	"github.com/consensys/gnark/frontend"
 )

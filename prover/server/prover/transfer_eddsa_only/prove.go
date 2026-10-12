@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"math/big"
 
-	txcircuit "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/timing"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 
 	"github.com/consensys/gnark/frontend"
-	"zolana/prover/prover/backend"
+	"github.com/helius-labs/zolana/prover/server/prover/backend"
 )
 
 type TransferProof struct {

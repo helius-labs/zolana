@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	leanextractor "github.com/reilabs/gnark-lean-extractor/v3/extractor"
 
-	"zolana/prover/circuits/formal"
+	"github.com/helius-labs/zolana/prover/server/circuits/formal"
 )
 
 // ExtractLean extracts the inclusion and non-inclusion circuits at the given

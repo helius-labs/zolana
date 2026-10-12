@@ -11,10 +11,10 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	ve "zolana/prover/circuits/verifiable-encryption"
-	base "zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // Mirrors the unexported key-schedule info string of package base.

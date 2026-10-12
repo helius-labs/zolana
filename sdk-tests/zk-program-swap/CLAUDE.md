@@ -40,7 +40,7 @@ instructions, and circuits.
   encoding and a `prove()` method. Circuits take UTXOs as `gnarksdk.Utxo` and
   build their hashes, the private tx hash and the blinding checks from
   `zolana/gnarksdk` (`sdk-libs/gnark-sdk`); `circuits/go.mod` replaces it and
-  `zolana/prover` with their directories. Go tooling in `circuits/` needs the
+  `github.com/helius-labs/zolana/prover/server` with their directories. Go tooling in `circuits/` needs the
   bridge replace too: `just example-circuits-go vet ./...`.
 - sdk: one directory per instruction with `instruction.rs` (builder struct
   with a consuming `instruction()` method, not free functions) and

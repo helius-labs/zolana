@@ -3,7 +3,7 @@ package transfereddsaonly
 import (
 	"math/big"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // UtxoParams mirrors txcircuit.UtxoCircuitFields as already-computed field

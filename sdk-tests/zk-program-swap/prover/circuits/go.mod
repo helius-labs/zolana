@@ -6,7 +6,7 @@ require (
 	github.com/consensys/gnark v0.16.3
 	zolana/gnarkffiprover v0.0.0
 	zolana/gnarksdk v0.0.0
-	zolana/prover v0.0.0
+	github.com/helius-labs/zolana/prover/server v0.0.0
 )
 
 require (
@@ -29,6 +29,6 @@ require (
 
 replace zolana/gnarksdk => ../../../../sdk-libs/gnark-sdk
 
-replace zolana/prover => ../../../../prover/server
+replace github.com/helius-labs/zolana/prover/server => ../../../../prover/server
 
 replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107

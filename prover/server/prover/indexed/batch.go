@@ -11,11 +11,11 @@ import (
 	"slices"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
-	merkletree "zolana/prover/merkle-tree"
-	"zolana/prover/prover/common"
-	nullifiertree "zolana/prover/prover/nullifier_tree"
-	"zolana/prover/prover/timing"
-	"zolana/prover/prover/transcript"
+	merkletree "github.com/helius-labs/zolana/prover/server/merkle-tree"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	nullifiertree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
+	"github.com/helius-labs/zolana/prover/server/prover/transcript"
 )
 
 type BatchRequest struct {

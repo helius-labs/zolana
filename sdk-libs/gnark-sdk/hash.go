@@ -6,8 +6,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // MaxPoseidonInputs is the widest Poseidon light_hasher computes, so a wider

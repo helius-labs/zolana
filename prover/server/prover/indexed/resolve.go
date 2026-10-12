@@ -9,9 +9,9 @@ import (
 	"io"
 	"math/big"
 
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/timing"
-	prooftranscript "zolana/prover/prover/transcript"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
+	prooftranscript "github.com/helius-labs/zolana/prover/server/prover/transcript"
 
 	"golang.org/x/sync/errgroup"
 )

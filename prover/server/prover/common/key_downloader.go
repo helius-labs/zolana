@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 	"hash"
 	"io"
 	"net/http"
@@ -12,8 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"zolana/prover/logging"
-	"zolana/prover/prover/provingkeys"
 )
 
 // assetHTTPClient fetches proving-key objects. Keys are multi-GB, so the client

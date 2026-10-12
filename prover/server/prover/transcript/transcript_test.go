@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/prover/common"
-	prooftranscript "zolana/prover/prover/transcript"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	prooftranscript "github.com/helius-labs/zolana/prover/server/prover/transcript"
 )
 
 func TestIndexedTranscriptVector(t *testing.T) {

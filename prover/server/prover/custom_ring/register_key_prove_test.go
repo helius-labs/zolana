@@ -4,11 +4,11 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/custom_rings/circuits/base/audittest"
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover-test/spp/spptest"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // groth16.Prove pins the host nullifier_pk, ct_hash and roots to the circuit's own.

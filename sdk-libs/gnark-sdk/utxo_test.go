@@ -6,8 +6,8 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"zolana/gnarksdk"
-	"zolana/prover/prover-test/spp/protocol"
 )
 
 type utxoCircuit struct {

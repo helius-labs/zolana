@@ -6,9 +6,9 @@ import (
 	"math/big"
 	"os"
 
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 type ProofBundleRequest struct {

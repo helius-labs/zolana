@@ -7,12 +7,12 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	merge "zolana/prover/circuits/spp_merge"
-	mergeshared "zolana/prover/circuits/spp_merge/shared"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func buildValidWitness(t testing.TB) *merge.Circuit {

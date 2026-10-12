@@ -1,9 +1,9 @@
 package server
 
 import (
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"testing"
 	"time"
-	"zolana/prover/prover/common"
 )
 
 func TestSyncProofTimeout(t *testing.T) {

@@ -1,10 +1,10 @@
 package nullifiertreetest
 
 import (
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
 	"math/big"
 	"testing"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover/nullifier_tree"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"

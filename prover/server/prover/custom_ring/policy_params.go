@@ -12,10 +12,10 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 
-	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/custom_rings/circuits/registry"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 const (

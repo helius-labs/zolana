@@ -22,7 +22,7 @@ func FromHex(i *big.Int, s string) error {
 	s = strings.TrimPrefix(s, "0x")
 	_, ok := i.SetString(s, 16)
 	if !ok {
-		return fmt.Errorf("invalid number: %s", s)
+		return fmt.Errorf("invalid number")
 	}
 	return nil
 }

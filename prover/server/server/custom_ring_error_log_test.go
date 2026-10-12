@@ -5,6 +5,9 @@ import (
 	"crypto/elliptic"
 	"encoding/json"
 	"errors"
+	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +15,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"zolana/prover/logging"
-	"zolana/prover/prover/common"
-	customring "zolana/prover/prover/custom_ring"
 
 	"github.com/rs/zerolog"
 )

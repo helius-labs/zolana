@@ -6,9 +6,9 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 	"zolana/gnarksdk"
-	ve "zolana/prover/circuits/verifiable-encryption"
-	"zolana/prover/circuits/verifiable-encryption/aes"
 )
 
 var mergeKdfInfo = []byte("TSPP/merge")

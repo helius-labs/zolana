@@ -12,12 +12,12 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	base "zolana/prover/custom_rings/circuits/base"
-	"zolana/prover/custom_rings/circuits/deposit"
-	"zolana/prover/custom_rings/circuits/policy"
-	"zolana/prover/prover/backend"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/timing"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/prover/backend"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/timing"
 )
 
 // Keeps each ring statement's decoder and compiled witness shape together.

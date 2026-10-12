@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/prover-test/spp/parse"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
 )
 
 // publicInputHashVectorPath is the cross-language known-answer vector: the Rust

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/custom_rings/circuits/deposit"
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // DepositParameters binds a deposit batch to its auditor disclosure proof.

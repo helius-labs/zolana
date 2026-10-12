@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 type InputParamsJSON struct {

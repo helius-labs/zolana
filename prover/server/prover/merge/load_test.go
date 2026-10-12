@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/prover/common"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // TestReadMergeKeyDispatch validates the server key-load path: ReadSystemFromFile

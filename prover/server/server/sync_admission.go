@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"zolana/prover/logging"
+	"github.com/helius-labs/zolana/prover/server/logging"
 )
 
 // Bound on proofs proved inside a request, and on callers waiting for a slot.
