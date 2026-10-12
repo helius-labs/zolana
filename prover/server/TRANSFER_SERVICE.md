@@ -104,7 +104,7 @@ preload circuits are set. `--preload-circuits transfer-confidential:2:2`
 selects one shape. A circuit name without a shape loads its supported shapes.
 `rpc` and `local-rpc` preload all transfer and merge shapes. The compose default preloads selected transfer 2×2 shapes and merge 24×1.
 Provision memory for the selected keys and workers. Mount the required
-proving keys at `/proving-keys`. `Dockerfile.light` contains the binary only.
+proving keys at `/proving-keys`. `Dockerfile.light` contains the binary and the custom-ring keys only.
 
 ## Capacity and monitoring
 

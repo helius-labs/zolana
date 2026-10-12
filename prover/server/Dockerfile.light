@@ -1,6 +1,6 @@
-# light-prover, without proving keys.
+# light-prover, with only the release-asset proving keys.
 #
-# Keys are NOT baked in. They are distributed separately and fetched at runtime
+# Object-store keys are NOT baked in. They are distributed separately and fetched at runtime
 # by EnsureProvingKey (prover/common/key_downloader.go):
 #   - proving-keys.lock is embedded into the binary (//go:embed), pinning the
 #     sha256, byte size and version-hashed prefix of every key
@@ -13,11 +13,15 @@
 # shapes to 3.9 GB for forester batch shapes, rebuilt and re-pulled on every
 # code change. That is what prover/server/Dockerfile does; prefer this one.
 #
+# Keys proving-keys.lock marks `source: release` (the custom-ring keys, about
+# 1.1 GB) are the exception: the downloader never fetches them, so they are
+# baked in, checked against their pinned sha256.
+#
 # One image serves both roles. The client prover and the forester prover differ
 # only in flags -- circuit selection and concurrency -- and in which keys they
 # happen to fetch.
 
-# Both stages pinned by digest: this image is attested now, and a mutable tag
+# Every stage pinned by digest: this image is attested now, and a mutable tag
 # lets one commit produce different bytes depending on when it was built, which
 # is exactly what the attestation is supposed to rule out. These are index
 # digests, so multi-arch resolution still works.
@@ -38,6 +42,21 @@ RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local
 # directory has to be created here and copied in with the right ownership.
 RUN mkdir -p /tmp/empty_proving_keys
 
+FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS release-keys
+
+RUN apk add --no-cache curl=8.14.1-r3 jq=1.8.2-r0
+ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v16
+COPY prover/provingkeys/proving-keys.lock /tmp/proving-keys.lock
+RUN set -eu; \
+    mkdir /release-keys; \
+    jq -r '.keys | to_entries[] | select(.value.source == "release") | "\(.key) \(.value.sha256)"' \
+        /tmp/proving-keys.lock > /tmp/release-keys; \
+    [ -s /tmp/release-keys ]; \
+    while read -r name sha256; do \
+        curl -fsSL --retry 3 --connect-timeout 10 -o "/release-keys/$name" "$RELEASE_KEYS_URL/$name"; \
+        echo "$sha256  /release-keys/$name" | sha256sum -c -; \
+    done < /tmp/release-keys
+
 FROM gcr.io/distroless/base-debian11:nonroot@sha256:68b0f492c1eb077f71d384b544456dac4afb282372966917df32b3923f65ad0d
 
 COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
@@ -45,6 +64,7 @@ COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 WORKDIR /proving-keys
 
 COPY --chown=nonroot:nonroot --from=builder /tmp/empty_proving_keys /proving-keys/
+COPY --chown=nonroot:nonroot --from=release-keys /release-keys/ /proving-keys/
 
 WORKDIR /
 
