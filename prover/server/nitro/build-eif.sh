@@ -5,7 +5,8 @@
 # nitro-cli in the pinned Amazon Linux 2023 container `tools/nitro/aws_nitro.py
 # measure` uses, so the PCRs match a measure of the same digest. Writes
 # <out-dir>/prover.eif and <out-dir>/measurements.json, which
-# `xtask tee-policy --expect-pcrs` reads.
+# `xtask tee-policy --expect-pcrs` reads and the Nitro host configures its
+# egress from.
 set -euo pipefail
 
 builder=amazonlinux:2023@sha256:8ed3c0a996841537f75607e7d1de2114d8150391f75792e8da9268738547e73f
@@ -28,13 +29,20 @@ docker run --rm --platform linux/amd64 \
         nitro-cli describe-eif --eif-path /out/prover.eif > /out/describe.json
     '
 
-kms_key=$(docker run --rm --entrypoint cat "$image" /etc/zolana-nitro/kms-key)
+# The image's egress routes and indexer URL, which the host needs and cannot read
+# from the EIF.
+image_file() { docker run --rm --platform linux/amd64 --entrypoint cat "$image" "/etc/zolana-nitro/$1"; }
+kms_key=$(image_file kms-key)
+indexer_url=$(image_file indexer-url)
+routes=$(image_file routes)
 jq -n \
     --slurpfile built "$out/build.json" \
     --slurpfile described "$out/describe.json" \
     --arg image "$image" \
     --arg nitro_cli "$nitro_cli" \
     --arg kms_key "$kms_key" \
+    --arg indexer_url "$indexer_url" \
+    --arg routes "$routes" \
     --arg eif_sha256 "$(sha256sum "$out/prover.eif" | cut -d' ' -f1)" '
     ($built[0].Measurements) as $b | ($described[0].Measurements) as $d |
     if [$b.PCR0, $b.PCR1, $b.PCR2] != [$d.PCR0, $d.PCR1, $d.PCR2]
@@ -42,6 +50,7 @@ jq -n \
     {
         PCR0: $d.PCR0, PCR1: $d.PCR1, PCR2: $d.PCR2, HashAlgorithm: $d.HashAlgorithm,
         image: $image, nitro_cli: $nitro_cli, kms_key: (if $kms_key == "" then null else $kms_key end),
+        indexer_url: $indexer_url, routes: ($routes | split("\n") | map(select(. != ""))),
         eif_sha256: $eif_sha256, source: "measure"
     }' > "$out/measurements.json"
 rm "$out/build.json" "$out/describe.json"

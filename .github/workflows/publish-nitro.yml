@@ -135,10 +135,11 @@ jobs:
           bucket=${PREFIX#s3://}
           bucket=${bucket%%/*}
           key=${PREFIX#s3://"$bucket"/}
-          for file in prover.eif measurements.json; do
-            aws s3api put-object --bucket "$bucket" --key "$key/$file" --body "eif/$file" \
-              --if-none-match '*' > /dev/null
-          done
+          # JSON content type, so zolana-infra can read measurements.json at plan time.
+          aws s3api put-object --bucket "$bucket" --key "$key/prover.eif" --body eif/prover.eif \
+            --if-none-match '*' > /dev/null
+          aws s3api put-object --bucket "$bucket" --key "$key/measurements.json" --body eif/measurements.json \
+            --content-type application/json --if-none-match '*' > /dev/null
           {
             echo "### Nitro prover for $DEPLOYMENT"
             echo
