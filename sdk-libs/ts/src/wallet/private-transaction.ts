@@ -202,7 +202,9 @@ async function authorizeWithInputs(
   } else {
     const transfer = new ConfidentialTransfer(address, inputs, transaction.payer());
     if (action.kind === "transfer") {
-      transfer.send(action.recipient, action.asset, action.amount);
+      for (const payment of action.payments) {
+        transfer.send(payment.recipient, action.asset, payment.amount);
+      }
     } else {
       transfer.withdraw(action.asset, action.amount, action.target);
     }
@@ -216,12 +218,7 @@ async function authorizeWithInputs(
     );
     intent =
       action.kind === "transfer"
-        ? {
-            kind: "transfer",
-            asset: action.asset,
-            amount: action.amount,
-            recipient: action.recipient,
-          }
+        ? transferIntent(action.asset, action.payments)
         : {
             kind: "withdrawal",
             asset: action.asset,
@@ -255,6 +252,26 @@ async function authorizeWithInputs(
   });
   checkAuthorizedBinding(material, intentMismatch);
   return mintAuthorizedPrivateTransaction(material, approvedIntentHash);
+}
+
+/** One payment is a `transfer` intent, so a single-recipient approval keeps its hash. */
+function transferIntent(
+  asset: Address,
+  payments: readonly Readonly<{ recipient: ShieldedAddress; amount: bigint }>[],
+): TransactionIntent {
+  const [only] = payments;
+  if (payments.length === 1 && only !== undefined) {
+    return { kind: "transfer", asset, amount: only.amount, recipient: only.recipient };
+  }
+  return Object.freeze({
+    kind: "multiTransfer",
+    asset,
+    payments: Object.freeze(
+      payments.map((payment) =>
+        Object.freeze({ recipient: payment.recipient, amount: payment.amount }),
+      ),
+    ),
+  });
 }
 
 /**

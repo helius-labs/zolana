@@ -7,7 +7,7 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "../../interface/types.js";
-import { RING_AUTHORITY_MAX_WIDTH } from "../../interface/shape.js";
+import { RING_AUTHORITY_MAX_WIDTH, SPP_SUPPORTED_SHAPES } from "../../interface/shape.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
@@ -25,6 +25,12 @@ export type TransactionIntent =
       outputs: readonly Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>[];
     }>
   | Readonly<{ kind: "transfer"; asset: Address; amount: bigint; recipient: ShieldedAddress }>
+  | Readonly<{
+      kind: "multiTransfer";
+      asset: Address;
+      /** In output order; at least two, a single payment is a `transfer`. */
+      payments: readonly Readonly<{ recipient: ShieldedAddress; amount: bigint }>[];
+    }>
   | Readonly<{ kind: "withdrawal"; asset: Address; amount: bigint; recipient: Address }>
   | Readonly<{ kind: "split"; asset: Address; numOutputs: number; perOutputAmount: bigint }>
   | Readonly<{ kind: "merge"; asset: Address; numInputs: number; mergedAmount: bigint }>
@@ -108,10 +114,15 @@ const KIND_TAGS = {
   ringEntry: 7,
   ringDelegate: 8,
   ringMerge: 9,
+  multiTransfer: 10,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
 
 const addressEncoder = getAddressEncoder();
+
+/** Payments one transfer carries: the widest shape's outputs, less the change output. */
+export const MAX_TRANSFER_PAYMENTS =
+  Math.max(...SPP_SUPPORTED_SHAPES.map((shape) => shape.outputs)) - 1;
 
 /** Domain-separated sha256 over the fields in declaration order, each at a fixed width. */
 export function intentHash(intent: TransactionIntent): Bytes32 {
@@ -140,6 +151,14 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
       hash.update(addressBytes(intent.asset));
       hash.update(u64(intent.amount));
       hash.update(intent.recipient.toBytes());
+      break;
+    case "multiTransfer":
+      hash.update(addressBytes(intent.asset));
+      hash.update(Uint8Array.of(intent.payments.length));
+      for (const payment of intent.payments) {
+        hash.update(payment.recipient.toBytes());
+        hash.update(u64(payment.amount));
+      }
       break;
     case "withdrawal":
       hash.update(addressBytes(intent.asset));
@@ -266,6 +285,10 @@ export function checkPreparedTransfer(
       if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
       checkRecipientOutputs(prepared, intent, undefined, mismatch);
       return;
+    case "multiTransfer":
+      if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
+      checkPaymentOutputs(prepared, intent, mismatch);
+      return;
     case "withdrawal":
       checkSettlement(prepared, intent, mismatch);
       return;
@@ -339,6 +362,31 @@ function checkRecipientOutputs(
     total += output.amount;
   }
   if (total !== intent.amount) throw mismatch("amount");
+}
+
+/** Each payment is one output, in order, and nothing else leaves the sender. */
+function checkPaymentOutputs(
+  prepared: OutputsView,
+  intent: Extract<TransactionIntent, { kind: "multiTransfer" }>,
+  mismatch: (field: string) => Error,
+): void {
+  const outputs = prepared.outputs
+    .slice(prepared.senderOutputCount)
+    .filter((output) => !output.isDummy());
+  if (outputs.length !== intent.payments.length) throw mismatch("payments");
+  for (const [index, payment] of intent.payments.entries()) {
+    const output = outputs[index];
+    if (
+      output === undefined ||
+      output.ownerAddress === undefined ||
+      !equalBytes(output.ownerAddress.toBytes(), payment.recipient.toBytes())
+    ) {
+      throw mismatch("recipient");
+    }
+    if (output.asset !== intent.asset) throw mismatch("asset");
+    if (output.ringProgramId !== undefined) throw mismatch("ringProgramId");
+    if (output.amount !== payment.amount) throw mismatch("amount");
+  }
 }
 
 function checkSettlement(
@@ -438,6 +486,21 @@ export function checkTransactionIntent(
       checkIntentFields(intent, ["kind", "asset", "amount", "recipient"], mismatch);
       checkAmount(intent.amount, mismatch);
       checkShieldedRecipient(intent.recipient, mismatch);
+      return;
+    case "multiTransfer":
+      checkIntentFields(intent, ["kind", "asset", "payments"], mismatch);
+      if (
+        !Array.isArray(intent.payments) ||
+        intent.payments.length < 2 ||
+        intent.payments.length > MAX_TRANSFER_PAYMENTS
+      )
+        throw mismatch("payments");
+      for (const payment of intent.payments) {
+        if (typeof payment !== "object" || payment === null) throw mismatch("payments");
+        checkIntentFields(payment, ["recipient", "amount"], mismatch);
+        checkShieldedRecipient(payment.recipient, mismatch);
+        checkAmount(payment.amount, mismatch);
+      }
       return;
     case "withdrawal":
       checkIntentFields(intent, ["kind", "asset", "amount", "recipient"], mismatch);
@@ -554,6 +617,12 @@ export function checkAuthorizedBinding(
       if (authorized.withdrawal !== undefined) throw mismatch("withdrawal");
       if (view.interfaceTransfers.length > 0) throw mismatch("settlements");
       checkRecipientOutputs(view, intent, undefined, mismatch);
+      checkChangeOutputs(view, authorized.owner, intent.asset, mismatch);
+      return;
+    case "multiTransfer":
+      if (authorized.withdrawal !== undefined) throw mismatch("withdrawal");
+      if (view.interfaceTransfers.length > 0) throw mismatch("settlements");
+      checkPaymentOutputs(view, intent, mismatch);
       checkChangeOutputs(view, authorized.owner, intent.asset, mismatch);
       return;
     case "withdrawal":

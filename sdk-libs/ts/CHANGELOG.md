@@ -5,8 +5,9 @@
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
-path. A Nitro Enclave prover can be held to one encryption key, and a
-sponsor can pay the fee of a private transfer, withdrawal, or split.
+path. A Nitro Enclave prover can be held to one encryption key, a sponsor
+can pay the fee of a private transfer, withdrawal, or split, and one private
+transfer can pay several recipients.
 
 Breaking
 
@@ -22,6 +23,12 @@ Added
   `buildSplitTransaction` accept a `feePayer` other than the wallet owner and
   return a transaction the owner co-signs, and `transactInstruction` takes
   `ownerSigners` to list those co-signers.
+- `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
+  one asset in one private transfer, such as a payment and an application fee,
+  and its approval handler receives a `multiTransfer` intent listing each
+  `TransferPayment` in order (a single payment stays a `transfer` intent).
+- `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` for a payment list that
+  is empty or longer than fifteen.
 
 Changed
 

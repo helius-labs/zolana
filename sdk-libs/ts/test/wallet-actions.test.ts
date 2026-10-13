@@ -31,6 +31,7 @@ import {
   NullifierKey,
   ShieldedKeypair,
   SigningKey,
+  type ShieldedAddress,
   type ViewingKey,
 } from "../src/keypair/index.js";
 import {
@@ -45,6 +46,7 @@ import {
 } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import {
+  createMultiTransfer,
   createSplit,
   createTransfer,
   createWithdrawal,
@@ -76,6 +78,7 @@ import {
   proofInputFromEntry,
 } from "../src/wallet/private-transaction.js";
 import {
+  buildMultiTransferTransaction,
   buildSplitTransaction,
   buildTransferTransaction,
   buildWithdrawalTransaction,
@@ -1333,5 +1336,174 @@ describe("key lifecycle", () => {
     expect(mintedNullifier).toHaveLength(1);
     expect(() => mintedViewing[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
     expect(() => mintedNullifier[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+  });
+});
+
+describe("multi-recipient transfer", () => {
+  function build(
+    wallet: Wallet,
+    keypair: ShieldedKeypair,
+    payments: readonly Readonly<{ recipient: ShieldedAddress | Address; amount: bigint }>[],
+    approve?: (request: ApprovalRequest) => Promise<ReturnType<typeof approveIntent>>,
+  ) {
+    const { client, assemble } = capturePrivateBuild();
+    return {
+      assemble,
+      result: buildMultiTransferTransaction({
+        client,
+        wallet,
+        keys: localKeys(keypair),
+        feePayer: keypair.shieldedAddress().solanaAddress(),
+        payments,
+        ...(approve === undefined ? {} : { approve }),
+      }),
+    };
+  }
+
+  it("pays several recipients in one transaction and asks approval for each payment", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [100n]);
+    const merchant = ShieldedKeypair.generate().shieldedAddress();
+    const fee = ShieldedKeypair.generate().shieldedAddress();
+    const { approve, requests } = recordingApproval();
+    const { result, assemble } = build(
+      wallet,
+      keypair,
+      [
+        { recipient: merchant, amount: 25n },
+        { recipient: fee, amount: 1n },
+      ],
+      approve,
+    );
+    await expect(result).resolves.toBe(TRANSACTION);
+    expect(assemble).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.intent).toEqual({
+      kind: "multiTransfer",
+      asset: SOL_MINT,
+      payments: [
+        { recipient: merchant, amount: 25n },
+        { recipient: fee, amount: 1n },
+      ],
+    });
+    expect(requests[0]?.summary).toBe("private transaction transfer of 26 to 2 recipients");
+    expect(wallet.utxos()[0]?.spent).toBe(false);
+  });
+
+  it("keeps a single payment a transfer approval", async () => {
+    const keypair = spendingKeypair();
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const { approve, requests } = recordingApproval();
+    await build(fundedWallet(keypair, [100n]), keypair, [{ recipient, amount: 25n }], approve)
+      .result;
+    expect(requests[0]?.intent).toEqual({
+      kind: "transfer",
+      asset: SOL_MINT,
+      amount: 25n,
+      recipient,
+    });
+  });
+
+  it("refuses empty, oversized and zero-value payment lists without reserving notes", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [100n]);
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    await expect(build(wallet, keypair, []).result).rejects.toMatchObject({
+      code: "WALLET_BUILD_TRANSFER",
+      causeCodes: ["WALLET_CREATE_TRANSFER", "WALLET_INVALID_PAYMENT_COUNT"],
+    });
+    await expect(
+      createMultiTransfer({
+        wallet,
+        payer: PAYER,
+        asset: SOL_MINT,
+        payments: Array.from({ length: 16 }, () => ({ recipient, amount: 1n })),
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_CREATE_TRANSFER",
+      causeCode: "WALLET_INVALID_PAYMENT_COUNT",
+    });
+    await expect(
+      build(wallet, keypair, [
+        { recipient, amount: 10n },
+        { recipient, amount: 0n },
+      ]).result,
+    ).rejects.toMatchObject({
+      causeCodes: ["WALLET_CREATE_TRANSFER", "WALLET_INVALID_AMOUNT"],
+    });
+    await expect(
+      build(wallet, keypair, [
+        { recipient, amount: 1n << 63n },
+        { recipient, amount: 1n << 63n },
+      ]).result,
+    ).rejects.toMatchObject({
+      causeCodes: ["WALLET_CREATE_TRANSFER", "WALLET_INVALID_AMOUNT"],
+    });
+    // Nothing above reserved the note, so the whole balance is still spendable.
+    await expect(
+      build(wallet, keypair, [
+        { recipient, amount: 60n },
+        { recipient, amount: 40n },
+      ]).result,
+    ).resolves.toBe(TRANSACTION);
+  });
+
+  it("refuses an unregistered recipient before reserving notes", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [100n]);
+    const getAccount = vi.fn(async () => undefined);
+    await expect(
+      createMultiTransfer({
+        client: { getAccount },
+        wallet,
+        payer: PAYER,
+        asset: SOL_MINT,
+        payments: [
+          { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 10n },
+          { recipient: RECIPIENT, amount: 1n },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_CREATE_TRANSFER",
+      causeCode: "WALLET_RECIPIENT_NOT_REGISTERED",
+    });
+    expect(getAccount).toHaveBeenCalledOnce();
+    await expect(
+      build(wallet, keypair, [
+        { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 99n },
+        { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 1n },
+      ]).result,
+    ).resolves.toBe(TRANSACTION);
+  });
+
+  it("selects at most the notes the wider proof takes", async () => {
+    const keypair = spendingKeypair();
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const notes = () =>
+      fundedWallet(
+        keypair,
+        Array.from({ length: 25 }, () => 4n),
+      );
+    const pay = (wallet: Wallet, total: bigint) =>
+      createMultiTransfer({
+        wallet,
+        payer: PAYER,
+        asset: SOL_MINT,
+        payments: [
+          { recipient, amount: total - 10n },
+          { recipient, amount: 10n },
+        ],
+      });
+    // Two payments and change prove on 4-output keys, which take 24 notes.
+    const covered = await pay(notes(), 96n);
+    expect(covered.transaction.inputCount()).toBe(24);
+    await expect(pay(notes(), 100n)).rejects.toMatchObject({
+      code: "WALLET_CREATE_TRANSFER",
+      causeCode: "WALLET_TOO_MANY_INPUTS",
+    });
+    // One recipient keeps the 2-output cap, so the same notes still cover it.
+    await expect(
+      createTransfer({ wallet: notes(), payer: PAYER, recipient, asset: SOL_MINT, amount: 100n }),
+    ).resolves.toHaveProperty("transaction");
   });
 });

@@ -17,6 +17,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
 import {
+  createMultiTransfer,
   createSplit,
   createTransfer,
   createWithdrawal,
@@ -50,6 +51,18 @@ export interface TransferTransactionParams extends PrivateTransactionParams {
   readonly amount: bigint;
 }
 
+/** One payment of a multi-recipient transfer. */
+export interface TransferPayment {
+  readonly recipient: TransferDestination;
+  readonly amount: bigint;
+}
+
+export interface MultiTransferTransactionParams extends PrivateTransactionParams {
+  /** Each paid as its own private output, in this order; one to fifteen of them. */
+  readonly payments: readonly TransferPayment[];
+  readonly asset?: Address;
+}
+
 export interface WithdrawalTransactionParams extends PrivateTransactionParams {
   readonly recipient: Address;
   readonly asset?: Address;
@@ -76,6 +89,34 @@ export async function buildTransferTransaction(
         recipient: input.recipient,
         asset: input.asset ?? SOL_MINT,
         amount: input.amount,
+      },
+      context,
+    );
+    return await buildAuthorizedTransaction(input, created.transaction, [], context);
+  } catch (cause) {
+    throw wrapWalletError("WALLET_BUILD_TRANSFER", cause);
+  }
+}
+
+/**
+ * One private transfer of `asset` to several recipients, for example a payment
+ * and an application fee. The proof hides every amount and recipient, and the
+ * approval handler sees a `multiTransfer` intent listing the payments (a
+ * `transfer` intent for a single payment). Notes beyond the input count the
+ * wider proof allows fail with `WALLET_TOO_MANY_INPUTS`; merge first.
+ */
+export async function buildMultiTransferTransaction(
+  input: MultiTransferTransactionParams,
+  context?: RequestContext,
+): Promise<Transaction> {
+  try {
+    const created = await createMultiTransfer(
+      {
+        client: input.client,
+        wallet: input.wallet,
+        payer: input.feePayer,
+        payments: input.payments,
+        asset: input.asset ?? SOL_MINT,
       },
       context,
     );

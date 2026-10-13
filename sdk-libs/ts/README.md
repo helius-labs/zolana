@@ -262,6 +262,32 @@ await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
 
+### Several recipients in one transfer
+
+`buildMultiTransferTransaction` pays up to fifteen recipients of one asset in
+one private transfer, each as its own output, for example a payment and an
+application fee. The approval handler sees a `multiTransfer` intent that lists
+the payments in order.
+
+```ts
+import { buildMultiTransferTransaction } from "@heliuslabs/zolana";
+
+const transfer = await buildMultiTransferTransaction({
+  client,
+  wallet,
+  keys,
+  feePayer: feePayer.address,
+  payments: [
+    { recipient: merchantSolanaAddress, amount: 25_000_000n },
+    { recipient: feeCollectorSolanaAddress, amount: 250_000n },
+  ],
+});
+```
+
+More outputs take a wider proof that accepts fewer notes: two payments spend at
+most 24, past which the build fails with `WALLET_TOO_MANY_INPUTS` until the
+balance is merged.
+
 ### Withdrawal
 
 Withdraw to a public Solana address:
@@ -417,8 +443,8 @@ Common exports from `@heliuslabs/zolana` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`, `LocalKeys`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
-  `buildWithdrawalTransaction`, `buildSplitTransaction`,
-  `buildMergeTransaction`.
+  `buildMultiTransferTransaction`, `buildWithdrawalTransaction`,
+  `buildSplitTransaction`, `buildMergeTransaction`.
 - state: `syncWallet`, `syncPersistedWallet`, `getPrivateTokenBalances`,
   `getPrivateTransactions`, `serializeWallet`, `deserializeWallet`.
 - amounts: `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`,

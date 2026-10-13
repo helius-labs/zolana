@@ -35,12 +35,15 @@ export {
 } from "./deposit.js";
 export { fetchTransactionSlots, type TransactionSlots } from "./transaction-slots.js";
 export {
+  buildMultiTransferTransaction,
   buildSplitTransaction,
   buildTransferTransaction,
   buildWithdrawalTransaction,
+  type MultiTransferTransactionParams,
   type PrivateTransactionParams,
   type SplitTransactionParams,
   type TransferDestination,
+  type TransferPayment,
   type PrivateTransactionClient,
   type TransferTransactionParams,
   type WithdrawalTransactionParams,

@@ -16,6 +16,7 @@ import {
   type ApprovalHandler,
 } from "../src/transaction/index.js";
 import {
+  MAX_TRANSFER_PAYMENTS,
   checkIntentApproval,
   checkPreparedTransfer,
   checkTransactData,
@@ -66,6 +67,62 @@ describe("intent hash", () => {
     expect(hex(intentHash(ring))).toBe(
       "ab073f7e3ee709822d2d857dab795914db0b5f898bd0620c717d2ba893e978e8",
     );
+    const multi: TransactionIntent = {
+      kind: "multiTransfer",
+      asset: SOL_MINT,
+      payments: [
+        { recipient: fixedKeypair(42).shieldedAddress(), amount: 25n },
+        { recipient: fixedKeypair(7).shieldedAddress(), amount: 3n },
+      ],
+    };
+    // Recomputed outside the SDK from the layout: domain, tag 10, asset, count, then each
+    // recipient and little-endian u64 amount.
+    expect(hex(intentHash(multi))).toBe(
+      "22e41ecb02ddc419ce5906ff03a1591524c61ecdaf0f738da5ce62053c893d2f",
+    );
+  });
+
+  it("binds each payment's recipient, amount and position", () => {
+    const first = { recipient: fixedKeypair(42).shieldedAddress(), amount: 25n };
+    const second = { recipient: fixedKeypair(7).shieldedAddress(), amount: 3n };
+    const base: TransactionIntent = {
+      kind: "multiTransfer",
+      asset: SOL_MINT,
+      payments: [first, second],
+    };
+    const hashes = [
+      base,
+      { ...base, payments: [second, first] },
+      { ...base, payments: [first, { ...second, amount: 4n }] },
+      { ...base, payments: [first, { ...second, recipient: fixedKeypair(8).shieldedAddress() }] },
+      { ...base, payments: [first, second, second] },
+      { ...base, asset: USDC },
+    ].map((intent) => hex(intentHash(intent)));
+    expect(new Set(hashes).size).toBe(hashes.length);
+  });
+
+  it("refuses a multi-transfer intent outside its payment range or shape", () => {
+    const payment = { recipient: fixedKeypair(42).shieldedAddress(), amount: 1n };
+    const refused = (intent: unknown, field: string) =>
+      expect(() => Reflect.apply(intentHash, undefined, [intent])).toThrowError(
+        expect.objectContaining({ code: "TRANSACTION_DESERIALIZE", details: { field } }),
+      );
+    const intent = (payments: readonly unknown[]) => ({
+      kind: "multiTransfer",
+      asset: SOL_MINT,
+      payments,
+    });
+    // One payment is a `transfer`; two encodings of one approval would alias.
+    refused(intent([payment]), "intent.payments");
+    refused(
+      intent(Array.from({ length: MAX_TRANSFER_PAYMENTS + 1 }, () => payment)),
+      "intent.payments",
+    );
+    refused(intent([payment, { ...payment, amount: 0n }]), "intent.amount");
+    refused(intent([payment, { ...payment, memo: "x" }]), "intent.shape");
+    refused({ ...intent([payment, payment]), amount: 2n }, "intent.shape");
+    expect(MAX_TRANSFER_PAYMENTS).toBe(15);
+    expect(() => intentHash(intent([payment, payment]) as TransactionIntent)).not.toThrow();
   });
 
   it("changes when any field changes", () => {
@@ -151,6 +208,43 @@ describe("prepared and data checks", () => {
     expect(() =>
       Reflect.apply(checkPreparedTransfer, undefined, [stranger, intent, mismatch]),
     ).toThrowError("mismatch recipient");
+  });
+
+  it("checks a multi-transfer's outputs one for one, in order", () => {
+    const first = fixedKeypair(42);
+    const second = fixedKeypair(7);
+    const intent: TransactionIntent = {
+      kind: "multiTransfer",
+      asset: SOL_MINT,
+      payments: [
+        { recipient: first.shieldedAddress(), amount: 25n },
+        { recipient: second.shieldedAddress(), amount: 3n },
+      ],
+    };
+    const check = (prepared: unknown) =>
+      Reflect.apply(checkPreparedTransfer, undefined, [prepared, intent, mismatch]);
+    const good = [recipientOutput(first, 25n), recipientOutput(second, 3n)];
+    expect(() => check(preparedWith({ outputs: good }))).not.toThrow();
+    expect(() =>
+      check(preparedWith({ outputs: [recipientOutput(second, 3n), recipientOutput(first, 25n)] })),
+    ).toThrowError("mismatch recipient");
+    expect(() =>
+      check(preparedWith({ outputs: [recipientOutput(first, 25n), recipientOutput(second, 4n)] })),
+    ).toThrowError("mismatch amount");
+    expect(() => check(preparedWith({ outputs: [recipientOutput(first, 28n)] }))).toThrowError(
+      "mismatch payments",
+    );
+    expect(() =>
+      check(preparedWith({ outputs: [...good, recipientOutput(fixedKeypair(8), 1n)] })),
+    ).toThrowError("mismatch payments");
+    expect(() =>
+      check(
+        preparedWith({ outputs: [recipientOutput(first, 25n), recipientOutput(second, 3n, RING)] }),
+      ),
+    ).toThrowError("mismatch ringProgramId");
+    expect(() =>
+      check(preparedWith({ outputs: good, interfaceTransfers: [{ kind: "sol" }] })),
+    ).toThrowError("mismatch settlements");
   });
 
   it("refuses ring outputs that cross the approved boundary", () => {

@@ -8,6 +8,7 @@ import {
 import { MAX_INPUT_TREES } from "../interface/tree-slot.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
+import { MAX_TRANSFER_PAYMENTS } from "../transaction/wallet/intent.js";
 import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
 import { reservedUtxoKeys, unreserved } from "../flows/reserve.js";
@@ -15,6 +16,7 @@ import { resolveWithdrawalSettlement } from "../flows/settlement.js";
 import {
   MAX_SPEND_INPUTS,
   isPlainUtxo,
+  maxSpendInputs,
   selectUtxos,
   type SpendPolicy,
   type SpendSelectionErrors,
@@ -32,9 +34,9 @@ interface UnsignedSpendInput {
 type PrivateAction =
   | Readonly<{
       kind: "transfer";
-      recipient: ShieldedAddress;
       asset: Address;
-      amount: bigint;
+      /** One output each, in order. */
+      payments: readonly Readonly<{ recipient: ShieldedAddress; amount: bigint }>[];
     }>
   | Readonly<{
       kind: "withdrawal";
@@ -154,6 +156,20 @@ export interface CreatedTransfer {
   readonly recipient: TransferRecipient;
 }
 
+export interface MultiTransferParams {
+  readonly client?: Pick<ChainReader, "getAccount">;
+  readonly wallet: Wallet;
+  readonly payer: Address;
+  readonly asset: Address;
+  readonly payments: readonly Readonly<{ recipient: TransferDestination; amount: bigint }>[];
+}
+
+export interface CreatedMultiTransfer {
+  readonly transaction: UnsignedPrivateTransaction;
+  /** In payment order. */
+  readonly recipients: readonly TransferRecipient[];
+}
+
 export interface CreatedWithdrawal {
   readonly transaction: UnsignedPrivateTransaction;
   readonly withdrawal: TransactWithdrawal;
@@ -232,6 +248,7 @@ function selectSpendInputs(
   wallet: Wallet,
   asset: Address,
   amount: bigint,
+  maxInputs = MAX_SPEND_INPUTS,
 ): Readonly<{ tree: Address; inputs: readonly UnsignedSpendInput[]; reservationId: string }> {
   const reserved = reservedUtxoKeys(wallet);
   const base = defaultSpendPolicy();
@@ -239,7 +256,11 @@ function selectSpendInputs(
     wallet,
     asset,
     target: { kind: "cover", amount },
-    policy: { ...base, eligible: (entry) => base.eligible(entry) && unreserved(reserved)(entry) },
+    policy: {
+      ...base,
+      maxInputs,
+      eligible: (entry) => base.eligible(entry) && unreserved(reserved)(entry),
+    },
   });
   const tree = selection.trees[0];
   // The instruction carries one input tree account, so a spend that needs two
@@ -298,70 +319,112 @@ export async function createTransfer(
 ): Promise<CreatedTransfer> {
   u64Amount(params.amount);
   try {
-    const recipient = params.recipient;
-    if (recipient instanceof ShieldedAddress) {
-      const { tree, inputs, reservationId } = selectSpendInputs(
-        params.wallet,
-        params.asset,
-        params.amount,
-      );
-      return Object.freeze({
-        transaction: new UnsignedPrivateTransaction({
-          payer: params.payer,
-          tree,
-          inputs,
-          reservationId,
-          action: {
-            kind: "transfer",
-            recipient,
-            asset: params.asset,
-            amount: params.amount,
-          },
-          summary: `private transaction transfer of ${String(params.amount)} to a shielded address`,
-        }),
-        recipient: {
-          kind: "shielded" as const,
-          address: recipient,
-          viewTag: recipient.confidentialViewTag(),
-        },
-      });
-    }
-    if (params.client === undefined) {
-      throw new WalletError("WALLET_RECIPIENT_CLIENT_REQUIRED");
-    }
-    const registered = await resolveRegisteredAddress(
-      { rpc: params.client, owner: recipient },
+    const created = await createPayments(
+      { ...params, payments: [{ recipient: params.recipient, amount: params.amount }] },
       context,
     );
-    if (registered === undefined) {
-      throw new WalletError("WALLET_RECIPIENT_NOT_REGISTERED", {
-        details: { recipient },
-      });
-    }
-    const { tree, inputs, reservationId } = selectSpendInputs(
-      params.wallet,
-      params.asset,
-      params.amount,
-    );
-    return Object.freeze({
-      transaction: new UnsignedPrivateTransaction({
-        payer: params.payer,
-        tree,
-        inputs,
-        reservationId,
-        action: {
-          kind: "transfer",
-          recipient: registered.address,
-          asset: params.asset,
-          amount: params.amount,
-        },
-        summary: `private transaction transfer of ${String(params.amount)} to ${recipient}`,
-      }),
-      recipient: { kind: "registered" as const, ...registered },
-    });
+    const recipient = created.recipients[0];
+    if (recipient === undefined) throw new WalletError("WALLET_INVALID_PAYMENT_COUNT");
+    return Object.freeze({ transaction: created.transaction, recipient });
   } catch (cause) {
     throw wrapWalletError("WALLET_CREATE_TRANSFER", cause);
   }
+}
+
+/**
+ * A transfer of one asset to several recipients, each paid as its own private
+ * output in the order given: a second payment can be an application's fee.
+ */
+export async function createMultiTransfer(
+  params: MultiTransferParams,
+  context?: RequestContext,
+): Promise<CreatedMultiTransfer> {
+  try {
+    if (
+      !Array.isArray(params.payments) ||
+      params.payments.length < 1 ||
+      params.payments.length > MAX_TRANSFER_PAYMENTS
+    ) {
+      throw new WalletError("WALLET_INVALID_PAYMENT_COUNT", {
+        details: {
+          got: Array.isArray(params.payments) ? params.payments.length : 0,
+          max: MAX_TRANSFER_PAYMENTS,
+        },
+      });
+    }
+    let total = 0n;
+    for (const payment of params.payments) {
+      if (typeof payment !== "object" || payment === null) {
+        throw new WalletError("WALLET_INVALID_AMOUNT");
+      }
+      u64Amount(payment.amount);
+      if (payment.amount === 0n) {
+        throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
+      }
+      total += payment.amount;
+    }
+    u64Amount(total);
+    return await createPayments(params, context);
+  } catch (cause) {
+    throw wrapWalletError("WALLET_CREATE_TRANSFER", cause);
+  }
+}
+
+/** Resolves every recipient before reserving inputs, so a refusal reserves nothing. */
+async function createPayments(
+  params: MultiTransferParams,
+  context: RequestContext | undefined,
+): Promise<CreatedMultiTransfer> {
+  const recipients: TransferRecipient[] = [];
+  const payments: Readonly<{ recipient: ShieldedAddress; amount: bigint }>[] = [];
+  let amount = 0n;
+  for (const payment of params.payments) {
+    const recipient = await resolveTransferRecipient(payment.recipient, params.client, context);
+    recipients.push(recipient);
+    payments.push(Object.freeze({ recipient: recipient.address, amount: payment.amount }));
+    amount += payment.amount;
+  }
+  // The payments and a change output.
+  const { tree, inputs, reservationId } = selectSpendInputs(
+    params.wallet,
+    params.asset,
+    amount,
+    maxSpendInputs(params.payments.length + 1),
+  );
+  const only = recipients.length === 1 ? recipients[0] : undefined;
+  const destination =
+    only === undefined
+      ? `${String(recipients.length)} recipients`
+      : only.kind === "shielded"
+        ? "a shielded address"
+        : only.owner;
+  return Object.freeze({
+    transaction: new UnsignedPrivateTransaction({
+      payer: params.payer,
+      tree,
+      inputs,
+      reservationId,
+      action: { kind: "transfer", asset: params.asset, payments: Object.freeze(payments) },
+      summary: `private transaction transfer of ${String(amount)} to ${destination}`,
+    }),
+    recipients: Object.freeze(recipients),
+  });
+}
+
+async function resolveTransferRecipient(
+  recipient: TransferDestination,
+  client: Pick<ChainReader, "getAccount"> | undefined,
+  context: RequestContext | undefined,
+): Promise<TransferRecipient> {
+  if (recipient instanceof ShieldedAddress) {
+    return { kind: "shielded", address: recipient, viewTag: recipient.confidentialViewTag() };
+  }
+  if (client === undefined) throw new WalletError("WALLET_RECIPIENT_CLIENT_REQUIRED");
+  const registered = await resolveRegisteredAddress({ rpc: client, owner: recipient }, context);
+  if (registered === undefined) {
+    throw new WalletError("WALLET_RECIPIENT_NOT_REGISTERED", { details: { recipient } });
+  }
+  return { kind: "registered", ...registered };
 }
 
 export function createSplit(params: SplitParams): CreatedSplit {

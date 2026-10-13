@@ -133,6 +133,7 @@ describe("public package surface", () => {
     const sdk = await import("../src/index.js");
     expect(sdk.buildDepositTransaction).toBeTypeOf("function");
     expect(sdk.buildTransferTransaction).toBeTypeOf("function");
+    expect(sdk.buildMultiTransferTransaction).toBeTypeOf("function");
     expect(sdk.buildWithdrawalTransaction).toBeTypeOf("function");
     expect(sdk.buildSplitTransaction).toBeTypeOf("function");
     expect(sdk.buildMergeTransaction).toBeTypeOf("function");
