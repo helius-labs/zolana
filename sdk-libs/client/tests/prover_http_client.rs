@@ -408,12 +408,13 @@ async fn remote_defaults_never_send_witnesses_after_failed_attestation() {
             matches!(&error, ClientError::ProverServer(message) if message.starts_with("attestation failed with status 404")),
             "{error}"
         );
-        let recorded = requests.lock().unwrap();
-        assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].method, Method::GET);
-        assert!(recorded[0].body.is_empty());
-        assert!(recorded[0].url.contains("/tee/v1/attestation?"));
-        drop(recorded);
+        {
+            let recorded = requests.lock().unwrap();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!(recorded[0].method, Method::GET);
+            assert!(recorded[0].body.is_empty());
+            assert!(recorded[0].url.contains("/tee/v1/attestation?"));
+        }
 
         let (client, requests) = FakeClient::answering(vec![Ok((404, json!({})))]);
         let error = AsyncProverClient::with_client(url.into(), client)
