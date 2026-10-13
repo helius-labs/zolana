@@ -114,10 +114,6 @@ pub(crate) fn pda_cannot_sign(world: &mut KeypairWorld, a: String) {
         identity.sign_message(b"private_tx_hash"),
         Err(KeypairError::PdaCannotSign)
     );
-    assert_eq!(
-        identity.sign_hash(&[7u8; 32]),
-        Err(KeypairError::PdaCannotSign)
-    );
 }
 
 pub(crate) fn from_parts_holds_supplied_roles(world: &mut KeypairWorld, a: String) {

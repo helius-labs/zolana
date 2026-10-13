@@ -476,9 +476,6 @@ export class ConfidentialSplit {
         numOutputs: input.numOutputs,
       });
     }
-    if (input.owner.signingPublicKey.signatureType() === "p256") {
-      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
     // The builders collect no signature but the payer's, a UTXO owned by
     // anyone else cannot be authorized here.
     if (input.owner.solanaAddress() !== input.payer) {

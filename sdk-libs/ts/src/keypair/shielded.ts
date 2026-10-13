@@ -16,7 +16,6 @@ import {
   copyBytes,
 } from "./bytes.js";
 import { type Rail, type RoleSecrets, roleExpansion } from "./derivation.js";
-import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
 import { poseidon } from "./poseidon.js";
@@ -152,12 +151,6 @@ export class CompressedShieldedAddress {
   }
 }
 
-export interface P256Signature {
-  readonly publicKey: P256PublicKey;
-  readonly r: Bytes32;
-  readonly s: Bytes32;
-}
-
 /**
  * The `ShieldedKeypairTrait` surface: signing identity, address derivation,
  * spend signing, and nullifier derivation. Every operation may be asynchronous
@@ -231,13 +224,11 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   /**
-   * Generates an Ed25519 signing identity by default, the rail supported by
-   * the lean SDK's registration and ordinary transaction builders. Both role
-   * keys expand from the signing key's derivation seed, like Rust's
-   * `new_ed25519` / `new_p256`.
+   * Generates an Ed25519 signing identity. Both role keys expand from the
+   * signing key's derivation seed, like Rust's `new_ed25519`.
    */
-  static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
-    return ShieldedKeypair.fromKeypair(SigningKey.generate(type));
+  static generate(): ShieldedKeypair {
+    return ShieldedKeypair.fromKeypair(SigningKey.generate());
   }
 
   /** Mirrors Rust's `ShieldedKeypair::from_keypair`. */
@@ -263,7 +254,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   static #roleExpansion<T>(signing: SigningKey, use: (roles: RoleSecrets) => T): T {
-    const rail: Rail = signing.isEd25519() ? "ed25519" : "ecdh";
+    const rail: Rail = "ed25519";
     const seed = signing.derivationSeed();
     try {
       return roleExpansion(seed, rail, use);
@@ -312,14 +303,8 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * asynchronously. This one signs with the same Ed25519 the shielded keys
    * already use, which keeps construction synchronous; `signTransactions` still
    * returns a promise because Kit's interface demands one.
-   *
-   * Only the Ed25519 rail has a Solana identity: a P256 signing key has no
-   * Solana address to sign for.
    */
   toSolanaSigner(): TransactionPartialSigner {
-    if (!this.#signing.isEd25519()) {
-      throw new KeypairError("KEYPAIR_NOT_ED25519");
-    }
     const address = addressDecoder.decode(this.signingPublicKey().ed25519());
     const signing = this.#signing;
     return Object.freeze({
@@ -411,18 +396,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   sign(message: Uint8Array): Bytes64 {
     return this.#signing.sign(message);
-  }
-
-  signP256(messageHash: Bytes32): P256Signature {
-    const publicKey = this.#signing.publicKey().p256();
-    const signature = this.#signing.sign(
-      checkedBytes<Bytes32>(messageHash, 32, "P256 message hash"),
-    );
-    return Object.freeze({
-      publicKey,
-      r: signature.slice(0, 32) as Bytes32,
-      s: signature.slice(32) as Bytes32,
-    });
   }
 
   nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {

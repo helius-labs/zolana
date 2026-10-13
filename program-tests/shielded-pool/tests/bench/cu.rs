@@ -201,8 +201,9 @@ fn bench_cu_deposit() {
              proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the \
              narrowest and widest shape of every output count (up to the 1x16 split shape \
              and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails \
-             (EdDSA, and P256 whose BSB22 commitment adds a Pedersen proof-of-knowledge \
-             pairing to verification), every supported `merge_transact` shape, compact \
+             (EdDSA, and RingP256, which verifies an Ed25519 owner signature in the proof \
+             and whose BSB22 commitment adds a Pedersen proof-of-knowledge pairing to \
+             verification), every supported `merge_transact` shape, compact \
              padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL \
              withdrawals. This target is a pure \
              benchmark: no \
@@ -438,7 +439,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let recipient = ShieldedKeypair::new_p256()
+    let recipient = ShieldedKeypair::new_ed25519()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
@@ -475,7 +476,7 @@ fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut C
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let recipient = ShieldedKeypair::new_p256()
+    let recipient = ShieldedKeypair::new_ed25519()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
@@ -529,7 +530,7 @@ fn bench_deposit_spl(
         .expect("user token account");
     pt.mint_to(&mint, &user_token, 1_000_000).expect("mint_to");
 
-    let recipient = ShieldedKeypair::new_p256()
+    let recipient = ShieldedKeypair::new_ed25519()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");

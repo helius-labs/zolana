@@ -209,7 +209,7 @@ theorem native_guard_zero :
 /-- Failure of the actual extracted native guard on the concrete balanced
 tangent/slot-half inputs, not merely failure of an abstract Fp inequality. -/
 theorem extracted_guard_impossible :
-    ¬AssertDistinctSlope_8_h16c15a53 (slopeElem (tangentValue : Fp)).limbs
+    ¬AssertDistinctSlope_8_hf8ff5ddf (slopeElem (tangentValue : Fp)).limbs
       (((slopeElem (-(halfSlopeValue : Fp))).value : ℤ) : F) := by
   intro h
   have hn := assertDistinctSlope_sound h
@@ -222,7 +222,7 @@ theorem every_actual_balanced_guard_impossible (tangent half : ElemVal 8)
     (ht : tangent.bnd = balC) (hh : half.bnd = balC)
     (htangent : 2 * (tangent.value : Fp) * (-(qy : Fp)) = 3 * (qx : Fp) ^ 2 - 3)
     (hhalf : 2 * (half.value : Fp) * (-thirdY) = 3 * thirdX ^ 2 - 3) :
-    ¬AssertDistinctSlope_8_h16c15a53 tangent.limbs ((half.value : ℤ) : F) := by
+    ¬AssertDistinctSlope_8_hf8ff5ddf tangent.limbs ((half.value : ℤ) : F) := by
   have htv := tangent_rep_unique tangent ht (tangent_unique _ htangent)
   have hopp : 2 * (-(half.value : Fp)) * thirdY = 3 * thirdX ^ 2 - 3 := by
     linear_combination hhalf
@@ -244,7 +244,7 @@ theorem every_quartic_balanced_guard_impossible (tangent half : ElemVal 8)
     (ht : tangent.bnd = balC) (hh : half.bnd = balC)
     (htangent : 2 * (tangent.value : Fp) * (-(qy : Fp)) = 3 * (qx : Fp) ^ 2 - 3)
     (hhalf : halfQuartic slotX slotY (half.value : Fp) = 0) :
-    ¬AssertDistinctSlope_8_h16c15a53 tangent.limbs ((half.value : ℤ) : F) := by
+    ¬AssertDistinctSlope_8_hf8ff5ddf tangent.limbs ((half.value : ℤ) : F) := by
   have htv := tangent_rep_unique tangent ht (tangent_unique _ htangent)
   have hf := every_slot_half_root (half.value : Fp) hhalf
   have hcast : (half.value : Fp) = ((-halfBalanced : ℤ) : Fp) := by

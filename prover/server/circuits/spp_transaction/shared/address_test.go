@@ -29,7 +29,7 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 // setAddressSlot rewrites in as an address slot: owner hash over ownerPkHash
 // and the nullifier pk of the zero nullifier secret, every non-seed field
 // set to zero. ownerTag is the slot's private owner identity: the pk field
-// itself for a Solana owner, zero for the shared P256 owner.
+// itself for a Solana owner, zero for the shared Ed25519 owner.
 func setAddressSlot(t testing.TB, in *testInput, ownerPkHash, ownerTag, seed *big.Int) {
 	t.Helper()
 	nullifierSecret := spptest.Fe(0)

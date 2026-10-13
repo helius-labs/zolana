@@ -32,7 +32,7 @@ theorem combFirst_native
       (combFirstSlopeInput L (combFirstDifference WX X) WY FY))
     (hn : Lazy_24_h4ef94fb8 (chainCompositionLazyInput L X WX)
       (fun out => k (out ::ᵥ L ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h9024d0c7 X PS PX PY WX WY FY k := by
+    CombChainStep_8_8_8_8_8_8_8_h14296507 X PS PX PY WX WY FY k := by
   have h0 := hL (0 : Fin 8)
   have h1 := hL (1 : Fin 8)
   have h2 := hL (2 : Fin 8)
@@ -49,7 +49,7 @@ theorem combFirst_native
   change L.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
   change L.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
   change L.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h9024d0c7
+  unfold CombChainStep_8_8_8_8_8_8_8_h14296507
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
   refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2,

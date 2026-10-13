@@ -15,7 +15,7 @@ def scalarMinusThreePartial (original : ℕ) : F := ((canonicalScalar original).
 
 /-- Compose the actual first two native fragments from explicit primitive witnesses,
 constructed gap/exception hints, and the exact remaining p2 continuation. -/
-theorem ScalarMulChecked_8_8_8_h903d3456_prefix_compose (original : ℕ) (hr : RangeComplete)
+theorem ScalarMulChecked_8_8_8_h9a706aba_prefix_compose (original : ℕ) (hr : RangeComplete)
     (PX PY Scalar L DX DY : List.Vector F 8) (rawL piecesL : List.Vector F 24)
     (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧ RangeCheck 10 (piecesL.get ⟨3 * i.val + 2, by omega⟩))
@@ -27,8 +27,8 @@ theorem ScalarMulChecked_8_8_8_h903d3456_prefix_compose (original : ℕ) (hr : R
     (hDX : ∀ k : List.Vector F 8 → Prop, k DX → CheckPolynomial_16_h0c8d6bae (quadDoubleXInput L PX) k)
     (hDY : ∀ k : List.Vector F 8 → Prop, k DY → CheckPolynomial_24_h2629e496 (quadDoubleYInput L PX DX PY) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hTail : ScalarMulChecked_8_8_8_h903d3456_p2 PX PY Scalar (canonicalScalar original).limbs (∑ i : Fin 6, exceptionalFlag original i) (halfScalarElem original).limbs ((selectedPointLimbs original DX PX).get 0) ((selectedPointLimbs original DX PX).get 1) ((selectedPointLimbs original DX PX).get 2) ((selectedPointLimbs original DX PX).get 3) ((selectedPointLimbs original DX PX).get 4) ((selectedPointLimbs original DX PX).get 5) ((selectedPointLimbs original DX PX).get 6) ((selectedPointLimbs original DX PX).get 7) ((selectedPointLimbs original DY PY).get 0) ((selectedPointLimbs original DY PY).get 1) ((selectedPointLimbs original DY PY).get 2) ((selectedPointLimbs original DY PY).get 3) ((selectedPointLimbs original DY PY).get 4) ((selectedPointLimbs original DY PY).get 5) ((selectedPointLimbs original DY PY).get 6) ((selectedPointLimbs original DY PY).get 7) ((selectedScalarElem original).limbs.get 0) ((selectedScalarElem original).limbs.get 1) ((selectedScalarElem original).limbs.get 2) ((selectedScalarElem original).limbs.get 3) ((selectedScalarElem original).limbs.get 4) ((selectedScalarElem original).limbs.get 5) k) :
-    ScalarMulChecked_8_8_8_h903d3456 PX PY Scalar k := by
+    (hTail : ScalarMulChecked_8_8_8_h9a706aba_p2 PX PY Scalar (canonicalScalar original).limbs (∑ i : Fin 6, exceptionalFlag original i) (halfScalarElem original).limbs ((selectedPointLimbs original DX PX).get 0) ((selectedPointLimbs original DX PX).get 1) ((selectedPointLimbs original DX PX).get 2) ((selectedPointLimbs original DX PX).get 3) ((selectedPointLimbs original DX PX).get 4) ((selectedPointLimbs original DX PX).get 5) ((selectedPointLimbs original DX PX).get 6) ((selectedPointLimbs original DX PX).get 7) ((selectedPointLimbs original DY PY).get 0) ((selectedPointLimbs original DY PY).get 1) ((selectedPointLimbs original DY PY).get 2) ((selectedPointLimbs original DY PY).get 3) ((selectedPointLimbs original DY PY).get 4) ((selectedPointLimbs original DY PY).get 5) ((selectedPointLimbs original DY PY).get 6) ((selectedPointLimbs original DY PY).get 7) ((selectedScalarElem original).limbs.get 0) ((selectedScalarElem original).limbs.get 1) ((selectedScalarElem original).limbs.get 2) ((selectedScalarElem original).limbs.get 3) ((selectedScalarElem original).limbs.get 4) ((selectedScalarElem original).limbs.get 5) k) :
+    ScalarMulChecked_8_8_8_h9a706aba PX PY Scalar k := by
   have hL0 := hL (0 : Fin 8)
   simp only [sub_eq_add_neg, mul_comm] at hL0
   change L.get 0 = piecesL.get 0 + 2048 * piecesL.get 1 + 4194304 * piecesL.get 2 + -(2147483648 : F) at hL0
@@ -156,10 +156,10 @@ theorem ScalarMulChecked_8_8_8_h903d3456_prefix_compose (original : ℕ) (hr : R
   simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
   simp only [quadDoubleYInput, sub_eq_add_neg, mul_comm] at hDYNative
   have hsum := (Fin.sum_univ_six (fun i => exceptionalFlag original i)).symm
-  have hPrefix : ScalarMulChecked_8_8_8_h903d3456_p1 PX PY Scalar (canonicalScalar original).limbs
+  have hPrefix : ScalarMulChecked_8_8_8_h9a706aba_p1 PX PY Scalar (canonicalScalar original).limbs
       (exceptionalFlag original 0 + exceptionalFlag original 1 + exceptionalFlag original 2)
       (scalarMinusThreePartial original) k := by
-    unfold ScalarMulChecked_8_8_8_h903d3456_p1
+    unfold ScalarMulChecked_8_8_8_h9a706aba_p1
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -175,7 +175,7 @@ theorem ScalarMulChecked_8_8_8_h903d3456_prefix_compose (original : ℕ) (hr : R
       apply hDYNative
       simp only [hsum]
       exact ⟨(selectedPointLimbs original DX PX).get 0, selectedPointLimbs_native_select original DX PX 0, (selectedPointLimbs original DX PX).get 1, selectedPointLimbs_native_select original DX PX 1, (selectedPointLimbs original DX PX).get 2, selectedPointLimbs_native_select original DX PX 2, (selectedPointLimbs original DX PX).get 3, selectedPointLimbs_native_select original DX PX 3, (selectedPointLimbs original DX PX).get 4, selectedPointLimbs_native_select original DX PX 4, (selectedPointLimbs original DX PX).get 5, selectedPointLimbs_native_select original DX PX 5, (selectedPointLimbs original DX PX).get 6, selectedPointLimbs_native_select original DX PX 6, (selectedPointLimbs original DX PX).get 7, selectedPointLimbs_native_select original DX PX 7, (selectedPointLimbs original DY PY).get 0, selectedPointLimbs_native_select original DY PY 0, (selectedPointLimbs original DY PY).get 1, selectedPointLimbs_native_select original DY PY 1, (selectedPointLimbs original DY PY).get 2, selectedPointLimbs_native_select original DY PY 2, (selectedPointLimbs original DY PY).get 3, selectedPointLimbs_native_select original DY PY 3, (selectedPointLimbs original DY PY).get 4, selectedPointLimbs_native_select original DY PY 4, (selectedPointLimbs original DY PY).get 5, selectedPointLimbs_native_select original DY PY 5, (selectedPointLimbs original DY PY).get 6, selectedPointLimbs_native_select original DY PY 6, (selectedPointLimbs original DY PY).get 7, selectedPointLimbs_native_select original DY PY 7, (selectedScalarElem original).limbs.get 0, selectedScalarElem_native_select original 0, (selectedScalarElem original).limbs.get 1, selectedScalarElem_native_select original 1, (selectedScalarElem original).limbs.get 2, selectedScalarElem_native_select original 2, (selectedScalarElem original).limbs.get 3, selectedScalarElem_native_select original 3, (selectedScalarElem original).limbs.get 4, selectedScalarElem_native_select original 4, (selectedScalarElem original).limbs.get 5, selectedScalarElem_native_select original 5, hTail⟩
-  unfold ScalarMulChecked_8_8_8_h903d3456
+  unfold ScalarMulChecked_8_8_8_h9a706aba
   apply hScalar
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,

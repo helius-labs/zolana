@@ -25,6 +25,10 @@ export const P_CONST_SEC1 = Uint8Array.from([
 
 export const DST_DERIVE_P_DERIVE = "TSPP/nullifier/P_nullifier/v1";
 
+/**
+ * Reserved: no derivation uses it any more, but the guarded ECDH entry points
+ * keep refusing it (see `isDerivationPoint`).
+ */
 export const P_DERIVE_SEC1 = Uint8Array.from([
   0x03, 0x9e, 0xf1, 0x65, 0x92, 0x42, 0x9d, 0xa1, 0x40, 0x3e, 0xaa, 0x29, 0x05, 0x8e, 0xb7, 0xd9,
   0xd5, 0xad, 0x15, 0xa2, 0xea, 0x55, 0x71, 0x74, 0xf7, 0xb0, 0x1f, 0xf7, 0xfe, 0x48, 0x4e, 0xee,
@@ -41,11 +45,7 @@ export const P_PDA_SEC1 = Uint8Array.from([
 
 export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 
-export const INFO_NF_KEY_ECDH = "TSPP/nf_key/ecdh/v1";
-
 export const INFO_VIEW_KEY_ED25519 = "TSPP/view_key/ed25519/v1";
-
-export const INFO_VIEW_KEY_ECDH = "TSPP/view_key/ecdh/v1";
 
 export const INFO_TX_VIEWING = "TSPP/tx_viewing";
 
@@ -159,7 +159,7 @@ export function isDerivationInput(message: Uint8Array): boolean {
 }
 
 /**
- * Committed points whose shared secret is a derivation root; the guarded ecdh
+ * Committed points whose shared secret is, or was, a derivation root; the guarded ecdh
  * entry points refuse all three, because `ECDH(viewing_sk, P_const)` is the
  * IKM `viewRoot` extracts from.
  */
@@ -178,10 +178,6 @@ export function ecdhX(secret: Uint8Array, counterparty: P256PublicKey): Uint8Arr
   } catch (error) {
     throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
   }
-}
-
-export function pDerive(): P256PublicKey {
-  return P256PublicKey.fromBytes(P_DERIVE_SEC1 as Bytes33);
 }
 
 export function hkdfExtract(ikm: Uint8Array): Uint8Array {
@@ -242,16 +238,13 @@ export function scalarFromOkm(okm: Uint8Array): Bytes32 {
   return bytes as Bytes32;
 }
 
-export type Rail = "ed25519" | "ecdh";
+export type Rail = "ed25519";
 
 /** An ed25519 `derivationSeed` is the RFC 8032 signature over the derivation message. */
 export const ED25519_SEED_LEN = 64;
 
-/** A P-256 `derivationSeed` is the x-coordinate of `ECDH(signingSk, pDerive)`. */
-export const P256_SEED_LEN = 32;
-
-function railSeedLength(rail: Rail): number {
-  return rail === "ed25519" ? ED25519_SEED_LEN : P256_SEED_LEN;
+function railSeedLength(_rail: Rail): number {
+  return ED25519_SEED_LEN;
 }
 
 /**
@@ -285,12 +278,12 @@ export function checkedDerivationSeed<T extends Uint8Array>(seed: Uint8Array | T
   return new Uint8Array(seed) as T;
 }
 
-function railNullifierInfo(rail: Rail): Uint8Array {
-  return encoder.encode(rail === "ed25519" ? INFO_NF_KEY_ED25519 : INFO_NF_KEY_ECDH);
+function railNullifierInfo(_rail: Rail): Uint8Array {
+  return encoder.encode(INFO_NF_KEY_ED25519);
 }
 
-function railViewingInfo(rail: Rail): Uint8Array {
-  return encoder.encode(rail === "ed25519" ? INFO_VIEW_KEY_ED25519 : INFO_VIEW_KEY_ECDH);
+function railViewingInfo(_rail: Rail): Uint8Array {
+  return encoder.encode(INFO_VIEW_KEY_ED25519);
 }
 
 export interface RoleSecrets {

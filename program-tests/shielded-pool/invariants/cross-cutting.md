@@ -128,7 +128,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: a proof is only valid under the circuit selector family it was built for: a BSB22-committed P256 proof under the RingEddsa selector fails pairing against the eddsa verifying key (7008); an uncommitted eddsa proof under the RingP256 selector can carry no valid BSB22 commitment (a zeroed one decodes as the point at infinity, so the graft fails at pairing, 7008; garbage bytes fail at encoding, 7007); a wrong selector FAMILY under any tag is rejected pre-account with 7035 (INV-TRANSACT-34).
+  - Statement: a proof is only valid under the circuit selector family it was built for: a BSB22-committed RingP256 proof under the RingEddsa selector fails pairing against the eddsa verifying key (7008); an uncommitted eddsa proof under the RingP256 selector can carry no valid BSB22 commitment (a zeroed one decodes as the point at infinity, so the graft fails at pairing, 7008; garbage bytes fail at encoding, 7007); a wrong selector FAMILY under any tag is rejected pre-account with 7035 (INV-TRANSACT-34).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, selector-keyed verifying key + commitment leg), `transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidTransactProofEncoding = 7007` / `MismatchedCircuitType = 7035`
   - Severity: Critical (cross-rail grafting)

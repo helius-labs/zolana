@@ -103,22 +103,14 @@ export function hashBytes(bytes: Uint8Array): Uint8Array {
 
 /** Algorithm tag of an Ed25519 or PDA owner identity, `'S'`. */
 export const SOLANA_OWNER_TAG = 0x53;
-/** Algorithm tag of a P256 owner identity, `'P'`. */
-export const P256_OWNER_TAG = 0x50;
 
 /**
  * Proof-input identity of a Solana signer, `hash_bytes(0x53 || pubkey)`.
- * Mirrors Rust `solana_owner_identity`. The tag keeps an Ed25519 key and a
- * P256 x-coordinate with equal bytes apart and avoids the SEC1 prefixes, so
+ * Mirrors Rust `solana_owner_identity`. The tag avoids the SEC1 prefixes, so
  * an owner identity can never equal a viewing-key commitment.
  */
 export function solanaOwnerIdentity(publicKey: Uint8Array): Uint8Array {
   return taggedIdentity(SOLANA_OWNER_TAG, publicKey);
-}
-
-/** Proof-input identity of a P256 owner, `hash_bytes(0x50 || x)`. Mirrors Rust `p256_owner_identity`. */
-export function p256OwnerIdentity(x: Uint8Array): Uint8Array {
-  return taggedIdentity(P256_OWNER_TAG, x);
 }
 
 function taggedIdentity(tag: number, key: Uint8Array): Uint8Array {

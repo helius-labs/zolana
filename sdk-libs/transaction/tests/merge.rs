@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use common::{keypair, wallet_utxo};
 use zolana_keypair::{
     DecryptedMergeEnvelope, MergeEnvelopeDecryption, P256Pubkey, ShieldedAddress, ShieldedKeypair,
-    SigningKey, ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
+    ViewingKey, MERGE_ENVELOPE_CIPHERTEXT_LEN,
 };
 use zolana_transaction::{
     instructions::merge::{
@@ -414,8 +414,6 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
 fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
     let owner = keypair(7);
     let stranger = keypair(9);
-    let p256 =
-        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[5; 32]).unwrap()).unwrap();
     let sender = owner.shielded_address().unwrap();
     let tx = ViewingKey::new();
     for (foreign, error) in [
@@ -424,7 +422,13 @@ fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
             TransactionError::MergeInputOwnerMismatch { index: 1 },
         ),
         (
-            wallet_utxo(&p256, Mint::SOL, 1, 0, 2),
+            {
+                let mut n = wallet_utxo(&owner, Mint::SOL, 1, 0, 2);
+                n.utxo.owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array(
+                    owner.signing_pubkey().confidential_view_tag().unwrap(),
+                ));
+                n
+            },
             TransactionError::MergeInputRailMismatch { index: 1 },
         ),
         (
@@ -456,11 +460,11 @@ fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
             Some(error)
         );
     }
-    let result = MergeTransaction::new(inputs(&p256, 1))
+    let result = MergeTransaction::new(inputs(&stranger, 1))
         .unwrap()
-        .encrypt(&p256)
+        .encrypt(&stranger)
         .unwrap();
-    assert_eq!(result.signing_pubkey, p256.signing_pubkey());
+    assert_eq!(result.signing_pubkey, stranger.signing_pubkey());
     assert_eq!(result.output_utxo.amount, 2);
 }
 

@@ -52,20 +52,18 @@ func smallRatioScalars(limit int64, randoms int) []namedScalar {
 func TestLadderAcceptsSmallRatioScalars(t *testing.T) {
 	peer := peerKey(t).PublicKey().Bytes()
 	px, py := elliptic.Unmarshal(elliptic.P256(), peer)
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &scalarMulCoordinatesCircuit{NoLookups: noLookups})
-		for _, row := range smallRatioScalars(12, 16) {
-			if row.s.Sign() == 0 {
-				continue
-			}
-			w := &scalarMulCoordinatesCircuit{}
-			setBytes(w.Scalar[:], row.s.FillBytes(make([]byte, 32)))
-			setBytes(w.PublicKey[:], peer)
-			x, y := elliptic.P256().ScalarMult(px, py, row.s.Bytes())
-			setBytes(w.Result[:], elliptic.Marshal(elliptic.P256(), x, y))
-			t.Run(row.name, func(t *testing.T) { assertCircuitResult(t, cs, w, true) })
+	cs := compile(t, &scalarMulCoordinatesCircuit{})
+	for _, row := range smallRatioScalars(12, 16) {
+		if row.s.Sign() == 0 {
+			continue
 		}
-	})
+		w := &scalarMulCoordinatesCircuit{}
+		setBytes(w.Scalar[:], row.s.FillBytes(make([]byte, 32)))
+		setBytes(w.PublicKey[:], peer)
+		x, y := elliptic.P256().ScalarMult(px, py, row.s.Bytes())
+		setBytes(w.Result[:], elliptic.Marshal(elliptic.P256(), x, y))
+		t.Run(row.name, func(t *testing.T) { assertCircuitResult(t, cs, w, true) })
+	}
 }
 
 // Invariant 2: Key agreement accepts the formerly rejected scalars.
@@ -74,16 +72,14 @@ func TestAgreeKeyAcceptsQuarterAndTwoThirds(t *testing.T) {
 	peer := peerKey(t).PublicKey()
 	scalars := []*big.Int{ratioScalar(1, 4), ratioScalar(2, 3)}
 	scalars = append(scalars, new(big.Int).Sub(n, scalars[0]), new(big.Int).Sub(n, scalars[1]))
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
-		for _, s := range scalars {
-			w := agreeKeyWitness(t, s, peer)
-			if err := test.IsSolved(&agreeKeyCircuit{NoLookups: noLookups}, w, ecc.BN254.ScalarField()); err != nil {
-				t.Fatalf("test engine %v: %v", s, err)
-			}
-			if err := solveAgreeKey(t, cs, w); err != nil {
-				t.Fatalf("compiled %v: %v", s, err)
-			}
+	cs := compile(t, &agreeKeyCircuit{})
+	for _, s := range scalars {
+		w := agreeKeyWitness(t, s, peer)
+		if err := test.IsSolved(&agreeKeyCircuit{}, w, ecc.BN254.ScalarField()); err != nil {
+			t.Fatalf("test engine %v: %v", s, err)
 		}
-	})
+		if err := solveAgreeKey(t, cs, w); err != nil {
+			t.Fatalf("compiled %v: %v", s, err)
+		}
+	}
 }

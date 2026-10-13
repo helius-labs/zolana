@@ -11,7 +11,8 @@ its inputs, and transfers can leave their unused slots out of the transaction
 at the cost of revealing the real counts, which every merge now does.
 Registration never replaces an owner's published keys, and replacing them is
 its own transaction. The private transaction hash ignores padding and no longer
-covers the external data, which P-256 owners now sign alongside it.
+covers the external data. Every shielded owner signs with an Ed25519 key: P-256
+owner keys are gone, while P-256 viewing, auditor and reader keys stay.
 
 Breaking
 
@@ -143,6 +144,21 @@ Breaking
   answer the label in custom `ShieldedKeys` with
   `encodeDecryptedMergeEnvelope(decryptMergeEnvelope(...))`, passing the
   request's `firstNullifier`.
+- `SigningKey.fromP256Bytes`, `ShieldedPublicKey.fromP256`,
+  `ShieldedPublicKey.p256`, `ShieldedKeypair.signP256`, `P256Signature`,
+  `EcdsaSignature`, `P256_OWNER_TAG`, `p256OwnerIdentity`, `P256_SEED_LEN`
+  and the `"p256"` `SignatureType` are removed,
+  `SigningKey.generate` and `ShieldedKeypair.generate` take no argument and
+  return an Ed25519 key, `ShieldedPublicKey.fromBytes` rejects scheme byte
+  `0x00` with `KEYPAIR_INVALID_SIGNATURE_TYPE`, and a user record that names a
+  P-256 owner key resolves to no address but fails with
+  `WALLET_USER_RECORD_P256_OWNER_UNSUPPORTED`, which replaces
+  `WALLET_P256_REGISTRATION_UNSUPPORTED`, while
+  `TRANSACTION_P256_TRANSACT_UNSUPPORTED` and `KEYPAIR_INVALID_PREHASH_LENGTH`
+  are removed → create owners with `SigningKey.generate()` or
+  `SigningKey.fromEd25519Bytes`, sign spend authorizations with
+  `ShieldedKeypair.sign`, and handle the new wallet code in exhaustive
+  switches.
 
 Added
 

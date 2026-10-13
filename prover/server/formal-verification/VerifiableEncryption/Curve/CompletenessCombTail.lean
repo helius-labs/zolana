@@ -25,7 +25,7 @@ theorem combTail_complete (hr : RangeComplete) (X L WX WY TX TY : ElemVal 8)
         k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) →
         CheckPolynomial_8_h78194ae0 X.limbs (fun ex =>
           CheckPolynomial_24_h0845ed76 (combTailVector L.limbs WX.limbs ex WY.limbs) (fun ey =>
-            CompleteAdd_8_8_8_8_hd2848b17 ex ey TX.limbs TY.limbs k)) := by
+            CompleteAdd_8_8_8_8_h3f5cf0cd ex ey TX.limbs TY.limbs k)) := by
   let EX := canonicalFpElem (X.value : Fp)
   let EY := canonicalFpElem ((L.value * (WX.value - X.value) - WY.value : ℤ) : Fp)
   have vEX : (EX.value : Fp) = (X.value : Fp) := canonicalFpElem_cast _

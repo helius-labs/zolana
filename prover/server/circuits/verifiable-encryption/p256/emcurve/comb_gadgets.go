@@ -17,11 +17,10 @@ type CombSelect struct {
 	TableX, TableY [][]frontend.Variable
 	SelectorBits   []frontend.Variable
 	PackY          bool
-	Lookups        bool
 }
 
 func (g CombSelect) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	out := c.combSelectConstrained(g.TableX, g.TableY, g.SelectorBits, g.PackY)
 	recordOutputs(g, out.X, out.Y)
 	return pointLimbs(out)
@@ -32,7 +31,7 @@ func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable
 	if !abstractor.Extracting(c.api) {
 		return c.combSelectConstrained(xs, ys, selectorBits, packY)
 	}
-	g := CombSelect{TableX: xs, TableY: ys, SelectorBits: selectorBits, PackY: packY, Lookups: c.layout.Lookups}
+	g := CombSelect{TableX: xs, TableY: ys, SelectorBits: selectorBits, PackY: packY}
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }
 
@@ -45,11 +44,10 @@ type CombChainStep struct {
 	XBounds, PreviousSlopeBounds, PreviousWindowXBounds, PreviousWindowYBounds         []*big.Int
 	WindowXBounds, WindowYBounds, FirstWindowYBounds                                   []*big.Int
 	First                                                                              bool
-	Lookups                                                                            bool
 }
 
 func (g CombChainStep) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	fp := c.fp
 	window := &point{X: fp.FromBounds(g.WindowX, g.WindowXBounds), Y: fp.FromBounds(g.WindowY, g.WindowYBounds)}
 	nextX, slope := c.combChainStepConstrained(g.First,
@@ -74,7 +72,6 @@ func (c *curve) combChainStep(first bool, x, previousSlope, previousWindowX, pre
 		PreviousWindowYBounds: previousWindowY.Bounds(), WindowXBounds: windowPoint.X.Bounds(), WindowYBounds: windowPoint.Y.Bounds(),
 		FirstWindowYBounds: firstWindowY.Bounds(),
 		First:              first,
-		Lookups:            c.layout.Lookups,
 	}
 	out := abstractor.Call2(c.api, g)
 	bounds := recordedOutputs(g)
@@ -86,11 +83,10 @@ func (c *curve) combChainStep(first bool, x, previousSlope, previousWindowX, pre
 type CompleteAdd struct {
 	PX, PY, QX, QY                         []frontend.Variable
 	PXBounds, PYBounds, QXBounds, QYBounds []*big.Int
-	Lookups                                bool
 }
 
 func (g CompleteAdd) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	p := &point{X: c.fp.FromBounds(g.PX, g.PXBounds), Y: c.fp.FromBounds(g.PY, g.PYBounds)}
 	q := &point{X: c.fp.FromBounds(g.QX, g.QXBounds), Y: c.fp.FromBounds(g.QY, g.QYBounds)}
 	out := c.completeAddConstrained(p, q)
@@ -105,7 +101,6 @@ func (c *curve) completeAdd(p, q *point) *point {
 	g := CompleteAdd{
 		PX: p.X.Limbs(), PY: p.Y.Limbs(), QX: q.X.Limbs(), QY: q.Y.Limbs(),
 		PXBounds: p.X.Bounds(), PYBounds: p.Y.Bounds(), QXBounds: q.X.Bounds(), QYBounds: q.Y.Bounds(),
-		Lookups: c.layout.Lookups,
 	}
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }

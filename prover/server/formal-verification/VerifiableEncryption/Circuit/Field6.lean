@@ -6341,7 +6341,7 @@ def CheckPolynomial_24_h42186a27 (Limbs: List.Vector F 24) (k: List.Vector F 8 -
     ∃gate_199, gate_199 = Gates.mul (Limbs.get (1 : Fin 24)) (1:F) ∧
     CheckPolynomial_24_h42186a27_p1 Limbs gate_9 gate_18 gate_27 gate_36 gate_45 gate_54 gate_63 gate_72 gate_101 gate_134 gate_167 gate_196 gate_198 gate_199 k
 
-def SplitLowBits_1_32_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
+def SplitLowBits_1_32 (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256SplitLowBitsHint
     ∃gate_1 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
     RangeCheck 11 (gate_1.get (0 : Fin 3)) ∧
@@ -6360,7 +6360,7 @@ def SplitLowBits_1_32_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     Gates.eq V gate_14 ∧
     k gate_0
 
-def SplitLowBits_16_32_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
+def SplitLowBits_16_32 (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256SplitLowBitsHint
     ∃gate_1 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
     RangeCheck 11 (gate_1.get (0 : Fin 2)) ∧
@@ -6383,7 +6383,7 @@ def SplitLowBits_16_32_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     Gates.eq V gate_18 ∧
     k gate_0
 
-def SplitLowBits_8_32_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
+def SplitLowBits_8_32 (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256SplitLowBitsHint
     ∃gate_1 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
     RangeCheck 11 (gate_1.get (0 : Fin 3)) ∧
@@ -6402,7 +6402,7 @@ def SplitLowBits_8_32_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     Gates.eq V gate_14 ∧
     k gate_0
 
-def AssertCanonical_8_1_hc36017e9 (Limbs: List.Vector F 8) : Prop :=
+def AssertCanonical_8_1_hcc2f8a19 (Limbs: List.Vector F 8) : Prop :=
     ∃gate_0 : List.Vector F 25, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.modulusGapHint
     RangeCheck 11 (gate_0.get (0 : Fin 25)) ∧
     ∃gate_2, gate_2 = Gates.mul (gate_0.get (0 : Fin 25)) (1:F) ∧

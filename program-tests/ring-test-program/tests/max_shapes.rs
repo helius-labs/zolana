@@ -58,8 +58,8 @@ const EDDSA_SHAPES: [MaxShape; 4] = [
     max_shape((16, 8), 16, 8),
     max_shape((8, 16), 8, 16),
 ];
-/// A P256 proof carries its BSB22 commitment and every output joins the
-/// ring, so the P256 rail fits fewer real inputs at 49x2 and fewer real
+/// A RingP256 proof carries its BSB22 commitment and every output joins the
+/// ring, so the RingP256 rail fits fewer real inputs at 49x2 and fewer real
 /// outputs at 8x16.
 const P256_SHAPES: [MaxShape; 4] = [
     max_shape((49, 2), 45, 2),
@@ -116,7 +116,7 @@ fn widest_ring_transact_shapes_confirm(rail: RingRail, shapes: &[MaxShape]) -> R
         );
         let sender = format!("sender-{n_inputs}x{n_outputs}");
         if rail == RingRail::P256 {
-            harness.make_p256_actor(&sender)?;
+            harness.make_ring_signer_actor(&sender)?;
         }
         let recipients = (1..real_outputs)
             .map(|index| format!("recipient-{n_inputs}x{n_outputs}-{index}"))

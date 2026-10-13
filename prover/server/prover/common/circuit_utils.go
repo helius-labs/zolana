@@ -44,7 +44,8 @@ type RingProofSystem struct {
 
 // TransferProofSystem holds the keys and constraints for one spp_transaction
 // circuit shape, ownership rail, and confidentiality mode. RequiresP256 selects
-// the P256-capable circuit (true) or the Solana-only variant (false);
+// the in-circuit Ed25519 rail (true; the name is kept for the key header) or
+// the Solana-only variant (false);
 // Confidential selects the owner-tag-binding variant. It mirrors BatchProofSystem
 // but is keyed by (NInputs, NOutputs, RequiresP256, Confidential) instead of
 // (TreeHeight, BatchSize).

@@ -40,7 +40,7 @@ pub use keys::{
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
-pub use signature::P256Signature;
+pub use signature::Ed25519Authorization;
 pub use solana_address::Address;
 pub use utxo::wallet as spendable;
 pub use utxo::{

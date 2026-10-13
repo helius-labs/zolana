@@ -25,14 +25,10 @@ impl MergeHarness {
             "real inputs must be 1..={MAX_MERGE_INPUTS}"
         );
 
-        let sender = if self.plan.eddsa {
-            let mut seed = [0u8; 32];
-            seed.copy_from_slice(&random_blinding());
-            ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
-                .expect("eddsa sender keypair")
-        } else {
-            ShieldedKeypair::new_p256().expect("sender keypair")
-        };
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(&random_blinding());
+        let sender = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+            .expect("eddsa sender keypair");
         let asset = Mint::SOL;
         let owner = sender.signing_pubkey();
         let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");

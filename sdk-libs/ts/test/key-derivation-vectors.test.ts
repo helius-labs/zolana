@@ -50,7 +50,6 @@ type RailVectors = Readonly<{
 
 type KeyDerivationVectors = Readonly<{
   ed25519_rail: RailVectors;
-  p256_rail: RailVectors;
   tx_viewing: Readonly<{
     viewing_secret: string;
     first_nullifier: string;
@@ -156,11 +155,6 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     assertRail(section, signing);
   });
 
-  it("derives the p256 rail", () => {
-    const section = vectors.p256_rail;
-    assertRail(section, SigningKey.fromP256Bytes(bytes(section.signing_secret) as Bytes32));
-  });
-
   it("derives the transaction viewing key", () => {
     const section = vectors.tx_viewing;
     const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
@@ -189,7 +183,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
   it("derives owner hashes and the compressed address hash", () => {
     const section = vectors.owner;
     const keypair = ShieldedKeypair.fromKeypair(
-      SigningKey.fromP256Bytes(bytes(section.signing_secret) as Bytes32),
+      SigningKey.fromEd25519Bytes(bytes(section.signing_secret) as Bytes32),
     );
     expect(hex(keypair.signingPublicKey().ownerProofInputHash())).toBe(
       section.owner_proof_input_hash,

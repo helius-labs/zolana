@@ -74,7 +74,7 @@ fn renderings(secret: &[u8; 32]) -> [String; 3] {
 
 #[test]
 fn merge_proof_inputs_and_instruction_carry_the_one_encrypted_envelope() {
-    let sender = ShieldedKeypair::new_p256().expect("sender keypair");
+    let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
     let (prepared, result) = prove_default_merge(&sender);
     let encrypted = *prepared
         .encrypted_envelope()
@@ -104,7 +104,7 @@ fn merge_proof_inputs_and_instruction_carry_the_one_encrypted_envelope() {
 
 #[test]
 fn default_merge_instruction_data_moves_the_commitment_into_the_proof_commitment() {
-    let sender = ShieldedKeypair::new_p256().expect("sender keypair");
+    let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
     let (_, result) = prove_default_merge(&sender);
 
     let data = result
@@ -134,7 +134,7 @@ fn default_merge_instruction_data_moves_the_commitment_into_the_proof_commitment
 
 #[test]
 fn default_merge_instruction_data_rejects_a_proof_without_a_commitment() {
-    let sender = ShieldedKeypair::new_p256().expect("sender keypair");
+    let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
     let (_, result) = prove_default_merge(&sender);
 
     let error = result
@@ -154,7 +154,7 @@ fn default_merge_instruction_data_rejects_a_proof_without_a_commitment() {
 
 #[test]
 fn merge_proof_inputs_debug_redacts_the_ephemeral_secret() {
-    let sender = ShieldedKeypair::new_p256().expect("sender keypair");
+    let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
     let (_, result) = prove_default_merge(&sender);
     let ephemeral_sk = *result
         .inputs

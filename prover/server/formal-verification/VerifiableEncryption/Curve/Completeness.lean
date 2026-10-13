@@ -63,8 +63,8 @@ theorem split_recompose (v w : ℕ) :
 
 theorem split_1_8_complete (hr : RangeComplete) (v : ℕ) (hv : v < 256)
     (k : List.Vector F 2 → Prop) (hk : k (splitWitness v 1)) :
-    SplitLowBits_1_8_h2c1d332a (v : F) k := by
-  unfold SplitLowBits_1_8_h2c1d332a
+    SplitLowBits_1_8 (v : F) k := by
+  unfold SplitLowBits_1_8
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.eq, exists_eq_left]
   refine ⟨splitWitness v 1, ?_, ?_, ?_, hk⟩
@@ -76,8 +76,8 @@ theorem split_1_8_complete (hr : RangeComplete) (v : ℕ) (hv : v < 256)
 
 theorem split_1_32_complete (hr : RangeComplete) (v : ℕ) (hv : v < 2 ^ 32)
     (k : List.Vector F 2 → Prop) (hk : k (splitWitness v 1)) :
-    SplitLowBits_1_32_h2c1d332a (v : F) k := by
-  unfold SplitLowBits_1_32_h2c1d332a
+    SplitLowBits_1_32 (v : F) k := by
+  unfold SplitLowBits_1_32
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.eq, exists_eq_left]
   refine ⟨splitWitness v 1, pieces3 (v / 2), ?_, ?_, ?_, ?_, ?_, ?_, hk⟩
@@ -93,8 +93,8 @@ theorem split_1_32_complete (hr : RangeComplete) (v : ℕ) (hv : v < 2 ^ 32)
 
 theorem split_8_32_complete (hr : RangeComplete) (v : ℕ) (hv : v < 2 ^ 32)
     (k : List.Vector F 2 → Prop) (hk : k (splitWitness v 8)) :
-    SplitLowBits_8_32_h2c1d332a (v : F) k := by
-  unfold SplitLowBits_8_32_h2c1d332a
+    SplitLowBits_8_32 (v : F) k := by
+  unfold SplitLowBits_8_32
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.eq, exists_eq_left]
   refine ⟨splitWitness v 8, pieces3 (v / 256), ?_, ?_, ?_, ?_, ?_, ?_, hk⟩
@@ -108,8 +108,8 @@ theorem split_8_32_complete (hr : RangeComplete) (v : ℕ) (hv : v < 2 ^ 32)
 
 theorem split_16_32_complete (hr : RangeComplete) (v : ℕ) (hv : v < 2 ^ 32)
     (k : List.Vector F 2 → Prop) (hk : k (splitWitness v 16)) :
-    SplitLowBits_16_32_h2c1d332a (v : F) k := by
-  unfold SplitLowBits_16_32_h2c1d332a
+    SplitLowBits_16_32 (v : F) k := by
+  unfold SplitLowBits_16_32
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.eq, exists_eq_left]
   refine ⟨splitWitness v 16, pieces2 (v / 65536), ?_, ?_, ?_,
@@ -137,8 +137,8 @@ their canonical-coordinate interpretation belongs to its callers. -/
 theorem compressedPacking_complete (hr : RangeComplete) (X Y : List.Vector F 8)
     (hx : (X.get 0).val < 2 ^ 32) (hy : (Y.get 0).val < 2 ^ 32)
     (k : List.Vector F 2 → Prop) (hk : k (compressedWitness X Y)) :
-    CompressedPacking_8_8_32_h2c1d332a X Y k := by
-  unfold CompressedPacking_8_8_32_h2c1d332a
+    CompressedPacking_8_8_32 X Y k := by
+  unfold CompressedPacking_8_8_32
   rw [eq_natCast_val (Y.get 0)]
   apply split_1_32_complete hr _ hy
   rw [eq_natCast_val (X.get 0)]
@@ -157,8 +157,8 @@ slope inequality alone is insufficient: integer factors may vanish modulo Order.
 theorem distinctSlope_complete (Λ : ElemVal 8) (other : F)
     (hne : slopeFactor ((Λ.value : F) - other) *
       slopeFactor ((Λ.value : F) + other) ≠ 0) :
-    AssertDistinctSlope_8_h16c15a53 Λ.limbs other := by
-  unfold AssertDistinctSlope_8_h16c15a53
+    AssertDistinctSlope_8_hf8ff5ddf Λ.limbs other := by
+  unfold AssertDistinctSlope_8_hf8ff5ddf
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, GatesDef.ne, exists_eq_left]
   refine ⟨?_, trivial⟩
@@ -174,16 +174,16 @@ theorem distinctSlope_complete (Λ : ElemVal 8) (other : F)
 and the native sum guard. This preserves the eager canonical checks on both
 inputs; it does not replace them by equality of emulated-field residues. -/
 theorem distinctX_complete (X Y : List.Vector F 8)
-    (hx : AssertCanonical_8_0_hc36017e9 X)
-    (hy : AssertCanonical_8_0_hc36017e9 Y)
+    (hx : AssertCanonical_8_0_hcc2f8a19 X)
+    (hy : AssertCanonical_8_0_hcc2f8a19 Y)
     (hne : ∑ i : Fin 8, (X.get i - Y.get i) ^ 2 ≠ 0) :
-    AssertDistinctX_8_8_h83dcf683 X Y := by
-  unfold AssertCanonical_8_0_hc36017e9 at hx hy
+    AssertDistinctX_8_8_h689cdb88 X Y := by
+  unfold AssertCanonical_8_0_hcc2f8a19 at hx hy
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, GatesDef.eq, exists_eq_left] at hx hy
   obtain ⟨p2, pz2, p6, p5, p17, pz17, p20, pz20, pfin, -⟩ := hx
   obtain ⟨q2, qz2, q6, q5, q17, qz17, q20, qz20, qfin, -⟩ := hy
-  unfold AssertDistinctX_8_8_h83dcf683
+  unfold AssertDistinctX_8_8_h689cdb88
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, GatesDef.eq, GatesDef.ne, exists_eq_left]
   refine ⟨p2, pz2, p6, p5, p17, pz17, p20, pz20, pfin,

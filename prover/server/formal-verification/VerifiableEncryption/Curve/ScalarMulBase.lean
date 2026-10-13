@@ -15,11 +15,11 @@ theorem twoPow_modEq : rec8 twoPowLimbs ≡ 2 ^ 256 [ZMOD n] := by
   decide +kernel
 
 theorem scalarMulBase_sound (hl : LookupSound RangeCheck 11) (S : ElemVal 8) (hS : S.bnd = reducedC)
-    {k : List.Vector (List.Vector F 8) 2 → Prop} (h : ScalarMulBase_8_hd39a5e0e S.limbs k) :
+    {k : List.Vector (List.Vector F 8) 2 → Prop} (h : ScalarMulBase_8_h3037b025 S.limbs k) :
     ∃ RX RY : ElemVal 8, RX.bnd = reducedC ∧ RY.bnd = reducedC ∧
       k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ hR : OnCurve (RX.value : Fp) (RY.value : Fp), mkPoint hR = S.value • G := by
-  unfold ScalarMulBase_8_hd39a5e0e at h
+  unfold ScalarMulBase_8_h3037b025 at h
   obtain ⟨g, h⟩ := h
   obtain ⟨hbA, h⟩ := boolRun_split (j := 0) (m := 197) (g := g) h
   obtain ⟨hbB, h⟩ := boolRun_split (j := 197) (m := 60) (g := g) h
@@ -366,295 +366,295 @@ theorem scalarMulBase_sound (hl : LookupSound RangeCheck 11) (S : ElemVal 8) (hS
   obtain ⟨hA2, pA2⟩ := chain_first_group hW0 hW1 hne1 rel1
   rw [hs1] at pA2
   clear hne1 hs1 rel1
-  obtain ⟨X2, L2, hX2, hL2, h, rel2⟩ := chain_h88ed5eb6_sound hl X1 L1 W1X W1Y W2X W2Y W0Y
+  obtain ⟨X2, L2, hX2, hL2, h, rel2⟩ := chain_hd0a2e1d5_sound hl X1 L1 W1X W1Y W2X W2Y W0Y
     hX1 hL1 hW1X hW1Y hW2X hW2Y h
   obtain ⟨hne2, hs2⟩ := comb_acc_step hbits (le_refl 257) (t := 2) (by norm_num) pA2 pW2
   obtain ⟨hA3, pA3⟩ := chain_group hA2 hW2 hne2 rel2
   rw [hs2] at pA3
   clear hne2 hs2 rel2
-  obtain ⟨X3, L3, hX3, hL3, h, rel3⟩ := chain_he7f12bd4_sound hl X2 L2 W2X W2Y W3X W3Y W0Y
+  obtain ⟨X3, L3, hX3, hL3, h, rel3⟩ := chain_hfeca3431_sound hl X2 L2 W2X W2Y W3X W3Y W0Y
     hX2 hL2 hW2X hW2Y hW3X hW3Y h
   obtain ⟨hne3, hs3⟩ := comb_acc_step hbits (le_refl 257) (t := 3) (by norm_num) pA3 pW3
   obtain ⟨hA4, pA4⟩ := chain_group hA3 hW3 hne3 rel3
   rw [hs3] at pA4
   clear hne3 hs3 rel3
-  obtain ⟨X4, L4, hX4, hL4, h, rel4⟩ := chain_hbc88b2dd_sound hl X3 L3 W3X W3Y W4X W4Y W0Y
+  obtain ⟨X4, L4, hX4, hL4, h, rel4⟩ := chain_h98a10bfb_sound hl X3 L3 W3X W3Y W4X W4Y W0Y
     hX3 hL3 hW3X hW3Y hW4X hW4Y h
   obtain ⟨hne4, hs4⟩ := comb_acc_step hbits (le_refl 257) (t := 4) (by norm_num) pA4 pW4
   obtain ⟨hA5, pA5⟩ := chain_group hA4 hW4 hne4 rel4
   rw [hs4] at pA5
   clear hne4 hs4 rel4
-  obtain ⟨X5, L5, hX5, hL5, h, rel5⟩ := chain_haea263e9_sound hl X4 L4 W4X W4Y W5X W5Y W0Y
+  obtain ⟨X5, L5, hX5, hL5, h, rel5⟩ := chain_hc2445cd4_sound hl X4 L4 W4X W4Y W5X W5Y W0Y
     hX4 hL4 hW4X hW4Y hW5X hW5Y h
   obtain ⟨hne5, hs5⟩ := comb_acc_step hbits (le_refl 257) (t := 5) (by norm_num) pA5 pW5
   obtain ⟨hA6, pA6⟩ := chain_group hA5 hW5 hne5 rel5
   rw [hs5] at pA6
   clear hne5 hs5 rel5
-  obtain ⟨X6, L6, hX6, hL6, h, rel6⟩ := chain_h0ecbf3f5_sound hl X5 L5 W5X W5Y W6X W6Y W0Y
+  obtain ⟨X6, L6, hX6, hL6, h, rel6⟩ := chain_he11b64cc_sound hl X5 L5 W5X W5Y W6X W6Y W0Y
     hX5 hL5 hW5X hW5Y hW6X hW6Y h
   obtain ⟨hne6, hs6⟩ := comb_acc_step hbits (le_refl 257) (t := 6) (by norm_num) pA6 pW6
   obtain ⟨hA7, pA7⟩ := chain_group hA6 hW6 hne6 rel6
   rw [hs6] at pA7
   clear hne6 hs6 rel6
-  obtain ⟨X7, L7, hX7, hL7, h, rel7⟩ := chain_h16349f87_sound hl X6 L6 W6X W6Y W7X W7Y W0Y
+  obtain ⟨X7, L7, hX7, hL7, h, rel7⟩ := chain_ha337781a_sound hl X6 L6 W6X W6Y W7X W7Y W0Y
     hX6 hL6 hW6X hW6Y hW7X hW7Y h
   obtain ⟨hne7, hs7⟩ := comb_acc_step hbits (le_refl 257) (t := 7) (by norm_num) pA7 pW7
   obtain ⟨hA8, pA8⟩ := chain_group hA7 hW7 hne7 rel7
   rw [hs7] at pA8
   clear hne7 hs7 rel7
-  obtain ⟨X8, L8, hX8, hL8, h, rel8⟩ := chain_h0148019b_sound hl X7 L7 W7X W7Y W8X W8Y W0Y
+  obtain ⟨X8, L8, hX8, hL8, h, rel8⟩ := chain_h722a110e_sound hl X7 L7 W7X W7Y W8X W8Y W0Y
     hX7 hL7 hW7X hW7Y hW8X hW8Y h
   obtain ⟨hne8, hs8⟩ := comb_acc_step hbits (le_refl 257) (t := 8) (by norm_num) pA8 pW8
   obtain ⟨hA9, pA9⟩ := chain_group hA8 hW8 hne8 rel8
   rw [hs8] at pA9
   clear hne8 hs8 rel8
-  obtain ⟨X9, L9, hX9, hL9, h, rel9⟩ := chain_hd915f581_sound hl X8 L8 W8X W8Y W9X W9Y W0Y
+  obtain ⟨X9, L9, hX9, hL9, h, rel9⟩ := chain_h16154bb8_sound hl X8 L8 W8X W8Y W9X W9Y W0Y
     hX8 hL8 hW8X hW8Y hW9X hW9Y h
   obtain ⟨hne9, hs9⟩ := comb_acc_step hbits (le_refl 257) (t := 9) (by norm_num) pA9 pW9
   obtain ⟨hA10, pA10⟩ := chain_group hA9 hW9 hne9 rel9
   rw [hs9] at pA10
   clear hne9 hs9 rel9
-  obtain ⟨X10, L10, hX10, hL10, h, rel10⟩ := chain_ha5ae99c0_sound hl X9 L9 W9X W9Y W10X W10Y W0Y
+  obtain ⟨X10, L10, hX10, hL10, h, rel10⟩ := chain_h0b2c7a04_sound hl X9 L9 W9X W9Y W10X W10Y W0Y
     hX9 hL9 hW9X hW9Y hW10X hW10Y h
   obtain ⟨hne10, hs10⟩ := comb_acc_step hbits (le_refl 257) (t := 10) (by norm_num) pA10 pW10
   obtain ⟨hA11, pA11⟩ := chain_group hA10 hW10 hne10 rel10
   rw [hs10] at pA11
   clear hne10 hs10 rel10
-  obtain ⟨X11, L11, hX11, hL11, h, rel11⟩ := chain_h27ce7ca2_sound hl X10 L10 W10X W10Y W11X W11Y W0Y
+  obtain ⟨X11, L11, hX11, hL11, h, rel11⟩ := chain_h7791617c_sound hl X10 L10 W10X W10Y W11X W11Y W0Y
     hX10 hL10 hW10X hW10Y hW11X hW11Y h
   obtain ⟨hne11, hs11⟩ := comb_acc_step hbits (le_refl 257) (t := 11) (by norm_num) pA11 pW11
   obtain ⟨hA12, pA12⟩ := chain_group hA11 hW11 hne11 rel11
   rw [hs11] at pA12
   clear hne11 hs11 rel11
-  obtain ⟨X12, L12, hX12, hL12, h, rel12⟩ := chain_h0c822e8d_sound hl X11 L11 W11X W11Y W12X W12Y W0Y
+  obtain ⟨X12, L12, hX12, hL12, h, rel12⟩ := chain_h4279c9fa_sound hl X11 L11 W11X W11Y W12X W12Y W0Y
     hX11 hL11 hW11X hW11Y hW12X hW12Y h
   obtain ⟨hne12, hs12⟩ := comb_acc_step hbits (le_refl 257) (t := 12) (by norm_num) pA12 pW12
   obtain ⟨hA13, pA13⟩ := chain_group hA12 hW12 hne12 rel12
   rw [hs12] at pA13
   clear hne12 hs12 rel12
-  obtain ⟨X13, L13, hX13, hL13, h, rel13⟩ := chain_h92d08b28_sound hl X12 L12 W12X W12Y W13X W13Y W0Y
+  obtain ⟨X13, L13, hX13, hL13, h, rel13⟩ := chain_he5aef826_sound hl X12 L12 W12X W12Y W13X W13Y W0Y
     hX12 hL12 hW12X hW12Y hW13X hW13Y h
   obtain ⟨hne13, hs13⟩ := comb_acc_step hbits (le_refl 257) (t := 13) (by norm_num) pA13 pW13
   obtain ⟨hA14, pA14⟩ := chain_group hA13 hW13 hne13 rel13
   rw [hs13] at pA14
   clear hne13 hs13 rel13
-  obtain ⟨X14, L14, hX14, hL14, h, rel14⟩ := chain_h8d70b631_sound hl X13 L13 W13X W13Y W14X W14Y W0Y
+  obtain ⟨X14, L14, hX14, hL14, h, rel14⟩ := chain_h893b2021_sound hl X13 L13 W13X W13Y W14X W14Y W0Y
     hX13 hL13 hW13X hW13Y hW14X hW14Y h
   obtain ⟨hne14, hs14⟩ := comb_acc_step hbits (le_refl 257) (t := 14) (by norm_num) pA14 pW14
   obtain ⟨hA15, pA15⟩ := chain_group hA14 hW14 hne14 rel14
   rw [hs14] at pA15
   clear hne14 hs14 rel14
-  obtain ⟨X15, L15, hX15, hL15, h, rel15⟩ := chain_h313874e4_sound hl X14 L14 W14X W14Y W15X W15Y W0Y
+  obtain ⟨X15, L15, hX15, hL15, h, rel15⟩ := chain_h5c8297ae_sound hl X14 L14 W14X W14Y W15X W15Y W0Y
     hX14 hL14 hW14X hW14Y hW15X hW15Y h
   obtain ⟨hne15, hs15⟩ := comb_acc_step hbits (le_refl 257) (t := 15) (by norm_num) pA15 pW15
   obtain ⟨hA16, pA16⟩ := chain_group hA15 hW15 hne15 rel15
   rw [hs15] at pA16
   clear hne15 hs15 rel15
-  obtain ⟨X16, L16, hX16, hL16, h, rel16⟩ := chain_h013650f7_sound hl X15 L15 W15X W15Y W16X W16Y W0Y
+  obtain ⟨X16, L16, hX16, hL16, h, rel16⟩ := chain_h18d73f47_sound hl X15 L15 W15X W15Y W16X W16Y W0Y
     hX15 hL15 hW15X hW15Y hW16X hW16Y h
   obtain ⟨hne16, hs16⟩ := comb_acc_step hbits (le_refl 257) (t := 16) (by norm_num) pA16 pW16
   obtain ⟨hA17, pA17⟩ := chain_group hA16 hW16 hne16 rel16
   rw [hs16] at pA17
   clear hne16 hs16 rel16
-  obtain ⟨X17, L17, hX17, hL17, h, rel17⟩ := chain_h7edcb8cc_sound hl X16 L16 W16X W16Y W17X W17Y W0Y
+  obtain ⟨X17, L17, hX17, hL17, h, rel17⟩ := chain_he57d21d5_sound hl X16 L16 W16X W16Y W17X W17Y W0Y
     hX16 hL16 hW16X hW16Y hW17X hW17Y h
   obtain ⟨hne17, hs17⟩ := comb_acc_step hbits (le_refl 257) (t := 17) (by norm_num) pA17 pW17
   obtain ⟨hA18, pA18⟩ := chain_group hA17 hW17 hne17 rel17
   rw [hs17] at pA18
   clear hne17 hs17 rel17
-  obtain ⟨X18, L18, hX18, hL18, h, rel18⟩ := chain_h1eb7ded7_sound hl X17 L17 W17X W17Y W18X W18Y W0Y
+  obtain ⟨X18, L18, hX18, hL18, h, rel18⟩ := chain_hf0b5218f_sound hl X17 L17 W17X W17Y W18X W18Y W0Y
     hX17 hL17 hW17X hW17Y hW18X hW18Y h
   obtain ⟨hne18, hs18⟩ := comb_acc_step hbits (le_refl 257) (t := 18) (by norm_num) pA18 pW18
   obtain ⟨hA19, pA19⟩ := chain_group hA18 hW18 hne18 rel18
   rw [hs18] at pA19
   clear hne18 hs18 rel18
-  obtain ⟨X19, L19, hX19, hL19, h, rel19⟩ := chain_h3c1f10d2_sound hl X18 L18 W18X W18Y W19X W19Y W0Y
+  obtain ⟨X19, L19, hX19, hL19, h, rel19⟩ := chain_hf2e5fd4b_sound hl X18 L18 W18X W18Y W19X W19Y W0Y
     hX18 hL18 hW18X hW18Y hW19X hW19Y h
   obtain ⟨hne19, hs19⟩ := comb_acc_step hbits (le_refl 257) (t := 19) (by norm_num) pA19 pW19
   obtain ⟨hA20, pA20⟩ := chain_group hA19 hW19 hne19 rel19
   rw [hs19] at pA20
   clear hne19 hs19 rel19
-  obtain ⟨X20, L20, hX20, hL20, h, rel20⟩ := chain_hff713c2b_sound hl X19 L19 W19X W19Y W20X W20Y W0Y
+  obtain ⟨X20, L20, hX20, hL20, h, rel20⟩ := chain_h38305e15_sound hl X19 L19 W19X W19Y W20X W20Y W0Y
     hX19 hL19 hW19X hW19Y hW20X hW20Y h
   obtain ⟨hne20, hs20⟩ := comb_acc_step hbits (le_refl 257) (t := 20) (by norm_num) pA20 pW20
   obtain ⟨hA21, pA21⟩ := chain_group hA20 hW20 hne20 rel20
   rw [hs20] at pA21
   clear hne20 hs20 rel20
-  obtain ⟨X21, L21, hX21, hL21, h, rel21⟩ := chain_ha86afca6_sound hl X20 L20 W20X W20Y W21X W21Y W0Y
+  obtain ⟨X21, L21, hX21, hL21, h, rel21⟩ := chain_hd1f04580_sound hl X20 L20 W20X W20Y W21X W21Y W0Y
     hX20 hL20 hW20X hW20Y hW21X hW21Y h
   obtain ⟨hne21, hs21⟩ := comb_acc_step hbits (le_refl 257) (t := 21) (by norm_num) pA21 pW21
   obtain ⟨hA22, pA22⟩ := chain_group hA21 hW21 hne21 rel21
   rw [hs21] at pA22
   clear hne21 hs21 rel21
-  obtain ⟨X22, L22, hX22, hL22, h, rel22⟩ := chain_hbc800f66_sound hl X21 L21 W21X W21Y W22X W22Y W0Y
+  obtain ⟨X22, L22, hX22, hL22, h, rel22⟩ := chain_h2f8d1084_sound hl X21 L21 W21X W21Y W22X W22Y W0Y
     hX21 hL21 hW21X hW21Y hW22X hW22Y h
   obtain ⟨hne22, hs22⟩ := comb_acc_step hbits (le_refl 257) (t := 22) (by norm_num) pA22 pW22
   obtain ⟨hA23, pA23⟩ := chain_group hA22 hW22 hne22 rel22
   rw [hs22] at pA23
   clear hne22 hs22 rel22
-  obtain ⟨X23, L23, hX23, hL23, h, rel23⟩ := chain_hc9743c4e_sound hl X22 L22 W22X W22Y W23X W23Y W0Y
+  obtain ⟨X23, L23, hX23, hL23, h, rel23⟩ := chain_hbc9d292f_sound hl X22 L22 W22X W22Y W23X W23Y W0Y
     hX22 hL22 hW22X hW22Y hW23X hW23Y h
   obtain ⟨hne23, hs23⟩ := comb_acc_step hbits (le_refl 257) (t := 23) (by norm_num) pA23 pW23
   obtain ⟨hA24, pA24⟩ := chain_group hA23 hW23 hne23 rel23
   rw [hs23] at pA24
   clear hne23 hs23 rel23
-  obtain ⟨X24, L24, hX24, hL24, h, rel24⟩ := chain_h5ffe8758_sound hl X23 L23 W23X W23Y W24X W24Y W0Y
+  obtain ⟨X24, L24, hX24, hL24, h, rel24⟩ := chain_hd5949308_sound hl X23 L23 W23X W23Y W24X W24Y W0Y
     hX23 hL23 hW23X hW23Y hW24X hW24Y h
   obtain ⟨hne24, hs24⟩ := comb_acc_step hbits (le_refl 257) (t := 24) (by norm_num) pA24 pW24
   obtain ⟨hA25, pA25⟩ := chain_group hA24 hW24 hne24 rel24
   rw [hs24] at pA25
   clear hne24 hs24 rel24
-  obtain ⟨X25, L25, hX25, hL25, h, rel25⟩ := chain_h48fdfa88_sound hl X24 L24 W24X W24Y W25X W25Y W0Y
+  obtain ⟨X25, L25, hX25, hL25, h, rel25⟩ := chain_h6e26f17b_sound hl X24 L24 W24X W24Y W25X W25Y W0Y
     hX24 hL24 hW24X hW24Y hW25X hW25Y h
   obtain ⟨hne25, hs25⟩ := comb_acc_step hbits (le_refl 257) (t := 25) (by norm_num) pA25 pW25
   obtain ⟨hA26, pA26⟩ := chain_group hA25 hW25 hne25 rel25
   rw [hs25] at pA26
   clear hne25 hs25 rel25
-  obtain ⟨X26, L26, hX26, hL26, h, rel26⟩ := chain_h17b219f3_sound hl X25 L25 W25X W25Y W26X W26Y W0Y
+  obtain ⟨X26, L26, hX26, hL26, h, rel26⟩ := chain_h40db0ded_sound hl X25 L25 W25X W25Y W26X W26Y W0Y
     hX25 hL25 hW25X hW25Y hW26X hW26Y h
   obtain ⟨hne26, hs26⟩ := comb_acc_step hbits (le_refl 257) (t := 26) (by norm_num) pA26 pW26
   obtain ⟨hA27, pA27⟩ := chain_group hA26 hW26 hne26 rel26
   rw [hs26] at pA27
   clear hne26 hs26 rel26
-  obtain ⟨X27, L27, hX27, hL27, h, rel27⟩ := chain_hfce0bd8a_sound hl X26 L26 W26X W26Y W27X W27Y W0Y
+  obtain ⟨X27, L27, hX27, hL27, h, rel27⟩ := chain_h015a0c08_sound hl X26 L26 W26X W26Y W27X W27Y W0Y
     hX26 hL26 hW26X hW26Y hW27X hW27Y h
   obtain ⟨hne27, hs27⟩ := comb_acc_step hbits (le_refl 257) (t := 27) (by norm_num) pA27 pW27
   obtain ⟨hA28, pA28⟩ := chain_group hA27 hW27 hne27 rel27
   rw [hs27] at pA28
   clear hne27 hs27 rel27
-  obtain ⟨X28, L28, hX28, hL28, h, rel28⟩ := chain_h73c155f4_sound hl X27 L27 W27X W27Y W28X W28Y W0Y
+  obtain ⟨X28, L28, hX28, hL28, h, rel28⟩ := chain_he6b197a7_sound hl X27 L27 W27X W27Y W28X W28Y W0Y
     hX27 hL27 hW27X hW27Y hW28X hW28Y h
   obtain ⟨hne28, hs28⟩ := comb_acc_step hbits (le_refl 257) (t := 28) (by norm_num) pA28 pW28
   obtain ⟨hA29, pA29⟩ := chain_group hA28 hW28 hne28 rel28
   rw [hs28] at pA29
   clear hne28 hs28 rel28
-  obtain ⟨X29, L29, hX29, hL29, h, rel29⟩ := chain_h5a641a57_sound hl X28 L28 W28X W28Y W29X W29Y W0Y
+  obtain ⟨X29, L29, hX29, hL29, h, rel29⟩ := chain_h59272257_sound hl X28 L28 W28X W28Y W29X W29Y W0Y
     hX28 hL28 hW28X hW28Y hW29X hW29Y h
   obtain ⟨hne29, hs29⟩ := comb_acc_step hbits (le_refl 257) (t := 29) (by norm_num) pA29 pW29
   obtain ⟨hA30, pA30⟩ := chain_group hA29 hW29 hne29 rel29
   rw [hs29] at pA30
   clear hne29 hs29 rel29
-  obtain ⟨X30, L30, hX30, hL30, h, rel30⟩ := chain_hccc2fbcb_sound hl X29 L29 W29X W29Y W30X W30Y W0Y
+  obtain ⟨X30, L30, hX30, hL30, h, rel30⟩ := chain_h18a1cf88_sound hl X29 L29 W29X W29Y W30X W30Y W0Y
     hX29 hL29 hW29X hW29Y hW30X hW30Y h
   obtain ⟨hne30, hs30⟩ := comb_acc_step hbits (le_refl 257) (t := 30) (by norm_num) pA30 pW30
   obtain ⟨hA31, pA31⟩ := chain_group hA30 hW30 hne30 rel30
   rw [hs30] at pA31
   clear hne30 hs30 rel30
-  obtain ⟨X31, L31, hX31, hL31, h, rel31⟩ := chain_h73c2114e_sound hl X30 L30 W30X W30Y W31X W31Y W0Y
+  obtain ⟨X31, L31, hX31, hL31, h, rel31⟩ := chain_h84b7fff5_sound hl X30 L30 W30X W30Y W31X W31Y W0Y
     hX30 hL30 hW30X hW30Y hW31X hW31Y h
   obtain ⟨hne31, hs31⟩ := comb_acc_step hbits (le_refl 257) (t := 31) (by norm_num) pA31 pW31
   obtain ⟨hA32, pA32⟩ := chain_group hA31 hW31 hne31 rel31
   rw [hs31] at pA32
   clear hne31 hs31 rel31
-  obtain ⟨X32, L32, hX32, hL32, h, rel32⟩ := chain_hf3f31729_sound hl X31 L31 W31X W31Y W32X W32Y W0Y
+  obtain ⟨X32, L32, hX32, hL32, h, rel32⟩ := chain_hfcf24f49_sound hl X31 L31 W31X W31Y W32X W32Y W0Y
     hX31 hL31 hW31X hW31Y hW32X hW32Y h
   obtain ⟨hne32, hs32⟩ := comb_acc_step hbits (le_refl 257) (t := 32) (by norm_num) pA32 pW32
   obtain ⟨hA33, pA33⟩ := chain_group hA32 hW32 hne32 rel32
   rw [hs32] at pA33
   clear hne32 hs32 rel32
-  obtain ⟨X33, L33, hX33, hL33, h, rel33⟩ := chain_h3847f643_sound hl X32 L32 W32X W32Y W33X W33Y W0Y
+  obtain ⟨X33, L33, hX33, hL33, h, rel33⟩ := chain_ha9cc5411_sound hl X32 L32 W32X W32Y W33X W33Y W0Y
     hX32 hL32 hW32X hW32Y hW33X hW33Y h
   obtain ⟨hne33, hs33⟩ := comb_acc_step hbits (le_refl 257) (t := 33) (by norm_num) pA33 pW33
   obtain ⟨hA34, pA34⟩ := chain_group hA33 hW33 hne33 rel33
   rw [hs33] at pA34
   clear hne33 hs33 rel33
-  obtain ⟨X34, L34, hX34, hL34, h, rel34⟩ := chain_ha3f0c00a_sound hl X33 L33 W33X W33Y W34X W34Y W0Y
+  obtain ⟨X34, L34, hX34, hL34, h, rel34⟩ := chain_h63e076b3_sound hl X33 L33 W33X W33Y W34X W34Y W0Y
     hX33 hL33 hW33X hW33Y hW34X hW34Y h
   obtain ⟨hne34, hs34⟩ := comb_acc_step hbits (le_refl 257) (t := 34) (by norm_num) pA34 pW34
   obtain ⟨hA35, pA35⟩ := chain_group hA34 hW34 hne34 rel34
   rw [hs34] at pA35
   clear hne34 hs34 rel34
-  obtain ⟨X35, L35, hX35, hL35, h, rel35⟩ := chain_h9ebf1727_sound hl X34 L34 W34X W34Y W35X W35Y W0Y
+  obtain ⟨X35, L35, hX35, hL35, h, rel35⟩ := chain_h9ff1cd8b_sound hl X34 L34 W34X W34Y W35X W35Y W0Y
     hX34 hL34 hW34X hW34Y hW35X hW35Y h
   obtain ⟨hne35, hs35⟩ := comb_acc_step hbits (le_refl 257) (t := 35) (by norm_num) pA35 pW35
   obtain ⟨hA36, pA36⟩ := chain_group hA35 hW35 hne35 rel35
   rw [hs35] at pA36
   clear hne35 hs35 rel35
-  obtain ⟨X36, L36, hX36, hL36, h, rel36⟩ := chain_h5ea40572_sound hl X35 L35 W35X W35Y W36X W36Y W0Y
+  obtain ⟨X36, L36, hX36, hL36, h, rel36⟩ := chain_h308152e6_sound hl X35 L35 W35X W35Y W36X W36Y W0Y
     hX35 hL35 hW35X hW35Y hW36X hW36Y h
   obtain ⟨hne36, hs36⟩ := comb_acc_step hbits (le_refl 257) (t := 36) (by norm_num) pA36 pW36
   obtain ⟨hA37, pA37⟩ := chain_group hA36 hW36 hne36 rel36
   rw [hs36] at pA37
   clear hne36 hs36 rel36
-  obtain ⟨X37, L37, hX37, hL37, h, rel37⟩ := chain_h0a06c13d_sound hl X36 L36 W36X W36Y W37X W37Y W0Y
+  obtain ⟨X37, L37, hX37, hL37, h, rel37⟩ := chain_h2ec09f94_sound hl X36 L36 W36X W36Y W37X W37Y W0Y
     hX36 hL36 hW36X hW36Y hW37X hW37Y h
   obtain ⟨hne37, hs37⟩ := comb_acc_step hbits (le_refl 257) (t := 37) (by norm_num) pA37 pW37
   obtain ⟨hA38, pA38⟩ := chain_group hA37 hW37 hne37 rel37
   rw [hs37] at pA38
   clear hne37 hs37 rel37
-  obtain ⟨X38, L38, hX38, hL38, h, rel38⟩ := chain_h6c7272ff_sound hl X37 L37 W37X W37Y W38X W38Y W0Y
+  obtain ⟨X38, L38, hX38, hL38, h, rel38⟩ := chain_h1d7ce17b_sound hl X37 L37 W37X W37Y W38X W38Y W0Y
     hX37 hL37 hW37X hW37Y hW38X hW38Y h
   obtain ⟨hne38, hs38⟩ := comb_acc_step hbits (le_refl 257) (t := 38) (by norm_num) pA38 pW38
   obtain ⟨hA39, pA39⟩ := chain_group hA38 hW38 hne38 rel38
   rw [hs38] at pA39
   clear hne38 hs38 rel38
-  obtain ⟨X39, L39, hX39, hL39, h, rel39⟩ := chain_h604b5f97_sound hl X38 L38 W38X W38Y W39X W39Y W0Y
+  obtain ⟨X39, L39, hX39, hL39, h, rel39⟩ := chain_hc0cdb690_sound hl X38 L38 W38X W38Y W39X W39Y W0Y
     hX38 hL38 hW38X hW38Y hW39X hW39Y h
   obtain ⟨hne39, hs39⟩ := comb_acc_step hbits (le_refl 257) (t := 39) (by norm_num) pA39 pW39
   obtain ⟨hA40, pA40⟩ := chain_group hA39 hW39 hne39 rel39
   rw [hs39] at pA40
   clear hne39 hs39 rel39
-  obtain ⟨X40, L40, hX40, hL40, h, rel40⟩ := chain_hbb6cf05c_sound hl X39 L39 W39X W39Y W40X W40Y W0Y
+  obtain ⟨X40, L40, hX40, hL40, h, rel40⟩ := chain_h27bf5feb_sound hl X39 L39 W39X W39Y W40X W40Y W0Y
     hX39 hL39 hW39X hW39Y hW40X hW40Y h
   obtain ⟨hne40, hs40⟩ := comb_acc_step hbits (le_refl 257) (t := 40) (by norm_num) pA40 pW40
   obtain ⟨hA41, pA41⟩ := chain_group hA40 hW40 hne40 rel40
   rw [hs40] at pA41
   clear hne40 hs40 rel40
-  obtain ⟨X41, L41, hX41, hL41, h, rel41⟩ := chain_h57987298_sound hl X40 L40 W40X W40Y W41X W41Y W0Y
+  obtain ⟨X41, L41, hX41, hL41, h, rel41⟩ := chain_hcf989bc7_sound hl X40 L40 W40X W40Y W41X W41Y W0Y
     hX40 hL40 hW40X hW40Y hW41X hW41Y h
   obtain ⟨hne41, hs41⟩ := comb_acc_step hbits (le_refl 257) (t := 41) (by norm_num) pA41 pW41
   obtain ⟨hA42, pA42⟩ := chain_group hA41 hW41 hne41 rel41
   rw [hs41] at pA42
   clear hne41 hs41 rel41
-  obtain ⟨X42, L42, hX42, hL42, h, rel42⟩ := chain_hc3975dc5_sound hl X41 L41 W41X W41Y W42X W42Y W0Y
+  obtain ⟨X42, L42, hX42, hL42, h, rel42⟩ := chain_h87d7c1d5_sound hl X41 L41 W41X W41Y W42X W42Y W0Y
     hX41 hL41 hW41X hW41Y hW42X hW42Y h
   obtain ⟨hne42, hs42⟩ := comb_acc_step hbits (le_refl 257) (t := 42) (by norm_num) pA42 pW42
   obtain ⟨hA43, pA43⟩ := chain_group hA42 hW42 hne42 rel42
   rw [hs42] at pA43
   clear hne42 hs42 rel42
-  obtain ⟨X43, L43, hX43, hL43, h, rel43⟩ := chain_hc2b6f687_sound hl X42 L42 W42X W42Y W43X W43Y W0Y
+  obtain ⟨X43, L43, hX43, hL43, h, rel43⟩ := chain_hb365cd9c_sound hl X42 L42 W42X W42Y W43X W43Y W0Y
     hX42 hL42 hW42X hW42Y hW43X hW43Y h
   obtain ⟨hne43, hs43⟩ := comb_acc_step hbits (le_refl 257) (t := 43) (by norm_num) pA43 pW43
   obtain ⟨hA44, pA44⟩ := chain_group hA43 hW43 hne43 rel43
   rw [hs43] at pA44
   clear hne43 hs43 rel43
-  obtain ⟨X44, L44, hX44, hL44, h, rel44⟩ := chain_h4074c487_sound hl X43 L43 W43X W43Y W44X W44Y W0Y
+  obtain ⟨X44, L44, hX44, hL44, h, rel44⟩ := chain_hff84174b_sound hl X43 L43 W43X W43Y W44X W44Y W0Y
     hX43 hL43 hW43X hW43Y hW44X hW44Y h
   obtain ⟨hne44, hs44⟩ := comb_acc_step hbits (le_refl 257) (t := 44) (by norm_num) pA44 pW44
   obtain ⟨hA45, pA45⟩ := chain_group hA44 hW44 hne44 rel44
   rw [hs44] at pA45
   clear hne44 hs44 rel44
-  obtain ⟨X45, L45, hX45, hL45, h, rel45⟩ := chain_h15643c52_sound hl X44 L44 W44X W44Y W45X W45Y W0Y
+  obtain ⟨X45, L45, hX45, hL45, h, rel45⟩ := chain_he9395e0b_sound hl X44 L44 W44X W44Y W45X W45Y W0Y
     hX44 hL44 hW44X hW44Y hW45X hW45Y h
   obtain ⟨hne45, hs45⟩ := comb_acc_step hbits (le_refl 257) (t := 45) (by norm_num) pA45 pW45
   obtain ⟨hA46, pA46⟩ := chain_group hA45 hW45 hne45 rel45
   rw [hs45] at pA46
   clear hne45 hs45 rel45
-  obtain ⟨X46, L46, hX46, hL46, h, rel46⟩ := chain_hb370f239_sound hl X45 L45 W45X W45Y W46X W46Y W0Y
+  obtain ⟨X46, L46, hX46, hL46, h, rel46⟩ := chain_he4e1c949_sound hl X45 L45 W45X W45Y W46X W46Y W0Y
     hX45 hL45 hW45X hW45Y hW46X hW46Y h
   obtain ⟨hne46, hs46⟩ := comb_acc_step hbits (le_refl 257) (t := 46) (by norm_num) pA46 pW46
   obtain ⟨hA47, pA47⟩ := chain_group hA46 hW46 hne46 rel46
   rw [hs46] at pA47
   clear hne46 hs46 rel46
-  obtain ⟨X47, L47, hX47, hL47, h, rel47⟩ := chain_h65e467d3_sound hl X46 L46 W46X W46Y W47X W47Y W0Y
+  obtain ⟨X47, L47, hX47, hL47, h, rel47⟩ := chain_h33cb1110_sound hl X46 L46 W46X W46Y W47X W47Y W0Y
     hX46 hL46 hW46X hW46Y hW47X hW47Y h
   obtain ⟨hne47, hs47⟩ := comb_acc_step hbits (le_refl 257) (t := 47) (by norm_num) pA47 pW47
   obtain ⟨hA48, pA48⟩ := chain_group hA47 hW47 hne47 rel47
   rw [hs47] at pA48
   clear hne47 hs47 rel47
-  obtain ⟨X48, L48, hX48, hL48, h, rel48⟩ := chain_hf49d9647_sound hl X47 L47 W47X W47Y W48X W48Y W0Y
+  obtain ⟨X48, L48, hX48, hL48, h, rel48⟩ := chain_h2390b750_sound hl X47 L47 W47X W47Y W48X W48Y W0Y
     hX47 hL47 hW47X hW47Y hW48X hW48Y h
   obtain ⟨hne48, hs48⟩ := comb_acc_step hbits (le_refl 257) (t := 48) (by norm_num) pA48 pW48
   obtain ⟨hA49, pA49⟩ := chain_group hA48 hW48 hne48 rel48
   rw [hs48] at pA49
   clear hne48 hs48 rel48
-  obtain ⟨X49, L49, hX49, hL49, h, rel49⟩ := chain_hf1b4e4e3_sound hl X48 L48 W48X W48Y W49X W49Y W0Y
+  obtain ⟨X49, L49, hX49, hL49, h, rel49⟩ := chain_h0f057500_sound hl X48 L48 W48X W48Y W49X W49Y W0Y
     hX48 hL48 hW48X hW48Y hW49X hW49Y h
   obtain ⟨hne49, hs49⟩ := comb_acc_step hbits (le_refl 257) (t := 49) (by norm_num) pA49 pW49
   obtain ⟨hA50, pA50⟩ := chain_group hA49 hW49 hne49 rel49
   rw [hs49] at pA50
   clear hne49 hs49 rel49
-  obtain ⟨X50, L50, hX50, hL50, h, rel50⟩ := chain_hb2920079_sound hl X49 L49 W49X W49Y W50X W50Y W0Y
+  obtain ⟨X50, L50, hX50, hL50, h, rel50⟩ := chain_hb9331b93_sound hl X49 L49 W49X W49Y W50X W50Y W0Y
     hX49 hL49 hW49X hW49Y hW50X hW50Y h
   obtain ⟨hne50, hs50⟩ := comb_acc_step hbits (le_refl 257) (t := 50) (by norm_num) pA50 pW50
   obtain ⟨hA51, pA51⟩ := chain_group hA50 hW50 hne50 rel50
@@ -666,7 +666,7 @@ theorem scalarMulBase_sound (hl : LookupSound RangeCheck 11) (S : ElemVal 8) (hS
   have hEXb := eval_bnd hEXlo hEXhi hEXvlo hEXvhi rfl
   clear hEXlo hEXhi hEXvlo hEXvhi
   elim_gates_shallow h
-  unfold ScalarMulBase_8_hd39a5e0e_p2 at h
+  unfold ScalarMulBase_8_h3037b025_p2 at h
   elim_gates_shallow h
   set XD := linElem [(1, W50X), (-1, EX)] with hXD
   obtain ⟨EY, hEYlo, hEYhi, hEYvlo, hEYvhi, h, vEY⟩ :=

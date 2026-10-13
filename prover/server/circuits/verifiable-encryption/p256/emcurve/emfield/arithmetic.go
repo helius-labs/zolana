@@ -22,7 +22,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-const maxFoldDigit = 16
+// Includes 2^255, 2^256, 2^258 and 2^259 modulo (2^255 - 19).
+const maxFoldDigit = 304
 
 type productKey struct {
 	a, b  *Element
@@ -30,13 +31,15 @@ type productKey struct {
 }
 
 type arithmeticState struct {
-	foldDigits      []*big.Int
-	foldRows        [][]*big.Int
-	inverseMatrices map[int][][]*big.Int
-	products        map[productKey]frontend.Variable
-	crt             *crtBasis
-	crtDone         bool
-	crtProducts     map[productKey]frontend.Variable
+	foldDigits        []*big.Int
+	foldRows          [][]*big.Int
+	inverseMatrices   map[int][][]*big.Int
+	products          map[productKey]frontend.Variable
+	crt               *crtBasis
+	crtDone           bool
+	crtProducts       map[productKey]frontend.Variable
+	projections       map[int]*projectionPair
+	projectedProducts map[projectionKey]projectedValue
 }
 
 type linForm struct {
@@ -60,14 +63,27 @@ func T(coef int64, factors ...*Element) Term {
 }
 
 func (f *Field) Eval(terms ...Term) *Element {
-	return f.checkPolynomial(terms, true)
+	return f.checkPolynomial(terms, true, false)
+}
+
+// EvalProjected uses the same result hint and integer bounds as Eval, while
+// computing only the quotient and low carry projection when possible.
+func (f *Field) EvalProjected(terms ...Term) *Element {
+	return f.checkPolynomial(terms, true, true)
 }
 
 func (f *Field) AssertZero(terms ...Term) {
-	f.checkPolynomial(terms, false)
+	f.checkPolynomial(terms, false, false)
 }
 
-func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
+// AssertZeroProjected computes only the native quotient and carry projection
+// when the bounds admit a single carry group. Prefer AssertZero when a product
+// is also needed as a full lazy coordinate.
+func (f *Field) AssertZeroProjected(terms ...Term) {
+	f.checkPolynomial(terms, false, true)
+}
+
+func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *Element {
 	api, layout := f.api, f.layout
 	nativeModulus := api.Compiler().Field()
 	halfNativeModulus := new(big.Int).Rsh(nativeModulus, 1)
@@ -108,6 +124,19 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 
 	// 2. Fold high coefficients using the modulus shape when supported.
 	fold := f.arithmetic.fold(limbCount, degree)
+	checkModulus := f.modulusLimbs
+	if fold != nil && f.version == ArithmeticV2 {
+		// The signed polynomial evaluates to the same integer modulus. Its
+		// small coefficients avoid multiplying the quotient by unsigned
+		// radix-minus-one limbs in the carry bounds.
+		checkModulus = balancedDigits(f.mod, limbBits, limbCount+1)
+		if checkModulus == nil {
+			panic("folded modulus has no balanced representation")
+		}
+		for len(checkModulus) > 1 && checkModulus[len(checkModulus)-1].Sign() == 0 {
+			checkModulus = checkModulus[:len(checkModulus)-1]
+		}
+	}
 	positions := len(coefficientBounds)
 	foldedBounds := coefficientBounds
 	foldedMin, foldedMax := expressionMin, expressionMax
@@ -172,7 +201,11 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 		residualBounds = addInto(residualBounds, rAbs)
 	}
 	if len(quotientBounds) > 0 {
-		residualBounds = addInto(residualBounds, polyMulAbs(quotientBounds, f.modulusLimbs))
+		checkModulusAbs := make([]*big.Int, len(checkModulus))
+		for i, c := range checkModulus {
+			checkModulusAbs[i] = new(big.Int).Abs(c)
+		}
+		residualBounds = addInto(residualBounds, polyMulAbs(quotientBounds, checkModulusAbs))
 	}
 	positions = max(positions, len(residualBounds))
 	for len(residualBounds) < positions {
@@ -240,13 +273,40 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 	}
 
 	// 6. Build the polynomial relation; derive a folded quotient in the native field.
-	expressionForm := f.foldedForms(terms, degree, fold)
+	// With a single carry group, only two projections of the folded
+	// polynomial are consumed. All interval and carry bounds stay unchanged.
+	var projectedNative, projectedLow *linForm
+	if projected && fold != nil && !checkTopCoefficient && carryPositions > 0 && carryPositions < limbCount {
+		groupBound := new(big.Int)
+		fits := true
+		for pos := 0; pos < carryPositions; pos++ {
+			shift := limbBits * (pos + 1)
+			groupBound.Add(groupBound, new(big.Int).Lsh(residualBounds[pos], uint(limbBits*pos)))
+			carryBits := new(big.Int).Rsh(groupBound, uint(shift)).BitLen()
+			lift := new(big.Int).Add(groupBound, new(big.Int).Lsh(big.NewInt(1), uint(shift+carryBits)))
+			if lift.Cmp(halfNativeModulus) >= 0 {
+				fits = false
+				break
+			}
+		}
+		if fits {
+			projectedNative, projectedLow = f.pairProjectedForms(terms, degree, fold, carryPositions)
+		}
+	}
+	var expressionForm func(int) *linForm
+	if projectedNative == nil {
+		expressionForm = f.foldedForms(terms, degree, fold)
+	}
 
 	var quotientExpression frontend.Variable
 	if fold != nil {
 		native := newLinForm()
-		for j := 0; j < limbCount; j++ {
-			mergeForm(native, expressionForm(j), pow2(limbBits*j))
+		if projectedNative != nil {
+			mergeForm(native, projectedNative, big.NewInt(1))
+		} else {
+			for j := 0; j < limbCount; j++ {
+				mergeForm(native, expressionForm(j), pow2(limbBits*j))
+			}
 		}
 		if withResult {
 			for j, l := range remainder.limbs {
@@ -254,7 +314,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 			}
 		}
 		inv := new(big.Int).ModInverse(f.mod, nativeModulus)
-		k := native.build(api)
+		k := f.build(native)
 		quotientExpression = api.Mul(k, inv)
 		f.rc.Check(api.Add(quotientExpression, offset), quotientBits)
 	}
@@ -265,8 +325,8 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 			form.add(remainder.limbs[pos], big.NewInt(-1))
 		}
 		if fold != nil {
-			if pos < len(f.modulusLimbs) {
-				form.add(quotientExpression, new(big.Int).Neg(f.modulusLimbs[pos]))
+			if pos < len(checkModulus) {
+				form.add(quotientExpression, new(big.Int).Neg(checkModulus[pos]))
 			}
 		} else {
 			for a, kl := range quotientLimbs {
@@ -286,7 +346,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 		for pos := 0; pos < positions; pos++ {
 			mergeForm(native, residualForm(pos), pow2(limbBits*pos))
 		}
-		api.AssertIsEqual(native.build(api), 0)
+		api.AssertIsEqual(f.build(native), 0)
 	}
 
 	// 7. Check bounded carries and the final coefficient to prove the integer relation.
@@ -315,10 +375,22 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 			panic(fmt.Sprintf("carry %d does not lift", start))
 		}
 		group := newLinForm()
-		for p := start; p < pos; p++ {
-			mergeForm(group, residualForm(p), pow2(limbBits*(p-start)))
+		if projectedLow != nil {
+			mergeForm(group, projectedLow, big.NewInt(1))
+			if withResult {
+				for p := 0; p < pos && p < len(remainder.limbs); p++ {
+					group.add(remainder.limbs[p], new(big.Int).Neg(pow2(limbBits*p)))
+				}
+			}
+			for p := 0; p < pos && p < len(checkModulus); p++ {
+				group.add(quotientExpression, new(big.Int).Neg(new(big.Int).Mul(checkModulus[p], pow2(limbBits*p))))
+			}
+		} else {
+			for p := start; p < pos; p++ {
+				mergeForm(group, residualForm(p), pow2(limbBits*(p-start)))
+			}
 		}
-		sum := api.Add(group.build(api), carry)
+		sum := api.Add(f.build(group), carry)
 		carry = api.Mul(sum, new(big.Int).ModInverse(pow2(limbBits*(pos-start)), nativeModulus))
 		f.rc.Check(api.Add(carry, pow2(carryBits)), carryBits+1)
 		previousCarryBits = carryBits
@@ -327,7 +399,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult bool) *Element {
 		}
 	}
 	if checkTopCoefficient {
-		top := residualForm(carryPositions).build(api)
+		top := f.build(residualForm(carryPositions))
 		if new(big.Int).Add(residualBounds[carryPositions], pow2(previousCarryBits)).Cmp(halfNativeModulus) >= 0 {
 			panic("top coefficient does not lift")
 		}
@@ -360,15 +432,10 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 	limbCount, limbBits := f.layout.NbLimbs, f.layout.LimbBits
 	halfNativeModulus := new(big.Int).Rsh(f.api.Compiler().Field(), 1)
 	terms := make([]term, len(inputTerms))
-	var coefficientMin, coefficientMax []*big.Int
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
-		lo, hi := []*big.Int{big.NewInt(t.Coef)}, []*big.Int{big.NewInt(t.Coef)}
-		for _, e := range t.Factors {
-			lo, hi = polyMulInterval(lo, hi, e.lo, e.hi)
-		}
-		coefficientMin, coefficientMax = addInto(coefficientMin, lo), addInto(coefficientMax, hi)
 	}
+	coefficientMin, coefficientMax := f.lazyCoefficientIntervals(terms)
 	for i := range coefficientMin {
 		if absMax(coefficientMin[i], coefficientMax[i]).Cmp(halfNativeModulus) >= 0 {
 			panic("lazy coefficient does not fit the native field")
@@ -394,7 +461,7 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 		if absMax(lo, hi).Cmp(halfNativeModulus) >= 0 {
 			panic("lazy limb does not fit the native field")
 		}
-		e.limbs[j] = expressionForm(j).build(f.api)
+		e.limbs[j] = f.build(expressionForm(j))
 		e.lo[j], e.hi[j] = lo, hi
 		e.valueMin.Add(e.valueMin, new(big.Int).Lsh(lo, uint(limbBits*j)))
 		e.valueMax.Add(e.valueMax, new(big.Int).Lsh(hi, uint(limbBits*j)))
@@ -520,9 +587,19 @@ func (f *Field) foldedForms(terms []term, degree int, fold [][]*big.Int) func(j 
 					crtForms[j] = newLinForm()
 				}
 			}
-			for k := range crt.forms {
-				w := f.crtProductAt(crt, t.factors[0], t.factors[1], k)
-				for j, row := range crt.combine {
+			combine := crt.combine
+			square := crt.squareCombine != nil && t.factors[0] == t.factors[1]
+			if square {
+				combine = crt.squareCombine
+			}
+			for k := range combine[0] {
+				var w frontend.Variable
+				if square {
+					w = f.crtSquareAt(crt, t.factors[0], k)
+				} else {
+					w = f.crtProductAt(crt, t.factors[0], t.factors[1], k)
+				}
+				for j, row := range combine {
 					crtForms[j].add(w, new(big.Int).Mul(t.coef, row[k]))
 				}
 			}
@@ -542,6 +619,9 @@ func (f *Field) foldedForms(terms []term, degree int, fold [][]*big.Int) func(j 
 	}
 	return func(j int) *linForm {
 		form := newLinForm()
+		if fold != nil && j >= n {
+			return form
+		}
 		if fold == nil {
 			if j < len(coefForms) {
 				mergeForm(form, coefForms[j], big.NewInt(1))
@@ -596,10 +676,29 @@ func (f *Field) crtProductAt(b *crtBasis, x, y *Element, k int) frontend.Variabl
 		for i, l := range e.limbs {
 			form.add(l, b.forms[k][i])
 		}
-		return form.build(f.api)
+		return f.build(form)
 	}
 	v := f.api.Mul(eval(x), eval(y))
 	s.crtProducts[productKey{x, y, k}] = v
+	return v
+}
+
+func (f *Field) crtSquareAt(b *crtBasis, x *Element, k int) frontend.Variable {
+	// Square products have different linear forms from bilinear products.
+	// Keep their cache entries outside the bilinear evaluation-point range.
+	key := productKey{x, x, len(b.forms) + k}
+	if v, ok := f.arithmetic.crtProducts[key]; ok {
+		return v
+	}
+	eval := func(coefs []*big.Int) frontend.Variable {
+		form := newLinForm()
+		for i, l := range x.limbs {
+			form.add(l, coefs[i])
+		}
+		return f.build(form)
+	}
+	v := f.api.Mul(eval(b.squareLeft[k]), eval(b.squareRight[k]))
+	f.arithmetic.crtProducts[key] = v
 	return v
 }
 
@@ -713,13 +812,28 @@ func (l *linForm) addConst(c *big.Int) {
 	l.consts.Add(l.consts, c)
 }
 
-func (l *linForm) build(api frontend.API) frontend.Variable {
+// build sums the form. ArithmeticV1 adds term by term, so a long form is
+// split into extra constraints under a compress threshold; ArithmeticV2
+// adds all terms at once.
+func (f *Field) build(l *linForm) frontend.Variable {
+	api := f.api
 	q := api.Compiler().Field()
-	acc := frontend.Variable(new(big.Int).Mod(l.consts, q))
-	for i, v := range l.vars {
-		acc = api.Add(acc, api.Mul(v, new(big.Int).Mod(l.coefs[i], q)))
+	if f.version == ArithmeticV1 {
+		acc := frontend.Variable(new(big.Int).Mod(l.consts, q))
+		for i, v := range l.vars {
+			acc = api.Add(acc, api.Mul(v, new(big.Int).Mod(l.coefs[i], q)))
+		}
+		return acc
 	}
-	return acc
+	terms := make([]frontend.Variable, len(l.vars)+1)
+	terms[0] = new(big.Int).Mod(l.consts, q)
+	for i, v := range l.vars {
+		terms[i+1] = api.Mul(v, new(big.Int).Mod(l.coefs[i], q))
+	}
+	if len(terms) == 1 {
+		return terms[0]
+	}
+	return api.Add(terms[0], terms[1], terms[2:]...)
 }
 
 func elementDegree(e *Element) int {
@@ -742,7 +856,11 @@ func (s *arithmeticState) crtBasis(f *Field, q *big.Int) *crtBasis {
 			fp[j] = new(big.Int).Neg(d)
 		}
 		fp[n] = big.NewInt(1)
-		s.crt = newCRTBasis(polyReduce(fp, q), n, q, func(d int) [][]*big.Int { return s.inverseVandermonde(d, q) })
+		squares := f.version == ArithmeticV2
+		s.crt = newCRTBasis(polyReduce(fp, q), n, q, func(d int) [][]*big.Int { return s.inverseVandermonde(d, q) }, squares)
+		if s.crt != nil && squares {
+			s.crt.alignQuadraticProducts(pow2(f.layout.LimbBits), q)
+		}
 	}
 	return s.crt
 }

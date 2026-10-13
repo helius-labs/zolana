@@ -34,7 +34,7 @@ import (
 
 // refreshNullifierAttackHashes keeps these fixtures' real outputs and transaction
 // hashes consistent with a changed first nullifier. inputHashes contains zero
-// for each dummy slot and the UTXO hash for each spent input. The P256 caller
+// for each dummy slot and the UTXO hash for each spent input. The Ed25519 caller
 // must then authorize the new private transaction hash and refresh its public hash.
 func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inputHashes []*big.Int) {
 	t.Helper()
@@ -123,15 +123,15 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// TestP256DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, P256 rail):
-// a real P256 spend authorizes the transaction alongside a dummy in slot 1.
+// TestEd25519DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, Ed25519 rail):
+// a real Ed25519 spend authorizes the transaction alongside a dummy in slot 1.
 // Changing the dummy's public nullifier must fail only its derived-nullifier
-// binding, with output blindings, transaction hashes, and P256 authorization
+// binding, with output blindings, transaction hashes, and Ed25519 authorization
 // refreshed to agree with the attacker-chosen value.
-func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
+func TestEd25519DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
 	// Keep the 100-unit spend in slot 0 and replace slot 1 with padding.
@@ -146,19 +146,19 @@ func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 		assignment.Outputs[i].Utxo.Amount = spptest.Fe(50)
 	}
 
-	owner := spptest.FixedP256Key(t, 11)
-	rewriteInputAsP256(t, assignment, 0, owner)
+	owner := spptest.FixedEd25519Key(t, 11)
+	rewriteInputAsEd25519(t, assignment, 0, owner)
 	inputHashes := []*big.Int{
 		testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0)),
 		spptest.Fe(0),
 	}
 	refreshNullifierAttackHashes(t, assignment, inputHashes)
-	authorization := authorizeP256(t, assignment, owner, owner)
-	assert.SolvingSucceeded(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
+	authorization := authorizeEd25519(t, assignment, owner, owner)
+	assert.SolvingSucceeded(circuit, asCustomRingEd25519(assignment, authorization), test.WithCurves(ecc.BN254))
 
 	assignment.Inputs[1].Nullifier = spptest.Fe(0xF01)
 	refreshNullifierAttackHashes(t, assignment, inputHashes)
-	authorization = authorizeP256(t, assignment, owner, owner)
+	authorization = authorizeEd25519(t, assignment, owner, owner)
 
-	assert.SolvingFailed(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingEd25519(assignment, authorization), test.WithCurves(ecc.BN254))
 }

@@ -133,8 +133,9 @@ import {
  * 49x2 with every input real, consumes 305,340 CU on a validator
  * (`program-tests/spp-test-validator/tests/max_shapes.rs`). The remaining
  * headroom absorbs the per-input `create_nullifier_pdas` cost, which moves with
- * tree state rather than with the shape. The ring P256 rail is more expensive
- * again (356,230 CU at 49x2), but it carries its own ceiling and does not come
+ * tree state rather than with the shape. The custom-ring rail that verifies an
+ * Ed25519 owner signature in the proof (RingP256) is more expensive again
+ * (356,230 CU at 49x2), but it carries its own ceiling and does not come
  * through here.
  *
  * Under transaction version 1 this rides in the message header, and requested

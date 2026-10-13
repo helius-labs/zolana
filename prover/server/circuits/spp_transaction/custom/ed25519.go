@@ -1,43 +1,35 @@
 package customring
 
 import (
+	"zolana/prover/circuits/ed25519"
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/circuits/verifiable-encryption/p256/emcurve"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/math/emulated"
-	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
 // Properties:
 // 1. Public: EdDSA input owners, default-ring input and output owners, and public asset transfers.
-// 2. Private: custom-ring P256 input owners, custom-ring output owners, UTXO amounts, and UTXO assets.
-// 3. The circuit verifies the shared P256 signature; the Solana runtime verifies EdDSA co-signers.
-//    The shared P256 owner identity is the algorithm-tagged hash_bytes_33 over the
-//    x-coordinate (gadget.P256OwnerIdentity), so it cannot equal any Solana signer identity.
+// 2. Private: custom-ring Ed25519 input owners, custom-ring output owners, UTXO amounts, and UTXO assets.
+// 3. The circuit verifies the shared Ed25519 signature over the SPP signing digest; the Solana
+//    runtime verifies EdDSA co-signers. The shared owner identity is the Solana-tagged
+//    hash_bytes_33 over the public key (gadget.SolanaOwnerIdentity), the same identity a
+//    runtime signer of that key has. A ring Ed25519 spend therefore requires that identity to
+//    be absent from every public owner field, the signer vector included.
 // 4. Dummy slots are indistinguishable from real UTXO and address slots.
 // 5. Input nullifiers are distinct and balances are preserved.
 
-const (
-	p256MessageLimbBits = 128
-	p256WitnessLimbBits = 64
-)
+const ed25519MessageLimbBits = 128
 
-type (
-	P256PublicKey = gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
-	P256Signature = gnarkecdsa.Signature[emulated.P256Fr]
-)
-
-type CustomRingP256Public struct {
+type CustomRingEd25519Public struct {
 	Nullifiers                   []frontend.Variable
 	OutputHashes                 []frontend.Variable
 	TreeSlots                    []shared.TreeSlot
 	OutputTreeID                 frontend.Variable
 	PrivateTxHash                frontend.Variable
-	P256MessageHashLow           frontend.Variable
-	P256MessageHashHigh          frontend.Variable
-	DefaultP256OwnerPkHash       frontend.Variable
+	Ed25519MessageHashLow        frontend.Variable
+	Ed25519MessageHashHigh       frontend.Variable
+	DefaultEd25519OwnerPkHash    frontend.Variable
 	ExternalDataHash             frontend.Variable
 	PublicAssets                 [shared.NPublicSlots]frontend.Variable
 	PublicAmounts                [shared.NPublicSlots]frontend.Variable
@@ -48,40 +40,40 @@ type CustomRingP256Public struct {
 	PublicInputHash              frontend.Variable `gnark:",public"`
 }
 
-type CustomRingP256Private struct {
+type CustomRingEd25519Private struct {
 	Inputs              []shared.Input
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
 	BlindingSeed        frontend.Variable
-	P256Pub             P256PublicKey
-	P256Sig             P256Signature
+	Ed25519PublicKey    [32]frontend.Variable
+	Ed25519Signature    [64]frontend.Variable
 }
 
-type CustomRingP256Circuit struct {
+type CustomRingEd25519Circuit struct {
 	CachedInputs shared.CachedInputs
 
 	Shape   shared.Shape `gnark:"-"`
-	Public  CustomRingP256Public
-	Private CustomRingP256Private
+	Public  CustomRingEd25519Public
+	Private CustomRingEd25519Private
 }
 
-func NewCustomRingP256Circuit(shape shared.Shape) (*CustomRingP256Circuit, error) {
+func NewCustomRingEd25519Circuit(shape shared.Shape) (*CustomRingEd25519Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &CustomRingP256Circuit{
+	return &CustomRingEd25519Circuit{
 		CachedInputs: shared.NewCachedInputs(shape.NInputs),
 		Shape:        shape,
-		Public: CustomRingP256Public{
+		Public: CustomRingEd25519Public{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:                    shared.NewTreeSlots(),
 			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth()),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: CustomRingP256Private{
+		Private: CustomRingEd25519Private{
 			Inputs:              shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -91,9 +83,9 @@ func NewCustomRingP256Circuit(shape shared.Shape) (*CustomRingP256Circuit, error
 	}, nil
 }
 
-func (c *CustomRingP256Circuit) transaction(
+func (c *CustomRingEd25519Circuit) transaction(
 	api frontend.API,
-	p256MessageHash frontend.Variable,
+	ed25519MessageHash frontend.Variable,
 ) shared.Transaction {
 	return shared.Transaction{
 		CachedInputs:      &c.CachedInputs,
@@ -115,8 +107,8 @@ func (c *CustomRingP256Circuit) transaction(
 		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageAfterPrivateTxHash: []frontend.Variable{
-			p256MessageHash,
-			c.Public.DefaultP256OwnerPkHash,
+			ed25519MessageHash,
+			c.Public.DefaultEd25519OwnerPkHash,
 		},
 		PreimageTail: []frontend.Variable{
 			gadget.RightHashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
@@ -124,12 +116,9 @@ func (c *CustomRingP256Circuit) transaction(
 	}
 }
 
-func (c *CustomRingP256Circuit) Define(api frontend.API) error {
-	p256PkHash, p256MessageHash, p256SignatureValid, err := c.p256Authorization(api)
-	if err != nil {
-		return err
-	}
-	tx := c.transaction(api, p256MessageHash)
+func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
+	ed25519PkHash, ed25519MessageHash := c.ed25519Authorization(api)
+	tx := c.transaction(api, ed25519MessageHash)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
@@ -152,24 +141,24 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	}
 
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
-	inputOwners := shared.P256Signers(
+	inputOwners := shared.Ed25519Signers(
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,
 		authorizedEddsa,
-		p256PkHash,
-		p256SignatureValid,
+		ed25519PkHash,
 	)
-	shared.AssertDefaultP256Owner(
+	shared.AssertDefaultEd25519Owner(
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,
 		c.Public.PublishedOutputOwnerPkHashes,
-		p256PkHash,
-		c.Public.DefaultP256OwnerPkHash,
+		authorizedEddsa,
+		ed25519PkHash,
+		c.Public.DefaultEd25519OwnerPkHash,
 	)
 	authorized := append(shared.Signers(nil), authorizedEddsa...)
-	authorized = append(authorized, p256PkHash)
+	authorized = append(authorized, ed25519PkHash)
 	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Private.OutputOwnerPkHashes)
 	if err := shared.AssertPublishedOutputOwners(
 		api,
@@ -179,10 +168,11 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	); err != nil {
 		return err
 	}
-	// A dummy may repeat the shared P256 identity only while a default-ring
-	// P256 input already publishes it; a ring spend keeps it out of the set.
+	// A dummy may repeat the shared Ed25519 identity only while a default-ring
+	// Ed25519 input or a public signer already publishes it; a ring spend keeps
+	// it out of both (AssertDefaultEd25519Owner), so it stays out of the set.
 	dummyIdentities := append(shared.Signers(nil), authorizedEddsa.WithoutPayer()...)
-	dummyIdentities = append(dummyIdentities, c.Public.DefaultP256OwnerPkHash)
+	dummyIdentities = append(dummyIdentities, c.Public.DefaultEd25519OwnerPkHash)
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
@@ -196,35 +186,28 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
 }
 
-// p256Authorization verifies the shared P256 signature unconditionally:
-// P256Signers requires at least one P256 input on this rail, so a satisfiable
-// witness always carries a valid signature.
-func (c *CustomRingP256Circuit) p256Authorization(
+// ed25519Authorization verifies the shared Ed25519 signature unconditionally:
+// Ed25519Signers requires at least one Ed25519 input on this rail, so a
+// satisfiable witness always carries a valid signature. The signed message is
+// the 32-byte digest itself, rebuilt big-endian from its public 128-bit halves.
+func (c *CustomRingEd25519Circuit) ed25519Authorization(
 	api frontend.API,
-) (frontend.Variable, frontend.Variable, frontend.Variable, error) {
+) (frontend.Variable, frontend.Variable) {
 	messageBits := append(
-		api.ToBinary(c.Public.P256MessageHashLow, p256MessageLimbBits),
-		api.ToBinary(c.Public.P256MessageHashHigh, p256MessageLimbBits)...,
+		api.ToBinary(c.Public.Ed25519MessageHashLow, ed25519MessageLimbBits),
+		api.ToBinary(c.Public.Ed25519MessageHashHigh, ed25519MessageLimbBits)...,
 	)
-	message := make([]frontend.Variable, len(messageBits)/p256WitnessLimbBits)
-	for i := range message {
-		message[i] = api.FromBinary(messageBits[i*p256WitnessLimbBits : (i+1)*p256WitnessLimbBits]...)
-	}
-	pub, sig := c.Private.P256Pub, c.Private.P256Sig
-	publicKeyX := emcurve.VerifyECDSA(api, emcurve.ECDSAInputs{
-		LimbBits:   p256WitnessLimbBits,
-		PublicKeyX: pub.X.Limbs,
-		PublicKeyY: pub.Y.Limbs,
-		R:          sig.R.Limbs,
-		S:          sig.S.Limbs,
-		Message:    message,
+	messageBytes := bytes32FromBits(api, messageBits)
+	publicKey := ed25519.Verify(api, ed25519.Inputs{
+		PublicKey: c.Private.Ed25519PublicKey,
+		Signature: c.Private.Ed25519Signature,
+		Message:   messageBytes[:],
 	})
-	p256PkHash := gadget.P256OwnerIdentity(api, publicKeyX)
+	ed25519PkHash := gadget.SolanaOwnerIdentity(api, publicKey)
 
 	// The message digest is not an identity, so it stays an untagged hash_bytes_32.
-	messageBytes := bytes32FromBits(api, messageBits)
-	p256MessageHash := gadget.HashBytes(api, messageBytes[:])
-	return p256PkHash, p256MessageHash, frontend.Variable(1), nil
+	ed25519MessageHash := gadget.HashBytes(api, messageBytes[:])
+	return ed25519PkHash, ed25519MessageHash
 }
 
 // bytes32FromBits adapts a 256-bit little-endian bit decomposition to the

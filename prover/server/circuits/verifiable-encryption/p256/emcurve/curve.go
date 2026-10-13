@@ -44,17 +44,12 @@ type curve struct {
 }
 
 func newCurve(api frontend.API) *curve {
-	return newCurveFor(api, true)
-}
-
-func newCurveFor(api frontend.API, lookups bool) *curve {
 	params := elliptic.P256().Params()
-	layout := emfield.LayoutFor(lookups)
-	fr := emfield.NewFor(api, params.N, layout)
-	fp := emfield.NewFor(api, params.P, layout)
+	fr := emfield.New(api, params.N)
+	fp := emfield.New(api, params.P)
 	return &curve{
 		api:    api,
-		layout: layout,
+		layout: emfield.LookupLayout,
 		fp:     &fieldOps{fp},
 		fr:     &fieldOps{fr},
 		a:      fp.Const(new(big.Int).Sub(params.P, big.NewInt(3))),

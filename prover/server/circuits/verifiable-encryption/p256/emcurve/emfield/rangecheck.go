@@ -24,49 +24,51 @@ import (
 )
 
 func init() {
-	solver.RegisterHint(countHint, decomposeHint)
+	solver.RegisterHint(countHint, decomposeHint, decomposeHighHint)
 }
 
+// rangeTable holds every lookup query of one piece width; all range
+// checkers of that width share it, so a circuit builds one table per width.
+type rangeTable struct {
+	api       frontend.API
+	pieceBits int
+	queries   []frontend.Variable
+	partial   map[int][]frontend.Variable
+}
+
+// RangeChecker adds queries to the shared table of its piece width. Its
+// arithmetic only decides how a value wider than one piece is split.
 type RangeChecker struct {
-	api     frontend.API
-	layout  Layout
-	queries []frontend.Variable
-	partial map[int][]frontend.Variable
+	*rangeTable
+	version Arithmetic
 }
 
-type rangeCheckerKey struct {
-	lookups   bool
+type rangeTableKey struct {
 	pieceBits int
 }
 
 func NewRangeChecker(api frontend.API) *RangeChecker {
-	return NewRangeCheckerFor(api, LookupLayout)
+	return NewRangeCheckerFor(api, LookupLayout.PieceBits, ArithmeticV1)
 }
 
-func NewRangeCheckerFor(api frontend.API, layout Layout) *RangeChecker {
+func NewRangeCheckerFor(api frontend.API, pieceBits int, version Arithmetic) *RangeChecker {
 	kv := store(api)
-	key := rangeCheckerKey{layout.Lookups, layout.PieceBits}
-	if rc, ok := kv.GetKeyValue(key).(*RangeChecker); ok {
-		return rc
+	key := rangeTableKey{pieceBits}
+	table, ok := kv.GetKeyValue(key).(*rangeTable)
+	if !ok {
+		table = &rangeTable{api: api, pieceBits: pieceBits}
+		kv.SetKeyValue(key, table)
+		api.Compiler().Defer(table.build)
 	}
-	rc := &RangeChecker{api: api, layout: layout}
-	kv.SetKeyValue(key, rc)
-	if layout.Lookups {
-		api.Compiler().Defer(rc.build)
-	}
-	return rc
+	return &RangeChecker{rangeTable: table, version: version}
 }
 
-func (rc *RangeChecker) Layout() Layout {
-	return rc.layout
+func (rc *RangeChecker) nbPieces(width int) int {
+	return (width + rc.pieceBits - 1) / rc.pieceBits
 }
 
 func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
-	if !rc.layout.Lookups {
-		checkBits(rc.api, v, bits)
-		return
-	}
-	pieceBits := rc.layout.PieceBits
+	pieceBits := rc.pieceBits
 	switch {
 	case bits <= 0:
 		rc.api.AssertIsEqual(v, 0)
@@ -81,33 +83,46 @@ func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
 		rc.partial[bits] = append(rc.partial[bits], v)
 	case bits == pieceBits:
 		rc.queries = append(rc.queries, v)
-	default:
-		pieces, err := rc.api.Compiler().NewHint(decomposeHint, rc.layout.nbPieces(bits), bits, pieceBits, v)
+	case rc.version == ArithmeticV1:
+		pieces, err := rc.api.Compiler().NewHint(decomposeHint, rc.nbPieces(bits), bits, pieceBits, v)
 		if err != nil {
 			panic(err)
 		}
 		rc.api.AssertIsEqual(v, rc.Compose(pieces, bits))
+	default:
+		// The low piece is affine in v and the high pieces, so its own
+		// lookup both bounds it and enforces the recomposition.
+		high, err := rc.api.Compiler().NewHint(decomposeHighHint, rc.nbPieces(bits)-1, bits, pieceBits, v)
+		if err != nil {
+			panic(err)
+		}
+		low := v
+		for j, p := range high {
+			rc.Check(p, min(pieceBits, bits-(j+1)*pieceBits))
+			low = rc.api.Sub(low, rc.api.Mul(p, pow2((j+1)*pieceBits)))
+		}
+		rc.Check(low, pieceBits)
 	}
 }
 
 func (rc *RangeChecker) Compose(pieces []frontend.Variable, width int) frontend.Variable {
-	l := rc.layout
-	if len(pieces) != l.nbPieces(width) {
+	pieceBits := rc.pieceBits
+	if len(pieces) != rc.nbPieces(width) {
 		panic("piece count mismatch")
 	}
 	sum := frontend.Variable(0)
 	for j, piece := range pieces {
-		rc.Check(piece, min(l.PieceBits, width-j*l.PieceBits))
-		sum = rc.api.Add(sum, rc.api.Mul(piece, pow2(j*l.PieceBits)))
+		rc.Check(piece, min(pieceBits, width-j*pieceBits))
+		sum = rc.api.Add(sum, rc.api.Mul(piece, pow2(j*pieceBits)))
 	}
 	return sum
 }
 
 const tagSeparationLog = 20
 
-func (rc *RangeChecker) build(api frontend.API) error {
+func (rc *rangeTable) build(api frontend.API) error {
 	// 1. Group narrow ranges by width, or scale sparse queries into the main table.
-	pieceBits := rc.layout.PieceBits
+	pieceBits := rc.pieceBits
 	type tagged struct {
 		width   int
 		queries []frontend.Variable
@@ -222,6 +237,20 @@ func decomposeHint(_ *big.Int, inputs, outputs []*big.Int) error {
 	for _, out := range outputs {
 		out.And(remainingValue, mask)
 		remainingValue.Rsh(remainingValue, uint(pieceBits))
+	}
+	return nil
+}
+
+func decomposeHighHint(q *big.Int, inputs, outputs []*big.Int) error {
+	all := make([]*big.Int, len(outputs)+1)
+	for i := range all {
+		all[i] = new(big.Int)
+	}
+	if err := decomposeHint(q, inputs, all); err != nil {
+		return err
+	}
+	for i := range outputs {
+		outputs[i].Set(all[i+1])
 	}
 	return nil
 }

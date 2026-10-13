@@ -63,26 +63,35 @@ pub enum RingRail {
     /// Ownership authorized by the transaction signature (signer run).
     #[default]
     Eddsa,
-    /// Ownership authorized inside the proof (RingP256 + BSB22 commitment).
+    /// Ownership authorized by an Ed25519 signature the proof verifies
+    /// (`CircuitId::RingP256` + BSB22 commitment).
     P256,
 }
 
 impl RingRail {
     /// The ring the transfer's change and recipient outputs join, `None` for
-    /// the default ring. A P256 owner cannot hold a default-ring output: the
-    /// circuit's private identity of a P256 owner is `p256_owner_identity(x)`
-    /// while every confidential-marked default-ring slot is published as
-    /// `solana_owner_identity(tag)` by the program (`transact/verify.rs`) and
-    /// the client, so `AssertPublishedOutputOwners` (`shared/owner_tags.go`)
-    /// can never hold, and `AssertDefaultP256Owner` (`shared/signers.go`)
-    /// additionally forbids publishing the P256 identity while a ring P256 UTXO
-    /// is spent. Ring-bound outputs use the ring-confidential scheme and
-    /// publish zero, so the P256 rail keeps every output inside the ring.
+    /// the default ring. Every confidential-marked default-ring slot publishes
+    /// its owner's Solana identity, and `AssertDefaultEd25519Owner`
+    /// (`shared/signers.go`) forbids publishing the shared signer's identity
+    /// while a ring-bound UTXO of it is spent. Ring-bound outputs use the
+    /// ring-confidential scheme and publish zero, so the in-circuit signature
+    /// rail keeps every output inside the ring.
     fn output_ring(self, ring: Address) -> Option<Address> {
         match self {
             Self::Eddsa => None,
             Self::P256 => Some(ring),
         }
+    }
+
+    /// The key whose signature the proof verifies, which therefore is no
+    /// runtime signer of the transaction.
+    fn circuit_signer(self, signer: &zolana_keypair::ShieldedKeypair) -> Result<Option<Address>> {
+        Ok(match self {
+            Self::Eddsa => None,
+            Self::P256 => Some(Address::new_from_array(
+                signer.signing_pubkey().as_ed25519()?,
+            )),
+        })
     }
 }
 
@@ -94,7 +103,7 @@ enum ProofTamper {
     None,
     /// Corrupt the embedded BSB22 commitment (rejected before pairing, 7007).
     BadCommitment,
-    /// A P256 proof submitted under the RingEddsa selector (pairing fails, 7008).
+    /// A RingP256 proof submitted under the RingEddsa selector (pairing fails, 7008).
     P256ProofUnderEddsaSelector,
     /// An eddsa proof submitted under the RingP256 selector (no valid BSB22
     /// commitment can exist for it, so encoding fails first, 7007).
@@ -187,10 +196,10 @@ impl RingHarness {
         self.execute_ring_transfer(from, Some(to), [asset; 2], amount, None, RingRail::Eddsa)
     }
 
-    /// Ring-transfer `amount` of `asset` from `from` to `to` over the P256 rail
-    /// (ownership proved inside the RingP256 proof; the harness payer funds the
-    /// transaction), consolidating two of `from`'s spendable UTXOs into the
-    /// 2x4 shape.
+    /// Ring-transfer `amount` of `asset` from `from` to `to` over the RingP256
+    /// rail (ownership proved by an Ed25519 signature inside the proof; the
+    /// harness payer funds the transaction), consolidating two of `from`'s
+    /// spendable UTXOs into the 2x4 shape.
     pub fn ring_transfer_p256(
         &mut self,
         from: &str,
@@ -476,8 +485,8 @@ impl RingHarness {
             .transpose()?;
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        // An eddsa actor pays and signs its own spend; a P256 actor falls back
-        // to the harness payer because ownership is proven inside the proof.
+        // An eddsa actor pays and signs its own spend; a ring signer actor falls
+        // back to the harness payer because ownership is proven inside the proof.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -570,7 +579,7 @@ impl RingHarness {
             .map(|withdrawal| vec![withdrawal.interface_accounts()])
             .unwrap_or_default();
         let owner_signers = proof_inputs
-            .owner_signer_pubkeys()?
+            .runtime_owner_signer_pubkeys(rail.circuit_signer(&from_keypair)?.as_ref())?
             .iter()
             .map(|address| Pubkey::new_from_array(address.to_bytes()))
             .collect();
@@ -630,7 +639,10 @@ impl RingHarness {
         let input_utxos = self.ring_input_utxos(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
-        let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
+        let signer_pk_hashes = proof_inputs.runtime_signer_pk_hashes(
+            shape.signer_width(),
+            rail.circuit_signer(signer)?.as_ref(),
+        )?;
 
         match rail {
             RingRail::Eddsa => {
@@ -689,7 +701,7 @@ impl RingHarness {
             }
             RingRail::P256 => {
                 let authorization =
-                    SyncWalletAuthority::sign_p256(signer, &proof_inputs.message_hash()?)?;
+                    SyncWalletAuthority::sign_ed25519(signer, &proof_inputs.message_hash()?)?;
                 let prover = RingTransferP256Prover {
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
@@ -997,7 +1009,8 @@ impl RingHarness {
     /// Clone two of `from`'s spendable UTXOs of `asset` without consuming them
     /// (negative paths, where the spend never lands). `ring_only` selects the
     /// ring-owned set; `false` selects default-ring UTXOs (e.g. a default-ring
-    /// P256 input, which exposes `default_owner_tag` on the wire).
+    /// input of the in-circuit signer, which exposes `default_owner_tag` on the
+    /// wire).
     fn peek_spendable_input_utxos(
         &self,
         from: &str,
@@ -1069,7 +1082,7 @@ impl RingHarness {
         }
     }
 
-    /// Request a valid P256 proof, corrupt only its embedded BSB22 commitment,
+    /// Request a valid RingP256 proof, corrupt only its embedded BSB22 commitment,
     /// and confirm SPP rejects the instruction at the encoding check, before
     /// pairing verification (7007).
     pub fn ring_transfer_p256_bad_commitment_rejected(
@@ -1090,7 +1103,7 @@ impl RingHarness {
         )
     }
 
-    /// Cross-rail grafting: a valid P256 proof submitted under the RingEddsa
+    /// Cross-rail grafting: a valid RingP256 proof submitted under the RingEddsa
     /// selector. The selector picks the eddsa verifying key, so pairing fails
     /// (7008).
     pub fn p256_proof_under_eddsa_selector_rejected(
@@ -1135,10 +1148,10 @@ impl RingHarness {
         )
     }
 
-    /// Ring-transfer over the P256 rail spending DEFAULT-ring P256 inputs: the
-    /// presence of a real default-ring P256 input exposes the owner's P256
-    /// pubkey x-coordinate as `default_owner_tag` on the wire. Asserts the tag
-    /// is present and equals `from`'s signing pubkey x-coordinate.
+    /// Ring-transfer over the RingP256 rail spending DEFAULT-ring inputs of the
+    /// in-circuit signer: a real default-ring input exposes the signer's
+    /// Ed25519 public key as `default_owner_tag` on the wire. Asserts the tag
+    /// is present and equals `from`'s signing pubkey.
     pub fn ring_transfer_p256_default_input_exposes_owner_tag(
         &mut self,
         from: &str,
@@ -1166,10 +1179,10 @@ impl RingHarness {
         let CircuitId::RingP256(_, _, _, proof_data) = &sent.data.circuit else {
             return Err(anyhow!("expected a RingP256 circuit selector"));
         };
-        let expected_tag = self.actor(from).keypair.signing_pubkey().as_p256()?.x();
+        let expected_tag = self.actor(from).keypair.signing_pubkey().as_ed25519()?;
         if proof_data.default_owner_tag != Some(expected_tag) {
             return Err(anyhow!(
-                "default_owner_tag {:?} != signing pubkey x {}",
+                "default_owner_tag {:?} != signing pubkey {}",
                 proof_data.default_owner_tag,
                 hex32(&expected_tag)
             ));
@@ -1184,9 +1197,9 @@ impl RingHarness {
         Ok(sent.signature)
     }
 
-    /// A real default-ring P256 input with a WRONG `default_owner_tag` in the
-    /// proof data: the tag is bound into the public input, so pairing fails
-    /// (7008).
+    /// A real default-ring input of the in-circuit signer with a WRONG
+    /// `default_owner_tag` in the proof data: the tag is bound into the public
+    /// input, so pairing fails (7008).
     pub fn ring_transfer_p256_wrong_default_owner_tag_rejected(
         &mut self,
         from: &str,
@@ -1213,7 +1226,7 @@ impl RingHarness {
             compact_shape: None,
         }) {
             Ok(_) => Err(anyhow!(
-                "P256 ring transfer with a wrong default_owner_tag unexpectedly succeeded"
+                "RingP256 transfer with a wrong default_owner_tag unexpectedly succeeded"
             )),
             Err(error) => {
                 let client_error = error
@@ -1266,7 +1279,7 @@ fn assemble_ix_data(
             n_slots,
             RingP256ProofData {
                 bsb22_commitment: commitment
-                    .ok_or_else(|| anyhow!("P256 proof is missing its BSB22 commitment"))?,
+                    .ok_or_else(|| anyhow!("RingP256 proof is missing its BSB22 commitment"))?,
                 default_owner_tag,
             },
         ),
@@ -1301,7 +1314,7 @@ fn hex32(bytes: &[u8; 32]) -> String {
     s
 }
 
-/// Split a committed P256 proof into the unchanged transact proof triple and
+/// Split a committed RingP256 proof into the unchanged transact proof triple and
 /// the BSB22 payload carried by `CircuitId::RingP256`.
 fn p256_transact_proof(proof: &zolana_client::Proof) -> Result<(TransactProof, Bsb22Commitment)> {
     Ok(ProofCompressed::try_from(*proof)?.into_ring_p256_transact_parts()?)

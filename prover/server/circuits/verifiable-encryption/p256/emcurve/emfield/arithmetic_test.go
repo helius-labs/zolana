@@ -20,12 +20,12 @@ import (
 )
 
 // Invariant 1: Modulus folding is enabled for the supported coordinate prime, not the scalar order.
-func TestPlainLayoutFoldsOnlyTheSolinasPrime(t *testing.T) {
+func TestLayoutFoldsOnlyTheSolinasPrime(t *testing.T) {
 	if (&arithmeticState{}).fold(8, 14) != nil {
 		t.Fatal("empty state folded")
 	}
-	p := newArithmeticState(&Field{layout: PlainLayout, mod: p256P})
-	n := newArithmeticState(&Field{layout: PlainLayout, mod: p256N})
+	p := newArithmeticState(&Field{layout: LookupLayout, mod: p256P})
+	n := newArithmeticState(&Field{layout: LookupLayout, mod: p256N})
 	if p.foldDigits == nil || n.foldDigits != nil {
 		t.Fatalf("fold digits p %v n %v", p.foldDigits, n.foldDigits)
 	}
@@ -44,17 +44,17 @@ func TestPlainLayoutFoldsOnlyTheSolinasPrime(t *testing.T) {
 
 // Invariant 2: Arithmetic matches big.Int calculations.
 func TestPlainArithmeticMatchesBigInt(t *testing.T) {
-	for _, l := range layouts {
+	for _, a := range arithmetics {
 		for _, mod := range []*big.Int{p256P, p256N} {
-			plainArithmeticMatchesBigInt(t, l.name, l.layout, mod)
+			t.Run(a.name, func(t *testing.T) { plainArithmeticMatchesBigInt(t, a.config, mod) })
 		}
 	}
 }
 
 // Invariant 3: Forged modular-check hint outputs are rejected.
 func TestPlainCheckHintForgeriesAreRejected(t *testing.T) {
-	for _, l := range layouts {
-		t.Run(l.name, func(t *testing.T) { plainCheckHintForgeriesAreRejected(t, l.layout) })
+	for _, a := range arithmetics {
+		t.Run(a.name, func(t *testing.T) { plainCheckHintForgeriesAreRejected(t, a.config) })
 	}
 }
 
@@ -62,15 +62,23 @@ func TestPlainCheckHintForgeriesAreRejected(t *testing.T) {
 
 var p256N, _ = new(big.Int).SetString("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", 16)
 
+var arithmetics = []struct {
+	name   string
+	config Config
+}{
+	{"v1", LookupConfig},
+	{"v2", Config{Layout: LookupLayout, Arithmetic: ArithmeticV2}},
+}
+
 type plainArithCircuit struct {
 	Mod      *big.Int `gnark:"-"`
-	Lay      Layout   `gnark:"-"`
+	Config   Config   `gnark:"-"`
 	A, B, C  [8]frontend.Variable
 	Expected [8]frontend.Variable `gnark:",public"`
 }
 
 func (c *plainArithCircuit) Define(api frontend.API) error {
-	f := NewFor(api, c.Mod, c.Lay)
+	f := NewFor(api, c.Mod, c.Config)
 	a, b, cc := f.FromLimbs(c.A[:]), f.FromLimbs(c.B[:]), f.FromLimbs(c.C[:])
 	inv := f.Hint(inverseHint, 1, nil, a)[0]
 	f.AssertZero(T(1, inv, a), T(-1, f.Const(big.NewInt(1))))
@@ -86,18 +94,13 @@ func (c *plainArithCircuit) Define(api frontend.API) error {
 
 func plainLimbs(v *big.Int) [8]frontend.Variable {
 	var out [8]frontend.Variable
-	for i, l := range PlainLayout.decompose(v, 8) {
+	for i, l := range LookupLayout.decompose(v, 8) {
 		out[i] = l
 	}
 	return out
 }
 
-var layouts = []struct {
-	name   string
-	layout Layout
-}{{"plain", PlainLayout}, {"lookups", LookupLayout}}
-
-func plainArithWitness(layout Layout, mod, a, b, c *big.Int) *plainArithCircuit {
+func plainArithWitness(config Config, mod, a, b, c *big.Int) *plainArithCircuit {
 	inv := new(big.Int).ModInverse(a, mod)
 	r := new(big.Int).Sub(a, c)
 	r.Mul(r, b).Mul(r, big.NewInt(3))
@@ -105,28 +108,24 @@ func plainArithWitness(layout Layout, mod, a, b, c *big.Int) *plainArithCircuit 
 	r.Add(r, c)
 	r.Sub(r, new(big.Int).Mul(inv, new(big.Int).Add(b, c)))
 	r.Mod(r, mod)
-	return &plainArithCircuit{Mod: mod, Lay: layout, A: plainLimbs(a), B: plainLimbs(b), C: plainLimbs(c), Expected: plainLimbs(r)}
+	return &plainArithCircuit{Mod: mod, Config: config, A: plainLimbs(a), B: plainLimbs(b), C: plainLimbs(c), Expected: plainLimbs(r)}
 }
 
-func compilePlain(t *testing.T, mod *big.Int, layout Layout) constraint.ConstraintSystem {
+func compilePlain(t *testing.T, config Config, mod *big.Int) constraint.ConstraintSystem {
 	t.Helper()
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &plainArithCircuit{Mod: mod, Lay: layout})
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &plainArithCircuit{Mod: mod, Config: config})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := 0
-	if layout.Lookups {
-		want = 1
-	}
-	if got := len(cs.GetCommitments().CommitmentIndexes()); got != want {
-		t.Fatalf("layout %+v has %d commitments, want %d", layout, got, want)
+	if got := len(cs.GetCommitments().CommitmentIndexes()); got != 1 {
+		t.Fatalf("%d commitments, want 1", got)
 	}
 	return cs
 }
 
-func plainArithmeticMatchesBigInt(t *testing.T, name string, layout Layout, mod *big.Int) {
-	cs := compilePlain(t, mod, layout)
-	t.Logf("modulus %x... %s layout constraints %d wires %d", mod.Bytes()[:4], name, cs.GetNbConstraints(), cs.GetNbInternalVariables())
+func plainArithmeticMatchesBigInt(t *testing.T, config Config, mod *big.Int) {
+	cs := compilePlain(t, config, mod)
+	t.Logf("modulus %x... constraints %d wires %d", mod.Bytes()[:4], cs.GetNbConstraints(), cs.GetNbInternalVariables())
 	for i := 0; i < 3; i++ {
 		a, _ := rand.Int(rand.Reader, mod)
 		b, _ := rand.Int(rand.Reader, mod)
@@ -135,15 +134,15 @@ func plainArithmeticMatchesBigInt(t *testing.T, name string, layout Layout, mod 
 			b.Sub(mod, big.NewInt(1))
 			c.Sub(mod, big.NewInt(1))
 		}
-		w := plainArithWitness(layout, mod, a, b, c)
-		if err := test.IsSolved(&plainArithCircuit{Mod: mod, Lay: layout}, w, ecc.BN254.ScalarField()); err != nil {
+		w := plainArithWitness(config, mod, a, b, c)
+		if err := test.IsSolved(&plainArithCircuit{Mod: mod, Config: config}, w, ecc.BN254.ScalarField()); err != nil {
 			t.Fatalf("test engine: %v", err)
 		}
 		witness, _ := frontend.NewWitness(w, ecc.BN254.ScalarField())
 		if err := cs.IsSolved(witness); err != nil {
 			t.Fatalf("compiled: %v", err)
 		}
-		bad := plainArithWitness(layout, mod, a, b, c)
+		bad := plainArithWitness(config, mod, a, b, c)
 		bad.Expected[0] = new(big.Int).Add(bad.Expected[0].(*big.Int), big.NewInt(1))
 		expectRejected(t, cs, bad)
 		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(inverseHint), func(q *big.Int, inputs, outputs []*big.Int) error {
@@ -156,8 +155,8 @@ func plainArithmeticMatchesBigInt(t *testing.T, name string, layout Layout, mod 
 	}
 }
 
-func assertCanonicalComparesLimbwise(t *testing.T, layout Layout) {
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &plainCanonicalCircuit{Lay: layout})
+func assertCanonicalComparesLimbwise(t *testing.T, config Config) {
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &plainCanonicalCircuit{Config: config})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,24 +188,24 @@ func assertCanonicalComparesLimbwise(t *testing.T, layout Layout) {
 		values = append(values, v)
 	}
 	for _, v := range values {
-		w := &plainCanonicalCircuit{Lay: layout, Limbs: plainLimbs(v)}
+		w := &plainCanonicalCircuit{Config: config, Limbs: plainLimbs(v)}
 		witness, _ := frontend.NewWitness(w, ecc.BN254.ScalarField())
 		accept := v.Cmp(p256P) < 0
 		if err := cs.IsSolved(witness); (err == nil) != accept {
 			t.Fatalf("value %x: accept=%v err=%v", v, accept, err)
 		}
-		if err := test.IsSolved(&plainCanonicalCircuit{Lay: layout}, w, ecc.BN254.ScalarField()); (err == nil) != accept {
+		if err := test.IsSolved(&plainCanonicalCircuit{Config: config}, w, ecc.BN254.ScalarField()); (err == nil) != accept {
 			t.Fatalf("test engine value %x: accept=%v err=%v", v, accept, err)
 		}
 	}
 }
 
-func plainCheckHintForgeriesAreRejected(t *testing.T, layout Layout) {
+func plainCheckHintForgeriesAreRejected(t *testing.T, config Config) {
 	for _, mod := range []*big.Int{p256P, p256N} {
-		cs := compilePlain(t, mod, layout)
+		cs := compilePlain(t, config, mod)
 		a, _ := new(big.Int).SetString("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", 16)
 		b, _ := new(big.Int).SetString("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321", 16)
-		w := plainArithWitness(layout, mod, new(big.Int).Mod(a, mod), new(big.Int).Mod(b, mod), new(big.Int).Sub(mod, big.NewInt(5)))
+		w := plainArithWitness(config, mod, new(big.Int).Mod(a, mod), new(big.Int).Mod(b, mod), new(big.Int).Sub(mod, big.NewInt(5)))
 		forgeries := map[string]func(q *big.Int, outputs []*big.Int){
 			"remainder plus modulus in the top limb": func(q *big.Int, outputs []*big.Int) {
 				outputs[0].Add(outputs[0], big.NewInt(1))

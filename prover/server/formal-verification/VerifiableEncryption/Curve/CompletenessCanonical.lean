@@ -18,7 +18,7 @@ theorem zeroIndicator_native_spec (value : F) : GatesDef.is_zero value (zeroIndi
 
 theorem canonicalP_complete (L : List.Vector F 8)
     (hl : ∀ i, (L.get i).val < 2 ^ 32) (hv : limbNat L < p) :
-    AssertCanonical_8_0_hc36017e9 L := by
+    AssertCanonical_8_0_hcc2f8a19 L := by
   have hmax : ∀ i, (4294967295 : F) - L.get i = 0 ↔ (L.get i).val = 4294967295 := by
     intro i
     rw [sub_eq_zero]
@@ -56,7 +56,7 @@ theorem canonicalP_complete (L : List.Vector F 8)
   let high := (4294967295 : F) - L.get 7
   let low := (4294967295 : F) - L.get 2 + ((4294967295 : F) - L.get 1)
   let last := (4294967295 : F) - L.get 0
-  unfold AssertCanonical_8_0_hc36017e9
+  unfold AssertCanonical_8_0_hcc2f8a19
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, GatesDef.eq, exists_eq_left]
   refine ⟨zeroIndicator high, ?_, ?_, ?_, zeroIndicator low, ?_, zeroIndicator last, ?_, ?_, trivial⟩
@@ -156,7 +156,7 @@ theorem distinctX_sum_nonzero (L R : List.Vector F 8)
 theorem distinctX_values_complete (L R : List.Vector F 8)
     (hl : ∀ i, (L.get i).val < 2 ^ 32) (hr : ∀ i, (R.get i).val < 2 ^ 32)
     (hlp : limbNat L < p) (hrp : limbNat R < p) (hne : limbNat L ≠ limbNat R) :
-    AssertDistinctX_8_8_h83dcf683 L R :=
+    AssertDistinctX_8_8_h689cdb88 L R :=
   distinctX_complete L R (canonicalP_complete L hl hlp) (canonicalP_complete R hr hrp)
     (distinctX_sum_nonzero L R hl hr hne)
 

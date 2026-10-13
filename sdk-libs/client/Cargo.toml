@@ -32,7 +32,7 @@ zolana-api = { workspace = true, optional = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 solana-address = { workspace = true }
-p256 = { workspace = true }
+ed25519-dalek = { workspace = true }
 thiserror = { workspace = true }
 aes-gcm = { workspace = true }
 ciborium = { workspace = true }
@@ -74,6 +74,7 @@ solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 
 [dev-dependencies]
+p256 = { workspace = true }
 base64 = { workspace = true }
 # solana-rpc-client 4.1's send path. Kept so the v1 serde-order repro can
 # call the same `bincode::serialize` that client used.

@@ -22,7 +22,8 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 # The one implementation of "what budget a v1 header must state", so the rig
 # cannot drift from what the SDK sends.
 zolana-client = { workspace = true }
-zolana-keypair = { workspace = true }
+p256 = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 solana-transaction-error = { workspace = true }

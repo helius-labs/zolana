@@ -84,34 +84,32 @@ func TestDistinctSlopeGuard(t *testing.T) {
 
 // Invariant 3: Forged rational decompositions and multiplication results from the regression report are rejected.
 func TestUnconstrainedHintInScalarMulFakeGLVReportIsRejected(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		offCurveX := new(big.Int).SetBytes([]byte("an x nobody can recompute later!"))
-		onCurvePeer, onCurveX := sameYCurvePoint(t)
-		honestPeer := peerKey(t).PublicKey()
-		honestX := new(big.Int).SetBytes(honestPeer.Bytes()[1:33])
-		ecdhCS := compile(t, &ecdhCircuit{NoLookups: noLookups})
-		agreeCS := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
-		for _, row := range []struct {
-			name string
-			peer *ecdh.PublicKey
-			x    *big.Int
-		}{
-			{"off-curve result", peerKey(t).PublicKey(), offCurveX},
-			{"on-curve result sharing the mirrored y", onCurvePeer, onCurveX},
-			{"honest result with the forged decomposition", honestPeer, honestX},
-		} {
-			t.Run("ECDH "+row.name, func(t *testing.T) {
-				if solveUnderAttack(t, ecdhCS, ecdhAttackWitness(row.peer, row.x), row.x) == nil {
-					t.Fatal("forged shared secret accepted")
-				}
-			})
-			t.Run("AgreeKey "+row.name, func(t *testing.T) {
-				if solveUnderAttack(t, agreeCS, agreeKeyAttackWitness(t, row.peer, row.x), row.x) == nil {
-					t.Fatal("forged shared secret accepted")
-				}
-			})
-		}
-	})
+	offCurveX := new(big.Int).SetBytes([]byte("an x nobody can recompute later!"))
+	onCurvePeer, onCurveX := sameYCurvePoint(t)
+	honestPeer := peerKey(t).PublicKey()
+	honestX := new(big.Int).SetBytes(honestPeer.Bytes()[1:33])
+	ecdhCS := compile(t, &ecdhCircuit{})
+	agreeCS := compile(t, &agreeKeyCircuit{})
+	for _, row := range []struct {
+		name string
+		peer *ecdh.PublicKey
+		x    *big.Int
+	}{
+		{"off-curve result", peerKey(t).PublicKey(), offCurveX},
+		{"on-curve result sharing the mirrored y", onCurvePeer, onCurveX},
+		{"honest result with the forged decomposition", honestPeer, honestX},
+	} {
+		t.Run("ECDH "+row.name, func(t *testing.T) {
+			if solveUnderAttack(t, ecdhCS, ecdhAttackWitness(row.peer, row.x), row.x) == nil {
+				t.Fatal("forged shared secret accepted")
+			}
+		})
+		t.Run("AgreeKey "+row.name, func(t *testing.T) {
+			if solveUnderAttack(t, agreeCS, agreeKeyAttackWitness(t, row.peer, row.x), row.x) == nil {
+				t.Fatal("forged shared secret accepted")
+			}
+		})
+	}
 }
 
 // Invariant 4: Valid point addition accepts x-coordinates differing by the BN254 modulus.
@@ -136,16 +134,14 @@ func TestPointAdditionAcceptsNativeModulusXDifference(t *testing.T) {
 	}
 	x, y := elliptic.P256().Add(px, py, qx, qy)
 	t.Logf("valid unequal x coordinates: %s and %s", px, qx)
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &pointAdditionCircuit{NoLookups: noLookups})
-		w := &pointAdditionCircuit{PX: plainLimbValues(px), PY: plainLimbValues(py), QX: plainLimbValues(qx), QY: plainLimbValues(qy), X: plainLimbValues(x), Y: plainLimbValues(y)}
-		assertCircuitResult(t, cs, w, true)
-		// Control: doubling the same valid point succeeds.
-		x, y = elliptic.P256().Double(px, py)
-		w.QX, w.QY, w.X, w.Y = w.PX, w.PY, plainLimbValues(x), plainLimbValues(y)
-		assertCircuitResult(t, cs, w, true)
-		x, y = elliptic.P256().Add(px, py, qx, qy)
-	})
+	cs := compile(t, &pointAdditionCircuit{})
+	w := &pointAdditionCircuit{PX: plainLimbValues(px), PY: plainLimbValues(py), QX: plainLimbValues(qx), QY: plainLimbValues(qy), X: plainLimbValues(x), Y: plainLimbValues(y)}
+	assertCircuitResult(t, cs, w, true)
+	// Control: doubling the same valid point succeeds.
+	x, y = elliptic.P256().Double(px, py)
+	w.QX, w.QY, w.X, w.Y = w.PX, w.PY, plainLimbValues(x), plainLimbValues(y)
+	assertCircuitResult(t, cs, w, true)
+	x, y = elliptic.P256().Add(px, py, qx, qy)
 }
 
 // Test circuits and shared helpers.
@@ -248,7 +244,7 @@ type distinctSlopeCircuit struct {
 }
 
 func (c *distinctSlopeCircuit) Define(api frontend.API) error {
-	cv := newCurveFor(api, false)
+	cv := newCurve(api)
 	a := cv.fp.HintBalanced(identityHint, 1, nil, cv.fp.FromLimbs(c.A[:]))[0]
 	b := cv.fp.HintBalanced(identityHint, 1, nil, cv.fp.FromLimbs(c.B[:]))[0]
 	cv.assertDistinctSlope(a, cv.nativeValue(b))
@@ -270,12 +266,11 @@ func plainLimbValues(v *big.Int) (out [8]frontend.Variable) {
 }
 
 type pointAdditionCircuit struct {
-	NoLookups            bool `gnark:"-"`
 	PX, PY, QX, QY, X, Y [8]frontend.Variable
 }
 
 func (c *pointAdditionCircuit) Define(api frontend.API) error {
-	cv := newCurveFor(api, !c.NoLookups)
+	cv := newCurve(api)
 	p := &point{cv.fp.FromLimbs(c.PX[:]), cv.fp.FromLimbs(c.PY[:])}
 	q := &point{cv.fp.FromLimbs(c.QX[:]), cv.fp.FromLimbs(c.QY[:])}
 	cv.assertOnCurve(p)

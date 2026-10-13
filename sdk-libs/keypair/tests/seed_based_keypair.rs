@@ -159,10 +159,6 @@ impl ShieldedKeypairTrait for SeedBasedShieldedKeypair {
         self.signing_key.sign_message(message)
     }
 
-    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        self.signing_key.sign_hash(hash)
-    }
-
     fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
@@ -300,7 +296,6 @@ fn seed_based_keypair_signs_and_guards_derivation_inputs() {
         keypair.sign_message(&ed25519_derivation_message(&signer)),
         Err(KeypairError::DerivationInput)
     );
-    assert_eq!(keypair.sign_hash(&[7u8; 32]), Err(KeypairError::NotP256));
 }
 
 #[test]

@@ -25,7 +25,7 @@ tier is behind a Cargo feature, `proofs` or `localnet`, so a plain `cargo test
 | --- | :---: | :---: | :---: | :---: |
 | Protocol/tree/SPL administration | ✓ | account mutations | — | ✓ |
 | SOL and SPL deposits | ✓ | exact errors | — | ✓ |
-| P256 and EdDSA transfers | ✓ | malformed dispatch | every supported shape | ✓ |
+| EdDSA and RingP256 (in-circuit Ed25519) transfers | ✓ | malformed dispatch | every supported shape | ✓ |
 | Mixed public SOL/SPL amounts | ✓ | malformed dispatch | fixed-shape matrices | ✓ |
 | Withdrawals | ✓ | malformed dispatch | SOL/SPL matrices | ✓ |
 | Merge and merge-ring | ✓ | malformed dispatch | padding and both rails | ✓ |
@@ -124,10 +124,11 @@ and cached variants, plus SOL/SPL withdrawals, but only under the manual
 run it. There is no separate split instruction: `1x16` is the widest
 split-shaped transact.
 
-P256 commitment verification and policy-ring CPI behavior require the real
+BSB22 commitment verification and policy-ring CPI behavior require the real
 validator; Mollusk's pairing stubs are not treated as authoritative CU data. The
-focused `proof_cu` binaries therefore pin P256 transact, ring EdDSA/P256
-transact, P256 and ring withdrawals, ring-authority transact, an 8-input merge
+focused `proof_cu` binaries therefore pin confidential transact, ring EdDSA and
+RingP256 (in-circuit Ed25519) transact, confidential and ring withdrawals,
+ring-authority transact, an 8-input merge
 and an 8-input merge-ring (both on the `8x1` circuit) using confirmed
 transaction metadata. The `max_shapes` binaries confirm the widest transact
 shape of each output count and the 54-input merges on surfpool. This is an orthogonal matrix:

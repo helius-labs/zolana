@@ -9,7 +9,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_keypair::{Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair};
 use zolana_program::instruction::MergeTransact;
 use zolana_transaction::{instructions::merge::MergeProofInputs, Address};
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
@@ -195,20 +195,10 @@ fn validate_merge_submission(
         return Err(ClientError::MergeDisabled { owner });
     }
     let signing = material.signing_pubkey;
-    match signing.curve()? {
-        Curve::P256 => {
-            if record.owner_p256 != Some(*signing.as_p256()?.as_bytes()) {
-                return Err(ClientError::MergeSigningKeyMismatch);
-            }
-        }
-        Curve::Ed25519 | Curve::Pda => {
-            // The ed25519 rail derives the signing identity from the record's
-            // Solana `owner`, which carries no P256 key. A PDA owner is
-            // identical here: its identity is the record's `owner` address.
-            if record.owner_p256.is_some() || signing.confidential_view_tag()? != owner.to_bytes() {
-                return Err(ClientError::MergeSigningKeyMismatch);
-            }
-        }
+    // The signing identity is the record's Solana `owner` (an Ed25519 key or a
+    // PDA); a record that names a P-256 owner key cannot back it.
+    if record.owner_p256.is_some() || signing.confidential_view_tag()? != owner.to_bytes() {
+        return Err(ClientError::MergeSigningKeyMismatch);
     }
     if record.nullifier_pubkey != material.nullifier_key.pubkey()? {
         return Err(ClientError::MergeNullifierKeyMismatch);
@@ -301,7 +291,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_a_signing_rail_mismatch() {
-        // A P256 record cannot back an ed25519 merging keypair.
+        // A record naming a P-256 owner key cannot back an ed25519 merging keypair.
         let (owner, keypair) = ed25519_owner();
         let mut record = record_for(owner, &keypair, true);
         record.owner_p256 = Some([2u8; 33]);

@@ -21,7 +21,7 @@ theorem combFirst_complete (hr : RangeComplete) (X WX WY FY : ElemVal 8)
       ∀ (previousSlope previousX previousY : List.Vector F 8)
         (k : List.Vector (List.Vector F 8) 2 → Prop),
         k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) →
-        CombChainStep_8_8_8_8_8_8_8_h9024d0c7 X.limbs previousSlope previousX previousY
+        CombChainStep_8_8_8_8_8_8_8_h14296507 X.limbs previousSlope previousX previousY
           WX.limbs WY.limbs FY.limbs k := by
   obtain ⟨l, hz, next⟩ := combFirst_slope_math X WX WY FY hA hW hne
   let L := slopeElem l

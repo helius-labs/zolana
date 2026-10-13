@@ -136,7 +136,7 @@ func scalarCoreNodes(defs map[string]extractedDef, name string) ([]scalarCoreNod
 		} else if m := assert.FindStringSubmatch(s); m != nil {
 			op := m[1]
 			kind := "assert"
-			if strings.HasPrefix(op, "ScalarMulChecked_8_8_8_h903d3456_p") {
+			if strings.HasPrefix(op, "ScalarMulChecked_8_8_8_h9a706aba_p") {
 				kind = "next"
 			} else if op == "k" {
 				kind = "end"
@@ -169,8 +169,8 @@ func scalarCoreNodes(defs map[string]extractedDef, name string) ([]scalarCoreNod
 		}
 	} else {
 		var part int
-		if _, err := fmt.Sscanf(name, "ScalarMulChecked_8_8_8_h903d3456_p%d", &part); err != nil ||
-			last.kind != "next" || last.primitive != fmt.Sprintf("ScalarMulChecked_8_8_8_h903d3456_p%d", part+1) {
+		if _, err := fmt.Sscanf(name, "ScalarMulChecked_8_8_8_h9a706aba_p%d", &part); err != nil ||
+			last.kind != "next" || last.primitive != fmt.Sprintf("ScalarMulChecked_8_8_8_h9a706aba_p%d", part+1) {
 			return nil, fmt.Errorf("%s: changed next-fragment boundary", name)
 		}
 	}
@@ -181,7 +181,7 @@ func scalarCoreNodes(defs map[string]extractedDef, name string) ([]scalarCoreNod
 // functions, then a reverse composition proof. Primitive constructors remain
 // individual CPS arguments; the final continuation is the exact next fragment.
 func renderScalarCoreFragment(defs map[string]extractedDef, part int) (string, error) {
-	name := fmt.Sprintf("ScalarMulChecked_8_8_8_h903d3456_p%d", part)
+	name := fmt.Sprintf("ScalarMulChecked_8_8_8_h9a706aba_p%d", part)
 	ps, err := scalarCoreParams(defs[name], name)
 	if err != nil {
 		return "", err
@@ -401,7 +401,7 @@ func renderScalarCoreCompositions(defs map[string]extractedDef) (string, error) 
 		w.b.WriteString(source)
 	}
 	for part := 2; part < 9; part++ {
-		name := fmt.Sprintf("ScalarMulChecked_8_8_8_h903d3456_p%d", part)
+		name := fmt.Sprintf("ScalarMulChecked_8_8_8_h9a706aba_p%d", part)
 		ps, err := scalarCoreParams(defs[name], name)
 		if err != nil {
 			return "", err

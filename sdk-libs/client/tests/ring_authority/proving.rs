@@ -40,7 +40,6 @@ impl RingAuthorityHarness {
         match mode {
             Mode::ShapeSweep => prove_and_verify(shape_sweep(n_in), n_in, n_out),
             Mode::MultiReal => prove_and_verify(multi_real(), 4, 4),
-            Mode::P256Input => prove_and_verify(p256_input(), 2, 2),
             Mode::MixedOwners => prove_and_verify(mixed_owners(), 2, 2),
         }
     }
@@ -79,23 +78,12 @@ fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
     (assemble_prover(inputs, outputs, 4, 4), keys)
 }
 
-/// #3: one real P256-owned ring input + dummy input and outputs (shape 2x2).
+/// #3: real inputs of two distinct Solana owners, dummy outputs (shape 2x2).
 /// Exercises the pubkey-agnostic owner mode (no signature).
-fn p256_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
-    let mut indexer = TestIndexer::new();
-    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(p256_keypair(), 0)]);
-    inputs.push(dummy_input());
-    (
-        assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
-        keys,
-    )
-}
-
-/// #4: one Solana-owned and one P256-owned real input, dummy outputs (shape 2x2).
 fn mixed_owners() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (inputs, keys) =
-        build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0), (p256_keypair(), 0)]);
+        build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0), (eddsa_keypair(), 0)]);
     (
         assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
         keys,
@@ -274,10 +262,6 @@ fn eddsa_keypair() -> ShieldedKeypair {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&random_blinding());
     ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("eddsa keypair")
-}
-
-fn p256_keypair() -> ShieldedKeypair {
-    ShieldedKeypair::new_p256().expect("p256 keypair")
 }
 
 fn ring_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {

@@ -1,6 +1,6 @@
 // Tested invariants and diagnostics:
 //
-//  1. Packed key agreement matches host ECDH with lookup and bit-based range checks.
+//  1. Packed key agreement matches host ECDH.
 //  2. Each altered packed output is rejected.
 //  3. Forged decomposition, multiplication, slope, and lookup hints are rejected.
 //  4. Malformed, noncanonical, and off-curve recipient encodings are rejected.
@@ -25,7 +25,7 @@ import (
 	"zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield"
 )
 
-// Invariant 1: Packed key agreement matches host ECDH with lookup and bit-based range checks.
+// Invariant 1: Packed key agreement matches host ECDH.
 func TestAgreeKeyMatchesHostECDH(t *testing.T) {
 	assert := test.NewAssert(t)
 	peer := peerKey(t).PublicKey()
@@ -41,202 +41,170 @@ func TestAgreeKeyMatchesHostECDH(t *testing.T) {
 	}
 }
 
-// Invariant 1: Packed key agreement matches host ECDH with lookup and bit-based range checks.
-func TestNoLookupAgreeKeyMatchesHostECDH(t *testing.T) {
-	peer := peerKey(t).PublicKey()
-	n := GroupOrder()
-	cs := compile(t, &agreeKeyCircuit{NoLookups: true})
-	for _, s := range []*big.Int{
-		mergeScalar,
-		big.NewInt(2),
-		new(big.Int).Sub(n, big.NewInt(2)),
-		new(big.Int).Add(big.NewInt(0x1234_5678), n),
-	} {
-		w := agreeKeyWitness(t, s, peer)
-		if err := test.IsSolved(&agreeKeyCircuit{NoLookups: true}, w, ecc.BN254.ScalarField()); err != nil {
-			t.Fatalf("test engine: %v", err)
-		}
-		if err := solveAgreeKey(t, cs, w); err != nil {
-			t.Fatalf("compiled: %v", err)
+// Invariant 2: Each altered packed output is rejected.
+func TestAgreeKeyRejectsTamperedOutputs(t *testing.T) {
+	cs := compile(t, &agreeKeyCircuit{})
+	honest := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
+	if err := solveAgreeKey(t, cs, honest); err != nil {
+		t.Fatalf("honest witness: %v", err)
+	}
+	for i := range honest.Expected {
+		tampered := *honest
+		tampered.Expected[i] = new(big.Int).Add(honest.Expected[i].(*big.Int), big.NewInt(1))
+		if solveAgreeKey(t, cs, &tampered) == nil {
+			t.Fatalf("output %d accepted after tampering", i)
 		}
 	}
 }
 
-// Invariant 2: Each altered packed output is rejected.
-func TestAgreeKeyRejectsTamperedOutputs(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
-		honest := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
-		if err := solveAgreeKey(t, cs, honest); err != nil {
-			t.Fatalf("honest witness: %v", err)
-		}
-		for i := range honest.Expected {
-			tampered := *honest
-			tampered.Expected[i] = new(big.Int).Add(honest.Expected[i].(*big.Int), big.NewInt(1))
-			if solveAgreeKey(t, cs, &tampered) == nil {
-				t.Fatalf("output %d accepted after tampering", i)
-			}
-		}
-	})
-}
-
 // Invariant 3: Forged decomposition, multiplication, slope, and lookup hints are rejected.
 func TestAgreeKeyRejectsForgedHints(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
-		honest := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
-		chord := func(p *big.Int, in []*big.Int) *big.Int {
+	cs := compile(t, &agreeKeyCircuit{})
+	honest := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
+	chord := func(p *big.Int, in []*big.Int) *big.Int {
+		yD := implicitDoubledY(p, in[0], in[1], in[2], in[3])
+		return modRatio(p, new(big.Int).Sub(in[5], yD), new(big.Int).Sub(in[4], in[2]))
+	}
+	ratio := func(p *big.Int, in []*big.Int) *big.Int { return modRatio(p, in[0], in[1]) }
+	forgeries := []struct {
+		name string
+		hint solver.Hint
+		with solver.Hint
+		also []solver.Option
+	}{
+		{"consistent ladder for another scalar", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }),
+			[]solver.Option{solver.OverrideHint(solver.GetHintID(p256DecomposeScalarHint), forgedDecompositionHint(new(big.Int).Add(mergeScalar, big.NewInt(1))))}},
+		{"scalar mul result plus Q", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }), nil},
+		{"scalar mul result negated", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Sub(GroupOrder(), s) }), nil},
+		{"zero decomposition", p256DecomposeScalarHint, forgedDecompositionHint(nil), nil},
+		{"decomposition of another scalar", p256DecomposeScalarHint, forgedDecompositionHint(new(big.Int).Add(mergeScalar, big.NewInt(1))), nil},
+		{"chord slope", p256ImplicitChordHint, shiftedSlopeHint(chord), nil},
+		{"table slope", p256RatioHint, shiftedSlopeHint(ratio), nil},
+		{"tangent slope", p256TangentHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
+			num := new(big.Int).Mul(in[0], in[0])
+			num.Sub(num, big.NewInt(1)).Mul(num, big.NewInt(3))
+			return modRatio(p, num, new(big.Int).Lsh(in[1], 1))
+		}), nil},
+		{"second slope", p256ImplicitSecondSlopeHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
 			yD := implicitDoubledY(p, in[0], in[1], in[2], in[3])
-			return modRatio(p, new(big.Int).Sub(in[5], yD), new(big.Int).Sub(in[4], in[2]))
-		}
-		ratio := func(p *big.Int, in []*big.Int) *big.Int { return modRatio(p, in[0], in[1]) }
-		forgeries := []struct {
-			name string
-			hint solver.Hint
-			with solver.Hint
-			also []solver.Option
-		}{
-			{"consistent ladder for another scalar", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }),
-				[]solver.Option{solver.OverrideHint(solver.GetHintID(p256DecomposeScalarHint), forgedDecompositionHint(new(big.Int).Add(mergeScalar, big.NewInt(1))))}},
-			{"scalar mul result plus Q", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Add(s, big.NewInt(1)) }), nil},
-			{"scalar mul result negated", p256ScalarMulHint, forgedScalarMulHint(func(s *big.Int) *big.Int { return new(big.Int).Sub(GroupOrder(), s) }), nil},
-			{"zero decomposition", p256DecomposeScalarHint, forgedDecompositionHint(nil), nil},
-			{"decomposition of another scalar", p256DecomposeScalarHint, forgedDecompositionHint(new(big.Int).Add(mergeScalar, big.NewInt(1))), nil},
-			{"chord slope", p256ImplicitChordHint, shiftedSlopeHint(chord), nil},
-			{"table slope", p256RatioHint, shiftedSlopeHint(ratio), nil},
-			{"tangent slope", p256TangentHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
-				num := new(big.Int).Mul(in[0], in[0])
-				num.Sub(num, big.NewInt(1)).Mul(num, big.NewInt(3))
-				return modRatio(p, num, new(big.Int).Lsh(in[1], 1))
-			}), nil},
-			{"second slope", p256ImplicitSecondSlopeHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
-				yD := implicitDoubledY(p, in[0], in[1], in[2], in[3])
-				return modRatio(p, new(big.Int).Lsh(yD, 1), new(big.Int).Sub(in[4], in[2]))
-			}), nil},
-			{"comb chain slope", p256CombChainHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
-				y := new(big.Int).Sub(in[2], in[1])
-				y.Mul(y, in[0]).Sub(y, in[3])
-				return modRatio(p, new(big.Int).Sub(in[5], y), new(big.Int).Sub(in[4], in[1]))
-			}), nil},
-			{"unified slope", p256UnifiedSlopeHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
-				return modRatio(p, new(big.Int).Sub(in[3], in[1]), new(big.Int).Sub(in[2], in[0]))
-			}), nil},
-			{"table point coordinates", p256AddHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				if err := p256AddHint(q, inputs, outputs); err != nil {
-					return err
-				}
-				outputs[len(outputs)-1].Xor(outputs[len(outputs)-1], big.NewInt(1))
-				return nil
-			}, nil},
-			{"half-point tangent slope", p256HalfTangentHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				if err := p256HalfTangentHint(q, inputs, outputs); err != nil {
-					return err
-				}
-				outputs[0].Xor(outputs[0], big.NewInt(1))
-				return nil
-			}, nil},
-			{"balanced slope limb", emfield.BalanceHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				if err := emfield.BalanceHint(q, inputs, outputs); err != nil {
-					return err
-				}
-				outputs[0].Xor(outputs[0], big.NewInt(1))
-				return nil
-			}, nil},
-			{"x-coordinates claimed equal", p256XEqualHint, func(_ *big.Int, _, outputs []*big.Int) error {
-				outputs[0].SetUint64(1)
-				outputs[1].SetUint64(0)
-				return nil
-			}, nil},
-			{"comb recoding of another scalar", p256CombRecodeHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				shifted := []*big.Int{new(big.Int).Add(inputs[0], big.NewInt(1))}
-				return p256CombRecodeHint(q, append(shifted, inputs[1:]...), outputs)
-			}, nil},
-			{"table row of another index", p256RowLookupHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				moved := append([]*big.Int{new(big.Int).Xor(inputs[0], big.NewInt(1))}, inputs[1:]...)
-				return p256RowLookupHint(q, moved, outputs)
-			}, nil},
-			{"table multiplicities", p256RowCountHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-				if err := p256RowCountHint(q, inputs, outputs); err != nil {
-					return err
-				}
-				outputs[0].Add(outputs[0], big.NewInt(1))
-				return nil
-			}, nil},
-			{"byte split", p256SplitLowBitsHint, func(_ *big.Int, inputs, outputs []*big.Int) error {
-				n := uint(inputs[1].Uint64())
-				outputs[0].Rsh(inputs[0], n).Sub(outputs[0], big.NewInt(1))
-				outputs[1].And(inputs[0], new(big.Int).Sub(pow2(int(n)), big.NewInt(1))).Add(outputs[1], pow2(int(n)))
-				return nil
-			}, nil},
-		}
-		for _, f := range forgeries {
-			if noLookups && isTableHint(f.hint) {
-				continue
+			return modRatio(p, new(big.Int).Lsh(yD, 1), new(big.Int).Sub(in[4], in[2]))
+		}), nil},
+		{"comb chain slope", p256CombChainHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
+			y := new(big.Int).Sub(in[2], in[1])
+			y.Mul(y, in[0]).Sub(y, in[3])
+			return modRatio(p, new(big.Int).Sub(in[5], y), new(big.Int).Sub(in[4], in[1]))
+		}), nil},
+		{"unified slope", p256UnifiedSlopeHint, shiftedSlopeHint(func(p *big.Int, in []*big.Int) *big.Int {
+			return modRatio(p, new(big.Int).Sub(in[3], in[1]), new(big.Int).Sub(in[2], in[0]))
+		}), nil},
+		{"table point coordinates", p256AddHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := p256AddHint(q, inputs, outputs); err != nil {
+				return err
 			}
-			t.Run(f.name, func(t *testing.T) {
-				called := false
-				with := func(q *big.Int, inputs, outputs []*big.Int) error {
-					called = true
-					return f.with(q, inputs, outputs)
-				}
-				err := solveAgreeKey(t, cs, honest, append(f.also, solver.OverrideHint(solver.GetHintID(f.hint), with))...)
-				if !called {
-					t.Fatal("the forged hint never ran")
-				}
-				if err == nil {
-					t.Fatal("forged hint accepted")
-				}
-			})
-		}
-	})
+			outputs[len(outputs)-1].Xor(outputs[len(outputs)-1], big.NewInt(1))
+			return nil
+		}, nil},
+		{"half-point tangent slope", p256HalfTangentHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := p256HalfTangentHint(q, inputs, outputs); err != nil {
+				return err
+			}
+			outputs[0].Xor(outputs[0], big.NewInt(1))
+			return nil
+		}, nil},
+		{"balanced slope limb", emfield.BalanceHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := emfield.BalanceHint(q, inputs, outputs); err != nil {
+				return err
+			}
+			outputs[0].Xor(outputs[0], big.NewInt(1))
+			return nil
+		}, nil},
+		{"x-coordinates claimed equal", p256XEqualHint, func(_ *big.Int, _, outputs []*big.Int) error {
+			outputs[0].SetUint64(1)
+			outputs[1].SetUint64(0)
+			return nil
+		}, nil},
+		{"comb recoding of another scalar", p256CombRecodeHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+			shifted := []*big.Int{new(big.Int).Add(inputs[0], big.NewInt(1))}
+			return p256CombRecodeHint(q, append(shifted, inputs[1:]...), outputs)
+		}, nil},
+		{"table row of another index", p256RowLookupHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+			moved := append([]*big.Int{new(big.Int).Xor(inputs[0], big.NewInt(1))}, inputs[1:]...)
+			return p256RowLookupHint(q, moved, outputs)
+		}, nil},
+		{"table multiplicities", p256RowCountHint, func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := p256RowCountHint(q, inputs, outputs); err != nil {
+				return err
+			}
+			outputs[0].Add(outputs[0], big.NewInt(1))
+			return nil
+		}, nil},
+		{"byte split", p256SplitLowBitsHint, func(_ *big.Int, inputs, outputs []*big.Int) error {
+			n := uint(inputs[1].Uint64())
+			outputs[0].Rsh(inputs[0], n).Sub(outputs[0], big.NewInt(1))
+			outputs[1].And(inputs[0], new(big.Int).Sub(pow2(int(n)), big.NewInt(1))).Add(outputs[1], pow2(int(n)))
+			return nil
+		}, nil},
+	}
+	for _, f := range forgeries {
+		t.Run(f.name, func(t *testing.T) {
+			called := false
+			with := func(q *big.Int, inputs, outputs []*big.Int) error {
+				called = true
+				return f.with(q, inputs, outputs)
+			}
+			err := solveAgreeKey(t, cs, honest, append(f.also, solver.OverrideHint(solver.GetHintID(f.hint), with))...)
+			if !called {
+				t.Fatal("the forged hint never ran")
+			}
+			if err == nil {
+				t.Fatal("forged hint accepted")
+			}
+		})
+	}
 }
 
 // Invariant 4: Malformed, noncanonical, and off-curve recipient encodings are rejected.
 func TestAgreeKeyRejectsInvalidRecipients(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
-		params := elliptic.P256().Params()
-		x, y := smallCurvePoint(t)
-		uncompressed := append([]byte{4}, append(x.FillBytes(make([]byte, 32)), y.FillBytes(make([]byte, 32))...)...)
-		peer, err := ecdh.P256().NewPublicKey(uncompressed)
-		if err != nil {
-			t.Fatalf("small point: %v", err)
-		}
-		honest := agreeKeyWitness(t, mergeScalar, peer)
-		if err := solveAgreeKey(t, cs, honest); err != nil {
-			t.Fatalf("honest witness: %v", err)
+	cs := compile(t, &agreeKeyCircuit{})
+	params := elliptic.P256().Params()
+	x, y := smallCurvePoint(t)
+	uncompressed := append([]byte{4}, append(x.FillBytes(make([]byte, 32)), y.FillBytes(make([]byte, 32))...)...)
+	peer, err := ecdh.P256().NewPublicKey(uncompressed)
+	if err != nil {
+		t.Fatalf("small point: %v", err)
+	}
+	honest := agreeKeyWitness(t, mergeScalar, peer)
+	if err := solveAgreeKey(t, cs, honest); err != nil {
+		t.Fatalf("honest witness: %v", err)
+	}
+
+	nonCanonical := *honest
+	setBytes(nonCanonical.PublicKey[1:33], new(big.Int).Add(x, params.P).FillBytes(make([]byte, 32)))
+	offCurve := *honest
+	offCurve.PublicKey[64] = int(uncompressed[64] ^ 1)
+	infinity := *honest
+	setBytes(infinity.PublicKey[:], infinityPoint())
+	wrongPrefix := *honest
+	wrongPrefix.PublicKey[0] = 2
+	for name, w := range map[string]*agreeKeyCircuit{
+		"x plus p": &nonCanonical, "off curve": &offCurve, "infinity": &infinity, "prefix": &wrongPrefix,
+	} {
+		err := solveAgreeKey(t, cs, w)
+		if err == nil {
+			t.Fatalf("%s recipient accepted", name)
 		}
 
-		nonCanonical := *honest
-		setBytes(nonCanonical.PublicKey[1:33], new(big.Int).Add(x, params.P).FillBytes(make([]byte, 32)))
-		offCurve := *honest
-		offCurve.PublicKey[64] = int(uncompressed[64] ^ 1)
-		infinity := *honest
-		setBytes(infinity.PublicKey[:], infinityPoint())
-		wrongPrefix := *honest
-		wrongPrefix.PublicKey[0] = 2
-		for name, w := range map[string]*agreeKeyCircuit{
-			"x plus p": &nonCanonical, "off curve": &offCurve, "infinity": &infinity, "prefix": &wrongPrefix,
-		} {
-			err := solveAgreeKey(t, cs, w)
-			if err == nil {
-				t.Fatalf("%s recipient accepted", name)
-			}
-
-		}
-	})
+	}
 }
 
 // Invariant 5: Key agreement rejects scalar-byte carries that preserve the packed integer.
 func TestAgreeKeyRejectsScalarByteAlias(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &agreeKeyCircuit{NoLookups: noLookups})
-		w := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
-		raw := mergeScalar.FillBytes(make([]byte, 32))
-		w.Scalar[1] = int(raw[1]) - 1
-		w.Scalar[2] = int(raw[2]) + 256
-		assertCircuitResult(t, cs, w, false)
-	})
+	cs := compile(t, &agreeKeyCircuit{})
+	w := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
+	raw := mergeScalar.FillBytes(make([]byte, 32))
+	w.Scalar[1] = int(raw[1]) - 1
+	w.Scalar[2] = int(raw[2]) + 256
+	assertCircuitResult(t, cs, w, false)
 }
 
 // Test circuits and shared helpers.
@@ -327,14 +295,13 @@ func fieldLimbValues(v *big.Int) []frontend.Variable {
 }
 
 type agreeKeyCircuit struct {
-	NoLookups bool `gnark:"-"`
 	Scalar    [32]frontend.Variable
 	PublicKey [65]frontend.Variable
 	Expected  [6]frontend.Variable `gnark:",public"`
 }
 
 func (c *agreeKeyCircuit) Define(api frontend.API) error {
-	got := AgreeKeyFor(api, c.Scalar, c.PublicKey, !c.NoLookups)
+	got := AgreeKey(api, c.Scalar, c.PublicKey)
 	for i, v := range []frontend.Variable{got.RecipientLo, got.RecipientHi, got.EphemeralLo, got.EphemeralHi, got.SharedLo, got.SharedHi} {
 		api.AssertIsEqual(v, c.Expected[i])
 	}

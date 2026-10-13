@@ -1,9 +1,11 @@
 package transfereddsaonly
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"zolana/prover/prover/backend"
 
 	customring "zolana/prover/circuits/spp_transaction/custom"
@@ -16,17 +18,16 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/consensys/gnark/std/math/emulated"
 )
 
-type P256Proof struct {
+type Ed25519Proof struct {
 	System     *common.TransferProofSystem
-	Parameters *P256TransferParameters
+	Parameters *Ed25519TransferParameters
 	Timing     *timing.Trace
 }
 
-// P256TransferParameters is the flat witness for CustomRingP256Circuit.
-type P256TransferParameters struct {
+// Ed25519TransferParameters is the flat witness for CustomRingEd25519Circuit.
+type Ed25519TransferParameters struct {
 	NInputs  uint32
 	NOutputs uint32
 
@@ -45,13 +46,14 @@ type P256TransferParameters struct {
 	// tx blinding from it and the first nullifier.
 	BlindingSeed *big.Int
 
-	P256PubX               *big.Int
-	P256PubY               *big.Int
-	P256SigR               *big.Int
-	P256SigS               *big.Int
-	P256MessageHashLow     *big.Int
-	P256MessageHashHigh    *big.Int
-	DefaultP256OwnerPkHash *big.Int
+	// Ed25519PublicKey is the compressed Edwards y encoding of the shared owner
+	// key; Ed25519Signature is R || S over the 32-byte SPP signing digest.
+	Ed25519PublicKey [32]byte
+	Ed25519Signature [64]byte
+	// The signing digest as two big-endian 128-bit halves: High is bytes 0..16.
+	Ed25519MessageHashLow     *big.Int
+	Ed25519MessageHashHigh    *big.Int
+	DefaultEd25519OwnerPkHash *big.Int
 
 	PublicAssets                 []*big.Int
 	PublicAmounts                []*big.Int
@@ -65,7 +67,7 @@ type P256TransferParameters struct {
 	PublicInputHash *big.Int
 }
 
-type P256TransferParametersJSON struct {
+type Ed25519TransferParametersJSON struct {
 	CircuitType                  common.CircuitType          `json:"circuitType"`
 	NInputs                      uint32                      `json:"nInputs"`
 	NOutputs                     uint32                      `json:"nOutputs"`
@@ -76,13 +78,11 @@ type P256TransferParametersJSON struct {
 	ExternalDataHash             string                      `json:"externalDataHash"`
 	PrivateTxHash                string                      `json:"privateTxHash"`
 	BlindingSeed                 string                      `json:"blindingSeed"`
-	P256PubX                     string                      `json:"p256PubX"`
-	P256PubY                     string                      `json:"p256PubY"`
-	P256SigR                     string                      `json:"p256SigR"`
-	P256SigS                     string                      `json:"p256SigS"`
-	P256MessageHashLow           string                      `json:"p256MessageHashLow"`
-	P256MessageHashHigh          string                      `json:"p256MessageHashHigh"`
-	DefaultP256OwnerPkHash       string                      `json:"defaultP256OwnerPkHash"`
+	Ed25519PublicKey             string                      `json:"ed25519PublicKey"`
+	Ed25519Signature             string                      `json:"ed25519Signature"`
+	Ed25519MessageHashLow        string                      `json:"ed25519MessageHashLow"`
+	Ed25519MessageHashHigh       string                      `json:"ed25519MessageHashHigh"`
+	DefaultEd25519OwnerPkHash    string                      `json:"defaultEd25519OwnerPkHash"`
 	PublicAssets                 []string                    `json:"publicAssets"`
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
@@ -93,7 +93,7 @@ type P256TransferParametersJSON struct {
 	PublicInputHash string `json:"publicInputHash"`
 }
 
-func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
+func (p *Ed25519TransferParameters) MarshalJSON() ([]byte, error) {
 	base := (&TransferParameters{
 		NInputs:                      p.NInputs,
 		NOutputs:                     p.NOutputs,
@@ -113,7 +113,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		Variant:                      RingVariant,
 		PublicInputHash:              p.PublicInputHash,
 	}).CreateTransferParametersJSON()
-	return json.Marshal(P256TransferParametersJSON{
+	return json.Marshal(Ed25519TransferParametersJSON{
 		CircuitType:                  common.TransferP256RingCircuitType,
 		NInputs:                      base.NInputs,
 		NOutputs:                     base.NOutputs,
@@ -124,13 +124,11 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		ExternalDataHash:             base.ExternalDataHash,
 		PrivateTxHash:                base.PrivateTxHash,
 		BlindingSeed:                 base.BlindingSeed,
-		P256PubX:                     common.FeHex(p.P256PubX),
-		P256PubY:                     common.FeHex(p.P256PubY),
-		P256SigR:                     common.FeHex(p.P256SigR),
-		P256SigS:                     common.FeHex(p.P256SigS),
-		P256MessageHashLow:           common.FeHex(p.P256MessageHashLow),
-		P256MessageHashHigh:          common.FeHex(p.P256MessageHashHigh),
-		DefaultP256OwnerPkHash:       common.FeHex(p.DefaultP256OwnerPkHash),
+		Ed25519PublicKey:             bytesHex(p.Ed25519PublicKey[:]),
+		Ed25519Signature:             bytesHex(p.Ed25519Signature[:]),
+		Ed25519MessageHashLow:        common.FeHex(p.Ed25519MessageHashLow),
+		Ed25519MessageHashHigh:       common.FeHex(p.Ed25519MessageHashHigh),
+		DefaultEd25519OwnerPkHash:    common.FeHex(p.DefaultEd25519OwnerPkHash),
 		PublicAssets:                 base.PublicAssets,
 		PublicAmounts:                base.PublicAmounts,
 		RingProgramID:                base.RingProgramID,
@@ -142,13 +140,13 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
-	var params P256TransferParametersJSON
+func (p *Ed25519TransferParameters) UnmarshalJSON(data []byte) error {
+	var params Ed25519TransferParametersJSON
 	if err := json.Unmarshal(data, &params); err != nil {
 		return err
 	}
 	if params.CircuitType != common.TransferP256RingCircuitType {
-		return fmt.Errorf("invalid P256 transfer circuit type %q", params.CircuitType)
+		return fmt.Errorf("invalid Ed25519 transfer circuit type %q", params.CircuitType)
 	}
 	base := TransferParameters{}
 	if err := base.UpdateWithJSON(TransferParametersJSON{
@@ -191,15 +189,17 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.Cache = base.Cache
 	p.PublicInputHash = base.PublicInputHash
 
+	if err := bytesFromHex(p.Ed25519PublicKey[:], params.Ed25519PublicKey, "ed25519PublicKey"); err != nil {
+		return err
+	}
+	if err := bytesFromHex(p.Ed25519Signature[:], params.Ed25519Signature, "ed25519Signature"); err != nil {
+		return err
+	}
 	var err error
 	for target, encoded := range map[**big.Int]string{
-		&p.P256PubX:               params.P256PubX,
-		&p.P256PubY:               params.P256PubY,
-		&p.P256SigR:               params.P256SigR,
-		&p.P256SigS:               params.P256SigS,
-		&p.P256MessageHashLow:     params.P256MessageHashLow,
-		&p.P256MessageHashHigh:    params.P256MessageHashHigh,
-		&p.DefaultP256OwnerPkHash: params.DefaultP256OwnerPkHash,
+		&p.Ed25519MessageHashLow:     params.Ed25519MessageHashLow,
+		&p.Ed25519MessageHashHigh:    params.Ed25519MessageHashHigh,
+		&p.DefaultEd25519OwnerPkHash: params.DefaultEd25519OwnerPkHash,
 	} {
 		if *target, err = common.FeFromHex(encoded); err != nil {
 			return err
@@ -208,7 +208,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (p *P256TransferParameters) ValidateShape() error {
+func (p *Ed25519TransferParameters) ValidateShape() error {
 	return (&TransferParameters{
 		NInputs:      p.NInputs,
 		NOutputs:     p.NOutputs,
@@ -221,7 +221,7 @@ func (p *P256TransferParameters) ValidateShape() error {
 	}).ValidateShape()
 }
 
-func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
+func (p *Ed25519TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.TreeSlots, p.PublicAssets, p.PublicAmounts)
 	if err != nil {
 		return nil, err
@@ -255,18 +255,26 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
 		outputNullifierPks[i] = orZero(out.NullifierPk)
 	}
-	return &customring.CustomRingP256Circuit{
+	var ed25519PublicKey [32]frontend.Variable
+	for i, b := range p.Ed25519PublicKey {
+		ed25519PublicKey[i] = b
+	}
+	var ed25519Signature [64]frontend.Variable
+	for i, b := range p.Ed25519Signature {
+		ed25519Signature[i] = b
+	}
+	return &customring.CustomRingEd25519Circuit{
 		CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
 		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
-		Public: customring.CustomRingP256Public{
+		Public: customring.CustomRingEd25519Public{
 			Nullifiers:                   core.nullifiers,
 			OutputHashes:                 core.outputHashes,
 			TreeSlots:                    core.treeSlots,
 			OutputTreeID:                 p.OutputTreeID,
 			PrivateTxHash:                p.PrivateTxHash,
-			P256MessageHashLow:           p.P256MessageHashLow,
-			P256MessageHashHigh:          p.P256MessageHashHigh,
-			DefaultP256OwnerPkHash:       p.DefaultP256OwnerPkHash,
+			Ed25519MessageHashLow:        p.Ed25519MessageHashLow,
+			Ed25519MessageHashHigh:       p.Ed25519MessageHashHigh,
+			DefaultEd25519OwnerPkHash:    p.DefaultEd25519OwnerPkHash,
 			ExternalDataHash:             p.ExternalDataHash,
 			PublicAssets:                 core.publicAssets,
 			PublicAmounts:                core.publicAmounts,
@@ -276,27 +284,21 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 			PublicInputHash:              p.PublicInputHash,
 		},
-		Private: customring.CustomRingP256Private{
+		Private: customring.CustomRingEd25519Private{
 			Inputs:              core.inputs,
 			InputOwnerPkHashes:  core.inputOwnerPkHashes,
 			Outputs:             core.outputs,
 			OutputOwnerPkHashes: outputOwnerPkHashes,
 			OutputNullifierPks:  outputNullifierPks,
 			BlindingSeed:        p.BlindingSeed,
-			P256Pub: customring.P256PublicKey{
-				X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
-				Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),
-			},
-			P256Sig: customring.P256Signature{
-				R: emulated.ValueOf[emulated.P256Fr](p.P256SigR),
-				S: emulated.ValueOf[emulated.P256Fr](p.P256SigS),
-			},
+			Ed25519PublicKey:    ed25519PublicKey,
+			Ed25519Signature:    ed25519Signature,
 		},
 	}, nil
 }
 
-func R1CSP256Transfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
-	circuit, err := customring.NewCustomRingP256Circuit(
+func R1CSEd25519Transfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
+	circuit, err := customring.NewCustomRingEd25519Circuit(
 		txcircuit.Shape{NInputs: int(nInputs), NOutputs: int(nOutputs)},
 	)
 	if err != nil {
@@ -310,8 +312,8 @@ func R1CSP256Transfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSys
 	)
 }
 
-func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
-	ccs, err := R1CSP256Transfer(nInputs, nOutputs)
+func SetupEd25519Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
+	ccs, err := R1CSEd25519Transfer(nInputs, nOutputs)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +333,7 @@ func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSy
 	}, nil
 }
 
-func (request P256Proof) Prove() (*common.Proof, error) {
+func (request Ed25519Proof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
 	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
 		if err := params.ValidateShape(); err != nil {
@@ -339,7 +341,7 @@ func (request P256Proof) Prove() (*common.Proof, error) {
 		}
 		assignment, err := params.CreateWitness()
 		if err != nil {
-			return nil, fmt.Errorf("create P256 transfer witness: %w", err)
+			return nil, fmt.Errorf("create Ed25519 transfer witness: %w", err)
 		}
 		return assignment, nil
 	})
@@ -347,4 +349,22 @@ func (request P256Proof) Prove() (*common.Proof, error) {
 		return nil, err
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
+}
+
+func bytesHex(b []byte) string {
+	return "0x" + hex.EncodeToString(b)
+}
+
+// bytesFromHex accepts only the canonical form bytesHex writes: 0x-prefixed
+// lowercase hex of exactly len(dst) bytes.
+func bytesFromHex(dst []byte, s string, name string) error {
+	if len(s) != 2+2*len(dst) || !strings.HasPrefix(s, "0x") || strings.ToLower(s) != s {
+		return fmt.Errorf("spp: %s is not canonical %d-byte hex", name, len(dst))
+	}
+	decoded, err := hex.DecodeString(s[2:])
+	if err != nil {
+		return fmt.Errorf("spp: %s: %w", name, err)
+	}
+	copy(dst, decoded)
+	return nil
 }

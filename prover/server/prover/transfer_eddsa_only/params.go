@@ -55,8 +55,8 @@ type OutputParams struct {
 }
 
 // TransferParameters is the flat, pre-computed witness for the Solana-only
-// spp_transaction circuit. This rail has no P256 gadget: there is no P256
-// pubkey/signature/message-hash, and every real input must be Solana-owned. The
+// spp_transaction circuit. This rail has no in-circuit signature: there is no
+// Ed25519 key/signature/message-hash, and every real input must be Solana-owned. The
 // prover does no hashing — the client computes every field.
 type TransferParameters struct {
 	NInputs  uint32

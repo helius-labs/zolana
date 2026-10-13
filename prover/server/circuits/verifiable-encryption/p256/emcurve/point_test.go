@@ -88,52 +88,48 @@ func TestOutputBytesRejectForgedSplit(t *testing.T) {
 
 // Invariant 4: ECDH reduces scalars, accepts the six exceptional residues, and rejects infinity.
 func TestECDHRefusesInfinityAndReducesScalars(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdhCircuit{NoLookups: noLookups})
-		peer := peerKey(t).PublicKey()
-		for _, row := range scalarRows(t) {
-			t.Run(row.name, func(t *testing.T) {
-				row.check(t, cs, row.ecdhWitness(t, peer))
-			})
-		}
-	})
+	cs := compile(t, &ecdhCircuit{})
+	peer := peerKey(t).PublicKey()
+	for _, row := range scalarRows(t) {
+		t.Run(row.name, func(t *testing.T) {
+			row.check(t, cs, row.ecdhWitness(t, peer))
+		})
+	}
 }
 
 // Invariant 5: ECDH rejects incorrect prefixes, nonbyte coordinates, and noncanonical coordinates.
 func TestECDHRejectsMalformedEncoding(t *testing.T) {
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &ecdhCircuit{NoLookups: noLookups})
-		row := scalarRow{scalar: mergeScalar, reduced: mergeScalar}
-		peer := peerKey(t).PublicKey()
-		honest := row.ecdhWitness(t, peer)
-		assertCircuitResult(t, cs, honest, true)
-		t.Run("wrong prefix", func(t *testing.T) {
-			w := *honest
-			w.PublicKey[0] = 5
-			bad := append([]byte{}, peer.Bytes()...)
-			bad[0] = 5
-			if _, err := ecdh.P256().NewPublicKey(bad); err == nil {
-				t.Fatal("host accepted malformed key")
-			}
-			assertCircuitResult(t, cs, &w, false)
-		})
-		t.Run("non byte coordinate", func(t *testing.T) {
-			w := *honest
-			w.PublicKey[1] = int(peer.Bytes()[1]) - 1
-			w.PublicKey[2] = int(peer.Bytes()[2]) + 256
-			assertCircuitResult(t, cs, &w, false)
-		})
-		t.Run("noncanonical x", func(t *testing.T) {
-			x, y := smallCurvePoint(t)
-			key, err := ecdh.P256().NewPublicKey(elliptic.Marshal(elliptic.P256(), x, y))
-			if err != nil {
-				t.Fatal(err)
-			}
-			w := row.ecdhWitness(t, key)
-			alias := new(big.Int).Add(x, elliptic.P256().Params().P)
-			setBytes(w.PublicKey[1:33], alias.FillBytes(make([]byte, 32)))
-			assertCircuitResult(t, cs, w, false)
-		})
+	cs := compile(t, &ecdhCircuit{})
+	row := scalarRow{scalar: mergeScalar, reduced: mergeScalar}
+	peer := peerKey(t).PublicKey()
+	honest := row.ecdhWitness(t, peer)
+	assertCircuitResult(t, cs, honest, true)
+	t.Run("wrong prefix", func(t *testing.T) {
+		w := *honest
+		w.PublicKey[0] = 5
+		bad := append([]byte{}, peer.Bytes()...)
+		bad[0] = 5
+		if _, err := ecdh.P256().NewPublicKey(bad); err == nil {
+			t.Fatal("host accepted malformed key")
+		}
+		assertCircuitResult(t, cs, &w, false)
+	})
+	t.Run("non byte coordinate", func(t *testing.T) {
+		w := *honest
+		w.PublicKey[1] = int(peer.Bytes()[1]) - 1
+		w.PublicKey[2] = int(peer.Bytes()[2]) + 256
+		assertCircuitResult(t, cs, &w, false)
+	})
+	t.Run("noncanonical x", func(t *testing.T) {
+		x, y := smallCurvePoint(t)
+		key, err := ecdh.P256().NewPublicKey(elliptic.Marshal(elliptic.P256(), x, y))
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := row.ecdhWitness(t, key)
+		alias := new(big.Int).Add(x, elliptic.P256().Params().P)
+		setBytes(w.PublicKey[1:33], alias.FillBytes(make([]byte, 32)))
+		assertCircuitResult(t, cs, w, false)
 	})
 }
 
@@ -141,26 +137,24 @@ func TestECDHRejectsMalformedEncoding(t *testing.T) {
 func TestScalarMulExceptionalCoordinates(t *testing.T) {
 	peer := peerKey(t).PublicKey().Bytes()
 	px, py := elliptic.Unmarshal(elliptic.P256(), peer)
-	forEachMode(t, func(t *testing.T, noLookups bool) {
-		cs := compile(t, &scalarMulCoordinatesCircuit{NoLookups: noLookups})
-		for _, row := range scalarRows(t) {
-			if row.reduced == nil {
-				continue
-			}
-			t.Run(row.name, func(t *testing.T) {
-				w := &scalarMulCoordinatesCircuit{}
-				setBytes(w.Scalar[:], row.scalar.FillBytes(make([]byte, 32)))
-				setBytes(w.PublicKey[:], peer)
-				x, y := elliptic.P256().ScalarMult(px, py, row.reduced.Bytes())
-				setBytes(w.Result[:], elliptic.Marshal(elliptic.P256(), x, y))
-				assertCircuitResult(t, cs, w, true)
-				// ECDH's X alone cannot distinguish a sign error; assert full Y,
-				// then make that coordinate incorrect and require rejection.
-				w.Result[64] = int(y.FillBytes(make([]byte, 32))[31]) ^ 1
-				assertCircuitResult(t, cs, w, false)
-			})
+	cs := compile(t, &scalarMulCoordinatesCircuit{})
+	for _, row := range scalarRows(t) {
+		if row.reduced == nil {
+			continue
 		}
-	})
+		t.Run(row.name, func(t *testing.T) {
+			w := &scalarMulCoordinatesCircuit{}
+			setBytes(w.Scalar[:], row.scalar.FillBytes(make([]byte, 32)))
+			setBytes(w.PublicKey[:], peer)
+			x, y := elliptic.P256().ScalarMult(px, py, row.reduced.Bytes())
+			setBytes(w.Result[:], elliptic.Marshal(elliptic.P256(), x, y))
+			assertCircuitResult(t, cs, w, true)
+			// ECDH's X alone cannot distinguish a sign error; assert full Y,
+			// then make that coordinate incorrect and require rejection.
+			w.Result[64] = int(y.FillBytes(make([]byte, 32))[31]) ^ 1
+			assertCircuitResult(t, cs, w, false)
+		})
+	}
 }
 
 // Test circuits and shared helpers.
@@ -189,26 +183,24 @@ func fpBytesWitness(value *big.Int, bytes *big.Int) *fpBytesCircuit {
 }
 
 type generatorCircuit struct {
-	NoLookups bool `gnark:"-"`
-	Scalar    [32]frontend.Variable
-	Point     [65]frontend.Variable `gnark:",public"`
+	Scalar [32]frontend.Variable
+	Point  [65]frontend.Variable `gnark:",public"`
 }
 
 func (c *generatorCircuit) Define(api frontend.API) error {
-	got := ScalarMulGeneratorFor(api, c.Scalar, !c.NoLookups)
+	got := ScalarMulGenerator(api, c.Scalar)
 	assertBytesEqual(api, got[:], c.Point[:])
 	return nil
 }
 
 type ecdhCircuit struct {
-	NoLookups bool `gnark:"-"`
 	Scalar    [32]frontend.Variable
 	PublicKey [65]frontend.Variable
 	Shared    [32]frontend.Variable `gnark:",public"`
 }
 
 func (c *ecdhCircuit) Define(api frontend.API) error {
-	got := ECDHFor(api, c.Scalar, c.PublicKey, !c.NoLookups)
+	got := ECDH(api, c.Scalar, c.PublicKey)
 	assertBytesEqual(api, got[:], c.Shared[:])
 	return nil
 }
@@ -347,13 +339,12 @@ func (c *belowModulusCircuit) Define(api frontend.API) error {
 }
 
 type scalarMulCoordinatesCircuit struct {
-	NoLookups         bool `gnark:"-"`
 	Scalar            [32]frontend.Variable
 	PublicKey, Result [65]frontend.Variable
 }
 
 func (c *scalarMulCoordinatesCircuit) Define(api frontend.API) error {
-	result := ScalarMulFor(api, c.Scalar, c.PublicKey, !c.NoLookups)
+	result := ScalarMul(api, c.Scalar, c.PublicKey)
 	assertBytesEqual(api, result[:], c.Result[:])
 	return nil
 }

@@ -3,12 +3,11 @@ use zolana_keypair::{
         ed25519_derivation_message, expand_roles, is_derivation_input, DERIVATION_PAYLOAD_PREFIX,
         DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOM_SEP_KEY, DOM_SEP_NONCE,
         DOM_SEP_SILO, DST_DERIVE_P_DERIVE, DST_VIEW_ROOT_P_CONST, ED25519_DERIVATION_MSG,
-        ED25519_SEED_LEN, ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER, HPKE_PREFIX, INFO_NF_KEY_ECDH,
+        ED25519_SEED_LEN, ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER, HPKE_PREFIX,
         INFO_NF_KEY_ED25519, INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_PDA_NF_KEY,
         INFO_PDA_VIEW_KEY, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
         INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING,
-        INFO_VIEW_KEY_ECDH, INFO_VIEW_KEY_ED25519, MERGE_INFO, OFFCHAIN_MESSAGE_MAGIC,
-        P256_SEED_LEN, TSPP_APPLICATION_DOMAIN,
+        INFO_VIEW_KEY_ED25519, MERGE_INFO, OFFCHAIN_MESSAGE_MAGIC, TSPP_APPLICATION_DOMAIN,
     },
     hash::sha256,
     Curve, KeypairError, ShieldedKeypair, SigningKey,
@@ -22,9 +21,7 @@ pub(crate) fn hkdf_tags_pairwise_distinct() {
         ED25519_DERIVATION_MSG,
         DERIVATION_PAYLOAD_PREFIX,
         INFO_NF_KEY_ED25519,
-        INFO_NF_KEY_ECDH,
         INFO_VIEW_KEY_ED25519,
-        INFO_VIEW_KEY_ECDH,
         INFO_PDA_NF_KEY,
         INFO_PDA_VIEW_KEY,
         INFO_SENDER_VIEW_TAG_SECRET,
@@ -101,13 +98,13 @@ pub(crate) fn derivation_inputs_are_detected() {
 }
 
 /// `expand_roles` is the entry a remote backend derives through, so it must
-/// produce exactly what the software constructor produces — on both rails. A
+/// produce exactly what the software constructor produces. A
 /// divergence here is silent: the identity stays well-formed and every
 /// signature still verifies, it is simply not the user's wallet.
 pub(crate) fn expand_roles_matches_the_software_constructor() {
     let keys = [
         SigningKey::from_ed25519_bytes(&[5u8; 32]),
-        SigningKey::from_p256_bytes(&[6u8; 32]).expect("P-256 scalar"),
+        SigningKey::from_ed25519_bytes(&[6u8; 32]),
     ];
     for signing_key in keys {
         let curve = signing_key.curve();
@@ -133,10 +130,7 @@ pub(crate) fn expand_roles_matches_the_software_constructor() {
 /// seed would expand cleanly into a wrong-but-valid identity. The width is fixed
 /// per rail, so reject anything else rather than derive from it.
 pub(crate) fn expand_roles_rejects_a_seed_of_the_wrong_width() {
-    for (curve, expected) in [
-        (Curve::Ed25519, ED25519_SEED_LEN),
-        (Curve::P256, P256_SEED_LEN),
-    ] {
+    for (curve, expected) in [(Curve::Ed25519, ED25519_SEED_LEN)] {
         for got in [expected - 1, expected + 1, 0] {
             assert_eq!(
                 expand_roles(&vec![7u8; got], curve).err(),

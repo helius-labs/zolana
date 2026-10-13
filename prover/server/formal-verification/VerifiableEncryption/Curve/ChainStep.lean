@@ -23,11 +23,11 @@ def FirstRel (x wx wy fy l nx : ℤ) : Prop :=
 theorem chain_first_sound (hl : LookupSound RangeCheck 11) (X WX WY FY : ElemVal 8) (L0 PWX PWY : List.Vector F 8)
     (hX : X.bnd = reducedC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC) (hFY : FY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h9024d0c7 X.limbs L0 PWX PWY WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h14296507 X.limbs L0 PWX PWY WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h4ef94fb8 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       FirstRel X.value WX.value WY.value FY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h9024d0c7 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h14296507 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -68,15 +68,15 @@ theorem chain_first_sound (hl : LookupSound RangeCheck 11) (X WX WY FY : ElemVal
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h88ed5eb6_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hd0a2e1d5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h4ef94fb8) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h88ed5eb6 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h33616364 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h88ed5eb6 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -120,15 +120,15 @@ theorem chain_h88ed5eb6_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_he7f12bd4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hfeca3431_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h33616364) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_he7f12bd4 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hfeca3431 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h5d959345 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_he7f12bd4 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hfeca3431 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -172,15 +172,15 @@ theorem chain_he7f12bd4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hbc88b2dd_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h98a10bfb_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h5d959345) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hbc88b2dd X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h98a10bfb X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h8bca4322 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hbc88b2dd at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h98a10bfb at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -224,15 +224,15 @@ theorem chain_hbc88b2dd_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_haea263e9_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hc2445cd4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h8bca4322) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_haea263e9 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hc2445cd4 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hda13b782 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_haea263e9 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hc2445cd4 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -276,15 +276,15 @@ theorem chain_haea263e9_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h0ecbf3f5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_he11b64cc_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hda13b782) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h0ecbf3f5 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_he11b64cc X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h4c46916d ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h0ecbf3f5 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_he11b64cc at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -328,15 +328,15 @@ theorem chain_h0ecbf3f5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h16349f87_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_ha337781a_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h4c46916d) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h16349f87 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_ha337781a X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h70433ddf ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h16349f87 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_ha337781a at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -380,15 +380,15 @@ theorem chain_h16349f87_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h0148019b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h722a110e_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h70433ddf) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h0148019b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h722a110e X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h8fbed755 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h0148019b at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h722a110e at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -432,15 +432,15 @@ theorem chain_h0148019b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hd915f581_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h16154bb8_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h8fbed755) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hd915f581 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h16154bb8 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_heb19166d ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hd915f581 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h16154bb8 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -484,15 +484,15 @@ theorem chain_hd915f581_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_ha5ae99c0_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h0b2c7a04_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_heb19166d) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_ha5ae99c0 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h0b2c7a04 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hd5ac7c2a ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_ha5ae99c0 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h0b2c7a04 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -536,15 +536,15 @@ theorem chain_ha5ae99c0_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h27ce7ca2_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h7791617c_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hd5ac7c2a) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h27ce7ca2 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h7791617c X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hdc687f01 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h27ce7ca2 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h7791617c at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -588,15 +588,15 @@ theorem chain_h27ce7ca2_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h0c822e8d_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h4279c9fa_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hdc687f01) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h0c822e8d X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h4279c9fa X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h183e6a3f ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h0c822e8d at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h4279c9fa at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -640,15 +640,15 @@ theorem chain_h0c822e8d_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h92d08b28_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_he5aef826_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h183e6a3f) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h92d08b28 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_he5aef826 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hde720dec ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h92d08b28 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_he5aef826 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -692,15 +692,15 @@ theorem chain_h92d08b28_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h8d70b631_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h893b2021_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hde720dec) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h8d70b631 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h893b2021 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hca4d82bd ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h8d70b631 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h893b2021 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -744,15 +744,15 @@ theorem chain_h8d70b631_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h313874e4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h5c8297ae_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hca4d82bd) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h313874e4 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h5c8297ae X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hb31eb938 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h313874e4 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h5c8297ae at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -796,15 +796,15 @@ theorem chain_h313874e4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h013650f7_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h18d73f47_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hb31eb938) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h013650f7 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h18d73f47 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h0b39a3e2 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h013650f7 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h18d73f47 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -848,15 +848,15 @@ theorem chain_h013650f7_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h7edcb8cc_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_he57d21d5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h0b39a3e2) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h7edcb8cc X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_he57d21d5 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h81cfec0e ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h7edcb8cc at h
+  unfold CombChainStep_8_8_8_8_8_8_8_he57d21d5 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -900,15 +900,15 @@ theorem chain_h7edcb8cc_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h1eb7ded7_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hf0b5218f_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h81cfec0e) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h1eb7ded7 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hf0b5218f X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h77f7514c ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h1eb7ded7 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hf0b5218f at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -952,15 +952,15 @@ theorem chain_h1eb7ded7_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h3c1f10d2_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hf2e5fd4b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h77f7514c) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h3c1f10d2 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hf2e5fd4b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hd23c1321 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h3c1f10d2 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hf2e5fd4b at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1004,15 +1004,15 @@ theorem chain_h3c1f10d2_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hff713c2b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h38305e15_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hd23c1321) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hff713c2b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h38305e15 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h289d8769 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hff713c2b at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h38305e15 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1056,15 +1056,15 @@ theorem chain_hff713c2b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_ha86afca6_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hd1f04580_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h289d8769) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_ha86afca6 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hd1f04580 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hfd15ca5e ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_ha86afca6 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hd1f04580 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1108,15 +1108,15 @@ theorem chain_ha86afca6_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hbc800f66_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h2f8d1084_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hfd15ca5e) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hbc800f66 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h2f8d1084 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h6bcb0ecf ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hbc800f66 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h2f8d1084 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1160,15 +1160,15 @@ theorem chain_hbc800f66_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hc9743c4e_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hbc9d292f_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h6bcb0ecf) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hc9743c4e X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hbc9d292f X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h70762eb9 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hc9743c4e at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hbc9d292f at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1212,15 +1212,15 @@ theorem chain_hc9743c4e_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h5ffe8758_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hd5949308_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h70762eb9) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h5ffe8758 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hd5949308 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h38e8ac31 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h5ffe8758 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hd5949308 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1264,15 +1264,15 @@ theorem chain_h5ffe8758_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h48fdfa88_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h6e26f17b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h38e8ac31) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h48fdfa88 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h6e26f17b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hb9b2a022 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h48fdfa88 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h6e26f17b at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1316,15 +1316,15 @@ theorem chain_h48fdfa88_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h17b219f3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h40db0ded_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hb9b2a022) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h17b219f3 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h40db0ded X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h40955e83 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h17b219f3 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h40db0ded at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1368,15 +1368,15 @@ theorem chain_h17b219f3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hfce0bd8a_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h015a0c08_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h40955e83) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hfce0bd8a X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h015a0c08 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hf09a21c7 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hfce0bd8a at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h015a0c08 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1420,15 +1420,15 @@ theorem chain_hfce0bd8a_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h73c155f4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_he6b197a7_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hf09a21c7) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h73c155f4 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_he6b197a7 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h4972f626 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h73c155f4 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_he6b197a7 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1472,15 +1472,15 @@ theorem chain_h73c155f4_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h5a641a57_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h59272257_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h4972f626) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h5a641a57 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h59272257 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h677e8427 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h5a641a57 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h59272257 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1524,15 +1524,15 @@ theorem chain_h5a641a57_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hccc2fbcb_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h18a1cf88_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h677e8427) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hccc2fbcb X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h18a1cf88 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hae8dc535 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hccc2fbcb at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h18a1cf88 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1576,15 +1576,15 @@ theorem chain_hccc2fbcb_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h73c2114e_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h84b7fff5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hae8dc535) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h73c2114e X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h84b7fff5 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h0f279e18 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h73c2114e at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h84b7fff5 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1628,15 +1628,15 @@ theorem chain_h73c2114e_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hf3f31729_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hfcf24f49_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h0f279e18) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hf3f31729 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hfcf24f49 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h19f9c19c ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hf3f31729 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hfcf24f49 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1680,15 +1680,15 @@ theorem chain_hf3f31729_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h3847f643_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_ha9cc5411_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h19f9c19c) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h3847f643 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_ha9cc5411 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h311d38f1 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h3847f643 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_ha9cc5411 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1732,15 +1732,15 @@ theorem chain_h3847f643_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_ha3f0c00a_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h63e076b3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h311d38f1) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_ha3f0c00a X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h63e076b3 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hc65e35fe ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_ha3f0c00a at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h63e076b3 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1784,15 +1784,15 @@ theorem chain_ha3f0c00a_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h9ebf1727_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h9ff1cd8b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hc65e35fe) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h9ebf1727 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h9ff1cd8b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h6ef8b49c ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h9ebf1727 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h9ff1cd8b at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1836,15 +1836,15 @@ theorem chain_h9ebf1727_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h5ea40572_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h308152e6_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h6ef8b49c) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h5ea40572 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h308152e6 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hc3ec5671 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h5ea40572 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h308152e6 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1888,15 +1888,15 @@ theorem chain_h5ea40572_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h0a06c13d_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h2ec09f94_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hc3ec5671) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h0a06c13d X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h2ec09f94 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hfc273997 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h0a06c13d at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h2ec09f94 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1940,15 +1940,15 @@ theorem chain_h0a06c13d_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h6c7272ff_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h1d7ce17b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hfc273997) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h6c7272ff X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h1d7ce17b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h96360ee1 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h6c7272ff at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h1d7ce17b at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -1992,15 +1992,15 @@ theorem chain_h6c7272ff_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h604b5f97_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hc0cdb690_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h96360ee1) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h604b5f97 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hc0cdb690 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h83a415b9 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h604b5f97 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hc0cdb690 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2044,15 +2044,15 @@ theorem chain_h604b5f97_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hbb6cf05c_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h27bf5feb_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h83a415b9) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hbb6cf05c X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h27bf5feb X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h3ed7df0f ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hbb6cf05c at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h27bf5feb at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2096,15 +2096,15 @@ theorem chain_hbb6cf05c_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h57987298_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hcf989bc7_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h3ed7df0f) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h57987298 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hcf989bc7 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h26631a60 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h57987298 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hcf989bc7 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2148,15 +2148,15 @@ theorem chain_h57987298_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hc3975dc5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h87d7c1d5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h26631a60) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hc3975dc5 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h87d7c1d5 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h8e929349 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hc3975dc5 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h87d7c1d5 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2200,15 +2200,15 @@ theorem chain_hc3975dc5_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hc2b6f687_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hb365cd9c_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h8e929349) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hc2b6f687 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hb365cd9c X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h2fd0ed5d ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hc2b6f687 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hb365cd9c at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2252,15 +2252,15 @@ theorem chain_hc2b6f687_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h4074c487_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hff84174b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h2fd0ed5d) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h4074c487 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hff84174b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h6f54b8b1 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h4074c487 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hff84174b at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2304,15 +2304,15 @@ theorem chain_h4074c487_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h15643c52_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_he9395e0b_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h6f54b8b1) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h15643c52 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_he9395e0b X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_he088c588 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h15643c52 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_he9395e0b at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2356,15 +2356,15 @@ theorem chain_h15643c52_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hb370f239_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_he4e1c949_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_he088c588) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hb370f239 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_he4e1c949 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_hcc322c7b ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hb370f239 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_he4e1c949 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2408,15 +2408,15 @@ theorem chain_hb370f239_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_h65e467d3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h33cb1110_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_hcc322c7b) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_h65e467d3 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h33cb1110 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h4e5489d2 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_h65e467d3 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h33cb1110 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2460,15 +2460,15 @@ theorem chain_h65e467d3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hf49d9647_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h2390b750_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h4e5489d2) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hf49d9647 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h2390b750 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_he1cc16ce ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hf49d9647 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h2390b750 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2512,15 +2512,15 @@ theorem chain_hf49d9647_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hf1b4e4e3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_h0f057500_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_he1cc16ce) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hf1b4e4e3 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_h0f057500 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h636a42b5 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hf1b4e4e3 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_h0f057500 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h
@@ -2564,15 +2564,15 @@ theorem chain_hf1b4e4e3_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX 
     rw [e, m] at vNX
     exact vNX
 
-theorem chain_hb2920079_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
+theorem chain_hb9331b93_sound (hl : LookupSound RangeCheck 11) (X L0 PWX PWY WX WY FY : ElemVal 8)
     (hX : X.bnd = lazyOut lazy_h636a42b5) (hL0 : L0.bnd = balC) (hPWX : PWX.bnd = reducedC)
     (hPWY : PWY.bnd = packC) (hWX : WX.bnd = reducedC) (hWY : WY.bnd = packC)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombChainStep_8_8_8_8_8_8_8_hb2920079 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
+    (h : CombChainStep_8_8_8_8_8_8_8_hb9331b93 X.limbs L0.limbs PWX.limbs PWY.limbs WX.limbs WY.limbs FY.limbs k) :
     ∃ NX L : ElemVal 8, NX.bnd = lazyOut lazy_h7e1bb4d8 ∧ L.bnd = balC ∧
       k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) ∧
       ChainRel X.value L0.value PWX.value PWY.value WX.value WY.value L.value NX.value := by
-  unfold CombChainStep_8_8_8_8_8_8_8_hb2920079 at h
+  unfold CombChainStep_8_8_8_8_8_8_8_hb9331b93 at h
   elim_gates_shallow h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc, h⟩ := h

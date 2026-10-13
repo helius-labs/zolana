@@ -119,10 +119,10 @@ implementation differences.
 
     `ZolanaClient::prove_transact`
 
-    1. on the P-256 rail, sign `sha256(private_tx_hash || external_data_hash)`
-       as the authorization,
-       `Tvc::sign_p256`. The transact rail authorizes through the Solana signer
-       in step 7 instead.
+    1. on the custom-ring Ed25519 rail, sign
+       `sha256(private_tx_hash || external_data_hash)` with the owner's Ed25519
+       key as the authorization the proof verifies, `Tvc::sign_ed25519`. The
+       transact rail authorizes through the Solana signer in step 7 instead.
     2. send the input commitments; the prover fetches the state-inclusion and
        nullifier non-inclusion witnesses itself
     3. assemble the witness and request the proof,

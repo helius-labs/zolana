@@ -25,9 +25,9 @@ theorem K_1176_eq : (K_1176 : F) = ((p : ℕ) : F) ^ 2 := by
   norm_num
 
 theorem assertDistinctSlope_sound {Λ : ElemVal 8} {o : F}
-    (h : AssertDistinctSlope_8_h16c15a53 Λ.limbs o) :
+    (h : AssertDistinctSlope_8_hf8ff5ddf Λ.limbs o) :
     slopeFactor (((Λ.value : ℤ) : F) - o) * slopeFactor (((Λ.value : ℤ) : F) + o) ≠ 0 := by
-  unfold AssertDistinctSlope_8_h16c15a53 at h
+  unfold AssertDistinctSlope_8_hf8ff5ddf at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
     GatesDef.ne, exists_eq_left] at h
   obtain ⟨hne, -⟩ := h

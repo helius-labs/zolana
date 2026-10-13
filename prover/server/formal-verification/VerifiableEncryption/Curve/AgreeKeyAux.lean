@@ -218,9 +218,9 @@ theorem pieces2_val (hl : LookupSound RangeCheck 11) {p0 p1 : F}
   omega
 
 theorem split_1_8_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_1_8_h2c1d332a V k) :
+    (h : SplitLowBits_1_8 V k) :
     ∃ w : List.Vector F 2, (w.get 1).val = V.val % 2 ∧ (w.get 0).val = V.val / 2 ∧ k w := by
-  unfold SplitLowBits_1_8_h2c1d332a at h
+  unfold SplitLowBits_1_8 at h
   obtain ⟨w, r0, b1, g3, e3, g4, e4, hV, hk⟩ := h
   subst e3 e4
   have hs := split_nat (V := V) (hi := w.get 0) (lo := w.get 1) (w := 1) (u := 7)
@@ -230,9 +230,9 @@ theorem split_1_8_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vecto
   exact ⟨w, hs.2.2, hs.2.1, hk⟩
 
 theorem split_1_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_1_32_h2c1d332a V k) :
+    (h : SplitLowBits_1_32 V k) :
     ∃ w : List.Vector F 2, (w.get 1).val = V.val % 2 ∧ (w.get 0).val = V.val / 2 ∧ k w := by
-  unfold SplitLowBits_1_32_h2c1d332a at h
+  unfold SplitLowBits_1_32 at h
   obtain ⟨w, ps, r0, g3, e3, g4, e4, r1, g6, e6, g7, e7, r2, g9, e9, g10, e10, hhi, b1, g13, e13, g14, e14,
     hV, hk⟩ := h
   subst e3 e4 e6 e7 e9 e10 e13 e14
@@ -247,9 +247,9 @@ theorem split_1_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vect
   exact ⟨w, hs.2.2, hs.2.1, hk⟩
 
 theorem split_8_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_8_32_h2c1d332a V k) :
+    (h : SplitLowBits_8_32 V k) :
     ∃ w : List.Vector F 2, (w.get 1).val = V.val % 2 ^ 8 ∧ (w.get 0).val = V.val / 2 ^ 8 ∧ k w := by
-  unfold SplitLowBits_8_32_h2c1d332a at h
+  unfold SplitLowBits_8_32 at h
   obtain ⟨w, ps, r0, g3, e3, g4, e4, r1, g6, e6, g7, e7, r2, g9, e9, g10, e10, hhi, r8, g13, e13, g14, e14,
     hV, hk⟩ := h
   subst e3 e4 e6 e7 e9 e10 e13 e14
@@ -264,9 +264,9 @@ theorem split_8_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vect
   exact ⟨w, hs.2.2, hs.2.1, hk⟩
 
 theorem split_16_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_16_32_h2c1d332a V k) :
+    (h : SplitLowBits_16_32 V k) :
     ∃ w : List.Vector F 2, (w.get 1).val = V.val % 2 ^ 16 ∧ (w.get 0).val = V.val / 2 ^ 16 ∧ k w := by
-  unfold SplitLowBits_16_32_h2c1d332a at h
+  unfold SplitLowBits_16_32 at h
   obtain ⟨w, ps, r0, g3, e3, g4, e4, r1, g6, e6, g7, e7, hhi, qs, q0, g11, e11, g12, e12, q1, g14, e14, g15, e15,
     hlo, g17, e17, g18, e18, hV, hk⟩ := h
   subst e3 e4 e6 e7 e11 e12 e14 e15 e17 e18
@@ -319,10 +319,10 @@ theorem K_pows : K_0 = ((2 ^ 240 : ℕ) : F) ∧ K_6275 = ((2 ^ 80 : ℕ) : F) �
 the low 16 bits of `x`. -/
 theorem compressedPacking_sound (hl : LookupSound RangeCheck 11) {X Y : List.Vector F 8}
     {k : List.Vector F 2 → Prop}
-    (h : CompressedPacking_8_8_32_h2c1d332a X Y k) :
+    (h : CompressedPacking_8_8_32 X Y k) :
     k ((((2 + limbNat Y % 2) * 2 ^ 240 + limbNat X / 2 ^ 16 : ℕ) : F) ::ᵥ
       ((limbNat X % 2 ^ 16 : ℕ) : F) ::ᵥ List.Vector.nil) := by
-  unfold CompressedPacking_8_8_32_h2c1d332a at h
+  unfold CompressedPacking_8_8_32 at h
   obtain ⟨w0, hw01, hw00, h⟩ := split_1_32_sound hl h
   obtain ⟨w1, hw11, hw10, h⟩ := split_16_32_sound hl h
   obtain ⟨g2, e2, g3, e3, g4, e4, g5, e5, g6, e6, g7, e7, g8, e8, g9, e9, g10, e10, g11, e11, g12, e12, g13, e13,
@@ -344,9 +344,9 @@ theorem compressedPacking_sound (hl : LookupSound RangeCheck 11) {X Y : List.Vec
 /-! ### Curve membership -/
 
 theorem assertOnCurve_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8) (hX : X.bnd = reducedC)
-    (hY : Y.bnd = reducedC) (h : AssertOnCurve_8_8_habd58e5e X.limbs Y.limbs) :
+    (hY : Y.bnd = reducedC) (h : AssertOnCurve_8_8_h2c0228bb X.limbs Y.limbs) :
     OnCurve (X.value : Fp) (Y.value : Fp) := by
-  unfold AssertOnCurve_8_8_habd58e5e at h
+  unfold AssertOnCurve_8_8_h2c0228bb at h
   obtain ⟨X2, hX2lo, hX2hi, hX2vlo, hX2vhi, h, vX2⟩ :=
     Lazy_8_h2d947ec4_sound [⟨8, X⟩] (elemsMatch_of (by show [X.bnd] = _; rw [hX]; rfl)) _ (by limbs_tac []) h
   have hX2b := lazy_bnd hX2lo hX2hi hX2vlo hX2vhi

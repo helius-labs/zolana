@@ -24,8 +24,8 @@ def FieldMulCheck_8_8_8 (A: List.Vector F 8) (B: List.Vector F 8) (Out: List.Vec
     True
 
 def GuardedAdd_8_8_8_8_8_8 (PX: List.Vector F 8) (PY: List.Vector F 8) (QX: List.Vector F 8) (QY: List.Vector F 8) (RX: List.Vector F 8) (RY: List.Vector F 8): Prop :=
-    AssertDistinctX_8_8_h83dcf683 PX QX ∧
-    Add_8_8_8_8_hd2848b17 PX PY QX QY fun gate_1 =>
+    AssertDistinctX_8_8_h689cdb88 PX QX ∧
+    Add_8_8_8_8_h3f5cf0cd PX PY QX QY fun gate_1 =>
     Gates.eq ((gate_1.get (0 : Fin 2)).get (0 : Fin 8)) (RX.get (0 : Fin 8)) ∧
     Gates.eq ((gate_1.get (1 : Fin 2)).get (0 : Fin 8)) (RY.get (0 : Fin 8)) ∧
     Gates.eq ((gate_1.get (0 : Fin 2)).get (1 : Fin 8)) (RX.get (1 : Fin 8)) ∧
@@ -45,7 +45,7 @@ def GuardedAdd_8_8_8_8_8_8 (PX: List.Vector F 8) (PY: List.Vector F 8) (QX: List
     True
 
 def NativeSlopeGuard_8 (Lambda: List.Vector F 8) (Other: F): Prop :=
-    AssertDistinctSlope_8_h16c15a53 Lambda Other ∧
+    AssertDistinctSlope_8_hf8ff5ddf Lambda Other ∧
     True
 
 def AgreeKey_32_65_6_p1 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vector F 65) (Packed: List.Vector F 6) (gate_72: F) (gate_80: F) (gate_88: F) (gate_96: F) (gate_104: F) (gate_112: F) (gate_120: F) (gate_128: F) (gate_136: F) (gate_144: F) (gate_152: F) (gate_160: F) (gate_168: F) (gate_176: F) (gate_184: F) (gate_192: F) (gate_198: F) (gate_199: F): Prop :=
@@ -209,13 +209,13 @@ def AgreeKey_32_65_6_p1 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vecto
     ∃gate_357, gate_357 = Gates.add gate_356 (EphemeralSk.get (2 : Fin 32)) ∧
     ∃gate_358, gate_358 = Gates.mul gate_357 (256:F) ∧
     ∃gate_359, gate_359 = Gates.add gate_358 (EphemeralSk.get (3 : Fin 32)) ∧
-    ScalarMulChecked_8_8_8_h903d3456 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_360 =>
-    ScalarMulBase_8_hd39a5e0e vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_361 =>
-    AssertCanonical_8_0_hc36017e9 (gate_361.get (0 : Fin 2)) ∧
-    AssertCanonical_8_0_hc36017e9 (gate_361.get (1 : Fin 2)) ∧
-    CompressedPacking_8_8_32_h2c1d332a (gate_361.get (0 : Fin 2)) (gate_361.get (1 : Fin 2)) fun gate_364 =>
-    AssertCanonical_8_0_hc36017e9 (gate_360.get (0 : Fin 2)) ∧
-    SplitLowBits_8_32_h2c1d332a ((gate_360.get (0 : Fin 2)).get (0 : Fin 8)) fun gate_366 =>
+    ScalarMulChecked_8_8_8_h9a706aba vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_360 =>
+    ScalarMulBase_8_h3037b025 vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_361 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_361.get (0 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_361.get (1 : Fin 2)) ∧
+    CompressedPacking_8_8_32 (gate_361.get (0 : Fin 2)) (gate_361.get (1 : Fin 2)) fun gate_364 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_360.get (0 : Fin 2)) ∧
+    SplitLowBits_8_32 ((gate_360.get (0 : Fin 2)).get (0 : Fin 8)) fun gate_366 =>
     ∃gate_367, gate_367 = Gates.mul ((gate_360.get (0 : Fin 2)).get (1 : Fin 8)) (16777216:F) ∧
     ∃gate_368, gate_368 = Gates.add (gate_366.get (0 : Fin 2)) gate_367 ∧
     ∃gate_369, gate_369 = Gates.mul ((gate_360.get (0 : Fin 2)).get (2 : Fin 8)) (72057594037927936:F) ∧
@@ -432,10 +432,10 @@ def AgreeKey_32_65_6 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vector F
     ∃gate_190, gate_190 = Gates.add gate_189 (RecipientPk.get (35 : Fin 65)) ∧
     ∃gate_191, gate_191 = Gates.mul gate_190 (256:F) ∧
     ∃gate_192, gate_192 = Gates.add gate_191 (RecipientPk.get (36 : Fin 65)) ∧
-    AssertCanonical_8_0_hc36017e9 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] ∧
-    AssertCanonical_8_0_hc36017e9 vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
-    AssertOnCurve_8_8_habd58e5e vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
-    SplitLowBits_1_8_h2c1d332a (RecipientPk.get (64 : Fin 65)) fun gate_196 =>
+    AssertCanonical_8_0_hcc2f8a19 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] ∧
+    AssertCanonical_8_0_hcc2f8a19 vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
+    AssertOnCurve_8_8_h2c0228bb vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
+    SplitLowBits_1_8 (RecipientPk.get (64 : Fin 65)) fun gate_196 =>
     ∃gate_197, gate_197 = Gates.add (2:F) (gate_196.get (1 : Fin 2)) ∧
     ∃gate_198, gate_198 = Gates.mul gate_197 K_0 ∧
     ∃gate_199, gate_199 = Gates.mul (0:F) (256:F) ∧
@@ -546,10 +546,10 @@ def DerivePublicKey_32_32_p1 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F
     ∃gate_301, gate_301 = Gates.mul gate_300 (256:F) ∧
     ∃gate_302, gate_302 = Gates.add gate_301 (gate_290.get (3 : Fin 4)) ∧
     Gates.eq ((gate_188.get (0 : Fin 2)).get (0 : Fin 8)) gate_302 ∧
-    CompressedPacking_8_8_32_h2c1d332a (gate_188.get (0 : Fin 2)) (gate_188.get (1 : Fin 2)) fun gate_304 =>
+    CompressedPacking_8_8_32 (gate_188.get (0 : Fin 2)) (gate_188.get (1 : Fin 2)) fun gate_304 =>
     Gates.eq (gate_304.get (0 : Fin 2)) Lo ∧
     Gates.eq (gate_304.get (1 : Fin 2)) Hi ∧
-    SplitLowBits_1_32_h2c1d332a ((gate_188.get (1 : Fin 2)).get (0 : Fin 8)) fun gate_307 =>
+    SplitLowBits_1_32 ((gate_188.get (1 : Fin 2)).get (0 : Fin 8)) fun gate_307 =>
     ∃_ignored_, _ignored_ = Gates.add (2:F) (gate_307.get (1 : Fin 2)) ∧
     Gates.eq (gate_192.get (0 : Fin 4)) (X.get (0 : Fin 32)) ∧
     Gates.eq (gate_192.get (1 : Fin 4)) (X.get (1 : Fin 32)) ∧
@@ -771,13 +771,13 @@ def DerivePublicKey_32_32 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F) (
     ∃gate_182, gate_182 = Gates.add gate_179 gate_181 ∧
     Gates.eq gate_95 gate_182 ∧
     CheckPolynomial_8_h57d6a69c vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_184 =>
-    AssertCanonical_8_1_hc36017e9 gate_184 ∧
+    AssertCanonical_8_1_hcc2f8a19 gate_184 ∧
     ∃gate_186, gate_186 = Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (0:F) (0:F)) (gate_184.get (0 : Fin 8))) (gate_184.get (1 : Fin 8))) (gate_184.get (2 : Fin 8))) (gate_184.get (3 : Fin 8))) (gate_184.get (4 : Fin 8))) (gate_184.get (5 : Fin 8))) (gate_184.get (6 : Fin 8))) (gate_184.get (7 : Fin 8)) ∧
     Gates.ne gate_186 (0:F) ∧
-    ScalarMulBase_8_hd39a5e0e vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_188 =>
-    AssertCanonical_8_0_hc36017e9 (gate_188.get (0 : Fin 2)) ∧
-    AssertCanonical_8_0_hc36017e9 (gate_188.get (1 : Fin 2)) ∧
-    AssertCanonical_8_0_hc36017e9 (gate_188.get (0 : Fin 2)) ∧
+    ScalarMulBase_8_h3037b025 vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_188 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_188.get (0 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_188.get (1 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_188.get (0 : Fin 2)) ∧
     ∃gate_192 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
     RangeCheck 8 (gate_192.get (0 : Fin 4)) ∧
     RangeCheck 8 (gate_192.get (1 : Fin 4)) ∧
@@ -1334,13 +1334,13 @@ def Envelope_32_65_16_16_p1 (EphemeralSk: List.Vector F 32) (RecipientPk: List.V
     ∃gate_357, gate_357 = Gates.add gate_356 (EphemeralSk.get (2 : Fin 32)) ∧
     ∃gate_358, gate_358 = Gates.mul gate_357 (256:F) ∧
     ∃gate_359, gate_359 = Gates.add gate_358 (EphemeralSk.get (3 : Fin 32)) ∧
-    ScalarMulChecked_8_8_8_h903d3456 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_360 =>
-    ScalarMulBase_8_hd39a5e0e vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_361 =>
-    AssertCanonical_8_0_hc36017e9 (gate_361.get (0 : Fin 2)) ∧
-    AssertCanonical_8_0_hc36017e9 (gate_361.get (1 : Fin 2)) ∧
-    CompressedPacking_8_8_32_h2c1d332a (gate_361.get (0 : Fin 2)) (gate_361.get (1 : Fin 2)) fun gate_364 =>
-    AssertCanonical_8_0_hc36017e9 (gate_360.get (0 : Fin 2)) ∧
-    SplitLowBits_8_32_h2c1d332a ((gate_360.get (0 : Fin 2)).get (0 : Fin 8)) fun gate_366 =>
+    ScalarMulChecked_8_8_8_h9a706aba vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_360 =>
+    ScalarMulBase_8_h3037b025 vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_361 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_361.get (0 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_361.get (1 : Fin 2)) ∧
+    CompressedPacking_8_8_32 (gate_361.get (0 : Fin 2)) (gate_361.get (1 : Fin 2)) fun gate_364 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_360.get (0 : Fin 2)) ∧
+    SplitLowBits_8_32 ((gate_360.get (0 : Fin 2)).get (0 : Fin 8)) fun gate_366 =>
     ∃gate_367, gate_367 = Gates.mul ((gate_360.get (0 : Fin 2)).get (1 : Fin 8)) (16777216:F) ∧
     ∃gate_368, gate_368 = Gates.add (gate_366.get (0 : Fin 2)) gate_367 ∧
     ∃gate_369, gate_369 = Gates.mul ((gate_360.get (0 : Fin 2)).get (2 : Fin 8)) (72057594037927936:F) ∧
@@ -1570,10 +1570,10 @@ def Envelope_32_65_16_16 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vect
     ∃gate_190, gate_190 = Gates.add gate_189 (RecipientPk.get (35 : Fin 65)) ∧
     ∃gate_191, gate_191 = Gates.mul gate_190 (256:F) ∧
     ∃gate_192, gate_192 = Gates.add gate_191 (RecipientPk.get (36 : Fin 65)) ∧
-    AssertCanonical_8_0_hc36017e9 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] ∧
-    AssertCanonical_8_0_hc36017e9 vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
-    AssertOnCurve_8_8_habd58e5e vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
-    SplitLowBits_1_8_h2c1d332a (RecipientPk.get (64 : Fin 65)) fun gate_196 =>
+    AssertCanonical_8_0_hcc2f8a19 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] ∧
+    AssertCanonical_8_0_hcc2f8a19 vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
+    AssertOnCurve_8_8_h2c0228bb vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
+    SplitLowBits_1_8 (RecipientPk.get (64 : Fin 65)) fun gate_196 =>
     ∃gate_197, gate_197 = Gates.add (2:F) (gate_196.get (1 : Fin 2)) ∧
     ∃gate_198, gate_198 = Gates.mul gate_197 K_0 ∧
     ∃gate_199, gate_199 = Gates.mul (0:F) (256:F) ∧
@@ -2106,13 +2106,13 @@ def EnvelopeMerge_32_65_40_4_p1 (EphemeralSk: List.Vector F 32) (RecipientPk: Li
     ∃gate_357, gate_357 = Gates.add gate_356 (EphemeralSk.get (2 : Fin 32)) ∧
     ∃gate_358, gate_358 = Gates.mul gate_357 (256:F) ∧
     ∃gate_359, gate_359 = Gates.add gate_358 (EphemeralSk.get (3 : Fin 32)) ∧
-    ScalarMulChecked_8_8_8_h903d3456 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_360 =>
-    ScalarMulBase_8_hd39a5e0e vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_361 =>
-    AssertCanonical_8_0_hc36017e9 (gate_361.get (0 : Fin 2)) ∧
-    AssertCanonical_8_0_hc36017e9 (gate_361.get (1 : Fin 2)) ∧
-    CompressedPacking_8_8_32_h2c1d332a (gate_361.get (0 : Fin 2)) (gate_361.get (1 : Fin 2)) fun gate_364 =>
-    AssertCanonical_8_0_hc36017e9 (gate_360.get (0 : Fin 2)) ∧
-    SplitLowBits_8_32_h2c1d332a ((gate_360.get (0 : Fin 2)).get (0 : Fin 8)) fun gate_366 =>
+    ScalarMulChecked_8_8_8_h9a706aba vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_360 =>
+    ScalarMulBase_8_h3037b025 vec![gate_303, gate_311, gate_319, gate_327, gate_335, gate_343, gate_351, gate_359] fun gate_361 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_361.get (0 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_361.get (1 : Fin 2)) ∧
+    CompressedPacking_8_8_32 (gate_361.get (0 : Fin 2)) (gate_361.get (1 : Fin 2)) fun gate_364 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_360.get (0 : Fin 2)) ∧
+    SplitLowBits_8_32 ((gate_360.get (0 : Fin 2)).get (0 : Fin 8)) fun gate_366 =>
     ∃gate_367, gate_367 = Gates.mul ((gate_360.get (0 : Fin 2)).get (1 : Fin 8)) (16777216:F) ∧
     ∃gate_368, gate_368 = Gates.add (gate_366.get (0 : Fin 2)) gate_367 ∧
     ∃gate_369, gate_369 = Gates.mul ((gate_360.get (0 : Fin 2)).get (2 : Fin 8)) (72057594037927936:F) ∧
@@ -2342,10 +2342,10 @@ def EnvelopeMerge_32_65_40_4 (EphemeralSk: List.Vector F 32) (RecipientPk: List.
     ∃gate_190, gate_190 = Gates.add gate_189 (RecipientPk.get (35 : Fin 65)) ∧
     ∃gate_191, gate_191 = Gates.mul gate_190 (256:F) ∧
     ∃gate_192, gate_192 = Gates.add gate_191 (RecipientPk.get (36 : Fin 65)) ∧
-    AssertCanonical_8_0_hc36017e9 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] ∧
-    AssertCanonical_8_0_hc36017e9 vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
-    AssertOnCurve_8_8_habd58e5e vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
-    SplitLowBits_1_8_h2c1d332a (RecipientPk.get (64 : Fin 65)) fun gate_196 =>
+    AssertCanonical_8_0_hcc2f8a19 vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] ∧
+    AssertCanonical_8_0_hcc2f8a19 vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
+    AssertOnCurve_8_8_h2c0228bb vec![gate_72, gate_80, gate_88, gate_96, gate_104, gate_112, gate_120, gate_128] vec![gate_136, gate_144, gate_152, gate_160, gate_168, gate_176, gate_184, gate_192] ∧
+    SplitLowBits_1_8 (RecipientPk.get (64 : Fin 65)) fun gate_196 =>
     ∃gate_197, gate_197 = Gates.add (2:F) (gate_196.get (1 : Fin 2)) ∧
     ∃gate_198, gate_198 = Gates.mul gate_197 K_0 ∧
     ∃gate_199, gate_199 = Gates.mul (0:F) (256:F) ∧

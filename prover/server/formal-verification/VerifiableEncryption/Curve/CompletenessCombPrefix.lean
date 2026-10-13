@@ -12,13 +12,13 @@ open ZolanaVE.Field ZolanaVE.EmcurveChecks ZolanaVE.CombLimbs
 open scoped BigOperators
 
 def combFirstTwoNative (s : ℕ) (k : List.Vector (List.Vector F 8) 2 → Prop) : Prop :=
-  CombSelect_8_32_3_32_5_h25d1d12b (txAt 0) (tyAt 0) (combWindowBits s 0) (fun w0 =>
-    CombSelect_8_32_3_32_5_h25d1d12b (txAt 1) (tyAt 1) (combWindowBits s 1) (fun w1 =>
-      CombSelect_8_32_3_32_5_h25d1d12b (txAt 2) (tyAt 2) (combWindowBits s 2) (fun w2 =>
-        CombChainStep_8_8_8_8_8_8_8_h9024d0c7 (w0.get 0)
+  CombSelect_8_32_3_32_5_h2261d38e (txAt 0) (tyAt 0) (combWindowBits s 0) (fun w0 =>
+    CombSelect_8_32_3_32_5_h2261d38e (txAt 1) (tyAt 1) (combWindowBits s 1) (fun w1 =>
+      CombSelect_8_32_3_32_5_h2261d38e (txAt 2) (tyAt 2) (combWindowBits s 2) (fun w2 =>
+        CombChainStep_8_8_8_8_8_8_8_h14296507 (w0.get 0)
           (List.Vector.replicate 8 0) (List.Vector.replicate 8 0) (List.Vector.replicate 8 0)
           (w1.get 0) (w1.get 1) (w0.get 1) (fun a1 =>
-            CombChainStep_8_8_8_8_8_8_8_h88ed5eb6 (a1.get 0) (a1.get 1)
+            CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5 (a1.get 0) (a1.get 1)
               (w1.get 0) (w1.get 1) (w2.get 0) (w2.get 1) (w0.get 1) k))))
 
 theorem combFirstTwo_from_bits (hr : RangeComplete) (s : ℕ) :

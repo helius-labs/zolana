@@ -424,25 +424,25 @@ func TestUncachedSpendSolvesWithTheDefaultSelection(t *testing.T) {
 
 func TestCustomRingOptionalCache(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	for _, p256 := range []bool{false, true} {
+	for _, ed25519 := range []bool{false, true} {
 		var circuit frontend.Circuit = MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-		if p256 {
-			circuit = MustNewCustomRingP256Circuit(Shape(shape))
+		if ed25519 {
+			circuit = MustNewCustomRingEd25519Circuit(Shape(shape))
 		}
 		ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, reads := range [][]int{nil, {1}, {1, 0}} {
-			t.Run(fmt.Sprintf("p256_%t/reads_%v", p256, reads), func(t *testing.T) {
+			t.Run(fmt.Sprintf("ed25519_%t/reads_%v", ed25519, reads), func(t *testing.T) {
 				inputs, outputs := defaultBalancedUtxos(t, shape)
 				for i := range inputs {
 					inputs[i].RingProgramID = big.NewInt(0x5A)
 				}
 				a := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
-				owner := spptest.FixedP256Key(t, 11)
-				if p256 {
-					rewriteInputAsP256(t, a, 0, owner)
+				owner := spptest.FixedEd25519Key(t, 11)
+				if ed25519 {
+					rewriteInputAsEd25519(t, a, 0, owner)
 				}
 				a.CachedInputs = cacheReads(t, a, reads)
 				for _, input := range reads {
@@ -450,9 +450,9 @@ func TestCustomRingOptionalCache(t *testing.T) {
 					a.Inputs[input].StatePathElements = spptest.ZeroVariables(StateTreeHeight)
 				}
 				var assignment frontend.Circuit
-				if p256 {
-					authorization := authorizeP256(t, a, owner, owner)
-					assignment = asCustomRingP256(a, authorization)
+				if ed25519 {
+					authorization := authorizeEd25519(t, a, owner, owner)
+					assignment = asCustomRingEd25519(a, authorization)
 				} else {
 					refreshPublicInputHash(t, a)
 					assignment = asCustomRingEddsaOnly(a)
@@ -461,7 +461,7 @@ func TestCustomRingOptionalCache(t *testing.T) {
 				switch c := assignment.(type) {
 				case *customring.CustomRingEddsaOnlyCircuit:
 					c.CachedInputs.ReadHashChain = 123
-				case *customring.CustomRingP256Circuit:
+				case *customring.CustomRingEd25519Circuit:
 					c.CachedInputs.ReadHashChain = 123
 				}
 				checkCachedWitness(t, ccs, assignment, false)

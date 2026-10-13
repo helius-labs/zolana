@@ -5,10 +5,10 @@
       "summary": "fixture transfer"
     },
     "authority": {
-      "nullifierPubkeyBytes": "0eea51eb1dd54ce97e3f567249af75f737c7e1cf319f6a4f191c20a5ba79a7d5",
+      "nullifierPubkeyBytes": "00b9681d0d7f99112f1a49149d19ca1b8ade3021f72cea69495241c92932157f",
       "shieldedAddress": {
-        "nullifierPubkeyBytes": "0eea51eb1dd54ce97e3f567249af75f737c7e1cf319f6a4f191c20a5ba79a7d5",
-        "signingPubkeyBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+        "nullifierPubkeyBytes": "00b9681d0d7f99112f1a49149d19ca1b8ade3021f72cea69495241c92932157f",
+        "signingPubkeyBytes": "013ee2a8a7283cb2fd728943daa127ef09e483071a8b4bc699ba4522f09b14cfde00",
         "viewingPubkeyBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
       },
       "solanaPubkeyBytes": "2323232323232323232323232323232323232323232323232323232323232323",
@@ -19,10 +19,9 @@
       "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
       "txViewingPkBytes": "03ae545af75fdbbd8b987d6899f977999c191f0126da866b02bc175e2563b7a274"
     },
-    "p256Signature": {
-      "pubkeyBytes": "028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
-      "rBytes": "e120f63e142ed7be8071721cf8208641f54e9043680c160f5c343cfc27a7870c",
-      "sBytes": "56ba121d0323ff16fe9ad4dce56f0041c28275e4554709727f74d13e98d19a80",
+    "ed25519Signature": {
+      "pubkeyBytes": "3ee2a8a7283cb2fd728943daa127ef09e483071a8b4bc699ba4522f09b14cfde",
+      "signatureBytes": "adbddecf2a583d43be83980ec45f69f00c2af15091542ec8825826a93b62f23ef4f018583f743b2f0f4a78fd06266bb5eb3573cdaf3fd58797fa56f9dd0cd506",
       "verified": true
     }
   },
@@ -37,7 +36,7 @@
   },
   "inventoryRow": "sdk-libs/transaction/src/wallet/authority.rs",
   "owningPacket": "P00",
-  "responsibility": "authority material, approval input, deterministic P256 signature, and envelope fields",
+  "responsibility": "authority material, approval input, deterministic Ed25519 signature, and envelope fields",
   "rustPath": "sdk-libs/transaction/src/wallet/authority.rs",
   "rustSymbol": "WalletAuthority; SyncWalletAuthority; KeypairWalletAuthority; envelopes",
   "schema": "zolana-ts-fixtures-v1",

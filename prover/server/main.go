@@ -113,7 +113,7 @@ func runCli() {
 						common.TransferRingAuthorityCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
 					case common.TransferP256RingCircuitType:
-						ps, err = transfereddsaonly.SetupP256Transfer(nInputs, nOutputs)
+						ps, err = transfereddsaonly.SetupEd25519Transfer(nInputs, nOutputs)
 					default:
 						return fmt.Errorf("invalid transfer circuit type %s", circuit)
 					}

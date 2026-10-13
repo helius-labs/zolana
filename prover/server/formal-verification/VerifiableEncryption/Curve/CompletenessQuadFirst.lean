@@ -7,7 +7,7 @@ Validation is recorded separately. -/
 namespace ZolanaVE.P256.Completeness
 open ZolanaVE.Field ZolanaVE.EmcurveChecks
 
-theorem quadAdd_he10e6061_complete (hr : RangeComplete) (AX AY SX SY : ElemVal 8)
+theorem quadAdd_h577e35e6_complete (hr : RangeComplete) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = reducedC) (hAY : AY.bnd = reducedC)
     (hSX : SX.bnd = reducedC) (hSY : SY.bnd = unpackC) (hs : F)
     (hA : OnCurve (AX.value : Fp) (AY.value : Fp))
@@ -19,7 +19,7 @@ theorem quadAdd_he10e6061_complete (hr : RangeComplete) (AX AY SX SY : ElemVal 8
         mkPoint hO = 4 • mkPoint hA + mkPoint hT) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) →
-        QuadrupleAndAddLazy_8_8_8_8_he10e6061 AX.limbs AY.limbs SX.limbs SY.limbs hs k := by
+        QuadrupleAndAddLazy_8_8_8_8_h577e35e6 AX.limbs AY.limbs SX.limbs SY.limbs hs k := by
   obtain ⟨l, dx, dy, m, v, ix, ox, oy, cons, last, ⟨hOut, pOut⟩⟩ :=
     quad_add_slopes_exist hA hT hfirst hout
   obtain ⟨w⟩ := quadFirst_arithmetic_complete hr (slopeElem l) (slopeElem m) (slopeElem v)
@@ -28,7 +28,7 @@ theorem quadAdd_he10e6061_complete (hr : RangeComplete) (AX AY SX SY : ElemVal 8
   obtain ⟨hO, hp⟩ := w.outputPoint
   refine ⟨w.OX, w.OY, w.oxBound, w.oyBound, ⟨hO, hp hA hT⟩, ?_⟩
   intro k hk
-  exact QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose
+  exact QuadrupleAndAddLazy_8_8_8_8_h577e35e6_compose
     AX.limbs AY.limbs SX.limbs SY.limbs hs
     (slopeElem l).limbs (slopeElem m).limbs (slopeElem v).limbs
     w.DX.limbs w.DY.limbs w.IX.limbs w.OX.limbs w.OY.limbs w.b

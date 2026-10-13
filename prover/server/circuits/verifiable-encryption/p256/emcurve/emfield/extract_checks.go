@@ -55,8 +55,7 @@ func (g Lazy) GadgetHash() string {
 //	t=<coef>:<f0>,<f1>,...;                              one per term
 //	e=<lo0>,...|<hi0>,...|<valueMin>|<valueMax>;         one per element
 //
-// so the certificate cert_<key> pairs with the definition <Name>_h<key>. The
-// key omits the layout: extraction gadgets exist only for LookupLayout.
+// so the certificate cert_<key> pairs with the definition <Name>_h<key>.
 func checkKey(kind string, modulus *big.Int, coefs []*big.Int, factors [][]int, bounds [][]*big.Int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "kind=%s;modulus=%s;", kind, modulus.String())
@@ -135,7 +134,7 @@ func (f *Field) decodeTerms(limbs []frontend.Variable, bounds [][]*big.Int, coef
 }
 
 func (g CheckPolynomial) DefineGadget(api frontend.API) interface{} {
-	f := NewFor(api, g.Modulus, LookupLayout)
+	f := New(api, g.Modulus)
 	terms := f.decodeTerms(g.Limbs, g.Bounds, g.Coefs, g.Factors)
 	if !g.WithResult {
 		f.AssertZero(terms...)
@@ -149,7 +148,7 @@ func (g CheckPolynomial) DefineGadget(api frontend.API) interface{} {
 }
 
 func (g Lazy) DefineGadget(api frontend.API) interface{} {
-	f := NewFor(api, g.Modulus, LookupLayout)
+	f := New(api, g.Modulus)
 	terms := f.decodeTerms(g.Limbs, g.Bounds, g.Coefs, g.Factors)
 	r := f.Lazy(terms...)
 	if !SameBounds(r, f.FromBounds(r.limbs, f.lazyBounds(terms))) {
@@ -159,7 +158,7 @@ func (g Lazy) DefineGadget(api frontend.API) interface{} {
 }
 
 func (f *Field) extractsChecks() bool {
-	return f.layout == LookupLayout && abstractor.Extracting(f.api)
+	return abstractor.Extracting(f.api)
 }
 
 // GadgetEval is Eval; under the Lean extractor it is the CheckPolynomial gadget.
@@ -197,14 +196,11 @@ func (f *Field) GadgetLazy(terms ...Term) *Element {
 // constraints; the Lazy gadget checks it against Field.Lazy.
 func (f *Field) lazyBounds(inputTerms []Term) []*big.Int {
 	limbCount, limbBits := f.layout.NbLimbs, f.layout.LimbBits
-	var coefficientMin, coefficientMax []*big.Int
-	for _, t := range inputTerms {
-		lo, hi := []*big.Int{big.NewInt(t.Coef)}, []*big.Int{big.NewInt(t.Coef)}
-		for _, e := range t.Factors {
-			lo, hi = polyMulInterval(lo, hi, e.lo, e.hi)
-		}
-		coefficientMin, coefficientMax = addInto(coefficientMin, lo), addInto(coefficientMax, hi)
+	terms := make([]term, len(inputTerms))
+	for i, t := range inputTerms {
+		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
 	}
+	coefficientMin, coefficientMax := f.lazyCoefficientIntervals(terms)
 	fold := f.arithmetic.fold(limbCount, len(coefficientMin)-1)
 	valueMin, valueMax := new(big.Int), new(big.Int)
 	los, his := make([]*big.Int, limbCount), make([]*big.Int, limbCount)

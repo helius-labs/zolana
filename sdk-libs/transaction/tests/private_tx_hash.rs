@@ -149,8 +149,8 @@ fn compute_vectors() -> PrivateTxHashVectors {
     PrivateTxHashVectors {
         description: "Known-answer vectors for private_tx_hash = Poseidon(nz(input_hashes), \
                       nz(output_hashes), nz(address_nullifiers), blinding) and for the transact \
-                      message hash sha256(private_tx_hash || external_data_hash) a P256 owner \
-                      signs, where nz is the nonzero hash chain of nonzero_hash_chain.json. \
+                      message hash sha256(private_tx_hash || external_data_hash) an in-circuit \
+                      Ed25519 owner signs, where nz is the nonzero hash chain of nonzero_hash_chain.json. \
                       Every value is a 32-byte big-endian hex string, and every vector names one \
                       address nullifier per input slot. compact, padded and padding_moved hold \
                       the same nonzero entries at different padding positions and share one \

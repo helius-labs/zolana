@@ -30,6 +30,8 @@ pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_CONST_SEC
 
 pub const DST_DERIVE_P_DERIVE: &[u8] = b"TSPP/nullifier/P_nullifier/v1";
 
+/// Reserved: no derivation uses it any more, but the generic ECDH entry points
+/// keep refusing it (see [`is_derivation_point`]).
 pub const P_DERIVE_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_DERIVE_SEC1;
 
 pub const DST_PDA_ROOT_P_PDA: &[u8] = b"TSPP/pda_root/P_pda/v1";
@@ -38,11 +40,7 @@ pub const P_PDA_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_PDA_SEC1;
 
 pub const INFO_NF_KEY_ED25519: &[u8] = b"TSPP/nf_key/ed25519/v1";
 
-pub const INFO_NF_KEY_ECDH: &[u8] = b"TSPP/nf_key/ecdh/v1";
-
 pub const INFO_VIEW_KEY_ED25519: &[u8] = b"TSPP/view_key/ed25519/v1";
-
-pub const INFO_VIEW_KEY_ECDH: &[u8] = b"TSPP/view_key/ecdh/v1";
 
 pub const INFO_PDA_NF_KEY: &[u8] = b"TSPP/pda_nf/v1";
 
@@ -57,9 +55,6 @@ pub const ED25519_DERIVATION_MSG: &[u8] = b"TSPP/derive/v1";
 /// An ed25519 `derivation_seed` is the RFC 8032 signature over
 /// [`ed25519_derivation_message`].
 pub const ED25519_SEED_LEN: usize = 64;
-
-/// A P-256 `derivation_seed` is the x-coordinate of `ECDH(signing_sk, P_derive)`.
-pub const P256_SEED_LEN: usize = 32;
 
 /// Every payload under this prefix is a derivation-seed payload (the PDA
 /// payload family carries an address, so the guard matches the prefix).
@@ -233,16 +228,12 @@ pub(crate) fn ecdh_x_point(secret_key: &SecretKey, point: &AffinePoint) -> [u8; 
     x
 }
 
-pub(crate) fn p_derive() -> P256Pubkey {
-    P256Pubkey::from_bytes(P_DERIVE_SEC1).expect("committed P_derive is valid SEC1")
-}
-
 pub(crate) fn p_pda() -> P256Pubkey {
     P256Pubkey::from_bytes(P_PDA_SEC1).expect("committed P_pda is valid SEC1")
 }
 
-/// Committed points whose shared secret is a derivation root; the generic ecdh
-/// entry points refuse all three. `ECDH(viewing_sk, P_const)` is the IKM
+/// Committed points whose shared secret is, or was, a derivation root; the
+/// generic ecdh entry points refuse all three. `ECDH(viewing_sk, P_const)` is the IKM
 /// `view_root` extracts from, so handing it to a caller hands over every view
 /// tag and the transaction-viewing secret. The roots themselves are reached
 /// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
@@ -265,7 +256,7 @@ pub(crate) fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
 
 /// Expands both role secrets from a `derivation_seed` produced by a
 /// hardware-resident signing key: an ed25519 signature over
-/// [`ed25519_derivation_message`], or `ECDH(signing_sk, P_derive)`.
+/// [`ed25519_derivation_message`].
 pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingKey), KeypairError> {
     let rail = Rail::from_curve(curve)?;
     let expected = rail.seed_len();
@@ -282,14 +273,12 @@ pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingK
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Rail {
     Ed25519,
-    Ecdh,
 }
 
 impl Rail {
     pub(crate) fn from_curve(curve: Curve) -> Result<Self, KeypairError> {
         match curve {
             Curve::Ed25519 => Ok(Self::Ed25519),
-            Curve::P256 => Ok(Self::Ecdh),
             Curve::Pda => Err(KeypairError::PdaCannotSign),
         }
     }
@@ -297,21 +286,18 @@ impl Rail {
     fn seed_len(self) -> usize {
         match self {
             Self::Ed25519 => ED25519_SEED_LEN,
-            Self::Ecdh => P256_SEED_LEN,
         }
     }
 
     fn nullifier_info(self) -> &'static [u8] {
         match self {
             Self::Ed25519 => INFO_NF_KEY_ED25519,
-            Self::Ecdh => INFO_NF_KEY_ECDH,
         }
     }
 
     fn viewing_info(self) -> &'static [u8] {
         match self {
             Self::Ed25519 => INFO_VIEW_KEY_ED25519,
-            Self::Ecdh => INFO_VIEW_KEY_ECDH,
         }
     }
 }

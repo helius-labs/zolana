@@ -19,12 +19,7 @@ type KeyAgreement struct {
 // AgreeKey computes packed key-agreement outputs using lookup range checks.
 // Both the ephemeral scalar bytes and recipient encoding are constrained here.
 func AgreeKey(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable) KeyAgreement {
-	return AgreeKeyFor(api, ephemeralSecretKey, recipientPubkey, true)
-}
-
-// AgreeKeyFor selects lookup or bit-based range checks for the same input validation.
-func AgreeKeyFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable, lookups bool) KeyAgreement {
-	c := newCurveFor(api, lookups)
+	c := newCurve(api)
 	limbBits := c.layout.LimbBits
 	// 1. Validate the recipient encoding and constrain its canonical curve point.
 	recipient := c.parseKey(recipientPubkey)
@@ -88,7 +83,7 @@ func packAbove(api frontend.API, lowLimbHigh frontend.Variable, limbs []frontend
 // two-byte field. Its inputs must already be canonical coordinate limbs.
 func (c *curve) compressedPacking(xLimbs, yLimbs []frontend.Variable, limbBits int) (lo, hi frontend.Variable) {
 	if abstractor.Extracting(c.api) {
-		packed := abstractor.Call1(c.api, CompressedPacking{XLimbs: xLimbs, YLimbs: yLimbs, LimbBits: limbBits, Lookups: c.layout.Lookups})
+		packed := abstractor.Call1(c.api, CompressedPacking{XLimbs: xLimbs, YLimbs: yLimbs, LimbBits: limbBits})
 		return packed[0], packed[1]
 	}
 	return c.compressedPackingConstrained(xLimbs, yLimbs, limbBits)

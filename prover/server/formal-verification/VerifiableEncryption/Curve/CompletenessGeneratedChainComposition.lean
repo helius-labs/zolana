@@ -19,2028 +19,7 @@ def chainCompositionLazyInput (L X WX : List.Vector F 8) : List.Vector F 24 :=
 
 /-- Composition only: the slope and lazy premises are discharged by the
 separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h013650f7_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hc39fa5c0 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h0b39a3e2 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h013650f7 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h013650f7
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h0148019b_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_haca3f4dc (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h8fbed755 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h0148019b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h0148019b
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h0a06c13d_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hf0f7cd8d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hfc273997 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h0a06c13d X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h0a06c13d
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h0c822e8d_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h5c23f74c (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h183e6a3f (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h0c822e8d X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h0c822e8d
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h0ecbf3f5_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h2d2e868f (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h4c46916d (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h0ecbf3f5 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h0ecbf3f5
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h15643c52_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_he98b9e85 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_he088c588 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h15643c52 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h15643c52
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h16349f87_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h4d342646 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h70433ddf (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h16349f87 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h16349f87
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h17b219f3_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h211271d3 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h40955e83 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h17b219f3 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h17b219f3
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h1eb7ded7_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h4114346a (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h77f7514c (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h1eb7ded7 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h1eb7ded7
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h27ce7ca2_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h7383b54d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hdc687f01 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h27ce7ca2 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h27ce7ca2
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h313874e4_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h21655805 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hb31eb938 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h313874e4 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h313874e4
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h3847f643_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hf7042422 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h311d38f1 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h3847f643 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h3847f643
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h3c1f10d2_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hf3b38897 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hd23c1321 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h3c1f10d2 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h3c1f10d2
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h4074c487_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h5220a672 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h6f54b8b1 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h4074c487 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h4074c487
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h48fdfa88_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_he6e7e1f6 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hb9b2a022 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h48fdfa88 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h48fdfa88
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h57987298_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hd88d777b (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h26631a60 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h57987298 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h57987298
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h5a641a57_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hab90690b (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h677e8427 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h5a641a57 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h5a641a57
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h5ea40572_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h1512d68a (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hc3ec5671 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h5ea40572 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h5ea40572
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h5ffe8758_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h7395df96 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h38e8ac31 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h5ffe8758 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h5ffe8758
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h604b5f97_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h1a30b6ff (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h83a415b9 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h604b5f97 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h604b5f97
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h65e467d3_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hbfd40503 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h4e5489d2 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h65e467d3 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h65e467d3
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h6c7272ff_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_ha3cd1508 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h96360ee1 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h6c7272ff X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h6c7272ff
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h73c155f4_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h1fb47175 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h4972f626 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h73c155f4 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h73c155f4
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h73c2114e_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h1ce5f55d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h0f279e18 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h73c2114e X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h73c2114e
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h7edcb8cc_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hb7d22aff (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h81cfec0e (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h7edcb8cc X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h7edcb8cc
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h88ed5eb6_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hd6f972c2 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h33616364 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h88ed5eb6 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h88ed5eb6
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h8d70b631_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h568cde94 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hca4d82bd (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h8d70b631 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h8d70b631
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h92d08b28_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h8a16b201 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hde720dec (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h92d08b28 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h92d08b28
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_h9ebf1727_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hc20aa839 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h6ef8b49c (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_h9ebf1727 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_h9ebf1727
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_ha3f0c00a_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h583726ef (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hc65e35fe (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_ha3f0c00a X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_ha3f0c00a
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_ha5ae99c0_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hd7b2dad1 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hd5ac7c2a (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_ha5ae99c0 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_ha5ae99c0
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_ha86afca6_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h43a27c1d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hfd15ca5e (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_ha86afca6 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_ha86afca6
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_haea263e9_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hf93ee67b (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hda13b782 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_haea263e9 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_haea263e9
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hb2920079_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h1f40fdb3 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h7e1bb4d8 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hb2920079 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hb2920079
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hb370f239_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h58fa9890 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hcc322c7b (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hb370f239 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hb370f239
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hbb6cf05c_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hd007efc7 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h3ed7df0f (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hbb6cf05c X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hbb6cf05c
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hbc800f66_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h2f338a84 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h6bcb0ecf (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hbc800f66 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hbc800f66
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hbc88b2dd_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h7eb5af1f (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h8bca4322 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hbc88b2dd X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hbc88b2dd
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hc2b6f687_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h5c7e4971 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h2fd0ed5d (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hc2b6f687 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hc2b6f687
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hc3975dc5_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h033dac5a (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h8e929349 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hc3975dc5 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hc3975dc5
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hc9743c4e_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hb3072cc6 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h70762eb9 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hc9743c4e X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hc9743c4e
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hccc2fbcb_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h49261fcf (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_hae8dc535 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hccc2fbcb X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hccc2fbcb
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hd915f581_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hd333f47e (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_heb19166d (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hd915f581 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hd915f581
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_he7f12bd4_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hc3b7913d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h5d959345 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_he7f12bd4 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_he7f12bd4
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hf1b4e4e3_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h0d0f0b6d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h636a42b5 (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hf1b4e4e3 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hf1b4e4e3
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hf3f31729_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h0de4edae (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h19f9c19c (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hf3f31729 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hf3f31729
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hf49d9647_compose
-    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
-    (raw pieces : List.Vector F 24)
-    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hLambda : ∀ i : Fin 8, Lambda.get i =
-      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_hb81b755e (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_he1cc16ce (chainCompositionLazyInput Lambda X WindowX)
-      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hf49d9647 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
-  have h0 := hLambda (0 : Fin 8)
-  have h1 := hLambda (1 : Fin 8)
-  have h2 := hLambda (2 : Fin 8)
-  have h3 := hLambda (3 : Fin 8)
-  have h4 := hLambda (4 : Fin 8)
-  have h5 := hLambda (5 : Fin 8)
-  have h6 := hLambda (6 : Fin 8)
-  have h7 := hLambda (7 : Fin 8)
-  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
-  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
-  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
-  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
-  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
-  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
-  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
-  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hf49d9647
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
-  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
-  · simp only [mul_one, zero_add]
-    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
-    simpa only [chainCompositionLazyInput, vec8_eta] using hn
-
-/-- Composition only: the slope and lazy premises are discharged by the
-separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hfce0bd8a_compose
+theorem CombChainStep_8_8_8_8_8_8_8_h015a0c08_compose
     (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
     (raw pieces : List.Vector F 24)
     (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
@@ -2053,7 +32,7 @@ theorem CombChainStep_8_8_8_8_8_8_8_hfce0bd8a_compose
     (hs : CheckPolynomial_48_h15ae7c48 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
     (hn : Lazy_24_hf09a21c7 (chainCompositionLazyInput Lambda X WindowX)
       (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hfce0bd8a X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+    CombChainStep_8_8_8_8_8_8_8_h015a0c08 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
   have h0 := hLambda (0 : Fin 8)
   have h1 := hLambda (1 : Fin 8)
   have h2 := hLambda (2 : Fin 8)
@@ -2070,7 +49,7 @@ theorem CombChainStep_8_8_8_8_8_8_8_hfce0bd8a_compose
   change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
   change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
   change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hfce0bd8a
+  unfold CombChainStep_8_8_8_8_8_8_8_h015a0c08
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
   refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
@@ -2083,7 +62,7 @@ theorem CombChainStep_8_8_8_8_8_8_8_hfce0bd8a_compose
 
 /-- Composition only: the slope and lazy premises are discharged by the
 separate arithmetic constructors in the outer mathematical witness proof. -/
-theorem CombChainStep_8_8_8_8_8_8_8_hff713c2b_compose
+theorem CombChainStep_8_8_8_8_8_8_8_h0b2c7a04_compose
     (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
     (raw pieces : List.Vector F 24)
     (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
@@ -2093,10 +72,10 @@ theorem CombChainStep_8_8_8_8_8_8_8_hff713c2b_compose
       pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
       pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
     (k : List.Vector (List.Vector F 8) 2 → Prop)
-    (hs : CheckPolynomial_48_h47951bd5 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
-    (hn : Lazy_24_h289d8769 (chainCompositionLazyInput Lambda X WindowX)
+    (hs : CheckPolynomial_48_hd7b2dad1 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hd5ac7c2a (chainCompositionLazyInput Lambda X WindowX)
       (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
-    CombChainStep_8_8_8_8_8_8_8_hff713c2b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+    CombChainStep_8_8_8_8_8_8_8_h0b2c7a04 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
   have h0 := hLambda (0 : Fin 8)
   have h1 := hLambda (1 : Fin 8)
   have h2 := hLambda (2 : Fin 8)
@@ -2113,7 +92,2028 @@ theorem CombChainStep_8_8_8_8_8_8_8_hff713c2b_compose
   change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
   change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
   change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold CombChainStep_8_8_8_8_8_8_8_hff713c2b
+  unfold CombChainStep_8_8_8_8_8_8_8_h0b2c7a04
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h0f057500_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h0d0f0b6d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h636a42b5 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h0f057500 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h0f057500
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h16154bb8_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hd333f47e (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_heb19166d (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h16154bb8 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h16154bb8
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h18a1cf88_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h49261fcf (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hae8dc535 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h18a1cf88 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h18a1cf88
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h18d73f47_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hc39fa5c0 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h0b39a3e2 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h18d73f47 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h18d73f47
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h1d7ce17b_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_ha3cd1508 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h96360ee1 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h1d7ce17b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h1d7ce17b
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h2390b750_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hb81b755e (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_he1cc16ce (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h2390b750 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h2390b750
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h27bf5feb_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hd007efc7 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h3ed7df0f (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h27bf5feb X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h27bf5feb
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h2ec09f94_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hf0f7cd8d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hfc273997 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h2ec09f94 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h2ec09f94
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h2f8d1084_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h2f338a84 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h6bcb0ecf (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h2f8d1084 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h2f8d1084
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h308152e6_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h1512d68a (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hc3ec5671 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h308152e6 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h308152e6
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h33cb1110_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hbfd40503 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h4e5489d2 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h33cb1110 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h33cb1110
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h38305e15_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h47951bd5 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h289d8769 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h38305e15 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h38305e15
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h40db0ded_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h211271d3 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h40955e83 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h40db0ded X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h40db0ded
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h4279c9fa_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h5c23f74c (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h183e6a3f (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h4279c9fa X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h4279c9fa
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h59272257_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hab90690b (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h677e8427 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h59272257 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h59272257
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h5c8297ae_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h21655805 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hb31eb938 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h5c8297ae X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h5c8297ae
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h63e076b3_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h583726ef (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hc65e35fe (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h63e076b3 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h63e076b3
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h6e26f17b_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_he6e7e1f6 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hb9b2a022 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h6e26f17b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h6e26f17b
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h722a110e_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_haca3f4dc (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h8fbed755 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h722a110e X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h722a110e
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h7791617c_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h7383b54d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hdc687f01 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h7791617c X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h7791617c
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h84b7fff5_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h1ce5f55d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h0f279e18 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h84b7fff5 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h84b7fff5
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h87d7c1d5_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h033dac5a (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h8e929349 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h87d7c1d5 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h87d7c1d5
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h893b2021_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h568cde94 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hca4d82bd (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h893b2021 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h893b2021
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h98a10bfb_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h7eb5af1f (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h8bca4322 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h98a10bfb X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h98a10bfb
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_h9ff1cd8b_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hc20aa839 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h6ef8b49c (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_h9ff1cd8b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_h9ff1cd8b
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_ha337781a_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h4d342646 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h70433ddf (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_ha337781a X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_ha337781a
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_ha9cc5411_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hf7042422 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h311d38f1 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_ha9cc5411 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_ha9cc5411
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hb365cd9c_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h5c7e4971 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h2fd0ed5d (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hb365cd9c X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hb365cd9c
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hb9331b93_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h1f40fdb3 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h7e1bb4d8 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hb9331b93 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hb9331b93
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hbc9d292f_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hb3072cc6 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h70762eb9 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hbc9d292f X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hbc9d292f
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hc0cdb690_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h1a30b6ff (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h83a415b9 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hc0cdb690 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hc0cdb690
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hc2445cd4_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hf93ee67b (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hda13b782 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hc2445cd4 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hc2445cd4
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hcf989bc7_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hd88d777b (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h26631a60 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hcf989bc7 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hcf989bc7
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hd6f972c2 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h33616364 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hd1f04580_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h43a27c1d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hfd15ca5e (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hd1f04580 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hd1f04580
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hd5949308_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h7395df96 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h38e8ac31 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hd5949308 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hd5949308
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_he11b64cc_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h2d2e868f (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h4c46916d (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_he11b64cc X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_he11b64cc
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_he4e1c949_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h58fa9890 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hcc322c7b (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_he4e1c949 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_he4e1c949
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_he57d21d5_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hb7d22aff (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h81cfec0e (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_he57d21d5 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_he57d21d5
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_he5aef826_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h8a16b201 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hde720dec (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_he5aef826 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_he5aef826
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_he6b197a7_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h1fb47175 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h4972f626 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_he6b197a7 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_he6b197a7
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_he9395e0b_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_he98b9e85 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_he088c588 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_he9395e0b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_he9395e0b
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hf0b5218f_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h4114346a (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h77f7514c (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hf0b5218f X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hf0b5218f
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hf2e5fd4b_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hf3b38897 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_hd23c1321 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hf2e5fd4b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hf2e5fd4b
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hfcf24f49_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h0de4edae (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h19f9c19c (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hfcf24f49 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hfcf24f49
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hfeca3431_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_hc3b7913d (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h5d959345 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hfeca3431 X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hfeca3431
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
+  refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionSlopeInput, sub_eq_add_neg, mul_neg_one] using hs
+  · simp only [mul_one, zero_add]
+    rw [← h0, ← h1, ← h2, ← h3, ← h4, ← h5, ← h6, ← h7]
+    simpa only [chainCompositionLazyInput, vec8_eta] using hn
+
+/-- Composition only: the slope and lazy premises are discharged by the
+separate arithmetic constructors in the outer mathematical witness proof. -/
+theorem CombChainStep_8_8_8_8_8_8_8_hff84174b_compose
+    (X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY Lambda : List.Vector F 8)
+    (raw pieces : List.Vector F 24)
+    (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hLambda : ∀ i : Fin 8, Lambda.get i =
+      pieces.get ⟨3 * i.val, by omega⟩ + pieces.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (k : List.Vector (List.Vector F 8) 2 → Prop)
+    (hs : CheckPolynomial_48_h5220a672 (chainCompositionSlopeInput Lambda X PreviousSlope PreviousWindowX WindowX WindowY PreviousWindowY))
+    (hn : Lazy_24_h6f54b8b1 (chainCompositionLazyInput Lambda X WindowX)
+      (fun out => k (out ::ᵥ Lambda ::ᵥ List.Vector.nil))) :
+    CombChainStep_8_8_8_8_8_8_8_hff84174b X PreviousSlope PreviousWindowX PreviousWindowY WindowX WindowY FirstWindowY k := by
+  have h0 := hLambda (0 : Fin 8)
+  have h1 := hLambda (1 : Fin 8)
+  have h2 := hLambda (2 : Fin 8)
+  have h3 := hLambda (3 : Fin 8)
+  have h4 := hLambda (4 : Fin 8)
+  have h5 := hLambda (5 : Fin 8)
+  have h6 := hLambda (6 : Fin 8)
+  have h7 := hLambda (7 : Fin 8)
+  change Lambda.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
+  change Lambda.get 1 = pieces.get 3 + pieces.get 4 * 2048 + pieces.get 5 * 4194304 - 2147483648 at h1
+  change Lambda.get 2 = pieces.get 6 + pieces.get 7 * 2048 + pieces.get 8 * 4194304 - 2147483648 at h2
+  change Lambda.get 3 = pieces.get 9 + pieces.get 10 * 2048 + pieces.get 11 * 4194304 - 2147483648 at h3
+  change Lambda.get 4 = pieces.get 12 + pieces.get 13 * 2048 + pieces.get 14 * 4194304 - 2147483648 at h4
+  change Lambda.get 5 = pieces.get 15 + pieces.get 16 * 2048 + pieces.get 17 * 4194304 - 2147483648 at h5
+  change Lambda.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
+  change Lambda.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
+  unfold CombChainStep_8_8_8_8_8_8_8_hff84174b
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
   refine ⟨raw, pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, ?_, ?_⟩

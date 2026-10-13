@@ -18,8 +18,14 @@ import (
 
 // Invariant 1: Forged range decomposition and multiplicity hints are rejected.
 func TestRangeCheckHintForgeriesAreRejected(t *testing.T) {
-	cs := compilePlain(t, p256P, LookupLayout)
-	w := plainArithWitness(LookupLayout, p256P, big.NewInt(0x1234_5678), new(big.Int).Sub(p256P, big.NewInt(7)), big.NewInt(99))
+	for _, a := range arithmetics {
+		t.Run(a.name, func(t *testing.T) { rangeCheckHintForgeriesAreRejected(t, a.config) })
+	}
+}
+
+func rangeCheckHintForgeriesAreRejected(t *testing.T, config Config) {
+	cs := compilePlain(t, config, p256P)
+	w := plainArithWitness(config, p256P, big.NewInt(0x1234_5678), new(big.Int).Sub(p256P, big.NewInt(7)), big.NewInt(99))
 	t.Run("multiplicities", func(t *testing.T) {
 		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(countHint), func(q *big.Int, inputs, outputs []*big.Int) error {
 			if err := countHint(q, inputs, outputs); err != nil {
@@ -29,9 +35,13 @@ func TestRangeCheckHintForgeriesAreRejected(t *testing.T) {
 			return nil
 		}))
 	})
+	decompose := decomposeHint
+	if config.Arithmetic == ArithmeticV2 {
+		decompose = decomposeHighHint
+	}
 	t.Run("decomposition", func(t *testing.T) {
-		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(decomposeHint), func(q *big.Int, inputs, outputs []*big.Int) error {
-			if err := decomposeHint(q, inputs, outputs); err != nil {
+		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(decompose), func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := decompose(q, inputs, outputs); err != nil {
 				return err
 			}
 			outputs[0].Add(outputs[0], pow2(LookupLayout.PieceBits))

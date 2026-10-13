@@ -12,7 +12,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
-use zolana_keypair::{Curve, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::ShieldedKeypair;
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
@@ -24,23 +24,15 @@ use crate::{
 /// migration path: a file carrying any other version is rejected outright.
 const WALLET_FORMAT_VERSION: u8 = 1;
 
-/// On-disk wallet identity. `mode` picks the rail and decides what the file
-/// holds:
-///
-/// - `ed25519`: the Solana funding key IS the shielded identity. Its secret is
-///   the signing key and the nullifier and viewing keys re-derive from it (flat
-///   HKDF), so the file only caches the funding secret and stores no scalars.
-/// - `p256`: an independent random shielded identity. Its signing and viewing
-///   scalars derive from nothing else, so both are stored raw.
+/// On-disk wallet identity. The Solana funding key IS the shielded identity
+/// (`mode = ed25519`): its secret is the signing key and the nullifier and
+/// viewing keys re-derive from it (flat HKDF), so the file only caches the
+/// funding secret and stores no scalars.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct KeypairFile {
     version: u8,
     mode: WalletMode,
     owner_hash_hex: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    signing_key_hex: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    viewing_key_hex: Option<String>,
     funding_secret_hex: String,
     funding_pubkey: String,
 }
@@ -49,7 +41,6 @@ struct KeypairFile {
 #[serde(rename_all = "lowercase")]
 enum WalletMode {
     Ed25519,
-    P256,
 }
 
 pub(super) struct WalletMaterial {
@@ -73,23 +64,16 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
         );
     }
 
-    // Both rails need a Solana funding key to pay fees. Importing an existing
-    // keypair keeps the identity people already fund; a generated one is fully
-    // recoverable from its own keypair file.
+    // Importing an existing keypair keeps the identity people already fund; a
+    // generated one is fully recoverable from its own keypair file.
     let (funding, funding_source) = match opts.funding_keypair.as_deref() {
         Some(keypair) => (load_solana_cli_keypair(Path::new(keypair))?, "imported"),
         None => (Keypair::new(), "generated"),
     };
 
-    // ed25519 (default): the funding key IS the shielded identity -- its secret
-    // is the signing key and the nullifier and viewing keys derive from it, so
-    // the file is a cache. p256 (`--p256`): an independent random shielded
-    // identity whose scalars derive from nothing else and are stored on disk.
-    let (keypair, mode) = if opts.p256 {
-        (ShieldedKeypair::new_p256()?, "p256")
-    } else {
-        (ShieldedKeypair::from_keypair(&funding)?, "ed25519")
-    };
+    // The funding key IS the shielded identity: its secret is the signing key
+    // and the nullifier and viewing keys derive from it, so the file is a cache.
+    let (keypair, mode) = (ShieldedKeypair::from_keypair(&funding)?, "ed25519");
     save_wallet(&path, &keypair, &funding)?;
     let material = WalletMaterial { keypair, funding };
 
@@ -162,8 +146,6 @@ pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
         // The funding key is the identity: re-derive the shielded keypair (flat
         // HKDF) instead of trusting any cached scalars.
         WalletMode::Ed25519 => ShieldedKeypair::from_keypair(&funding)?,
-        // A P256 identity is random, so its scalars are stored and reloaded.
-        WalletMode::P256 => p256_keypair_from_file(path, &file)?,
     };
     let expected_owner_hash = keypair.owner_hash()?;
     let stored_owner_hash = parse_hex_array::<32>(&file.owner_hash_hex)?;
@@ -177,23 +159,6 @@ pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
         );
     }
     Ok(WalletMaterial { keypair, funding })
-}
-
-/// Reconstruct a P256 wallet from its stored signing and viewing scalars. Both
-/// fields are required: a P256 identity is random, so its keys cannot be
-/// derived from the funding secret the way the ed25519 rail derives them.
-fn p256_keypair_from_file(path: &Path, file: &KeypairFile) -> Result<ShieldedKeypair> {
-    let signing_hex = file
-        .signing_key_hex
-        .as_deref()
-        .with_context(|| format!("wallet {} is missing signing_key_hex", path.display()))?;
-    let viewing_hex = file
-        .viewing_key_hex
-        .as_deref()
-        .with_context(|| format!("wallet {} is missing viewing_key_hex", path.display()))?;
-    let signing = SigningKey::from_p256_bytes(&parse_hex_array::<32>(signing_hex)?)?;
-    let viewing = ViewingKey::from_bytes(&parse_hex_array::<32>(viewing_hex)?)?;
-    Ok(ShieldedKeypair::with_viewing_key(signing, viewing)?)
 }
 
 /// Load the JSON byte array written by `solana-keygen`. Both the standard
@@ -230,33 +195,17 @@ fn keypair_from_solana_bytes(values: &[u8], path: &Path) -> Result<Keypair> {
 }
 
 fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Result<()> {
-    let file = match keypair.curve() {
-        Curve::Ed25519 => {
-            // An ed25519 wallet's signing key must be the funding secret: that is
-            // the whole point of the rail, and it is what the load path re-derives.
-            if keypair.signing_key.secret_bytes().as_slice() != funding.secret_bytes().as_slice() {
-                bail!("ed25519 wallet signing key must be the funding keypair");
-            }
-            KeypairFile {
-                version: WALLET_FORMAT_VERSION,
-                mode: WalletMode::Ed25519,
-                owner_hash_hex: hex::encode(keypair.owner_hash()?),
-                signing_key_hex: None,
-                viewing_key_hex: None,
-                funding_secret_hex: hex::encode(funding.secret_bytes()),
-                funding_pubkey: funding.pubkey().to_string(),
-            }
-        }
-        Curve::P256 => KeypairFile {
-            version: WALLET_FORMAT_VERSION,
-            mode: WalletMode::P256,
-            owner_hash_hex: hex::encode(keypair.owner_hash()?),
-            signing_key_hex: Some(hex::encode(keypair.signing_key.secret_bytes().as_slice())),
-            viewing_key_hex: Some(hex::encode(keypair.viewing_key.secret_bytes().as_slice())),
-            funding_secret_hex: hex::encode(funding.secret_bytes()),
-            funding_pubkey: funding.pubkey().to_string(),
-        },
-        Curve::Pda => bail!("a PDA cannot be a wallet signing key"),
+    // The wallet's signing key must be the funding secret: that is what the
+    // load path re-derives.
+    if keypair.signing_key.secret_bytes().as_slice() != funding.secret_bytes().as_slice() {
+        bail!("wallet signing key must be the funding keypair");
+    }
+    let file = KeypairFile {
+        version: WALLET_FORMAT_VERSION,
+        mode: WalletMode::Ed25519,
+        owner_hash_hex: hex::encode(keypair.owner_hash()?),
+        funding_secret_hex: hex::encode(funding.secret_bytes()),
+        funding_pubkey: funding.pubkey().to_string(),
     };
     write_json_secret_exclusive(path, &file)
 }
@@ -313,38 +262,6 @@ mod tests {
     }
 
     #[test]
-    fn p256_wallet_round_trips_and_stores_scalars() {
-        let root = temp_root("zolana-cli-wallet-p256");
-        let wallet = root.join("alice.pid.json");
-        let keypair = ShieldedKeypair::new_p256().expect("p256 keypair");
-        let funding = Keypair::new();
-        save_wallet(&wallet, &keypair, &funding).expect("save wallet");
-
-        let file: KeypairFile =
-            serde_json::from_slice(&fs::read(&wallet).unwrap()).expect("parse wallet");
-        assert_eq!(file.version, WALLET_FORMAT_VERSION);
-        assert_eq!(file.mode, WalletMode::P256);
-        let expected_signing = hex::encode(keypair.signing_key.secret_bytes().as_slice());
-        let expected_viewing = hex::encode(keypair.viewing_key.secret_bytes().as_slice());
-        assert_eq!(
-            file.signing_key_hex.as_deref(),
-            Some(expected_signing.as_str())
-        );
-        assert_eq!(
-            file.viewing_key_hex.as_deref(),
-            Some(expected_viewing.as_str())
-        );
-
-        let loaded = load_existing_wallet(&wallet).expect("load wallet");
-        assert_eq!(
-            loaded.keypair.owner_hash().unwrap(),
-            keypair.owner_hash().unwrap()
-        );
-        assert_ne!(loaded.funding.pubkey(), Pubkey::default());
-        assert_eq!(loaded.funding.pubkey(), funding.pubkey());
-    }
-
-    #[test]
     fn ed25519_wallet_round_trips_and_stores_no_scalars() {
         let root = temp_root("zolana-cli-wallet-ed25519");
         let wallet = root.join("alice.pid.json");
@@ -356,8 +273,10 @@ mod tests {
             serde_json::from_slice(&fs::read(&wallet).unwrap()).expect("parse wallet");
         assert_eq!(file.version, WALLET_FORMAT_VERSION);
         assert_eq!(file.mode, WalletMode::Ed25519);
-        assert_eq!(file.signing_key_hex, None);
-        assert_eq!(file.viewing_key_hex, None);
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(&wallet).unwrap()).expect("parse wallet json");
+        assert!(raw.get("signing_key_hex").is_none());
+        assert!(raw.get("viewing_key_hex").is_none());
 
         let loaded = load_existing_wallet(&wallet).expect("load wallet");
         assert_eq!(
@@ -380,15 +299,16 @@ mod tests {
     fn wallet_file_creation_never_overwrites() {
         let root = temp_root("zolana-cli-wallet-exclusive");
         let wallet = root.join("id.json");
-        let first = ShieldedKeypair::new_p256().expect("first shielded keypair");
         let first_funding = Keypair::new();
+        let first = ShieldedKeypair::from_keypair(&first_funding).expect("first shielded keypair");
         save_wallet(&wallet, &first, &first_funding).expect("create wallet");
         let before = fs::read(&wallet).expect("read first wallet");
 
+        let second_funding = Keypair::new();
         assert!(save_wallet(
             &wallet,
-            &ShieldedKeypair::new_p256().unwrap(),
-            &Keypair::new()
+            &ShieldedKeypair::from_keypair(&second_funding).unwrap(),
+            &second_funding
         )
         .is_err());
         assert_eq!(fs::read(&wallet).expect("read unchanged wallet"), before);
@@ -400,10 +320,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
 
         let wallet = temp_root("zolana-cli-wallet-mode").join("id.json");
+        let funding = Keypair::new();
         save_wallet(
             &wallet,
-            &ShieldedKeypair::new_p256().expect("shielded keypair"),
-            &Keypair::new(),
+            &ShieldedKeypair::from_keypair(&funding).expect("shielded keypair"),
+            &funding,
         )
         .expect("create wallet");
 

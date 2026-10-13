@@ -43,7 +43,7 @@ var (
 
 func (c *curve) scalarMulBase(scalar *frElement) *point {
 	// 1. Constrain the parity bit and signed-window recoding of the scalar.
-	table := p256Comb(combWindowFor(c.layout))
+	table := p256Comb(combWindowBits)
 	api := c.api
 	bits, err := api.Compiler().NewHint(p256CombRecodeHint, 1+table.scalarBits, c.limbHintInputs(scalar.Limbs())...)
 	if err != nil {
@@ -245,7 +245,7 @@ func oneHot(api frontend.API, selectorBits []frontend.Variable) []frontend.Varia
 // an affine (x, y) pair in selector order. The formal-verification exporter
 // reads them; circuits never call it.
 func CombTables() (windows [][][2]*big.Int, topEven [][2]*big.Int) {
-	table := p256Comb(combWindowFor(emfield.LayoutFor(true)))
+	table := p256Comb(combWindowBits)
 	copyEntries := func(entries [][2]*big.Int) [][2]*big.Int {
 		out := make([][2]*big.Int, len(entries))
 		for i, entry := range entries {
@@ -260,12 +260,7 @@ func CombTables() (windows [][][2]*big.Int, topEven [][2]*big.Int) {
 	return windows, copyEntries(table.topEven)
 }
 
-func combWindowFor(layout emfield.Layout) int {
-	if layout.Lookups {
-		return 5
-	}
-	return 8
-}
+const combWindowBits = 5
 
 func p256Comb(windowBits int) *combData {
 	combMu.Lock()

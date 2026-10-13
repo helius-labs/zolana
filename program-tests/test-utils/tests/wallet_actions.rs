@@ -26,7 +26,7 @@ use zolana_test_utils::wallet::{
     ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority,
     TransferParams, Wallet, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
-use zolana_transaction::P256Signature;
+use zolana_transaction::Ed25519Authorization;
 use zolana_transaction::{
     instructions::transact::{
         signed_magnitude_to_field, ConfidentialTransaction, SettlementTransfer, Shape,
@@ -309,15 +309,9 @@ fn withdrawal_sets_external_data_and_change() {
 }
 
 #[test]
-fn default_transact_rejects_p256_and_uses_eddsa() {
-    let sender = ShieldedKeypair::new_p256().unwrap();
-    assert!(matches!(
-        sign(transaction(&sender, 10), &sender, Shape::IN1_OUT2),
-        Err(TransactionError::P256TransactUnsupported)
-    ));
+fn default_transact_uses_eddsa() {
     let sender = test_keypair();
     let tx = transaction(&sender, 10);
-    assert!(!tx.requires_p256_owner().unwrap());
     prover_of(sign(tx, &sender, Shape::IN1_OUT2).unwrap())
         .build()
         .unwrap();
@@ -429,7 +423,7 @@ fn two_distinct_spl_assets_and_sol_are_supported() {
 struct AsyncTestAuthority {
     keypair: ShieldedKeypair,
     approvals: AtomicUsize,
-    p256_sign_calls: AtomicUsize,
+    ed25519_sign_calls: AtomicUsize,
 }
 
 #[async_trait::async_trait]
@@ -489,9 +483,12 @@ impl WalletAuthority for AsyncTestAuthority {
         Ok(())
     }
 
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        self.p256_sign_calls.fetch_add(1, Ordering::SeqCst);
-        SyncWalletAuthority::sign_p256(
+    async fn sign_ed25519(
+        &self,
+        message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError> {
+        self.ed25519_sign_calls.fetch_add(1, Ordering::SeqCst);
+        SyncWalletAuthority::sign_ed25519(
             &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             message_hash,
         )
@@ -506,12 +503,12 @@ impl WalletAuthority for AsyncTestAuthority {
 }
 
 #[test]
-fn async_authority_invokes_approval_without_p256_signing() {
+fn async_authority_invokes_approval_without_ed25519_signing() {
     let sender = test_keypair();
     let authority = AsyncTestAuthority {
         keypair: sender.clone(),
         approvals: AtomicUsize::new(0),
-        p256_sign_calls: AtomicUsize::new(0),
+        ed25519_sign_calls: AtomicUsize::new(0),
     };
     let mut wallet =
         Wallet::new(sender.shielded_address().unwrap(), AssetRegistry::default()).unwrap();
@@ -533,7 +530,7 @@ fn async_authority_invokes_approval_without_p256_signing() {
             .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
-    assert_eq!(authority.p256_sign_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.ed25519_sign_calls.load(Ordering::SeqCst), 0);
     prover_of(signed.transaction).build().unwrap();
 }
 

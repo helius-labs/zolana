@@ -242,14 +242,9 @@ function validateMergeBuild(record: MergeRecord, owner: Address, address: Shield
     throw new WalletError("WALLET_MERGE_DISABLED", { details: { owner } });
   }
   const signingPublicKey = address.signingPublicKey;
-  if (signingPublicKey.signatureType() === "p256") {
-    if (
-      record.ownerP256 === undefined ||
-      !equalBytes(record.ownerP256, signingPublicKey.p256().toBytes())
-    ) {
-      throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
-    }
-  } else if (
+  // The signing identity is the record's Solana owner; a record that names a
+  // P-256 owner key cannot back it.
+  if (
     record.ownerP256 !== undefined ||
     !equalBytes(signingPublicKey.ed25519(), new Uint8Array(addressEncoder.encode(owner)))
   ) {

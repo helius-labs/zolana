@@ -20,11 +20,7 @@ type ECDSAInputs struct {
 }
 
 func VerifyECDSA(api frontend.API, signature ECDSAInputs) [32]frontend.Variable {
-	return VerifyECDSAFor(api, signature, true)
-}
-
-func VerifyECDSAFor(api frontend.API, signature ECDSAInputs, lookups bool) [32]frontend.Variable {
-	c := newCurveFor(api, lookups)
+	c := newCurve(api)
 	// 1. Decode and validate the canonical public-key coordinates.
 	publicPoint := &point{
 		X: c.fp.Reduced(c.relimb(signature.PublicKeyX, signature.LimbBits)),

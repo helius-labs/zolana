@@ -163,6 +163,9 @@ pub enum ClientError {
     #[error("the user registry record of {owner} holds other keys")]
     UserRegistryKeysMismatch { owner: Pubkey },
 
+    #[error("the user registry record of {owner} names a P-256 owner key, which clients no longer support")]
+    UserRegistryP256OwnerUnsupported { owner: Pubkey },
+
     #[error(
         "the user registry record of {owner} publishes another nullifier pubkey, which never rotates: register under a new owner address"
     )]
@@ -177,22 +180,13 @@ pub enum ClientError {
     #[error("a transaction must input_utxo at least one input")]
     NoInputs,
 
+    #[error("the in-circuit Ed25519 ring proof requires at least one real input owned by the authorization key")]
+    Ed25519ProofWithoutAuthorizedInput,
+
     #[error(
-        "input {index} is not Solana-owned; the transfer-eddsa rail rejects P256-owned inputs"
+        "input {index} is owned neither by the Ed25519 authorization key nor by a runtime signer of the proof"
     )]
-    EddsaInputNotSolanaOwned { index: usize },
-
-    #[error("the P256 rail requires an owner signature but none was supplied")]
-    MissingP256Signature,
-
-    #[error("a P256 registry key binding proof is required")]
-    MissingRegistryP256Proof,
-
-    #[error("a P256 registry key binding proof was supplied for an Ed25519 owner")]
-    UnexpectedRegistryP256Proof,
-
-    #[error("the P256 ring proof requires at least one real P256-owned input")]
-    P256ProofWithoutP256Input,
+    RingEd25519InputNotAuthorized { index: usize },
 
     #[error(
         "outputs and resolved owner tags must have equal lengths: {outputs} outputs, {owner_tags} owner tags"
@@ -202,11 +196,8 @@ pub enum ClientError {
     #[error("output {index} blinding does not match the transaction seed and first nullifier")]
     OutputBlindingMismatch { index: usize },
 
-    #[error("P256 input {index} is not owned by the supplied authorization key")]
-    P256AuthorizationOwnerMismatch { index: usize },
-
-    #[error("invalid P256 authorization: {0}")]
-    InvalidP256Authorization(String),
+    #[error("invalid Ed25519 authorization: {0}")]
+    InvalidEd25519Authorization(String),
 
     #[error("merge input {index} has a different signing rail than the owner; merge requires all inputs share one owner")]
     MergeInputRailMismatch { index: usize },
@@ -260,9 +251,6 @@ pub enum ClientError {
 
     #[error("split input utxo {hash:?} is bound to a ring, which is not supported")]
     SplitInputRingMismatch { hash: [u8; 32] },
-
-    #[error("P256-owned inputs are unsupported by transact")]
-    P256TransactUnsupported,
 
     #[error("value exceeds 32 bytes")]
     ValueTooLong,
@@ -457,14 +445,19 @@ pub enum ClientError {
     InputTreeUnresolved { tree_id: u16 },
 
     #[error(
-        "a proof cannot input_utxo both a default-ring and a ring-bound P256 UTXO: the ring input_utxo would name the shared owner"
+        "a proof cannot spend both a default-ring and a ring-bound UTXO of the Ed25519 authorization key: the ring spend would name the shared owner"
     )]
-    RingP256MixedDefaultAndRingSpend,
+    RingEd25519MixedDefaultAndRingSpend,
 
     #[error(
-        "published output owner {index} equals the shared P256 identity while a ring-bound P256 UTXO is spent"
+        "published output owner {index} equals the shared Ed25519 identity while a ring-bound UTXO of that key is spent"
     )]
-    RingP256PublishedOwnerLeaksIdentity { index: usize },
+    RingEd25519PublishedOwnerLeaksIdentity { index: usize },
+
+    #[error(
+        "public signer {index} equals the shared Ed25519 identity while a ring-bound UTXO of that key is spent"
+    )]
+    RingEd25519SignerLeaksIdentity { index: usize },
 
     #[error(
         "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"

@@ -11,7 +11,8 @@ const (
 	TransferRingCircuitType CircuitType = "transfer-ring"
 
 	// TransferP256RingCircuitType is the custom-ring transfer with an in-circuit
-	// P256 authorization shared by every P256-owned input.
+	// Ed25519 authorization shared by every input with the zero owner tag. The
+	// "p256" name is kept for key files and clients until the next key rotation.
 	TransferP256RingCircuitType CircuitType = "transfer-p256-ring"
 
 	// TransferRingAuthorityCircuitType is the anonymous policy-ring transfer used by

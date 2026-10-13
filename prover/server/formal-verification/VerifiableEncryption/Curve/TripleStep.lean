@@ -17,13 +17,13 @@ structure TripleCons (x y x3 y3 l xd r : Fp) : Prop where
   ex3 : x3 = (r - l) ^ 2 - x - xd
   ey3 : y3 = (r - l) * (x - x3) - y
 
-theorem triple_habd58e5e_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8)
+theorem triple_h2c0228bb_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8)
     (hX : X.bnd = reducedC) (hY : Y.bnd = reducedC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Triple_8_8_habd58e5e X.limbs Y.limbs k) :
+    (h : Triple_8_8_h2c0228bb X.limbs Y.limbs k) :
     ∃ X3 Y3 : ElemVal 8, X3.bnd = reducedC ∧ Y3.bnd = reducedC ∧
       k (X3.limbs ::ᵥ Y3.limbs ::ᵥ List.Vector.nil) ∧
       ∃ l xd r : Fp, TripleCons (X.value : Fp) (Y.value : Fp) (X3.value : Fp) (Y3.value : Fp) l xd r := by
-  unfold Triple_8_8_habd58e5e Triple_8_8_habd58e5e_p1 at h
+  unfold Triple_8_8_h2c0228bb Triple_8_8_h2c0228bb_p1 at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc1, h⟩ := h
@@ -120,13 +120,13 @@ theorem triple_habd58e5e_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8
   exact ⟨by linear_combination c1, by linear_combination vD, by linear_combination c2,
     by linear_combination vX3, by linear_combination vY3⟩
 
-theorem triple_he2f2b0f5_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8)
+theorem triple_hffcb8921_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8)
     (hX : X.bnd = reducedC) (hY : Y.bnd = selC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Triple_8_8_he2f2b0f5 X.limbs Y.limbs k) :
+    (h : Triple_8_8_hffcb8921 X.limbs Y.limbs k) :
     ∃ X3 Y3 : ElemVal 8, X3.bnd = reducedC ∧ Y3.bnd = reducedC ∧
       k (X3.limbs ::ᵥ Y3.limbs ::ᵥ List.Vector.nil) ∧
       ∃ l xd r : Fp, TripleCons (X.value : Fp) (Y.value : Fp) (X3.value : Fp) (Y3.value : Fp) l xd r := by
-  unfold Triple_8_8_he2f2b0f5 Triple_8_8_he2f2b0f5_p1 at h
+  unfold Triple_8_8_hffcb8921 Triple_8_8_hffcb8921_p1 at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc1, h⟩ := h
@@ -225,10 +225,10 @@ theorem triple_he2f2b0f5_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8
 
 theorem halfTangentSlope_sound (hl : LookupSound RangeCheck 11) (X Y : ElemVal 8)
     (hX : X.bnd = reducedC) (hY : Y.bnd = reducedC) {k : List.Vector F 8 → Prop}
-    (h : HalfTangentSlope_8_8_habd58e5e X.limbs Y.limbs k) :
+    (h : HalfTangentSlope_8_8_h2c0228bb X.limbs Y.limbs k) :
     ∃ L : ElemVal 8, L.bnd = balC ∧ k L.limbs ∧
       halfQuartic (X.value : Fp) (Y.value : Fp) (L.value : Fp) = 0 := by
-  unfold HalfTangentSlope_8_8_habd58e5e at h
+  unfold HalfTangentSlope_8_8_h2c0228bb at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, h⟩ := h

@@ -37,6 +37,7 @@ type Element struct {
 type Field struct {
 	api          frontend.API
 	layout       Layout
+	version      Arithmetic
 	mod          *big.Int
 	modulusBits  int
 	widths       []int
@@ -45,28 +46,51 @@ type Field struct {
 	arithmetic   *arithmeticState
 }
 
+// Arithmetic selects how checks are arranged into constraints. A circuit
+// keeps the arithmetic its proving keys were set up with: switching it
+// changes the constraint system.
+type Arithmetic int
+
+const (
+	// ArithmeticV1 is the arithmetic of the P-256 circuits and their Lean proofs.
+	ArithmeticV1 Arithmetic = iota
+	// ArithmeticV2 adds balanced quotient coefficients, CRT square kernels,
+	// aligned quadratic CRT products, single-sum linear forms, expanded lazy
+	// bounds and wide range checks that derive their low piece.
+	ArithmeticV2
+)
+
+type Config struct {
+	Layout     Layout
+	Arithmetic Arithmetic
+}
+
+var LookupConfig = Config{Layout: LookupLayout, Arithmetic: ArithmeticV1}
+
 type fieldKey struct {
 	mod    string
-	layout Layout
+	config Config
 }
 
 func New(api frontend.API, modulus *big.Int) *Field {
-	return NewFor(api, modulus, LookupLayout)
+	return NewFor(api, modulus, LookupConfig)
 }
 
-func NewFor(api frontend.API, modulus *big.Int, layout Layout) *Field {
+func NewFor(api frontend.API, modulus *big.Int, config Config) *Field {
+	layout := config.Layout
 	kv := store(api)
-	key := fieldKey{modulus.String(), layout}
+	key := fieldKey{modulus.String(), config}
 	if f, ok := kv.GetKeyValue(key).(*Field); ok {
 		return f
 	}
 	f := &Field{
 		api:         api,
 		layout:      layout,
+		version:     config.Arithmetic,
 		mod:         new(big.Int).Set(modulus),
 		modulusBits: modulus.BitLen(),
 		widths:      layout.reducedWidths(modulus.BitLen()),
-		rc:          NewRangeCheckerFor(api, layout),
+		rc:          NewRangeCheckerFor(api, layout.PieceBits, config.Arithmetic),
 	}
 	f.modulusLimbs = layout.decompose(f.mod, layout.NbLimbs)
 	kv.SetKeyValue(key, f)

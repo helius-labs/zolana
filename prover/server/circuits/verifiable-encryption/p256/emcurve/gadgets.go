@@ -89,11 +89,10 @@ type ScalarMulChecked struct {
 	PointXBounds           []*big.Int
 	PointYBounds           []*big.Int
 	ScalarBounds           []*big.Int
-	Lookups                bool
 }
 
 func (g ScalarMulChecked) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	p := &point{X: c.fp.FromBounds(g.PointX, g.PointXBounds), Y: c.fp.FromBounds(g.PointY, g.PointYBounds)}
 	return c.requireReduced(c.scalarMulChecked(p, c.fr.FromBounds(g.Scalar, g.ScalarBounds)))
 }
@@ -105,7 +104,6 @@ func (c *curve) scalarMulCheckedAt(p *point, s *frElement) *point {
 	return c.reducedPoint(abstractor.Call2(c.api, ScalarMulChecked{
 		PointX: p.X.Limbs(), PointY: p.Y.Limbs(), Scalar: s.Limbs(),
 		PointXBounds: p.X.Bounds(), PointYBounds: p.Y.Bounds(), ScalarBounds: s.Bounds(),
-		Lookups: c.layout.Lookups,
 	}))
 }
 
@@ -113,11 +111,10 @@ func (c *curve) scalarMulCheckedAt(p *point, s *frElement) *point {
 type ScalarMulBase struct {
 	Scalar       []frontend.Variable
 	ScalarBounds []*big.Int
-	Lookups      bool
 }
 
 func (g ScalarMulBase) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	return c.requireReduced(c.scalarMulBase(c.fr.FromBounds(g.Scalar, g.ScalarBounds)))
 }
 
@@ -125,18 +122,17 @@ func (c *curve) scalarMulBaseAt(s *frElement) *point {
 	if !abstractor.Extracting(c.api) {
 		return c.scalarMulBase(s)
 	}
-	return c.reducedPoint(abstractor.Call2(c.api, ScalarMulBase{Scalar: s.Limbs(), ScalarBounds: s.Bounds(), Lookups: c.layout.Lookups}))
+	return c.reducedPoint(abstractor.Call2(c.api, ScalarMulBase{Scalar: s.Limbs(), ScalarBounds: s.Bounds()}))
 }
 
 // AssertOnCurve is assertOnCurve: y^2 = x^3 - 3x + b modulo p.
 type AssertOnCurve struct {
 	X, Y             []frontend.Variable
 	XBounds, YBounds []*big.Int
-	Lookups          bool
 }
 
 func (g AssertOnCurve) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	c.assertOnCurve(&point{X: c.fp.FromBounds(g.X, g.XBounds), Y: c.fp.FromBounds(g.Y, g.YBounds)})
 	return nil
 }
@@ -146,20 +142,19 @@ func (c *curve) assertOnCurveAt(p *point) {
 		c.assertOnCurve(p)
 		return
 	}
-	abstractor.CallVoid(c.api, AssertOnCurve{X: p.X.Limbs(), Y: p.Y.Limbs(), XBounds: p.X.Bounds(), YBounds: p.Y.Bounds(), Lookups: c.layout.Lookups})
+	abstractor.CallVoid(c.api, AssertOnCurve{X: p.X.Limbs(), Y: p.Y.Limbs(), XBounds: p.X.Bounds(), YBounds: p.Y.Bounds()})
 }
 
 // AssertCanonical is Field.AssertCanonical: the limbs encode a value below the
 // modulus of Field (0: base field p, 1: group order n).
 type AssertCanonical struct {
-	Limbs   []frontend.Variable
-	Bounds  []*big.Int
-	Field   int
-	Lookups bool
+	Limbs  []frontend.Variable
+	Bounds []*big.Int
+	Field  int
 }
 
 func (g AssertCanonical) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	f := c.field(g.Field)
 	f.AssertCanonical(f.FromBounds(g.Limbs, g.Bounds))
 	return nil
@@ -170,7 +165,7 @@ func (c *curve) assertCanonical(f *fieldOps, e *fpElement) {
 		f.AssertCanonical(e)
 		return
 	}
-	abstractor.CallVoid(c.api, AssertCanonical{Limbs: e.Limbs(), Bounds: e.Bounds(), Field: c.fieldID(f), Lookups: c.layout.Lookups})
+	abstractor.CallVoid(c.api, AssertCanonical{Limbs: e.Limbs(), Bounds: e.Bounds(), Field: c.fieldID(f)})
 }
 
 // SplitLowBits is splitLowBits: V = high * 2^LowBits + low with
@@ -179,11 +174,10 @@ type SplitLowBits struct {
 	V         frontend.Variable
 	LowBits   int
 	TotalBits int
-	Lookups   bool
 }
 
 func (g SplitLowBits) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	high, low := c.splitLowBitsConstrained(g.V, g.LowBits, g.TotalBits)
 	return []frontend.Variable{high, low}
 }
@@ -193,11 +187,10 @@ func (g SplitLowBits) DefineGadget(api frontend.API) interface{} {
 type CompressedPacking struct {
 	XLimbs, YLimbs []frontend.Variable
 	LimbBits       int
-	Lookups        bool
 }
 
 func (g CompressedPacking) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	lo, hi := c.compressedPackingConstrained(g.XLimbs, g.YLimbs, g.LimbBits)
 	return []frontend.Variable{lo, hi}
 }

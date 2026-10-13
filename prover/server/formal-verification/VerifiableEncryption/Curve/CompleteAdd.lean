@@ -14,23 +14,23 @@ theorem completeAdd_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVa
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hQX : QX.bnd = reducedC) (hQY : QY.bnd = reducedC)
     (hP : OnCurve (PX.value : Fp) (PY.value : Fp)) (hQ : OnCurve (QX.value : Fp) (QY.value : Fp))
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CompleteAdd_8_8_8_8_hd2848b17 PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : CompleteAdd_8_8_8_8_h3f5cf0cd PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ RX RY : ElemVal 8, RX.bnd = reducedC ∧ RY.bnd = reducedC ∧
       k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ hR : OnCurve (RX.value : Fp) (RY.value : Fp), mkPoint hR = mkPoint hP + mkPoint hQ := by
-  unfold CompleteAdd_8_8_8_8_hd2848b17 CompleteAdd_8_8_8_8_hd2848b17_p1 at h
+  unfold CompleteAdd_8_8_8_8_h3f5cf0cd CompleteAdd_8_8_8_8_h3f5cf0cd_p1 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
     GatesDef.eq, GatesDef.ne, exists_eq_left] at h
   obtain ⟨g0, hbool, p2, pz2, p6, p5, p17, pz17, p20, pz20, pfin, q2, qz2, q6, q5, q17, qz17, q20, qz20, qfin,
     hxe, hcx, hcy, g141, g142, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17,
     r18, r19, r20, r21, r22, r23, hlam, h⟩ := h
-  have cP : AssertCanonical_8_0_hc36017e9 PX.limbs := by
-    unfold AssertCanonical_8_0_hc36017e9
+  have cP : AssertCanonical_8_0_hcc2f8a19 PX.limbs := by
+    unfold AssertCanonical_8_0_hcc2f8a19
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
       GatesDef.eq, exists_eq_left]
     exact ⟨p2, pz2, p6, p5, p17, pz17, p20, pz20, pfin, trivial⟩
-  have cQ : AssertCanonical_8_0_hc36017e9 QX.limbs := by
-    unfold AssertCanonical_8_0_hc36017e9
+  have cQ : AssertCanonical_8_0_hcc2f8a19 QX.limbs := by
+    unfold AssertCanonical_8_0_hcc2f8a19
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
       GatesDef.eq, exists_eq_left]
     exact ⟨q2, qz2, q6, q5, q17, qz17, q20, qz20, qfin, trivial⟩

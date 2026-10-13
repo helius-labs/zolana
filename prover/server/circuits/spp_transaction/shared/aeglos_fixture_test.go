@@ -57,11 +57,11 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 					circuit = asCustomRingAuthority(assignment)
 					circuit.(*customring.CustomRingAuthorityCircuit).Shape = assignment.Shape
 				case "transfer_p256_ring":
-					owner := spptest.FixedP256Key(t, 11)
-					rewriteInputAsP256(t, assignment, 0, owner)
-					authorization := authorizeP256(t, assignment, owner, owner)
-					circuit = asCustomRingP256(assignment, authorization)
-					circuit.(*customring.CustomRingP256Circuit).Shape = assignment.Shape
+					owner := spptest.FixedEd25519Key(t, 11)
+					rewriteInputAsEd25519(t, assignment, 0, owner)
+					authorization := authorizeEd25519(t, assignment, owner, owner)
+					circuit = asCustomRingEd25519(assignment, authorization)
+					circuit.(*customring.CustomRingEd25519Circuit).Shape = assignment.Shape
 				}
 				aeglosfixture.Write(t, name, variant, circuit)
 			}

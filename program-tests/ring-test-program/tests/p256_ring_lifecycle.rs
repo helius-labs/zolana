@@ -1,8 +1,9 @@
-//! P256 ring transact lifecycle, ported from the retired scenario suite
-//! `features/p256_ring_lifecycle.feature`: a P256 owner ring-shields, proves
-//! the RingP256 rail through the Go prover server, and submits through the
-//! ring fixture program to the shielded pool. This runs alongside, and does
-//! not replace, the existing EdDSA ring lifecycle.
+//! RingP256 transact lifecycle: an owner whose Ed25519 signature is verified
+//! inside the proof ring-shields, proves the RingP256 rail
+//! (`transfer-p256-ring`) through the Go prover server, and submits through
+//! the ring fixture program to the shielded pool while the harness payer
+//! pays. This runs alongside, and does not replace, the existing EdDSA ring
+//! lifecycle, where the owner signs the Solana transaction.
 
 use anyhow::Result;
 use serial_test::serial;
@@ -17,7 +18,7 @@ use zolana_transaction::SOL_MINT;
 fn p256_ring_transfer_updates_recipient_wallet() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    harness.make_p256_actor("piper")?;
+    harness.make_ring_signer_actor("piper")?;
     for _ in 0..2 {
         harness.ring_shield_sol("piper", 1_000_000_000)?;
     }
@@ -31,7 +32,7 @@ fn p256_ring_transfer_updates_recipient_wallet() -> Result<()> {
 }
 
 /// Cross-rail grafting: a proof is only valid under the circuit selector it
-/// was built for. A P256 proof under the RingEddsa selector fails pairing
+/// was built for. A RingP256 proof under the RingEddsa selector fails pairing
 /// (7008); an eddsa proof under RingP256 can carry no valid BSB22 commitment —
 /// a zeroed one decodes as the point at infinity, so it also fails at pairing
 /// (7008), while garbage bytes fail at encoding (7007, see the bad-commitment
@@ -41,7 +42,7 @@ fn p256_ring_transfer_updates_recipient_wallet() -> Result<()> {
 fn cross_rail_proof_grafting_is_rejected() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    harness.make_p256_actor("piper")?;
+    harness.make_ring_signer_actor("piper")?;
     for _ in 0..2 {
         harness.ring_shield_sol("piper", 1_000_000_000)?;
     }
@@ -55,15 +56,15 @@ fn cross_rail_proof_grafting_is_rejected() -> Result<()> {
     Ok(())
 }
 
-/// A real default-ring P256 input exposes the owner's P256 pubkey x-coordinate
-/// as `default_owner_tag` on the wire, bound into the public input: a wrong
-/// tag fails pairing (7008), the correct tag succeeds.
+/// A real default-ring input of the in-circuit signer exposes its Ed25519
+/// public key as `default_owner_tag` on the wire, bound into the public input:
+/// a wrong tag fails pairing (7008), the correct tag succeeds.
 #[test]
 #[serial]
 fn default_ring_p256_input_exposes_and_binds_owner_tag() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    harness.make_p256_actor("piper")?;
+    harness.make_ring_signer_actor("piper")?;
     for _ in 0..2 {
         harness.shield_default_sol("piper", 1_000_000_000)?;
     }

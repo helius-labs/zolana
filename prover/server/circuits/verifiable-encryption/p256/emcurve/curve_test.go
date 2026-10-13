@@ -1,16 +1,12 @@
 // Tested invariants and diagnostics:
 //
 //  1. Curve hints retain registered module-qualified names.
-//  2. Bit-based circuits omit table hints and their mode flag stays outside the
-//     witness.
-//  3. Bit-based circuits have no commitments; lookup key agreement has one. Counts
-//     are logged.
-//  4. Diagnostic: constraint counts are recorded for the public curve entry points.
+//  2. Key agreement carries exactly one BSB22 commitment, the lookup argument.
+//  3. Diagnostic: constraint counts are recorded for the public curve entry points.
 package emcurve
 
 import (
 	"math/big"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -38,49 +34,14 @@ func TestHintNamesCarryTheModulePrefix(t *testing.T) {
 
 }
 
-// Invariant 2: Bit-based circuits omit table hints and their mode flag stays outside the witness.
-func TestNoLookupCircuitsHaveNoTableHints(t *testing.T) {
-	c := &agreeKeyCircuit{NoLookups: true}
-	if reflect.TypeOf(c).Elem().Field(0).Tag.Get("gnark") != "-" {
-		t.Fatal("the mode flag must stay out of the witness")
-	}
-	cs := compile(t, c)
-	w := agreeKeyWitness(t, mergeScalar, peerKey(t).PublicKey())
-	poisoned := func(_ *big.Int, _, _ []*big.Int) error {
-		t.Fatal("a lookup-table hint ran in the no-lookup circuit")
-		return nil
-	}
-	if err := solveAgreeKey(t, cs, w,
-		solver.OverrideHint(solver.GetHintID(p256RowLookupHint), poisoned),
-		solver.OverrideHint(solver.GetHintID(p256RowCountHint), poisoned),
-	); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Invariant 3: Bit-based circuits have no commitments; lookup key agreement has one. Counts are logged.
-func TestNoLookupConstraintCounts(t *testing.T) {
-	for _, row := range []struct {
-		name    string
-		circuit frontend.Circuit
-	}{
-		{"ecdh", &ecdhCircuit{NoLookups: true}},
-		{"generator", &generatorCircuit{NoLookups: true}},
-		{"ecdh and generator", &keyAgreementCircuit{NoLookups: true}},
-		{"AgreeKey", &agreeKeyCircuit{NoLookups: true}},
-	} {
-		cs := compile(t, row.circuit)
-		t.Logf("no lookups %-20s constraints %7d internal variables %7d", row.name, cs.GetNbConstraints(), cs.GetNbInternalVariables())
-		if got := len(cs.GetCommitments().CommitmentIndexes()); got != 0 {
-			t.Fatalf("%s without lookups has %d commitments", row.name, got)
-		}
-	}
+// Invariant 2: Key agreement carries exactly one BSB22 commitment, the lookup argument.
+func TestAgreeKeyHasOneCommitment(t *testing.T) {
 	if got := len(compile(t, &agreeKeyCircuit{}).GetCommitments().CommitmentIndexes()); got != 1 {
-		t.Fatalf("AgreeKey with lookups has %d commitments, want 1", got)
+		t.Fatalf("AgreeKey has %d commitments, want 1", got)
 	}
 }
 
-// Diagnostic 4: constraint counts are recorded for the public curve entry points.
+// Diagnostic 3: constraint counts are recorded for the public curve entry points.
 func TestConstraintCounts(t *testing.T) {
 	for _, row := range []struct {
 		name    string
@@ -104,7 +65,6 @@ const (
 )
 
 type keyAgreementCircuit struct {
-	NoLookups bool `gnark:"-"`
 	Scalar    [32]frontend.Variable
 	PublicKey [65]frontend.Variable
 	Ephemeral [65]frontend.Variable `gnark:",public"`
@@ -112,9 +72,9 @@ type keyAgreementCircuit struct {
 }
 
 func (c *keyAgreementCircuit) Define(api frontend.API) error {
-	eph := ScalarMulGeneratorFor(api, c.Scalar, !c.NoLookups)
+	eph := ScalarMulGenerator(api, c.Scalar)
 	assertBytesEqual(api, eph[:], c.Ephemeral[:])
-	got := ECDHFor(api, c.Scalar, c.PublicKey, !c.NoLookups)
+	got := ECDH(api, c.Scalar, c.PublicKey)
 	assertBytesEqual(api, got[:], c.Shared[:])
 	return nil
 }
@@ -165,19 +125,4 @@ func CompressPubkey(api frontend.API, uncompressed [65]frontend.Variable) [33]fr
 		compressed[1+i] = uncompressed[1+i]
 	}
 	return compressed
-}
-
-func forEachMode(t *testing.T, run func(t *testing.T, noLookups bool)) {
-	for _, noLookups := range []bool{false, true} {
-		name := "lookups"
-		if noLookups {
-			name = "no_lookups"
-		}
-		t.Run(name, func(t *testing.T) { run(t, noLookups) })
-	}
-}
-
-func isTableHint(h solver.Hint) bool {
-	id := solver.GetHintID(h)
-	return id == solver.GetHintID(p256RowLookupHint) || id == solver.GetHintID(p256RowCountHint)
 }

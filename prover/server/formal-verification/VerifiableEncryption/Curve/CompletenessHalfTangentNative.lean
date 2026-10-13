@@ -14,7 +14,7 @@ theorem halfTangent_native (X Y L S : ElemVal 8) (raw pieces : List.Vector F 24)
     (hsquare : ∀ k : List.Vector F 8 → Prop, k S.limbs → Lazy_8_h158c056f L.limbs k)
     (hc : CheckPolynomial_40_h0930c075 (vec5 S X L Y aElem))
     (k : List.Vector F 8 → Prop) (hk : k L.limbs) :
-    HalfTangentSlope_8_8_habd58e5e X.limbs Y.limbs k := by
+    HalfTangentSlope_8_8_h2c0228bb X.limbs Y.limbs k := by
   have h0 := hL (0 : Fin 8)
   change L.limbs.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
   have h1 := hL (1 : Fin 8)
@@ -31,7 +31,7 @@ theorem halfTangent_native (X Y L S : ElemVal 8) (raw pieces : List.Vector F 24)
   change L.limbs.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
   have h7 := hL (7 : Fin 8)
   change L.limbs.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold HalfTangentSlope_8_8_habd58e5e
+  unfold HalfTangentSlope_8_8_h2c0228bb
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left]
   refine ⟨raw, pieces,

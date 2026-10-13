@@ -14,7 +14,7 @@ import (
 )
 
 // bytes32FromBitsCircuit hashes the reassembled bytes untagged, the way the
-// P256 message digest enters the public input hash.
+// signing digest enters the public input hash.
 type bytes32FromBitsCircuit struct {
 	Bits     [256]frontend.Variable
 	Expected frontend.Variable

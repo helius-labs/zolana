@@ -72,8 +72,8 @@ describe("Poseidon parity with Rust", () => {
 });
 
 describe("shielded key material", () => {
-  it.each(["p256", "ed25519"] as const)("signs and verifies on the %s rail", (rail) => {
-    const key = SigningKey.generate(rail);
+  it("signs and verifies with Ed25519", () => {
+    const key = SigningKey.generate();
     const message = new Uint8Array(32).fill(7);
     const signature = key.sign(message);
     expect(key.verify(message, signature)).toBe(true);
@@ -87,7 +87,6 @@ describe("shielded key material", () => {
     expect(keypair.curve()).toBe("ed25519");
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(P256PublicKey);
-    expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
   });
 
   it("wipes role secrets when the expansion callback settles or throws", () => {
@@ -128,13 +127,11 @@ describe("shielded key material", () => {
     expect(symmetricApply(sharedSecret, MERGE_INFO, ciphertext)).toEqual(plaintext);
   });
 
-  it("refuses to sign derivation inputs on both rails", () => {
-    for (const rail of ["p256", "ed25519"] as const) {
-      const key = SigningKey.generate(rail);
-      const payload = new TextEncoder().encode("TSPP/derive/v1".padEnd(32, "\0")).subarray(0, 32);
-      expect(() => key.sign(payload)).toThrow(KeypairError);
-    }
-    const ed25519Key = SigningKey.generate("ed25519");
+  it("refuses to sign derivation inputs", () => {
+    const key = SigningKey.generate();
+    const payload = new TextEncoder().encode("TSPP/derive/v1".padEnd(32, "\0")).subarray(0, 32);
+    expect(() => key.sign(payload)).toThrow(KeypairError);
+    const ed25519Key = SigningKey.generate();
     const message = ed25519DerivationMessage(ed25519Key.publicKey().ed25519());
     expect(() => ed25519Key.sign(message)).toThrow(KeypairError);
   });

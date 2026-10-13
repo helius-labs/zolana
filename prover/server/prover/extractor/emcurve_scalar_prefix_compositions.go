@@ -10,7 +10,7 @@ import (
 // Its explicit p2 continuation is supplied by the outer ladder assembly;
 // no theorem here claims whole-ladder completeness from a success premise.
 func renderScalarPrefixComposition(defs map[string]extractedDef) (string, error) {
-	const name = "ScalarMulChecked_8_8_8_h903d3456"
+	const name = "ScalarMulChecked_8_8_8_h9a706aba"
 	checks := []string{"CheckPolynomial_8_h57d6a69c", "CheckPolynomial_16_h93312e5c", "CheckPolynomial_32_h35a4bc86", "CheckPolynomial_16_h0c8d6bae", "CheckPolynomial_24_h2629e496"}
 	checkLine := regexp.MustCompile(`^(CheckPolynomial_\d+_h[0-9a-f]{8}) `)
 	zeroLine := regexp.MustCompile(`^∃gate_\d+, Gates\.is_zero `)

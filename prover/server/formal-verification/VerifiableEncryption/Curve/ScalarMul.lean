@@ -29,11 +29,11 @@ theorem inv2_spec : rec8 inv2Limbs * 2 ≡ 1 [ZMOD n] := by
 theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
     (PX PY S : ElemVal 8) (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hS : S.bnd = reducedC)
     (hQ : OnCurve (PX.value : Fp) (PY.value : Fp)) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : ScalarMulChecked_8_8_8_h903d3456 PX.limbs PY.limbs S.limbs k) :
+    (h : ScalarMulChecked_8_8_8_h9a706aba PX.limbs PY.limbs S.limbs k) :
     ∃ RX RY : ElemVal 8, RX.bnd = reducedC ∧ RY.bnd = reducedC ∧
       k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ hR : OnCurve (RX.value : Fp) (RY.value : Fp), mkPoint hR = S.value • mkPoint hQ := by
-  unfold ScalarMulChecked_8_8_8_h903d3456 at h
+  unfold ScalarMulChecked_8_8_8_h9a706aba at h
   obtain ⟨S0, hS0lo, hS0hi, hS0vlo, hS0vhi, h, vS0⟩ :=
     CheckPolynomial_8_h57d6a69c_sound hl [⟨8, S⟩] (elemsMatch_of (by show [S.bnd] = _; rw [hS]; rfl))
       _ (by limbs_tac []) h
@@ -44,8 +44,8 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   obtain ⟨r7, r8, r9, r10, r11, r12, r13, r14, h⟩ := h
   obtain ⟨r15, r16, r17, r18, r19, r20, r21, r22, h⟩ := h
   obtain ⟨r23, hc, hlo, hhi, h⟩ := h
-  have hcan : AssertCanonical_8_1_hc36017e9 S0.limbs := by
-    unfold AssertCanonical_8_1_hc36017e9
+  have hcan : AssertCanonical_8_1_hcc2f8a19 S0.limbs := by
+    unfold AssertCanonical_8_1_hcc2f8a19
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
       GatesDef.eq, exists_eq_left]
     exact ⟨g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
@@ -53,7 +53,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   have hS0can := canonical_gap_n_sound hl S0 (reduced_lohi hS0b) hcan
   clear hcan r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23 hc hlo hhi
   obtain ⟨z1, hz1, z2, hz2, z3, hz3, h⟩ := h
-  unfold ScalarMulChecked_8_8_8_h903d3456_p1 at h
+  unfold ScalarMulChecked_8_8_8_h9a706aba_p1 at h
   elim_gates_shallow h
   obtain ⟨z4, hz4, z5, hz5, z6, hz6, h⟩ := h
   clear hz1 hz2 hz3 hz4 hz5 hz6
@@ -102,7 +102,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   obtain ⟨o12, s12, o13, s13, o14, s14, o15, s15, h⟩ := h
   obtain ⟨o16, s16, o17, s17, o18, s18, o19, s19, h⟩ := h
   obtain ⟨o20, s20, o21, s21, h⟩ := h
-  unfold ScalarMulChecked_8_8_8_h903d3456_p2 at h
+  unfold ScalarMulChecked_8_8_8_h9a706aba_p2 at h
   elim_gates_shallow h
   obtain ⟨o22, s22, o23, s23, g402, h⟩ := h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.select] at s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21 s22 s23
@@ -184,7 +184,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
   obtain ⟨r14, r15, r16, r17, r18, r19, r20, r21, h⟩ := h
   obtain ⟨r22, r23, r24, r25, r26, r27, r28, r29, h⟩ := h
   obtain ⟨r30, r31, r32, r33, r34, r35, r36, h⟩ := h
-  unfold ScalarMulChecked_8_8_8_h903d3456_p4 at h
+  unfold ScalarMulChecked_8_8_8_h9a706aba_p4 at h
   aux_lemma =>
     elim_gates_shallow h
     obtain ⟨r37, r38, r39, r40, r41, r42, r43, r44, h⟩ := h
@@ -226,7 +226,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
     have hQXb : QX.bnd = reducedC := by rw [hQX, selElem_bnd, hDXb, hPX]; rfl
     have hQYb : QY.bnd = reducedC := by rw [hQY, selElem_bnd, hDYb, hPY]; rfl
     obtain ⟨T1X, T1Y, hT1X, hT1Y, h, l1, xd1, r1, tc1⟩ :=
-      triple_habd58e5e_sound hl QX QY hQXb hQYb (by convert h using 2 <;> exact (vec8_eta _).symm)
+      triple_h2c0228bb_sound hl QX QY hQXb hQYb (by convert h using 2 <;> exact (vec8_eta _).symm)
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨y0, u0, y1, u1, y2, u2, y3, u3, h⟩ := h
@@ -302,7 +302,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
     clear ue0 ue1 ue2 ue3 ue4 ue5 ue6 ue7
     subst ve0 ve1 ve2 ve3 ve4 ve5 ve6 ve7
     obtain ⟨T2X, T2Y, hT2X, hT2Y, h, l2, xd2, r2, tc2⟩ :=
-      triple_he2f2b0f5_sound hl PRX SPY hPRXb hSPYb (by
+      triple_hffcb8921_sound hl PRX SPY hPRXb hSPYb (by
         convert h using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
@@ -318,42 +318,42 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
     set NT2Y := linElem [(-1, T2Y)] with hNT2Y
     have hNT2Yb : NT2Y.bnd = negRedC := by rw [hNT2Y, linElem_bnd]; simp only [List.map]; rw [hT2Y]; rfl
     obtain ⟨A0X, A0Y, hA0X, hA0Y, h, crA0⟩ :=
-      add_he7b90398_sound hl QX QY PRX SPY hQXb hQYb hPRXb hSPYb (by
+      add_hd5b7c255_sound hl QX QY PRX SPY hQXb hQYb hPRXb hSPYb (by
         convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A1X, A1Y, hA1X, hA1Y, h, crA1⟩ :=
-      add_hd2848b17_sound hl T1X T1Y T2X T2Y hT1X hT1Y hT2X hT2Y (by
+      add_h3f5cf0cd_sound hl T1X T1Y T2X T2Y hT1X hT1Y hT2X hT2Y (by
         convert h using 2)
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A2X, A2Y, hA2X, hA2Y, h, crA2⟩ :=
-      add_he7b90398_sound hl T1X T1Y PRX SPY hT1X hT1Y hPRXb hSPYb (by
+      add_hd5b7c255_sound hl T1X T1Y PRX SPY hT1X hT1Y hPRXb hSPYb (by
         convert h using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A3X, A3Y, hA3X, hA3Y, h, crA3⟩ :=
-      add_hd2848b17_sound hl QX QY T2X T2Y hQXb hQYb hT2X hT2Y (by
+      add_h3f5cf0cd_sound hl QX QY T2X T2Y hQXb hQYb hT2X hT2Y (by
         convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX]))
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A4X, A4Y, hA4X, hA4Y, h, crA4⟩ :=
-      add_hc7058f2f_sound hl PRX NSPY QX QY hPRXb hNSPYb hQXb hQYb (by
+      add_h6c663da6_sound hl PRX NSPY QX QY hPRXb hNSPYb hQXb hQYb (by
         convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX, hNSPY]))
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A5X, A5Y, hA5X, hA5Y, h, crA5⟩ :=
-      add_h15bb4ad7_sound hl QX QY T2X NT2Y hQXb hQYb hT2X hNT2Yb (by
+      add_h5ebf7c05_sound hl QX QY T2X NT2Y hQXb hQYb hT2X hNT2Yb (by
         convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hNT2Y]))
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A6X, A6Y, hA6X, hA6Y, h, crA6⟩ :=
-      add_h17455767_sound hl T1X T1Y PRX NSPY hT1X hT1Y hPRXb hNSPYb (by
+      add_h0ad2bc0e_sound hl T1X T1Y PRX NSPY hT1X hT1Y hPRXb hNSPYb (by
         convert h using 2 <;> (apply List.Vector.toList_injective; limbs_tac [hPRX, hNSPY]))
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
     obtain ⟨A7X, A7Y, hA7X, hA7Y, h, crA7⟩ :=
-      add_h15bb4ad7_sound hl T1X T1Y T2X NT2Y hT1X hT1Y hT2X hNT2Yb (by
+      add_h5ebf7c05_sound hl T1X T1Y T2X NT2Y hT1X hT1Y hT2X hNT2Yb (by
         convert h using 2; apply List.Vector.toList_injective; limbs_tac [hNT2Y])
     try simp only [get2_0, get2_1] at h
     elim_gates_shallow h
@@ -377,7 +377,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
       halfTangentSlope_sound hl A3X A3Y hA3X hA3Y (by
         convert h using 2)
     elim_gates_shallow h
-    unfold ScalarMulChecked_8_8_8_h903d3456_p5 at h
+    unfold ScalarMulChecked_8_8_8_h9a706aba_p5 at h
     aux_lemma =>
       elim_gates_shallow h
       obtain ⟨HA7, hHA7, h, qHA7⟩ :=
@@ -488,11 +488,11 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
       rw [pNT2] at pA5 pA7
       rw [← hT1eq] at pA1 pA2 pA6 pA7
       rw [← hT2eq] at pA1 pA3 pA5 pA7
-      unfold ScalarMulChecked_8_8_8_h903d3456_p6 at h
+      unfold ScalarMulChecked_8_8_8_h9a706aba_p6 at h
       aux_lemma =>
         elim_gates_shallow h
-        unfold ScalarMulChecked_8_8_8_h903d3456_p7 ScalarMulChecked_8_8_8_h903d3456_p8
-          ScalarMulChecked_8_8_8_h903d3456_p9 at h
+        unfold ScalarMulChecked_8_8_8_h9a706aba_p7 ScalarMulChecked_8_8_8_h9a706aba_p8
+          ScalarMulChecked_8_8_8_h9a706aba_p9 at h
         elim_gates_shallow h
         try simp only [get2_0, get2_1] at h
         generalize_rows h as rows, hrows
@@ -614,12 +614,12 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
                 (fun _ => by simp only [Ladder.rowPoint, Ladder.slotPoint]; norm_num; rw [pA1]; try abel) (fun h1 => by norm_num at h1)
           have hinv : mkPoint hA0 = (1 : ℤ) • mkPoint hQ' + (1 : ℤ) • mkPoint hRon := by rw [pA0, one_zsmul, one_zsmul]
           aux_lemma =>
-            obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_he10e6061 hl hr htab A0X A0Y hA0X hA0Y hA0 h
+            obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h577e35e6 hl hr htab A0X A0Y hA0X hA0Y hA0 h
             have hinv := step_inv hinv hAeq (sel_digits hbits (a := 129) (c := 258) (d := 128) (e := 257)
               (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
             try simp only [get2_0, get2_1] at h
             elim_gates_shallow h
-            obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h8a920ea3 hl hr htab AX AY hAX hAY hAon h
+            obtain ⟨iR, hiR, AX, AY, hAX, hAY, h, hAon, hAeq⟩ := ladder_step_h6e46ac5c hl hr htab AX AY hAX hAY hAon h
             have hinv := step_inv hinv hAeq (sel_digits hbits (a := 127) (c := 256) (d := 126) (e := 255)
               (by norm_num) (by norm_num) (by norm_num) (by norm_num) (by simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD, Fin.coe_ofNat_eq_mod, Nat.reduceMod] at hiR; exact hiR))
             obtain ⟨AX, AY, hAX, hAY, h, hAon, hinv⟩ := ladderRun_sound hl hr htab hbits
@@ -651,7 +651,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
               convert gF using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
             clear gF
             obtain ⟨FX, FY, hFX, hFY, h, crF⟩ :=
-              add_he7b90398_sound hl T2X T2Y PRX SPY hT2X hT2Y hPRXb hSPYb (by
+              add_hd5b7c255_sound hl T2X T2Y PRX SPY hT2X hT2Y hPRXb hSPYb (by
                 convert h using 2; apply List.Vector.toList_injective; limbs_tac [hPRX])
             try simp only [get2_0, get2_1] at h
             elim_gates_shallow h
@@ -711,7 +711,7 @@ theorem scalarMulChecked_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupS
             have dgG := distinctX_elem hVXb hUXb (by convert gG using 2 <;> exact (vec8_eta _).symm)
             clear gG
             obtain ⟨GX, GY, hGX, hGY, h, crG⟩ :=
-              add_h47aeac58_sound hl VX VY UX UY hVXb hVYb hUXb hUYb (by
+              add_hfbf1a2a0_sound hl VX VY UX UY hVXb hVYb hUXb hUYb (by
                 convert h using 2 <;> exact (vec8_eta _).symm)
             try simp only [get2_0, get2_1] at h
             elim_gates_shallow h

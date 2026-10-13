@@ -8,7 +8,7 @@ namespace ZolanaVE.P256.Completeness
 
 open ZolanaVE.Field
 
-theorem triple_habd58e5e_of_arithmetic (hr : RangeComplete)
+theorem triple_h2c0228bb_of_arithmetic (hr : RangeComplete)
     (X Y DX RX RY : List.Vector F 8) (l r : Fp)
     (hTangent : CheckPolynomial_32_h35a4bc86
       (quadTangentInput (slopeElem l).limbs Y X))
@@ -24,8 +24,8 @@ theorem triple_habd58e5e_of_arithmetic (hr : RangeComplete)
         (tripleYInput (slopeElem r).limbs (slopeElem l).limbs X RX Y) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop)
     (hk : k (RX ::ᵥ RY ::ᵥ List.Vector.nil)) :
-    Triple_8_8_habd58e5e X Y k := by
-  exact Triple_8_8_habd58e5e_compose X Y (slopeElem l).limbs (slopeElem r).limbs DX RX RY
+    Triple_8_8_h2c0228bb X Y k := by
+  exact Triple_8_8_h2c0228bb_compose X Y (slopeElem l).limbs (slopeElem r).limbs DX RX RY
     (rawSlopePieces l) (rawSlopePieces r) (slopePieces l) (slopePieces r)
     (slopePieces_ranges hr l) (slopePieces_limb l)
     (slopePieces_ranges hr r) (slopePieces_limb r)

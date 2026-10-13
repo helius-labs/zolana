@@ -57,7 +57,7 @@ nullifiers.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-MERGE-05: P256 owner rail requires a registered P256 key**
+- [x] **INV-MERGE-05: P256 owner rail requires a registered P256 key** (program-side only; client SDKs no longer build P-256 owners)
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_p256_rail_without_a_registered_p256_owner`
   - Kind: precondition
   - Statement: when `eddsa_owner` is `false`, the registry record's `owner_p256` must be `Some`; a record without a P256 key returns Err.

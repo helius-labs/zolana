@@ -185,9 +185,6 @@ pub enum TransactionError {
     #[error("too many transaction assets: got {got}, max {max}")]
     TooManyAssets { got: usize, max: usize },
 
-    #[error("default transact supports Ed25519 owners only")]
-    P256TransactUnsupported,
-
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
@@ -232,6 +229,9 @@ pub enum TransactionError {
 
     #[error("wallet authority identity does not match the wallet")]
     WalletAuthorityMismatch,
+
+    #[error("wallet authority holds no signing key")]
+    AuthorityCannotSign,
 
     #[error("wallet authority did not provide its current viewing key")]
     MissingCurrentViewingKey,

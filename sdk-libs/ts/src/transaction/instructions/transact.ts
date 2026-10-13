@@ -702,13 +702,6 @@ export class SppProofInputs {
   ) {
     this.payer = input.payer;
     this.inputUtxos = Object.freeze([...input.inputUtxos]);
-    if (
-      this.inputUtxos.some(
-        (entry) => !entry.isDummy() && entry.utxo.owner.signatureType() === "p256",
-      )
-    ) {
-      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
     inputTreeIds(this.inputUtxos);
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
@@ -957,9 +950,6 @@ export class ConfidentialTransfer {
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (owner.signingPublicKey.signatureType() === "p256") {
-      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
     inputs.forEach((input, index) => {
       if (input.isDummy()) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
@@ -989,10 +979,6 @@ export class ConfidentialTransfer {
   withShape(shape: Shape): this {
     this.#shape = shape;
     return this;
-  }
-
-  requiresP256Owner(): boolean {
-    return false;
   }
 
   /** Binds the change and every `send` to one ring, mirrors Rust `with_ring_program_id`. */

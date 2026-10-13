@@ -1,6 +1,5 @@
 use solana_address::Address;
 use zolana_interface::MAX_INPUT_TREES;
-use zolana_keypair::Curve;
 
 use crate::{
     error::TransactionError,
@@ -93,6 +92,18 @@ impl SppProofInputs {
     }
 
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
+        self.runtime_owner_signer_pubkeys(None)
+    }
+
+    /// The input owners that must sign the Solana transaction, without the
+    /// payer and without `circuit_signer`, the key whose Ed25519 signature
+    /// the proof verifies on the custom-ring Ed25519 rail. That key authorizes
+    /// its inputs in the proof, so naming it as a runtime signer would only
+    /// publish the identity the rail keeps private.
+    pub fn runtime_owner_signer_pubkeys(
+        &self,
+        circuit_signer: Option<&Address>,
+    ) -> Result<Vec<Address>, TransactionError> {
         let mut signers = Vec::new();
         let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
         for input_utxo in self
@@ -100,12 +111,10 @@ impl SppProofInputs {
             .iter()
             .filter(|input_utxo| !input_utxo.is_dummy())
         {
-            let address = match input_utxo.utxo.owner.curve()? {
-                Curve::P256 => continue,
-                Curve::Ed25519 | Curve::Pda => {
-                    Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?)
-                }
-            };
+            let address = Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?);
+            if circuit_signer == Some(&address) {
+                continue;
+            }
             let hash = input_utxo.utxo.owner.owner_proof_input_hash()?;
             if address == self.payer || signer_hashes.contains(&hash) {
                 continue;
@@ -117,10 +126,21 @@ impl SppProofInputs {
     }
 
     pub fn signer_pk_hashes(&self, width: usize) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.runtime_signer_pk_hashes(width, None)
+    }
+
+    /// [`Self::signer_pk_hashes`] over
+    /// [`Self::runtime_owner_signer_pubkeys`]: the payer first, then every
+    /// runtime owner signer except `circuit_signer`, zero padded to `width`.
+    pub fn runtime_signer_pk_hashes(
+        &self,
+        width: usize,
+        circuit_signer: Option<&Address>,
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
         let mut hashes = vec![zolana_hasher::primitives::solana_owner_identity(
             self.payer.as_array(),
         )?];
-        for signer in self.owner_signer_pubkeys()? {
+        for signer in self.runtime_owner_signer_pubkeys(circuit_signer)? {
             hashes.push(zolana_hasher::primitives::solana_owner_identity(
                 signer.as_array(),
             )?);

@@ -72,7 +72,7 @@ theorem tripleSelectedRatio_complete (hr : RangeComplete) (X DX Y : ElemVal 8)
 
 /-- Native composition of the constructed selected-y arithmetic primitives.
 The outer finite-point theorem supplies all primitive witnesses. -/
-theorem triple_he2f2b0f5_of_arithmetic (hr : RangeComplete)
+theorem triple_hffcb8921_of_arithmetic (hr : RangeComplete)
     (X Y DX RX RY : List.Vector F 8) (l r : Fp)
     (hTangent : CheckPolynomial_32_h8cfcaa46
       (quadTangentInput (slopeElem l).limbs Y X))
@@ -88,8 +88,8 @@ theorem triple_he2f2b0f5_of_arithmetic (hr : RangeComplete)
         (tripleYInput (slopeElem r).limbs (slopeElem l).limbs X RX Y) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop)
     (hk : k (RX ::ᵥ RY ::ᵥ List.Vector.nil)) :
-    Triple_8_8_he2f2b0f5 X Y k := by
-  exact Triple_8_8_he2f2b0f5_compose X Y (slopeElem l).limbs (slopeElem r).limbs DX RX RY
+    Triple_8_8_hffcb8921 X Y k := by
+  exact Triple_8_8_hffcb8921_compose X Y (slopeElem l).limbs (slopeElem r).limbs DX RX RY
     (rawSlopePieces l) (rawSlopePieces r) (slopePieces l) (slopePieces r)
     (slopePieces_ranges hr l) (slopePieces_limb l)
     (slopePieces_ranges hr r) (slopePieces_limb r)

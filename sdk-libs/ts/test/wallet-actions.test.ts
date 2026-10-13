@@ -649,35 +649,6 @@ describe("keys at the wallet boundary", () => {
     }
   });
 
-  it("treats the fee payer as the Solana account of a P256 owner", async () => {
-    // A P256 identity has no Solana key of its own; the account that registered
-    // it and signs for it is the fee payer, so approval and the registry record
-    // both go by that account.
-    const keypair = ShieldedKeypair.generate("p256");
-    const wallet = fundedWallet(keypair, [20n, 30n]);
-    const { approve, requests } = recordingApproval();
-    const never = (member: string) => (): never => {
-      throw new Error(`${member} must not be called`);
-    };
-    const client: MergeClient = {
-      proofDataSource: "client",
-      tree: TREE,
-      treeId: 0,
-      getAccount: vi.fn(async () => undefined),
-      proveMerge: never("proveMerge"),
-      assembleAuthorizedMergeTransaction: never("assembleAuthorizedMergeTransaction"),
-    };
-
-    await expect(
-      buildMergeTransaction({ client, wallet, keys: localKeys(keypair), approve, feePayer: PAYER }),
-    ).rejects.toMatchObject({
-      code: "WALLET_BUILD_MERGE",
-      causeCode: "WALLET_USER_REGISTRY_RECORD_NOT_FOUND",
-    });
-    expect(requests.map((request) => request.solanaPublicKey)).toEqual([PAYER]);
-    expect(wallet._reservationEntries()).toHaveLength(0);
-  });
-
   it("refuses keys without a prover before copying any secret", () => {
     const keypair = ShieldedKeypair.generate();
     const minted: NullifierKey[] = [];

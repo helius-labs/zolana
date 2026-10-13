@@ -29,77 +29,7 @@ def addSecondInput (QY PY SX PX SY QX : List.Vector F 8) : List.Vector F 32 :=
   vec![QY.get 0 - PY.get 0, QY.get 1 - PY.get 1, QY.get 2 - PY.get 2, QY.get 3 - PY.get 3, QY.get 4 - PY.get 4, QY.get 5 - PY.get 5, QY.get 6 - PY.get 6, QY.get 7 - PY.get 7, SX.get 0 - PX.get 0, SX.get 1 - PX.get 1, SX.get 2 - PX.get 2, SX.get 3 - PX.get 3, SX.get 4 - PX.get 4, SX.get 5 - PX.get 5, SX.get 6 - PX.get 6, SX.get 7 - PX.get 7, SY.get 0 + PY.get 0, SY.get 1 + PY.get 1, SY.get 2 + PY.get 2, SY.get 3 + PY.get 3, SY.get 4 + PY.get 4, SY.get 5 + PY.get 5, SY.get 6 + PY.get 6, SY.get 7 + PY.get 7, QX.get 0 - PX.get 0, QX.get 1 - PX.get 1, QX.get 2 - PX.get 2, QX.get 3 - PX.get 3, QX.get 4 - PX.get 4, QX.get 5 - PX.get 5, QX.get 6 - PX.get 6, QX.get 7 - PX.get 7]
 
 /-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_h15bb4ad7_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
-    (pieces : List.Vector F 48)
-    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hSX : ∀ i : Fin 8, SX.get i =
-      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hSY : ∀ i : Fin 8, SY.get i =
-      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
-    (hFirst : CheckPolynomial_24_hef202688 (addFirstInput SX PX QX D2 QY PY))
-    (hSecond : CheckPolynomial_32_h2a85d296 (addSecondInput QY PY SX PX SY QX))
-    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_h15bb4ad7 PX PY QX QY k := by
-  have hSX0 := hSX (0 : Fin 8)
-  have hSX1 := hSX (1 : Fin 8)
-  have hSX2 := hSX (2 : Fin 8)
-  have hSX3 := hSX (3 : Fin 8)
-  have hSX4 := hSX (4 : Fin 8)
-  have hSX5 := hSX (5 : Fin 8)
-  have hSX6 := hSX (6 : Fin 8)
-  have hSX7 := hSX (7 : Fin 8)
-  have hSY0 := hSY (0 : Fin 8)
-  have hSY1 := hSY (1 : Fin 8)
-  have hSY2 := hSY (2 : Fin 8)
-  have hSY3 := hSY (3 : Fin 8)
-  have hSY4 := hSY (4 : Fin 8)
-  have hSY5 := hSY (5 : Fin 8)
-  have hSY6 := hSY (6 : Fin 8)
-  have hSY7 := hSY (7 : Fin 8)
-  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
-  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
-  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
-  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
-  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
-  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
-  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
-  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
-  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
-  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
-  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
-  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
-  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
-  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
-  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
-  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
-  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
-  have hD2Native := hD2
-  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_h15bb4ad7
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_h15bb4ad7_p1
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
-  apply hD2Native
-  refine ⟨?_, ?_, ?_⟩
-  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
-  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
-  · simpa only [vec8_eta] using hk
-
-/-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_h17455767_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+theorem Add_8_8_8_8_h0ad2bc0e_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
     (pieces : List.Vector F 48)
     (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
@@ -116,7 +46,7 @@ theorem Add_8_8_8_8_h17455767_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
     (hFirst : CheckPolynomial_24_hd26a04f5 (addFirstInput SX PX QX D2 QY PY))
     (hSecond : CheckPolynomial_32_hc470b841 (addSecondInput QY PY SX PX SY QX))
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_h17455767 PX PY QX QY k := by
+    Add_8_8_8_8_h0ad2bc0e PX PY QX QY k := by
   have hSX0 := hSX (0 : Fin 8)
   have hSX1 := hSX (1 : Fin 8)
   have hSX2 := hSX (2 : Fin 8)
@@ -152,12 +82,12 @@ theorem Add_8_8_8_8_h17455767_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
   change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
   have hD2Native := hD2
   simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_h17455767
+  unfold Add_8_8_8_8_h0ad2bc0e
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
   refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_h17455767_p1
+  unfold Add_8_8_8_8_h0ad2bc0e_p1
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -169,217 +99,7 @@ theorem Add_8_8_8_8_h17455767_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
   · simpa only [vec8_eta] using hk
 
 /-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_h47aeac58_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
-    (pieces : List.Vector F 48)
-    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hSX : ∀ i : Fin 8, SX.get i =
-      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hSY : ∀ i : Fin 8, SY.get i =
-      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
-    (hFirst : CheckPolynomial_24_h85e25851 (addFirstInput SX PX QX D2 QY PY))
-    (hSecond : CheckPolynomial_32_h03b2b1ec (addSecondInput QY PY SX PX SY QX))
-    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_h47aeac58 PX PY QX QY k := by
-  have hSX0 := hSX (0 : Fin 8)
-  have hSX1 := hSX (1 : Fin 8)
-  have hSX2 := hSX (2 : Fin 8)
-  have hSX3 := hSX (3 : Fin 8)
-  have hSX4 := hSX (4 : Fin 8)
-  have hSX5 := hSX (5 : Fin 8)
-  have hSX6 := hSX (6 : Fin 8)
-  have hSX7 := hSX (7 : Fin 8)
-  have hSY0 := hSY (0 : Fin 8)
-  have hSY1 := hSY (1 : Fin 8)
-  have hSY2 := hSY (2 : Fin 8)
-  have hSY3 := hSY (3 : Fin 8)
-  have hSY4 := hSY (4 : Fin 8)
-  have hSY5 := hSY (5 : Fin 8)
-  have hSY6 := hSY (6 : Fin 8)
-  have hSY7 := hSY (7 : Fin 8)
-  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
-  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
-  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
-  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
-  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
-  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
-  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
-  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
-  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
-  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
-  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
-  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
-  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
-  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
-  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
-  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
-  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
-  have hD2Native := hD2
-  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_h47aeac58
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_h47aeac58_p1
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
-  apply hD2Native
-  refine ⟨?_, ?_, ?_⟩
-  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
-  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
-  · simpa only [vec8_eta] using hk
-
-/-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_h8ef7b27b_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
-    (pieces : List.Vector F 48)
-    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hSX : ∀ i : Fin 8, SX.get i =
-      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hSY : ∀ i : Fin 8, SY.get i =
-      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
-    (hFirst : CheckPolynomial_24_ha71ae55f (addFirstInput SX PX QX D2 QY PY))
-    (hSecond : CheckPolynomial_32_h57ee5dab (addSecondInput QY PY SX PX SY QX))
-    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_h8ef7b27b PX PY QX QY k := by
-  have hSX0 := hSX (0 : Fin 8)
-  have hSX1 := hSX (1 : Fin 8)
-  have hSX2 := hSX (2 : Fin 8)
-  have hSX3 := hSX (3 : Fin 8)
-  have hSX4 := hSX (4 : Fin 8)
-  have hSX5 := hSX (5 : Fin 8)
-  have hSX6 := hSX (6 : Fin 8)
-  have hSX7 := hSX (7 : Fin 8)
-  have hSY0 := hSY (0 : Fin 8)
-  have hSY1 := hSY (1 : Fin 8)
-  have hSY2 := hSY (2 : Fin 8)
-  have hSY3 := hSY (3 : Fin 8)
-  have hSY4 := hSY (4 : Fin 8)
-  have hSY5 := hSY (5 : Fin 8)
-  have hSY6 := hSY (6 : Fin 8)
-  have hSY7 := hSY (7 : Fin 8)
-  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
-  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
-  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
-  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
-  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
-  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
-  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
-  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
-  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
-  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
-  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
-  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
-  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
-  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
-  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
-  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
-  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
-  have hD2Native := hD2
-  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_h8ef7b27b
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_h8ef7b27b_p1
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
-  apply hD2Native
-  refine ⟨?_, ?_, ?_⟩
-  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
-  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
-  · simpa only [vec8_eta] using hk
-
-/-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_hc7058f2f_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
-    (pieces : List.Vector F 48)
-    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
-    (hSX : ∀ i : Fin 8, SX.get i =
-      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hSY : ∀ i : Fin 8, SY.get i =
-      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
-      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
-      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
-    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
-    (hFirst : CheckPolynomial_24_h85e25851 (addFirstInput SX PX QX D2 QY PY))
-    (hSecond : CheckPolynomial_32_h03b2b1ec (addSecondInput QY PY SX PX SY QX))
-    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_hc7058f2f PX PY QX QY k := by
-  have hSX0 := hSX (0 : Fin 8)
-  have hSX1 := hSX (1 : Fin 8)
-  have hSX2 := hSX (2 : Fin 8)
-  have hSX3 := hSX (3 : Fin 8)
-  have hSX4 := hSX (4 : Fin 8)
-  have hSX5 := hSX (5 : Fin 8)
-  have hSX6 := hSX (6 : Fin 8)
-  have hSX7 := hSX (7 : Fin 8)
-  have hSY0 := hSY (0 : Fin 8)
-  have hSY1 := hSY (1 : Fin 8)
-  have hSY2 := hSY (2 : Fin 8)
-  have hSY3 := hSY (3 : Fin 8)
-  have hSY4 := hSY (4 : Fin 8)
-  have hSY5 := hSY (5 : Fin 8)
-  have hSY6 := hSY (6 : Fin 8)
-  have hSY7 := hSY (7 : Fin 8)
-  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
-  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
-  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
-  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
-  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
-  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
-  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
-  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
-  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
-  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
-  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
-  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
-  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
-  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
-  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
-  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
-  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
-  have hD2Native := hD2
-  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_hc7058f2f
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_hc7058f2f_p1
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
-  apply hD2Native
-  refine ⟨?_, ?_, ?_⟩
-  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
-  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
-  · simpa only [vec8_eta] using hk
-
-/-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_hd2848b17_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+theorem Add_8_8_8_8_h3f5cf0cd_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
     (pieces : List.Vector F 48)
     (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
@@ -396,7 +116,7 @@ theorem Add_8_8_8_8_hd2848b17_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
     (hFirst : CheckPolynomial_24_h4c8a98c4 (addFirstInput SX PX QX D2 QY PY))
     (hSecond : CheckPolynomial_32_hf6aee3c9 (addSecondInput QY PY SX PX SY QX))
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_hd2848b17 PX PY QX QY k := by
+    Add_8_8_8_8_h3f5cf0cd PX PY QX QY k := by
   have hSX0 := hSX (0 : Fin 8)
   have hSX1 := hSX (1 : Fin 8)
   have hSX2 := hSX (2 : Fin 8)
@@ -432,12 +152,12 @@ theorem Add_8_8_8_8_hd2848b17_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
   change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
   have hD2Native := hD2
   simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_hd2848b17
+  unfold Add_8_8_8_8_h3f5cf0cd
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
   refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_hd2848b17_p1
+  unfold Add_8_8_8_8_h3f5cf0cd_p1
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -449,7 +169,147 @@ theorem Add_8_8_8_8_hd2848b17_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
   · simpa only [vec8_eta] using hk
 
 /-- Native composition only, preserving every output-hint piece and assertion. -/
-theorem Add_8_8_8_8_he7b90398_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+theorem Add_8_8_8_8_h5ebf7c05_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+    (pieces : List.Vector F 48)
+    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hSX : ∀ i : Fin 8, SX.get i =
+      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hSY : ∀ i : Fin 8, SY.get i =
+      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
+    (hFirst : CheckPolynomial_24_hef202688 (addFirstInput SX PX QX D2 QY PY))
+    (hSecond : CheckPolynomial_32_h2a85d296 (addSecondInput QY PY SX PX SY QX))
+    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
+    Add_8_8_8_8_h5ebf7c05 PX PY QX QY k := by
+  have hSX0 := hSX (0 : Fin 8)
+  have hSX1 := hSX (1 : Fin 8)
+  have hSX2 := hSX (2 : Fin 8)
+  have hSX3 := hSX (3 : Fin 8)
+  have hSX4 := hSX (4 : Fin 8)
+  have hSX5 := hSX (5 : Fin 8)
+  have hSX6 := hSX (6 : Fin 8)
+  have hSX7 := hSX (7 : Fin 8)
+  have hSY0 := hSY (0 : Fin 8)
+  have hSY1 := hSY (1 : Fin 8)
+  have hSY2 := hSY (2 : Fin 8)
+  have hSY3 := hSY (3 : Fin 8)
+  have hSY4 := hSY (4 : Fin 8)
+  have hSY5 := hSY (5 : Fin 8)
+  have hSY6 := hSY (6 : Fin 8)
+  have hSY7 := hSY (7 : Fin 8)
+  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
+  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
+  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
+  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
+  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
+  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
+  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
+  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
+  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
+  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
+  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
+  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
+  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
+  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
+  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
+  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
+  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
+  have hD2Native := hD2
+  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
+  unfold Add_8_8_8_8_h5ebf7c05
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
+  unfold Add_8_8_8_8_h5ebf7c05_p1
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
+  apply hD2Native
+  refine ⟨?_, ?_, ?_⟩
+  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
+  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
+  · simpa only [vec8_eta] using hk
+
+/-- Native composition only, preserving every output-hint piece and assertion. -/
+theorem Add_8_8_8_8_h6c663da6_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+    (pieces : List.Vector F 48)
+    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hSX : ∀ i : Fin 8, SX.get i =
+      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hSY : ∀ i : Fin 8, SY.get i =
+      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
+    (hFirst : CheckPolynomial_24_h85e25851 (addFirstInput SX PX QX D2 QY PY))
+    (hSecond : CheckPolynomial_32_h03b2b1ec (addSecondInput QY PY SX PX SY QX))
+    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
+    Add_8_8_8_8_h6c663da6 PX PY QX QY k := by
+  have hSX0 := hSX (0 : Fin 8)
+  have hSX1 := hSX (1 : Fin 8)
+  have hSX2 := hSX (2 : Fin 8)
+  have hSX3 := hSX (3 : Fin 8)
+  have hSX4 := hSX (4 : Fin 8)
+  have hSX5 := hSX (5 : Fin 8)
+  have hSX6 := hSX (6 : Fin 8)
+  have hSX7 := hSX (7 : Fin 8)
+  have hSY0 := hSY (0 : Fin 8)
+  have hSY1 := hSY (1 : Fin 8)
+  have hSY2 := hSY (2 : Fin 8)
+  have hSY3 := hSY (3 : Fin 8)
+  have hSY4 := hSY (4 : Fin 8)
+  have hSY5 := hSY (5 : Fin 8)
+  have hSY6 := hSY (6 : Fin 8)
+  have hSY7 := hSY (7 : Fin 8)
+  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
+  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
+  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
+  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
+  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
+  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
+  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
+  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
+  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
+  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
+  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
+  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
+  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
+  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
+  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
+  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
+  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
+  have hD2Native := hD2
+  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
+  unfold Add_8_8_8_8_h6c663da6
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
+  unfold Add_8_8_8_8_h6c663da6_p1
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
+  apply hD2Native
+  refine ⟨?_, ?_, ?_⟩
+  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
+  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
+  · simpa only [vec8_eta] using hk
+
+/-- Native composition only, preserving every output-hint piece and assertion. -/
+theorem Add_8_8_8_8_hd5b7c255_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
     (pieces : List.Vector F 48)
     (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
@@ -466,7 +326,7 @@ theorem Add_8_8_8_8_he7b90398_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
     (hFirst : CheckPolynomial_24_hd26a04f5 (addFirstInput SX PX QX D2 QY PY))
     (hSecond : CheckPolynomial_32_hc470b841 (addSecondInput QY PY SX PX SY QX))
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
-    Add_8_8_8_8_he7b90398 PX PY QX QY k := by
+    Add_8_8_8_8_hd5b7c255 PX PY QX QY k := by
   have hSX0 := hSX (0 : Fin 8)
   have hSX1 := hSX (1 : Fin 8)
   have hSX2 := hSX (2 : Fin 8)
@@ -502,12 +362,152 @@ theorem Add_8_8_8_8_he7b90398_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
   change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
   have hD2Native := hD2
   simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
-  unfold Add_8_8_8_8_he7b90398
+  unfold Add_8_8_8_8_hd5b7c255
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
   refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
-  unfold Add_8_8_8_8_he7b90398_p1
+  unfold Add_8_8_8_8_hd5b7c255_p1
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
+  apply hD2Native
+  refine ⟨?_, ?_, ?_⟩
+  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
+  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
+  · simpa only [vec8_eta] using hk
+
+/-- Native composition only, preserving every output-hint piece and assertion. -/
+theorem Add_8_8_8_8_hfaa90f47_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+    (pieces : List.Vector F 48)
+    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hSX : ∀ i : Fin 8, SX.get i =
+      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hSY : ∀ i : Fin 8, SY.get i =
+      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
+    (hFirst : CheckPolynomial_24_ha71ae55f (addFirstInput SX PX QX D2 QY PY))
+    (hSecond : CheckPolynomial_32_h57ee5dab (addSecondInput QY PY SX PX SY QX))
+    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
+    Add_8_8_8_8_hfaa90f47 PX PY QX QY k := by
+  have hSX0 := hSX (0 : Fin 8)
+  have hSX1 := hSX (1 : Fin 8)
+  have hSX2 := hSX (2 : Fin 8)
+  have hSX3 := hSX (3 : Fin 8)
+  have hSX4 := hSX (4 : Fin 8)
+  have hSX5 := hSX (5 : Fin 8)
+  have hSX6 := hSX (6 : Fin 8)
+  have hSX7 := hSX (7 : Fin 8)
+  have hSY0 := hSY (0 : Fin 8)
+  have hSY1 := hSY (1 : Fin 8)
+  have hSY2 := hSY (2 : Fin 8)
+  have hSY3 := hSY (3 : Fin 8)
+  have hSY4 := hSY (4 : Fin 8)
+  have hSY5 := hSY (5 : Fin 8)
+  have hSY6 := hSY (6 : Fin 8)
+  have hSY7 := hSY (7 : Fin 8)
+  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
+  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
+  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
+  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
+  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
+  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
+  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
+  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
+  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
+  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
+  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
+  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
+  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
+  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
+  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
+  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
+  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
+  have hD2Native := hD2
+  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
+  unfold Add_8_8_8_8_hfaa90f47
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
+  unfold Add_8_8_8_8_hfaa90f47_p1
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  simp only [← hSX0, ← hSX1, ← hSX2, ← hSX3, ← hSX4, ← hSX5, ← hSX6, ← hSX7, ← hSY0, ← hSY1, ← hSY2, ← hSY3, ← hSY4, ← hSY5, ← hSY6, ← hSY7]
+  apply hD2Native
+  refine ⟨?_, ?_, ?_⟩
+  · simpa only [addFirstInput, sub_eq_add_neg, mul_comm] using hFirst
+  · simpa only [addSecondInput, sub_eq_add_neg, mul_comm] using hSecond
+  · simpa only [vec8_eta] using hk
+
+/-- Native composition only, preserving every output-hint piece and assertion. -/
+theorem Add_8_8_8_8_hfbf1a2a0_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
+    (pieces : List.Vector F 48)
+    (hr : ∀ i : Fin 16, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
+    (hSX : ∀ i : Fin 8, SX.get i =
+      pieces.get ⟨0 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hSY : ∀ i : Fin 8, SY.get i =
+      pieces.get ⟨24 + 3 * i.val, by omega⟩ +
+      pieces.get ⟨24 + 3 * i.val + 1, by omega⟩ * 2048 +
+      pieces.get ⟨24 + 3 * i.val + 2, by omega⟩ * 4194304)
+    (hD2 : ∀ k : List.Vector F 8 → Prop, k D2 → Lazy_8_h12f7d03a (addDifferenceInput QX PX) k)
+    (hFirst : CheckPolynomial_24_h85e25851 (addFirstInput SX PX QX D2 QY PY))
+    (hSecond : CheckPolynomial_32_h03b2b1ec (addSecondInput QY PY SX PX SY QX))
+    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (SX ::ᵥ SY ::ᵥ List.Vector.nil)) :
+    Add_8_8_8_8_hfbf1a2a0 PX PY QX QY k := by
+  have hSX0 := hSX (0 : Fin 8)
+  have hSX1 := hSX (1 : Fin 8)
+  have hSX2 := hSX (2 : Fin 8)
+  have hSX3 := hSX (3 : Fin 8)
+  have hSX4 := hSX (4 : Fin 8)
+  have hSX5 := hSX (5 : Fin 8)
+  have hSX6 := hSX (6 : Fin 8)
+  have hSX7 := hSX (7 : Fin 8)
+  have hSY0 := hSY (0 : Fin 8)
+  have hSY1 := hSY (1 : Fin 8)
+  have hSY2 := hSY (2 : Fin 8)
+  have hSY3 := hSY (3 : Fin 8)
+  have hSY4 := hSY (4 : Fin 8)
+  have hSY5 := hSY (5 : Fin 8)
+  have hSY6 := hSY (6 : Fin 8)
+  have hSY7 := hSY (7 : Fin 8)
+  simp only [sub_eq_add_neg, mul_comm] at hSX0 hSX1 hSX2 hSX3 hSX4 hSX5 hSX6 hSX7 hSY0 hSY1 hSY2 hSY3 hSY4 hSY5 hSY6 hSY7
+  change SX.get 0 = pieces.get 0 + 2048 * pieces.get 1 + 4194304 * pieces.get 2 at hSX0
+  change SX.get 1 = pieces.get 3 + 2048 * pieces.get 4 + 4194304 * pieces.get 5 at hSX1
+  change SX.get 2 = pieces.get 6 + 2048 * pieces.get 7 + 4194304 * pieces.get 8 at hSX2
+  change SX.get 3 = pieces.get 9 + 2048 * pieces.get 10 + 4194304 * pieces.get 11 at hSX3
+  change SX.get 4 = pieces.get 12 + 2048 * pieces.get 13 + 4194304 * pieces.get 14 at hSX4
+  change SX.get 5 = pieces.get 15 + 2048 * pieces.get 16 + 4194304 * pieces.get 17 at hSX5
+  change SX.get 6 = pieces.get 18 + 2048 * pieces.get 19 + 4194304 * pieces.get 20 at hSX6
+  change SX.get 7 = pieces.get 21 + 2048 * pieces.get 22 + 4194304 * pieces.get 23 at hSX7
+  change SY.get 0 = pieces.get 24 + 2048 * pieces.get 25 + 4194304 * pieces.get 26 at hSY0
+  change SY.get 1 = pieces.get 27 + 2048 * pieces.get 28 + 4194304 * pieces.get 29 at hSY1
+  change SY.get 2 = pieces.get 30 + 2048 * pieces.get 31 + 4194304 * pieces.get 32 at hSY2
+  change SY.get 3 = pieces.get 33 + 2048 * pieces.get 34 + 4194304 * pieces.get 35 at hSY3
+  change SY.get 4 = pieces.get 36 + 2048 * pieces.get 37 + 4194304 * pieces.get 38 at hSY4
+  change SY.get 5 = pieces.get 39 + 2048 * pieces.get 40 + 4194304 * pieces.get 41 at hSY5
+  change SY.get 6 = pieces.get 42 + 2048 * pieces.get 43 + 4194304 * pieces.get 44 at hSY6
+  change SY.get 7 = pieces.get 45 + 2048 * pieces.get 46 + 4194304 * pieces.get 47 at hSY7
+  have hD2Native := hD2
+  simp only [addDifferenceInput, sub_eq_add_neg, mul_comm] at hD2Native
+  unfold Add_8_8_8_8_hfbf1a2a0
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  refine ⟨pieces, (hr 0).1, (hr 0).2.1, (hr 0).2.2, (hr 1).1, (hr 1).2.1, (hr 1).2.2, (hr 2).1, (hr 2).2.1, (hr 2).2.2, (hr 3).1, (hr 3).2.1, (hr 3).2.2, (hr 4).1, (hr 4).2.1, (hr 4).2.2, (hr 5).1, (hr 5).2.1, (hr 5).2.2, (hr 6).1, (hr 6).2.1, (hr 6).2.2, (hr 7).1, (hr 7).2.1, (hr 7).2.2, (hr 8).1, (hr 8).2.1, (hr 8).2.2, (hr 9).1, (hr 9).2.1, (hr 9).2.2, (hr 10).1, (hr 10).2.1, (hr 10).2.2, (hr 11).1, (hr 11).2.1, (hr 11).2.2, (hr 12).1, (hr 12).2.1, (hr 12).2.2, (hr 13).1, (hr 13).2.1, (hr 13).2.2, (hr 14).1, (hr 14).2.1, (hr 14).2.2, (hr 15).1, (hr 15).2.1, (hr 15).2.2, ?_⟩
+  unfold Add_8_8_8_8_hfbf1a2a0_p1
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -519,7 +519,7 @@ theorem Add_8_8_8_8_he7b90398_compose (PX PY QX QY SX SY D2 : List.Vector F 8)
   · simpa only [vec8_eta] using hk
 
 /-- Native composition only; every primitive premise is supplied by the mathematical pipeline. -/
-theorem Triple_8_8_habd58e5e_compose (X Y L R DX RX RY : List.Vector F 8)
+theorem Triple_8_8_h2c0228bb_compose (X Y L R DX RX RY : List.Vector F 8)
     (rawL rawR piecesL piecesR : List.Vector F 24)
     (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧
@@ -539,7 +539,7 @@ theorem Triple_8_8_habd58e5e_compose (X Y L R DX RX RY : List.Vector F 8)
     (hRX : ∀ k : List.Vector F 8 → Prop, k RX → CheckPolynomial_24_h38fe3d8b (tripleXInput R L X DX) k)
     (hRY : ∀ k : List.Vector F 8 → Prop, k RY → CheckPolynomial_24_ha082c489 (tripleYInput R L X RX Y) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (RX ::ᵥ RY ::ᵥ List.Vector.nil)) :
-    Triple_8_8_habd58e5e X Y k := by
+    Triple_8_8_h2c0228bb X Y k := by
   have hL0 := hL (0 : Fin 8)
   have hL1 := hL (1 : Fin 8)
   have hL2 := hL (2 : Fin 8)
@@ -580,7 +580,7 @@ theorem Triple_8_8_habd58e5e_compose (X Y L R DX RX RY : List.Vector F 8)
   simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
   simp only [tripleXInput, sub_eq_add_neg, mul_comm] at hRXNative
   simp only [tripleYInput, sub_eq_add_neg, mul_comm] at hRYNative
-  unfold Triple_8_8_habd58e5e
+  unfold Triple_8_8_h2c0228bb
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -590,7 +590,7 @@ theorem Triple_8_8_habd58e5e_compose (X Y L R DX RX RY : List.Vector F 8)
   · try simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
     apply hDXNative
     refine ⟨rawR, piecesR, (hrR 0).1, (hrR 0).2.1, (hrR 0).2.2, (hrR 1).1, (hrR 1).2.1, (hrR 1).2.2, (hrR 2).1, (hrR 2).2.1, (hrR 2).2.2, (hrR 3).1, (hrR 3).2.1, (hrR 3).2.2, (hrR 4).1, (hrR 4).2.1, (hrR 4).2.2, (hrR 5).1, (hrR 5).2.1, (hrR 5).2.2, (hrR 6).1, (hrR 6).2.1, ?_⟩
-    unfold Triple_8_8_habd58e5e_p1
+    unfold Triple_8_8_h2c0228bb_p1
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -603,7 +603,7 @@ theorem Triple_8_8_habd58e5e_compose (X Y L R DX RX RY : List.Vector F 8)
       exact hk
 
 /-- Native composition only; every primitive premise is supplied by the mathematical pipeline. -/
-theorem Triple_8_8_he2f2b0f5_compose (X Y L R DX RX RY : List.Vector F 8)
+theorem Triple_8_8_hffcb8921_compose (X Y L R DX RX RY : List.Vector F 8)
     (rawL rawR piecesL piecesR : List.Vector F 24)
     (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧
@@ -623,7 +623,7 @@ theorem Triple_8_8_he2f2b0f5_compose (X Y L R DX RX RY : List.Vector F 8)
     (hRX : ∀ k : List.Vector F 8 → Prop, k RX → CheckPolynomial_24_h38fe3d8b (tripleXInput R L X DX) k)
     (hRY : ∀ k : List.Vector F 8 → Prop, k RY → CheckPolynomial_24_h70dd0288 (tripleYInput R L X RX Y) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (RX ::ᵥ RY ::ᵥ List.Vector.nil)) :
-    Triple_8_8_he2f2b0f5 X Y k := by
+    Triple_8_8_hffcb8921 X Y k := by
   have hL0 := hL (0 : Fin 8)
   have hL1 := hL (1 : Fin 8)
   have hL2 := hL (2 : Fin 8)
@@ -664,7 +664,7 @@ theorem Triple_8_8_he2f2b0f5_compose (X Y L R DX RX RY : List.Vector F 8)
   simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
   simp only [tripleXInput, sub_eq_add_neg, mul_comm] at hRXNative
   simp only [tripleYInput, sub_eq_add_neg, mul_comm] at hRYNative
-  unfold Triple_8_8_he2f2b0f5
+  unfold Triple_8_8_hffcb8921
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -674,7 +674,7 @@ theorem Triple_8_8_he2f2b0f5_compose (X Y L R DX RX RY : List.Vector F 8)
   · try simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
     apply hDXNative
     refine ⟨rawR, piecesR, (hrR 0).1, (hrR 0).2.1, (hrR 0).2.2, (hrR 1).1, (hrR 1).2.1, (hrR 1).2.2, (hrR 2).1, (hrR 2).2.1, (hrR 2).2.2, (hrR 3).1, (hrR 3).2.1, (hrR 3).2.2, (hrR 4).1, (hrR 4).2.1, (hrR 4).2.2, (hrR 5).1, (hrR 5).2.1, (hrR 5).2.2, (hrR 6).1, (hrR 6).2.1, ?_⟩
-    unfold Triple_8_8_he2f2b0f5_p1
+    unfold Triple_8_8_hffcb8921_p1
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]

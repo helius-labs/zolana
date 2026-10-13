@@ -399,10 +399,10 @@ mod tests {
     }
 
     #[test]
-    fn prepares_both_owner_rails_without_paths() {
+    fn prepares_owner_rail_without_paths() {
         for owner in [
             ShieldedKeypair::new_ed25519().unwrap(),
-            ShieldedKeypair::new_p256().unwrap(),
+            ShieldedKeypair::new_ed25519().unwrap(),
         ] {
             let merge = MergeTransaction::new(vec![input(&owner)])
                 .unwrap()

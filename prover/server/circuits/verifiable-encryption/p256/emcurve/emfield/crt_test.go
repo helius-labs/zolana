@@ -12,10 +12,16 @@ import (
 )
 
 // Invariant 1: CRT product reconstruction matches the folded coefficient calculation.
-func TestPlainCRTProductMatchesTheFold(t *testing.T) {
+func TestCRTProductMatchesTheFold(t *testing.T) {
+	for _, a := range arithmetics {
+		t.Run(a.name, func(t *testing.T) { crtProductMatchesTheFold(t, a.config.Arithmetic) })
+	}
+}
+
+func crtProductMatchesTheFold(t *testing.T, version Arithmetic) {
 	q := ecc.BN254.ScalarField()
-	s := newArithmeticState(&Field{layout: PlainLayout, mod: p256P})
-	f := &Field{layout: PlainLayout, mod: p256P, arithmetic: s}
+	s := newArithmeticState(&Field{layout: LookupLayout, mod: p256P})
+	f := &Field{layout: LookupLayout, mod: p256P, version: version, arithmetic: s}
 	b := s.crtBasis(f, q)
 	if b == nil {
 		t.Fatal("the P-256 fold polynomial has no cheaper residue basis")
@@ -65,4 +71,29 @@ func TestPlainCRTProductMatchesTheFold(t *testing.T) {
 			}
 		}
 	}
+}
+
+func (b *crtBasis) foldedProduct(x, y []*big.Int, q *big.Int) []*big.Int {
+	w := make([]*big.Int, len(b.forms))
+	for k, form := range b.forms {
+		l, r := new(big.Int), new(big.Int)
+		for i, c := range form {
+			if i < len(x) {
+				l.Add(l, new(big.Int).Mul(c, x[i]))
+			}
+			if i < len(y) {
+				r.Add(r, new(big.Int).Mul(c, y[i]))
+			}
+		}
+		w[k] = l.Mul(l, r).Mod(l, q)
+	}
+	out := make([]*big.Int, len(b.combine))
+	for j, row := range b.combine {
+		out[j] = new(big.Int)
+		for k, c := range row {
+			out[j].Add(out[j], new(big.Int).Mul(c, w[k]))
+		}
+		out[j].Mod(out[j], q)
+	}
+	return out
 }

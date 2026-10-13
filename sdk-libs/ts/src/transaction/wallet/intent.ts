@@ -78,7 +78,7 @@ export interface ApprovalRequest {
 
 /**
  * The Solana account that signs for a shielded owner: its own for an ed25519
- * identity, the fee payer for a P256 identity, which has none.
+ * identity, the fee payer for a PDA identity, which cannot sign.
  * @internal
  */
 export function ownerSolanaAccount(address: ShieldedAddress, feePayer: Address): Address {

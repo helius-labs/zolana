@@ -11,14 +11,14 @@ namespace ZolanaVE.P256.Completeness
 
 open ZolanaVE.Field ZolanaVE.EmcurveChecks
 
-theorem triple_habd58e5e_complete (hr : RangeComplete) (X Y : ElemVal 8)
+theorem triple_h2c0228bb_complete (hr : RangeComplete) (X Y : ElemVal 8)
     (hX : X.bnd = reducedC) (hY : Y.bnd = reducedC)
     (hP : OnCurve (X.value : Fp) (Y.value : Fp)) :
     ∃ RX RY : ElemVal 8, RX.bnd = reducedC ∧ RY.bnd = reducedC ∧
       limbNat RX.limbs < p ∧ limbNat RY.limbs < p ∧
       (∃ hT : OnCurve (RX.value : Fp) (RY.value : Fp), mkPoint hT = 3 • mkPoint hP) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
-        k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) → Triple_8_8_habd58e5e X.limbs Y.limbs k := by
+        k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) → Triple_8_8_h2c0228bb X.limbs Y.limbs k := by
   obtain ⟨l, dx, r, x3, y3, hl, hdx, hratio, hx3, hy3, hT, hpT⟩ := triple_slopes_exist hP
   have tan := tripleTangent_complete hr X Y hX hY l hl
   obtain ⟨DX, hDX, vDX, dxActual⟩ := tripleDoubleX_complete X hX l
@@ -50,7 +50,7 @@ theorem triple_habd58e5e_complete (hr : RangeComplete) (X Y : ElemVal 8)
        rw [canonicalNatElem_limbNat]; exact ZMod.val_lt y3,
     ⟨hO, pO⟩, ?_⟩
   intro k hk
-  exact triple_habd58e5e_of_arithmetic hr X.limbs Y.limbs DX.limbs RX.limbs RY.limbs
+  exact triple_h2c0228bb_of_arithmetic hr X.limbs Y.limbs DX.limbs RX.limbs RY.limbs
     l r tan dxActual ratio rxActual ryActual k hk
 
 end ZolanaVE.P256.Completeness

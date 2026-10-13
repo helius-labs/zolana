@@ -1,6 +1,6 @@
 //! High-level builder for the ring-authority proof (`ring_authority_transact`).
 //! The ring authority has full control over its ring-owned UTXOs, so owners do not
-//! sign: there is no P256 signature and no per-input signer. It reuses the spp
+//! sign: there is no in-circuit signature and no per-input signer. It reuses the spp
 //! transfer input/output assembly verbatim ([`assemble_inputs`]/[`assemble_outputs`])
 //! in the pubkey-agnostic [`OwnerMode::RingAuthority`] mode; only the public-input
 //! element set differs (input owner pk_fields stay private, no confidential

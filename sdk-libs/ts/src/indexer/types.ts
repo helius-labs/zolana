@@ -224,8 +224,9 @@ export interface GetUserRecordsRequest {
 export interface UserRecord {
   readonly owner: Address;
   /**
-   * SEC1-compressed P256 signing pubkey. Absent for a Solana-only owner, whose
-   * signing key is the Ed25519 key `owner` encodes.
+   * SEC1-compressed P256 owner key the program still accepts. Clients never
+   * write it and resolve no address for a record that carries it; the signing
+   * key is the Ed25519 key `owner` encodes.
    */
   readonly ownerP256?: Base64String;
   /** Wallet-wide nullifier pubkey. Never rotates. */

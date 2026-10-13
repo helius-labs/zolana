@@ -13,7 +13,7 @@ theorem halfTangent_complete (hr : RangeComplete) (X Y : ElemVal 8)
     ∃ L : ElemVal 8, L.bnd = balC ∧
       halfQuartic (X.value : Fp) (Y.value : Fp) (L.value : Fp) = 0 ∧
       ∀ k : List.Vector F 8 → Prop, k L.limbs →
-        HalfTangentSlope_8_8_habd58e5e X.limbs Y.limbs k := by
+        HalfTangentSlope_8_8_h2c0228bb X.limbs Y.limbs k := by
   obtain ⟨l, hl⟩ := half_tangent_exists hP
   have hMath : halfQuartic (X.value : Fp) (Y.value : Fp) l = 0 := by
     unfold halfQuartic

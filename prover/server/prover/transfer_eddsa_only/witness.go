@@ -123,8 +123,8 @@ func buildWitnessCore(
 }
 
 // CreateWitness assigns the pre-computed parameters onto the Solana-only
-// spp_transaction circuit variant selected by Variant. This rail has no P256
-// witness at all. No hashing.
+// spp_transaction circuit variant selected by Variant. This rail has no
+// signature witness at all. No hashing.
 func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.TreeSlots, p.PublicAssets, p.PublicAmounts)
 	if err != nil {

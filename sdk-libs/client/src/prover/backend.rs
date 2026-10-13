@@ -72,7 +72,8 @@ pub trait ProverExt: Prover {
         self.prove(&requests::transfer_ring(inputs)?)
     }
 
-    /// Prove a custom-ring P256 transfer.
+    /// Prove a custom-ring transfer whose Ed25519 owner signature the proof
+    /// verifies (`transfer-p256-ring`).
     fn prove_transfer_p256_ring(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer_p256_ring(inputs)?)
     }

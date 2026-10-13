@@ -22,7 +22,7 @@ theorem reduced_vals {e : ElemVal 8} (h : e.bnd = reducedC) :
 
 /-- `AssertDistinctX` on two reduced elements: both canonical, values distinct mod `p`. -/
 theorem distinctX_elem {A B : ElemVal 8} (hA : A.bnd = reducedC) (hB : B.bnd = reducedC)
-    (h : AssertDistinctX_8_8_h83dcf683 A.limbs B.limbs) :
+    (h : AssertDistinctX_8_8_h689cdb88 A.limbs B.limbs) :
     0 ≤ A.value ∧ A.value < p ∧ 0 ≤ B.value ∧ B.value < p ∧ (A.value : Fp) ≠ (B.value : Fp) := by
   obtain ⟨la, va⟩ := reduced_vals hA
   obtain ⟨lb, vb⟩ := reduced_vals hB

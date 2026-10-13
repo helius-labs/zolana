@@ -117,12 +117,7 @@ func (c *curve) scalarMulLadder(inputPoint *point, scalar *frElement) *point {
 	for i, slot := range slots {
 		halfTangentSlopes[i] = c.nativeValue(c.halfTangentSlope(slot))
 	}
-	lookup := func(i int, natives []frontend.Variable) (*point, frontend.Variable) {
-		return c.muxSlot(slots, natives, numeratorBits[i], denominatorBits[i], numeratorBits[i-1], denominatorBits[i-1])
-	}
-	if c.layout.Lookups {
-		lookup = c.packedTableLookup(slots, halfTangentSlopes, numeratorBits, denominatorBits)
-	}
+	lookup := c.packedTableLookup(slots, halfTangentSlopes, numeratorBits, denominatorBits)
 	// 5. Check the ladder relation, then account for the two low bits.
 	for i := decompositionBits - 2; i > 2; i -= 2 {
 		selectedPoint, halfTangentSlope := lookup(i, halfTangentSlopes)
@@ -230,50 +225,6 @@ func (c *curve) packedTableLookup(slots []*point, halfTangentSlopes []frontend.V
 		halfTangentSlope := columns[packedYEnd]
 		return &point{X: fp.Reduced(xLimbs), Y: c.unpackedY(packedYLimbs)}, halfTangentSlope
 	}
-}
-
-func (c *curve) muxSlot(slots []*point, natives []frontend.Variable, b0, b1, b2, b3 frontend.Variable) (*point, frontend.Variable) {
-	api, fp := c.api, c.fp
-	widths := fp.ReducedWidths()
-	for _, slot := range slots {
-		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
-			panic("table points must be reduced")
-		}
-	}
-	selectorBits := []frontend.Variable{api.Xor(b0, b3), api.Xor(b1, b3), api.Xor(b2, b3)}
-	mux := func(column func(int) []frontend.Variable) []frontend.Variable {
-		level := make([][]frontend.Variable, len(slots))
-		for i := range slots {
-			level[i] = column(i)
-		}
-		for _, bit := range selectorBits {
-			next := make([][]frontend.Variable, len(level)/2)
-			for j := range next {
-				next[j] = make([]frontend.Variable, len(level[2*j]))
-				for l := range next[j] {
-					next[j][l] = api.Select(bit, level[2*j+1][l], level[2*j][l])
-				}
-			}
-			level = next
-		}
-		return level[0]
-	}
-	xLimbs := mux(func(i int) []frontend.Variable {
-		if natives == nil {
-			return slots[i].X.Limbs()
-		}
-		return append(append([]frontend.Variable{}, slots[i].X.Limbs()...), natives[i])
-	})
-	var native frontend.Variable
-	if natives != nil {
-		native, xLimbs = xLimbs[len(xLimbs)-1], xLimbs[:len(xLimbs)-1]
-	}
-	packedYLimbs := mux(func(i int) []frontend.Variable { return c.packedY(slots[i].Y) })
-	sign := api.Sub(api.Mul(b0, 2), 1)
-	for g := range packedYLimbs {
-		packedYLimbs[g] = api.Mul(sign, packedYLimbs[g])
-	}
-	return &point{X: fp.Reduced(xLimbs), Y: c.unpackedY(packedYLimbs)}, native
 }
 
 func (c *curve) packedY(y *fpElement) []frontend.Variable {

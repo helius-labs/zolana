@@ -22,7 +22,7 @@ theorem completeAdd_with_point_complete (hr : RangeComplete) (PX PY QX QY : Elem
         mkPoint hP + mkPoint hQ = mkPoint hR) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil) →
-        CompleteAdd_8_8_8_8_hd2848b17 PX.limbs PY.limbs QX.limbs QY.limbs k := by
+        CompleteAdd_8_8_8_8_h3f5cf0cd PX.limbs PY.limbs QX.limbs QY.limbs k := by
   obtain ⟨b, inverse, hbool, hguard, hbNat⟩ := sameX_native_witness PX.limbs QX.limbs
     (reduced_vals hPX).1 (reduced_vals hQX).1
   have hbFp := sameX_fp_iff PX QX hPX hQX hcPX hcQX b hbNat

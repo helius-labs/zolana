@@ -91,8 +91,9 @@ pub struct Actor<D> {
     pub last_deposit: Option<DepositRecord<D>>,
     /// The ed25519 keypair that authorizes this actor's eddsa spends: the eddsa
     /// rail binds the payer (signer-run slot 0), so the actor pays and signs its
-    /// own transfers/withdrawals with this key. `None` for P256 actors, which
-    /// prove ownership inside the proof and let the harness payer fund the spend.
+    /// own transfers/withdrawals with this key. `None` for ring signer actors,
+    /// which prove ownership inside the proof and let the harness payer fund
+    /// the spend.
     pub solana_signer: Option<Keypair>,
 }
 
@@ -116,11 +117,11 @@ impl<D> Actor<D> {
         })
     }
 
-    /// A P256-rail actor with a fresh P256 shielded signing key. Spend
-    /// authorization is proved inside RingP256; the harness payer funds and
-    /// signs its transactions.
-    pub fn p256() -> Result<Self> {
-        let keypair = ShieldedKeypair::new_p256()?;
+    /// A RingP256-rail actor with a fresh Ed25519 shielded signing key. Its
+    /// Ed25519 signature is verified inside the RingP256 proof; the harness
+    /// payer funds and signs its transactions.
+    pub fn ring_signer() -> Result<Self> {
+        let keypair = ShieldedKeypair::new_ed25519()?;
         let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {
             keypair,
@@ -418,10 +419,11 @@ impl<D> LocalnetHarness<D> {
         Ok(())
     }
 
-    /// Create `name` with a P256 shielded signing key. Its Solana transaction is
-    /// paid by the harness payer; spend authorization is proved inside RingP256.
-    pub fn make_p256_actor(&mut self, name: &str) -> Result<()> {
-        self.actors.insert(name.to_string(), Actor::p256()?);
+    /// Create `name` with a fresh Ed25519 shielded signing key that never signs
+    /// a Solana transaction: the harness payer pays, and spend authorization is
+    /// an Ed25519 signature proved inside RingP256.
+    pub fn make_ring_signer_actor(&mut self, name: &str) -> Result<()> {
+        self.actors.insert(name.to_string(), Actor::ring_signer()?);
         Ok(())
     }
 

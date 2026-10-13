@@ -53,11 +53,10 @@ type QuadrupleAndAddLazy struct {
 	HalfSlope                                                frontend.Variable
 	AccXBounds, AccYBounds, SelectedXBounds, SelectedYBounds []*big.Int
 	HasHalfSlope                                             bool
-	Lookups                                                  bool
 }
 
 func (g QuadrupleAndAddLazy) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	acc := &point{X: c.fp.FromBounds(g.AccX, g.AccXBounds), Y: c.fp.FromBounds(g.AccY, g.AccYBounds)}
 	selected := &point{X: c.fp.FromBounds(g.SelectedX, g.SelectedXBounds), Y: c.fp.FromBounds(g.SelectedY, g.SelectedYBounds)}
 	var halfSlope frontend.Variable
@@ -79,7 +78,6 @@ func (c *curve) quadrupleAndAddLazy(accumulator, selectedPoint *point, halfSlope
 		HalfSlope:  0,
 		AccXBounds: accumulator.X.Bounds(), AccYBounds: accumulator.Y.Bounds(),
 		SelectedXBounds: selectedPoint.X.Bounds(), SelectedYBounds: selectedPoint.Y.Bounds(),
-		Lookups: c.layout.Lookups,
 	}
 	if halfSlope != nil {
 		g.HalfSlope, g.HasHalfSlope = halfSlope, true
@@ -91,11 +89,10 @@ func (c *curve) quadrupleAndAddLazy(accumulator, selectedPoint *point, halfSlope
 type Triple struct {
 	X, Y             []frontend.Variable
 	XBounds, YBounds []*big.Int
-	Lookups          bool
 }
 
 func (g Triple) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	out := c.tripleConstrained(&point{X: c.fp.FromBounds(g.X, g.XBounds), Y: c.fp.FromBounds(g.Y, g.YBounds)})
 	recordOutputs(g, out.X, out.Y)
 	return pointLimbs(out)
@@ -105,7 +102,7 @@ func (c *curve) triple(p *point) *point {
 	if !abstractor.Extracting(c.api) {
 		return c.tripleConstrained(p)
 	}
-	g := Triple{X: p.X.Limbs(), Y: p.Y.Limbs(), XBounds: p.X.Bounds(), YBounds: p.Y.Bounds(), Lookups: c.layout.Lookups}
+	g := Triple{X: p.X.Limbs(), Y: p.Y.Limbs(), XBounds: p.X.Bounds(), YBounds: p.Y.Bounds()}
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }
 
@@ -113,11 +110,10 @@ func (c *curve) triple(p *point) *point {
 type Add struct {
 	PX, PY, QX, QY                         []frontend.Variable
 	PXBounds, PYBounds, QXBounds, QYBounds []*big.Int
-	Lookups                                bool
 }
 
 func (g Add) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	p := &point{X: c.fp.FromBounds(g.PX, g.PXBounds), Y: c.fp.FromBounds(g.PY, g.PYBounds)}
 	q := &point{X: c.fp.FromBounds(g.QX, g.QXBounds), Y: c.fp.FromBounds(g.QY, g.QYBounds)}
 	out := c.addConstrained(p, q)
@@ -132,7 +128,6 @@ func (c *curve) add(p, q *point) *point {
 	g := Add{
 		PX: p.X.Limbs(), PY: p.Y.Limbs(), QX: q.X.Limbs(), QY: q.Y.Limbs(),
 		PXBounds: p.X.Bounds(), PYBounds: p.Y.Bounds(), QXBounds: q.X.Bounds(), QYBounds: q.Y.Bounds(),
-		Lookups: c.layout.Lookups,
 	}
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }
@@ -141,11 +136,10 @@ func (c *curve) add(p, q *point) *point {
 type HalfTangentSlope struct {
 	X, Y             []frontend.Variable
 	XBounds, YBounds []*big.Int
-	Lookups          bool
 }
 
 func (g HalfTangentSlope) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	out := c.halfTangentSlopeConstrained(&point{X: c.fp.FromBounds(g.X, g.XBounds), Y: c.fp.FromBounds(g.Y, g.YBounds)})
 	recordOutputs(g, out)
 	return out.Limbs()
@@ -155,7 +149,7 @@ func (c *curve) halfTangentSlope(t *point) *fpElement {
 	if !abstractor.Extracting(c.api) {
 		return c.halfTangentSlopeConstrained(t)
 	}
-	g := HalfTangentSlope{X: t.X.Limbs(), Y: t.Y.Limbs(), XBounds: t.X.Bounds(), YBounds: t.Y.Bounds(), Lookups: c.layout.Lookups}
+	g := HalfTangentSlope{X: t.X.Limbs(), Y: t.Y.Limbs(), XBounds: t.X.Bounds(), YBounds: t.Y.Bounds()}
 	limbs := abstractor.Call1(c.api, g)
 	return c.fp.FromBounds(limbs, recordedOutputs(g)[0])
 }
@@ -165,11 +159,10 @@ type AssertDistinctSlope struct {
 	Lambda       []frontend.Variable
 	Other        frontend.Variable
 	LambdaBounds []*big.Int
-	Lookups      bool
 }
 
 func (g AssertDistinctSlope) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	c.assertDistinctSlopeConstrained(c.fp.FromBounds(g.Lambda, g.LambdaBounds), g.Other)
 	return nil
 }
@@ -179,18 +172,17 @@ func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) 
 		c.assertDistinctSlopeConstrained(lambda, other)
 		return
 	}
-	abstractor.CallVoid(c.api, AssertDistinctSlope{Lambda: lambda.Limbs(), Other: other, LambdaBounds: lambda.Bounds(), Lookups: c.layout.Lookups})
+	abstractor.CallVoid(c.api, AssertDistinctSlope{Lambda: lambda.Limbs(), Other: other, LambdaBounds: lambda.Bounds()})
 }
 
 // AssertDistinctX is assertDistinctX: canonical P and Q differ.
 type AssertDistinctX struct {
 	P, Q             []frontend.Variable
 	PBounds, QBounds []*big.Int
-	Lookups          bool
 }
 
 func (g AssertDistinctX) DefineGadget(api frontend.API) interface{} {
-	c := newCurveFor(api, g.Lookups)
+	c := newCurve(api)
 	c.assertDistinctXConstrained(c.fp.FromBounds(g.P, g.PBounds), c.fp.FromBounds(g.Q, g.QBounds))
 	return nil
 }
@@ -200,5 +192,5 @@ func (c *curve) assertDistinctX(p, q *fpElement) {
 		c.assertDistinctXConstrained(p, q)
 		return
 	}
-	abstractor.CallVoid(c.api, AssertDistinctX{P: p.Limbs(), Q: q.Limbs(), PBounds: p.Bounds(), QBounds: q.Bounds(), Lookups: c.layout.Lookups})
+	abstractor.CallVoid(c.api, AssertDistinctX{P: p.Limbs(), Q: q.Limbs(), PBounds: p.Bounds(), QBounds: q.Bounds()})
 }

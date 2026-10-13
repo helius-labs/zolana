@@ -11,17 +11,18 @@ pub(crate) fn viewing_key_from_scalar(world: &mut KeypairWorld, name: String, n:
     world.viewing.insert(name, vk);
 }
 
-pub(crate) fn random_p256_signing_key(world: &mut KeypairWorld, name: String) {
-    world.signing.insert(name, SigningKey::new_p256());
+pub(crate) fn random_signing_key(world: &mut KeypairWorld, name: String) {
+    world.signing.insert(name, SigningKey::new_ed25519());
 }
 
-pub(crate) fn p256_signing_key_from_scalar(world: &mut KeypairWorld, name: String, n: u8) {
-    let secret_key = SigningKey::from_p256_bytes(&scalar_bytes(n)).unwrap();
-    world.signing.insert(name, secret_key);
+pub(crate) fn signing_key_from_scalar(world: &mut KeypairWorld, name: String, n: u8) {
+    world
+        .signing
+        .insert(name, SigningKey::from_ed25519_bytes(&scalar_bytes(n)));
 }
 
 pub(crate) fn random_shielded_keypair(world: &mut KeypairWorld, name: String) {
     world
         .shielded
-        .insert(name, ShieldedKeypair::new_p256().unwrap());
+        .insert(name, ShieldedKeypair::new_ed25519().unwrap());
 }

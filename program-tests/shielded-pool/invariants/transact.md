@@ -70,10 +70,10 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (spend authorization)
   - Suggested test: unit (exists) + negative overflow + negative unsigned owner (exist); harness: `cargo test -p shielded-pool-tests --test transact_signer_run` + program-tests integration
 
-- [x] **INV-TRANSACT-06: P256-owned inputs are authorized in-circuit (RingP256 only)**
-  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_p256_test.go` (`TestCustomRingP256Solves`, `TestCustomRingP256KeepsRingOnlyOwnerPrivate`, `TestCustomRingP256AcceptsMixedOwners`), `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs`
+- [x] **INV-TRANSACT-06: the shared owner's inputs are authorized in-circuit (RingP256 only)**
+  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_ed25519_test.go`, `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs`
   - Kind: postcondition
-  - Statement: on the RingP256 rail there is no per-input signer element (and no shared `p256_signing_pk_x` instruction field): ownership is proved inside the circuit by a P256 signature over `Sha256(private_tx_hash || external_data_hash)`, split low/high as public inputs; the owner's pubkey x-coordinate is published in the instruction data as `RingP256ProofData.default_owner_tag` ONLY when a real default-ring P256 input is present (ring-only P256 ownership stays private). The confidential (default-ring) transact rail has no P256 variant — that scope stays not applicable.
+  - Statement: on the RingP256 rail the shared owner's inputs carry no per-input signer element: ownership is proved inside the circuit by an Ed25519 signature over `Sha256(private_tx_hash || external_data_hash)`, split low/high as public inputs; the owner's Ed25519 public key is published in the instruction data as `RingP256ProofData.default_owner_tag` ONLY when a real default-ring input of that owner is present (ring-only ownership stays private), and SPP binds it as `solana_owner_identity(pk)`. Other inputs are authorized by runtime signers. The confidential (default-ring) transact rail has no in-circuit signature variant.
   - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs`, `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `is_p256()` appendix)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (spend authorization)
@@ -272,7 +272,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-19: the proof rail is selected exactly by the CircuitId selector**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`, `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
   - Kind: precondition
-  - Statement: the proof rail (uncommitted eddsa vs BSB22-committed P256) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired `eddsa_signer_index` field is deleted from the wire.)
+  - Statement: the proof rail (uncommitted eddsa vs BSB22-committed RingP256) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired `eddsa_signer_index` field is deleted from the wire.)
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`CircuitId`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: Critical
@@ -479,11 +479,11 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
-- [x] **INV-RING-TRANSACT-06: ring-only P256 ownership stays private on the wire**
+- [x] **INV-RING-TRANSACT-06: ring-only in-circuit ownership stays private on the wire**
   - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `p256_ring_transfer_updates_recipient_wallet`, `default_ring_p256_input_exposes_and_binds_owner_tag`
   - Kind: postcondition
-  - Statement: for a ring-owned P256 input the wire carries NO owner identifier — `RingP256ProofData.default_owner_tag` is `None` and the public input's owner-tag element is 0; ownership exists only inside the proof. Only a real DEFAULT-ring P256 input exposes the pubkey x-coordinate (`Some`), and that exposed tag is bound into the public input (a wrong tag fails pairing).
-  - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs` (`has_default_p256_input`), `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `default_p256_owner_tag` leg)
+  - Statement: for a ring-owned input of the in-circuit signer the wire carries NO owner identifier — `RingP256ProofData.default_owner_tag` is `None`, the public input's owner-tag element is 0, and no published output owner or public signer equals the shared identity; ownership exists only inside the proof. Only a real DEFAULT-ring input of that signer exposes its Ed25519 public key (`Some`), and that exposed tag is bound into the public input (a wrong tag fails pairing).
+  - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs` (`Ed25519AuthorizationPreparation`), `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `default_p256_owner_tag` leg)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (confidentiality + binding)
   - Suggested test: positive private-by-default + positive exposed-and-bound + negative wrong tag (all exist); harness: program-tests integration (`cargo test-sbf`)
@@ -538,7 +538,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-RING-AUTH-05: ring-authority proofs must use the uncommitted (non-P256) encoding**
+- [x] **INV-RING-AUTH-05: ring-authority proofs must use the uncommitted (non-RingP256) encoding**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
   - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `RingP256` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.

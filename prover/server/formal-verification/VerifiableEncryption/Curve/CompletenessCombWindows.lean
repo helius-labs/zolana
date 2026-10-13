@@ -25,7 +25,7 @@ theorem combWindow_complete {t : ℕ} (ht : t < 51) (b0 b1 b2 b3 b4 : Bool) :
         mkPoint hW = ((2 * (i : ℤ) + 1 - 32) * 2 ^ (5 * t)) • G) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (WX.limbs ::ᵥ WY.limbs ::ᵥ List.Vector.nil) →
-        CombSelect_8_32_3_32_5_h25d1d12b (txAt t) (tyAt t)
+        CombSelect_8_32_3_32_5_h2261d38e (txAt t) (tyAt t)
           vec![boolNative b0, boolNative b1, boolNative b2, boolNative b3, boolNative b4] k := by
   let result := selected32 (txAt t) (tyAt t) (index32 b0 b1 b2 b3 b4)
   have hactual := combSelect32_complete (txAt t) (tyAt t) b0 b1 b2 b3 b4
@@ -48,7 +48,7 @@ theorem combTop_complete (b0 b1 : Bool) :
       (∃ hT : OnCurve (TX.value : Fp) (TY.value : Fp), mkPoint hT = topScalar i • G) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (TX.limbs ::ᵥ TY.limbs ::ᵥ List.Vector.nil) →
-        CombSelect_8_4_8_4_2_h27b40688 topX topY
+        CombSelect_8_4_8_4_2_h80fdf981 topX topY
           vec![boolNative b0, boolNative b1] k := by
   let result := (topX.get (index4 b0 b1)) ::ᵥ
     (topY.get (index4 b0 b1)) ::ᵥ List.Vector.nil

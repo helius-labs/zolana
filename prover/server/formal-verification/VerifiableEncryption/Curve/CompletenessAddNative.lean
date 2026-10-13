@@ -10,7 +10,7 @@ theorem completeAdd_native (PX PY QX QY L RX RY : ElemVal 8) (b : Bool) (inverse
     (hbool : GatesDef.is_bool (if b then (1 : F) else 0))
     (hguard : (∑ i : Fin 8, (PX.limbs.get i - QX.limbs.get i) ^ 2) * inverse =
       1 - (if b then 1 else 0))
-    (cp : AssertCanonical_8_0_hc36017e9 PX.limbs) (cq : AssertCanonical_8_0_hc36017e9 QX.limbs)
+    (cp : AssertCanonical_8_0_hcc2f8a19 PX.limbs) (cq : AssertCanonical_8_0_hcc2f8a19 QX.limbs)
     (hr : ∀ i : Fin 8, RangeCheck 11 (pieces.get ⟨3 * i.val, by omega⟩) ∧
       RangeCheck 11 (pieces.get ⟨3 * i.val + 1, by omega⟩) ∧
       RangeCheck 10 (pieces.get ⟨3 * i.val + 2, by omega⟩))
@@ -25,7 +25,7 @@ theorem completeAdd_native (PX PY QX QY L RX RY : ElemVal 8) (b : Bool) (inverse
     (cyOutput : ∀ k : List.Vector F 8 → Prop, k RY.limbs →
       CheckPolynomial_24_h2629e496 (vec3 L (linElem [(1, PX), (-1, RX)]) PY) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (RX.limbs ::ᵥ RY.limbs ::ᵥ List.Vector.nil)) :
-    CompleteAdd_8_8_8_8_hd2848b17 PX.limbs PY.limbs QX.limbs QY.limbs k := by
+    CompleteAdd_8_8_8_8_h3f5cf0cd PX.limbs PY.limbs QX.limbs QY.limbs k := by
   have h0 := hL (0 : Fin 8)
   change L.limbs.get 0 = pieces.get 0 + pieces.get 1 * 2048 + pieces.get 2 * 4194304 - 2147483648 at h0
   have h1 := hL (1 : Fin 8)
@@ -42,12 +42,12 @@ theorem completeAdd_native (PX PY QX QY L RX RY : ElemVal 8) (b : Bool) (inverse
   change L.limbs.get 6 = pieces.get 18 + pieces.get 19 * 2048 + pieces.get 20 * 4194304 - 2147483648 at h6
   have h7 := hL (7 : Fin 8)
   change L.limbs.get 7 = pieces.get 21 + pieces.get 22 * 2048 + pieces.get 23 * 4194304 - 2147483648 at h7
-  unfold AssertCanonical_8_0_hc36017e9 at cp cq
+  unfold AssertCanonical_8_0_hcc2f8a19 at cp cq
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, GatesDef.eq, exists_eq_left] at cp cq
   obtain ⟨p2, pz2, p6, p5, p17, pz17, p20, pz20, pfin, -⟩ := cp
   obtain ⟨q2, qz2, q6, q5, q17, qz17, q20, qz20, qfin, -⟩ := cq
-  unfold CompleteAdd_8_8_8_8_hd2848b17 CompleteAdd_8_8_8_8_hd2848b17_p1
+  unfold CompleteAdd_8_8_8_8_h3f5cf0cd CompleteAdd_8_8_8_8_h3f5cf0cd_p1
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, GatesDef.eq, exists_eq_left]
   refine ⟨vec![(if b then 1 else 0), inverse], hbool,

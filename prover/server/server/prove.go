@@ -44,7 +44,7 @@ func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*co
 		common.TransferRingAuthorityCircuitType:
 		return p.transfer(payload)
 	case common.TransferP256RingCircuitType:
-		return p.p256Transfer(payload)
+		return p.ed25519Transfer(payload)
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		return p.merge(circuit, payload)
 	}
@@ -69,8 +69,8 @@ func (p circuitProver) transfer(payload []byte) (*common.Proof, *Error) {
 	return proved(transfereddsaonly.TransferProof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
 }
 
-func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
-	var params transfereddsaonly.P256TransferParameters
+func (p circuitProver) ed25519Transfer(payload []byte) (*common.Proof, *Error) {
+	var params transfereddsaonly.Ed25519TransferParameters
 	if failure := p.decode(payload, &params); failure != nil {
 		return nil, failure
 	}
@@ -81,9 +81,9 @@ func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
 	ps, err := p.keys.GetTransferSystem(common.TransferP256RingCircuitType, params.NInputs, params.NOutputs)
 	finishKeys()
 	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
+		return nil, provingError(fmt.Errorf("transfer-p256-ring: %w", err))
 	}
-	return proved(transfereddsaonly.P256Proof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
+	return proved(transfereddsaonly.Ed25519Proof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
 }
 
 func (p circuitProver) merge(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {

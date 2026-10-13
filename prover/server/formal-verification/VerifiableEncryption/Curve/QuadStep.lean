@@ -29,11 +29,11 @@ theorem aElem_value : aElem.value = p - 3 := by
 /-- Bounds of a lazy check's output. -/
 def lazyOut (c : LazyParams) : ElemC := ⟨c.outLo, c.outHi, c.outVlo, c.outVhi⟩
 
-theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
+theorem quadAdd_haf2b5bed_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_hee995b41)
     (hSX : SX.bnd = reducedC) (hSY : SY.bnd = unpackC) {hs : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : QuadrupleAndAddLazy_8_8_8_8_h320f0a4e AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
+    (h : QuadrupleAndAddLazy_8_8_8_8_haf2b5bed AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hee995b41 ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
@@ -41,8 +41,8 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
           (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
           (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∨
             LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ) := by
-  unfold QuadrupleAndAddLazy_8_8_8_8_h320f0a4e QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p1
-    QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2 at h
+  unfold QuadrupleAndAddLazy_8_8_8_8_haf2b5bed QuadrupleAndAddLazy_8_8_8_8_haf2b5bed_p1
+    QuadrupleAndAddLazy_8_8_8_8_haf2b5bed_p2 at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc1, h⟩ := h
@@ -241,11 +241,11 @@ theorem quadAdd_h320f0a4e_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     unfold LastSlope
     linear_combination c5
 
-theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
+theorem quadAdd_h577e35e6_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = reducedC) (hAY : AY.bnd = reducedC)
     (hSX : SX.bnd = reducedC) (hSY : SY.bnd = unpackC) {hs : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : QuadrupleAndAddLazy_8_8_8_8_he10e6061 AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
+    (h : QuadrupleAndAddLazy_8_8_8_8_h577e35e6 AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_h57fc266d ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
@@ -253,8 +253,8 @@ theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
           (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
           (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∨
             LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ) := by
-  unfold QuadrupleAndAddLazy_8_8_8_8_he10e6061 QuadrupleAndAddLazy_8_8_8_8_he10e6061_p1
-    QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2 at h
+  unfold QuadrupleAndAddLazy_8_8_8_8_h577e35e6 QuadrupleAndAddLazy_8_8_8_8_h577e35e6_p1
+    QuadrupleAndAddLazy_8_8_8_8_h577e35e6_p2 at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc1, h⟩ := h
@@ -453,11 +453,11 @@ theorem quadAdd_he10e6061_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     unfold LastSlope
     linear_combination c5
 
-theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
+theorem quadAdd_h6e46ac5c_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_h57fc266d)
     (hSX : SX.bnd = reducedC) (hSY : SY.bnd = unpackC) {hs : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
+    (h : QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hee995b41 ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
@@ -465,8 +465,8 @@ theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
           (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
           (slopeFactor (((L.value : ℤ) : F) - hs) * slopeFactor (((L.value : ℤ) : F) + hs) ≠ 0 ∨
             LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ) := by
-  unfold QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p1
-    QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2 at h
+  unfold QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c_p1
+    QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c_p2 at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc1, h⟩ := h
@@ -665,19 +665,19 @@ theorem quadAdd_h8a920ea3_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : 
     unfold LastSlope
     linear_combination c5
 
-theorem quadAdd_h4e58d4bc_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
+theorem quadAdd_h4bfcc75d_sound (hl : LookupSound RangeCheck 11) (AX AY SX SY : ElemVal 8)
     (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_hee995b41)
     (hSX : SX.bnd = reducedC) (hSY : SY.bnd = reducedC) {hs : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
+    (h : QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d AX.limbs AY.limbs SX.limbs SY.limbs hs k) :
     ∃ OX OY : ElemVal 8, OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hc2c2cd77 ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
       ∃ L : ElemVal 8, L.bnd = balC ∧
         ∃ dX dY μ ν iX : Fp, QuadAddCons (AX.value : Fp) (AY.value : Fp) (SX.value : Fp) (SY.value : Fp)
           (L.value : Fp) dX dY μ ν iX (OX.value : Fp) (OY.value : Fp) ∧
           LastSlope (SX.value : Fp) (SY.value : Fp) dX dY μ := by
-  unfold QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_p1
-    QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_p2 at h
+  unfold QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d_p1
+    QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d_p2 at h
   elim_gates h
   obtain ⟨g0, g1, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, hc1, h⟩ := h

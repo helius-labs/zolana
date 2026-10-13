@@ -16,7 +16,7 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     },
-    P256Signature, SppProofOutputUtxo, TransactionError, UtxoSerialization,
+    Ed25519Authorization, SppProofOutputUtxo, TransactionError, UtxoSerialization,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,7 +101,12 @@ pub trait WalletAuthority: Send + Sync {
         Ok(())
     }
 
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
+    /// Ed25519 signature of the owner over the transact message hash, the
+    /// authorization the custom-ring in-circuit signature rail verifies.
+    async fn sign_ed25519(
+        &self,
+        message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError>;
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
@@ -143,7 +148,10 @@ pub trait SyncWalletAuthority: Send + Sync {
         Ok(())
     }
 
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
+    fn sign_ed25519(
+        &self,
+        message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError>;
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
@@ -200,8 +208,11 @@ where
         SyncWalletAuthority::request_user_approval(self, request)
     }
 
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        SyncWalletAuthority::sign_p256(self, message_hash)
+    async fn sign_ed25519(
+        &self,
+        message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError> {
+        SyncWalletAuthority::sign_ed25519(self, message_hash)
     }
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -440,21 +451,13 @@ fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
     })
 }
 
-fn sign_p256_with<K: ShieldedKeypairTrait>(
+fn sign_ed25519_with<K: ShieldedKeypairTrait>(
     keypair: &K,
     message_hash: &[u8; 32],
-) -> Result<P256Signature, TransactionError> {
-    let bytes = keypair
-        .sign_hash(message_hash)
-        .map_err(|e| TransactionError::P256(e.to_string()))?;
-    let mut sig_r = [0u8; 32];
-    let mut sig_s = [0u8; 32];
-    sig_r.copy_from_slice(&bytes[..32]);
-    sig_s.copy_from_slice(&bytes[32..]);
-    Ok(P256Signature {
-        pubkey: keypair.signing_pubkey().as_p256()?,
-        sig_r,
-        sig_s,
+) -> Result<Ed25519Authorization, TransactionError> {
+    Ok(Ed25519Authorization {
+        pubkey: keypair.signing_pubkey().as_ed25519()?,
+        signature: keypair.sign_message(message_hash)?,
     })
 }
 
@@ -499,8 +502,11 @@ impl SyncWalletAuthority for ClientEd25519WalletAuthority {
         )
     }
 
-    fn sign_p256(&self, _message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        Err(TransactionError::P256TransactUnsupported)
+    fn sign_ed25519(
+        &self,
+        _message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError> {
+        Err(TransactionError::AuthorityCannotSign)
     }
 
     /// Deliberately a no-op rather than the inherited trait default, so that
@@ -560,8 +566,11 @@ impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
         )
     }
 
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        sign_p256_with(self.keypair, message_hash)
+    fn sign_ed25519(
+        &self,
+        message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError> {
+        sign_ed25519_with(self.keypair, message_hash)
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -603,8 +612,11 @@ impl SyncWalletAuthority for ShieldedKeypair {
         encrypt_anonymous_transfer_with(self, first_nullifier, sender_view_tag, sender, recipients)
     }
 
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        sign_p256_with(self, message_hash)
+    fn sign_ed25519(
+        &self,
+        message_hash: &[u8; 32],
+    ) -> Result<Ed25519Authorization, TransactionError> {
+        sign_ed25519_with(self, message_hash)
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -699,8 +711,8 @@ mod tests {
                 .secret()
         );
         assert_eq!(
-            SyncWalletAuthority::sign_p256(&client, &[0; 32]),
-            Err(TransactionError::P256TransactUnsupported)
+            SyncWalletAuthority::sign_ed25519(&client, &[0; 32]),
+            Err(TransactionError::AuthorityCannotSign)
         );
     }
 }

@@ -32,7 +32,6 @@ zolana-interface = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
-p256 = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 solana-account = { workspace = true }

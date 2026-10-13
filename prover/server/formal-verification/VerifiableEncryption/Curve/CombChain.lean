@@ -74,7 +74,7 @@ the point `(2i + 1 - 32)·2^(5t)·G`. -/
 theorem window_select {t : ℕ} (ht : t < 51) {b0 b1 b2 b3 b4 : F} (hb0 : GatesDef.is_bool b0)
     (hb1 : GatesDef.is_bool b1) (hb2 : GatesDef.is_bool b2) (hb3 : GatesDef.is_bool b3)
     (hb4 : GatesDef.is_bool b4) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombSelect_8_32_3_32_5_h25d1d12b (txAt t) (tyAt t) (b0 ::ᵥ b1 ::ᵥ b2 ::ᵥ b3 ::ᵥ b4 ::ᵥ List.Vector.nil) k) :
+    (h : CombSelect_8_32_3_32_5_h2261d38e (txAt t) (tyAt t) (b0 ::ᵥ b1 ::ᵥ b2 ::ᵥ b3 ::ᵥ b4 ::ᵥ List.Vector.nil) k) :
     ∃ i : Fin 32, b0 + b1 * 2 + b2 * 4 + b3 * 8 + b4 * 16 = ((i : ℕ) : F) ∧
       ∃ WX WY : ElemVal 8, WX.bnd = reducedC ∧ WY.bnd = packC ∧ k (WX.limbs ::ᵥ WY.limbs ::ᵥ List.Vector.nil) ∧
         ∃ hW : OnCurve (WX.value : Fp) (WY.value : Fp),
@@ -113,7 +113,7 @@ def topScalar (i : ℕ) : ℤ := if i < 2 then (2 * i - 1) * 2 ^ 255 - 1 else (2
 
 theorem top_select {b0 b1 : F} (hb0 : GatesDef.is_bool b0) (hb1 : GatesDef.is_bool b1)
     {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : CombSelect_8_4_8_4_2_h27b40688 topX topY (b0 ::ᵥ b1 ::ᵥ List.Vector.nil) k) :
+    (h : CombSelect_8_4_8_4_2_h80fdf981 topX topY (b0 ::ᵥ b1 ::ᵥ List.Vector.nil) k) :
     ∃ i : Fin 4, b0 + b1 * 2 = ((i : ℕ) : F) ∧
       ∃ WX WY : ElemVal 8, WX.bnd = reducedC ∧ WY.bnd = reducedC ∧ k (WX.limbs ::ᵥ WY.limbs ::ᵥ List.Vector.nil) ∧
         ∃ hW : OnCurve (WX.value : Fp) (WY.value : Fp), mkPoint hW = topScalar i • G := by

@@ -1307,14 +1307,14 @@ mod tests {
 
     #[test]
     fn create_transfer_sync_to_registered_recipient_builds_shielded_transfer() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
-        let recipient = ShieldedKeypair::new_p256().unwrap();
-        let owner = Pubkey::new_unique();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let owner = Pubkey::new_from_array(recipient.signing_pubkey().as_ed25519().unwrap());
         let (record_pda, bump) = user_record_pda(&owner);
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
+            owner_p256: None,
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -1352,14 +1352,14 @@ mod tests {
 
     #[tokio::test]
     async fn create_transfer_resolves_registered_recipient() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
-        let recipient = ShieldedKeypair::new_p256().unwrap();
-        let owner = Pubkey::new_unique();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let owner = Pubkey::new_from_array(recipient.signing_pubkey().as_ed25519().unwrap());
         let (record_pda, bump) = user_record_pda(&owner);
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
+            owner_p256: None,
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -1397,7 +1397,7 @@ mod tests {
 
     #[test]
     fn create_transfer_sync_to_unregistered_recipient_builds_public_withdrawal() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender.clone(), 10);
         let recipient = Pubkey::new_unique();
         let rpc = MockRpc { account: None };
@@ -1428,7 +1428,7 @@ mod tests {
 
     #[test]
     fn create_transfer_sync_to_unregistered_recipient_builds_spl_public_withdrawal() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let wallet = wallet_with_asset(sender.clone(), asset, 10);
@@ -1472,7 +1472,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_builds_spl_settlement_to_recipient_ata() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let wallet = wallet_with_asset(sender.clone(), asset, 10);
@@ -1506,7 +1506,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_rejects_invalid_count_and_zero_amounts() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender, 10);
         let payer = Address::default();
 
@@ -1558,7 +1558,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_accepts_more_than_five_same_asset_legs() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender, 12);
         let legs = (0..12)
             .map(|_| WithdrawalLeg {
@@ -1668,7 +1668,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_aggregates_repeated_spl_mint_once() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let wallet = wallet_with_asset(sender, asset, 10);
@@ -1703,7 +1703,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_supports_mixed_sol_and_spl_assets() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let mut wallet = wallet_with_sol(sender.clone(), 10);
@@ -1748,7 +1748,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_reports_aggregate_insufficient_balance() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender, 10);
         let error = withdrawal_error(create_withdrawal(WithdrawalParams {
             wallet: &wallet,
@@ -1780,7 +1780,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_rejects_inputs_on_different_trees() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let mut wallet = wallet_with_sol(sender.clone(), 10);
@@ -1825,7 +1825,7 @@ mod tests {
 
     #[test]
     fn signing_rejects_input_spent_after_creation() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let authority = KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         let unsigned = create_withdrawal(WithdrawalParams {
@@ -1894,7 +1894,7 @@ mod tests {
 
     #[test]
     fn input_selection_keeps_every_input_on_one_tree() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let second_tree = pda::tree(SECOND_TREE_ID);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         if let Some(entry) = wallet.utxos.first_mut() {
@@ -1919,7 +1919,7 @@ mod tests {
 
     #[test]
     fn resolve_spend_tree_infers_single_tree_balance() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender, 10);
 
         let tree =
@@ -1930,7 +1930,7 @@ mod tests {
 
     #[test]
     fn resolve_spend_tree_errors_when_balance_spans_multiple_trees() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = wallet_with_sol(sender.clone(), 4);
         let mut second = wallet_with_sol(sender, 10).utxos.remove(0);
         second.tree_id = SECOND_TREE_ID;
@@ -1952,7 +1952,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_infers_tree_when_omitted() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender.clone(), 10);
 
         let created = create_withdrawal(WithdrawalParams {
@@ -1972,7 +1972,7 @@ mod tests {
 
     #[test]
     fn create_split_accepts_plain_divisible_utxo() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender, 800);
 
         let created = create_split(SplitParams {
@@ -1991,7 +1991,7 @@ mod tests {
 
     #[test]
     fn create_split_rejects_indivisible_amount() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_sol(sender, 10);
 
         let error = match create_split(SplitParams {
@@ -2016,7 +2016,7 @@ mod tests {
 
     #[test]
     fn create_split_rejects_named_utxo_carrying_data() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
         let hash = wallet.utxos.first().expect("seeded utxo").utxo_hash;
         if let Some(entry) = wallet.utxos.first_mut() {
@@ -2041,7 +2041,7 @@ mod tests {
 
     #[test]
     fn create_split_rejects_named_ring_bound_utxo() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
         let hash = wallet.utxos.first().expect("seeded utxo").utxo_hash;
         if let Some(entry) = wallet.utxos.first_mut() {
@@ -2064,7 +2064,7 @@ mod tests {
 
     #[test]
     fn create_split_auto_select_skips_a_larger_ineligible_utxo() {
-        let sender = ShieldedKeypair::new_p256().unwrap();
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&sender);
         // A larger data-carrying utxo must not shadow the smaller plain candidate.
         push_utxo(&mut wallet, &sender, 1600, [1u8; 31]);
@@ -2145,7 +2145,7 @@ mod tests {
 
     #[test]
     fn merge_auto_sweep_selects_smallest_plain_utxos_ascending() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for (index, amount) in [50u64, 10, 30].into_iter().enumerate() {
             push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
@@ -2158,7 +2158,7 @@ mod tests {
 
     #[test]
     fn merge_auto_sweep_caps_at_shape_keeping_the_smallest_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let count = MERGE_DEFAULT_INPUT_COUNT as u64;
         for step in (1..=count + 1).rev() {
@@ -2176,7 +2176,7 @@ mod tests {
 
     #[test]
     fn merge_auto_sweep_skips_ring_and_data_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
@@ -2197,7 +2197,7 @@ mod tests {
 
     #[test]
     fn merge_auto_sweep_skips_zero_amount_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 0, [1u8; 31]);
         push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
@@ -2210,7 +2210,7 @@ mod tests {
 
     #[test]
     fn withdrawal_inputs_skip_zero_amount_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 0, [1u8; 31]);
         push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
@@ -2229,7 +2229,7 @@ mod tests {
 
     #[test]
     fn merge_auto_sweep_needs_at_least_two_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
@@ -2243,7 +2243,7 @@ mod tests {
 
     #[test]
     fn merge_explicit_selection_takes_exactly_the_named_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
@@ -2257,7 +2257,7 @@ mod tests {
 
     #[test]
     fn merge_explicit_selection_rejects_duplicate_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
@@ -2272,7 +2272,7 @@ mod tests {
     #[test]
     fn merge_explicit_selection_rejects_more_than_the_widest_shape() {
         const TOO_MANY: usize = MAX_MERGE_INPUTS + 1;
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = sol_wallet(&keypair);
         let hashes: Vec<[u8; 32]> = (0..TOO_MANY)
             .map(|i| [u8::try_from(i).unwrap(); 32])
@@ -2294,7 +2294,7 @@ mod tests {
 
     #[test]
     fn merge_explicit_selection_reaches_the_wide_shape() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let hashes: Vec<[u8; 32]> = (1..=MERGE_DEFAULT_INPUT_COUNT + 1)
             .map(|amount| {
@@ -2319,7 +2319,7 @@ mod tests {
 
     #[test]
     fn merge_explicit_selection_needs_at_least_two_utxos() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
@@ -2333,7 +2333,7 @@ mod tests {
 
     #[test]
     fn merge_explicit_selection_rejects_an_unknown_utxo() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let missing = [0xabu8; 32];
@@ -2352,7 +2352,7 @@ mod tests {
     /// hash in their own `wallet utxos` listing.
     #[test]
     fn merge_explicit_selection_reports_a_wrong_tree_utxo() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
@@ -2376,7 +2376,7 @@ mod tests {
     /// shadow a smaller splittable one.
     #[test]
     fn split_auto_select_skips_an_indivisible_larger_utxo() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 1001, [1u8; 31]);
         let divisible = push_utxo(&mut wallet, &keypair, 800, [2u8; 31]);
@@ -2393,7 +2393,7 @@ mod tests {
     /// empty balance.
     #[test]
     fn split_auto_select_reports_indivisible_when_no_candidate_divides() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 1000, [1u8; 31]);
 
@@ -2438,7 +2438,7 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
+            owner_p256: None,
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -2459,7 +2459,7 @@ mod tests {
 
     #[test]
     fn select_inputs_leaves_ring_bound_utxos_to_the_ring_path() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
@@ -2495,7 +2495,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_returns_transfer_ready_default_inputs() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         push_utxo(&mut wallet, &keypair, 15, [3u8; 31]);
@@ -2543,7 +2543,7 @@ mod tests {
 
     #[test]
     fn balances_split_ring_bound_notes_from_the_spendable_view() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
@@ -2562,7 +2562,7 @@ mod tests {
 
     #[test]
     fn ring_balances_group_by_ring_in_address_order() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let first = push_utxo(&mut wallet, &keypair, 40, [1u8; 31]);
         bind_to_ring(&mut wallet, first, RING_TREE_ID);
@@ -2593,7 +2593,7 @@ mod tests {
     /// is no note to read an id from.
     #[test]
     fn a_mint_the_registry_does_not_name_is_only_an_error_when_asked_for_by_name() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
@@ -2616,7 +2616,7 @@ mod tests {
     /// selection reports them in declaration order.
     #[test]
     fn select_spend_inputs_spans_the_trees_holding_the_balance() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let elsewhere = push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
@@ -2638,7 +2638,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_groups_selected_notes_and_omits_unused_trees() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for (marker, amount, tree_id) in [(1, 40, 4), (2, 30, 1), (3, 20, 4), (4, 10, 2)] {
             let hash = push_utxo(&mut wallet, &keypair, amount, [marker; 31]);
@@ -2679,7 +2679,7 @@ mod tests {
     /// A selection that actually needs more than `MAX_INPUT_TREES` is rejected.
     #[test]
     fn select_spend_inputs_refuse_more_trees_than_the_program_limit() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for index in 0..=MAX_INPUT_TREES {
             let marker = u8::try_from(index).expect("utxo marker");
@@ -2700,7 +2700,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_skip_default_notes_carrying_ring_data() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let tainted = push_utxo(&mut wallet, &keypair, 50, [1u8; 31]);
         wallet
@@ -2740,7 +2740,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_skips_spent_notes_and_stops_at_cover() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let spent = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         mark_spent(&mut wallet, spent);
@@ -2762,7 +2762,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_prefer_one_covering_note_over_fragments() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for index in 0..6u8 {
             push_utxo(&mut wallet, &keypair, 5, [index + 1; 31]);
@@ -2783,7 +2783,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_refuse_a_zero_amount() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
@@ -2802,7 +2802,7 @@ mod tests {
 
     #[test]
     fn select_spend_inputs_refuse_a_cover_wider_than_the_shape() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let widest = MAX_SPEND_INPUTS;
         let count = u8::try_from(widest + 1).unwrap();
@@ -2829,7 +2829,7 @@ mod tests {
     /// resolution.
     #[test]
     fn resolve_spend_tree_ignores_ineligible_utxos_on_other_trees() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
@@ -2843,7 +2843,7 @@ mod tests {
 
     #[test]
     fn resolve_spend_tree_ignores_ring_bound_utxos_on_other_trees() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
 
         let tree = resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable)
@@ -2854,7 +2854,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_spends_the_plain_tree_when_a_ring_balance_sits_on_another() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
 
         let created = create_withdrawal(WithdrawalParams {
@@ -2875,7 +2875,7 @@ mod tests {
 
     #[test]
     fn create_transfer_sync_public_withdrawal_ignores_a_ring_balance_on_another_tree() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
         let rpc = MockRpc { account: None };
 
@@ -2899,8 +2899,8 @@ mod tests {
 
     #[test]
     fn create_transfer_sync_ignores_a_ring_balance_on_another_tree() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
-        let recipient = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
         let owner = Pubkey::new_unique();
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
         let rpc = registered_recipient_rpc(owner, &recipient);
@@ -2925,7 +2925,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_reports_no_balance_when_all_of_it_is_ring_bound() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [1u8; 31]);
         bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
@@ -2949,7 +2949,7 @@ mod tests {
 
     #[test]
     fn create_merge_auto_sweep_reports_count_amount_and_tree() {
-        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let keypair = ShieldedKeypair::new_ed25519().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for (index, amount) in [10u64, 20, 30].into_iter().enumerate() {
             push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);

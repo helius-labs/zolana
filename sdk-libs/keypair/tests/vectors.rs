@@ -26,7 +26,6 @@ const VECTORS_JSON: &str = include_str!("../../../test-vectors/key_derivation.js
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 struct KeyDerivationVectors {
     ed25519_rail: Ed25519Rail,
-    p256_rail: P256Rail,
     tx_viewing: TxViewing,
     hpke_utxo: HpkeUtxo,
     owner: Owner,
@@ -41,16 +40,6 @@ struct Ed25519Rail {
     signing_secret: String,
     signer_pubkey: String,
     derivation_message: String,
-    derivation_seed: String,
-    nullifier_secret: String,
-    nullifier_pubkey: String,
-    viewing_secret: String,
-    viewing_pubkey: String,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct P256Rail {
-    signing_secret: String,
     derivation_seed: String,
     nullifier_secret: String,
     nullifier_pubkey: String,
@@ -151,21 +140,6 @@ fn compute_ed25519_rail() -> Ed25519Rail {
     }
 }
 
-fn compute_p256_rail() -> P256Rail {
-    let signing_secret = scalar_bytes(9);
-    let signing_key = SigningKey::from_p256_bytes(&signing_secret).unwrap();
-    let derivation_seed = signing_key.derivation_seed().unwrap();
-    let keypair = ShieldedKeypair::from_keypair(signing_key).unwrap();
-    P256Rail {
-        signing_secret: hex::encode(signing_secret),
-        derivation_seed: hex::encode(derivation_seed.as_slice()),
-        nullifier_secret: hex::encode(keypair.nullifier_key.secret().as_slice()),
-        nullifier_pubkey: hex::encode(keypair.nullifier_key.pubkey().unwrap()),
-        viewing_secret: hex::encode(keypair.viewing_key.secret_bytes().as_slice()),
-        viewing_pubkey: hex::encode(keypair.viewing_pubkey().as_bytes()),
-    }
-}
-
 fn compute_tx_viewing() -> TxViewing {
     let viewing_secret = scalar_bytes(3);
     let viewing_key = ViewingKey::from_bytes(&viewing_secret).unwrap();
@@ -204,7 +178,7 @@ fn compute_hpke_utxo() -> HpkeUtxo {
 
 fn compute_owner() -> Owner {
     let signing_secret = scalar_bytes(1);
-    let signing_key = SigningKey::from_p256_bytes(&signing_secret).unwrap();
+    let signing_key = SigningKey::from_ed25519_bytes(&signing_secret);
     let keypair = ShieldedKeypair::from_keypair(signing_key).unwrap();
     Owner {
         signing_secret: hex::encode(signing_secret),
@@ -332,7 +306,6 @@ fn compute_derivation_input_guard() -> Vec<GuardCase> {
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
         ed25519_rail: compute_ed25519_rail(),
-        p256_rail: compute_p256_rail(),
         tx_viewing: compute_tx_viewing(),
         hpke_utxo: compute_hpke_utxo(),
         owner: compute_owner(),

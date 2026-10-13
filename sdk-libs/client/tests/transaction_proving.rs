@@ -14,9 +14,6 @@ mod transfer_fixture;
 
 use harness::{Asset, InputSpec, SendSpec, TransferHarness, TransferPlan, WithdrawSpec};
 
-// NOTE(pr164): the P256-owner and mixed-owner proof matrices were removed:
-// PR164 removed the P256 transact rail (`P256TransactUnsupported`), so no
-// P256-owned input can produce a transfer proof anymore.
 use std::{any::Any, panic::AssertUnwindSafe};
 
 type SingleOwnerCase = (

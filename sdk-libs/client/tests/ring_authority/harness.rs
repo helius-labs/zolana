@@ -9,9 +9,8 @@ pub(crate) enum Mode {
     /// Two real nonzero Solana-owned ring inputs consolidated into one real
     /// ring-owned output, plus dummy padding.
     MultiReal,
-    /// One real P256-owned ring input + dummy padding (pubkey-agnostic rail).
-    P256Input,
-    /// One Solana-owned and one P256-owned real input + dummy padding.
+    /// Two real inputs of distinct Solana owners, no dummy input
+    /// (pubkey-agnostic rail).
     MixedOwners,
 }
 

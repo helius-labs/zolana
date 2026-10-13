@@ -7,17 +7,16 @@ use crate::{
     error::KeypairError,
 };
 
-pub(crate) const SIGNATURE_TYPE_P256: u8 = 0x00;
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;
 pub(crate) const SIGNATURE_TYPE_PDA: u8 = 0x02;
 
 /// The owner's encoding, not always a curve point: a PDA is off the Ed25519
-/// curve and cannot sign. A `Pda` owner is identical to an `Ed25519` owner in
+/// curve and cannot sign. Prefix `0x00` is not a scheme: it only appears in
+/// the all-zero padding owner. A `Pda` owner is identical to an `Ed25519` owner in
 /// every public-data path; only the secret paths (client signing, role
 /// derivation from a signing key) refuse it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Curve {
-    P256,
     Ed25519,
     Pda,
 }
@@ -25,7 +24,6 @@ pub enum Curve {
 impl From<Curve> for u8 {
     fn from(value: Curve) -> Self {
         match value {
-            Curve::P256 => SIGNATURE_TYPE_P256,
             Curve::Ed25519 => SIGNATURE_TYPE_ED25519,
             Curve::Pda => SIGNATURE_TYPE_PDA,
         }
@@ -37,7 +35,6 @@ impl TryFrom<u8> for Curve {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            SIGNATURE_TYPE_P256 => Ok(Curve::P256),
             SIGNATURE_TYPE_ED25519 => Ok(Curve::Ed25519),
             SIGNATURE_TYPE_PDA => Ok(Curve::Pda),
             other => Err(KeypairError::InvalidSignatureType(other)),
@@ -92,13 +89,6 @@ impl P256Pubkey {
 pub struct PublicKey([u8; PUBLIC_KEY_LEN]);
 
 impl PublicKey {
-    pub fn from_p256(pubkey: &P256Pubkey) -> Self {
-        let mut bytes = [0u8; PUBLIC_KEY_LEN];
-        bytes[0] = u8::from(Curve::P256);
-        bytes[1..].copy_from_slice(pubkey.as_bytes());
-        Self(bytes)
-    }
-
     pub fn from_ed25519(pubkey: &[u8; ED25519_PUBKEY_LEN]) -> Self {
         let mut bytes = [0u8; PUBLIC_KEY_LEN];
         bytes[0] = u8::from(Curve::Ed25519);
@@ -115,8 +105,8 @@ impl PublicKey {
 
     /// All-zero owner of a padding (dummy) UTXO. `owner = 0` is permanently
     /// unspendable, so a real input never has it; it is the canonical dummy marker.
-    /// Byte 0 reads as `SIGNATURE_TYPE_P256`, so this value must never reach
-    /// [`Self::curve`]; gate on [`Self::is_zero`] first.
+    /// Byte 0 is no scheme, so [`Self::curve`] rejects it and
+    /// [`Self::from_bytes`] refuses it; gate on [`Self::is_zero`] first.
     pub fn zeroed() -> Self {
         Self([0u8; PUBLIC_KEY_LEN])
     }
@@ -126,20 +116,15 @@ impl PublicKey {
     }
 
     pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, KeypairError> {
-        match Curve::try_from(bytes[0])? {
-            Curve::P256 => {
-                let mut body = [0u8; P256_PUBKEY_LEN];
-                body.copy_from_slice(&bytes[1..]);
-                P256Pubkey::from_bytes(body)?;
-                Ok(Self(bytes))
-            }
-            Curve::Ed25519 | Curve::Pda => {
-                if bytes[PUBLIC_KEY_LEN - 1] != 0 {
-                    return Err(KeypairError::InvalidPublicKey);
-                }
-                Ok(Self(bytes))
-            }
+        let (scheme, body) = bytes.split_first().ok_or(KeypairError::InvalidPublicKey)?;
+        Curve::try_from(*scheme)?;
+        if body
+            .get(ED25519_PUBKEY_LEN..)
+            .is_some_and(|tail| tail.iter().any(|byte| *byte != 0))
+        {
+            return Err(KeypairError::InvalidPublicKey);
         }
+        Ok(Self(bytes))
     }
 
     pub fn curve(&self) -> Result<Curve, KeypairError> {
@@ -148,15 +133,6 @@ impl PublicKey {
 
     pub fn as_bytes(&self) -> &[u8; PUBLIC_KEY_LEN] {
         &self.0
-    }
-
-    pub fn as_p256(&self) -> Result<P256Pubkey, KeypairError> {
-        if self.curve()? != Curve::P256 {
-            return Err(KeypairError::InvalidSignatureType(self.0[0]));
-        }
-        let mut body = [0u8; P256_PUBKEY_LEN];
-        body.copy_from_slice(&self.0[1..]);
-        P256Pubkey::from_bytes(body)
     }
 
     pub fn as_ed25519(&self) -> Result<[u8; ED25519_PUBKEY_LEN], KeypairError> {
@@ -179,30 +155,22 @@ impl PublicKey {
 
     pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
         match self.curve()? {
-            Curve::P256 => Ok(self.as_p256()?.x()),
             Curve::Ed25519 => self.as_ed25519(),
             Curve::Pda => self.as_pda(),
         }
     }
 
-    /// Owner identity over the fixed 32-byte owner tag, tagged by algorithm so
-    /// a P256 x-coordinate and a Solana key with equal bytes never share an
-    /// identity. P256 parity is excluded because it is carried in encrypted
-    /// owner data.
+    /// Owner identity over the 32-byte Solana owner tag,
+    /// `hash_bytes_33(0x53 || tag)`.
     pub fn owner_proof_input_hash(&self) -> Result<[u8; 32], KeypairError> {
         let tag = self.confidential_view_tag()?;
-        Ok(match self.curve()? {
-            Curve::P256 => zolana_hasher::primitives::p256_owner_identity(&tag)?,
-            Curve::Ed25519 | Curve::Pda => zolana_hasher::primitives::solana_owner_identity(&tag)?,
-        })
+        Ok(zolana_hasher::primitives::solana_owner_identity(&tag)?)
     }
 
-    /// Verifies a [`crate::SigningKey::sign_message`] signature in the
-    /// scheme's native form: ed25519 over the raw bytes, P256 as ECDSA over
-    /// `SHA-256(message)`. A PDA owner or malformed encoding verifies nothing.
+    /// Verifies a [`crate::SigningKey::sign_message`] signature: ed25519 over
+    /// the raw bytes. A PDA owner or malformed encoding verifies nothing.
     pub fn verify_message(&self, message: &[u8], sig: &[u8; 64]) -> bool {
         match self.curve() {
-            Ok(Curve::P256) => self.p256_verify_prehash(&crate::hash::sha256(message), sig),
             Ok(Curve::Ed25519) => {
                 use ed25519_dalek::Verifier;
 
@@ -218,29 +186,6 @@ impl PublicKey {
                 }
             }
             Ok(Curve::Pda) | Err(_) => false,
-        }
-    }
-
-    /// Verifies a [`crate::SigningKey::sign_hash`] signature over a
-    /// caller-supplied digest. P-256 rail only; every other scheme verifies
-    /// nothing.
-    pub fn verify_hash(&self, hash: &[u8; 32], sig: &[u8; 64]) -> bool {
-        match self.curve() {
-            Ok(Curve::P256) => self.p256_verify_prehash(hash, sig),
-            _ => false,
-        }
-    }
-
-    fn p256_verify_prehash(&self, prehash: &[u8], sig: &[u8; 64]) -> bool {
-        use p256::ecdsa::signature::hazmat::PrehashVerifier;
-
-        let Ok(pubkey) = self.as_p256().and_then(|p| p.to_p256()) else {
-            return false;
-        };
-        let vk = p256::ecdsa::VerifyingKey::from(pubkey);
-        match p256::ecdsa::Signature::from_slice(sig) {
-            Ok(parsed) => vk.verify_prehash(prehash, &parsed).is_ok(),
-            Err(_) => false,
         }
     }
 }

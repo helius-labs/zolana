@@ -6,10 +6,10 @@ import {
   SHIELDED_PUBLIC_KEY_LENGTH,
   SIGNATURE_TYPE_PDA,
 } from "./constants.js";
-import { p256OwnerIdentity, solanaOwnerIdentity } from "../hasher/index.js";
+import { solanaOwnerIdentity } from "../hasher/index.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 
-export type SignatureType = "p256" | "ed25519" | "pda";
+export type SignatureType = "ed25519" | "pda";
 export type ViewTag = Bytes32;
 
 export class P256PublicKey {
@@ -74,14 +74,12 @@ export class ShieldedPublicKey {
     this.#bytes = bytes;
   }
 
+  /**
+   * The all-zero owner of a padding UTXO. Byte 0 is no scheme, so
+   * `signatureType` rejects it and `fromBytes` refuses it; gate on `isZero`.
+   */
   static zeroed(): ShieldedPublicKey {
     return new ShieldedPublicKey(new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH));
-  }
-
-  static fromP256(key: P256PublicKey): ShieldedPublicKey {
-    const bytes = new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH);
-    bytes.set(key.toBytes(), 1);
-    return new ShieldedPublicKey(bytes);
   }
 
   static fromEd25519(publicKey: Bytes32): ShieldedPublicKey {
@@ -105,9 +103,7 @@ export class ShieldedPublicKey {
       SHIELDED_PUBLIC_KEY_LENGTH,
       "shielded public key",
     );
-    if (owned[0] === 0) {
-      P256PublicKey.fromBytes(owned.subarray(1) as Bytes33);
-    } else if (owned[0] === 1 || owned[0] === SIGNATURE_TYPE_PDA) {
+    if (owned[0] === 1 || owned[0] === SIGNATURE_TYPE_PDA) {
       if (owned[SHIELDED_PUBLIC_KEY_LENGTH - 1] !== 0) {
         throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { reason: "nonzeroPadding" });
       }
@@ -133,28 +129,24 @@ export class ShieldedPublicKey {
   }
 
   signatureType(): SignatureType {
-    if (this.#bytes[0] === 0) return "p256";
     if (this.#bytes[0] === 1) return "ed25519";
     if (this.#bytes[0] === SIGNATURE_TYPE_PDA) return "pda";
     throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: this.#bytes[0] ?? 0 });
   }
 
   confidentialViewTag(): ViewTag {
-    if (this.signatureType() === "p256") return this.p256().x();
+    this.signatureType();
     return copyBytes(this.#bytes.subarray(1, 33)) as ViewTag;
   }
 
   /**
-   * The algorithm-tagged identity the proof and the shielded pool hash for
-   * this key: the Solana tag over an Ed25519 key, the P256 tag over a P256
-   * x-coordinate. Mirrors Rust `owner_proof_input_hash`.
+   * The identity the proof and the shielded pool hash for this key, the
+   * Solana tag `hash_bytes_33(0x53 || key)`. Mirrors Rust
+   * `owner_proof_input_hash`.
    */
   ownerProofInputHash(): Bytes32 {
     // 1. The cached identity depends only on owned public key bytes.
-    this.#ownerHash ??=
-      this.signatureType() === "p256"
-        ? p256OwnerIdentity(this.p256().x())
-        : solanaOwnerIdentity(this.confidentialViewTag());
+    this.#ownerHash ??= solanaOwnerIdentity(this.confidentialViewTag());
     return copyBytes(this.#ownerHash) as Bytes32;
   }
 
@@ -170,12 +162,5 @@ export class ShieldedPublicKey {
       throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "pda" });
     }
     return copyBytes(this.#bytes.subarray(1, 33)) as Bytes32;
-  }
-
-  p256(): P256PublicKey {
-    if (this.signatureType() !== "p256") {
-      throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "p256" });
-    }
-    return P256PublicKey.fromBytes(this.#bytes.subarray(1) as Bytes33);
   }
 }

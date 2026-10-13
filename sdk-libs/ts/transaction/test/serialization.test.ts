@@ -68,14 +68,14 @@ function keys(inputs: Readonly<Record<string, unknown>>): Readonly<{
   tx: ViewingKey;
   viewing: ViewingKey;
 }> {
-  const signing = SigningKey.fromP256Bytes(
+  const signing = SigningKey.fromEd25519Bytes(
     hexBytes(fixtureString(inputs, "signingSecretBytes")) as Bytes32,
   );
   const viewing = ViewingKey.fromBytes(
     hexBytes(fixtureString(inputs, "viewingSecretBytes")) as Bytes32,
   );
   const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
-  const recipientSigning = SigningKey.fromP256Bytes(
+  const recipientSigning = SigningKey.fromEd25519Bytes(
     hexBytes(fixtureString(inputs, "recipientSigningSecretBytes")) as Bytes32,
   );
   const recipientViewing = ViewingKey.fromBytes(

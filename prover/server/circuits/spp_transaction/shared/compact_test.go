@@ -72,17 +72,17 @@ func TestCompactInputPaddingSolvesOnDefaultRing(t *testing.T) {
 	)
 }
 
-func TestCompactInputPaddingSolvesOnP256(t *testing.T) {
+func TestCompactInputPaddingSolvesOnEd25519(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	assignment := buildCircuitAssignment(t, shape)
-	owner := spptest.FixedP256Key(t, 11)
-	rewriteInputAsP256(t, assignment, 0, owner)
+	owner := spptest.FixedEd25519Key(t, 11)
+	rewriteInputAsEd25519(t, assignment, 0, owner)
 	padWithCompactInputs(t, assignment)
-	authorization := authorizeP256(t, assignment, owner, owner)
+	authorization := authorizeEd25519(t, assignment, owner, owner)
 	assert.SolvingSucceeded(
-		MustNewCustomRingP256Circuit(Shape(shape)),
-		asCustomRingP256(assignment, authorization),
+		MustNewCustomRingEd25519Circuit(Shape(shape)),
+		asCustomRingEd25519(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
@@ -163,13 +163,13 @@ func TestCompactOutputSolves(t *testing.T) {
 		test.WithCurves(ecc.BN254),
 	)
 
-	owner := spptest.FixedP256Key(t, 11)
-	assignment, _ = p256DummyOutputAssignment(t, shape, owner, false, 0)
+	owner := spptest.FixedEd25519Key(t, 11)
+	assignment, _ = ed25519DummyOutputAssignment(t, shape, owner, false, 0)
 	assignment.Outputs[1].Hash = spptest.Fe(0)
-	authorization := authorizeP256(t, assignment, owner, owner)
+	authorization := authorizeEd25519(t, assignment, owner, owner)
 	assert.SolvingSucceeded(
-		MustNewCustomRingP256Circuit(Shape(shape)),
-		asCustomRingP256(assignment, authorization),
+		MustNewCustomRingEd25519Circuit(Shape(shape)),
+		asCustomRingEd25519(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
@@ -201,14 +201,14 @@ func TestCompactOutputRejectsNonzeroTag(t *testing.T) {
 		test.WithCurves(ecc.BN254),
 	)
 
-	owner := spptest.FixedP256Key(t, 11)
-	var tag frontend.Variable = p256OwnerPkHash(t, owner)
-	assignment, _ = p256DummyOutputAssignment(t, shape, owner, false, tag)
+	owner := spptest.FixedEd25519Key(t, 11)
+	var tag frontend.Variable = spptest.Ed25519OwnerPkHash(t, owner)
+	assignment, _ = ed25519DummyOutputAssignment(t, shape, owner, false, tag)
 	assignment.Outputs[1].Hash = spptest.Fe(0)
-	authorization := authorizeP256(t, assignment, owner, owner)
+	authorization := authorizeEd25519(t, assignment, owner, owner)
 	assert.SolvingFailed(
-		MustNewCustomRingP256Circuit(Shape(shape)),
-		asCustomRingP256(assignment, authorization),
+		MustNewCustomRingEd25519Circuit(Shape(shape)),
+		asCustomRingEd25519(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }

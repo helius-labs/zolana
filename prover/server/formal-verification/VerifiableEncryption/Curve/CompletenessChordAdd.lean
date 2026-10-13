@@ -26,7 +26,7 @@ theorem linTriple_limb (a b c : ℤ) (A B C : ElemVal 8) (i : Fin 8) :
 theorem canonicalFpElem_native (x : Fp) : (canonicalFpElem x).limbs = natLimbVector8 x.val :=
   winX_native x.val (lt_trans (ZMod.val_lt x) p_lt_two_pow)
 
-theorem add_hd2848b17_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
+theorem add_h3f5cf0cd_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC)
     (hQX : QX.bnd = reducedC) (hQY : QY.bnd = reducedC)
     (hP : OnCurve (PX.value : Fp) (PY.value : Fp))
@@ -37,7 +37,7 @@ theorem add_hd2848b17_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
       (∃ hS : OnCurve (SX.value : Fp) (SY.value : Fp), mkPoint hS = mkPoint hP + mkPoint hQ) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) →
-        Add_8_8_8_8_hd2848b17 PX.limbs PY.limbs QX.limbs QY.limbs k := by
+        Add_8_8_8_8_h3f5cf0cd PX.limbs PY.limbs QX.limbs QY.limbs k := by
   let l : Fp := ((QY.value : Fp) - (PY.value : Fp)) / ((QX.value : Fp) - (PX.value : Fp))
   have hl : l * ((QX.value : Fp) - (PX.value : Fp)) = (QY.value : Fp) - (PY.value : Fp) :=
     div_mul_cancel₀ _ (sub_ne_zero.mpr hx.symm)
@@ -167,7 +167,7 @@ theorem add_hd2848b17_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
         pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
         pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304 := by
       simpa only [Nat.zero_add] using nativeSX i
-    apply Add_8_8_8_8_hd2848b17_compose PX.limbs PY.limbs QX.limbs QY.limbs SX.limbs SY.limbs D2.limbs
+    apply Add_8_8_8_8_h3f5cf0cd_compose PX.limbs PY.limbs QX.limbs QY.limbs SX.limbs SY.limbs D2.limbs
       pieces (jointPieces_ranges px py rx ry) nativeSX0 nativeSY dActual first second k
     exact hk
 

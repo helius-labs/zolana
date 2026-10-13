@@ -12,66 +12,65 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-type p256OwnerIdentityCircuit struct {
+type solanaOwnerIdentityCircuit struct {
 	X        [32]frontend.Variable
 	Expected frontend.Variable `gnark:",public"`
 }
 
-func (c *p256OwnerIdentityCircuit) Define(api frontend.API) error {
-	api.AssertIsEqual(P256OwnerIdentity(api, c.X), c.Expected)
+func (c *solanaOwnerIdentityCircuit) Define(api frontend.API) error {
+	api.AssertIsEqual(SolanaOwnerIdentity(api, c.X), c.Expected)
 	return nil
 }
 
-// TestP256OwnerTagMirrorsHost pins the circuit tag to the host constant; the
+// TestSolanaOwnerTagMirrorsHost pins the circuit tag to the host constant; the
 // circuits package cannot import the host, so the two are kept equal by test.
-func TestP256OwnerTagMirrorsHost(t *testing.T) {
-	if P256OwnerTag != protocol.P256OwnerTag {
-		t.Fatalf("gadget.P256OwnerTag = 0x%02x, protocol.P256OwnerTag = 0x%02x", P256OwnerTag, protocol.P256OwnerTag)
+func TestSolanaOwnerTagMirrorsHost(t *testing.T) {
+	if SolanaOwnerTag != protocol.SolanaOwnerTag {
+		t.Fatalf("gadget.SolanaOwnerTag = 0x%02x, protocol.SolanaOwnerTag = 0x%02x", SolanaOwnerTag, protocol.SolanaOwnerTag)
 	}
 }
 
-func TestP256OwnerIdentityMatchesTaggedHashBytes(t *testing.T) {
+func TestSolanaOwnerIdentityMatchesHost(t *testing.T) {
 	x := [32]byte{
 		0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
 		0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
 		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
 		0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
 	}
-	expected := hostHashBytes(t, append([]byte{P256OwnerTag}, x[:]...))
+	expected, err := protocol.SolanaPkField(x)
+	if err != nil {
+		t.Fatalf("host solana identity: %v", err)
+	}
 
 	untagged := hostHashBytes(t, x[:])
 	if expected.Cmp(untagged) == 0 {
-		t.Fatal("P256 identity equals the untagged hash_bytes_32 of x")
-	}
-	solanaTagged := hostHashBytes(t, append([]byte{protocol.SolanaOwnerTag}, x[:]...))
-	if expected.Cmp(solanaTagged) == 0 {
-		t.Fatal("P256 identity equals the Solana-tagged identity of the same bytes")
+		t.Fatal("Solana identity equals the untagged hash_bytes_32 of the key")
 	}
 	reversed := slices.Clone(x[:])
 	slices.Reverse(reversed)
-	if expected.Cmp(hostHashBytes(t, append([]byte{P256OwnerTag}, reversed...))) == 0 {
+	if expected.Cmp(hostHashBytes(t, append([]byte{SolanaOwnerTag}, reversed...))) == 0 {
 		t.Fatal("test vector does not distinguish big-endian from reversed byte order")
 	}
 
-	assignment := p256OwnerIdentityCircuit{Expected: expected}
+	assignment := solanaOwnerIdentityCircuit{Expected: expected}
 	for i, b := range x {
 		assignment.X[i] = b
 	}
 	if err := test.IsSolved(
-		&p256OwnerIdentityCircuit{},
+		&solanaOwnerIdentityCircuit{},
 		&assignment,
 		ecc.BN254.ScalarField(),
 	); err != nil {
-		t.Fatalf("solve P256OwnerIdentity circuit: %v", err)
+		t.Fatalf("solve SolanaOwnerIdentity circuit: %v", err)
 	}
 
 	assignment.Expected = untagged
 	if err := test.IsSolved(
-		&p256OwnerIdentityCircuit{},
+		&solanaOwnerIdentityCircuit{},
 		&assignment,
 		ecc.BN254.ScalarField(),
 	); err == nil {
-		t.Fatal("circuit accepted the untagged hash_bytes_32 as the P256 identity")
+		t.Fatal("circuit accepted the untagged hash_bytes_32 as the Solana identity")
 	}
 }
 

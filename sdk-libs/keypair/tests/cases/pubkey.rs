@@ -41,38 +41,18 @@ pub(crate) fn parsed_equals(world: &mut KeypairWorld, name: String) {
     );
 }
 
-pub(crate) fn tag_p256(world: &mut KeypairWorld, src: String, dst: String) {
-    let tagged = PublicKey::from_p256(&world.pubkey(&src));
-    world.tagged.insert(dst, tagged);
-}
-
 pub(crate) fn tag_ed25519(world: &mut KeypairWorld, fill: u8, dst: String) {
     world
         .tagged
         .insert(dst, PublicKey::from_ed25519(&[fill; 32]));
 }
 
-pub(crate) fn scheme_is_p256(world: &mut KeypairWorld, name: String) {
-    assert_eq!(world.tag(&name).curve().unwrap(), Curve::P256);
-}
-
 pub(crate) fn scheme_is_ed25519(world: &mut KeypairWorld, name: String) {
     assert_eq!(world.tag(&name).curve().unwrap(), Curve::Ed25519);
 }
 
-pub(crate) fn reads_back_as_p256(world: &mut KeypairWorld, tagged: String, expected: String) {
-    assert_eq!(
-        world.tag(&tagged).as_p256().unwrap(),
-        world.pubkey(&expected)
-    );
-}
-
-pub(crate) fn read_as_ed25519_fails(world: &mut KeypairWorld, name: String) {
-    assert!(world.tag(&name).as_ed25519().is_err());
-}
-
-pub(crate) fn read_as_p256_fails(world: &mut KeypairWorld, name: String) {
-    assert!(world.tag(&name).as_p256().is_err());
+pub(crate) fn read_as_pda_fails(world: &mut KeypairWorld, name: String) {
+    assert!(world.tag(&name).as_pda().is_err());
 }
 
 pub(crate) fn last_byte_zero(world: &mut KeypairWorld, name: String) {
@@ -83,6 +63,27 @@ pub(crate) fn parse_public_key_bad_prefix(world: &mut KeypairWorld, prefix: u8) 
     let mut bytes = [0u8; PUBLIC_KEY_LEN];
     bytes[0] = prefix;
     world.last_error = PublicKey::from_bytes(bytes).err();
+}
+
+/// Prefix `0x00` is no owner scheme: only the all-zero padding owner carries
+/// it, and that value is never parsed.
+pub(crate) fn zero_prefix_is_rejected(world: &mut KeypairWorld) {
+    let mut bytes = *PublicKey::from_ed25519(&[7u8; 32]).as_bytes();
+    bytes[0] = 0;
+    world.last_error = PublicKey::from_bytes(bytes).err();
+    assert_eq!(
+        world.last_error,
+        Some(KeypairError::InvalidSignatureType(0))
+    );
+    assert!(PublicKey::zeroed().is_zero());
+    assert_eq!(
+        PublicKey::zeroed().curve(),
+        Err(KeypairError::InvalidSignatureType(0))
+    );
+    assert_eq!(
+        PublicKey::from_bytes(*PublicKey::zeroed().as_bytes()),
+        Err(KeypairError::InvalidSignatureType(0))
+    );
 }
 
 pub(crate) fn parse_ed25519_nonzero_pad(world: &mut KeypairWorld) {

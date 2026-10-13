@@ -1,6 +1,5 @@
 use groth16_solana::groth16::Groth16Verifier;
 use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -14,7 +13,7 @@ use zolana_hasher::{
         create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
         create_right_hash_chain_from_slice,
     },
-    primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
+    primitives::{hash_bytes, solana_owner_identity},
 };
 use zolana_interface::{
     instruction::{
@@ -129,13 +128,11 @@ impl RealRingTransact {
         );
         let ring_field = hash_bytes(&ring_program.to_bytes()).expect("ring program field");
 
-        let p256_keypair = ShieldedKeypair::from_keypair(
-            SigningKey::from_p256_bytes(&[7u8; 32]).expect("fixed P256 signing key"),
-        )
-        .expect("P256 shielded keypair");
+        let ring_signer = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+            .expect("ring signer shielded keypair");
         let (owner_public_key, input_owner_pk_hash) = match rail {
             RingRail::Eddsa => (PublicKey::from_ed25519(&payer_bytes), payer_hash),
-            RingRail::P256 => (p256_keypair.signing_pubkey(), zero),
+            RingRail::P256 => (ring_signer.signing_pubkey(), zero),
         };
 
         let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -237,17 +234,18 @@ impl RealRingTransact {
             private_tx,
         ];
         let message_digest = transact_message_hash(&private_tx, &external_data_hash);
-        let p256_authorization = match rail {
+        let ring_authorization = match rail {
             RingRail::Eddsa => None,
             RingRail::P256 => {
-                let authorization = SyncWalletAuthority::sign_p256(&p256_keypair, &message_digest)
-                    .expect("P256 authorization");
-                let default_owner_tag = authorization.pubkey.x();
-                let default_p256_owner_pk_hash =
-                    p256_owner_identity(&default_owner_tag).expect("default P256 owner identity");
-                chain.push(hash_bytes(&message_digest).expect("P256 message proof input hash"));
-                chain.push(default_p256_owner_pk_hash);
-                Some((authorization, default_owner_tag, default_p256_owner_pk_hash))
+                let authorization =
+                    SyncWalletAuthority::sign_ed25519(&ring_signer, &message_digest)
+                        .expect("Ed25519 authorization");
+                let default_owner_tag = authorization.pubkey;
+                let default_owner_pk_hash = solana_owner_identity(&default_owner_tag)
+                    .expect("default Ed25519 owner identity");
+                chain.push(hash_bytes(&message_digest).expect("message proof input hash"));
+                chain.push(default_owner_pk_hash);
+                Some((authorization, default_owner_tag, default_owner_pk_hash))
             }
         };
         chain.push(external_data_hash);
@@ -274,7 +272,7 @@ impl RealRingTransact {
         let n_in = u8::try_from(n_inputs).expect("supported ring input count");
         let n_out = u8::try_from(n_outputs).expect("supported ring output count");
         let n_slots = N_PUBLIC_SLOTS as u8;
-        let (proof, circuit) = match p256_authorization {
+        let (proof, circuit) = match ring_authorization {
             None => {
                 let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
                     inputs,
@@ -311,14 +309,7 @@ impl RealRingTransact {
                     circuit,
                 )
             }
-            Some((authorization, default_owner_tag, default_p256_owner_pk_hash)) => {
-                let point = authorization
-                    .pubkey
-                    .to_p256()
-                    .expect("P256 public key")
-                    .to_encoded_point(false);
-                let mut pub_y = [0u8; 32];
-                pub_y.copy_from_slice(point.y().expect("P256 y coordinate"));
+            Some((authorization, default_owner_tag, default_owner_pk_hash)) => {
                 let (high, low) = message_digest.split_at(16);
                 let prover_inputs = TransferP256Inputs {
                     inputs,
@@ -328,13 +319,11 @@ impl RealRingTransact {
                     blinding_seed: be(&TEST_BLINDING_SEED),
                     external_data_hash: be(&external_data_hash),
                     private_tx_hash: be(&private_tx),
-                    p256_pub_x: be(&default_owner_tag),
-                    p256_pub_y: be(&pub_y),
-                    p256_sig_r: be(&authorization.sig_r),
-                    p256_sig_s: be(&authorization.sig_s),
-                    p256_message_hash_low: BigUint::from_bytes_be(low),
-                    p256_message_hash_high: BigUint::from_bytes_be(high),
-                    default_p256_owner_pk_hash: be(&default_p256_owner_pk_hash),
+                    ed25519_public_key: authorization.pubkey,
+                    ed25519_signature: authorization.signature,
+                    ed25519_message_hash_low: BigUint::from_bytes_be(low),
+                    ed25519_message_hash_high: BigUint::from_bytes_be(high),
+                    default_ed25519_owner_pk_hash: be(&default_owner_pk_hash),
                     public_assets: public_slot_assets.map(|asset| be(&asset)),
                     public_amounts: public_slot_amounts.map(|amount| be(&amount)),
                     ring_program_id: be(&ring_field),
@@ -350,12 +339,12 @@ impl RealRingTransact {
                 let proof = ProverClient::local()
                     .prove_transfer_p256_ring(&prover_inputs)
                     .unwrap_or_else(|error| {
-                        panic!("prove P256 ring transfer {n_inputs}x{n_outputs}: {error}")
+                        panic!("prove RingP256 transfer {n_inputs}x{n_outputs}: {error}")
                     });
                 let (compressed_proof, bsb22_commitment) = ProofCompressed::try_from(proof)
-                    .expect("compress P256 ring proof")
+                    .expect("compress RingP256 proof")
                     .into_ring_p256_transact_parts()
-                    .expect("split P256 ring proof");
+                    .expect("split RingP256 proof");
                 (
                     compressed_proof,
                     CircuitId::RingP256(

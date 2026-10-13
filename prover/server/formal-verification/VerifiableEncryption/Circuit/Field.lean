@@ -4316,7 +4316,7 @@ def CheckPolynomial_32_hf6aee3c9 (Limbs: List.Vector F 32): Prop :=
     ∃gate_199, gate_199 = Gates.add gate_197 gate_198 ∧
     CheckPolynomial_32_hf6aee3c9_p1 Limbs gate_28 gate_61 gate_94 gate_123 gate_156 gate_189 gate_199
 
-def AssertCanonical_8_0_hc36017e9 (Limbs: List.Vector F 8) : Prop :=
+def AssertCanonical_8_0_hcc2f8a19 (Limbs: List.Vector F 8) : Prop :=
     ∃gate_0, gate_0 = Gates.sub (4294967295:F) (Limbs.get (7 : Fin 8)) ∧
     ∃gate_1, gate_1 = Gates.add (0:F) gate_0 ∧
     ∃gate_2, Gates.is_zero gate_1 gate_2 ∧
@@ -7168,7 +7168,7 @@ def CheckPolynomial_40_h29707435 (Limbs: List.Vector F 40): Prop :=
     ∃gate_199, gate_199 = Gates.add gate_197 gate_198 ∧
     CheckPolynomial_40_h29707435_p1 Limbs gate_28 gate_61 gate_94 gate_123 gate_156 gate_189 gate_199
 
-def SplitLowBits_1_8_h2c1d332a (V: F) (k: List.Vector F 2 -> Prop): Prop :=
+def SplitLowBits_1_8 (V: F) (k: List.Vector F 2 -> Prop): Prop :=
     ∃gate_0 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256SplitLowBitsHint
     RangeCheck 7 (gate_0.get (0 : Fin 2)) ∧
     Gates.is_bool (gate_0.get (1 : Fin 2)) ∧

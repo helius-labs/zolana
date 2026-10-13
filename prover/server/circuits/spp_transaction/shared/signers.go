@@ -62,78 +62,85 @@ func AuthorizedEddsaInputOwners(
 	return owners
 }
 
-// P256Signers resolves the zero owner-tag sentinel to the shared P256 owner.
-// Non-zero tags remain Solana signer identities.
-func P256Signers(
+// Ed25519Signers resolves the zero owner-tag sentinel to the shared Ed25519
+// owner whose signature the circuit verifies. Non-zero tags remain Solana
+// signer identities authorized by the runtime.
+func Ed25519Signers(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
 	authorizedEddsa Signers,
-	p256PkHash frontend.Variable,
-	p256SignatureValid frontend.Variable,
+	ed25519PkHash frontend.Variable,
 ) Signers {
 	signers := make(Signers, len(inputs))
-	hasP256Input := frontend.Variable(0)
+	hasEd25519Input := frontend.Variable(0)
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
-		isP256 := api.IsZero(ownerPkHashes[i])
+		isEd25519 := api.IsZero(ownerPkHashes[i])
 		assertZeroWhen(api, api.Sub(1, carriesContent), ownerPkHashes[i])
-		pkHash := api.Select(isP256, p256PkHash, ownerPkHashes[i])
+		pkHash := api.Select(isEd25519, ed25519PkHash, ownerPkHashes[i])
 		AssertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
-		AssertWhen(api, api.Mul(carriesContent, isP256), p256SignatureValid)
 		AssertWhen(
 			api,
-			api.Mul(carriesContent, api.Sub(1, isP256)),
+			api.Mul(carriesContent, api.Sub(1, isEd25519)),
 			authorizedEddsa.Contains(api, ownerPkHashes[i]),
 		)
-		hasP256Input = api.Add(hasP256Input, api.Mul(carriesContent, isP256))
+		hasEd25519Input = api.Add(hasEd25519Input, api.Mul(carriesContent, isEd25519))
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
-	// RingP256 is the mixed P256/Ed25519 rail, not an alternative all-Ed25519
-	// selector. All-Ed25519 transactions use RingEddsa.
-	api.AssertIsDifferent(hasP256Input, 0)
+	// This rail mixes in-circuit Ed25519 and runtime signers; it is not an
+	// alternative all-runtime selector. All-runtime transactions use the ring rail.
+	api.AssertIsDifferent(hasEd25519Input, 0)
 	return signers
 }
 
-// AssertDefaultP256Owner publishes the shared P256 identity iff at least one
-// spent P256 UTXO belongs to the default ring. Ring-only P256 inputs keep the
-// shared owner private and require the public field to be zero.
+// AssertDefaultEd25519Owner publishes the shared Ed25519 identity iff at least
+// one spent Ed25519 UTXO belongs to the default ring. Ring-only Ed25519 inputs
+// keep the shared owner private and require the public field to be zero.
 //
-// A ring P256 input is an anonymous spend, so the shared identity must stay out
-// of the transaction's public data: no default-ring P256 input may force it
-// into defaultP256OwnerPkHash, and no published output owner tag may equal it.
-// Publishing the identity without a ring P256 input is allowed; moving a
-// default-ring P256 UTXO into the ring names the depositor, not a ring spender.
+// A ring Ed25519 input is an anonymous spend, so the shared identity must stay
+// out of the transaction's public data: no default-ring Ed25519 input may force
+// it into defaultEd25519OwnerPkHash, no published output owner tag may equal
+// it, and no public signer may equal it. The identity is the Solana-tagged
+// hash of the key, the same value SPP publishes for a runtime signer of that
+// key (for example a wallet that also pays the fee), so the signer vector,
+// payer included, is checked as well. Publishing the identity without a ring
+// Ed25519 input is allowed; moving a default-ring UTXO into the ring names the
+// depositor, not a ring spender.
 //
 // Address slots count as neither. An address has RingProgramID 0
 // (checkAddress), so treating it as a default-ring input would publish the
 // identity of a ring spender who creates an address in the same proof and
 // would forbid that combination. Creating an address spends nothing, so it
-// does not force the identity into public data; a P256 address-only proof
+// does not force the identity into public data; an Ed25519 address-only proof
 // publishes zero.
-func AssertDefaultP256Owner(
+func AssertDefaultEd25519Owner(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
 	publishedOutputOwnerPkHashes []frontend.Variable,
-	p256PkHash frontend.Variable,
-	defaultP256OwnerPkHash frontend.Variable,
+	publicSigners Signers,
+	ed25519PkHash frontend.Variable,
+	defaultEd25519OwnerPkHash frontend.Variable,
 ) {
-	hasDefaultP256 := frontend.Variable(0)
-	hasRingP256 := frontend.Variable(0)
+	hasDefaultEd25519 := frontend.Variable(0)
+	hasRingEd25519 := frontend.Variable(0)
 	for i, in := range inputs {
-		isP256 := api.IsZero(ownerPkHashes[i])
+		isEd25519 := api.IsZero(ownerPkHashes[i])
 		isDefaultRing := api.IsZero(in.Utxo.RingProgramID)
-		realP256 := api.Mul(in.isUtxo(api), isP256)
-		hasDefaultP256 = api.Add(hasDefaultP256, api.Mul(realP256, isDefaultRing))
-		hasRingP256 = api.Add(hasRingP256, api.Mul(realP256, api.Sub(1, isDefaultRing)))
+		realEd25519 := api.Mul(in.isUtxo(api), isEd25519)
+		hasDefaultEd25519 = api.Add(hasDefaultEd25519, api.Mul(realEd25519, isDefaultRing))
+		hasRingEd25519 = api.Add(hasRingEd25519, api.Mul(realEd25519, api.Sub(1, isDefaultRing)))
 	}
-	hasDefaultP256 = api.Sub(1, api.IsZero(hasDefaultP256))
-	hasRingP256 = api.Sub(1, api.IsZero(hasRingP256))
-	api.AssertIsEqual(defaultP256OwnerPkHash, api.Mul(hasDefaultP256, p256PkHash))
+	hasDefaultEd25519 = api.Sub(1, api.IsZero(hasDefaultEd25519))
+	hasRingEd25519 = api.Sub(1, api.IsZero(hasRingEd25519))
+	api.AssertIsEqual(defaultEd25519OwnerPkHash, api.Mul(hasDefaultEd25519, ed25519PkHash))
 
-	api.AssertIsEqual(api.Mul(hasRingP256, hasDefaultP256), 0)
+	api.AssertIsEqual(api.Mul(hasRingEd25519, hasDefaultEd25519), 0)
 	for _, published := range publishedOutputOwnerPkHashes {
-		assertZeroWhen(api, hasRingP256, api.IsZero(api.Sub(published, p256PkHash)))
+		assertZeroWhen(api, hasRingEd25519, api.IsZero(api.Sub(published, ed25519PkHash)))
+	}
+	for _, signer := range publicSigners {
+		assertZeroWhen(api, hasRingEd25519, api.IsZero(api.Sub(signer, ed25519PkHash)))
 	}
 }

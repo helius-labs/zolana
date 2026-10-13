@@ -3,15 +3,12 @@ import { expect, it, vi } from "vitest";
 import * as hasher from "../src/hasher/index.js";
 import { ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
 
-it.each(["ed25519", "p256"] as const)("reuses the %s identity without sharing bytes", (curve) => {
-  const owner = ShieldedKeypair.generate(curve);
+it("reuses the owner identity without sharing bytes", () => {
+  const owner = ShieldedKeypair.generate();
   try {
     const bytes = owner.signingPublicKey().toBytes();
     const key = ShieldedPublicKey.fromBytes(bytes);
-    const hash = vi.spyOn(
-      hasher,
-      curve === "ed25519" ? "solanaOwnerIdentity" : "p256OwnerIdentity",
-    );
+    const hash = vi.spyOn(hasher, "solanaOwnerIdentity");
     try {
       const expected = key.ownerProofInputHash();
       bytes.fill(0);
@@ -25,4 +22,17 @@ it.each(["ed25519", "p256"] as const)("reuses the %s identity without sharing by
   } finally {
     owner.destroy();
   }
+});
+
+it("rejects the zero scheme byte, which only the padding owner carries", () => {
+  const bytes = ShieldedKeypair.generate().signingPublicKey().toBytes();
+  bytes[0] = 0;
+  expect(() => ShieldedPublicKey.fromBytes(bytes)).toThrow(
+    expect.objectContaining({ code: "KEYPAIR_INVALID_SIGNATURE_TYPE" }),
+  );
+  const zero = ShieldedPublicKey.zeroed();
+  expect(zero.isZero()).toBe(true);
+  expect(() => zero.signatureType()).toThrow(
+    expect.objectContaining({ code: "KEYPAIR_INVALID_SIGNATURE_TYPE" }),
+  );
 });

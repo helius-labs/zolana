@@ -17,20 +17,12 @@ func GroupOrder() *big.Int {
 }
 
 func PointOnCurve(api frontend.API, publicKey [65]frontend.Variable) {
-	PointOnCurveFor(api, publicKey, true)
-}
-
-func PointOnCurveFor(api frontend.API, publicKey [65]frontend.Variable, lookups bool) {
-	c := newCurveFor(api, lookups)
+	c := newCurve(api)
 	c.assertOnCurve(c.parseKey(publicKey))
 }
 
 func ScalarMulGenerator(api frontend.API, scalar [32]frontend.Variable) [65]frontend.Variable {
-	return ScalarMulGeneratorFor(api, scalar, true)
-}
-
-func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, lookups bool) [65]frontend.Variable {
-	c := newCurveFor(api, lookups)
+	c := newCurve(api)
 	publicPoint := c.scalarMulBase(c.parseScalar(scalar))
 	var encodedPoint [65]frontend.Variable
 	encodedPoint[0] = frontend.Variable(0x04)
@@ -40,11 +32,7 @@ func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, looku
 }
 
 func ScalarMul(api frontend.API, scalar [32]frontend.Variable, pointBytes [65]frontend.Variable) [65]frontend.Variable {
-	return ScalarMulFor(api, scalar, pointBytes, true)
-}
-
-func ScalarMulFor(api frontend.API, scalar [32]frontend.Variable, pointBytes [65]frontend.Variable, lookups bool) [65]frontend.Variable {
-	c := newCurveFor(api, lookups)
+	c := newCurve(api)
 	inputPoint := c.parseKey(pointBytes)
 	c.assertOnCurve(inputPoint)
 	product := c.scalarMulChecked(inputPoint, c.parseScalar(scalar))
@@ -56,11 +44,7 @@ func ScalarMulFor(api frontend.API, scalar [32]frontend.Variable, pointBytes [65
 }
 
 func ECDH(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable) [32]frontend.Variable {
-	return ECDHFor(api, ephemeralSecretKey, recipientPubkey, true)
-}
-
-func ECDHFor(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable, lookups bool) [32]frontend.Variable {
-	sharedPointBytes := ScalarMulFor(api, ephemeralSecretKey, recipientPubkey, lookups)
+	sharedPointBytes := ScalarMul(api, ephemeralSecretKey, recipientPubkey)
 	var sharedX [32]frontend.Variable
 	copy(sharedX[:], sharedPointBytes[1:33])
 	return sharedX
@@ -119,7 +103,7 @@ func (c *curve) canonicalLimbs(e *fpElement) []frontend.Variable {
 
 func (c *curve) splitLowBits(value frontend.Variable, lowBits, totalBits int) (high, low frontend.Variable) {
 	if abstractor.Extracting(c.api) {
-		parts := abstractor.Call1(c.api, SplitLowBits{V: value, LowBits: lowBits, TotalBits: totalBits, Lookups: c.layout.Lookups})
+		parts := abstractor.Call1(c.api, SplitLowBits{V: value, LowBits: lowBits, TotalBits: totalBits})
 		return parts[0], parts[1]
 	}
 	return c.splitLowBitsConstrained(value, lowBits, totalBits)

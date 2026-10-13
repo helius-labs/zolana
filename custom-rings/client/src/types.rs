@@ -21,8 +21,8 @@ pub struct AuditedOutput {
     /// the slot index the ciphertext is bound to.
     pub slot_index: u32,
     pub recipient_viewing_pk: P256Pubkey,
-    /// The slot's view tag, bound by the circuit to the output owner. The Solana
-    /// address of an Ed25519 or PDA owner, an x-coordinate for P256.
+    /// The slot's view tag, bound by the circuit to the output owner: the
+    /// Solana address of an Ed25519 or PDA owner.
     pub owner_tag: [u8; 32],
     pub asset: Address,
     pub amount: u64,

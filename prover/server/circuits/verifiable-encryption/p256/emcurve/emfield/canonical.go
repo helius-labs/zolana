@@ -28,6 +28,7 @@ const (
 	limbZero
 	limbOne
 	limbBelowAllOnes
+	limbLowGap
 )
 
 func (f *Field) AssertCanonical(e *Element) {
@@ -38,7 +39,20 @@ func (f *Field) AssertCanonical(e *Element) {
 	if f.assertBelowModulusLimbwise(e) {
 		return
 	}
-	// 2. Otherwise hint the nonnegative gap to modulus - 1 and bound its limbs.
+	// 2. When x < B < q and q+m >= 2B, range-checking m-1-x below B proves
+	// x < m: a negative gap wraps to at least q+m-B >= B. Ed25519's 253-bit
+	// scalar modulus fits this native-field shortcut.
+	bound := pow2(f.modulusBits)
+	nativeModulus := f.api.Compiler().Field()
+	if nativeModulus.Cmp(bound) > 0 && new(big.Int).Add(nativeModulus, f.mod).Cmp(new(big.Int).Lsh(bound, 1)) >= 0 {
+		value := frontend.Variable(0)
+		for i, limb := range e.limbs {
+			value = f.api.Add(value, f.api.Mul(limb, pow2(i*f.layout.LimbBits)))
+		}
+		f.rc.Check(f.api.Sub(new(big.Int).Sub(f.mod, big.NewInt(1)), value), f.modulusBits)
+		return
+	}
+	// 3. Otherwise hint the nonnegative gap to modulus - 1 and bound its limbs.
 	inputs := f.hintInputs(nil, []*Element{e})
 	pieces, err := f.api.Compiler().NewHint(modulusGapHint, f.layout.nbPiecesAll(f.widths)+1, inputs...)
 	if err != nil {
@@ -47,7 +61,7 @@ func (f *Field) AssertCanonical(e *Element) {
 	gap, rest := f.fromPieces(pieces, f.widths)
 	carry := rest[0]
 	f.api.AssertIsBoolean(carry)
-	// 3. Require element + gap = modulus - 1 using a bounded carry between halves.
+	// 4. Require element + gap = modulus - 1 using a bounded carry between halves.
 	maximumCanonicalValue := new(big.Int).Sub(f.mod, big.NewInt(1))
 	nbLimbs, limbBits := f.layout.NbLimbs, f.layout.LimbBits
 	lowLimbCount := (nbLimbs + 1) / 2
@@ -86,6 +100,8 @@ func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 			kinds[i] = limbOne
 		case i == 0 && new(big.Int).Add(maximumLimbs[i], big.NewInt(1)).Cmp(full) == 0:
 			kinds[i] = limbBelowAllOnes
+		case i == 0 && maximumLimbs[i].Cmp(full) < 0:
+			kinds[i] = limbLowGap
 		default:
 			return false
 		}
@@ -113,6 +129,12 @@ func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 			selectedLimb := api.Mul(matchesHigherLimbs, limbs[i])
 			api.AssertIsEqual(api.Mul(selectedLimb, api.Sub(limbs[i], 1)), 0)
 			matchesHigherLimbs = selectedLimb
+			i--
+		case limbLowGap:
+			// If the upper limbs equal m-1, the low limb must fit after adding
+			// 2^w-1-(m-1)_0. Otherwise its existing width bound suffices.
+			gap := new(big.Int).Sub(new(big.Int).Sub(pow2(f.widths[i]), big.NewInt(1)), maximumLimbs[i])
+			f.rc.Check(api.Add(limbs[i], api.Mul(matchesHigherLimbs, gap)), f.widths[i])
 			i--
 		case limbBelowAllOnes:
 			full := new(big.Int).Sub(pow2(f.widths[i]), big.NewInt(1))

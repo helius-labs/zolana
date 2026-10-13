@@ -11,7 +11,6 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
-use zolana_keypair::SigningKey;
 use zolana_user_registry_interface::{
     instruction::{
         self as user_registry_instruction, p256_key_binding_message, p256_verify_instruction,
@@ -120,28 +119,41 @@ pub fn user_registry_program_path() -> PathBuf {
         .join("zolana_user_registry.so")
 }
 
+/// The program still accepts a P-256 owner key in a record; the client SDKs
+/// no longer create one, so these tests sign with the `p256` crate directly.
+pub type P256OwnerKey = p256::ecdsa::SigningKey;
+
 /// A throwaway P256 owner key. Unlike [`test_p256_pubkey`] this is a real
 /// curve point, so it can produce the proof of possession `register` /
 /// `update_keys` require alongside an `owner_p256`.
-pub fn p256_owner_key() -> SigningKey {
-    SigningKey::new_p256()
+pub fn p256_owner_key() -> P256OwnerKey {
+    P256OwnerKey::random(&mut p256::elliptic_curve::rand_core::OsRng)
+}
+
+/// The compressed SEC1 encoding of `key`'s public key.
+pub fn p256_owner_pubkey(key: &P256OwnerKey) -> [u8; 33] {
+    key.verifying_key()
+        .to_encoded_point(true)
+        .as_bytes()
+        .try_into()
+        .expect("compressed P-256 point is 33 bytes")
 }
 
 /// The compressed `owner_p256` for `key` and its proof-of-possession signature
 /// over the record's binding message, in the form Solana's secp256r1
 /// precompile verifies (ECDSA over SHA-256, low-S normalized).
-pub fn p256_binding_signature(owner: &Pubkey, key: &SigningKey) -> ([u8; 33], [u8; 64]) {
-    let pubkey = *key
-        .pubkey()
-        .as_p256()
-        .expect("p256 owner key exposes a compressed p256 pubkey")
-        .as_bytes();
+pub fn p256_binding_signature(owner: &Pubkey, key: &P256OwnerKey) -> ([u8; 33], [u8; 64]) {
+    use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature};
+    use sha2::{Digest, Sha256};
+
+    let pubkey = p256_owner_pubkey(key);
     let (user_record, _bump) = user_record_pda(owner);
     let message = p256_key_binding_message(&user_record, owner, &pubkey);
-    let signature = key
-        .sign_message(&message)
+    let signature: Signature = key
+        .sign_prehash(&Sha256::digest(message))
         .expect("p256 owner key signs the binding message");
-    (pubkey, signature)
+    let signature = signature.normalize_s().unwrap_or(signature);
+    (pubkey, signature.to_bytes().into())
 }
 
 pub fn test_p256_pubkey(tag: u8) -> [u8; 33] {

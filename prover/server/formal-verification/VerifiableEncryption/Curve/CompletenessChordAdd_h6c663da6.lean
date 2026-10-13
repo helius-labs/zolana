@@ -1,6 +1,6 @@
 import VerifiableEncryption.Curve.CompletenessChordAdd
-import VerifiableEncryption.Field.CompletenessGeneratedChain_7
-import VerifiableEncryption.Field.CompletenessGeneratedChain_18
+import VerifiableEncryption.Field.CompletenessGeneratedChain_5
+import VerifiableEncryption.Field.CompletenessGeneratedChain_9
 
 /-! Exact arithmetic instantiation for an extracted chord-add variant.
 Validation is recorded separately. -/
@@ -9,9 +9,9 @@ namespace ZolanaVE.P256.Completeness
 
 open ZolanaVE.Field ZolanaVE.EmcurveChecks
 
-theorem add_h17455767_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
-    (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC)
-    (hQX : QX.bnd = reducedC) (hQY : QY.bnd = selC)
+theorem add_h6c663da6_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
+    (hPX : PX.bnd = reducedC) (hPY : PY.bnd = selC)
+    (hQX : QX.bnd = reducedC) (hQY : QY.bnd = reducedC)
     (hP : OnCurve (PX.value : Fp) (PY.value : Fp))
     (hQ : OnCurve (QX.value : Fp) (QY.value : Fp))
     (hx : (PX.value : Fp) ≠ (QX.value : Fp)) :
@@ -20,7 +20,7 @@ theorem add_h17455767_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
       (∃ hS : OnCurve (SX.value : Fp) (SY.value : Fp), mkPoint hS = mkPoint hP + mkPoint hQ) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) →
-        Add_8_8_8_8_h17455767 PX.limbs PY.limbs QX.limbs QY.limbs k := by
+        Add_8_8_8_8_h6c663da6 PX.limbs PY.limbs QX.limbs QY.limbs k := by
   let l : Fp := ((QY.value : Fp) - (PY.value : Fp)) / ((QX.value : Fp) - (PX.value : Fp))
   have hl : l * ((QX.value : Fp) - (PX.value : Fp)) = (QY.value : Fp) - (PY.value : Fp) :=
     div_mul_cancel₀ _ (sub_ne_zero.mpr hx.symm)
@@ -56,22 +56,22 @@ theorem add_h17455767_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
   let YD := linElem [(1, QY), (-1, PY)]
   have vXS : XS.value = SX.value + PX.value + QX.value := by simp [XS, linElem_value]; ring
   have vYD : YD.value = QY.value - PY.value := by simp [YD, linElem_value]; ring
-  have hbF : ElemsMatch [⟨8, XS⟩, ⟨8, D2⟩, ⟨8, YD⟩] cert_hd26a04f5.elems := elemsMatch_of (by
+  have hbF : ElemsMatch [⟨8, XS⟩, ⟨8, D2⟩, ⟨8, YD⟩] cert_h85e25851.elems := elemsMatch_of (by
     show [XS.bnd, D2.bnd, YD.bnd] = _
     dsimp only [XS, YD]
     rw [linElem_bnd, linElem_bnd]; simp only [List.map]
     rw [hSX, hPX, hQX, hPY, hQY, hD2]; rfl)
-  have zF : cert_hd26a04f5.exprValue (values [⟨8, XS⟩, ⟨8, D2⟩, ⟨8, YD⟩])
-      ≡ 0 [ZMOD (cert_hd26a04f5.m : ℤ)] := by
-    have ee : cert_hd26a04f5.exprValue (values [⟨8, XS⟩, ⟨8, D2⟩, ⟨8, YD⟩]) =
+  have zF : cert_h85e25851.exprValue (values [⟨8, XS⟩, ⟨8, D2⟩, ⟨8, YD⟩])
+      ≡ 0 [ZMOD (cert_h85e25851.m : ℤ)] := by
+    have ee : cert_h85e25851.exprValue (values [⟨8, XS⟩, ⟨8, D2⟩, ⟨8, YD⟩]) =
         XS.value * D2.value - YD.value ^ 2 := by
-      simp [PolyShape.exprValue, values, cert_hd26a04f5]; ring
-    rw [ee, vXS, vYD, show (cert_hd26a04f5.m : ℤ) = p from rfl, modEq_p_iff]
+      simp [PolyShape.exprValue, values, cert_h85e25851]; ring
+    rw [ee, vXS, vYD, show (cert_h85e25851.m : ℤ) = p from rfl, modEq_p_iff]
     push_cast
     rw [cSX, vD2, ← hl]
     dsimp [sx]
     ring
-  have first := CheckPolynomial_24_hd26a04f5_complete _ hbF
+  have first := CheckPolynomial_24_h85e25851_complete _ hbF
     (addFirstInput SX.limbs PX.limbs QX.limbs D2.limbs QY.limbs PY.limbs) (by
       simp only [limbLists, List.map_cons, List.map_nil]
       rw [vec8_toList XS.limbs, vec8_toList D2.limbs, vec8_toList YD.limbs]
@@ -84,23 +84,23 @@ theorem add_h17455767_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
   let YP := linElem [(1, SY), (1, PY)]
   have vXP : XP.value = SX.value - PX.value := by simp [XP, linElem_value]; ring
   have vYP : YP.value = SY.value + PY.value := by simp [YP, linElem_value]
-  have hbS : ElemsMatch [⟨8, YD⟩, ⟨8, XP⟩, ⟨8, YP⟩, ⟨8, XD⟩] cert_hc470b841.elems :=
+  have hbS : ElemsMatch [⟨8, YD⟩, ⟨8, XP⟩, ⟨8, YP⟩, ⟨8, XD⟩] cert_h03b2b1ec.elems :=
     elemsMatch_of (by
       show [YD.bnd, XP.bnd, YP.bnd, XD.bnd] = _
       dsimp only [YD, XP, YP, XD]
       rw [linElem_bnd, linElem_bnd, linElem_bnd, linElem_bnd]
       simp only [List.map]; rw [hSX, hSY, hPX, hPY, hQX, hQY]; rfl)
-  have zS : cert_hc470b841.exprValue (values [⟨8, YD⟩, ⟨8, XP⟩, ⟨8, YP⟩, ⟨8, XD⟩])
-      ≡ 0 [ZMOD (cert_hc470b841.m : ℤ)] := by
-    have ee : cert_hc470b841.exprValue (values [⟨8, YD⟩, ⟨8, XP⟩, ⟨8, YP⟩, ⟨8, XD⟩]) =
+  have zS : cert_h03b2b1ec.exprValue (values [⟨8, YD⟩, ⟨8, XP⟩, ⟨8, YP⟩, ⟨8, XD⟩])
+      ≡ 0 [ZMOD (cert_h03b2b1ec.m : ℤ)] := by
+    have ee : cert_h03b2b1ec.exprValue (values [⟨8, YD⟩, ⟨8, XP⟩, ⟨8, YP⟩, ⟨8, XD⟩]) =
         YD.value * XP.value + YP.value * XD.value := by
-      simp [PolyShape.exprValue, values, cert_hc470b841]
-    rw [ee, vYD, vXP, vYP, vXD, show (cert_hc470b841.m : ℤ) = p from rfl, modEq_p_iff]
+      simp [PolyShape.exprValue, values, cert_h03b2b1ec]
+    rw [ee, vYD, vXP, vYP, vXD, show (cert_h03b2b1ec.m : ℤ) = p from rfl, modEq_p_iff]
     push_cast
     rw [cSX, cSY, ← hl]
     dsimp [sy]
     ring
-  have second := CheckPolynomial_32_hc470b841_complete _ hbS
+  have second := CheckPolynomial_32_h03b2b1ec_complete _ hbS
     (addSecondInput QY.limbs PY.limbs SX.limbs PX.limbs SY.limbs QX.limbs) (by
       simp only [limbLists, List.map_cons, List.map_nil]
       rw [vec8_toList YD.limbs, vec8_toList XP.limbs, vec8_toList YP.limbs, vec8_toList XD.limbs]
@@ -150,7 +150,7 @@ theorem add_h17455767_complete (hr : RangeComplete) (PX PY QX QY : ElemVal 8)
         pieces.get ⟨0 + 3 * i.val + 1, by omega⟩ * 2048 +
         pieces.get ⟨0 + 3 * i.val + 2, by omega⟩ * 4194304 := by
       simpa only [Nat.zero_add] using nativeSX i
-    apply Add_8_8_8_8_h17455767_compose PX.limbs PY.limbs QX.limbs QY.limbs SX.limbs SY.limbs D2.limbs
+    apply Add_8_8_8_8_h6c663da6_compose PX.limbs PY.limbs QX.limbs QY.limbs SX.limbs SY.limbs D2.limbs
       pieces (jointPieces_ranges px py rx ry) nativeSX0 nativeSY dActual first second k
     exact hk
 

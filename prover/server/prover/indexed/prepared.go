@@ -81,9 +81,9 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		}
 		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
 	case common.TransferP256RingCircuitType:
-		var value transfer.P256TransferParameters
+		var value transfer.Ed25519TransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
-			return nil, fmt.Errorf("invalid prepared P256 transfer")
+			return nil, fmt.Errorf("invalid prepared Ed25519 transfer")
 		}
 		if int(value.NInputs) != len(value.Inputs) || int(value.NOutputs) != len(value.Outputs) {
 			return nil, fmt.Errorf("prepared counts mismatch")

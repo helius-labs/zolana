@@ -34,7 +34,7 @@ struct RemoteKeypair {
 impl RemoteKeypair {
     fn mirroring(keypair: &ShieldedKeypair) -> Self {
         Self {
-            device: SigningKey::from_p256_bytes(&SIGNING_SECRET).expect("P-256 scalar"),
+            device: SigningKey::from_ed25519_bytes(&SIGNING_SECRET),
             nullifier_key: keypair.nullifier_key.clone(),
             viewing_key: keypair.viewing_key.clone(),
             sign_calls: AtomicUsize::new(0),
@@ -78,15 +78,8 @@ impl ShieldedKeypairTrait for RemoteKeypair {
         if derivation::is_derivation_input(message) {
             return Err(KeypairError::DerivationInput);
         }
-        self.sign_hash(&hash::sha256(message))
-    }
-
-    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        if derivation::is_derivation_input(hash) {
-            return Err(KeypairError::DerivationInput);
-        }
         self.sign_calls.fetch_add(1, Ordering::SeqCst);
-        self.device.sign_hash(hash)
+        self.device.sign_message(message)
     }
 
     fn nullifier(
@@ -107,7 +100,7 @@ impl ShieldedKeypairTrait for RemoteKeypair {
 zolana_keypair::forward_viewing_key_trait!(RemoteKeypair => viewing_key);
 
 fn software_keypair() -> ShieldedKeypair {
-    ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&SIGNING_SECRET).expect("P-256"))
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&SIGNING_SECRET))
         .expect("software keypair")
 }
 
@@ -154,8 +147,8 @@ fn remote_backend_publishes_the_same_identity() {
 }
 
 /// Spend authorization routes through the backend's `sign`, and the signature
-/// is the one the software path produces. ECDSA here is deterministic, so this
-/// is an equality check rather than a verification.
+/// is the one the software path produces. Ed25519 is deterministic, so this is
+/// an equality check rather than a verification.
 fn remote_backend_signs_through_the_trait() {
     let software = software_keypair();
     let remote = RemoteKeypair::mirroring(&software);
@@ -168,13 +161,13 @@ fn remote_backend_signs_through_the_trait() {
             vec![software.viewing_key.clone()],
         )
         .expect("the keypair's own viewing key is supplied");
-        SyncWalletAuthority::sign_p256(&authority, &message_hash).unwrap()
+        SyncWalletAuthority::sign_ed25519(&authority, &message_hash).unwrap()
     };
 
     assert_eq!(remote.sign_calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         signature,
-        SyncWalletAuthority::sign_p256(
+        SyncWalletAuthority::sign_ed25519(
             &KeypairWalletAuthority::new(Address::default(), &software),
             &message_hash,
         )
@@ -217,11 +210,11 @@ fn remote_backend_encrypts_with_the_same_transaction_key() {
 
 /// A derivation-shaped payload is refused on the way to signing.
 ///
-/// The guard under test is the library's, in `SigningKey::sign_hash`: signing a
+/// The guard under test is the library's, in `SigningKey::sign_message`: signing a
 /// derivation-shaped payload would hand back the very seed this wallet's role
 /// secrets expand from. So the authority here wraps a real `ShieldedKeypair`.
 /// Asserting this through the `RemoteKeypair` double instead would prove only
-/// that the double guards itself -- `sign_p256_with` forwards the payload
+/// that the double guards itself -- `sign_ed25519_with` forwards the payload
 /// untouched, so that assertion holds with no library guard at all.
 fn derivation_shaped_payloads_are_refused_before_signing() {
     let software = software_keypair();
@@ -230,12 +223,12 @@ fn derivation_shaped_payloads_are_refused_before_signing() {
     let mut prefixed = [0u8; 32];
     prefixed[..DERIVATION_PAYLOAD_PREFIX.len()].copy_from_slice(DERIVATION_PAYLOAD_PREFIX);
 
-    assert!(matches!(
-        SyncWalletAuthority::sign_p256(&authority, &prefixed),
-        Err(TransactionError::P256(_))
-    ));
     assert_eq!(
-        ShieldedKeypairTrait::sign_hash(&software, &prefixed),
+        SyncWalletAuthority::sign_ed25519(&authority, &prefixed),
+        Err(TransactionError::Keypair(KeypairError::DerivationInput))
+    );
+    assert_eq!(
+        ShieldedKeypairTrait::sign_message(&software, &prefixed),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(
@@ -245,7 +238,7 @@ fn derivation_shaped_payloads_are_refused_before_signing() {
 
     // A payload that is not derivation-shaped still signs, so the assertions
     // above pin the guard rather than a signing path that never works.
-    assert!(SyncWalletAuthority::sign_p256(&authority, &[7u8; 32]).is_ok());
+    assert!(SyncWalletAuthority::sign_ed25519(&authority, &[7u8; 32]).is_ok());
 }
 
 /// A rotated-out viewing key can now be supplied, which the keypair-only

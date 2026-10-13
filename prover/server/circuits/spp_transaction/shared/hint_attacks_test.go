@@ -8,12 +8,16 @@ import (
 	. "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/hintattack"
 	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	csbn254 "github.com/consensys/gnark/constraint/bn254"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
+	// hintattack overrides logderivarg.countHint and requires it registered;
+	// no rail circuit imports a gnark lookup any more, so register it here.
+	_ "github.com/consensys/gnark/std/lookup/logderivlookup"
 )
 
 var hintAttackShape = protocol.Shape{NInputs: 2, NOutputs: 2}
@@ -66,5 +70,15 @@ func TestCustomRingAuthorityRejectsHintAttacks(t *testing.T) {
 	runTransactionRailHintAttacks(t,
 		MustNewCustomRingAuthorityCircuit(Shape(hintAttackShape)),
 		asCustomRingAuthority(buildRingAuthorityAssignment(t, hintAttackShape)),
+	)
+}
+
+// The gadget's own hints are attacked in circuits/ed25519 (soundness_test.go);
+// this runs the shared hint attacks over the composed Ed25519 rail.
+func TestCustomRingEd25519RejectsHintAttacks(t *testing.T) {
+	assignment, authorization := honestEd25519Assignment(t, hintAttackShape, spptest.FixedEd25519Key(t, 11))
+	runTransactionRailHintAttacks(t,
+		MustNewCustomRingEd25519Circuit(Shape(hintAttackShape)),
+		asCustomRingEd25519(assignment, authorization),
 	)
 }

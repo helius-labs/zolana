@@ -7,12 +7,17 @@ import (
 
 type poly []*big.Int
 
+// crtBasis evaluates a folded product as len(forms) native products. The
+// square kernel, when built, does the same for x*x with its own forms.
 type crtBasis struct {
-	forms   [][]*big.Int
-	combine [][]*big.Int
+	forms                   [][]*big.Int
+	combine                 [][]*big.Int
+	squareLeft, squareRight [][]*big.Int
+	squareCombine           [][]*big.Int
+	quadratic               bool
 }
 
-func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermonde func(degree int) [][]*big.Int) *crtBasis {
+func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermonde func(degree int) [][]*big.Int, squares bool) *crtBasis {
 	factors := factorSquarefree(f, nativeModulus)
 	total := 0
 	for _, g := range factors {
@@ -21,7 +26,10 @@ func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermon
 	if total >= 2*limbCount-1 {
 		return nil
 	}
-	basis := &crtBasis{combine: make([][]*big.Int, limbCount)}
+	basis := &crtBasis{combine: make([][]*big.Int, limbCount), quadratic: squares}
+	if squares {
+		basis.squareCombine = make([][]*big.Int, limbCount)
+	}
 	for j := range basis.combine {
 		basis.combine[j] = make([]*big.Int, total)
 		for k := range basis.combine[j] {
@@ -31,6 +39,9 @@ func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermon
 	offset := 0
 	for _, g := range factors {
 		factorDegree := polyDeg(g)
+		if factorDegree != 2 || g[1].Sign() != 0 {
+			basis.quadratic = false
+		}
 		residues := residueColumns(limbCount, g, nativeModulus)
 		points := 2*factorDegree - 1
 		for s := 0; s < points; s++ {
@@ -64,6 +75,22 @@ func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermon
 				}
 			}
 		}
+		if squares {
+			switch factorDegree {
+			case 2:
+				basis.appendQuadraticSquare(f, g, idempotent, limbCount, nativeModulus)
+			case 4:
+				basis.appendQuarticKaraSquare(f, g, idempotent, limbCount, nativeModulus)
+			default:
+				// Preserve the interpolation kernel for larger factors: its sparse
+				// evaluation forms are valuable for long chains of lazy coordinates.
+				basis.squareLeft = append(basis.squareLeft, basis.forms[offset:offset+points]...)
+				basis.squareRight = append(basis.squareRight, basis.forms[offset:offset+points]...)
+				for j := range basis.combine {
+					basis.squareCombine[j] = append(basis.squareCombine[j], basis.combine[j][offset:offset+points]...)
+				}
+			}
+		}
 		offset += points
 	}
 	for j := range basis.combine {
@@ -72,31 +99,6 @@ func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermon
 		}
 	}
 	return basis
-}
-
-func (b *crtBasis) foldedProduct(x, y []*big.Int, q *big.Int) []*big.Int {
-	w := make([]*big.Int, len(b.forms))
-	for k, form := range b.forms {
-		l, r := new(big.Int), new(big.Int)
-		for i, c := range form {
-			if i < len(x) {
-				l.Add(l, new(big.Int).Mul(c, x[i]))
-			}
-			if i < len(y) {
-				r.Add(r, new(big.Int).Mul(c, y[i]))
-			}
-		}
-		w[k] = l.Mul(l, r).Mod(l, q)
-	}
-	out := make([]*big.Int, len(b.combine))
-	for j, row := range b.combine {
-		out[j] = new(big.Int)
-		for k, c := range row {
-			out[j].Add(out[j], new(big.Int).Mul(c, w[k]))
-		}
-		out[j].Mod(out[j], q)
-	}
-	return out
 }
 
 func residueColumns(coefficientCount int, g poly, q *big.Int) [][]*big.Int {

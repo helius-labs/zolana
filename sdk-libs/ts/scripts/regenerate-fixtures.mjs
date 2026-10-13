@@ -20,9 +20,7 @@ import {
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  decryptAnonymous,
-  decryptConfidential,
-  decryptSplit,
+  decodeConfidential,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -54,7 +52,7 @@ function hex(value) {
 }
 
 function keypairFromInputs(inputs) {
-  const signing = SigningKey.fromP256Bytes(bytes(inputs.signingSecretBytes));
+  const signing = SigningKey.fromEd25519Bytes(bytes(inputs.signingSecretBytes));
   const viewing = ViewingKey.fromBytes(bytes(inputs.viewingSecretBytes));
   return { keypair: ShieldedKeypair.withViewingKey(signing, viewing), signing };
 }
@@ -83,9 +81,15 @@ const authority = readJson("transaction/authority-v1.json");
   const nullifierPubkey = hex(keypair.nullifierPublicKey());
   authority.expected.authority.nullifierPubkeyBytes = nullifierPubkey;
   authority.expected.authority.shieldedAddress.nullifierPubkeyBytes = nullifierPubkey;
+  authority.expected.authority.shieldedAddress.signingPubkeyBytes = hex(
+    keypair.signingPublicKey().toBytes(),
+  );
   const signature = signing.sign(bytes(authority.inputs.messageHashBytes));
-  authority.expected.p256Signature.rBytes = hex(signature.slice(0, 32));
-  authority.expected.p256Signature.sBytes = hex(signature.slice(32));
+  authority.expected.ed25519Signature = {
+    pubkeyBytes: hex(signing.publicKey().ed25519()),
+    signatureBytes: hex(signature),
+    verified: signing.verify(bytes(authority.inputs.messageHashBytes), signature),
+  };
   writeJson("transaction/authority-v1.json", authority);
 }
 
@@ -112,7 +116,7 @@ const serialization = readJson("transaction/serialization-v1.json");
   const { keypair } = keypairFromInputs(inputs);
   const recipientViewing = ViewingKey.fromBytes(bytes(inputs.recipientViewingSecretBytes));
   const recipient = ShieldedKeypair.withViewingKey(
-    SigningKey.fromP256Bytes(bytes(inputs.recipientSigningSecretBytes)),
+    SigningKey.fromEd25519Bytes(bytes(inputs.recipientSigningSecretBytes)),
     recipientViewing,
   );
   const tx = ViewingKey.fromBytes(bytes(inputs.txViewingSecretBytes));
@@ -141,7 +145,9 @@ const serialization = readJson("transaction/serialization-v1.json");
     "confidential",
     confidentialBytes,
     encodeConfidential(
-      decryptConfidential(recipientViewing, tx.publicKey(), confidentialBody, salt, 0),
+      decodeConfidential(
+        recipientViewing.decryptUtxo(confidentialBody.slice(33), tx.publicKey(), salt, 0),
+      ),
     ),
   );
 
@@ -165,7 +171,7 @@ const serialization = readJson("transaction/serialization-v1.json");
     recipientBytes,
     encodeAnonymousRecipient(
       decodeAnonymousRecipient(
-        decryptAnonymous(recipientViewing, tx.publicKey(), recipientBody, salt, 1),
+        recipientViewing.decryptUtxo(recipientBody, tx.publicKey(), salt, 1),
       ),
     ),
   );
@@ -191,9 +197,7 @@ const serialization = readJson("transaction/serialization-v1.json");
     "anonymousSender",
     senderBytes,
     encodeAnonymousSender(
-      decodeAnonymousSender(
-        decryptAnonymous(keypair.viewingKey(), tx.publicKey(), senderBody, salt, 2),
-      ),
+      decodeAnonymousSender(keypair.viewingKey().decryptUtxo(senderBody, tx.publicKey(), salt, 2)),
     ),
   );
 
@@ -216,7 +220,7 @@ const serialization = readJson("transaction/serialization-v1.json");
     "split",
     splitBytes,
     encodeSplitBundle(
-      decodeSplitBundle(decryptSplit(keypair.viewingKey(), tx.publicKey(), splitBody, salt, 3)),
+      decodeSplitBundle(keypair.viewingKey().decryptUtxo(splitBody, tx.publicKey(), salt, 3)),
     ),
   );
 

@@ -17,6 +17,12 @@ fn big_uint_to_string(value: &BigUint) -> String {
     format!("0x{}", value.to_str_radix(16))
 }
 
+/// `0x` and the lowercase hex of exactly these bytes, the canonical form the
+/// prover accepts for fixed-width byte strings.
+pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
+    format!("0x{}", hex::encode(bytes))
+}
+
 fn fe_to_string(bytes: &[u8; 32]) -> String {
     big_uint_to_string(&BigUint::from_bytes_be(bytes))
 }
@@ -156,20 +162,16 @@ pub(crate) struct TransferP256InputsJson {
     pub private_tx_hash: String,
     #[serde(rename = "blindingSeed")]
     pub blinding_seed: String,
-    #[serde(rename = "p256PubX")]
-    pub p256_pub_x: String,
-    #[serde(rename = "p256PubY")]
-    pub p256_pub_y: String,
-    #[serde(rename = "p256SigR")]
-    pub p256_sig_r: String,
-    #[serde(rename = "p256SigS")]
-    pub p256_sig_s: String,
-    #[serde(rename = "p256MessageHashLow")]
-    pub p256_message_hash_low: String,
-    #[serde(rename = "p256MessageHashHigh")]
-    pub p256_message_hash_high: String,
-    #[serde(rename = "defaultP256OwnerPkHash")]
-    pub default_p256_owner_pk_hash: String,
+    #[serde(rename = "ed25519PublicKey")]
+    pub ed25519_public_key: String,
+    #[serde(rename = "ed25519Signature")]
+    pub ed25519_signature: String,
+    #[serde(rename = "ed25519MessageHashLow")]
+    pub ed25519_message_hash_low: String,
+    #[serde(rename = "ed25519MessageHashHigh")]
+    pub ed25519_message_hash_high: String,
+    #[serde(rename = "defaultEd25519OwnerPkHash")]
+    pub default_ed25519_owner_pk_hash: String,
     #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
@@ -578,7 +580,8 @@ pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientErro
     transfer_inputs_json(inputs, "transfer-ring")
 }
 
-/// Serialize a custom-ring P256 transfer witness.
+/// Serialize a custom-ring transfer witness whose Ed25519 owner signature
+/// the proof verifies.
 pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> Result<String, ClientError> {
     let json = TransferP256InputsJson {
         circuit_type: "transfer-p256-ring".to_string(),
@@ -591,13 +594,11 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> Result<String, C
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         blinding_seed: big_uint_to_string(&inputs.blinding_seed),
-        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
-        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
-        p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
-        p256_sig_s: big_uint_to_string(&inputs.p256_sig_s),
-        p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
-        p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
-        default_p256_owner_pk_hash: big_uint_to_string(&inputs.default_p256_owner_pk_hash),
+        ed25519_public_key: bytes_to_hex(&inputs.ed25519_public_key),
+        ed25519_signature: bytes_to_hex(&inputs.ed25519_signature),
+        ed25519_message_hash_low: big_uint_to_string(&inputs.ed25519_message_hash_low),
+        ed25519_message_hash_high: big_uint_to_string(&inputs.ed25519_message_hash_high),
+        default_ed25519_owner_pk_hash: big_uint_to_string(&inputs.default_ed25519_owner_pk_hash),
         public_assets: inputs
             .public_assets
             .iter()
@@ -719,13 +720,11 @@ mod merge_tests {
             blinding_seed: BigUint::from(15u8),
             external_data_hash: BigUint::from(1u8),
             private_tx_hash: BigUint::from(2u8),
-            p256_pub_x: BigUint::from(3u8),
-            p256_pub_y: BigUint::from(4u8),
-            p256_sig_r: BigUint::from(5u8),
-            p256_sig_s: BigUint::from(6u8),
-            p256_message_hash_low: BigUint::from(7u8),
-            p256_message_hash_high: BigUint::from(8u8),
-            default_p256_owner_pk_hash: BigUint::from(13u8),
+            ed25519_public_key: [0x3a; 32],
+            ed25519_signature: [0x5b; 64],
+            ed25519_message_hash_low: BigUint::from(7u8),
+            ed25519_message_hash_high: BigUint::from(8u8),
+            default_ed25519_owner_pk_hash: BigUint::from(13u8),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::from(9u8),
@@ -740,12 +739,15 @@ mod merge_tests {
         };
 
         let value: serde_json::Value =
-            serde_json::from_str(&to_json_p256_ring(&inputs).expect("p256 ring request"))
+            serde_json::from_str(&to_json_p256_ring(&inputs).expect("ed25519 ring request"))
                 .expect("valid JSON");
         assert_eq!(value["circuitType"], "transfer-p256-ring");
-        assert_eq!(value["p256PubX"], "0x3");
-        assert_eq!(value["p256MessageHashHigh"], "0x8");
-        assert_eq!(value["defaultP256OwnerPkHash"], "0xd");
+        assert_eq!(value["ed25519PublicKey"], format!("0x{}", "3a".repeat(32)));
+        assert_eq!(value["ed25519Signature"], format!("0x{}", "5b".repeat(64)));
+        assert_eq!(value["ed25519MessageHashLow"], "0x7");
+        assert_eq!(value["ed25519MessageHashHigh"], "0x8");
+        assert_eq!(value["defaultEd25519OwnerPkHash"], "0xd");
+        assert!(value.get("p256PubX").is_none());
         assert_eq!(value["publishedOutputOwnerPkHashes"][0], "0xe");
         assert_eq!(value["ringProgramId"], "0x9");
         assert_eq!(value["blindingSeed"], "0xf");
@@ -753,7 +755,6 @@ mod merge_tests {
         assert_eq!(value["treeSlots"][0]["utxoRoot"], "0xb");
         assert_eq!(value["treeSlots"][INPUT_TREES - 1]["id"], "0x0");
         assert_tree_slot_contract(&value);
-        assert!(value.get("p256SigningPkField").is_none());
     }
 
     // Guards the wire-format field names against the Go server
@@ -864,7 +865,7 @@ mod merge_tests {
 
     // Guards the ring-authority request against the Go server: it must carry the
     // "transfer-ring-authority" circuit type and the Solana-only transfer key set
-    // (no P256 fields).
+    // (no in-circuit owner signature fields).
     #[test]
     fn to_json_ring_authority_shape() {
         let inputs = TransferInputs {
@@ -925,8 +926,8 @@ mod merge_tests {
         );
         assert_tree_slot_contract(&value);
         assert_eq!(value["blindingSeed"], "0xa");
-        // Solana-only rail: no P256 fields on the request.
-        assert!(value.get("p256PubX").is_none());
+        // Solana-only rail: no in-circuit owner signature on the request.
+        assert!(value.get("ed25519PublicKey").is_none());
         assert_eq!(value["ringProgramId"], "0x55");
         assert_eq!(value["nInputs"], 1);
     }

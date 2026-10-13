@@ -19,7 +19,6 @@ export type KeypairErrorCode =
   | "KEYPAIR_DERIVATION_INPUT"
   | "KEYPAIR_INVALID_DERIVATION_SEED"
   // TypeScript-only: Rust rejects these at the type level.
-  | "KEYPAIR_INVALID_PREHASH_LENGTH"
   | "KEYPAIR_INVALID_LENGTH"
   | "KEYPAIR_INVALID_AMOUNT"
   | "KEYPAIR_INVALID_INPUT"
@@ -37,7 +36,6 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_NOT_ED25519: "NotEd25519",
     KEYPAIR_DERIVATION_INPUT: "DerivationInput",
     KEYPAIR_INVALID_DERIVATION_SEED: "InvalidDerivationSeed",
-    KEYPAIR_INVALID_PREHASH_LENGTH: null,
     KEYPAIR_INVALID_LENGTH: null,
     KEYPAIR_INVALID_AMOUNT: null,
     KEYPAIR_INVALID_INPUT: null,

@@ -21,7 +21,7 @@ theorem combSecond_complete (hr : RangeComplete) (X L0 PWX PWY WX WY : ElemVal 8
         mkPoint hN = mkPoint hA + mkPoint hW) ∧
       ∀ (firstY : List.Vector F 8) (k : List.Vector (List.Vector F 8) 2 → Prop),
         k (NX.limbs ::ᵥ L.limbs ::ᵥ List.Vector.nil) →
-        CombChainStep_8_8_8_8_8_8_8_h88ed5eb6 X.limbs L0.limbs PWX.limbs PWY.limbs
+        CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5 X.limbs L0.limbs PWX.limbs PWY.limbs
           WX.limbs WY.limbs firstY k := by
   obtain ⟨l, hz, next⟩ := combChain_slope_math X L0 PWX PWY WX WY hA hW hne
   let L := slopeElem l

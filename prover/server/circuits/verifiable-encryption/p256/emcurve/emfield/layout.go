@@ -24,20 +24,9 @@ type Layout struct {
 	NbLimbs   int
 	LimbBits  int
 	PieceBits int
-	Lookups   bool
 }
 
-var (
-	LookupLayout = Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11, Lookups: true}
-	PlainLayout  = Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 32}
-)
-
-func LayoutFor(lookups bool) Layout {
-	if lookups {
-		return LookupLayout
-	}
-	return PlainLayout
-}
+var LookupLayout = Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}
 
 func (l Layout) header() []frontend.Variable {
 	return []frontend.Variable{l.NbLimbs, l.LimbBits, l.PieceBits}

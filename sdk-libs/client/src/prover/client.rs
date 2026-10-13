@@ -68,7 +68,7 @@ fn prover_port(server_address: &str) -> u16 {
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
-// A heavy cold proof (the first P256 request loads a 63MB key and runs a
+// A heavy cold proof (the first ring signature request loads a 63MB key and runs a
 // 205k-constraint Groth16 prove) can drop the HTTP connection under CPU/memory
 // contention while the server stays up. Proof generation is idempotent, so the
 // request is retried; the key is warm by the next attempt and proves quickly.

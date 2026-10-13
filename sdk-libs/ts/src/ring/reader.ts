@@ -60,11 +60,19 @@ export function checkedReaderKey(reader: ReaderKey): ReaderKey {
   return reader;
 }
 
-/** The program's 34-byte scheme-tagged layout. */
+/**
+ * The program's 34-byte scheme-tagged layout: `READER_KEY_ED25519 || pk || 0` or
+ * `READER_KEY_P256 || sec1`. A P-256 reader is not an owner scheme, so its
+ * encoding does not go through `ShieldedPublicKey`.
+ */
 export function readerKeyBytes(reader: ReaderKey): Uint8Array {
-  return typeof reader === "string"
-    ? ShieldedPublicKey.fromEd25519(addressBytes(reader, "reader") as Bytes32).toBytes()
-    : ShieldedPublicKey.fromP256(reader).toBytes();
+  if (typeof reader === "string") {
+    return ShieldedPublicKey.fromEd25519(addressBytes(reader, "reader") as Bytes32).toBytes();
+  }
+  const bytes = new Uint8Array(34);
+  bytes[0] = READER_KEY_P256;
+  bytes.set(reader.toBytes(), 1);
+  return bytes;
 }
 
 /** Mirrors Rust `ReaderKey::from_bytes`. */

@@ -73,8 +73,9 @@ pub struct MergeProofResult {
     /// re-derive it.
     pub external_data_hash: [u8; 32],
     pub expiry_unix_ts: u64,
-    /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
-    /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
+    /// True when the owner is a Solana (ed25519 or PDA) signer, so
+    /// `merge_transact` derives `signing_pk_field` from the registry account
+    /// owner. Clients build no other owner.
     pub eddsa_owner: bool,
     pub cache_slot: Option<u8>,
     pub ring_program_id: Option<Address>,
@@ -335,10 +336,7 @@ impl MergeProver {
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
         elements.extend(rail.public_inputs);
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
-        let eddsa_owner = match signing_pubkey.curve()? {
-            Curve::Ed25519 | Curve::Pda => true,
-            Curve::P256 => false,
-        };
+        let eddsa_owner = matches!(signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda);
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
             .outputs

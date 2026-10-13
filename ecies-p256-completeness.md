@@ -285,7 +285,7 @@ The opaque small-table completeness contract now applies only to widths
 Boolean witnesses directly. This changes no scalar or point input domain.
 
 `CompletenessCombFirst.lean` constructs the actual first
-`CombChainStep_8_8_8_8_8_8_8_h9024d0c7`. It chooses a chord slope from the
+`CombChainStep_8_8_8_8_8_8_8_h14296507`. It chooses a chord slope from the
 two finite noncolliding points, constructs balanced 11/11/10 slope pieces,
 supplies the actual `CheckPolynomial_32_hb838cae4` assertion through the
 parent's concrete bridge/capacity theorem, and constructs the actual
@@ -307,7 +307,7 @@ This read-only text comparison did not execute Lean or circuit arithmetic.
 
 `completeAdd_with_point_complete` in `CompletenessAdd.lean` now attaches
 canonical integer coordinates below p and the finite curve/group-sum fact
-to its actual `CompleteAdd_8_8_8_8_hd2848b17` witness. It derives the output
+to its actual `CompleteAdd_8_8_8_8_h3f5cf0cd` witness. It derives the output
 cast identities from the explicitly selected remainders and
 `foldedValue_congr`, without lookup soundness. The older existence interface
 remains as a wrapper. `CompletenessCombTail.lean` assembles the actual final
@@ -326,7 +326,7 @@ declarations remain unelaborated. This component ran no tests, builds, Lean,
 circuit/witness evaluation, generators, or arithmetic search.
 
 `CompletenessCombSecond.lean` now also constructs actual second chain
-`CombChainStep_8_8_8_8_8_8_8_h88ed5eb6`, including its own bounded
+`CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5`, including its own bounded
 `Lazy_24_h33616364` witness and its six-input
 `CheckPolynomial_48_hd6f972c2` assertion. Its chord slope uses the previous
 implicit accumulator y-coordinate, and its `ChainRel` and finite group
@@ -354,7 +354,7 @@ It assumes neither an actual chain witness nor successful hint evaluation.
 
 `CompletenessScalarMulBase.lean` now contains handwritten
 `scalarMulBase_complete` source targeting the actual
-`ScalarMulBase_8_hd39a5e0e` predicate. Its domain is every `ElemVal 8` with
+`ScalarMulBase_8_h3037b025` predicate. Its domain is every `ElemVal 8` with
 `bnd = reducedC` and `value.toNat % n ≠ 0`. In particular it accepts the
 noncanonical representatives above n permitted by the 32-byte production
 API. The scalar width/nonnegativity follows from the element bounds; no
@@ -387,7 +387,7 @@ remains separate from mathematical witness existence.
 
 ### Variable-base arithmetic assembly inventory and new constructors
 
-The central ordinary quad `QuadrupleAndAddLazy_8_8_8_8_h320f0a4e` uses
+The central ordinary quad `QuadrupleAndAddLazy_8_8_8_8_haf2b5bed` uses
 actual tangent assertion32 `h6485b116`, lazy double-x16 `h53928760`, lazy
 double-y24 `h31bd1a61`, chord assertion32 `hdaa6ee4a`, repaired flag
 assertion49 `ha68a8775`, lazy intermediate-x24 `hdbbbc800`, second-slope
@@ -422,7 +422,7 @@ determinant bounded by `den + 4*num < n`. In the num-even case gcd forces
 den odd and excludes `den = 3*num`; no secret-domain restriction is added.
 
 `CompletenessHalfTangent.lean` constructs the actual
-`HalfTangentSlope_8_8_habd58e5e` predicate for every finite reduced point:
+`HalfTangentSlope_8_8_h2c0228bb` predicate for every finite reduced point:
 the mathematical half point supplies a quartic root, balanced pieces encode
 it, actual lazy8 `h158c056f` supplies its square, and actual assertion40
 `h0930c075` checks the quartic before an arbitrary continuation. The root
@@ -600,9 +600,9 @@ finiteness from the primitive rational decomposition. Neither assumes success
 of a native operation or narrows the supported scalar/point domain.
 
 Actual native arithmetic candidates now cover all four quad variants:
-`CompletenessQuad` for `h320f0a4e`, `CompletenessQuadFirst` for `he10e6061`,
-`CompletenessQuadTransition` for `h8a920ea3`, and `CompletenessQuadLast` for
-`h4e58d4bc`. Each constructs its own exact extracted primitive certificates,
+`CompletenessQuad` for `haf2b5bed`, `CompletenessQuadFirst` for `h577e35e6`,
+`CompletenessQuadTransition` for `h6e46ac5c`, and `CompletenessQuadLast` for
+`h4bfcc75d`. Each constructs its own exact extracted primitive certificates,
 Lazy outputs, balanced hints and continuation witnesses. First inputs are
 reduced; the first output-Y bound is `h57fc266d`; transition accepts that bound
 and returns the ordinary `hee995b41` bound. Final selected-Y is reduced,
@@ -688,7 +688,7 @@ witness assembly remains separate ongoing work.
 
 An axiom audit of the primitive/signed decomposition, finite prefixes,
 middle/final noncollisions, half-tangent existence/uniqueness, concrete
-counterexample and repaired public `ladder_step_h320f0a4e` passes: each uses
+counterexample and repaired public `ladder_step_haf2b5bed` passes: each uses
 only `propext`, `Classical.choice` and `Quot.sound`. The audit source and
 output are `/private/tmp/ecies-ladder-axioms.lean` and `.log`.
 
@@ -703,7 +703,7 @@ composition lemmas pending parent review, generation and kernel checking;
 the outer mathematical pipeline must construct all their premises.
 
 `CompletenessTriple` and `CompletenessTripleSelected` now contain full actual
-Triple constructor candidates for `habd58e5e` and `he2f2b0f5`, including both
+Triple constructor candidates for `h2c0228bb` and `hffcb8921`, including both
 balanced hint vectors, tangent and return-ratio checks, the genuine `2Y`
 native layout, Lazy doubled-X, both reduced-output Eval checks, and native
 continuation composition. The selected-Y variant uses the actual `selC`
@@ -886,7 +886,7 @@ normalizes only the finite indices and literal powers. The Add/Quad callers
 inherit these helpers by imports; their actual gadget constructors still need
 their own kernel checks.
 
-The complete actual `Add_8_8_8_8_hd2848b17` outer constructor now passes
+The complete actual `Add_8_8_8_8_h3f5cf0cd` outer constructor now passes
 Lean (`/private/tmp/ecies-chord-add-base-6.log`). It constructs both canonical
 output coordinates, all 48 unsigned pieces, the actual Lazy primitive and
 both polynomial assertions, and returns the actual native continuation with
@@ -901,9 +901,9 @@ Full scalar and agreement composition remains open.
 Serial parent review completed the full ordinary Triple constructor on
 2026-10-12. `CompletenessTripleX`, `CompletenessTripleY`,
 `CompletenessTripleArithmetic`, and `CompletenessTriple` pass Lean. The full
-`triple_habd58e5e_complete` theorem constructs canonical reduced outputs,
+`triple_h2c0228bb_complete` theorem constructs canonical reduced outputs,
 proves their group identity `3 • P`, and constructs the actual extracted
-`Triple_8_8_habd58e5e` continuation for every finite reduced input point.
+`Triple_8_8_h2c0228bb` continuation for every finite reduced input point.
 `RangeComplete` remains explicit; there is no assumed successful arithmetic
 primitive, additional point exclusion, or narrowed production input domain.
 The checked geometric triple theorem discharges both denominators. The
@@ -933,7 +933,7 @@ witnesses, tests or solvers were executed.
 ### Selected-y Triple: full kernel validation
 
 `CompletenessTripleSelectedArithmetic`, `CompletenessTripleSelectedY`, and
-the full `triple_he2f2b0f5_complete` endpoint now pass kernel checking. The
+the full `triple_hffcb8921_complete` endpoint now pass kernel checking. The
 source preserves the actual `selC` y-input domain, tangent check `h8cfcaa46`,
 return-slope check `h6a3ed603`, and y-output Eval `h70dd0288`. It reuses the
 checked DoubleX and TripleX constructors and generic abstract-element layouts.
@@ -998,7 +998,7 @@ All checks were serial; no tests, Go hints, witnesses or circuits ran.
 `CompletenessCombMath`, `CompletenessCombSecondNative`,
 `CompletenessCombSecondArithmetic`, and the full `combSecond_complete`
 endpoint pass kernel checking. The latter constructs the actual
-`CombChainStep_8_8_8_8_8_8_8_h88ed5eb6` predicate, using the six-element
+`CombChainStep_8_8_8_8_8_8_8_hd0a2e1d5` predicate, using the six-element
 `hd6f972c2` slope assertion and bounded `h33616364` Lazy output. The original
 input bounds, `RangeComplete` premise, local finite-point noncollision,
 `ChainRel` and group-sum result are unchanged. The outer theorem constructs
@@ -1116,7 +1116,7 @@ full fixed-base theorem has passed.
 ### Complete addition: full kernel validation, including equal points
 
 `completeAdd_with_point_complete` and its compatibility wrapper now pass
-kernel checking for actual `CompleteAdd_8_8_8_8_hd2848b17`. Their original
+kernel checking for actual `CompleteAdd_8_8_8_8_h3f5cf0cd`. Their original
 domain is unchanged: all four coordinate elements have reduced bounds, the
 two x coordinates are canonical below p, both points are finite/on-curve,
 and the points are not inverses. Equal points are included; the unchanged
@@ -1171,7 +1171,7 @@ multiplication still requires validation.
 pass kernel checking. The public domain and actual nested predicate are
 unchanged: `CheckPolynomial_8_h78194ae0`, followed by
 `CheckPolynomial_24_h0845ed76`, followed by
-`CompleteAdd_8_8_8_8_hd2848b17`. X retains the literal last-lazy
+`CompleteAdd_8_8_8_8_h3f5cf0cd`. X retains the literal last-lazy
 `h7e1bb4d8` bound, and recovery retains the packed-y input bound.
 
 The constructor chooses canonical FP representatives of the accumulator x
@@ -1195,7 +1195,7 @@ and no tests, hints, witnesses, solvers or Go execution occurred.
 
 ### Full fixed-base multiplication: kernel validation
 
-`scalarMulBase_complete` now passes Lean for actual `ScalarMulBase_8_hd39a5e0e`.
+`scalarMulBase_complete` now passes Lean for actual `ScalarMulBase_8_h3037b025`.
 Its domain is every reduced 256-bit scalar whose integer value has nonzero
 residue modulo n, including representatives above n. The only lookup-completeness
 premise is `RangeComplete`. It constructs canonical x/y below p, proves their
@@ -1240,7 +1240,7 @@ orientation. This review does not establish Go hint correspondence.
 
 `CompletenessHalfTangentArithmetic`, `CompletenessHalfTangentNative`, and
 the full `halfTangent_complete` endpoint now pass kernel checking for actual
-`HalfTangentSlope_8_8_habd58e5e`. The domain remains every finite reduced input
+`HalfTangentSlope_8_8_h2c0228bb`. The domain remains every finite reduced input
 point, with explicit `RangeComplete` and no point exclusion or assumed
 successful operation. The root is supplied by the already proved mathematical
 half point and odd group order. Both tangent denominators follow from checked
@@ -1275,8 +1275,8 @@ key-agreement completeness still require work.
 
 ### First actual Quad constructor: kernel-checked checkpoint
 
-`CompletenessQuadFirst.quadAdd_he10e6061_complete` now passes kernel checking
-for the actual `QuadrupleAndAddLazy_8_8_8_8_he10e6061` predicate. Its public
+`CompletenessQuadFirst.quadAdd_h577e35e6_complete` now passes kernel checking
+for the actual `QuadrupleAndAddLazy_8_8_8_8_h577e35e6` predicate. Its public
 statement is unchanged: reduced AX/AY/SX, unpacked SY, finite input points,
 the existing geometric `hfirst` and `hout` premises, and explicit
 `RangeComplete`. It constructs outputs with the literal `lazy_h9c68f146` and
@@ -1322,7 +1322,7 @@ solver, other Quad constructor or whole variable-base assembly was run.
 All owned Lean processes finished for parent review.
 
 Parent review independently checked the first-Quad arithmetic and outer
-constructor against `QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose`, including
+constructor against `QuadrupleAndAddLazy_8_8_8_8_h577e35e6_compose`, including
 all three balanced slope decompositions and their 11/11/10 range pieces,
 the five Lazy calls, four polynomial checks, native zero flag and actual
 return. The fallback equation follows from the geometric LastSlope identity
@@ -1340,7 +1340,7 @@ and witness/solver execution remain unperformed.
 The parent reviewed the prepared `CompletenessQuadTransitionArithmetic` and
 `CompletenessQuadTransition` source while the worker was idle and the sole
 unchanged assertion80 check continued. The public
-`quadAdd_h8a920ea3_complete` header, premises and actual extracted target are
+`quadAdd_h6e46ac5c_complete` header, premises and actual extracted target are
 byte-identical to the saved original source. AX/AY retain the first-Quad Lazy
 bounds, SX/SY retain their reduced/unpacked bounds, and the local geometric
 premises remain explicit obligations for whole-ladder composition.
@@ -1365,7 +1365,7 @@ witness/solver or test execution was performed.
 
 The parent reviewed the prepared `CompletenessQuadArithmetic` and refactored
 `CompletenessQuad` while the worker was idle. The public
-`quadAdd_h320f0a4e_complete` header, bounds, local geometric premises and actual
+`quadAdd_haf2b5bed_complete` header, bounds, local geometric premises and actual
 extracted target are byte-identical to the original source. The helper
 constructs tangent h6485b116, chord hdaa6ee4a, flagged fallback ha68a8775,
 second-slope h4960297a and all five exact Lazy continuations, including their
@@ -1387,7 +1387,7 @@ remain unfinished or unperformed.
 
 The parent independently reviewed `CompletenessQuadLastArithmetic` and the
 refactored `CompletenessQuadLast` while the subagent was inactive. The public
-`quadAdd_h4e58d4bc_complete` header, all bounds, local geometric premises and
+`quadAdd_h4bfcc75d_complete` header, all bounds, local geometric premises and
 actual extracted target are byte-identical to the original source. In
 particular, this final variant retains reduced SY and the unflagged 48-input
 LastSlope assertion; it does not inherit the middle variants' unpacked bound
@@ -1405,8 +1405,8 @@ remain unfinished, and no Go hint, witness/solver or test execution occurred.
 
 ### Transition Quad: kernel-checked checkpoint
 
-The reviewed `quadAdd_h8a920ea3_complete` now passes kernel checking for actual
-`QuadrupleAndAddLazy_8_8_8_8_h8a920ea3`. Its public header and target remain
+The reviewed `quadAdd_h6e46ac5c_complete` now passes kernel checking for actual
+`QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c`. Its public header and target remain
 byte-identical to the original saved source. The input domain retains AX at
 `lazy_h9c68f146`, AY at `lazy_h57fc266d`, reduced SX, unpacked SY, arbitrary
 native `hs`, both finite input points, and the existing geometric exclusions
@@ -1469,10 +1469,10 @@ checks and whole variable-base/key-agreement composition still outstanding.
 ### Ordinary and final Quad: kernel-checked checkpoint
 
 Both previously reviewed constructors now pass kernel checking without a
-source correction: `quadAdd_h320f0a4e_complete` for actual
-`QuadrupleAndAddLazy_8_8_8_8_h320f0a4e`, and
-`quadAdd_h4e58d4bc_complete` for actual
-`QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc`. Their public headers and targets remain
+source correction: `quadAdd_haf2b5bed_complete` for actual
+`QuadrupleAndAddLazy_8_8_8_8_haf2b5bed`, and
+`quadAdd_h4bfcc75d_complete` for actual
+`QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d`. Their public headers and targets remain
 byte-identical to the saved original snapshots. Both retain AX at
 `lazy_h9c68f146`, AY at `lazy_hee995b41`, reduced SX, arbitrary native hs,
 finite input points and the original local hfirst/hout geometric premises.
@@ -1507,7 +1507,7 @@ helper/full all pass; each seven-endpoint audit contains only `propext`,
 default linters and capped diagnostics. All owned processes finished.
 
 A read-only next-stage inventory identified exact remaining assembly work.
-The variable predicate is `ScalarMulChecked_8_8_8_h903d3456`; the key-agreement
+The variable predicate is `ScalarMulChecked_8_8_8_h9a706aba`; the key-agreement
 predicate is `AgreeKey_32_65_6`, with the already defined valid 65-byte
 uncompressed-public-key domain and all 32-byte nonzero-residue secrets.
 The checked main/p1 prefix bridge exists. ScalarCore p2..p9 composition and

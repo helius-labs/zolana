@@ -47,14 +47,14 @@ theorem sub_hxs (A B : ElemVal 8) {c : ElemC} (hf : Fits (fun i => A.ints.get i 
         linSub (A.limbs.get 6) (B.limbs.get 6), linSub (A.limbs.get 7) (B.limbs.get 7)]] := by
   simp only [limbLists, List.map, mkElem_limbs, ElemVal.limb_eq, linSub_cast]
 
-theorem add_hd2848b17_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_h3f5cf0cd_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = reducedC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_hd2848b17 PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_h3f5cf0cd PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_hd2848b17 Add_8_8_8_8_hd2848b17_p1 at h
+  unfold Add_8_8_8_8_h3f5cf0cd Add_8_8_8_8_h3f5cf0cd_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,
@@ -142,14 +142,14 @@ theorem add_hd2848b17_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : Elem
       push_cast
       linear_combination c32
 
-theorem add_he7b90398_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_hd5b7c255_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = selC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_he7b90398 PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_hd5b7c255 PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_he7b90398 Add_8_8_8_8_he7b90398_p1 at h
+  unfold Add_8_8_8_8_hd5b7c255 Add_8_8_8_8_hd5b7c255_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,
@@ -237,14 +237,14 @@ theorem add_he7b90398_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : Elem
       push_cast
       linear_combination c32
 
-theorem add_h17455767_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_h0ad2bc0e_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = selC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_h17455767 PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_h0ad2bc0e PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_h17455767 Add_8_8_8_8_h17455767_p1 at h
+  unfold Add_8_8_8_8_h0ad2bc0e Add_8_8_8_8_h0ad2bc0e_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,
@@ -332,14 +332,14 @@ theorem add_h17455767_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : Elem
       push_cast
       linear_combination c32
 
-theorem add_hc7058f2f_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_h6c663da6_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = selC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = reducedC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_hc7058f2f PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_h6c663da6 PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_hc7058f2f Add_8_8_8_8_hc7058f2f_p1 at h
+  unfold Add_8_8_8_8_h6c663da6 Add_8_8_8_8_h6c663da6_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,
@@ -427,14 +427,14 @@ theorem add_hc7058f2f_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : Elem
       push_cast
       linear_combination c32
 
-theorem add_h15bb4ad7_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_h5ebf7c05_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = reducedC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = negRedC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_h15bb4ad7 PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_h5ebf7c05 PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_h15bb4ad7 Add_8_8_8_8_h15bb4ad7_p1 at h
+  unfold Add_8_8_8_8_h5ebf7c05 Add_8_8_8_8_h5ebf7c05_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,
@@ -522,14 +522,14 @@ theorem add_h15bb4ad7_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : Elem
       push_cast
       linear_combination c32
 
-theorem add_h8ef7b27b_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_hfaa90f47_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = unpackC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = reducedC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_h8ef7b27b PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_hfaa90f47 PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_h8ef7b27b Add_8_8_8_8_h8ef7b27b_p1 at h
+  unfold Add_8_8_8_8_hfaa90f47 Add_8_8_8_8_hfaa90f47_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,

@@ -55,147 +55,7 @@ def quadNativeProduct (L : List.Vector F 8) (hs : F) : F :=
 
 /-- Composition only. All hints, ranges and primitive continuations are
 explicit; the mathematical constructor must supply every premise. -/
-theorem QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_compose (AX AY SX SY : List.Vector F 8) (hs : F)
-    (L M N DX DY IX OX OY : List.Vector F 8)
-    (b : Bool)
-    (rawL rawM rawN piecesL piecesM piecesN : List.Vector F 24)
-    (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (piecesL.get ⟨3 * i.val + 2, by omega⟩))
-    (hrM : ∀ i : Fin 8, RangeCheck 11 (piecesM.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (piecesM.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (piecesM.get ⟨3 * i.val + 2, by omega⟩))
-    (hrN : ∀ i : Fin 8, RangeCheck 11 (piecesN.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (piecesN.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (piecesN.get ⟨3 * i.val + 2, by omega⟩))
-    (hL : ∀ i : Fin 8, L.get i =
-      piecesL.get ⟨3 * i.val, by omega⟩ + piecesL.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      piecesL.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (hM : ∀ i : Fin 8, M.get i =
-      piecesM.get ⟨3 * i.val, by omega⟩ + piecesM.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      piecesM.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (hN : ∀ i : Fin 8, N.get i =
-      piecesN.get ⟨3 * i.val, by omega⟩ + piecesN.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      piecesN.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (hzero : GatesDef.is_zero (quadNativeProduct L hs) (if b then 1 else 0))
-    (hTangent : CheckPolynomial_32_h6485b116 (quadTangentInput L AY AX))
-    (hChord : CheckPolynomial_32_hdaa6ee4a (quadChordInput M SX DX SY DY))
-    (hFallback : CheckPolynomial_49_ha68a8775 (quadFlagInput b M DY SY DX SX))
-    (hSecond : CheckPolynomial_40_h4960297a (quadSecondInput N IX DX M SX SY))
-    (hDX : ∀ k : List.Vector F 8 → Prop, k DX → Lazy_16_h53928760 (quadDoubleXInput L AX) k)
-    (hDY : ∀ k : List.Vector F 8 → Prop, k DY → Lazy_24_h31bd1a61 (quadDoubleYInput L AX DX AY) k)
-    (hIX : ∀ k : List.Vector F 8 → Prop, k IX → Lazy_24_hdbbbc800 (quadIntermediateInput M DX SX) k)
-    (hOX : ∀ k : List.Vector F 8 → Prop, k OX → Lazy_24_h9c68f146 (quadOutXInput N M SX) k)
-    (hOY : ∀ k : List.Vector F 8 → Prop, k OY → Lazy_40_hee995b41 (quadOutYInput M N OX DX SX SY) k)
-    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (OX ::ᵥ OY ::ᵥ List.Vector.nil)) :
-    QuadrupleAndAddLazy_8_8_8_8_h320f0a4e AX AY SX SY hs k := by
-  have hL0 := hL (0 : Fin 8)
-  have hL1 := hL (1 : Fin 8)
-  have hL2 := hL (2 : Fin 8)
-  have hL3 := hL (3 : Fin 8)
-  have hL4 := hL (4 : Fin 8)
-  have hL5 := hL (5 : Fin 8)
-  have hL6 := hL (6 : Fin 8)
-  have hL7 := hL (7 : Fin 8)
-  have hM0 := hM (0 : Fin 8)
-  have hM1 := hM (1 : Fin 8)
-  have hM2 := hM (2 : Fin 8)
-  have hM3 := hM (3 : Fin 8)
-  have hM4 := hM (4 : Fin 8)
-  have hM5 := hM (5 : Fin 8)
-  have hM6 := hM (6 : Fin 8)
-  have hM7 := hM (7 : Fin 8)
-  have hN0 := hN (0 : Fin 8)
-  have hN1 := hN (1 : Fin 8)
-  have hN2 := hN (2 : Fin 8)
-  have hN3 := hN (3 : Fin 8)
-  have hN4 := hN (4 : Fin 8)
-  have hN5 := hN (5 : Fin 8)
-  have hN6 := hN (6 : Fin 8)
-  have hN7 := hN (7 : Fin 8)
-  simp only [sub_eq_add_neg, mul_comm] at hL0 hL1 hL2 hL3 hL4 hL5 hL6 hL7 hM0 hM1 hM2 hM3 hM4 hM5 hM6 hM7 hN0 hN1 hN2 hN3 hN4 hN5 hN6 hN7
-  change L.get 0 = piecesL.get 0 + 2048 * piecesL.get 1 + 4194304 * piecesL.get 2 + -(2147483648 : F) at hL0
-  change L.get 1 = piecesL.get 3 + 2048 * piecesL.get 4 + 4194304 * piecesL.get 5 + -(2147483648 : F) at hL1
-  change L.get 2 = piecesL.get 6 + 2048 * piecesL.get 7 + 4194304 * piecesL.get 8 + -(2147483648 : F) at hL2
-  change L.get 3 = piecesL.get 9 + 2048 * piecesL.get 10 + 4194304 * piecesL.get 11 + -(2147483648 : F) at hL3
-  change L.get 4 = piecesL.get 12 + 2048 * piecesL.get 13 + 4194304 * piecesL.get 14 + -(2147483648 : F) at hL4
-  change L.get 5 = piecesL.get 15 + 2048 * piecesL.get 16 + 4194304 * piecesL.get 17 + -(2147483648 : F) at hL5
-  change L.get 6 = piecesL.get 18 + 2048 * piecesL.get 19 + 4194304 * piecesL.get 20 + -(2147483648 : F) at hL6
-  change L.get 7 = piecesL.get 21 + 2048 * piecesL.get 22 + 4194304 * piecesL.get 23 + -(2147483648 : F) at hL7
-  change M.get 0 = piecesM.get 0 + 2048 * piecesM.get 1 + 4194304 * piecesM.get 2 + -(2147483648 : F) at hM0
-  change M.get 1 = piecesM.get 3 + 2048 * piecesM.get 4 + 4194304 * piecesM.get 5 + -(2147483648 : F) at hM1
-  change M.get 2 = piecesM.get 6 + 2048 * piecesM.get 7 + 4194304 * piecesM.get 8 + -(2147483648 : F) at hM2
-  change M.get 3 = piecesM.get 9 + 2048 * piecesM.get 10 + 4194304 * piecesM.get 11 + -(2147483648 : F) at hM3
-  change M.get 4 = piecesM.get 12 + 2048 * piecesM.get 13 + 4194304 * piecesM.get 14 + -(2147483648 : F) at hM4
-  change M.get 5 = piecesM.get 15 + 2048 * piecesM.get 16 + 4194304 * piecesM.get 17 + -(2147483648 : F) at hM5
-  change M.get 6 = piecesM.get 18 + 2048 * piecesM.get 19 + 4194304 * piecesM.get 20 + -(2147483648 : F) at hM6
-  change M.get 7 = piecesM.get 21 + 2048 * piecesM.get 22 + 4194304 * piecesM.get 23 + -(2147483648 : F) at hM7
-  change N.get 0 = piecesN.get 0 + 2048 * piecesN.get 1 + 4194304 * piecesN.get 2 + -(2147483648 : F) at hN0
-  change N.get 1 = piecesN.get 3 + 2048 * piecesN.get 4 + 4194304 * piecesN.get 5 + -(2147483648 : F) at hN1
-  change N.get 2 = piecesN.get 6 + 2048 * piecesN.get 7 + 4194304 * piecesN.get 8 + -(2147483648 : F) at hN2
-  change N.get 3 = piecesN.get 9 + 2048 * piecesN.get 10 + 4194304 * piecesN.get 11 + -(2147483648 : F) at hN3
-  change N.get 4 = piecesN.get 12 + 2048 * piecesN.get 13 + 4194304 * piecesN.get 14 + -(2147483648 : F) at hN4
-  change N.get 5 = piecesN.get 15 + 2048 * piecesN.get 16 + 4194304 * piecesN.get 17 + -(2147483648 : F) at hN5
-  change N.get 6 = piecesN.get 18 + 2048 * piecesN.get 19 + 4194304 * piecesN.get 20 + -(2147483648 : F) at hN6
-  change N.get 7 = piecesN.get 21 + 2048 * piecesN.get 22 + 4194304 * piecesN.get 23 + -(2147483648 : F) at hN7
-  have hDXNative := hDX
-  simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
-  have hDYNative := hDY
-  simp only [quadDoubleYInput, sub_eq_add_neg, mul_comm] at hDYNative
-  have hIXNative := hIX
-  simp only [quadIntermediateInput, sub_eq_add_neg, mul_comm] at hIXNative
-  have hOXNative := hOX
-  simp only [quadOutXInput, sub_eq_add_neg, mul_comm] at hOXNative
-  have hOYNative := hOY
-  simp only [quadOutYInput, sub_eq_add_neg, mul_comm] at hOYNative
-  have hzeroNative := hzero
-  simp only [quadNativeProduct, quadNativeValue, sub_eq_add_neg, mul_comm] at hzeroNative
-  unfold QuadrupleAndAddLazy_8_8_8_8_h320f0a4e
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  refine ⟨rawL, piecesL, (hrL 0).1, (hrL 0).2.1, (hrL 0).2.2, (hrL 1).1, (hrL 1).2.1, (hrL 1).2.2, (hrL 2).1, (hrL 2).2.1, (hrL 2).2.2, (hrL 3).1, (hrL 3).2.1, (hrL 3).2.2, (hrL 4).1, (hrL 4).2.1, (hrL 4).2.2, (hrL 5).1, (hrL 5).2.1, (hrL 5).2.2, (hrL 6).1, (hrL 6).2.1, (hrL 6).2.2, (hrL 7).1, (hrL 7).2.1, (hrL 7).2.2, ?_, ?_⟩
-  ·
-    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
-    simpa only [quadTangentInput, quadCompositionA] using hTangent
-  ·
-    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
-    apply hDXNative
-    apply hDYNative
-    refine ⟨rawM, piecesM, (hrM 0).1, (hrM 0).2.1, (hrM 0).2.2, (hrM 1).1, (hrM 1).2.1, (hrM 1).2.2, (hrM 2).1, (hrM 2).2.1, (hrM 2).2.2, (hrM 3).1, (hrM 3).2.1, (hrM 3).2.2, (hrM 4).1, (hrM 4).2.1, (hrM 4).2.2, ?_⟩
-    unfold QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p1
-    simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-      GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-      mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-    refine ⟨(hrM 5).1, (hrM 5).2.1, (hrM 5).2.2, (hrM 6).1, (hrM 6).2.1, (hrM 6).2.2, (hrM 7).1, (hrM 7).2.1, (hrM 7).2.2, ?_, ?_⟩
-    ·
-      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
-      simpa only [quadChordInput, sub_eq_add_neg, mul_comm] using hChord
-    ·
-      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
-      refine ⟨(if b then 1 else 0), ?_, ?_, ?_⟩
-      · exact hzeroNative
-      · simpa only [quadFlagInput, quadCompositionA, sub_eq_add_neg, mul_comm] using hFallback
-      ·
-        apply hIXNative
-        refine ⟨rawN, piecesN, (hrN 0).1, (hrN 0).2.1, (hrN 0).2.2, (hrN 1).1, (hrN 1).2.1, (hrN 1).2.2, (hrN 2).1, (hrN 2).2.1, (hrN 2).2.2, (hrN 3).1, (hrN 3).2.1, (hrN 3).2.2, (hrN 4).1, (hrN 4).2.1, (hrN 4).2.2, (hrN 5).1, (hrN 5).2.1, (hrN 5).2.2, (hrN 6).1, (hrN 6).2.1, (hrN 6).2.2, (hrN 7).1, (hrN 7).2.1, ?_⟩
-        unfold QuadrupleAndAddLazy_8_8_8_8_h320f0a4e_p2
-        simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-          GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-          mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-        refine ⟨(hrN 7).2.2, ?_, ?_⟩
-        ·
-          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
-          simpa only [quadSecondInput, sub_eq_add_neg, mul_comm] using hSecond
-        ·
-          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
-          apply hOXNative
-          apply hOYNative
-          exact hk
-
-/-- Composition only. All hints, ranges and primitive continuations are
-explicit; the mathematical constructor must supply every premise. -/
-theorem QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_compose (AX AY SX SY : List.Vector F 8) (hs : F)
+theorem QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d_compose (AX AY SX SY : List.Vector F 8) (hs : F)
     (L M N DX DY IX OX OY : List.Vector F 8)
     (rawL rawM rawN piecesL piecesM piecesN : List.Vector F 24)
     (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
@@ -226,7 +86,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_compose (AX AY SX SY : List.Vector
     (hOX : ∀ k : List.Vector F 8 → Prop, k OX → Lazy_24_h9c68f146 (quadOutXInput N M SX) k)
     (hOY : ∀ k : List.Vector F 8 → Prop, k OY → Lazy_40_hc2c2cd77 (quadOutYInput M N OX DX SX SY) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (OX ::ᵥ OY ::ᵥ List.Vector.nil)) :
-    QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc AX AY SX SY hs k := by
+    QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d AX AY SX SY hs k := by
   have hL0 := hL (0 : Fin 8)
   have hL1 := hL (1 : Fin 8)
   have hL2 := hL (2 : Fin 8)
@@ -286,7 +146,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_compose (AX AY SX SY : List.Vector
   simp only [quadOutXInput, sub_eq_add_neg, mul_comm] at hOXNative
   have hOYNative := hOY
   simp only [quadOutYInput, sub_eq_add_neg, mul_comm] at hOYNative
-  unfold QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc
+  unfold QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -299,7 +159,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_compose (AX AY SX SY : List.Vector
     apply hDXNative
     apply hDYNative
     refine ⟨rawM, piecesM, (hrM 0).1, (hrM 0).2.1, (hrM 0).2.2, (hrM 1).1, (hrM 1).2.1, (hrM 1).2.2, (hrM 2).1, (hrM 2).2.1, (hrM 2).2.2, (hrM 3).1, (hrM 3).2.1, (hrM 3).2.2, (hrM 4).1, (hrM 4).2.1, (hrM 4).2.2, ?_⟩
-    unfold QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_p1
+    unfold QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d_p1
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -314,7 +174,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_compose (AX AY SX SY : List.Vector
       ·
         apply hIXNative
         refine ⟨rawN, piecesN, (hrN 0).1, (hrN 0).2.1, (hrN 0).2.2, (hrN 1).1, (hrN 1).2.1, (hrN 1).2.2, (hrN 2).1, (hrN 2).2.1, (hrN 2).2.2, (hrN 3).1, (hrN 3).2.1, (hrN 3).2.2, (hrN 4).1, (hrN 4).2.1, (hrN 4).2.2, (hrN 5).1, (hrN 5).2.1, (hrN 5).2.2, (hrN 6).1, (hrN 6).2.1, (hrN 6).2.2, (hrN 7).1, (hrN 7).2.1, (hrN 7).2.2, ?_⟩
-        unfold QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_p2
+        unfold QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d_p2
         simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
           GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
           mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -330,147 +190,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc_compose (AX AY SX SY : List.Vector
 
 /-- Composition only. All hints, ranges and primitive continuations are
 explicit; the mathematical constructor must supply every premise. -/
-theorem QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_compose (AX AY SX SY : List.Vector F 8) (hs : F)
-    (L M N DX DY IX OX OY : List.Vector F 8)
-    (b : Bool)
-    (rawL rawM rawN piecesL piecesM piecesN : List.Vector F 24)
-    (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (piecesL.get ⟨3 * i.val + 2, by omega⟩))
-    (hrM : ∀ i : Fin 8, RangeCheck 11 (piecesM.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (piecesM.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (piecesM.get ⟨3 * i.val + 2, by omega⟩))
-    (hrN : ∀ i : Fin 8, RangeCheck 11 (piecesN.get ⟨3 * i.val, by omega⟩) ∧
-      RangeCheck 11 (piecesN.get ⟨3 * i.val + 1, by omega⟩) ∧
-      RangeCheck 10 (piecesN.get ⟨3 * i.val + 2, by omega⟩))
-    (hL : ∀ i : Fin 8, L.get i =
-      piecesL.get ⟨3 * i.val, by omega⟩ + piecesL.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      piecesL.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (hM : ∀ i : Fin 8, M.get i =
-      piecesM.get ⟨3 * i.val, by omega⟩ + piecesM.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      piecesM.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (hN : ∀ i : Fin 8, N.get i =
-      piecesN.get ⟨3 * i.val, by omega⟩ + piecesN.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
-      piecesN.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
-    (hzero : GatesDef.is_zero (quadNativeProduct L hs) (if b then 1 else 0))
-    (hTangent : CheckPolynomial_32_hcedf35dc (quadTangentInput L AY AX))
-    (hChord : CheckPolynomial_32_h63304ca5 (quadChordInput M SX DX SY DY))
-    (hFallback : CheckPolynomial_49_h9104a5ae (quadFlagInput b M DY SY DX SX))
-    (hSecond : CheckPolynomial_40_h4960297a (quadSecondInput N IX DX M SX SY))
-    (hDX : ∀ k : List.Vector F 8 → Prop, k DX → Lazy_16_h53928760 (quadDoubleXInput L AX) k)
-    (hDY : ∀ k : List.Vector F 8 → Prop, k DY → Lazy_24_h0ebd3832 (quadDoubleYInput L AX DX AY) k)
-    (hIX : ∀ k : List.Vector F 8 → Prop, k IX → Lazy_24_hdbbbc800 (quadIntermediateInput M DX SX) k)
-    (hOX : ∀ k : List.Vector F 8 → Prop, k OX → Lazy_24_h9c68f146 (quadOutXInput N M SX) k)
-    (hOY : ∀ k : List.Vector F 8 → Prop, k OY → Lazy_40_hee995b41 (quadOutYInput M N OX DX SX SY) k)
-    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (OX ::ᵥ OY ::ᵥ List.Vector.nil)) :
-    QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 AX AY SX SY hs k := by
-  have hL0 := hL (0 : Fin 8)
-  have hL1 := hL (1 : Fin 8)
-  have hL2 := hL (2 : Fin 8)
-  have hL3 := hL (3 : Fin 8)
-  have hL4 := hL (4 : Fin 8)
-  have hL5 := hL (5 : Fin 8)
-  have hL6 := hL (6 : Fin 8)
-  have hL7 := hL (7 : Fin 8)
-  have hM0 := hM (0 : Fin 8)
-  have hM1 := hM (1 : Fin 8)
-  have hM2 := hM (2 : Fin 8)
-  have hM3 := hM (3 : Fin 8)
-  have hM4 := hM (4 : Fin 8)
-  have hM5 := hM (5 : Fin 8)
-  have hM6 := hM (6 : Fin 8)
-  have hM7 := hM (7 : Fin 8)
-  have hN0 := hN (0 : Fin 8)
-  have hN1 := hN (1 : Fin 8)
-  have hN2 := hN (2 : Fin 8)
-  have hN3 := hN (3 : Fin 8)
-  have hN4 := hN (4 : Fin 8)
-  have hN5 := hN (5 : Fin 8)
-  have hN6 := hN (6 : Fin 8)
-  have hN7 := hN (7 : Fin 8)
-  simp only [sub_eq_add_neg, mul_comm] at hL0 hL1 hL2 hL3 hL4 hL5 hL6 hL7 hM0 hM1 hM2 hM3 hM4 hM5 hM6 hM7 hN0 hN1 hN2 hN3 hN4 hN5 hN6 hN7
-  change L.get 0 = piecesL.get 0 + 2048 * piecesL.get 1 + 4194304 * piecesL.get 2 + -(2147483648 : F) at hL0
-  change L.get 1 = piecesL.get 3 + 2048 * piecesL.get 4 + 4194304 * piecesL.get 5 + -(2147483648 : F) at hL1
-  change L.get 2 = piecesL.get 6 + 2048 * piecesL.get 7 + 4194304 * piecesL.get 8 + -(2147483648 : F) at hL2
-  change L.get 3 = piecesL.get 9 + 2048 * piecesL.get 10 + 4194304 * piecesL.get 11 + -(2147483648 : F) at hL3
-  change L.get 4 = piecesL.get 12 + 2048 * piecesL.get 13 + 4194304 * piecesL.get 14 + -(2147483648 : F) at hL4
-  change L.get 5 = piecesL.get 15 + 2048 * piecesL.get 16 + 4194304 * piecesL.get 17 + -(2147483648 : F) at hL5
-  change L.get 6 = piecesL.get 18 + 2048 * piecesL.get 19 + 4194304 * piecesL.get 20 + -(2147483648 : F) at hL6
-  change L.get 7 = piecesL.get 21 + 2048 * piecesL.get 22 + 4194304 * piecesL.get 23 + -(2147483648 : F) at hL7
-  change M.get 0 = piecesM.get 0 + 2048 * piecesM.get 1 + 4194304 * piecesM.get 2 + -(2147483648 : F) at hM0
-  change M.get 1 = piecesM.get 3 + 2048 * piecesM.get 4 + 4194304 * piecesM.get 5 + -(2147483648 : F) at hM1
-  change M.get 2 = piecesM.get 6 + 2048 * piecesM.get 7 + 4194304 * piecesM.get 8 + -(2147483648 : F) at hM2
-  change M.get 3 = piecesM.get 9 + 2048 * piecesM.get 10 + 4194304 * piecesM.get 11 + -(2147483648 : F) at hM3
-  change M.get 4 = piecesM.get 12 + 2048 * piecesM.get 13 + 4194304 * piecesM.get 14 + -(2147483648 : F) at hM4
-  change M.get 5 = piecesM.get 15 + 2048 * piecesM.get 16 + 4194304 * piecesM.get 17 + -(2147483648 : F) at hM5
-  change M.get 6 = piecesM.get 18 + 2048 * piecesM.get 19 + 4194304 * piecesM.get 20 + -(2147483648 : F) at hM6
-  change M.get 7 = piecesM.get 21 + 2048 * piecesM.get 22 + 4194304 * piecesM.get 23 + -(2147483648 : F) at hM7
-  change N.get 0 = piecesN.get 0 + 2048 * piecesN.get 1 + 4194304 * piecesN.get 2 + -(2147483648 : F) at hN0
-  change N.get 1 = piecesN.get 3 + 2048 * piecesN.get 4 + 4194304 * piecesN.get 5 + -(2147483648 : F) at hN1
-  change N.get 2 = piecesN.get 6 + 2048 * piecesN.get 7 + 4194304 * piecesN.get 8 + -(2147483648 : F) at hN2
-  change N.get 3 = piecesN.get 9 + 2048 * piecesN.get 10 + 4194304 * piecesN.get 11 + -(2147483648 : F) at hN3
-  change N.get 4 = piecesN.get 12 + 2048 * piecesN.get 13 + 4194304 * piecesN.get 14 + -(2147483648 : F) at hN4
-  change N.get 5 = piecesN.get 15 + 2048 * piecesN.get 16 + 4194304 * piecesN.get 17 + -(2147483648 : F) at hN5
-  change N.get 6 = piecesN.get 18 + 2048 * piecesN.get 19 + 4194304 * piecesN.get 20 + -(2147483648 : F) at hN6
-  change N.get 7 = piecesN.get 21 + 2048 * piecesN.get 22 + 4194304 * piecesN.get 23 + -(2147483648 : F) at hN7
-  have hDXNative := hDX
-  simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
-  have hDYNative := hDY
-  simp only [quadDoubleYInput, sub_eq_add_neg, mul_comm] at hDYNative
-  have hIXNative := hIX
-  simp only [quadIntermediateInput, sub_eq_add_neg, mul_comm] at hIXNative
-  have hOXNative := hOX
-  simp only [quadOutXInput, sub_eq_add_neg, mul_comm] at hOXNative
-  have hOYNative := hOY
-  simp only [quadOutYInput, sub_eq_add_neg, mul_comm] at hOYNative
-  have hzeroNative := hzero
-  simp only [quadNativeProduct, quadNativeValue, sub_eq_add_neg, mul_comm] at hzeroNative
-  unfold QuadrupleAndAddLazy_8_8_8_8_h8a920ea3
-  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-  refine ⟨rawL, piecesL, (hrL 0).1, (hrL 0).2.1, (hrL 0).2.2, (hrL 1).1, (hrL 1).2.1, (hrL 1).2.2, (hrL 2).1, (hrL 2).2.1, (hrL 2).2.2, (hrL 3).1, (hrL 3).2.1, (hrL 3).2.2, (hrL 4).1, (hrL 4).2.1, (hrL 4).2.2, (hrL 5).1, (hrL 5).2.1, (hrL 5).2.2, (hrL 6).1, (hrL 6).2.1, (hrL 6).2.2, (hrL 7).1, (hrL 7).2.1, (hrL 7).2.2, ?_, ?_⟩
-  ·
-    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
-    simpa only [quadTangentInput, quadCompositionA] using hTangent
-  ·
-    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
-    apply hDXNative
-    apply hDYNative
-    refine ⟨rawM, piecesM, (hrM 0).1, (hrM 0).2.1, (hrM 0).2.2, (hrM 1).1, (hrM 1).2.1, (hrM 1).2.2, (hrM 2).1, (hrM 2).2.1, (hrM 2).2.2, (hrM 3).1, (hrM 3).2.1, (hrM 3).2.2, (hrM 4).1, (hrM 4).2.1, (hrM 4).2.2, ?_⟩
-    unfold QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p1
-    simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-      GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-      mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-    refine ⟨(hrM 5).1, (hrM 5).2.1, (hrM 5).2.2, (hrM 6).1, (hrM 6).2.1, (hrM 6).2.2, (hrM 7).1, (hrM 7).2.1, (hrM 7).2.2, ?_, ?_⟩
-    ·
-      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
-      simpa only [quadChordInput, sub_eq_add_neg, mul_comm] using hChord
-    ·
-      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
-      refine ⟨(if b then 1 else 0), ?_, ?_, ?_⟩
-      · exact hzeroNative
-      · simpa only [quadFlagInput, quadCompositionA, sub_eq_add_neg, mul_comm] using hFallback
-      ·
-        apply hIXNative
-        refine ⟨rawN, piecesN, (hrN 0).1, (hrN 0).2.1, (hrN 0).2.2, (hrN 1).1, (hrN 1).2.1, (hrN 1).2.2, (hrN 2).1, (hrN 2).2.1, (hrN 2).2.2, (hrN 3).1, (hrN 3).2.1, (hrN 3).2.2, (hrN 4).1, (hrN 4).2.1, (hrN 4).2.2, (hrN 5).1, (hrN 5).2.1, (hrN 5).2.2, (hrN 6).1, (hrN 6).2.1, (hrN 6).2.2, (hrN 7).1, (hrN 7).2.1, ?_⟩
-        unfold QuadrupleAndAddLazy_8_8_8_8_h8a920ea3_p2
-        simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
-          GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
-          mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
-        refine ⟨(hrN 7).2.2, ?_, ?_⟩
-        ·
-          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
-          simpa only [quadSecondInput, sub_eq_add_neg, mul_comm] using hSecond
-        ·
-          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
-          apply hOXNative
-          apply hOYNative
-          exact hk
-
-/-- Composition only. All hints, ranges and primitive continuations are
-explicit; the mathematical constructor must supply every premise. -/
-theorem QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose (AX AY SX SY : List.Vector F 8) (hs : F)
+theorem QuadrupleAndAddLazy_8_8_8_8_h577e35e6_compose (AX AY SX SY : List.Vector F 8) (hs : F)
     (L M N DX DY IX OX OY : List.Vector F 8)
     (b : Bool)
     (rawL rawM rawN piecesL piecesM piecesN : List.Vector F 24)
@@ -503,7 +223,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose (AX AY SX SY : List.Vector
     (hOX : ∀ k : List.Vector F 8 → Prop, k OX → Lazy_24_h9c68f146 (quadOutXInput N M SX) k)
     (hOY : ∀ k : List.Vector F 8 → Prop, k OY → Lazy_40_h57fc266d (quadOutYInput M N OX DX SX SY) k)
     (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (OX ::ᵥ OY ::ᵥ List.Vector.nil)) :
-    QuadrupleAndAddLazy_8_8_8_8_he10e6061 AX AY SX SY hs k := by
+    QuadrupleAndAddLazy_8_8_8_8_h577e35e6 AX AY SX SY hs k := by
   have hL0 := hL (0 : Fin 8)
   have hL1 := hL (1 : Fin 8)
   have hL2 := hL (2 : Fin 8)
@@ -565,7 +285,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose (AX AY SX SY : List.Vector
   simp only [quadOutYInput, sub_eq_add_neg, mul_comm] at hOYNative
   have hzeroNative := hzero
   simp only [quadNativeProduct, quadNativeValue, sub_eq_add_neg, mul_comm] at hzeroNative
-  unfold QuadrupleAndAddLazy_8_8_8_8_he10e6061
+  unfold QuadrupleAndAddLazy_8_8_8_8_h577e35e6
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
     GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
     mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -578,7 +298,7 @@ theorem QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose (AX AY SX SY : List.Vector
     apply hDXNative
     apply hDYNative
     refine ⟨rawM, piecesM, (hrM 0).1, (hrM 0).2.1, (hrM 0).2.2, (hrM 1).1, (hrM 1).2.1, (hrM 1).2.2, (hrM 2).1, (hrM 2).2.1, (hrM 2).2.2, (hrM 3).1, (hrM 3).2.1, (hrM 3).2.2, (hrM 4).1, (hrM 4).2.1, (hrM 4).2.2, ?_⟩
-    unfold QuadrupleAndAddLazy_8_8_8_8_he10e6061_p1
+    unfold QuadrupleAndAddLazy_8_8_8_8_h577e35e6_p1
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
@@ -594,7 +314,287 @@ theorem QuadrupleAndAddLazy_8_8_8_8_he10e6061_compose (AX AY SX SY : List.Vector
       ·
         apply hIXNative
         refine ⟨rawN, piecesN, (hrN 0).1, (hrN 0).2.1, (hrN 0).2.2, (hrN 1).1, (hrN 1).2.1, (hrN 1).2.2, (hrN 2).1, (hrN 2).2.1, (hrN 2).2.2, (hrN 3).1, (hrN 3).2.1, (hrN 3).2.2, (hrN 4).1, (hrN 4).2.1, (hrN 4).2.2, (hrN 5).1, (hrN 5).2.1, (hrN 5).2.2, (hrN 6).1, (hrN 6).2.1, (hrN 6).2.2, (hrN 7).1, (hrN 7).2.1, ?_⟩
-        unfold QuadrupleAndAddLazy_8_8_8_8_he10e6061_p2
+        unfold QuadrupleAndAddLazy_8_8_8_8_h577e35e6_p2
+        simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+          GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+          mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+        refine ⟨(hrN 7).2.2, ?_, ?_⟩
+        ·
+          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
+          simpa only [quadSecondInput, sub_eq_add_neg, mul_comm] using hSecond
+        ·
+          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
+          apply hOXNative
+          apply hOYNative
+          exact hk
+
+/-- Composition only. All hints, ranges and primitive continuations are
+explicit; the mathematical constructor must supply every premise. -/
+theorem QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c_compose (AX AY SX SY : List.Vector F 8) (hs : F)
+    (L M N DX DY IX OX OY : List.Vector F 8)
+    (b : Bool)
+    (rawL rawM rawN piecesL piecesM piecesN : List.Vector F 24)
+    (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (piecesL.get ⟨3 * i.val + 2, by omega⟩))
+    (hrM : ∀ i : Fin 8, RangeCheck 11 (piecesM.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (piecesM.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (piecesM.get ⟨3 * i.val + 2, by omega⟩))
+    (hrN : ∀ i : Fin 8, RangeCheck 11 (piecesN.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (piecesN.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (piecesN.get ⟨3 * i.val + 2, by omega⟩))
+    (hL : ∀ i : Fin 8, L.get i =
+      piecesL.get ⟨3 * i.val, by omega⟩ + piecesL.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      piecesL.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (hM : ∀ i : Fin 8, M.get i =
+      piecesM.get ⟨3 * i.val, by omega⟩ + piecesM.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      piecesM.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (hN : ∀ i : Fin 8, N.get i =
+      piecesN.get ⟨3 * i.val, by omega⟩ + piecesN.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      piecesN.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (hzero : GatesDef.is_zero (quadNativeProduct L hs) (if b then 1 else 0))
+    (hTangent : CheckPolynomial_32_hcedf35dc (quadTangentInput L AY AX))
+    (hChord : CheckPolynomial_32_h63304ca5 (quadChordInput M SX DX SY DY))
+    (hFallback : CheckPolynomial_49_h9104a5ae (quadFlagInput b M DY SY DX SX))
+    (hSecond : CheckPolynomial_40_h4960297a (quadSecondInput N IX DX M SX SY))
+    (hDX : ∀ k : List.Vector F 8 → Prop, k DX → Lazy_16_h53928760 (quadDoubleXInput L AX) k)
+    (hDY : ∀ k : List.Vector F 8 → Prop, k DY → Lazy_24_h0ebd3832 (quadDoubleYInput L AX DX AY) k)
+    (hIX : ∀ k : List.Vector F 8 → Prop, k IX → Lazy_24_hdbbbc800 (quadIntermediateInput M DX SX) k)
+    (hOX : ∀ k : List.Vector F 8 → Prop, k OX → Lazy_24_h9c68f146 (quadOutXInput N M SX) k)
+    (hOY : ∀ k : List.Vector F 8 → Prop, k OY → Lazy_40_hee995b41 (quadOutYInput M N OX DX SX SY) k)
+    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (OX ::ᵥ OY ::ᵥ List.Vector.nil)) :
+    QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c AX AY SX SY hs k := by
+  have hL0 := hL (0 : Fin 8)
+  have hL1 := hL (1 : Fin 8)
+  have hL2 := hL (2 : Fin 8)
+  have hL3 := hL (3 : Fin 8)
+  have hL4 := hL (4 : Fin 8)
+  have hL5 := hL (5 : Fin 8)
+  have hL6 := hL (6 : Fin 8)
+  have hL7 := hL (7 : Fin 8)
+  have hM0 := hM (0 : Fin 8)
+  have hM1 := hM (1 : Fin 8)
+  have hM2 := hM (2 : Fin 8)
+  have hM3 := hM (3 : Fin 8)
+  have hM4 := hM (4 : Fin 8)
+  have hM5 := hM (5 : Fin 8)
+  have hM6 := hM (6 : Fin 8)
+  have hM7 := hM (7 : Fin 8)
+  have hN0 := hN (0 : Fin 8)
+  have hN1 := hN (1 : Fin 8)
+  have hN2 := hN (2 : Fin 8)
+  have hN3 := hN (3 : Fin 8)
+  have hN4 := hN (4 : Fin 8)
+  have hN5 := hN (5 : Fin 8)
+  have hN6 := hN (6 : Fin 8)
+  have hN7 := hN (7 : Fin 8)
+  simp only [sub_eq_add_neg, mul_comm] at hL0 hL1 hL2 hL3 hL4 hL5 hL6 hL7 hM0 hM1 hM2 hM3 hM4 hM5 hM6 hM7 hN0 hN1 hN2 hN3 hN4 hN5 hN6 hN7
+  change L.get 0 = piecesL.get 0 + 2048 * piecesL.get 1 + 4194304 * piecesL.get 2 + -(2147483648 : F) at hL0
+  change L.get 1 = piecesL.get 3 + 2048 * piecesL.get 4 + 4194304 * piecesL.get 5 + -(2147483648 : F) at hL1
+  change L.get 2 = piecesL.get 6 + 2048 * piecesL.get 7 + 4194304 * piecesL.get 8 + -(2147483648 : F) at hL2
+  change L.get 3 = piecesL.get 9 + 2048 * piecesL.get 10 + 4194304 * piecesL.get 11 + -(2147483648 : F) at hL3
+  change L.get 4 = piecesL.get 12 + 2048 * piecesL.get 13 + 4194304 * piecesL.get 14 + -(2147483648 : F) at hL4
+  change L.get 5 = piecesL.get 15 + 2048 * piecesL.get 16 + 4194304 * piecesL.get 17 + -(2147483648 : F) at hL5
+  change L.get 6 = piecesL.get 18 + 2048 * piecesL.get 19 + 4194304 * piecesL.get 20 + -(2147483648 : F) at hL6
+  change L.get 7 = piecesL.get 21 + 2048 * piecesL.get 22 + 4194304 * piecesL.get 23 + -(2147483648 : F) at hL7
+  change M.get 0 = piecesM.get 0 + 2048 * piecesM.get 1 + 4194304 * piecesM.get 2 + -(2147483648 : F) at hM0
+  change M.get 1 = piecesM.get 3 + 2048 * piecesM.get 4 + 4194304 * piecesM.get 5 + -(2147483648 : F) at hM1
+  change M.get 2 = piecesM.get 6 + 2048 * piecesM.get 7 + 4194304 * piecesM.get 8 + -(2147483648 : F) at hM2
+  change M.get 3 = piecesM.get 9 + 2048 * piecesM.get 10 + 4194304 * piecesM.get 11 + -(2147483648 : F) at hM3
+  change M.get 4 = piecesM.get 12 + 2048 * piecesM.get 13 + 4194304 * piecesM.get 14 + -(2147483648 : F) at hM4
+  change M.get 5 = piecesM.get 15 + 2048 * piecesM.get 16 + 4194304 * piecesM.get 17 + -(2147483648 : F) at hM5
+  change M.get 6 = piecesM.get 18 + 2048 * piecesM.get 19 + 4194304 * piecesM.get 20 + -(2147483648 : F) at hM6
+  change M.get 7 = piecesM.get 21 + 2048 * piecesM.get 22 + 4194304 * piecesM.get 23 + -(2147483648 : F) at hM7
+  change N.get 0 = piecesN.get 0 + 2048 * piecesN.get 1 + 4194304 * piecesN.get 2 + -(2147483648 : F) at hN0
+  change N.get 1 = piecesN.get 3 + 2048 * piecesN.get 4 + 4194304 * piecesN.get 5 + -(2147483648 : F) at hN1
+  change N.get 2 = piecesN.get 6 + 2048 * piecesN.get 7 + 4194304 * piecesN.get 8 + -(2147483648 : F) at hN2
+  change N.get 3 = piecesN.get 9 + 2048 * piecesN.get 10 + 4194304 * piecesN.get 11 + -(2147483648 : F) at hN3
+  change N.get 4 = piecesN.get 12 + 2048 * piecesN.get 13 + 4194304 * piecesN.get 14 + -(2147483648 : F) at hN4
+  change N.get 5 = piecesN.get 15 + 2048 * piecesN.get 16 + 4194304 * piecesN.get 17 + -(2147483648 : F) at hN5
+  change N.get 6 = piecesN.get 18 + 2048 * piecesN.get 19 + 4194304 * piecesN.get 20 + -(2147483648 : F) at hN6
+  change N.get 7 = piecesN.get 21 + 2048 * piecesN.get 22 + 4194304 * piecesN.get 23 + -(2147483648 : F) at hN7
+  have hDXNative := hDX
+  simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
+  have hDYNative := hDY
+  simp only [quadDoubleYInput, sub_eq_add_neg, mul_comm] at hDYNative
+  have hIXNative := hIX
+  simp only [quadIntermediateInput, sub_eq_add_neg, mul_comm] at hIXNative
+  have hOXNative := hOX
+  simp only [quadOutXInput, sub_eq_add_neg, mul_comm] at hOXNative
+  have hOYNative := hOY
+  simp only [quadOutYInput, sub_eq_add_neg, mul_comm] at hOYNative
+  have hzeroNative := hzero
+  simp only [quadNativeProduct, quadNativeValue, sub_eq_add_neg, mul_comm] at hzeroNative
+  unfold QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  refine ⟨rawL, piecesL, (hrL 0).1, (hrL 0).2.1, (hrL 0).2.2, (hrL 1).1, (hrL 1).2.1, (hrL 1).2.2, (hrL 2).1, (hrL 2).2.1, (hrL 2).2.2, (hrL 3).1, (hrL 3).2.1, (hrL 3).2.2, (hrL 4).1, (hrL 4).2.1, (hrL 4).2.2, (hrL 5).1, (hrL 5).2.1, (hrL 5).2.2, (hrL 6).1, (hrL 6).2.1, (hrL 6).2.2, (hrL 7).1, (hrL 7).2.1, (hrL 7).2.2, ?_, ?_⟩
+  ·
+    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
+    simpa only [quadTangentInput, quadCompositionA] using hTangent
+  ·
+    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
+    apply hDXNative
+    apply hDYNative
+    refine ⟨rawM, piecesM, (hrM 0).1, (hrM 0).2.1, (hrM 0).2.2, (hrM 1).1, (hrM 1).2.1, (hrM 1).2.2, (hrM 2).1, (hrM 2).2.1, (hrM 2).2.2, (hrM 3).1, (hrM 3).2.1, (hrM 3).2.2, (hrM 4).1, (hrM 4).2.1, (hrM 4).2.2, ?_⟩
+    unfold QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c_p1
+    simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+      GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+      mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+    refine ⟨(hrM 5).1, (hrM 5).2.1, (hrM 5).2.2, (hrM 6).1, (hrM 6).2.1, (hrM 6).2.2, (hrM 7).1, (hrM 7).2.1, (hrM 7).2.2, ?_, ?_⟩
+    ·
+      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
+      simpa only [quadChordInput, sub_eq_add_neg, mul_comm] using hChord
+    ·
+      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
+      refine ⟨(if b then 1 else 0), ?_, ?_, ?_⟩
+      · exact hzeroNative
+      · simpa only [quadFlagInput, quadCompositionA, sub_eq_add_neg, mul_comm] using hFallback
+      ·
+        apply hIXNative
+        refine ⟨rawN, piecesN, (hrN 0).1, (hrN 0).2.1, (hrN 0).2.2, (hrN 1).1, (hrN 1).2.1, (hrN 1).2.2, (hrN 2).1, (hrN 2).2.1, (hrN 2).2.2, (hrN 3).1, (hrN 3).2.1, (hrN 3).2.2, (hrN 4).1, (hrN 4).2.1, (hrN 4).2.2, (hrN 5).1, (hrN 5).2.1, (hrN 5).2.2, (hrN 6).1, (hrN 6).2.1, (hrN 6).2.2, (hrN 7).1, (hrN 7).2.1, ?_⟩
+        unfold QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c_p2
+        simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+          GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+          mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+        refine ⟨(hrN 7).2.2, ?_, ?_⟩
+        ·
+          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
+          simpa only [quadSecondInput, sub_eq_add_neg, mul_comm] using hSecond
+        ·
+          simp only [← hN0, ← hN1, ← hN2, ← hN3, ← hN4, ← hN5, ← hN6, ← hN7]
+          apply hOXNative
+          apply hOYNative
+          exact hk
+
+/-- Composition only. All hints, ranges and primitive continuations are
+explicit; the mathematical constructor must supply every premise. -/
+theorem QuadrupleAndAddLazy_8_8_8_8_haf2b5bed_compose (AX AY SX SY : List.Vector F 8) (hs : F)
+    (L M N DX DY IX OX OY : List.Vector F 8)
+    (b : Bool)
+    (rawL rawM rawN piecesL piecesM piecesN : List.Vector F 24)
+    (hrL : ∀ i : Fin 8, RangeCheck 11 (piecesL.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (piecesL.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (piecesL.get ⟨3 * i.val + 2, by omega⟩))
+    (hrM : ∀ i : Fin 8, RangeCheck 11 (piecesM.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (piecesM.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (piecesM.get ⟨3 * i.val + 2, by omega⟩))
+    (hrN : ∀ i : Fin 8, RangeCheck 11 (piecesN.get ⟨3 * i.val, by omega⟩) ∧
+      RangeCheck 11 (piecesN.get ⟨3 * i.val + 1, by omega⟩) ∧
+      RangeCheck 10 (piecesN.get ⟨3 * i.val + 2, by omega⟩))
+    (hL : ∀ i : Fin 8, L.get i =
+      piecesL.get ⟨3 * i.val, by omega⟩ + piecesL.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      piecesL.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (hM : ∀ i : Fin 8, M.get i =
+      piecesM.get ⟨3 * i.val, by omega⟩ + piecesM.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      piecesM.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (hN : ∀ i : Fin 8, N.get i =
+      piecesN.get ⟨3 * i.val, by omega⟩ + piecesN.get ⟨3 * i.val + 1, by omega⟩ * 2048 +
+      piecesN.get ⟨3 * i.val + 2, by omega⟩ * 4194304 - 2147483648)
+    (hzero : GatesDef.is_zero (quadNativeProduct L hs) (if b then 1 else 0))
+    (hTangent : CheckPolynomial_32_h6485b116 (quadTangentInput L AY AX))
+    (hChord : CheckPolynomial_32_hdaa6ee4a (quadChordInput M SX DX SY DY))
+    (hFallback : CheckPolynomial_49_ha68a8775 (quadFlagInput b M DY SY DX SX))
+    (hSecond : CheckPolynomial_40_h4960297a (quadSecondInput N IX DX M SX SY))
+    (hDX : ∀ k : List.Vector F 8 → Prop, k DX → Lazy_16_h53928760 (quadDoubleXInput L AX) k)
+    (hDY : ∀ k : List.Vector F 8 → Prop, k DY → Lazy_24_h31bd1a61 (quadDoubleYInput L AX DX AY) k)
+    (hIX : ∀ k : List.Vector F 8 → Prop, k IX → Lazy_24_hdbbbc800 (quadIntermediateInput M DX SX) k)
+    (hOX : ∀ k : List.Vector F 8 → Prop, k OX → Lazy_24_h9c68f146 (quadOutXInput N M SX) k)
+    (hOY : ∀ k : List.Vector F 8 → Prop, k OY → Lazy_40_hee995b41 (quadOutYInput M N OX DX SX SY) k)
+    (k : List.Vector (List.Vector F 8) 2 → Prop) (hk : k (OX ::ᵥ OY ::ᵥ List.Vector.nil)) :
+    QuadrupleAndAddLazy_8_8_8_8_haf2b5bed AX AY SX SY hs k := by
+  have hL0 := hL (0 : Fin 8)
+  have hL1 := hL (1 : Fin 8)
+  have hL2 := hL (2 : Fin 8)
+  have hL3 := hL (3 : Fin 8)
+  have hL4 := hL (4 : Fin 8)
+  have hL5 := hL (5 : Fin 8)
+  have hL6 := hL (6 : Fin 8)
+  have hL7 := hL (7 : Fin 8)
+  have hM0 := hM (0 : Fin 8)
+  have hM1 := hM (1 : Fin 8)
+  have hM2 := hM (2 : Fin 8)
+  have hM3 := hM (3 : Fin 8)
+  have hM4 := hM (4 : Fin 8)
+  have hM5 := hM (5 : Fin 8)
+  have hM6 := hM (6 : Fin 8)
+  have hM7 := hM (7 : Fin 8)
+  have hN0 := hN (0 : Fin 8)
+  have hN1 := hN (1 : Fin 8)
+  have hN2 := hN (2 : Fin 8)
+  have hN3 := hN (3 : Fin 8)
+  have hN4 := hN (4 : Fin 8)
+  have hN5 := hN (5 : Fin 8)
+  have hN6 := hN (6 : Fin 8)
+  have hN7 := hN (7 : Fin 8)
+  simp only [sub_eq_add_neg, mul_comm] at hL0 hL1 hL2 hL3 hL4 hL5 hL6 hL7 hM0 hM1 hM2 hM3 hM4 hM5 hM6 hM7 hN0 hN1 hN2 hN3 hN4 hN5 hN6 hN7
+  change L.get 0 = piecesL.get 0 + 2048 * piecesL.get 1 + 4194304 * piecesL.get 2 + -(2147483648 : F) at hL0
+  change L.get 1 = piecesL.get 3 + 2048 * piecesL.get 4 + 4194304 * piecesL.get 5 + -(2147483648 : F) at hL1
+  change L.get 2 = piecesL.get 6 + 2048 * piecesL.get 7 + 4194304 * piecesL.get 8 + -(2147483648 : F) at hL2
+  change L.get 3 = piecesL.get 9 + 2048 * piecesL.get 10 + 4194304 * piecesL.get 11 + -(2147483648 : F) at hL3
+  change L.get 4 = piecesL.get 12 + 2048 * piecesL.get 13 + 4194304 * piecesL.get 14 + -(2147483648 : F) at hL4
+  change L.get 5 = piecesL.get 15 + 2048 * piecesL.get 16 + 4194304 * piecesL.get 17 + -(2147483648 : F) at hL5
+  change L.get 6 = piecesL.get 18 + 2048 * piecesL.get 19 + 4194304 * piecesL.get 20 + -(2147483648 : F) at hL6
+  change L.get 7 = piecesL.get 21 + 2048 * piecesL.get 22 + 4194304 * piecesL.get 23 + -(2147483648 : F) at hL7
+  change M.get 0 = piecesM.get 0 + 2048 * piecesM.get 1 + 4194304 * piecesM.get 2 + -(2147483648 : F) at hM0
+  change M.get 1 = piecesM.get 3 + 2048 * piecesM.get 4 + 4194304 * piecesM.get 5 + -(2147483648 : F) at hM1
+  change M.get 2 = piecesM.get 6 + 2048 * piecesM.get 7 + 4194304 * piecesM.get 8 + -(2147483648 : F) at hM2
+  change M.get 3 = piecesM.get 9 + 2048 * piecesM.get 10 + 4194304 * piecesM.get 11 + -(2147483648 : F) at hM3
+  change M.get 4 = piecesM.get 12 + 2048 * piecesM.get 13 + 4194304 * piecesM.get 14 + -(2147483648 : F) at hM4
+  change M.get 5 = piecesM.get 15 + 2048 * piecesM.get 16 + 4194304 * piecesM.get 17 + -(2147483648 : F) at hM5
+  change M.get 6 = piecesM.get 18 + 2048 * piecesM.get 19 + 4194304 * piecesM.get 20 + -(2147483648 : F) at hM6
+  change M.get 7 = piecesM.get 21 + 2048 * piecesM.get 22 + 4194304 * piecesM.get 23 + -(2147483648 : F) at hM7
+  change N.get 0 = piecesN.get 0 + 2048 * piecesN.get 1 + 4194304 * piecesN.get 2 + -(2147483648 : F) at hN0
+  change N.get 1 = piecesN.get 3 + 2048 * piecesN.get 4 + 4194304 * piecesN.get 5 + -(2147483648 : F) at hN1
+  change N.get 2 = piecesN.get 6 + 2048 * piecesN.get 7 + 4194304 * piecesN.get 8 + -(2147483648 : F) at hN2
+  change N.get 3 = piecesN.get 9 + 2048 * piecesN.get 10 + 4194304 * piecesN.get 11 + -(2147483648 : F) at hN3
+  change N.get 4 = piecesN.get 12 + 2048 * piecesN.get 13 + 4194304 * piecesN.get 14 + -(2147483648 : F) at hN4
+  change N.get 5 = piecesN.get 15 + 2048 * piecesN.get 16 + 4194304 * piecesN.get 17 + -(2147483648 : F) at hN5
+  change N.get 6 = piecesN.get 18 + 2048 * piecesN.get 19 + 4194304 * piecesN.get 20 + -(2147483648 : F) at hN6
+  change N.get 7 = piecesN.get 21 + 2048 * piecesN.get 22 + 4194304 * piecesN.get 23 + -(2147483648 : F) at hN7
+  have hDXNative := hDX
+  simp only [quadDoubleXInput, sub_eq_add_neg, mul_comm] at hDXNative
+  have hDYNative := hDY
+  simp only [quadDoubleYInput, sub_eq_add_neg, mul_comm] at hDYNative
+  have hIXNative := hIX
+  simp only [quadIntermediateInput, sub_eq_add_neg, mul_comm] at hIXNative
+  have hOXNative := hOX
+  simp only [quadOutXInput, sub_eq_add_neg, mul_comm] at hOXNative
+  have hOYNative := hOY
+  simp only [quadOutYInput, sub_eq_add_neg, mul_comm] at hOYNative
+  have hzeroNative := hzero
+  simp only [quadNativeProduct, quadNativeValue, sub_eq_add_neg, mul_comm] at hzeroNative
+  unfold QuadrupleAndAddLazy_8_8_8_8_haf2b5bed
+  simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+    GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+    mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+  refine ⟨rawL, piecesL, (hrL 0).1, (hrL 0).2.1, (hrL 0).2.2, (hrL 1).1, (hrL 1).2.1, (hrL 1).2.2, (hrL 2).1, (hrL 2).2.1, (hrL 2).2.2, (hrL 3).1, (hrL 3).2.1, (hrL 3).2.2, (hrL 4).1, (hrL 4).2.1, (hrL 4).2.2, (hrL 5).1, (hrL 5).2.1, (hrL 5).2.2, (hrL 6).1, (hrL 6).2.1, (hrL 6).2.2, (hrL 7).1, (hrL 7).2.1, (hrL 7).2.2, ?_, ?_⟩
+  ·
+    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
+    simpa only [quadTangentInput, quadCompositionA] using hTangent
+  ·
+    simp only [← hL0, ← hL1, ← hL2, ← hL3, ← hL4, ← hL5, ← hL6, ← hL7]
+    apply hDXNative
+    apply hDYNative
+    refine ⟨rawM, piecesM, (hrM 0).1, (hrM 0).2.1, (hrM 0).2.2, (hrM 1).1, (hrM 1).2.1, (hrM 1).2.2, (hrM 2).1, (hrM 2).2.1, (hrM 2).2.2, (hrM 3).1, (hrM 3).2.1, (hrM 3).2.2, (hrM 4).1, (hrM 4).2.1, (hrM 4).2.2, ?_⟩
+    unfold QuadrupleAndAddLazy_8_8_8_8_haf2b5bed_p1
+    simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
+      GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
+      mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]
+    refine ⟨(hrM 5).1, (hrM 5).2.1, (hrM 5).2.2, (hrM 6).1, (hrM 6).2.1, (hrM 6).2.2, (hrM 7).1, (hrM 7).2.1, (hrM 7).2.2, ?_, ?_⟩
+    ·
+      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
+      simpa only [quadChordInput, sub_eq_add_neg, mul_comm] using hChord
+    ·
+      simp only [← hM0, ← hM1, ← hM2, ← hM3, ← hM4, ← hM5, ← hM6, ← hM7]
+      refine ⟨(if b then 1 else 0), ?_, ?_, ?_⟩
+      · exact hzeroNative
+      · simpa only [quadFlagInput, quadCompositionA, sub_eq_add_neg, mul_comm] using hFallback
+      ·
+        apply hIXNative
+        refine ⟨rawN, piecesN, (hrN 0).1, (hrN 0).2.1, (hrN 0).2.2, (hrN 1).1, (hrN 1).2.1, (hrN 1).2.2, (hrN 2).1, (hrN 2).2.1, (hrN 2).2.2, (hrN 3).1, (hrN 3).2.1, (hrN 3).2.2, (hrN 4).1, (hrN 4).2.1, (hrN 4).2.2, (hrN 5).1, (hrN 5).2.1, (hrN 5).2.2, (hrN 6).1, (hrN 6).2.1, (hrN 6).2.2, (hrN 7).1, (hrN 7).2.1, ?_⟩
+        unfold QuadrupleAndAddLazy_8_8_8_8_haf2b5bed_p2
         simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
           GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
           mul_one, one_mul, zero_add, add_zero, mul_neg_one, neg_one_mul, sub_eq_add_neg, mul_comm]

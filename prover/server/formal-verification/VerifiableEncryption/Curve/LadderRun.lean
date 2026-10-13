@@ -23,7 +23,7 @@ def LadderRun (rows : List.Vector (List.Vector F 12) 16) (g : List.Vector F 259)
     ∃ g3, g3 = Gates.mul (g.get e) (8 : F) ∧
     ∃ gi, gi = Gates.add (Gates.add (Gates.add (g.get a) g1) g2) g3 ∧
     RowLookup_12_16 rows gi fun r =>
-      QuadrupleAndAddLazy_8_8_8_8_h320f0a4e (A.get 0) (A.get 1)
+      QuadrupleAndAddLazy_8_8_8_8_haf2b5bed (A.get 0) (A.get 1)
         (r.get 0 ::ᵥ r.get 1 ::ᵥ r.get 2 ::ᵥ r.get 3 ::ᵥ r.get 4 ::ᵥ r.get 5 ::ᵥ r.get 6 ::ᵥ r.get 7 ::ᵥ
           List.Vector.nil)
         (r.get 8 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 9 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 10 ::ᵥ (0 : F) ::ᵥ
@@ -58,7 +58,7 @@ theorem ladderRun_sound (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
     intro AX AY hAX hAY hA a c hinv K h
     obtain ⟨_, rfl, _, rfl, _, rfl, _, rfl, h⟩ := h
     simp only [get2_0, get2_1] at h
-    obtain ⟨i, hi, OX, OY, hOX, hOY, hk, hO, hOeq⟩ := ladder_step_h320f0a4e hl hr ht AX AY hAX hAY hA h
+    obtain ⟨i, hi, OX, OY, hOX, hOY, hk, hO, hOeq⟩ := ladder_step_haf2b5bed hl hr ht AX AY hAX hAY hA h
     have hd := sel_digits hb (a := a') (c := c') (d := d') (e := e') a'.2 c'.2 d'.2 e'.2 (by
       simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, vget_getD] at hi
       exact hi)

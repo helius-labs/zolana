@@ -279,10 +279,16 @@ export async function isWalletRegistered(
   return (await fetchUserRecord(input, context)) !== undefined;
 }
 
+/**
+ * The record owner is the shielded signing key. A record that still names a
+ * P-256 owner key resolves to no address: clients cannot sign for, or derive
+ * keys of, such an owner. Mirrors Rust `UserRegistryP256OwnerUnsupported`.
+ */
 function signingPublicKeyFromRecord(owner: Address, record: UserRecord): ShieldedPublicKey {
-  return record.ownerP256 === undefined
-    ? ShieldedPublicKey.fromEd25519(new Uint8Array(addressEncoder.encode(owner)) as Bytes32)
-    : ShieldedPublicKey.fromP256(P256PublicKey.fromBytes(record.ownerP256));
+  if (record.ownerP256 !== undefined) {
+    throw new WalletError("WALLET_USER_RECORD_P256_OWNER_UNSUPPORTED", { details: { owner } });
+  }
+  return ShieldedPublicKey.fromEd25519(new Uint8Array(addressEncoder.encode(owner)) as Bytes32);
 }
 
 /** The key format of `fetchViewingKeyOwners`, the compressed viewing key as hex. */
@@ -367,15 +373,8 @@ export async function validateRegisteredKeypair(
   context?: RequestContext,
 ): Promise<void> {
   const record = await fetchUserRecordChecked({ rpc: input.rpc, owner: input.owner }, context);
-  const signingPublicKey = input.keypair.signingPublicKey();
-  const expectedOwnerP256 =
-    signingPublicKey.signatureType() === "p256" ? signingPublicKey.p256().toBytes() : undefined;
-  const ownerP256Matches =
-    expectedOwnerP256 === undefined
-      ? record.ownerP256 === undefined
-      : record.ownerP256 !== undefined && equalBytes(record.ownerP256, expectedOwnerP256);
   if (
-    !ownerP256Matches ||
+    record.ownerP256 !== undefined ||
     !equalBytes(record.nullifierPublicKey, input.keypair.nullifierPublicKey()) ||
     !equalBytes(record.viewingPublicKey, input.keypair.viewingPublicKey().toBytes())
   ) {
@@ -405,16 +404,8 @@ export async function recipientConfidentialViewTag(
  * change, which only the rotating path may write.
  */
 function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boolean {
-  const ownerP256 =
-    address.signingPublicKey.signatureType() === "p256"
-      ? address.signingPublicKey.p256().toBytes()
-      : undefined;
-  const ownerMatches =
-    ownerP256 === undefined
-      ? record.ownerP256 === undefined
-      : record.ownerP256 !== undefined && equalBytes(record.ownerP256, ownerP256);
   return (
-    ownerMatches &&
+    record.ownerP256 === undefined &&
     equalBytes(record.nullifierPublicKey, address.nullifierPublicKey) &&
     equalBytes(record.viewingPublicKey, address.viewingPublicKey.toBytes())
   );
@@ -437,9 +428,6 @@ export async function buildRegistrationTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.signingPublicKey.signatureType() === "p256") {
-      throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
-    }
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
@@ -479,9 +467,6 @@ export async function buildKeyUpdateTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.signingPublicKey.signatureType() === "p256") {
-      throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
-    }
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },

@@ -42,18 +42,31 @@ impl ReaderKey {
     pub fn to_bytes(self) -> [u8; 34] {
         match self {
             Self::Ed25519(key) => *PublicKey::from_ed25519(key.address().as_array()).as_bytes(),
-            Self::P256(key) => *PublicKey::from_p256(&key.pubkey()).as_bytes(),
+            Self::P256(key) => {
+                let mut bytes = [0u8; 34];
+                let (tag, body) = bytes.split_at_mut(1);
+                tag.copy_from_slice(&[READER_KEY_P256]);
+                body.copy_from_slice(key.pubkey().as_bytes());
+                bytes
+            }
         }
     }
 
+    /// `READER_KEY_ED25519 || pk || 0` or `READER_KEY_P256 || sec1`. A P-256
+    /// reader is not an owner scheme, so its encoding does not go through
+    /// [`PublicKey`].
     pub fn from_bytes(bytes: [u8; 34]) -> Result<Self, ReaderKeyError> {
-        let key = PublicKey::from_bytes(bytes).map_err(|_| ReaderKeyError::Body)?;
-        match bytes[0] {
-            READER_KEY_ED25519 => {
+        let (tag, body) = bytes.split_at(1);
+        match tag {
+            [READER_KEY_ED25519] => {
+                let key = PublicKey::from_bytes(bytes).map_err(|_| ReaderKeyError::Body)?;
                 let body = key.as_ed25519().map_err(|_| ReaderKeyError::Body)?;
                 Self::ed25519(Address::new_from_array(body))
             }
-            READER_KEY_P256 => Self::p256(key.as_p256().map_err(|_| ReaderKeyError::Body)?),
+            [READER_KEY_P256] => {
+                let body = body.try_into().map_err(|_| ReaderKeyError::Body)?;
+                Self::p256(P256Pubkey::from_bytes(body).map_err(|_| ReaderKeyError::Body)?)
+            }
             _ => Err(ReaderKeyError::Scheme),
         }
     }

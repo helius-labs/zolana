@@ -57,18 +57,11 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-export async function actor(
-  client: ZolanaClient,
-  seedByte: number,
-  rail: "ed25519" | "p256" = "ed25519",
-): Promise<Actor> {
+export async function actor(client: ZolanaClient, seedByte: number): Promise<Actor> {
   const seed = new Uint8Array(32).fill(seedByte) as Bytes32;
   const publicKey = ed25519.getPublicKey(seed);
   const signer = await createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...publicKey));
-  const keypair =
-    rail === "ed25519"
-      ? ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed))
-      : ShieldedKeypair.generate("p256");
+  const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
   return {
     signer,
     keypair,

@@ -29,13 +29,13 @@ def RowOK (r : List.Vector F 12) (T : P) : Prop :=
 def TableOK (rows : List.Vector (List.Vector F 12) 16) (Q R : P) : Prop :=
   ∀ i : Fin 16, RowOK (rows.get i) (Ladder.rowPoint i Q R)
 
-theorem ladder_step_h320f0a4e (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
+theorem ladder_step_haf2b5bed (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
     {rows : List.Vector (List.Vector F 12) 16} {Q R : P} (ht : TableOK rows Q R)
     (AX AY : ElemVal 8) (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_hee995b41)
     (hA : OnCurve (AX.value : Fp) (AY.value : Fp)) {idx : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
     (h : RowLookup_12_16 rows idx fun r =>
-      QuadrupleAndAddLazy_8_8_8_8_h320f0a4e AX.limbs AY.limbs
+      QuadrupleAndAddLazy_8_8_8_8_haf2b5bed AX.limbs AY.limbs
         (r.get 0 ::ᵥ r.get 1 ::ᵥ r.get 2 ::ᵥ r.get 3 ::ᵥ r.get 4 ::ᵥ r.get 5 ::ᵥ r.get 6 ::ᵥ r.get 7 ::ᵥ
           List.Vector.nil)
         (r.get 8 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 9 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 10 ::ᵥ (0 : F) ::ᵥ
@@ -49,7 +49,7 @@ theorem ladder_step_h320f0a4e (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨X, Y, hXY, hs, hq, hXb, hYb, hxl, hyl, hhs, hlt, hqs, hquart, hpt⟩ := ht i
   rw [hxl, hyl, hhs] at hk
   obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, dX, dY, μ, ν, iX, c, hguard⟩ :=
-    quadAdd_h320f0a4e_sound hl AX AY X Y hAX hAY hXb hYb hk
+    quadAdd_haf2b5bed_sound hl AX AY X Y hAX hAY hXb hYb hk
   have hstep : dX ≠ (X.value : Fp) ∨ LastSlope (X.value : Fp) (Y.value : Fp) dX dY μ := by
     rcases hguard with gs | hlast
     · have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
@@ -64,13 +64,13 @@ theorem ladder_step_h320f0a4e (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c hstep
   exact ⟨i, hi, OX, OY, hOX, hOY, hk', hO, by rw [hOeq, hpt]⟩
 
-theorem ladder_step_he10e6061 (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
+theorem ladder_step_h577e35e6 (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
     {rows : List.Vector (List.Vector F 12) 16} {Q R : P} (ht : TableOK rows Q R)
     (AX AY : ElemVal 8) (hAX : AX.bnd = reducedC) (hAY : AY.bnd = reducedC)
     (hA : OnCurve (AX.value : Fp) (AY.value : Fp)) {idx : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
     (h : RowLookup_12_16 rows idx fun r =>
-      QuadrupleAndAddLazy_8_8_8_8_he10e6061 AX.limbs AY.limbs
+      QuadrupleAndAddLazy_8_8_8_8_h577e35e6 AX.limbs AY.limbs
         (r.get 0 ::ᵥ r.get 1 ::ᵥ r.get 2 ::ᵥ r.get 3 ::ᵥ r.get 4 ::ᵥ r.get 5 ::ᵥ r.get 6 ::ᵥ r.get 7 ::ᵥ
           List.Vector.nil)
         (r.get 8 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 9 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 10 ::ᵥ (0 : F) ::ᵥ
@@ -84,7 +84,7 @@ theorem ladder_step_he10e6061 (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨X, Y, hXY, hs, hq, hXb, hYb, hxl, hyl, hhs, hlt, hqs, hquart, hpt⟩ := ht i
   rw [hxl, hyl, hhs] at hk
   obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, dX, dY, μ, ν, iX, c, hguard⟩ :=
-    quadAdd_he10e6061_sound hl AX AY X Y hAX hAY hXb hYb hk
+    quadAdd_h577e35e6_sound hl AX AY X Y hAX hAY hXb hYb hk
   have hstep : dX ≠ (X.value : Fp) ∨ LastSlope (X.value : Fp) (Y.value : Fp) dX dY μ := by
     rcases hguard with gs | hlast
     · have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs
@@ -99,13 +99,13 @@ theorem ladder_step_he10e6061 (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨hO, hOeq⟩ := quad_add_correct hA hXY c hstep
   exact ⟨i, hi, OX, OY, hOX, hOY, hk', hO, by rw [hOeq, hpt]⟩
 
-theorem ladder_step_h8a920ea3 (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
+theorem ladder_step_h6e46ac5c (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
     {rows : List.Vector (List.Vector F 12) 16} {Q R : P} (ht : TableOK rows Q R)
     (AX AY : ElemVal 8) (hAX : AX.bnd = lazyOut lazy_h9c68f146) (hAY : AY.bnd = lazyOut lazy_h57fc266d)
     (hA : OnCurve (AX.value : Fp) (AY.value : Fp)) {idx : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
     (h : RowLookup_12_16 rows idx fun r =>
-      QuadrupleAndAddLazy_8_8_8_8_h8a920ea3 AX.limbs AY.limbs
+      QuadrupleAndAddLazy_8_8_8_8_h6e46ac5c AX.limbs AY.limbs
         (r.get 0 ::ᵥ r.get 1 ::ᵥ r.get 2 ::ᵥ r.get 3 ::ᵥ r.get 4 ::ᵥ r.get 5 ::ᵥ r.get 6 ::ᵥ r.get 7 ::ᵥ
           List.Vector.nil)
         (r.get 8 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 9 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 10 ::ᵥ (0 : F) ::ᵥ
@@ -119,7 +119,7 @@ theorem ladder_step_h8a920ea3 (hl : LookupSound RangeCheck 11) (hr : RowLookupSo
   obtain ⟨X, Y, hXY, hs, hq, hXb, hYb, hxl, hyl, hhs, hlt, hqs, hquart, hpt⟩ := ht i
   rw [hxl, hyl, hhs] at hk
   obtain ⟨OX, OY, hOX, hOY, hk', L, hLb, dX, dY, μ, ν, iX, c, hguard⟩ :=
-    quadAdd_h8a920ea3_sound hl AX AY X Y hAX hAY hXb hYb hk
+    quadAdd_h6e46ac5c_sound hl AX AY X Y hAX hAY hXb hYb hk
   have hstep : dX ≠ (X.value : Fp) ∨ LastSlope (X.value : Fp) (Y.value : Fp) dX dY μ := by
     rcases hguard with gs | hlast
     · have hne := distinctSlope_guard (q := Order) (bal_value_lt hLb) hlt gs

@@ -385,8 +385,8 @@ the failed generated proof without changing constraints or hiding obligations.
 
 On 2026-10-12, serial parent review and checking completed
 `CompletenessTripleX`, `CompletenessTripleY`, `CompletenessTripleArithmetic`,
-and the full `triple_habd58e5e_complete` endpoint. The latter constructs the
-actual extracted `Triple_8_8_habd58e5e` predicate for every finite reduced
+and the full `triple_h2c0228bb_complete` endpoint. The latter constructs the
+actual extracted `Triple_8_8_h2c0228bb` predicate for every finite reduced
 input point, with `RangeComplete` explicit. Its tangent and return-slope
 denominators follow from the checked geometric triple theorem; both balanced
 slopes, the Lazy doubled x coordinate, and canonical x/y Eval outputs are
@@ -434,7 +434,7 @@ three standard logical axioms. Logs:
 `/private/tmp/ecies-comb-first-full-1.log`, and
 `/private/tmp/ecies-comb-first-chain-axioms.log`.
 The second step subsequently passed its full check and parent review. Its
-native and arithmetic constructors preserve the actual `h88ed5eb6` predicate,
+native and arithmetic constructors preserve the actual `hd0a2e1d5` predicate,
 six-element `hd6f972c2` assertion, and `h33616364` Lazy bounds. The shared
 `CombMath` slope equation was factored over abstract elements and checked.
 An unused local compatibility wrapper was removed after confirming no callers;
@@ -504,7 +504,7 @@ use only standard logical axioms. Logs:
 The fixed-base tail and full multiplication assembly subsequently passed.
 `Curve.CompletenessScalarMulBase.scalarMulBase_complete` constructs canonical
 coordinates with the group identity `S.value • G` and a satisfying continuation
-for actual `ScalarMulBase_8_hd39a5e0e`, for every reduced 256-bit scalar with
+for actual `ScalarMulBase_8_h3037b025`, for every reduced 256-bit scalar with
 nonzero residue modulo n. `RangeComplete` is the explicit lookup-completeness
 premise. There is no assumed successful operation, extra point exclusion or
 narrower scalar interval. All intermediate noncollisions, final noninverse

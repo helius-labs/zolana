@@ -33,13 +33,13 @@ assumed: all native intermediates are their displayed arithmetic values. -/
 theorem combSelect4_complete (TX TY : List.Vector (List.Vector F 8) 4) (b0 b1 : Bool)
     (k : List.Vector (List.Vector F 8) 2 → Prop)
     (hk : k ((TX.get (index4 b0 b1)) ::ᵥ (TY.get (index4 b0 b1)) ::ᵥ List.Vector.nil)) :
-    CombSelect_8_4_8_4_2_h27b40688 TX TY
+    CombSelect_8_4_8_4_2_h80fdf981 TX TY
       (boolNative b0 ::ᵥ boolNative b1 ::ᵥ List.Vector.nil) k := by
   have hbit0 : (boolNative b0 ::ᵥ boolNative b1 ::ᵥ List.Vector.nil).get 0 = boolNative b0 := rfl
   have hbit1 : (boolNative b0 ::ᵥ boolNative b1 ::ᵥ List.Vector.nil).get 1 = boolNative b1 := rfl
   cases b0 <;> cases b1
   all_goals
-    unfold CombSelect_8_4_8_4_2_h27b40688
+    unfold CombSelect_8_4_8_4_2_h80fdf981
     simp only [hbit0, hbit1]
     simpa only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
@@ -61,7 +61,7 @@ theorem combSelect32_complete (TX : List.Vector (List.Vector F 8) 32)
     (TY : List.Vector (List.Vector F 3) 32) (b0 b1 b2 b3 b4 : Bool)
     (k : List.Vector (List.Vector F 8) 2 → Prop)
     (hk : k (selected32 TX TY (index32 b0 b1 b2 b3 b4))) :
-    CombSelect_8_32_3_32_5_h25d1d12b TX TY
+    CombSelect_8_32_3_32_5_h2261d38e TX TY
       vec![boolNative b0, boolNative b1, boolNative b2, boolNative b3, boolNative b4] k := by
   have hbit0 : vec![boolNative b0, boolNative b1, boolNative b2, boolNative b3, boolNative b4].get 0 = boolNative b0 := rfl
   have hbit1 : vec![boolNative b0, boolNative b1, boolNative b2, boolNative b3, boolNative b4].get 1 = boolNative b1 := rfl
@@ -70,21 +70,21 @@ theorem combSelect32_complete (TX : List.Vector (List.Vector F 8) 32)
   have hbit4 : vec![boolNative b0, boolNative b1, boolNative b2, boolNative b3, boolNative b4].get 4 = boolNative b4 := rfl
   cases b0 <;> cases b1 <;> cases b2 <;> cases b3 <;> cases b4
   all_goals
-    unfold CombSelect_8_32_3_32_5_h25d1d12b
+    unfold CombSelect_8_32_3_32_5_h2261d38e
     simp only [hbit0, hbit1, hbit2, hbit3, hbit4]
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       boolNative, Bool.false_eq_true, ↓reduceIte,
       mul_one, mul_zero, one_mul, zero_mul, sub_zero, sub_self, add_zero, zero_add]
-    unfold CombSelect_8_32_3_32_5_h25d1d12b_p1
+    unfold CombSelect_8_32_3_32_5_h2261d38e_p1
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, mul_zero, one_mul, zero_mul, sub_zero, sub_self, add_zero, zero_add]
-    unfold CombSelect_8_32_3_32_5_h25d1d12b_p2
+    unfold CombSelect_8_32_3_32_5_h2261d38e_p2
     simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       mul_one, mul_zero, one_mul, zero_mul, sub_zero, sub_self, add_zero, zero_add]
-    unfold CombSelect_8_32_3_32_5_h25d1d12b_p3
+    unfold CombSelect_8_32_3_32_5_h2261d38e_p3
     simpa only [Gates, GatesGnark12, GatesGnark9, GatesGnark8,
       GatesDef.add, GatesDef.mul, GatesDef.sub, exists_eq_left,
       boolNative, index32, selected32, Bool.false_eq_true, ↓reduceIte,

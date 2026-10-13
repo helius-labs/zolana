@@ -29,8 +29,11 @@ func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
 // Solana key with the same bytes have distinct identities, and neither can
 // equal the untagged hash_bytes_33 viewing-key commitment (the tags avoid the
 // SEC1 prefixes 0x02, 0x03, 0x04). The circuits package cannot import host code,
-// so gadget.P256OwnerTag mirrors P256OwnerTag; gadget/owner_identity_test.go
-// pins the two equal. No circuit hashes a Solana identity: SPP supplies it.
+// so gadget.SolanaOwnerTag mirrors SolanaOwnerTag; gadget/owner_identity_test.go
+// pins the two equal. The Ed25519 owner rail hashes the Solana identity of its
+// verified key in the circuit (gadget.SolanaOwnerIdentity); every other Solana
+// identity is supplied by SPP. No circuit derives a P256 owner identity any
+// more; P256OwnerTag and OwnerPkField remain for the shared derivation vectors.
 const (
 	// SolanaOwnerTag is 'S'.
 	SolanaOwnerTag = 0x53
@@ -77,7 +80,7 @@ func p256X(compressed []byte) ([32]byte, error) {
 }
 
 // OwnerPkField is the owner identity of a P256 key: the parity-free
-// hash_bytes_33(P256OwnerTag || x), mirroring gadget.P256OwnerIdentity.
+// hash_bytes_33(P256OwnerTag || x).
 func OwnerPkField(compressed []byte) (*big.Int, error) {
 	x, err := p256X(compressed)
 	if err != nil {

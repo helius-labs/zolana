@@ -18,15 +18,15 @@ theorem ladder_last (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
     (hT : OnCurve (TX.value : Fp) (TY.value : Fp)) {idx : F}
     {k : List.Vector (List.Vector F 8) 2 → Prop}
     (h : RowLookup_12_16 rows idx fun r =>
-      AssertDistinctX_8_8_h83dcf683
+      AssertDistinctX_8_8_h689cdb88
         (r.get 0 ::ᵥ r.get 1 ::ᵥ r.get 2 ::ᵥ r.get 3 ::ᵥ r.get 4 ::ᵥ r.get 5 ::ᵥ r.get 6 ::ᵥ r.get 7 ::ᵥ
           List.Vector.nil) TX.limbs ∧
-      Add_8_8_8_8_h8ef7b27b
+      Add_8_8_8_8_hfaa90f47
         (r.get 0 ::ᵥ r.get 1 ::ᵥ r.get 2 ::ᵥ r.get 3 ::ᵥ r.get 4 ::ᵥ r.get 5 ::ᵥ r.get 6 ::ᵥ r.get 7 ::ᵥ
           List.Vector.nil)
         (r.get 8 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 9 ::ᵥ (0 : F) ::ᵥ (0 : F) ::ᵥ r.get 10 ::ᵥ (0 : F) ::ᵥ
           List.Vector.nil) TX.limbs TY.limbs
-        fun s => QuadrupleAndAddLazy_8_8_8_8_h4e58d4bc AX.limbs AY.limbs (s.get 0) (s.get 1) 0 k) :
+        fun s => QuadrupleAndAddLazy_8_8_8_8_h4bfcc75d AX.limbs AY.limbs (s.get 0) (s.get 1) 0 k) :
     ∃ i : Fin 16, idx = ((i : ℕ) : F) ∧ ∃ OX OY : ElemVal 8,
       OX.bnd = lazyOut lazy_h9c68f146 ∧ OY.bnd = lazyOut lazy_hc2c2cd77 ∧
       k (OX.limbs ::ᵥ OY.limbs ::ᵥ List.Vector.nil) ∧
@@ -37,24 +37,24 @@ theorem ladder_last (hl : LookupSound RangeCheck 11) (hr : RowLookupSound)
   rw [hxl, hyl] at hk
   obtain ⟨hg, hadd⟩ := hk
   have dg := distinctX_elem hXb hTX hg
-  obtain ⟨SX, SY, hSX, hSY, hk2, cr⟩ := add_h8ef7b27b_sound hl X Y TX TY hXb hYb hTX hTY hadd
+  obtain ⟨SX, SY, hSX, hSY, hk2, cr⟩ := add_hfaa90f47_sound hl X Y TX TY hXb hYb hTX hTY hadd
   obtain ⟨hS, hSeq⟩ := chord_point hXY hT dg.2.2.2.2 cr.1 cr.2
   simp only [get2_0, get2_1] at hk2
   obtain ⟨OX, OY, hOX, hOY, hk3, L, hLb, dX, dY, μ, ν, iX, c, hlast⟩ :=
-    quadAdd_h4e58d4bc_sound hl AX AY SX SY hAX hAY hSX hSY hk2
+    quadAdd_h4bfcc75d_sound hl AX AY SX SY hAX hAY hSX hSY hk2
   obtain ⟨hO, hOeq⟩ := quad_add_correct hA hS c (Or.inr hlast)
   exact ⟨i, hi, OX, OY, hOX, hOY, hk3, hO, by rw [hOeq, hSeq, hpt]⟩
 
 /-- `curve.add` of the closing correction: the addend's y is a selection
 between the signed `R.y` and a reduced coordinate. -/
-theorem add_h47aeac58_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
+theorem add_hfbf1a2a0_sound (hl : LookupSound RangeCheck 11) (PX PY QX QY : ElemVal 8)
     (hPX : PX.bnd = reducedC) (hPY : PY.bnd = selBnd selC reducedC) (hQX : QX.bnd = reducedC)
     (hQY : QY.bnd = reducedC) {k : List.Vector (List.Vector F 8) 2 → Prop}
-    (h : Add_8_8_8_8_h47aeac58 PX.limbs PY.limbs QX.limbs QY.limbs k) :
+    (h : Add_8_8_8_8_hfbf1a2a0 PX.limbs PY.limbs QX.limbs QY.limbs k) :
     ∃ SX SY : ElemVal 8, SX.bnd = reducedC ∧ SY.bnd = reducedC ∧
       k (SX.limbs ::ᵥ SY.limbs ::ᵥ List.Vector.nil) ∧
       ChordRel PX.value PY.value QX.value QY.value SX.value SY.value := by
-  unfold Add_8_8_8_8_h47aeac58 Add_8_8_8_8_h47aeac58_p1 at h
+  unfold Add_8_8_8_8_hfbf1a2a0 Add_8_8_8_8_hfbf1a2a0_p1 at h
   elim_gates h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18,
     r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37,

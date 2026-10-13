@@ -9,8 +9,8 @@
 //! ```
 //!
 //! # Keys
-//! - [`SigningKey`] — P-256 spend-authorizing key; signs `private_tx_hash` to
-//!   authorize a spend, which the SPP proof checks.
+//! - [`SigningKey`] — Ed25519 spend-authorizing key (a Solana keypair); its
+//!   signature over the transaction authorizes a spend.
 //! - [`NullifierKey`] — derives `nullifier_pk` and the per-UTXO nullifiers that
 //!   prevent double-spends.
 //! - [`ViewingKey`] — P-256 key for HPKE-style UTXO encryption and labelled
@@ -20,8 +20,8 @@
 //! # Addresses
 //! - [`ShieldedKeypair`] — bundles the three keys and builds the
 //!   [`ShieldedAddress`] and compressed [`CompressedShieldedAddress`].
-//! - [`PublicKey`], [`P256Pubkey`], [`Curve`] — scheme-tagged public
-//!   keys: P-256 for shielded owners, Ed25519 for Solana-only owners.
+//! - [`PublicKey`], [`Curve`] — scheme-tagged owner keys: Ed25519 signers
+//!   and program-derived addresses. [`P256Pubkey`] is the viewing-key point.
 //!
 //! # Hashing
 //! - [`hash`] — Poseidon helpers plus [`PublicKey::owner_proof_input_hash`] and
@@ -69,5 +69,3 @@ pub use traits::{ShieldedKeypairTrait, ViewingKeyTrait};
 pub use viewing_key::{random_blinding, random_salt, ViewingKey};
 
 pub type Signature = [u8; 64];
-
-pub type ECDSASignature = [u8; 64];

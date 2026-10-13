@@ -37,7 +37,7 @@ theorem canonicalFpElem_cast (x : Fp) : ((canonicalFpElem x).value : Fp) = x := 
   simp only [Int.cast_natCast, ZMod.natCast_zmod_val]
 
 theorem canonicalFpElem_check (x : Fp) :
-    AssertCanonical_8_0_hc36017e9 (canonicalFpElem x).limbs := by
+    AssertCanonical_8_0_hcc2f8a19 (canonicalFpElem x).limbs := by
   apply canonicalP_complete
   · exact canonicalNatElem_bounds _ _
   · rw [canonicalFpElem, canonicalNatElem_limbNat]

@@ -49,8 +49,8 @@ theorem is_zero_cases {a out : F} (h : GatesDef.is_zero a out) : (a ≠ 0 ∧ ou
 /-! ### Limbwise check against `p - 1` -/
 
 theorem assertCanonical_p_sound (L : List.Vector F 8) (hl : ∀ i, (L.get i).val < 2 ^ 32)
-    (h : AssertCanonical_8_0_hc36017e9 L) : limbNat L < p256P := by
-  unfold AssertCanonical_8_0_hc36017e9 at h
+    (h : AssertCanonical_8_0_hcc2f8a19 L) : limbNat L < p256P := by
+  unfold AssertCanonical_8_0_hcc2f8a19 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
     GatesDef.eq, exists_eq_left] at h
   obtain ⟨g2, hz2, h6, h5, g17, hz17, g20, hz20, hfin, -⟩ := h
@@ -117,8 +117,8 @@ theorem assertCanonical_p_sound (L : List.Vector F 8) (hl : ∀ i, (L.get i).val
 /-! ### Gap check against `n - 1` -/
 
 theorem assertCanonical_n_sound (hl : LookupSound RangeCheck 11) (L : List.Vector F 8)
-    (hlv : ∀ i, (L.get i).val < 2 ^ 32) (h : AssertCanonical_8_1_hc36017e9 L) : limbNat L < p256N := by
-  unfold AssertCanonical_8_1_hc36017e9 at h
+    (hlv : ∀ i, (L.get i).val < 2 ^ 32) (h : AssertCanonical_8_1_hcc2f8a19 L) : limbNat L < p256N := by
+  unfold AssertCanonical_8_1_hcc2f8a19 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.sub,
     GatesDef.eq, exists_eq_left] at h
   obtain ⟨g, r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22, r23, hc, hlo, hhi, -⟩ := h
@@ -209,10 +209,10 @@ theorem assertCanonical_n_sound (hl : LookupSound RangeCheck 11) (L : List.Vecto
 /-! ### Low-bit splits -/
 
 theorem splitLowBits_1_8_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_1_8_h2c1d332a V k) :
+    (h : SplitLowBits_1_8 V k) :
     ∃ out : List.Vector F 2, k out ∧ V.val < 2 ^ 8 ∧ (out.get 0).val = V.val / 2 ^ 1 ∧
       (out.get 1).val = V.val % 2 ^ 1 := by
-  unfold SplitLowBits_1_8_h2c1d332a at h
+  unfold SplitLowBits_1_8 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.eq,
     exists_eq_left] at h
   obtain ⟨g, rhi, rlo, ev, hk⟩ := h
@@ -225,10 +225,10 @@ theorem splitLowBits_1_8_sound (hl : LookupSound RangeCheck 11) {V : F} {k : Lis
   refine ⟨g, hk, ?_, ?_, ?_⟩ <;> omega
 
 theorem splitLowBits_1_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_1_32_h2c1d332a V k) :
+    (h : SplitLowBits_1_32 V k) :
     ∃ out : List.Vector F 2, k out ∧ V.val < 2 ^ 32 ∧ (out.get 0).val = V.val / 2 ^ 1 ∧
       (out.get 1).val = V.val % 2 ^ 1 := by
-  unfold SplitLowBits_1_32_h2c1d332a at h
+  unfold SplitLowBits_1_32 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.eq,
     exists_eq_left] at h
   obtain ⟨g, ph, rh0, rh1, rh2, ehi, rlo, ev, hk⟩ := h
@@ -246,10 +246,10 @@ theorem splitLowBits_1_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : Li
   refine ⟨g, hk, ?_, ?_, ?_⟩ <;> omega
 
 theorem splitLowBits_16_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_16_32_h2c1d332a V k) :
+    (h : SplitLowBits_16_32 V k) :
     ∃ out : List.Vector F 2, k out ∧ V.val < 2 ^ 32 ∧ (out.get 0).val = V.val / 2 ^ 16 ∧
       (out.get 1).val = V.val % 2 ^ 16 := by
-  unfold SplitLowBits_16_32_h2c1d332a at h
+  unfold SplitLowBits_16_32 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.eq,
     exists_eq_left] at h
   obtain ⟨g, ph, rh0, rh1, ehi, pl, rl0, rl1, elo, ev, hk⟩ := h
@@ -269,10 +269,10 @@ theorem splitLowBits_16_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : L
   refine ⟨g, hk, ?_, ?_, ?_⟩ <;> omega
 
 theorem splitLowBits_8_32_sound (hl : LookupSound RangeCheck 11) {V : F} {k : List.Vector F 2 → Prop}
-    (h : SplitLowBits_8_32_h2c1d332a V k) :
+    (h : SplitLowBits_8_32 V k) :
     ∃ out : List.Vector F 2, k out ∧ V.val < 2 ^ 32 ∧ (out.get 0).val = V.val / 2 ^ 8 ∧
       (out.get 1).val = V.val % 2 ^ 8 := by
-  unfold SplitLowBits_8_32_h2c1d332a at h
+  unfold SplitLowBits_8_32 at h
   simp only [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.add, GatesDef.mul, GatesDef.eq,
     exists_eq_left] at h
   obtain ⟨g, ph, rh0, rh1, rh2, ehi, rlo, ev, hk⟩ := h
@@ -315,14 +315,14 @@ theorem ElemVal.reduced_limbs (e : ElemVal 8) (hred : ∀ i, e.lo.get i = 0 ∧ 
     left; rw [← pow_mul, show (4294967296 : ℤ) = 2 ^ 32 by norm_num, ← pow_mul, mul_comm]
 
 theorem canonical_limbwise_p_sound (e : ElemVal 8) (hred : ∀ i, e.lo.get i = 0 ∧ e.hi.get i = 2 ^ 32 - 1)
-    (h : AssertCanonical_8_0_hc36017e9 e.limbs) : 0 ≤ e.value ∧ e.value < p256P := by
+    (h : AssertCanonical_8_0_hcc2f8a19 e.limbs) : 0 ≤ e.value ∧ e.value < p256P := by
   obtain ⟨hl, heq⟩ := e.reduced_limbs hred
   have := assertCanonical_p_sound e.limbs hl h
   rw [← heq]; exact ⟨Int.natCast_nonneg _, by exact_mod_cast this⟩
 
 theorem canonical_gap_n_sound (hl : LookupSound RangeCheck 11) (e : ElemVal 8)
     (hred : ∀ i, e.lo.get i = 0 ∧ e.hi.get i = 2 ^ 32 - 1)
-    (h : AssertCanonical_8_1_hc36017e9 e.limbs) : 0 ≤ e.value ∧ e.value < p256N := by
+    (h : AssertCanonical_8_1_hcc2f8a19 e.limbs) : 0 ≤ e.value ∧ e.value < p256N := by
   obtain ⟨hlv, heq⟩ := e.reduced_limbs hred
   have := assertCanonical_n_sound hl e.limbs hlv h
   rw [← heq]; exact ⟨Int.natCast_nonneg _, by exact_mod_cast this⟩

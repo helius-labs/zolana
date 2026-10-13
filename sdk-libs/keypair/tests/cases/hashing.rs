@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use zolana_keypair::{
     hash::{owner_hash, sha256, sha256_be},
-    PublicKey, SigningKey,
+    PublicKey,
 };
 
 use crate::KeypairWorld;
@@ -53,12 +53,17 @@ pub(crate) fn owner_hash_binds_nullifier(world: &mut KeypairWorld, name: String)
     assert_ne!(base, owner_hash(&signing_pubkey, &other).unwrap());
 }
 
-pub(crate) fn p256_ed25519_owner_hash_differ() {
-    let nullifier_pubkey = [9u8; 32];
-    let p256 = SigningKey::new_p256().pubkey();
+/// The scheme byte is not part of the owner identity: an Ed25519 signer and
+/// a PDA with equal bytes share one Solana owner tag.
+pub(crate) fn ed25519_and_pda_owner_identity_agree() {
     let ed25519 = PublicKey::from_ed25519(&[7u8; 32]);
-    assert_ne!(
-        owner_hash(&p256, &nullifier_pubkey).unwrap(),
-        owner_hash(&ed25519, &nullifier_pubkey).unwrap()
+    let pda = PublicKey::from_pda(&solana_address::Address::new_from_array([7u8; 32]));
+    assert_eq!(
+        ed25519.owner_proof_input_hash().unwrap(),
+        pda.owner_proof_input_hash().unwrap()
+    );
+    assert_eq!(
+        ed25519.owner_proof_input_hash().unwrap(),
+        zolana_hasher::primitives::solana_owner_identity(&[7u8; 32]).unwrap()
     );
 }

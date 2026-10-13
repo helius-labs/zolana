@@ -31,7 +31,7 @@ theorem combWindow_bits_complete (s : ℕ) (t : Fin 51) :
         mkPoint hW = (digOf (combBits s) t.val * 2 ^ (5 * t.val)) • G) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (WX.limbs ::ᵥ WY.limbs ::ᵥ List.Vector.nil) →
-        CombSelect_8_32_3_32_5_h25d1d12b (txAt t.val) (tyAt t.val) (combWindowBits s t) k := by
+        CombSelect_8_32_3_32_5_h2261d38e (txAt t.val) (tyAt t.val) (combWindowBits s t) k := by
   obtain ⟨i, WX, WY, hi, hx, hy, hW, hactual⟩ := combWindow_complete t.isLt
     ((combBoolBits s).get ⟨1 + 5 * t.val, by omega⟩)
     ((combBoolBits s).get ⟨2 + 5 * t.val, by omega⟩)
@@ -63,7 +63,7 @@ theorem combTop_bits_complete (s : ℕ) :
           (1 - bitI (combBits s) 0)) • G) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k (TX.limbs ::ᵥ TY.limbs ::ᵥ List.Vector.nil) →
-        CombSelect_8_4_8_4_2_h27b40688 topX topY
+        CombSelect_8_4_8_4_2_h80fdf981 topX topY
           vec![(combBits s).get 256, (combBits s).get 0] k := by
   obtain ⟨i, TX, TY, hi, hx, hy, hcX, hcY, hT, hactual⟩ := combTop_complete
     ((combBoolBits s).get 256) ((combBoolBits s).get 0)
@@ -83,7 +83,7 @@ theorem combWindows_complete (s : ℕ) :
         mkPoint hW = (digOf (combBits s) t.val * 2 ^ (5 * t.val)) • G) ∧
       ∀ k : List.Vector (List.Vector F 8) 2 → Prop,
         k ((WX t).limbs ::ᵥ (WY t).limbs ::ᵥ List.Vector.nil) →
-        CombSelect_8_32_3_32_5_h25d1d12b (txAt t.val) (tyAt t.val) (combWindowBits s t) k := by
+        CombSelect_8_32_3_32_5_h2261d38e (txAt t.val) (tyAt t.val) (combWindowBits s t) k := by
   classical
   choose WX WY hx hy hp hk using (fun t : Fin 51 => combWindow_bits_complete s t)
   exact ⟨WX, WY, fun t => ⟨hx t, hy t, hp t, hk t⟩⟩

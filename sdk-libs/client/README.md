@@ -21,7 +21,8 @@ context slot for `ZolanaClient` transactions. Wallet discovery and chain
 account reads still use the SDK's configured services.
 
 `IndexedTransferPreparation` selects confidential, ring, ring-authority or
-P256 authorization. `IndexedMergePreparation` supports both merge rails and
+the custom-ring rail whose proof verifies an Ed25519 owner signature
+(`RingP256`). `IndexedMergePreparation` supports both merge rails and
 cache outputs. Pass the prepared request to `prove_indexed`, which checks the
 returned roots, verifies the proof and returns transaction data. A ring merge
 returns `ProvenIndexedMerge::Ring`.
