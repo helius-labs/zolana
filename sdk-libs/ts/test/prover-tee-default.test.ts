@@ -58,6 +58,19 @@ describe("default TEE", () => {
     }
   });
 
+  it("has no indexed route on the Helius gateway or the default TEE prover", () => {
+    for (const [url, indexed] of [
+      ["https://prover.example", true],
+      ["http://127.0.0.1:3001", true],
+      ["https://devnet.helius-rpc.com/v1/zolana?api-key=k", false],
+      [DEFAULT_TEE_PROVER_ENDPOINT, false],
+    ] as const) {
+      expect(new ProverClient({ url, fetch: vi.fn(), tee: false }).hasIndexedRoute, url).toBe(
+        indexed,
+      );
+    }
+  });
+
   it("proves through the default TEE prover with client proof data on Helius devnet", async () => {
     const { fetch, urls } = recordingFetch();
     const client = new ZolanaClient({

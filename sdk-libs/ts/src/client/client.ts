@@ -13,7 +13,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
-import { isDefaultTeeProver, isZolanaGateway, resolveClientEndpoints } from "../endpoint.js";
+import { resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -309,9 +309,7 @@ export class ZolanaClient
         cause,
       });
     }
-    // The Helius gateway has no indexed route and the default TEE prover no
-    // indexer, so proof data comes from the client there.
-    const clientData = isZolanaGateway(proverUrl) || isDefaultTeeProver(proverUrl);
+    const clientData = !prover.hasIndexedRoute;
     if (input.proofDataSource === "prover" && clientData) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }

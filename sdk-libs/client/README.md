@@ -60,8 +60,13 @@ client builds one that proves every submission that way. Either prover only
 proves what the client hands it, so the client fetches the proof data itself
 and nothing reaches a prover server.
 
-A TEE policy belongs to the prover server client: pass
-`ProverClient::new(url).with_tee(policy)` to `ZolanaClient::new`.
+A prover server client attests a remote prover to the deployment the SDK
+pins, `tee::DEFAULT_PROVER_URL`, and encrypts every call to it. A loopback
+prover and the Helius gateway, which cannot relay encrypted requests, get
+plaintext. `ProverClient::without_tee()` sends plaintext, which carries every
+proof's witness, so use it only for a prover you run or trust with it;
+`with_tee(policy)` takes another policy. Pass the prover client to
+`ZolanaClient::new`.
 
 ## Merging
 

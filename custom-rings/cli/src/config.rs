@@ -518,9 +518,8 @@ ring_rpc = "http://127.0.0.1:8785"
             prover_tee,
         };
         assert!(!urls(Some(false)).prover_client().has_tee());
-        let pinned = zolana_client::prover::tee::TeePolicy::default_deployment().is_ok();
-        assert_eq!(urls(None).prover_client().has_tee(), pinned);
-        assert_eq!(urls(Some(true)).prover_client().has_tee(), pinned);
+        assert!(urls(None).prover_client().has_tee());
+        assert!(urls(Some(true)).prover_client().has_tee());
 
         let parsed: Urls = toml::from_str(
             "rpc = \"r\"\nindexer = \"i\"\nprover = \"p\"\nring_rpc = \"g\"\nprover_tee = false\n",

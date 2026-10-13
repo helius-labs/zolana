@@ -240,13 +240,29 @@ pub struct ProverClient {
     runtime: Arc<BlockingRuntime>,
 }
 
-/// The default deployment's session for a remote prover other than the Helius
-/// gateway. A release without a default deployment pins nothing.
-fn default_tee(endpoint: &ProverEndpoint) -> Option<TeeSession> {
+/// How a prover client sends its calls.
+enum Tee {
+    /// Plaintext, witness included.
+    Off,
+    /// Encrypted, only to a prover attesting to the session's policy.
+    On(Box<TeeSession>),
+    /// Never sent: every call fails with the error.
+    Broken(TeeError),
+}
+
+/// The default deployment for a remote prover other than the Helius gateway.
+/// A release without a default deployment pins nothing; a malformed pin, which
+/// `the_release_policy_matches_its_pin_file` keeps out of a release, fails
+/// every call.
+fn default_tee(endpoint: &ProverEndpoint) -> Tee {
     if endpoint.is_loopback() || endpoint.is_gateway() {
-        return None;
+        return Tee::Off;
     }
-    TeePolicy::default_deployment().ok().map(TeeSession::new)
+    match TeePolicy::default_deployment() {
+        Ok(policy) => Tee::On(Box::new(TeeSession::new(policy))),
+        Err(TeeError::NoDefaultDeployment) => Tee::Off,
+        Err(malformed) => Tee::Broken(malformed),
+    }
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -259,7 +275,7 @@ pub struct AsyncProverClient {
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
     proof_data_source: ProofDataSource,
-    tee: Option<TeeSession>,
+    tee: Tee,
 }
 
 #[cfg(feature = "reqwest")]
@@ -750,7 +766,7 @@ impl AsyncProverClient {
     /// that attests to `policy`, encrypted to the key its quote binds.
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
-        self.tee = Some(TeeSession::new(policy));
+        self.tee = Tee::On(Box::new(TeeSession::new(policy)));
         self
     }
 
@@ -758,13 +774,14 @@ impl AsyncProverClient {
     /// prover the caller runs or otherwise trusts with it.
     #[must_use]
     pub fn without_tee(mut self) -> Self {
-        self.tee = None;
+        self.tee = Tee::Off;
         self
     }
 
-    /// Whether calls go only to an attested prover, encrypted.
+    /// Whether calls go only to an attested prover, encrypted, never in
+    /// plaintext.
     pub fn has_tee(&self) -> bool {
-        self.tee.is_some()
+        !matches!(self.tee, Tee::Off)
     }
 
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
@@ -915,8 +932,10 @@ impl AsyncProverClient {
     }
 
     async fn recipient(&self) -> Result<Option<Recipient<'_>>, ClientError> {
-        let Some(session) = &self.tee else {
-            return Ok(None);
+        let session = match &self.tee {
+            Tee::Off => return Ok(None),
+            Tee::On(session) => session,
+            Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
         let key = session.key_or_attest(|| self.attest_with(session)).await?;
         Ok(Some(Recipient { session, key }))
@@ -924,10 +943,11 @@ impl AsyncProverClient {
 
     /// Attest the prover now against the [`Self::with_tee`] policy.
     pub async fn attest(&self) -> Result<AttestedProver, ClientError> {
-        let tee = self
-            .tee
-            .as_ref()
-            .ok_or(ClientError::Tee(TeeError::NoPolicy))?;
+        let tee = match &self.tee {
+            Tee::Off => return Err(ClientError::Tee(TeeError::NoPolicy)),
+            Tee::On(session) => session,
+            Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
+        };
         tee.attest_exclusive(|| self.attest_with(tee)).await
     }
 
@@ -1403,9 +1423,8 @@ mod tests {
     #[test]
     fn a_remote_prover_attests_to_the_default_deployment_unless_told_not_to() {
         let remote = AsyncProverClient::new("https://prover.example".into());
-        assert_eq!(
-            remote.has_tee(),
-            TeePolicy::default_deployment().is_ok(),
+        assert!(
+            matches!(remote.tee, Tee::On(_)),
             "a remote prover takes the release pin"
         );
         assert!(!remote.without_tee().has_tee());
@@ -1772,7 +1791,7 @@ mod tests {
                 MockResponse::text(404, "resent"),
             ]);
             let mut client = ProverClient::new(server.url().to_string());
-            client.client.tee = Some(session);
+            client.client.tee = Tee::On(Box::new(session));
             let error = client.check_proving_keys().unwrap_err();
             assert!(error.to_string().contains("resent"), "{error}");
             assert_attested_twice(&server.requests());
@@ -1788,12 +1807,32 @@ mod tests {
             nitro_answer(now, NitroFixture::rebooted),
         ]);
         let mut client = ProverClient::new(server.url().to_string());
-        client.client.tee = Some(NitroFixture::at([0; 32], now).pinning_key().session());
+        client.client.tee = Tee::On(Box::new(
+            NitroFixture::at([0; 32], now).pinning_key().session(),
+        ));
         assert!(matches!(
             client.check_proving_keys(),
             Err(ClientError::Tee(TeeError::HpkeKeyMismatch))
         ));
         assert_eq!(server.requests().len(), 3);
+    }
+
+    #[test]
+    fn a_malformed_release_pin_sends_nothing() {
+        let server = MockServer::respond_then_hold(vec![MockResponse::text(200, "{}")]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::Broken(TeeError::Policy("unreadable pin".into()));
+        assert!(client.has_tee());
+        for error in [
+            client.check_proving_keys().unwrap_err(),
+            client.attest().unwrap_err(),
+        ] {
+            assert!(
+                matches!(error, ClientError::Tee(TeeError::Policy(_))),
+                "{error}"
+            );
+        }
+        assert!(server.requests().is_empty());
     }
 
     #[tokio::test]
@@ -1806,7 +1845,7 @@ mod tests {
             MockResponse::text(404, "resent"),
         ]);
         let mut client = AsyncProverClient::new(server.url().to_string());
-        client.tee = Some(nitro_session(now));
+        client.tee = Tee::On(Box::new(nitro_session(now)));
         let error = client.check_proving_keys().await.unwrap_err();
         assert!(error.to_string().contains("resent"), "{error}");
         assert_attested_twice(&server.requests());
@@ -1822,14 +1861,17 @@ mod tests {
             key_lost(),
         ]);
         let mut client = ProverClient::new(server.url().to_string());
-        client.client.tee = Some(nitro_session(now));
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
         let error = client.check_proving_keys().unwrap_err();
         assert!(
             error.to_string().contains("tee_decryption_failed"),
             "{error}"
         );
         assert_attested_twice(&server.requests());
-        assert!(client.client.tee.unwrap().attested_key().is_some());
+        let Tee::On(session) = &client.client.tee else {
+            panic!("the client lost its session");
+        };
+        assert!(session.attested_key().is_some());
     }
 
     #[test]
@@ -1843,7 +1885,7 @@ mod tests {
             ),
         ]);
         let mut client = ProverClient::new(server.url().to_string());
-        client.client.tee = Some(nitro_session(now));
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
         let error = client.check_proving_keys().unwrap_err();
         assert!(
             error.to_string().contains("tee_request_malformed"),

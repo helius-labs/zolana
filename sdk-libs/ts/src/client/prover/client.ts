@@ -35,7 +35,7 @@ import {
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
-import { isZolanaGateway } from "../../endpoint.js";
+import { isDefaultTeeProver, isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -190,6 +190,7 @@ export class ProverClient {
   readonly #url: URL;
   /** The Helius gateway routes only the key-less `/prove` and `/prove/status`. */
   readonly #keyless: boolean;
+  readonly #indexed: boolean;
   readonly #asyncPoll: AsyncPollConfig;
   readonly #tee: TeeSession | undefined;
 
@@ -215,6 +216,7 @@ export class ProverClient {
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     this.#keyless = isZolanaGateway(url);
+    this.#indexed = !this.#keyless && !isDefaultTeeProver(url);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     try {
       this.#fetch = checkedFetch(input.fetch);
@@ -225,6 +227,14 @@ export class ProverClient {
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
     this.#tee = teeSession(input.tee, url, this.#keyless);
+  }
+
+  /**
+   * Whether the prover reads proof data from its own indexer. The Helius
+   * gateway and the default TEE prover have no `/indexed` route.
+   */
+  get hasIndexedRoute(): boolean {
+    return this.#indexed;
   }
 
   /** Attests the prover now against the `tee` policy. */
@@ -466,7 +476,7 @@ export class ProverClient {
     key: ExpectedProvingKey,
     context?: RequestContext,
   ): Promise<unknown> {
-    if (route === "indexed" && this.#keyless) {
+    if (route === "indexed" && !this.#indexed) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }
     const url = this.#keyUrl(key);

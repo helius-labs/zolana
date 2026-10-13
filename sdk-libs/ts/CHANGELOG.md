@@ -20,10 +20,15 @@ Breaking
 
 Added
 
-- `defaultTeePolicy()` returns the devnet enclave deployment the SDK pins,
-  its measurements and encryption key included.
-- `DEFAULT_TEE_PROVER_ENDPOINT` is that deployment's prover URL, for a client
-  that names its prover.
+- `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
+  client that names its prover.
+- `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
+  its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+
+Changed
+
+- `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
+  its measurements and encryption key included, where it threw before.
 
 ## 0.4.1-alpha — 2026-10-08
 
