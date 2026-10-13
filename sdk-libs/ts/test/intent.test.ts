@@ -76,9 +76,9 @@ describe("intent hash", () => {
       ],
     };
     // Recomputed outside the SDK from the layout: domain, tag 10, asset, count, then each
-    // recipient and little-endian u64 amount.
+    // little-endian u64 amount and its recipient.
     expect(hex(intentHash(multi))).toBe(
-      "22e41ecb02ddc419ce5906ff03a1591524c61ecdaf0f738da5ce62053c893d2f",
+      "168ef8c1ab032dd2eedbef1225241eff31757fd51013187e18788bc5b5edae51",
     );
   });
 

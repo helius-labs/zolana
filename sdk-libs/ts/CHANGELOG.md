@@ -14,6 +14,8 @@ Breaking
 - `TransactionErrorCode` no longer includes `TRANSACTION_ED25519_PAYER_MISMATCH`,
   since a fee payer other than the owner is now accepted → remove it from
   exhaustive switches.
+- Approval handlers receive a new `multiTransfer` intent for a transfer with
+  several payments → handle it, or refuse it explicitly.
 
 Added
 
@@ -24,11 +26,10 @@ Added
   return a transaction the owner co-signs, and `transactInstruction` takes
   `ownerSigners` to list those co-signers.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
-  one asset in one private transfer, such as a payment and an application fee,
-  and its approval handler receives a `multiTransfer` intent listing each
-  `TransferPayment` in order (a single payment stays a `transfer` intent).
-- `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` for a payment list that
-  is empty or longer than fifteen.
+  one asset in one private transfer, each a `TransferPayment` in order (a
+  single payment stays a `transfer` intent), and `WalletErrorCode` adds
+  `WALLET_INVALID_PAYMENT_COUNT` and `WALLET_INVALID_PAYMENT` for a payment
+  list that is empty, longer than fifteen, or holds a malformed payment.
 
 Changed
 

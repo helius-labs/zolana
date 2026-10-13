@@ -156,8 +156,8 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
       hash.update(addressBytes(intent.asset));
       hash.update(Uint8Array.of(intent.payments.length));
       for (const payment of intent.payments) {
-        hash.update(payment.recipient.toBytes());
         hash.update(u64(payment.amount));
+        hash.update(payment.recipient.toBytes());
       }
       break;
     case "withdrawal":

@@ -249,6 +249,7 @@ function selectSpendInputs(
   asset: Address,
   amount: bigint,
   maxInputs = MAX_SPEND_INPUTS,
+  maxInputsWithChange = maxInputs,
 ): Readonly<{ tree: Address; inputs: readonly UnsignedSpendInput[]; reservationId: string }> {
   const reserved = reservedUtxoKeys(wallet);
   const base = defaultSpendPolicy();
@@ -262,6 +263,14 @@ function selectSpendInputs(
       eligible: (entry) => base.eligible(entry) && unreserved(reserved)(entry),
     },
   });
+  // `prepare` adds a change output only when the inputs exceed the amount, and
+  // that output can move the proof to a shape with fewer inputs.
+  const covered = selection.entries.reduce((sum, entry) => sum + entry.utxo.amount, 0n);
+  if (covered !== amount && selection.entries.length > maxInputsWithChange) {
+    throw new WalletError("WALLET_TOO_MANY_INPUTS", {
+      details: { got: selection.entries.length, max: maxInputsWithChange },
+    });
+  }
   const tree = selection.trees[0];
   // The instruction carries one input tree account, so a spend that needs two
   // of them is refused here rather than compiled into an account list the
@@ -319,22 +328,17 @@ export async function createTransfer(
 ): Promise<CreatedTransfer> {
   u64Amount(params.amount);
   try {
-    const created = await createPayments(
-      { ...params, payments: [{ recipient: params.recipient, amount: params.amount }] },
-      context,
-    );
-    const recipient = created.recipients[0];
-    if (recipient === undefined) throw new WalletError("WALLET_INVALID_PAYMENT_COUNT");
-    return Object.freeze({ transaction: created.transaction, recipient });
+    const recipient = await resolveTransferRecipient(params.recipient, params.client, context);
+    return Object.freeze({
+      transaction: createPayments(params, [{ recipient, amount: params.amount }]),
+      recipient,
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_CREATE_TRANSFER", cause);
   }
 }
 
-/**
- * A transfer of one asset to several recipients, each paid as its own private
- * output in the order given: a second payment can be an application's fee.
- */
+/** A transfer of one asset to several recipients, each paid as its own private output in order. */
 export async function createMultiTransfer(
   params: MultiTransferParams,
   context?: RequestContext,
@@ -353,61 +357,73 @@ export async function createMultiTransfer(
       });
     }
     let total = 0n;
-    for (const payment of params.payments) {
+    params.payments.forEach((payment, index) => {
       if (typeof payment !== "object" || payment === null) {
-        throw new WalletError("WALLET_INVALID_AMOUNT");
+        throw new WalletError("WALLET_INVALID_PAYMENT", { details: { index } });
       }
       u64Amount(payment.amount);
       if (payment.amount === 0n) {
         throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
       }
       total += payment.amount;
-    }
+    });
     u64Amount(total);
-    return await createPayments(params, context);
+    // Every lookup finishes before a UTXO is reserved, so a refusal reserves nothing.
+    const resolved = await Promise.all(
+      params.payments.map(async (payment) => ({
+        recipient: await resolveTransferRecipient(payment.recipient, params.client, context),
+        amount: payment.amount,
+      })),
+    );
+    return Object.freeze({
+      transaction: createPayments(params, resolved),
+      recipients: Object.freeze(resolved.map((payment) => payment.recipient)),
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_CREATE_TRANSFER", cause);
   }
 }
 
-/** Resolves every recipient before reserving inputs, so a refusal reserves nothing. */
-async function createPayments(
-  params: MultiTransferParams,
-  context: RequestContext | undefined,
-): Promise<CreatedMultiTransfer> {
-  const recipients: TransferRecipient[] = [];
-  const payments: Readonly<{ recipient: ShieldedAddress; amount: bigint }>[] = [];
-  let amount = 0n;
-  for (const payment of params.payments) {
-    const recipient = await resolveTransferRecipient(payment.recipient, params.client, context);
-    recipients.push(recipient);
-    payments.push(Object.freeze({ recipient: recipient.address, amount: payment.amount }));
-    amount += payment.amount;
-  }
-  // The payments and a change output.
+interface ResolvedPayment {
+  readonly recipient: TransferRecipient;
+  readonly amount: bigint;
+}
+
+function createPayments(
+  params: Pick<MultiTransferParams, "wallet" | "payer" | "asset">,
+  resolved: readonly ResolvedPayment[],
+): UnsignedPrivateTransaction {
+  const amount = resolved.reduce((sum, payment) => sum + payment.amount, 0n);
+  // The payments, and a change output when the inputs exceed them.
   const { tree, inputs, reservationId } = selectSpendInputs(
     params.wallet,
     params.asset,
     amount,
-    maxSpendInputs(params.payments.length + 1),
+    maxSpendInputs(resolved.length),
+    maxSpendInputs(resolved.length + 1),
   );
-  const only = recipients.length === 1 ? recipients[0] : undefined;
+  const only = resolved.length === 1 ? resolved[0]?.recipient : undefined;
   const destination =
     only === undefined
-      ? `${String(recipients.length)} recipients`
+      ? `${String(resolved.length)} recipients`
       : only.kind === "shielded"
         ? "a shielded address"
         : only.owner;
-  return Object.freeze({
-    transaction: new UnsignedPrivateTransaction({
-      payer: params.payer,
-      tree,
-      inputs,
-      reservationId,
-      action: { kind: "transfer", asset: params.asset, payments: Object.freeze(payments) },
-      summary: `private transaction transfer of ${String(amount)} to ${destination}`,
-    }),
-    recipients: Object.freeze(recipients),
+  return new UnsignedPrivateTransaction({
+    payer: params.payer,
+    tree,
+    inputs,
+    reservationId,
+    action: {
+      kind: "transfer",
+      asset: params.asset,
+      payments: Object.freeze(
+        resolved.map((payment) =>
+          Object.freeze({ recipient: payment.recipient.address, amount: payment.amount }),
+        ),
+      ),
+    },
+    summary: `private transaction transfer of ${String(amount)} to ${destination}`,
   });
 }
 

@@ -1476,13 +1476,13 @@ describe("multi-recipient transfer", () => {
     ).resolves.toBe(TRANSACTION);
   });
 
-  it("selects at most the UTXOs the wider proof takes", async () => {
+  it("holds a spend with change to the narrower proof and lets an exact spend use the wider one", async () => {
     const keypair = spendingKeypair();
     const recipient = ShieldedKeypair.generate().shieldedAddress();
-    const utxos = () =>
+    const utxos = (count: number) =>
       fundedWallet(
         keypair,
-        Array.from({ length: 25 }, () => 4n),
+        Array.from({ length: count }, () => 4n),
       );
     const pay = (wallet: Wallet, total: bigint) =>
       createMultiTransfer({
@@ -1495,15 +1495,16 @@ describe("multi-recipient transfer", () => {
         ],
       });
     // Two payments and change prove on 4-output keys, which take 24 UTXOs.
-    const covered = await pay(utxos(), 96n);
-    expect(covered.transaction.inputCount()).toBe(24);
-    await expect(pay(utxos(), 100n)).rejects.toMatchObject({
+    expect((await pay(utxos(25), 95n)).transaction.inputCount()).toBe(24);
+    await expect(pay(utxos(30), 97n)).rejects.toMatchObject({
       code: "WALLET_CREATE_TRANSFER",
       causeCode: "WALLET_TOO_MANY_INPUTS",
     });
+    // An exact spend has no change output, so two payments prove on 2-output keys.
+    expect((await pay(utxos(25), 100n)).transaction.inputCount()).toBe(25);
     // One recipient keeps the 2-output cap, so the same UTXOs still cover it.
     await expect(
-      createTransfer({ wallet: utxos(), payer: PAYER, recipient, asset: SOL_MINT, amount: 100n }),
+      createTransfer({ wallet: utxos(25), payer: PAYER, recipient, asset: SOL_MINT, amount: 100n }),
     ).resolves.toHaveProperty("transaction");
   });
 });
