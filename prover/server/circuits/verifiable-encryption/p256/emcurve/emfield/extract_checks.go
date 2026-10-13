@@ -24,6 +24,7 @@ type CheckPolynomial struct {
 	Factors    [][]int
 	Modulus    *big.Int
 	WithResult bool
+	Projected  bool
 }
 
 // Lazy is one Field.Lazy call as a named Lean definition, laid out like
@@ -41,24 +42,28 @@ func (g CheckPolynomial) GadgetHash() string {
 	if g.WithResult {
 		kind = "eval"
 	}
-	return checkKey(kind, g.Modulus, g.Coefs, g.Factors, g.Bounds)
+	return checkKey(kind, g.Projected, g.Modulus, g.Coefs, g.Factors, g.Bounds)
 }
 
 func (g Lazy) GadgetHash() string {
-	return checkKey("lazy", g.Modulus, g.Coefs, g.Factors, g.Bounds)
+	return checkKey("lazy", false, g.Modulus, g.Coefs, g.Factors, g.Bounds)
 }
 
 // checkKey is the first 8 hex digits of the SHA-256 of the canonical check
 // encoding the certificate records use:
 //
 //	kind=<kind>;modulus=<m>;
+//	projected;                                           projected variants only
 //	t=<coef>:<f0>,<f1>,...;                              one per term
 //	e=<lo0>,...|<hi0>,...|<valueMin>|<valueMax>;         one per element
 //
 // so the certificate cert_<key> pairs with the definition <Name>_h<key>.
-func checkKey(kind string, modulus *big.Int, coefs []*big.Int, factors [][]int, bounds [][]*big.Int) string {
+func checkKey(kind string, projected bool, modulus *big.Int, coefs []*big.Int, factors [][]int, bounds [][]*big.Int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "kind=%s;modulus=%s;", kind, modulus.String())
+	if projected {
+		b.WriteString("projected;")
+	}
 	for i, c := range coefs {
 		indices := make([]string, len(factors[i]))
 		for j, f := range factors[i] {
@@ -137,10 +142,10 @@ func (g CheckPolynomial) DefineGadget(api frontend.API) interface{} {
 	f := New(api, g.Modulus)
 	terms := f.decodeTerms(g.Limbs, g.Bounds, g.Coefs, g.Factors)
 	if !g.WithResult {
-		f.AssertZero(terms...)
+		f.checkPolynomial(terms, false, g.Projected)
 		return nil
 	}
-	r := f.Eval(terms...)
+	r := f.checkPolynomial(terms, true, g.Projected)
 	if !SameBounds(r, f.Reduced(r.limbs)) {
 		panic("eval result is not reduced")
 	}
@@ -163,23 +168,43 @@ func (f *Field) extractsChecks() bool {
 
 // GadgetEval is Eval; under the Lean extractor it is the CheckPolynomial gadget.
 func (f *Field) GadgetEval(terms ...Term) *Element {
-	if !f.extractsChecks() {
-		return f.Eval(terms...)
-	}
-	in := encodeTerms(terms)
-	limbs := abstractor.Call1(f.api, CheckPolynomial{Limbs: in.limbs, Bounds: in.bounds, Coefs: in.coefs, Factors: in.factors, Modulus: f.Modulus(), WithResult: true})
-	return f.Reduced(limbs)
+	return f.gadgetEval(terms, false)
+}
+
+// GadgetEvalProjected is EvalProjected; under the Lean extractor it is the
+// projected CheckPolynomial gadget.
+func (f *Field) GadgetEvalProjected(terms ...Term) *Element {
+	return f.gadgetEval(terms, true)
 }
 
 // GadgetAssertZero is AssertZero; under the Lean extractor it is the
 // CheckPolynomial gadget.
 func (f *Field) GadgetAssertZero(terms ...Term) {
+	f.gadgetAssertZero(terms, false)
+}
+
+// GadgetAssertZeroProjected is AssertZeroProjected; under the Lean extractor
+// it is the projected CheckPolynomial gadget.
+func (f *Field) GadgetAssertZeroProjected(terms ...Term) {
+	f.gadgetAssertZero(terms, true)
+}
+
+func (f *Field) gadgetEval(terms []Term, projected bool) *Element {
 	if !f.extractsChecks() {
-		f.AssertZero(terms...)
+		return f.checkPolynomial(terms, true, projected)
+	}
+	in := encodeTerms(terms)
+	limbs := abstractor.Call1(f.api, CheckPolynomial{Limbs: in.limbs, Bounds: in.bounds, Coefs: in.coefs, Factors: in.factors, Modulus: f.Modulus(), WithResult: true, Projected: projected})
+	return f.Reduced(limbs)
+}
+
+func (f *Field) gadgetAssertZero(terms []Term, projected bool) {
+	if !f.extractsChecks() {
+		f.checkPolynomial(terms, false, projected)
 		return
 	}
 	in := encodeTerms(terms)
-	abstractor.CallVoid(f.api, CheckPolynomial{Limbs: in.limbs, Bounds: in.bounds, Coefs: in.coefs, Factors: in.factors, Modulus: f.Modulus()})
+	abstractor.CallVoid(f.api, CheckPolynomial{Limbs: in.limbs, Bounds: in.bounds, Coefs: in.coefs, Factors: in.factors, Modulus: f.Modulus(), Projected: projected})
 }
 
 // GadgetLazy is Lazy; under the Lean extractor it is the Lazy gadget.
@@ -200,7 +225,7 @@ func (f *Field) lazyBounds(inputTerms []Term) []*big.Int {
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
 	}
-	coefficientMin, coefficientMax := f.lazyCoefficientIntervals(terms)
+	coefficientMin, coefficientMax := lazyCoefficientIntervals(terms)
 	fold := f.arithmetic.fold(limbCount, len(coefficientMin)-1)
 	valueMin, valueMax := new(big.Int), new(big.Int)
 	los, his := make([]*big.Int, limbCount), make([]*big.Int, limbCount)

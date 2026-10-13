@@ -16,16 +16,17 @@ func FormalGuardedAdd(api frontend.API, px, py, qx, qy []frontend.Variable) (rx,
 	return r.X.Limbs(), r.Y.Limbs()
 }
 
-// FormalNativeSlopeGuard retains the standalone native guard in the
-// extraction library. Middle ladder steps use its constrained fallback;
-// the standalone implication and the counterexample still refer to this
-// actual gadget on the same balanced-limb metadata as production slopes.
-func FormalNativeSlopeGuard(api frontend.API, limbs []frontend.Variable, other frontend.Variable) {
+// FormalLadderOutputGuard exposes the ladder step's output guard on the
+// balanced-limb metadata of production slopes.
+func FormalLadderOutputGuard(api frontend.API, chordSlope, secondSlope []frontend.Variable) {
 	c := newCurve(api)
-	lo, hi := make([]*big.Int, len(limbs)), make([]*big.Int, len(limbs))
-	for i := range limbs {
-		lo[i] = big.NewInt(-2147483648)
-		hi[i] = big.NewInt(2147483647)
+	balanced := func(limbs []frontend.Variable) *fpElement {
+		lo, hi := make([]*big.Int, len(limbs)), make([]*big.Int, len(limbs))
+		for i := range limbs {
+			lo[i] = big.NewInt(-2147483648)
+			hi[i] = big.NewInt(2147483647)
+		}
+		return c.fp.WithBounds(limbs, lo, hi)
 	}
-	c.assertDistinctSlope(c.fp.WithBounds(limbs, lo, hi), other)
+	c.assertLadderOutputDistinct(balanced(chordSlope), balanced(secondSlope))
 }

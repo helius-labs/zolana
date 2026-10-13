@@ -27,33 +27,35 @@ func multipleOfGenerator(t *testing.T, scalar *big.Int) [2]*big.Int {
 
 func TestCombTablesMatchGeneratorMultiples(t *testing.T) {
 	windows, topEven := emcurve.CombTables()
-	if len(windows) != 52 {
-		t.Fatalf("window count %d, want 52", len(windows))
+	const windowBits, topWindowBits = 7, 4
+	if len(windows) != 37 {
+		t.Fatalf("window count %d, want 37", len(windows))
 	}
 	for w, window := range windows {
-		width := 5
+		width := windowBits
 		if w == len(windows)-1 {
-			width = 1
+			width = topWindowBits
 		}
 		if len(window) != 1<<width {
 			t.Fatalf("window %d has %d entries, want %d", w, len(window), 1<<width)
 		}
 		for j, entry := range window {
 			digit := big.NewInt(int64(2*j + 1 - (1 << width)))
-			want := multipleOfGenerator(t, new(big.Int).Lsh(digit, uint(5*w)))
+			want := multipleOfGenerator(t, new(big.Int).Lsh(digit, uint(windowBits*w)))
 			if entry[0].Cmp(want[0]) != 0 || entry[1].Cmp(want[1]) != 0 {
-				t.Fatalf("window %d entry %d is not %v * 2^%d * G", w, j, digit, 5*w)
+				t.Fatalf("window %d entry %d is not %v * 2^%d * G", w, j, digit, windowBits*w)
 			}
 		}
 	}
-	if len(topEven) != 2 {
-		t.Fatalf("top-even count %d, want 2", len(topEven))
+	if len(topEven) != 1<<topWindowBits {
+		t.Fatalf("top-even count %d, want %d", len(topEven), 1<<topWindowBits)
 	}
+	topShift := uint(windowBits * (len(windows) - 1))
 	for j, entry := range topEven {
-		digit := big.NewInt(int64(2*j - 1))
-		want := multipleOfGenerator(t, new(big.Int).Sub(new(big.Int).Lsh(digit, 255), big.NewInt(1)))
+		digit := big.NewInt(int64(2*j + 1 - (1 << topWindowBits)))
+		want := multipleOfGenerator(t, new(big.Int).Sub(new(big.Int).Lsh(digit, topShift), big.NewInt(1)))
 		if entry[0].Cmp(want[0]) != 0 || entry[1].Cmp(want[1]) != 0 {
-			t.Fatalf("top-even entry %d is not %v * 2^255 * G - G", j, digit)
+			t.Fatalf("top-even entry %d is not %v * 2^%d * G - G", j, digit, topShift)
 		}
 	}
 }

@@ -26,7 +26,7 @@ var veModuleLayout = leanextractor.ModuleLayout{
 	Rules: []leanextractor.ModuleRule{
 		{Module: "Field", Prefixes: []string{"CheckPolynomial_", "Lazy_", "AssertCanonical_", "SplitLowBits_"}, MaxLines: veModuleMaxLines},
 		{Module: "Curve", Prefixes: []string{
-			"AssertOnCurve_", "Add_", "Triple_", "HalfTangentSlope_", "AssertDistinctX_", "AssertDistinctSlope_",
+			"AssertOnCurve_", "Add_", "Triple_", "AssertDistinctX_", "AssertLadderOutputDistinct_",
 			"QuadrupleAndAddLazy_", "ScalarMulChecked_", "CombSelect_", "CombChainStep_", "CompleteAdd_",
 			"ScalarMulBase_", "CompressedPacking_",
 		}, MaxLines: veModuleMaxLines},
@@ -56,7 +56,7 @@ func extractVE() (map[string]string, error) {
 		ecc.BN254,
 		&ve.FieldMulCheck{},
 		&ve.GuardedAdd{},
-		&ve.NativeSlopeGuard{},
+		&ve.LadderOutputGuard{},
 		&ve.AgreeKey{},
 		&ve.DerivePublicKey{},
 		&ve.AesCtrBlock{},

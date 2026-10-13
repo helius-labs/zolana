@@ -52,15 +52,14 @@ func (c *GuardedAdd) Define(api frontend.API) error {
 	return nil
 }
 
-// NativeSlopeGuard keeps the actual standalone guard available to its
-// deterministic implication and concrete rejected-slope certificate.
-type NativeSlopeGuard struct {
-	Lambda [8]frontend.Variable
-	Other  frontend.Variable
+// LadderOutputGuard is the ladder step's output guard on two balanced slopes.
+type LadderOutputGuard struct {
+	ChordSlope  [8]frontend.Variable
+	SecondSlope [8]frontend.Variable
 }
 
-func (c *NativeSlopeGuard) Define(api frontend.API) error {
-	emcurve.FormalNativeSlopeGuard(api, c.Lambda[:], c.Other)
+func (c *LadderOutputGuard) Define(api frontend.API) error {
+	emcurve.FormalLadderOutputGuard(api, c.ChordSlope[:], c.SecondSlope[:])
 	return nil
 }
 

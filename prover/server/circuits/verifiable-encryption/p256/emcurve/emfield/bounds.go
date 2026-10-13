@@ -91,11 +91,8 @@ func limbAbs(e *Element) []*big.Int {
 }
 
 // lazyCoefficientIntervals bounds every polynomial coefficient of a Lazy sum.
-func (f *Field) lazyCoefficientIntervals(terms []term) ([]*big.Int, []*big.Int) {
+func lazyCoefficientIntervals(terms []term) ([]*big.Int, []*big.Int) {
 	lo, hi := factoredIntervals(terms)
-	if f.version == ArithmeticV1 {
-		return lo, hi
-	}
 	// Both representations are exact polynomial identities. Their interval
 	// intersection preserves the smaller bound when expansion is less precise.
 	expandedLo, expandedHi := factoredIntervals(expandedTerms(terms))

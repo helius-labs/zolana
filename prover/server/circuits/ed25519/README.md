@@ -28,7 +28,7 @@ The custom-ring owner-signature rail (`circuits/spp_transaction/custom/ed25519.g
 | Path | Contents |
 | --- | --- |
 | `verify.go`, `curve.go`, `short.go`, `montgomery.go`, `bytes.go` | The gadget: decoding, torsion split, short Weierstrass ladder, fixed-base comb, byte re-limbing. |
-| `../verifiable-encryption/p256/emcurve/emfield` | Emulated-field arithmetic with lookup range checks, shared with the P-256 circuits. `curve.go` instantiates it with six 43-bit limbs and `ArithmeticV2`; the P-256 circuits keep `ArithmeticV1`, so their constraint systems and Lean proofs do not change with this gadget. |
+| `../verifiable-encryption/p256/emcurve/emfield` | Emulated-field arithmetic with lookup range checks, shared with the P-256 circuits. `curve.go` instantiates it with six 43-bit limbs and `ArithmeticV2`; the P-256 circuits use `ArithmeticV1`, which differs only in leaving quadratic CRT products unaligned. |
 | `internal/lookup` | Row lookups bound under the shared BSB22 commitment. |
 | `internal/r1c` | Direct R1CS product rows. |
 | `internal/sha512` | Lookup SHA-512 over a fixed-length byte message. |

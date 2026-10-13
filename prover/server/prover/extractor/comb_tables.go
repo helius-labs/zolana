@@ -41,15 +41,16 @@ func ExtractCombTables() string {
 	return b.String()
 }
 
-// combSteps doubles each window base (selector 16, digit 1) below the top
-// window. The Lean certificate uses them as the common difference between
+// combSteps doubles each window base (the middle selector, digit 1) below the
+// top window. The Lean certificate uses them as the common difference between
 // adjacent odd multiples, so the kernel never inverts a field element.
 func combSteps(windows [][][2]*big.Int) [][2]*big.Int {
 	steps := make([][2]*big.Int, len(windows)-1)
 	for t := range steps {
 		var base secp256r1.G1Affine
-		base.X.SetBigInt(windows[t][16][0])
-		base.Y.SetBigInt(windows[t][16][1])
+		middle := len(windows[t]) / 2
+		base.X.SetBigInt(windows[t][middle][0])
+		base.Y.SetBigInt(windows[t][middle][1])
 		var doubled secp256r1.G1Affine
 		doubled.Double(&base)
 		steps[t] = [2]*big.Int{doubled.X.BigInt(new(big.Int)), doubled.Y.BigInt(new(big.Int))}

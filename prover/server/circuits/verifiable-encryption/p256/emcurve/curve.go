@@ -41,6 +41,9 @@ type curve struct {
 	fr     *fieldOps
 	a      *fpElement
 	b      *fpElement
+	// squaredXDifferences caches (q.X - p.X)^2 by the pair of x-coordinates.
+	// The reversed pair has the same square, coefficients and bounds.
+	squaredXDifferences map[[2]*fpElement]*fpElement
 }
 
 func newCurve(api frontend.API) *curve {
@@ -59,7 +62,7 @@ func newCurve(api frontend.API) *curve {
 
 func (c *curve) assertOnCurve(p *point) {
 	x2 := c.evalOrLazy(false, T(1, p.X, p.X))
-	c.fp.AssertZero(T(1, x2, p.X), T(1, c.a, p.X), T(1, c.b), T(-1, p.Y, p.Y))
+	c.fp.AssertZeroProjected(T(1, x2, p.X), T(1, c.a, p.X), T(1, c.b), T(-1, p.Y, p.Y))
 }
 
 func (c *curve) assertEqual(p, q *point) {
@@ -77,14 +80,29 @@ func (c *curve) addConstrained(p, q *point) *point {
 	coordinates := fp.Hint(p256AddHint, 2, nil, p.X, p.Y, q.X, q.Y)
 	xDifference := fp.Sub(q.X, p.X)
 	yDifference := fp.Sub(q.Y, p.Y)
-	xDifferenceSquared := fp.Lazy(T(1, xDifference, xDifference))
+	xDifferenceSquared := c.xDifferenceSquare(p.X, q.X, xDifference)
 	sumX, sumY := coordinates[0], coordinates[1]
 	xCoordinateSum := fp.Lin([]int64{1, 1, 1}, sumX, p.X, q.X)
-	fp.AssertZero(T(1, xCoordinateSum, xDifferenceSquared), T(-1, yDifference, yDifference))
+	fp.AssertZeroProjected(T(1, xCoordinateSum, xDifferenceSquared), T(-1, yDifference, yDifference))
 	sumXDifference := fp.Sub(sumX, p.X)
 	sumYPlusInputY := fp.Add(sumY, p.Y)
-	fp.AssertZero(T(1, yDifference, sumXDifference), T(1, sumYPlusInputY, xDifference))
+	fp.AssertZeroProjected(T(1, yDifference, sumXDifference), T(1, sumYPlusInputY, xDifference))
 	return &point{X: coordinates[0], Y: coordinates[1]}
+}
+
+func (c *curve) xDifferenceSquare(px, qx, xDifference *fpElement) *fpElement {
+	if c.squaredXDifferences == nil {
+		c.squaredXDifferences = map[[2]*fpElement]*fpElement{}
+	}
+	if square, ok := c.squaredXDifferences[[2]*fpElement{px, qx}]; ok {
+		return square
+	}
+	if square, ok := c.squaredXDifferences[[2]*fpElement{qx, px}]; ok {
+		return square
+	}
+	square := c.fp.Lazy(T(1, xDifference, xDifference))
+	c.squaredXDifferences[[2]*fpElement{px, qx}] = square
+	return square
 }
 
 func (c *curve) addReducing(p, q *point, reduceX, reduceY bool) *point {
@@ -100,8 +118,8 @@ func (c *curve) tripleConstrained(p *point) *point {
 	tangentSlope := c.tangent(p)
 	doubledX := c.evalOrLazy(false, T(1, tangentSlope, tangentSlope), T(-2, p.X))
 	returnSlope := c.fp.Sub(c.ratio(c.fp.MulConst(p.Y, 2), c.fp.Sub(p.X, doubledX)), tangentSlope)
-	x := c.fp.Eval(T(1, returnSlope, returnSlope), T(-1, p.X), T(-1, doubledX))
-	y := c.fp.Eval(T(1, returnSlope, c.fp.Sub(p.X, x)), T(-1, p.Y))
+	x := c.fp.EvalProjected(T(1, returnSlope, returnSlope), T(-1, p.X), T(-1, doubledX))
+	y := c.fp.EvalProjected(T(1, returnSlope, c.fp.Sub(p.X, x)), T(-1, p.Y))
 	return &point{X: x, Y: y}
 }
 
@@ -119,20 +137,20 @@ func (c *curve) selectPoint(b frontend.Variable, p, q *point) *point {
 
 func (c *curve) evalOrLazy(reduce bool, terms ...emfield.Term) *fpElement {
 	if reduce {
-		return c.fp.Eval(terms...)
+		return c.fp.EvalProjected(terms...)
 	}
 	return c.fp.Lazy(terms...)
 }
 
 func (c *curve) ratio(numerator, denominator *fpElement) *fpElement {
 	slope := c.hintSlope(p256RatioHint, 1, nil, numerator, denominator)[0]
-	c.fp.AssertZero(T(1, slope, denominator), T(-1, numerator))
+	c.fp.AssertZeroProjected(T(1, slope, denominator), T(-1, numerator))
 	return slope
 }
 
 func (c *curve) tangent(p *point) *fpElement {
 	slope := c.hintSlope(p256TangentHint, 1, nil, p.X, p.Y)[0]
-	c.fp.AssertZero(T(2, slope, p.Y), T(-3, p.X, p.X), T(-1, c.a))
+	c.fp.AssertZeroProjected(T(2, slope, p.Y), T(-3, p.X, p.X), T(-1, c.a))
 	return slope
 }
 

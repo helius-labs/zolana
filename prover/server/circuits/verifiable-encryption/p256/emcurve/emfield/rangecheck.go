@@ -24,7 +24,7 @@ import (
 )
 
 func init() {
-	solver.RegisterHint(countHint, decomposeHint, decomposeHighHint)
+	solver.RegisterHint(countHint, decomposeHighHint)
 }
 
 // rangeTable holds every lookup query of one piece width; all range
@@ -36,11 +36,9 @@ type rangeTable struct {
 	partial   map[int][]frontend.Variable
 }
 
-// RangeChecker adds queries to the shared table of its piece width. Its
-// arithmetic only decides how a value wider than one piece is split.
+// RangeChecker adds queries to the shared table of its piece width.
 type RangeChecker struct {
 	*rangeTable
-	version Arithmetic
 }
 
 type rangeTableKey struct {
@@ -48,10 +46,10 @@ type rangeTableKey struct {
 }
 
 func NewRangeChecker(api frontend.API) *RangeChecker {
-	return NewRangeCheckerFor(api, LookupLayout.PieceBits, ArithmeticV1)
+	return NewRangeCheckerFor(api, LookupLayout.PieceBits)
 }
 
-func NewRangeCheckerFor(api frontend.API, pieceBits int, version Arithmetic) *RangeChecker {
+func NewRangeCheckerFor(api frontend.API, pieceBits int) *RangeChecker {
 	kv := store(api)
 	key := rangeTableKey{pieceBits}
 	table, ok := kv.GetKeyValue(key).(*rangeTable)
@@ -60,7 +58,7 @@ func NewRangeCheckerFor(api frontend.API, pieceBits int, version Arithmetic) *Ra
 		kv.SetKeyValue(key, table)
 		api.Compiler().Defer(table.build)
 	}
-	return &RangeChecker{rangeTable: table, version: version}
+	return &RangeChecker{rangeTable: table}
 }
 
 func (rc *RangeChecker) nbPieces(width int) int {
@@ -83,12 +81,6 @@ func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
 		rc.partial[bits] = append(rc.partial[bits], v)
 	case bits == pieceBits:
 		rc.queries = append(rc.queries, v)
-	case rc.version == ArithmeticV1:
-		pieces, err := rc.api.Compiler().NewHint(decomposeHint, rc.nbPieces(bits), bits, pieceBits, v)
-		if err != nil {
-			panic(err)
-		}
-		rc.api.AssertIsEqual(v, rc.Compose(pieces, bits))
 	default:
 		// The low piece is affine in v and the high pieces, so its own
 		// lookup both bounds it and enforces the recomposition.

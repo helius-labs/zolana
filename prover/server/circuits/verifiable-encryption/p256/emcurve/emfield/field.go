@@ -54,9 +54,8 @@ type Arithmetic int
 const (
 	// ArithmeticV1 is the arithmetic of the P-256 circuits and their Lean proofs.
 	ArithmeticV1 Arithmetic = iota
-	// ArithmeticV2 adds balanced quotient coefficients, CRT square kernels,
-	// aligned quadratic CRT products, single-sum linear forms, expanded lazy
-	// bounds and wide range checks that derive their low piece.
+	// ArithmeticV2 also aligns the products of a CRT basis whose factors are
+	// all X^2=d, so projected checks share products with full ones.
 	ArithmeticV2
 )
 
@@ -90,7 +89,7 @@ func NewFor(api frontend.API, modulus *big.Int, config Config) *Field {
 		mod:         new(big.Int).Set(modulus),
 		modulusBits: modulus.BitLen(),
 		widths:      layout.reducedWidths(modulus.BitLen()),
-		rc:          NewRangeCheckerFor(api, layout.PieceBits, config.Arithmetic),
+		rc:          NewRangeCheckerFor(api, layout.PieceBits),
 	}
 	f.modulusLimbs = layout.decompose(f.mod, layout.NbLimbs)
 	kv.SetKeyValue(key, f)

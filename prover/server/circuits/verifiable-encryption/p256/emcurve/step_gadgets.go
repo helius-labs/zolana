@@ -46,41 +46,30 @@ func pointLimbs(p *point) [][]frontend.Variable {
 	return [][]frontend.Variable{p.X.Limbs(), p.Y.Limbs()}
 }
 
-// QuadrupleAndAddLazy is quadrupleAndAddLazy: 4·acc + selected. Without
-// HasHalfSlope the step checks the final doubling directly; HalfSlope is then 0.
+// QuadrupleAndAddLazy is quadrupleAndAddLazy: 4·acc + selected.
 type QuadrupleAndAddLazy struct {
 	AccX, AccY, SelectedX, SelectedY                         []frontend.Variable
-	HalfSlope                                                frontend.Variable
 	AccXBounds, AccYBounds, SelectedXBounds, SelectedYBounds []*big.Int
-	HasHalfSlope                                             bool
 }
 
 func (g QuadrupleAndAddLazy) DefineGadget(api frontend.API) interface{} {
 	c := newCurve(api)
 	acc := &point{X: c.fp.FromBounds(g.AccX, g.AccXBounds), Y: c.fp.FromBounds(g.AccY, g.AccYBounds)}
 	selected := &point{X: c.fp.FromBounds(g.SelectedX, g.SelectedXBounds), Y: c.fp.FromBounds(g.SelectedY, g.SelectedYBounds)}
-	var halfSlope frontend.Variable
-	if g.HasHalfSlope {
-		halfSlope = g.HalfSlope
-	}
-	out := c.quadrupleAndAddLazyConstrained(acc, selected, halfSlope)
+	out := c.quadrupleAndAddLazyConstrained(acc, selected)
 	recordOutputs(g, out.X, out.Y)
 	return pointLimbs(out)
 }
 
-func (c *curve) quadrupleAndAddLazy(accumulator, selectedPoint *point, halfSlope frontend.Variable) *point {
+func (c *curve) quadrupleAndAddLazy(accumulator, selectedPoint *point) *point {
 	if !abstractor.Extracting(c.api) {
-		return c.quadrupleAndAddLazyConstrained(accumulator, selectedPoint, halfSlope)
+		return c.quadrupleAndAddLazyConstrained(accumulator, selectedPoint)
 	}
 	g := QuadrupleAndAddLazy{
 		AccX: accumulator.X.Limbs(), AccY: accumulator.Y.Limbs(),
 		SelectedX: selectedPoint.X.Limbs(), SelectedY: selectedPoint.Y.Limbs(),
-		HalfSlope:  0,
 		AccXBounds: accumulator.X.Bounds(), AccYBounds: accumulator.Y.Bounds(),
 		SelectedXBounds: selectedPoint.X.Bounds(), SelectedYBounds: selectedPoint.Y.Bounds(),
-	}
-	if halfSlope != nil {
-		g.HalfSlope, g.HasHalfSlope = halfSlope, true
 	}
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }
@@ -132,47 +121,29 @@ func (c *curve) add(p, q *point) *point {
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }
 
-// HalfTangentSlope is halfTangentSlope: the tangent slope at the half of T.
-type HalfTangentSlope struct {
-	X, Y             []frontend.Variable
-	XBounds, YBounds []*big.Int
+// AssertLadderOutputDistinct is assertLadderOutputDistinct: the ladder step
+// output differs from its table point, ChordSlope and SecondSlope being
+// balanced slopes.
+type AssertLadderOutputDistinct struct {
+	ChordSlope, SecondSlope             []frontend.Variable
+	ChordSlopeBounds, SecondSlopeBounds []*big.Int
 }
 
-func (g HalfTangentSlope) DefineGadget(api frontend.API) interface{} {
+func (g AssertLadderOutputDistinct) DefineGadget(api frontend.API) interface{} {
 	c := newCurve(api)
-	out := c.halfTangentSlopeConstrained(&point{X: c.fp.FromBounds(g.X, g.XBounds), Y: c.fp.FromBounds(g.Y, g.YBounds)})
-	recordOutputs(g, out)
-	return out.Limbs()
-}
-
-func (c *curve) halfTangentSlope(t *point) *fpElement {
-	if !abstractor.Extracting(c.api) {
-		return c.halfTangentSlopeConstrained(t)
-	}
-	g := HalfTangentSlope{X: t.X.Limbs(), Y: t.Y.Limbs(), XBounds: t.X.Bounds(), YBounds: t.Y.Bounds()}
-	limbs := abstractor.Call1(c.api, g)
-	return c.fp.FromBounds(limbs, recordedOutputs(g)[0])
-}
-
-// AssertDistinctSlope is assertDistinctSlope: Lambda differs from ±Other.
-type AssertDistinctSlope struct {
-	Lambda       []frontend.Variable
-	Other        frontend.Variable
-	LambdaBounds []*big.Int
-}
-
-func (g AssertDistinctSlope) DefineGadget(api frontend.API) interface{} {
-	c := newCurve(api)
-	c.assertDistinctSlopeConstrained(c.fp.FromBounds(g.Lambda, g.LambdaBounds), g.Other)
+	c.assertLadderOutputDistinctConstrained(c.fp.FromBounds(g.ChordSlope, g.ChordSlopeBounds), c.fp.FromBounds(g.SecondSlope, g.SecondSlopeBounds))
 	return nil
 }
 
-func (c *curve) assertDistinctSlope(lambda *fpElement, other frontend.Variable) {
+func (c *curve) assertLadderOutputDistinct(chordSlope, secondSlope *fpElement) {
 	if !abstractor.Extracting(c.api) {
-		c.assertDistinctSlopeConstrained(lambda, other)
+		c.assertLadderOutputDistinctConstrained(chordSlope, secondSlope)
 		return
 	}
-	abstractor.CallVoid(c.api, AssertDistinctSlope{Lambda: lambda.Limbs(), Other: other, LambdaBounds: lambda.Bounds()})
+	abstractor.CallVoid(c.api, AssertLadderOutputDistinct{
+		ChordSlope: chordSlope.Limbs(), SecondSlope: secondSlope.Limbs(),
+		ChordSlopeBounds: chordSlope.Bounds(), SecondSlopeBounds: secondSlope.Bounds(),
+	})
 }
 
 // AssertDistinctX is assertDistinctX: canonical P and Q differ.

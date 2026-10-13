@@ -125,7 +125,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 	// 2. Fold high coefficients using the modulus shape when supported.
 	fold := f.arithmetic.fold(limbCount, degree)
 	checkModulus := f.modulusLimbs
-	if fold != nil && f.version == ArithmeticV2 {
+	if fold != nil {
 		// The signed polynomial evaluates to the same integer modulus. Its
 		// small coefficients avoid multiplying the quotient by unsigned
 		// radix-minus-one limbs in the carry bounds.
@@ -413,12 +413,14 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 		r := f.baseRecord(kind)
 		r.Terms, r.Elements = termRecords(terms, elementIndices), elementRecords(elements)
 		r.CoefficientBounds, r.Degree = cloneBig(coefficientBounds), degree
+		r.CheckModulus = cloneBig(checkModulus)
 		r.Folded, r.UsesCRT = fold != nil, fold != nil && f.arithmetic.crt != nil
 		r.FoldedBounds, r.FoldedMin, r.FoldedMax = cloneBig(foldedBounds), new(big.Int).Set(foldedMin), new(big.Int).Set(foldedMax)
 		r.RemainderMax, r.QuotientMin, r.QuotientMax, r.Offset = remainderMax, quotientMin, quotientMax, offset
 		r.QuotientBits, r.QuotientWidths, r.OffsetLimbs, r.QuotientBounds = quotientBits, quotientWidths, offsetLimbs, quotientBounds
 		r.ResidualBounds, r.Positions, r.CarryPositions, r.CheckTop = cloneBig(residualBounds), positions, carryPositions, checkTopCoefficient
 		r.CarryGroups = recordedGroups
+		r.Projected = projected
 		Recorder(r)
 		f.recordBasis()
 	}
@@ -435,7 +437,7 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
 	}
-	coefficientMin, coefficientMax := f.lazyCoefficientIntervals(terms)
+	coefficientMin, coefficientMax := lazyCoefficientIntervals(terms)
 	for i := range coefficientMin {
 		if absMax(coefficientMin[i], coefficientMax[i]).Cmp(halfNativeModulus) >= 0 {
 			panic("lazy coefficient does not fit the native field")
@@ -580,6 +582,24 @@ func (f *Field) foldedForms(terms []term, degree int, fold [][]*big.Int) func(j 
 			}
 			continue
 		}
+		if crt != nil && len(t.factors) == 3 {
+			if scalar, core := splitScalarFactor(t.factors); scalar != nil && len(core[0].limbs) == n && len(core[1].limbs) == n {
+				// A one-limb factor commutes with folding: scale the n folded
+				// coefficients of the bilinear CRT product instead of
+				// interpolating the degree-2n-2 triple product.
+				coreForms := f.foldedForms([]term{{coef: big.NewInt(1), factors: core}}, degree, fold)
+				if crtForms == nil {
+					crtForms = make([]*linForm, n)
+					for j := range crtForms {
+						crtForms[j] = newLinForm()
+					}
+				}
+				for j := range crtForms {
+					crtForms[j].add(f.api.Mul(scalar.limbs[0], f.build(coreForms(j))), t.coef)
+				}
+				continue
+			}
+		}
 		if crt != nil && len(t.factors) == 2 && len(t.factors[0].limbs) == n && len(t.factors[1].limbs) == n {
 			if crtForms == nil {
 				crtForms = make([]*linForm, n)
@@ -588,7 +608,7 @@ func (f *Field) foldedForms(terms []term, degree int, fold [][]*big.Int) func(j 
 				}
 			}
 			combine := crt.combine
-			square := crt.squareCombine != nil && t.factors[0] == t.factors[1]
+			square := t.factors[0] == t.factors[1]
 			if square {
 				combine = crt.squareCombine
 			}
@@ -638,6 +658,17 @@ func (f *Field) foldedForms(terms []term, degree int, fold [][]*big.Int) func(j 
 		}
 		return form
 	}
+}
+
+// splitScalarFactor returns the first one-limb factor and the other factors.
+func splitScalarFactor(factors []*Element) (*Element, []*Element) {
+	for i, e := range factors {
+		if len(e.limbs) == 1 {
+			core := append(append([]*Element{}, factors[:i]...), factors[i+1:]...)
+			return e, core
+		}
+	}
+	return nil, nil
 }
 
 func (f *Field) productAt(factors []*Element, k int) frontend.Variable {
@@ -812,19 +843,11 @@ func (l *linForm) addConst(c *big.Int) {
 	l.consts.Add(l.consts, c)
 }
 
-// build sums the form. ArithmeticV1 adds term by term, so a long form is
-// split into extra constraints under a compress threshold; ArithmeticV2
-// adds all terms at once.
+// build sums the form in one addition, so the compiler does not split a
+// long form into extra constraints.
 func (f *Field) build(l *linForm) frontend.Variable {
 	api := f.api
 	q := api.Compiler().Field()
-	if f.version == ArithmeticV1 {
-		acc := frontend.Variable(new(big.Int).Mod(l.consts, q))
-		for i, v := range l.vars {
-			acc = api.Add(acc, api.Mul(v, new(big.Int).Mod(l.coefs[i], q)))
-		}
-		return acc
-	}
 	terms := make([]frontend.Variable, len(l.vars)+1)
 	terms[0] = new(big.Int).Mod(l.consts, q)
 	for i, v := range l.vars {
@@ -856,9 +879,9 @@ func (s *arithmeticState) crtBasis(f *Field, q *big.Int) *crtBasis {
 			fp[j] = new(big.Int).Neg(d)
 		}
 		fp[n] = big.NewInt(1)
-		squares := f.version == ArithmeticV2
-		s.crt = newCRTBasis(polyReduce(fp, q), n, q, func(d int) [][]*big.Int { return s.inverseVandermonde(d, q) }, squares)
-		if s.crt != nil && squares {
+		align := f.version == ArithmeticV2
+		s.crt = newCRTBasis(polyReduce(fp, q), n, q, func(d int) [][]*big.Int { return s.inverseVandermonde(d, q) }, align)
+		if s.crt != nil && align {
 			s.crt.alignQuadraticProducts(pow2(f.layout.LimbBits), q)
 		}
 	}

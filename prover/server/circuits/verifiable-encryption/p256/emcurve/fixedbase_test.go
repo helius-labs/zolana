@@ -2,6 +2,8 @@
 //
 //  1. Generator multiplication reduces scalars and rejects infinity.
 //  2. The final comb addition handles doubling and both scalar parities.
+//  3. Comb selection returns every signed row of an ordinary window for each
+//     window width.
 package emcurve
 
 import (
@@ -66,6 +68,26 @@ func TestGeneratorCompleteFinalAddition(t *testing.T) {
 
 // Test circuits and shared helpers.
 
+// Invariant 3: Comb selection returns every signed row of an ordinary window.
+func TestCombSelectEverySignedRow(t *testing.T) {
+	for _, windowBits := range []int{5, 6, 7, 8} {
+		cs := compile(t, &combSelectCircuit{WindowBits: windowBits, Bits: make([]frontend.Variable, windowBits)})
+		for index, entry := range p256Comb(windowBits).windows[1] {
+			w := &combSelectCircuit{Bits: make([]frontend.Variable, windowBits), X: plainLimbValues(entry[0]), Y: plainLimbValues(entry[1])}
+			for bit := range w.Bits {
+				w.Bits[bit] = (index >> bit) & 1
+			}
+			witness, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cs.IsSolved(witness); err != nil {
+				t.Fatalf("window bits %d index %d: %v", windowBits, index, err)
+			}
+		}
+	}
+}
+
 func doublingScalar(t *testing.T) *big.Int {
 	t.Helper()
 	d := p256Comb(combWindowBits)
@@ -101,4 +123,21 @@ func generatorWitnessFor(t *testing.T, s *big.Int) *generatorCircuit {
 	}
 	setBytes(w.Point[:], key.PublicKey().Bytes())
 	return &w
+}
+
+type combSelectCircuit struct {
+	WindowBits int `gnark:"-"`
+	Bits       []frontend.Variable
+	X, Y       [8]frontend.Variable
+}
+
+func (c *combSelectCircuit) Define(api frontend.API) error {
+	cv := newCurve(api)
+	for _, bit := range c.Bits {
+		api.AssertIsBoolean(bit)
+	}
+	got := cv.combSelect(p256Comb(c.WindowBits).windows[1], c.Bits, true)
+	cv.fp.AssertZero(T(1, got.X), T(-1, cv.fp.FromLimbs(c.X[:])))
+	cv.fp.AssertZero(T(1, got.Y), T(-1, cv.fp.FromLimbs(c.Y[:])))
+	return nil
 }

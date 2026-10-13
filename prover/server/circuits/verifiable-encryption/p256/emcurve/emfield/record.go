@@ -60,6 +60,7 @@ type CheckRecord struct {
 	Elements          []ElementRecord
 	CoefficientBounds []*big.Int
 	Degree            int
+	CheckModulus      []*big.Int
 	Folded            bool
 	UsesCRT           bool
 	FoldedBounds      []*big.Int
@@ -79,6 +80,7 @@ type CheckRecord struct {
 	CarryPositions int
 	CheckTop       bool
 	CarryGroups    []CarryGroupRecord
+	Projected      bool
 
 	CoefficientMin []*big.Int
 	CoefficientMax []*big.Int
@@ -95,7 +97,8 @@ type CheckRecord struct {
 
 // BasisRecord holds the matrices shared by every check of one field: the
 // fold rows (nil when the modulus does not fold), the inverse Vandermonde
-// matrices built so far keyed by degree, and the CRT basis when one exists.
+// matrices built so far keyed by degree, and the CRT basis, with its square
+// products, when one exists.
 type BasisRecord struct {
 	Modulus            *big.Int
 	NativeModulus      *big.Int
@@ -107,6 +110,9 @@ type BasisRecord struct {
 	InverseVandermonde map[int][][]*big.Int
 	CRTForms           [][]*big.Int
 	CRTCombine         [][]*big.Int
+	CRTSquareLeft      [][]*big.Int
+	CRTSquareRight     [][]*big.Int
+	CRTSquareCombine   [][]*big.Int
 }
 
 // CanonicalEncoding is the byte string Key hashes. It covers exactly the
@@ -114,6 +120,7 @@ type BasisRecord struct {
 // with decimal integers:
 //
 //	kind=<kind>;modulus=<m>;
+//	projected;                       only for the projected variants
 //	t=<coef>:<f0>,<f1>,...;          one per term, in call order
 //	e=<lo0>,<lo1>,...|<hi0>,...|<valueMin>|<valueMax>;   one per element, first-use order
 //
@@ -122,6 +129,9 @@ type BasisRecord struct {
 func (r CheckRecord) CanonicalEncoding() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "kind=%s;modulus=%s;", r.Kind, r.Modulus.String())
+	if r.Projected {
+		b.WriteString("projected;")
+	}
 	for _, t := range r.Terms {
 		fmt.Fprintf(&b, "t=%s:%s;", t.Coef.String(), joinInts(t.Factors))
 	}
@@ -251,6 +261,13 @@ func (f *Field) recordBasis() {
 		}
 		for _, row := range s.crt.combine {
 			b.CRTCombine = append(b.CRTCombine, cloneBig(row))
+		}
+		for k := range s.crt.squareLeft {
+			b.CRTSquareLeft = append(b.CRTSquareLeft, cloneBig(s.crt.squareLeft[k]))
+			b.CRTSquareRight = append(b.CRTSquareRight, cloneBig(s.crt.squareRight[k]))
+		}
+		for _, row := range s.crt.squareCombine {
+			b.CRTSquareCombine = append(b.CRTSquareCombine, cloneBig(row))
 		}
 	}
 	RecordBasis(b)

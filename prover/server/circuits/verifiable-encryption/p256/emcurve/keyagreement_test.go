@@ -104,13 +104,6 @@ func TestAgreeKeyRejectsForgedHints(t *testing.T) {
 			outputs[len(outputs)-1].Xor(outputs[len(outputs)-1], big.NewInt(1))
 			return nil
 		}, nil},
-		{"half-point tangent slope", p256HalfTangentHint, func(q *big.Int, inputs, outputs []*big.Int) error {
-			if err := p256HalfTangentHint(q, inputs, outputs); err != nil {
-				return err
-			}
-			outputs[0].Xor(outputs[0], big.NewInt(1))
-			return nil
-		}, nil},
 		{"balanced slope limb", emfield.BalanceHint, func(q *big.Int, inputs, outputs []*big.Int) error {
 			if err := emfield.BalanceHint(q, inputs, outputs); err != nil {
 				return err

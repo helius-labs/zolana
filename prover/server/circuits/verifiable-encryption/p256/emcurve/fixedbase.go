@@ -81,8 +81,8 @@ func (c *curve) scalarMulBase(scalar *frElement) *point {
 		previousSlope, previousWindowX, previousWindowY = slope, windowPoint.X, windowPoint.Y
 	}
 	// 4. Recover the accumulated point and add the top window with a doubling-aware check.
-	x = fp.Eval(T(1, x))
-	y := fp.Eval(T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, previousWindowY))
+	x = fp.EvalProjected(T(1, x))
+	y := fp.EvalProjected(T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, previousWindowY))
 	return c.completeAdd(&point{X: x, Y: y}, windowPoints[windowCount-1])
 }
 
@@ -92,9 +92,9 @@ func (c *curve) combChainStepConstrained(first bool, x, previousSlope, previousW
 	fp := c.fp
 	slope = c.hintSlope(p256CombChainHint, 1, nil, previousSlope, x, previousWindowX, previousWindowY, windowPoint.X, windowPoint.Y)[0]
 	if first {
-		fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(-1, windowPoint.Y), T(1, firstWindowY))
+		fp.AssertZeroProjected(T(1, slope, fp.Sub(windowPoint.X, x)), T(-1, windowPoint.Y), T(1, firstWindowY))
 	} else {
-		fp.AssertZero(T(1, slope, fp.Sub(windowPoint.X, x)), T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, windowPoint.Y), T(-1, previousWindowY))
+		fp.AssertZeroProjected(T(1, slope, fp.Sub(windowPoint.X, x)), T(1, previousSlope, fp.Sub(previousWindowX, x)), T(-1, windowPoint.Y), T(-1, previousWindowY))
 	}
 	return fp.Lazy(T(1, slope, slope), T(-1, x), T(-1, windowPoint.X)), slope
 }
@@ -114,12 +114,12 @@ func (c *curve) completeAddConstrained(p, q *point) *point {
 	sameXElement := fp.Bounded([]frontend.Variable{sameX}, []int{1})
 	xDifference := fp.Sub(q.X, p.X)
 	yDifference := fp.Sub(q.Y, p.Y)
-	fp.AssertZero(T(1, sameXElement, xDifference))
-	fp.AssertZero(T(1, sameXElement, yDifference))
+	fp.AssertZeroProjected(T(1, sameXElement, xDifference))
+	fp.AssertZeroProjected(T(1, sameXElement, yDifference))
 	slope := c.hintSlope(p256UnifiedSlopeHint, 1, nil, p.X, p.Y, q.X, q.Y)[0]
-	fp.AssertZero(T(1, slope, xDifference), T(2, slope, sameXElement, p.Y), T(-3, sameXElement, p.X, p.X), T(-1, sameXElement, c.a), T(-1, yDifference))
-	x := fp.Eval(T(1, slope, slope), T(-1, p.X), T(-1, q.X))
-	y := fp.Eval(T(1, slope, fp.Sub(p.X, x)), T(-1, p.Y))
+	fp.AssertZeroProjected(T(1, slope, xDifference), T(2, slope, sameXElement, p.Y), T(-3, sameXElement, p.X, p.X), T(-1, sameXElement, c.a), T(-1, yDifference))
+	x := fp.EvalProjected(T(1, slope, slope), T(-1, p.X), T(-1, q.X))
+	y := fp.EvalProjected(T(1, slope, fp.Sub(p.X, x)), T(-1, p.Y))
 	return &point{X: x, Y: y}
 }
 
@@ -154,8 +154,23 @@ func (c *curve) combTableLimbs(table [][2]*big.Int, packY bool) (xs, ys [][]fron
 	return xs, ys
 }
 
-func (c *curve) combSelectConstrained(xs, ys [][]frontend.Variable, selectorBits []frontend.Variable, packY bool) *point {
+// combSelectConstrained selects the table entry indexed by selectorBits.
+// With signFolded the table holds the first half of a window whose entries
+// i and len-1-i are inverse points: the top selector bit flips the other
+// bits and negates y.
+func (c *curve) combSelectConstrained(xs, ys [][]frontend.Variable, selectorBits []frontend.Variable, packY, signFolded bool) *point {
+	api := c.api
 	nbLimbs := c.layout.NbLimbs
+	var ySign frontend.Variable = 1
+	if signFolded {
+		sign := selectorBits[len(selectorBits)-1]
+		foldedBits := make([]frontend.Variable, len(selectorBits)-1)
+		for i := range foldedBits {
+			foldedBits[i] = api.Xor(selectorBits[i], sign)
+		}
+		selectorBits = foldedBits
+		ySign = api.Sub(1, api.Mul(sign, 2))
+	}
 	selectorBitCount := len(selectorBits)
 	if len(xs) != 1<<selectorBitCount || len(ys) != len(xs) {
 		panic("table size mismatch")
@@ -166,31 +181,66 @@ func (c *curve) combSelectConstrained(xs, ys [][]frontend.Variable, selectorBits
 		}
 		return 1<<k - 2
 	}
+	columnCount := nbLimbs + len(ys[0])
 	rowBitCount, bestCost := 0, oneHotCost(selectorBitCount)
 	for candidateRowBits := 1; candidateRowBits <= selectorBitCount; candidateRowBits++ {
-		if cost := oneHotCost(candidateRowBits) + oneHotCost(selectorBitCount-candidateRowBits) + (1<<candidateRowBits)*2*nbLimbs; cost < bestCost {
+		if cost := oneHotCost(candidateRowBits) + oneHotCost(selectorBitCount-candidateRowBits) + (1<<candidateRowBits)*columnCount; cost < bestCost {
 			bestCost, rowBitCount = cost, candidateRowBits
 		}
 	}
-	rowSelectors := oneHot(c.api, selectorBits[:rowBitCount])
-	columnSelectors := oneHot(c.api, selectorBits[rowBitCount:])
-	selectCoordinate := func(value func(e int) frontend.Variable) frontend.Variable {
-		inner := make([]frontend.Variable, len(rowSelectors))
-		for i := range rowSelectors {
-			sum := frontend.Variable(0)
-			for j := range columnSelectors {
-				sum = c.api.Add(sum, c.api.Mul(columnSelectors[j], value(i+(j<<rowBitCount))))
+	var selectCoordinate func(value func(e int) frontend.Variable) frontend.Variable
+	if selectorBitCount > 0 && (1<<(selectorBitCount-1))-selectorBitCount+columnCount < bestCost {
+		// The multilinear polynomial in the selector bits shares its
+		// monomials across all columns; the last bit costs one product per
+		// column.
+		monomials := []frontend.Variable{1}
+		for _, bit := range selectorBits[:selectorBitCount-1] {
+			count := len(monomials)
+			for i := 0; i < count; i++ {
+				monomials = append(monomials, api.Mul(monomials[i], bit))
 			}
-			inner[i] = sum
 		}
-		if len(rowSelectors) == 1 {
-			return inner[0]
+		selectCoordinate = func(value func(e int) frontend.Variable) frontend.Variable {
+			coefficients := make([]frontend.Variable, len(xs))
+			for i := range coefficients {
+				coefficients[i] = value(i)
+			}
+			// Mobius inversion turns table values into monomial coefficients.
+			for bit := 0; bit < selectorBitCount; bit++ {
+				for i := range coefficients {
+					if i&(1<<bit) != 0 {
+						coefficients[i] = api.Sub(coefficients[i], coefficients[i^(1<<bit)])
+					}
+				}
+			}
+			low, high := frontend.Variable(0), frontend.Variable(0)
+			for i, monomial := range monomials {
+				low = api.Add(low, api.Mul(monomial, coefficients[i]))
+				high = api.Add(high, api.Mul(monomial, coefficients[i+len(monomials)]))
+			}
+			return api.Add(low, api.Mul(selectorBits[selectorBitCount-1], high))
 		}
-		sum := frontend.Variable(0)
-		for i := range rowSelectors {
-			sum = c.api.Add(sum, c.api.Mul(rowSelectors[i], inner[i]))
+	} else {
+		rowSelectors := oneHot(api, selectorBits[:rowBitCount])
+		columnSelectors := oneHot(api, selectorBits[rowBitCount:])
+		selectCoordinate = func(value func(e int) frontend.Variable) frontend.Variable {
+			inner := make([]frontend.Variable, len(rowSelectors))
+			for i := range rowSelectors {
+				sum := frontend.Variable(0)
+				for j := range columnSelectors {
+					sum = api.Add(sum, api.Mul(columnSelectors[j], value(i+(j<<rowBitCount))))
+				}
+				inner[i] = sum
+			}
+			if len(rowSelectors) == 1 {
+				return inner[0]
+			}
+			sum := frontend.Variable(0)
+			for i := range rowSelectors {
+				sum = api.Add(sum, api.Mul(rowSelectors[i], inner[i]))
+			}
+			return sum
 		}
-		return sum
 	}
 	xLimbs := make([]frontend.Variable, nbLimbs)
 	yLimbs := make([]frontend.Variable, nbLimbs)
@@ -211,12 +261,15 @@ func (c *curve) combSelectConstrained(xs, ys [][]frontend.Variable, selectorBits
 			continue
 		}
 		end := min(g+packedYGroup, nbLimbs)
-		yLimbs[g] = selectCoordinate(func(e int) frontend.Variable { return ys[e][g/packedYGroup] })
+		yLimbs[g] = api.Mul(ySign, selectCoordinate(func(e int) frontend.Variable { return ys[e][g/packedYGroup] }))
 		bits := 0
 		for _, limbWidth := range widths[g:end] {
 			bits += limbWidth
 		}
 		upperBounds[g].Sub(pow2(bits), big.NewInt(1))
+		if signFolded {
+			lowerBounds[g].Neg(upperBounds[g])
+		}
 	}
 	return &point{X: c.fp.Reduced(xLimbs), Y: c.fp.WithBounds(yLimbs, lowerBounds, upperBounds)}
 }
@@ -260,7 +313,7 @@ func CombTables() (windows [][][2]*big.Int, topEven [][2]*big.Int) {
 	return windows, copyEntries(table.topEven)
 }
 
-const combWindowBits = 5
+const combWindowBits = 7
 
 func p256Comb(windowBits int) *combData {
 	combMu.Lock()

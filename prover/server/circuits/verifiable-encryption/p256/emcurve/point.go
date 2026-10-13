@@ -44,9 +44,12 @@ func ScalarMul(api frontend.API, scalar [32]frontend.Variable, pointBytes [65]fr
 }
 
 func ECDH(api frontend.API, ephemeralSecretKey [32]frontend.Variable, recipientPubkey [65]frontend.Variable) [32]frontend.Variable {
-	sharedPointBytes := ScalarMul(api, ephemeralSecretKey, recipientPubkey)
+	c := newCurve(api)
+	recipient := c.parseKey(recipientPubkey)
+	c.assertOnCurve(recipient)
+	shared := c.scalarMulChecked(recipient, c.parseScalar(ephemeralSecretKey))
 	var sharedX [32]frontend.Variable
-	copy(sharedX[:], sharedPointBytes[1:33])
+	copy(sharedX[:], c.toBytes(shared.X))
 	return sharedX
 }
 

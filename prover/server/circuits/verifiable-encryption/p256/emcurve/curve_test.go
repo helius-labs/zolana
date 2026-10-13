@@ -1,7 +1,7 @@
 // Tested invariants and diagnostics:
 //
 //  1. Curve hints retain registered module-qualified names.
-//  2. Key agreement carries exactly one BSB22 commitment, the lookup argument.
+//  2. Key agreement commits its lookup arguments in one commitment.
 //  3. Diagnostic: constraint counts are recorded for the public curve entry points.
 package emcurve
 
@@ -18,7 +18,7 @@ import (
 func TestHintNamesCarryTheModulePrefix(t *testing.T) {
 	for _, fn := range []solver.Hint{
 		p256RatioHint, p256TangentHint, p256AddHint,
-		p256DecomposeScalarHint, p256ScalarMulHint, p256ImplicitChordHint, p256ImplicitSecondSlopeHint, p256HalfTangentHint,
+		p256DecomposeScalarHint, p256ScalarMulHint, p256ImplicitChordHint, p256ImplicitSecondSlopeHint,
 		p256CombRecodeHint, p256CombChainHint, p256XEqualHint, p256UnifiedSlopeHint,
 		p256RowLookupHint, p256RowCountHint,
 		p256ScalarInverseHint, p256OrderWrapHint, p256LimbBytesHint, p256SplitLowBitsHint,
@@ -34,7 +34,7 @@ func TestHintNamesCarryTheModulePrefix(t *testing.T) {
 
 }
 
-// Invariant 2: Key agreement carries exactly one BSB22 commitment, the lookup argument.
+// Invariant 2: Key agreement commits its lookup arguments in one commitment.
 func TestAgreeKeyHasOneCommitment(t *testing.T) {
 	if got := len(compile(t, &agreeKeyCircuit{}).GetCommitments().CommitmentIndexes()); got != 1 {
 		t.Fatalf("AgreeKey has %d commitments, want 1", got)

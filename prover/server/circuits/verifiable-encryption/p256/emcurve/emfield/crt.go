@@ -8,7 +8,8 @@ import (
 type poly []*big.Int
 
 // crtBasis evaluates a folded product as len(forms) native products. The
-// square kernel, when built, does the same for x*x with its own forms.
+// square kernel does the same for x*x with its own forms. quadratic marks a
+// basis whose factors are all X^2=d and whose products get aligned.
 type crtBasis struct {
 	forms                   [][]*big.Int
 	combine                 [][]*big.Int
@@ -17,7 +18,7 @@ type crtBasis struct {
 	quadratic               bool
 }
 
-func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermonde func(degree int) [][]*big.Int, squares bool) *crtBasis {
+func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermonde func(degree int) [][]*big.Int, alignQuadratic bool) *crtBasis {
 	factors := factorSquarefree(f, nativeModulus)
 	total := 0
 	for _, g := range factors {
@@ -26,10 +27,7 @@ func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermon
 	if total >= 2*limbCount-1 {
 		return nil
 	}
-	basis := &crtBasis{combine: make([][]*big.Int, limbCount), quadratic: squares}
-	if squares {
-		basis.squareCombine = make([][]*big.Int, limbCount)
-	}
+	basis := &crtBasis{combine: make([][]*big.Int, limbCount), squareCombine: make([][]*big.Int, limbCount), quadratic: alignQuadratic}
 	for j := range basis.combine {
 		basis.combine[j] = make([]*big.Int, total)
 		for k := range basis.combine[j] {
@@ -75,20 +73,18 @@ func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermon
 				}
 			}
 		}
-		if squares {
-			switch factorDegree {
-			case 2:
-				basis.appendQuadraticSquare(f, g, idempotent, limbCount, nativeModulus)
-			case 4:
-				basis.appendQuarticKaraSquare(f, g, idempotent, limbCount, nativeModulus)
-			default:
-				// Preserve the interpolation kernel for larger factors: its sparse
-				// evaluation forms are valuable for long chains of lazy coordinates.
-				basis.squareLeft = append(basis.squareLeft, basis.forms[offset:offset+points]...)
-				basis.squareRight = append(basis.squareRight, basis.forms[offset:offset+points]...)
-				for j := range basis.combine {
-					basis.squareCombine[j] = append(basis.squareCombine[j], basis.combine[j][offset:offset+points]...)
-				}
+		switch factorDegree {
+		case 2:
+			basis.appendQuadraticSquare(f, g, idempotent, limbCount, nativeModulus)
+		case 4:
+			basis.appendQuarticKaraSquare(f, g, idempotent, limbCount, nativeModulus)
+		default:
+			// Preserve the interpolation kernel for larger factors: its sparse
+			// evaluation forms are valuable for long chains of lazy coordinates.
+			basis.squareLeft = append(basis.squareLeft, basis.forms[offset:offset+points]...)
+			basis.squareRight = append(basis.squareRight, basis.forms[offset:offset+points]...)
+			for j := range basis.combine {
+				basis.squareCombine[j] = append(basis.squareCombine[j], basis.combine[j][offset:offset+points]...)
 			}
 		}
 		offset += points

@@ -35,13 +35,9 @@ func rangeCheckHintForgeriesAreRejected(t *testing.T, config Config) {
 			return nil
 		}))
 	})
-	decompose := decomposeHint
-	if config.Arithmetic == ArithmeticV2 {
-		decompose = decomposeHighHint
-	}
 	t.Run("decomposition", func(t *testing.T) {
-		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(decompose), func(q *big.Int, inputs, outputs []*big.Int) error {
-			if err := decompose(q, inputs, outputs); err != nil {
+		expectRejected(t, cs, w, solver.OverrideHint(solver.GetHintID(decomposeHighHint), func(q *big.Int, inputs, outputs []*big.Int) error {
+			if err := decomposeHighHint(q, inputs, outputs); err != nil {
 				return err
 			}
 			outputs[0].Add(outputs[0], pow2(LookupLayout.PieceBits))

@@ -46,6 +46,12 @@ func (f *fieldOps) Eval(terms ...emfield.Term) *fpElement { return f.GadgetEval(
 
 func (f *fieldOps) AssertZero(terms ...emfield.Term) { f.GadgetAssertZero(terms...) }
 
+func (f *fieldOps) EvalProjected(terms ...emfield.Term) *fpElement {
+	return f.GadgetEvalProjected(terms...)
+}
+
+func (f *fieldOps) AssertZeroProjected(terms ...emfield.Term) { f.GadgetAssertZeroProjected(terms...) }
+
 func (f *fieldOps) Lazy(terms ...emfield.Term) *fpElement { return f.GadgetLazy(terms...) }
 
 const (

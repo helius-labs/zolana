@@ -11,27 +11,43 @@ import (
 
 // CombSelect is combSelect: the table entry indexed by SelectorBits (little
 // endian). TableX holds each entry's x limbs and TableY its y limbs, or its
-// packed y limb groups when PackY is set. The table constants are call
-// arguments, so every window shares one definition per shape.
+// packed y limb groups when PackY is set. With SignFolded the table is the
+// first half of a window of inverse pairs and the top selector bit picks the
+// sign. The table constants are call arguments, so every window shares one
+// definition per shape.
 type CombSelect struct {
 	TableX, TableY [][]frontend.Variable
 	SelectorBits   []frontend.Variable
 	PackY          bool
+	SignFolded     bool
 }
 
 func (g CombSelect) DefineGadget(api frontend.API) interface{} {
 	c := newCurve(api)
-	out := c.combSelectConstrained(g.TableX, g.TableY, g.SelectorBits, g.PackY)
+	out := c.combSelectConstrained(g.TableX, g.TableY, g.SelectorBits, g.PackY, g.SignFolded)
 	recordOutputs(g, out.X, out.Y)
 	return pointLimbs(out)
 }
 
+// combSelect folds ordinary windows, whose entries i and len-1-i are inverse
+// points, to half their size; the parity-folded top window is asymmetric.
 func (c *curve) combSelect(table [][2]*big.Int, selectorBits []frontend.Variable, packY bool) *point {
+	signFolded := packY && len(selectorBits) > 1
+	if signFolded {
+		p := c.fp.Modulus()
+		for i := 0; i < len(table)/2; i++ {
+			other := table[len(table)-1-i]
+			if table[i][0].Cmp(other[0]) != 0 || new(big.Int).Add(table[i][1], other[1]).Cmp(p) != 0 {
+				panic("comb sign folding needs inverse point pairs")
+			}
+		}
+		table = table[:len(table)/2]
+	}
 	xs, ys := c.combTableLimbs(table, packY)
 	if !abstractor.Extracting(c.api) {
-		return c.combSelectConstrained(xs, ys, selectorBits, packY)
+		return c.combSelectConstrained(xs, ys, selectorBits, packY, signFolded)
 	}
-	g := CombSelect{TableX: xs, TableY: ys, SelectorBits: selectorBits, PackY: packY}
+	g := CombSelect{TableX: xs, TableY: ys, SelectorBits: selectorBits, PackY: packY, SignFolded: signFolded}
 	return c.pointFromGadget(g, abstractor.Call2(c.api, g))
 }
 

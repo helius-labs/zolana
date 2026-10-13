@@ -75,7 +75,7 @@ func TestLazyBoundExpansionPreservesPolynomial(t *testing.T) {
 			return out
 		}
 		want, got := eval(terms), eval(expandedTerms(terms))
-		lo, hi := (&Field{version: ArithmeticV2}).lazyCoefficientIntervals(terms)
+		lo, hi := lazyCoefficientIntervals(terms)
 		for i := range want {
 			if want[i].Cmp(got[i]) != 0 {
 				t.Fatalf("trial %d coefficient %d: expanded polynomial differs", trial, i)
@@ -116,10 +116,6 @@ func (c *lazySquareBoundsCircuit) Define(api frontend.API) error {
 func TestLazySquareBoundsAndCancellation(t *testing.T) {
 	rng := rand.New(rand.NewSource(256))
 	for _, l := range arithmetics {
-		if l.config.Arithmetic == ArithmeticV1 {
-			// ArithmeticV1 bounds a lazy sum factor by factor, so it cannot see the cancellation.
-			continue
-		}
 		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &lazySquareBoundsCircuit{Config: l.config})
 		if err != nil {
 			t.Fatal(err)

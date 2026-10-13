@@ -1,7 +1,8 @@
 // Tested invariants and diagnostics:
 //
 //  1. The distinct-x guard rejects coordinates equal modulo the curve prime.
-//  2. The distinct-slope guard rejects equal or negated slopes.
+//  2. The ladder output guard rejects a zero second slope and every integer
+//     representative of a zero slope sum, and accepts equal nonzero slopes.
 //  3. Forged rational decompositions and multiplication results from the regression
 //     report are rejected.
 //  4. Valid point addition accepts x-coordinates differing by the BN254 modulus.
@@ -50,25 +51,29 @@ func TestDistinctXGuard(t *testing.T) {
 	}
 }
 
-// Invariant 2: The distinct-slope guard rejects equal or negated slopes.
-func TestDistinctSlopeGuard(t *testing.T) {
+// Invariant 2: The ladder output guard rejects every zero of mu*(mu+2*lambda) modulo p.
+func TestLadderOutputGuard(t *testing.T) {
 	solver.RegisterHint(identityHint)
-	cs := compile(t, &distinctSlopeCircuit{})
+	cs := compile(t, &ladderOutputGuardCircuit{})
 	p := elliptic.P256().Params().P
 	x := new(big.Int).Sub(p, big.NewInt(0x1234_5678))
+	third := new(big.Int).Div(p, big.NewInt(3))
+	thirdRemainder := new(big.Int).Sub(p, new(big.Int).Lsh(third, 1))
 	for _, row := range []struct {
-		name   string
-		a, b   *big.Int
-		accept bool
+		name          string
+		chord, second *big.Int
+		accept        bool
 	}{
 		{"distinct", x, big.NewInt(0x1234_5679), true},
-		{"equal", x, x, false},
-		{"negated", x, new(big.Int).Sub(p, x), false},
-		{"small equal", big.NewInt(7), big.NewInt(7), false},
-		{"small negated", big.NewInt(7), new(big.Int).Sub(p, big.NewInt(7)), false},
-		{"zero", big.NewInt(0), big.NewInt(0), false},
+		{"equal nonzero", big.NewInt(7), big.NewInt(7), true},
+		{"zero second slope", big.NewInt(7), big.NewInt(0), false},
+		{"zero sum", big.NewInt(7), new(big.Int).Sub(p, big.NewInt(14)), false},
+		{"zero sum modulo p", new(big.Int).Sub(p, big.NewInt(7)), big.NewInt(14), false},
+		{"sum integer p", third, thirdRemainder, false},
+		{"sum integer minus p", new(big.Int).Sub(p, third), new(big.Int).Sub(p, thirdRemainder), false},
+		{"zero both", big.NewInt(0), big.NewInt(0), false},
 	} {
-		w := &distinctSlopeCircuit{A: plainLimbValues(row.a), B: plainLimbValues(row.b)}
+		w := &ladderOutputGuardCircuit{ChordSlope: plainLimbValues(row.chord), SecondSlope: plainLimbValues(row.second)}
 		witness, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
 		if err != nil {
 			t.Fatal(err)
@@ -76,7 +81,7 @@ func TestDistinctSlopeGuard(t *testing.T) {
 		if err := cs.IsSolved(witness); (err == nil) != row.accept {
 			t.Fatalf("%s: accept=%v err=%v", row.name, row.accept, err)
 		}
-		if err := test.IsSolved(&distinctSlopeCircuit{}, w, ecc.BN254.ScalarField()); (err == nil) != row.accept {
+		if err := test.IsSolved(&ladderOutputGuardCircuit{}, w, ecc.BN254.ScalarField()); (err == nil) != row.accept {
 			t.Fatalf("test engine %s: accept=%v err=%v", row.name, row.accept, err)
 		}
 	}
@@ -239,15 +244,15 @@ func (c *distinctXCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-type distinctSlopeCircuit struct {
-	A, B [8]frontend.Variable
+type ladderOutputGuardCircuit struct {
+	ChordSlope, SecondSlope [8]frontend.Variable
 }
 
-func (c *distinctSlopeCircuit) Define(api frontend.API) error {
+func (c *ladderOutputGuardCircuit) Define(api frontend.API) error {
 	cv := newCurve(api)
-	a := cv.fp.HintBalanced(identityHint, 1, nil, cv.fp.FromLimbs(c.A[:]))[0]
-	b := cv.fp.HintBalanced(identityHint, 1, nil, cv.fp.FromLimbs(c.B[:]))[0]
-	cv.assertDistinctSlope(a, cv.nativeValue(b))
+	chordSlope := cv.fp.HintBalanced(identityHint, 1, nil, cv.fp.FromLimbs(c.ChordSlope[:]))[0]
+	secondSlope := cv.fp.HintBalanced(identityHint, 1, nil, cv.fp.FromLimbs(c.SecondSlope[:]))[0]
+	cv.assertLadderOutputDistinct(chordSlope, secondSlope)
 	return nil
 }
 
