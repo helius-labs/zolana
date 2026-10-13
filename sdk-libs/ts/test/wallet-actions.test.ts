@@ -1390,6 +1390,28 @@ describe("multi-recipient transfer", () => {
     expect(wallet.utxos()[0]?.spent).toBe(false);
   });
 
+  it("lets a fee payer other than the owner sponsor the payments", async () => {
+    const keypair = spendingKeypair();
+    const owner = keypair.shieldedAddress().solanaAddress();
+    const { client, assemble } = capturePrivateBuild();
+    await buildMultiTransferTransaction({
+      client,
+      wallet: fundedWallet(keypair, [100n]),
+      keys: localKeys(keypair),
+      feePayer: RECIPIENT,
+      payments: [
+        { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 25n },
+        { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 1n },
+      ],
+    });
+    const [request] = assemble.mock.calls[0]!;
+    expect(request.feePayer).toBe(RECIPIENT);
+    const material = authorizedPrivateTransactionMaterial(request.authorized);
+    if (material === undefined) throw new Error("authorization was not minted");
+    expect(material.proofInputs.payer).toBe(RECIPIENT);
+    expect(ownerSignerAddresses(material.proofInputs.inputUtxos, RECIPIENT)).toEqual([owner]);
+  });
+
   it("keeps a single payment a transfer approval", async () => {
     const keypair = spendingKeypair();
     const recipient = ShieldedKeypair.generate().shieldedAddress();

@@ -21,8 +21,9 @@ Added
 
 - `AwsNitroPolicy.hpkePublicKey` optionally pins the prover's encryption key, and
   `proverTee` then refuses an attestation that offers any other key.
-- `buildTransferTransaction`, `buildWithdrawalTransaction` and
-  `buildSplitTransaction` accept a `feePayer` other than the wallet owner and
+- `buildTransferTransaction`, `buildMultiTransferTransaction`,
+  `buildWithdrawalTransaction` and `buildSplitTransaction` accept a `feePayer`
+  other than the wallet owner and
   return a transaction the owner co-signs, and `transactInstruction` takes
   `ownerSigners` to list those co-signers.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
