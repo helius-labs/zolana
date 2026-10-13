@@ -131,6 +131,7 @@ fn localnet_defaults() -> Urls {
         indexer: "http://127.0.0.1:8784".to_owned(),
         prover: "http://127.0.0.1:3001".to_owned(),
         ring_rpc: "http://127.0.0.1:8785".to_owned(),
+        prover_tee_policy: None,
         ring_rpc_pubkey: None,
     }
 }
@@ -141,6 +142,7 @@ fn devnet_defaults() -> Urls {
         indexer: DEVNET_INDEXER.to_owned(),
         prover: DEVNET_PROVER.to_owned(),
         ring_rpc: DEVNET_RING_RPC.to_owned(),
+        prover_tee_policy: None,
         ring_rpc_pubkey: Some(DEVNET_RING_RPC_PUBKEY.to_owned()),
     }
 }

@@ -30,7 +30,7 @@ pub enum Commands {
     },
     /// Prove and submit ready nullifier-tree zkp-batches. Reads RPC_URL,
     /// PROVER_URL, PHOTON_URL, and PAYER (forester keypair) from the
-    /// environment.
+    /// environment. PROVER_TEE_POLICY optionally selects an approved TEE policy file.
     Run {
         /// Pool tree whose nullifier queue to drain.
         #[arg(long, default_value_t = default_tree())]

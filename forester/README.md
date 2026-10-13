@@ -32,6 +32,20 @@ cargo run -p forester -- run --settings <PUBKEY> [--tree <PUBKEY>] [--watch] [--
 cargo run -p forester -- close-nullifier-pdas --settings <PUBKEY> [--account-index N] [--tree <PUBKEY>] [--from-seq N] [--max-transactions N] [--watch] [--poll-secs S]
 ```
 
+### Prover trust policy
+
+Remote provers must attest to the bundled Nitro policy or an explicit approved
+policy. Set `PROVER_TEE_POLICY=/path/to/approved-policy.json` alongside
+`PROVER_URL` for a different deployment. Relative paths resolve from the working
+directory. The file accepts a bare TEE policy or `{ "deployment": <policy> }`.
+Missing, malformed, or null policies stop startup; they never enable plaintext.
+Only direct loopback development permits plaintext by default.
+
+Use a deployment that serves the forester's batch proving keys; the bundled
+devnet prover serves transfers and merges, not forester batches. When the chosen
+enclave has no indexer, pass `--client-proof-data`. Obtain policy measurements
+and keys from a reviewed release, never from an unverified endpoint response.
+
 ### `close-nullifier-pdas`
 
 Every queued nullifier owns a ten-byte PDA funded from the tree. Once a

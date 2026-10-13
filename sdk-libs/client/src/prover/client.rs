@@ -709,7 +709,9 @@ impl AsyncProverClient {
 
     /// Route all proof submissions and status polls through an explicit proxy.
     ///
-    /// Has the same routing and security behavior as [`ProverClient::with_proxy`].
+    /// Requires TEE attestation even for loopback destinations: the proxy may
+    /// carry them off-machine. Keeps an explicit policy, otherwise uses the
+    /// bundled deployment policy. There is no plaintext proxy mode.
     /// Enable the `socks` Cargo feature for SOCKS proxies.
     ///
     /// ```no_run
@@ -725,6 +727,9 @@ impl AsyncProverClient {
     pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
         let http = build_async_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
+        if self.tee.is_none() {
+            self.tee = Some(TeeSession::new(TeePolicy::default_deployment()?));
+        }
         self.http = Arc::new(http);
         Ok(self)
     }
@@ -1370,10 +1375,84 @@ mod tests {
         }
     }
 
-    fn proxy_proof_responses() -> Vec<MockResponse> {
+    fn proxy_fixture(fixture: NitroFixture) -> NitroFixture {
+        use hpke::{kem::X25519HkdfSha256, Kem, Serializable};
+        let (_, key) = X25519HkdfSha256::derive_keypair(b"proxy test enclave");
+        fixture.with_hpke_key(key.to_bytes().into())
+    }
+
+    // An enclave-side answer: open the request and encrypt the response with
+    // its exported key. The proxy transport records ciphertext on both legs.
+    fn encrypted_proxy_response(status: u16, body: Value) -> MockResponse {
+        MockResponse::computed(move |request| {
+            use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+            use hpke::{
+                aead::AesGcm256, kdf::HkdfSha256, kem::X25519HkdfSha256, Deserializable, Kem,
+                OpModeR,
+            };
+            assert!(request.encrypted);
+            let header = |name: &str| {
+                request
+                    .header
+                    .lines()
+                    .find_map(|line| {
+                        let (key, value) = line.split_once(':')?;
+                        key.eq_ignore_ascii_case(name).then(|| value.trim())
+                    })
+                    .unwrap()
+            };
+            let (private_key, _) = X25519HkdfSha256::derive_keypair(b"proxy test enclave");
+            let enc = <X25519HkdfSha256 as Kem>::EncappedKey::from_bytes(
+                &hex::decode(header("zolana-tee-enc")).unwrap(),
+            )
+            .unwrap();
+            let mut receiver = hpke::setup_receiver::<AesGcm256, HkdfSha256, X25519HkdfSha256>(
+                &OpModeR::Base,
+                &private_key,
+                &enc,
+                b"zolana/prover-tee/v1",
+            )
+            .unwrap();
+            let url = Url::parse(&request.path).unwrap_or_else(|_| {
+                Url::parse(&format!("http://localhost{}", request.path)).unwrap()
+            });
+            let uri = &url[url::Position::BeforePath..];
+            let method = request.header.split_whitespace().next().unwrap();
+            let ciphertext = if method == "GET" {
+                hex::decode(header("zolana-tee-ciphertext")).unwrap()
+            } else {
+                request.body.clone()
+            };
+            let plaintext = receiver
+                .open(&ciphertext, format!("{method} {uri}").as_bytes())
+                .unwrap();
+            assert_eq!(
+                plaintext,
+                if method == "GET" {
+                    b"".as_slice()
+                } else {
+                    b"{\"secret\":1}"
+                }
+            );
+            let mut key = [0; 32];
+            receiver
+                .export(b"zolana/prover-tee/v1/response", &mut key)
+                .unwrap();
+            let plaintext = [status.to_be_bytes().as_slice(), body.to_string().as_bytes()].concat();
+            let nonce = [0; 12]; // Fresh exported key for every request.
+            let ciphertext = Aes256Gcm::new_from_slice(&key)
+                .unwrap()
+                .encrypt(Nonce::from_slice(&nonce), plaintext.as_slice())
+                .unwrap();
+            MockResponse::Encrypted([nonce.as_slice(), &ciphertext].concat())
+        })
+    }
+
+    fn proxy_proof_responses(now: u64) -> Vec<MockResponse> {
         vec![
-            MockResponse::json(202, json!({ "jobId": "proxy-job", "status": "queued" })),
-            MockResponse::json(
+            nitro_answer(now, proxy_fixture),
+            encrypted_proxy_response(202, json!({ "jobId": "proxy-job", "status": "queued" })),
+            encrypted_proxy_response(
                 200,
                 json!({ "status": "completed", "proof": gnark_proof() }),
             ),
@@ -1382,14 +1461,19 @@ mod tests {
 
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0].path.contains("/tee/v1/attestation?nonce="));
+        assert!(requests[0].body.is_empty());
+        assert!(requests[1..].iter().all(|request| request.encrypted));
+        let requests = &requests[1..];
         if socks {
             assert_paths(
-                &requests,
+                requests,
                 ["/prove/test", "/prove/test/status?jobId=proxy-job"],
             );
         } else {
             assert_paths(
-                &requests,
+                requests,
                 [
                     "http://127.0.0.1:3001/prove/test",
                     "http://127.0.0.1:3001/prove/test/status?jobId=proxy-job",
@@ -1404,12 +1488,13 @@ mod tests {
             .into_iter()
             .filter(|socks| !socks || cfg!(feature = "socks"))
         {
-            let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
-            let client = queued_prover_client("http://127.0.0.1:3001")
-                .with_proxy(proxy.url())
-                .unwrap();
+            let now = now_secs();
+            let proxy = MockServer::respond_with_transport(proxy_proof_responses(now), socks);
+            let mut client = queued_prover_client("http://127.0.0.1:3001");
+            client.client.tee = Some(proxy_fixture(NitroFixture::at([0; 32], now)).session());
+            let client = client.with_proxy(proxy.url()).unwrap();
             client
-                .send("{}", Delivery::Queued, &test_key())
+                .send(r#"{"secret":1}"#, Delivery::Queued, &test_key())
                 .expect("proof through proxy");
             assert_proxy_requests(proxy, socks);
         }
@@ -1421,16 +1506,54 @@ mod tests {
             .into_iter()
             .filter(|socks| !socks || cfg!(feature = "socks"))
         {
-            let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
-            let client = async_prover_client("http://127.0.0.1:3001")
-                .with_proxy(proxy.url())
-                .unwrap();
+            let now = now_secs();
+            let proxy = MockServer::respond_with_transport(proxy_proof_responses(now), socks);
+            let mut client = async_prover_client("http://127.0.0.1:3001");
+            client.tee = Some(proxy_fixture(NitroFixture::at([0; 32], now)).session());
+            let client = client.with_proxy(proxy.url()).unwrap();
             client
-                .send("{}", Delivery::Queued, &test_key())
+                .send(r#"{"secret":1}"#, Delivery::Queued, &test_key())
                 .await
                 .expect("proof through proxy");
             assert_proxy_requests(proxy, socks);
         }
+    }
+
+    #[test]
+    fn blocking_loopback_proxy_requires_attestation() {
+        let proxy = MockServer::respond_with(vec![MockResponse::text(404, "no attestation")]);
+        let client = queued_prover_client("http://127.0.0.1:3001")
+            .with_proxy(proxy.url())
+            .unwrap();
+        assert!(client.client.tee.is_some());
+        assert!(client
+            .send(r#"{"secret":1}"#, Delivery::InResponse, &test_key())
+            .is_err());
+        let requests = proxy.requests();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0]
+            .path
+            .starts_with("http://127.0.0.1:3001/tee/v1/attestation?nonce="));
+        assert!(requests[0].body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn async_loopback_proxy_requires_attestation() {
+        let proxy = MockServer::respond_with(vec![MockResponse::text(404, "no attestation")]);
+        let client = async_prover_client("http://127.0.0.1:3001")
+            .with_proxy(proxy.url())
+            .unwrap();
+        assert!(client.tee.is_some());
+        assert!(client
+            .send(r#"{"secret":1}"#, Delivery::InResponse, &test_key())
+            .await
+            .is_err());
+        let requests = proxy.requests();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0]
+            .path
+            .starts_with("http://127.0.0.1:3001/tee/v1/attestation?nonce="));
+        assert!(requests[0].body.is_empty());
     }
 
     #[test]
@@ -2920,6 +3043,8 @@ mod tests {
 
     struct RecordedRequest {
         path: String,
+        header: String,
+        body: Vec<u8>,
         /// Whether the request asked for the proof in the response.
         sync_requested: bool,
         async_requested: bool,
@@ -2927,6 +3052,7 @@ mod tests {
     }
 
     enum MockResponse {
+        Encrypted(Vec<u8>),
         Http {
             status: u16,
             body: String,
@@ -3032,6 +3158,9 @@ mod tests {
                             thread::sleep(delay);
                             write_http_response(&mut stream, status, &body);
                         }
+                        MockResponse::Encrypted(body) => {
+                            write_encrypted_response(&mut stream, &body)
+                        }
                         MockResponse::Disconnect => {}
                         MockResponse::Computed(_) => unreachable!("resolved above"),
                     }
@@ -3091,6 +3220,9 @@ mod tests {
                             write_http_response(&mut stream, status, &body);
                             last = Some((status, body));
                         }
+                        Some(MockResponse::Encrypted(body)) => {
+                            write_encrypted_response(&mut stream, &body)
+                        }
                         Some(MockResponse::Disconnect) => {}
                         Some(MockResponse::Computed(_)) => unreachable!("resolved above"),
                         None => {
@@ -3144,13 +3276,11 @@ mod tests {
         stream.write_all(&[5, 0]).unwrap();
         let mut connect = [0; 4];
         stream.read_exact(&mut connect).unwrap();
-        // Domain-name address type proves resolution is delegated to the proxy.
-        assert_eq!(connect, [5, 1, 0, 3]);
-        let mut length = [0];
-        stream.read_exact(&mut length).unwrap();
-        let mut hostname = vec![0; usize::from(length[0])];
-        stream.read_exact(&mut hostname).unwrap();
-        assert_eq!(hostname, b"prover.invalid");
+        // Even an IP-literal loopback destination must travel through the proxy.
+        assert_eq!(connect, [5, 1, 0, 1]);
+        let mut address = [0; 4];
+        stream.read_exact(&mut address).unwrap();
+        assert_eq!(address, [127, 0, 0, 1]);
         let mut port = [0; 2];
         stream.read_exact(&mut port).unwrap();
         assert_eq!(u16::from_be_bytes(port), 3001);
@@ -3201,6 +3331,8 @@ mod tests {
             .to_string();
         RecordedRequest {
             path,
+            header: header.to_string(),
+            body: data[header_end..].to_vec(),
             async_requested: header.lines().any(|line| {
                 line.to_ascii_lowercase()
                     .strip_prefix("x-async:")
@@ -3226,6 +3358,11 @@ mod tests {
                 .map(str::trim)
                 .and_then(|value| value.parse().ok())
         })
+    }
+
+    fn write_encrypted_response(stream: &mut TcpStream, body: &[u8]) {
+        write!(stream, "HTTP/1.1 200 OK\r\nzolana-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
+        stream.write_all(body).unwrap();
     }
 
     fn write_http_response(stream: &mut TcpStream, status: u16, body: &str) {

@@ -112,6 +112,13 @@ impl Fixture {
         }
     }
 
+    pub(crate) fn with_hpke_key(mut self, key: [u8; 32]) -> Self {
+        self.hpke_public_key = key;
+        self.public_key = key;
+        self.user_data = report_data(&self.nonce, &key, None);
+        self
+    }
+
     pub(crate) fn pinning_key(mut self) -> Self {
         let PlatformPolicy::AwsNitro(pins) = &mut self.policy.pins else {
             unreachable!()

@@ -42,6 +42,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use thiserror::Error;
+use zolana_client::prover::tee::TeePolicy;
 use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_keypair::ShieldedAddress;
 
@@ -491,6 +492,7 @@ impl Default for TransactArgs {
 }
 
 pub struct Context {
+    prover_tee: Option<TeePolicy>,
     pub config_path: PathBuf,
     pub project_root: ProjectRoot,
     pub config: RingConfig,
@@ -524,7 +526,7 @@ pub enum ContextError {
 }
 
 impl Session {
-    pub fn load(self) -> Context {
+    pub fn load(self) -> Result<Context, ConfigError> {
         let Self {
             config_path,
             mut config,
@@ -532,10 +534,12 @@ impl Session {
             catalogue,
         } = self;
         let project_root = ProjectRoot::for_config(&config_path);
+        let prover_tee = config.urls().tee_policy(&project_root)?;
         config.resolve_keypair_paths(&project_root);
         let ring = CustomRing::new(config.program_id);
         let rpc = SolanaRpc::new(config.urls().rpc.clone());
-        Context {
+        Ok(Context {
+            prover_tee,
             config_path,
             project_root,
             config,
@@ -543,7 +547,7 @@ impl Session {
             rpc,
             ask,
             catalogue,
-        }
+        })
     }
 }
 
@@ -609,7 +613,11 @@ impl Context {
     }
 
     pub fn prover(&self) -> ProverClient {
-        ProverClient::new(self.config.urls().prover.clone())
+        let prover = ProverClient::new(self.config.urls().prover.clone());
+        match &self.prover_tee {
+            Some(policy) => prover.with_tee(policy.clone()),
+            None => prover,
+        }
     }
 
     /// `unpinned` applies only when ring.toml pins no service key.
@@ -704,7 +712,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         ask,
         catalogue: cli.catalogue,
     }
-    .load();
+    .load()?;
     match cli.command {
         Command::Status => status::run(&ctx),
         Command::Deploy(args) => {

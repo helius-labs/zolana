@@ -185,16 +185,17 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         return check_once(&rpc_url, &photon, opts.tree);
     }
 
-    let prover_url = config.require_prover_url()?.to_string();
     let settings = opts
         .settings
         .ok_or_else(|| anyhow!("--settings (forester smart-account) is required to submit"))?;
     let member = config.signer()?;
-    let prover = ProverClient::new(prover_url).with_proof_data_source(if opts.client_proof_data {
-        ProofDataSource::Client
-    } else {
-        ProofDataSource::Prover
-    });
+    let prover = config
+        .prover()?
+        .with_proof_data_source(if opts.client_proof_data {
+            ProofDataSource::Client
+        } else {
+            ProofDataSource::Prover
+        });
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 

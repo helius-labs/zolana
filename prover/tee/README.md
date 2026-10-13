@@ -27,9 +27,10 @@ Any compose the API key holder deploys under the same app derives the same key a
 ## Building on it
 
 Rust and TypeScript prover clients automatically use the bundled Nitro policy
-for every remote endpoint, including Helius gateways. Loopback development may
-use plaintext. Use `ProverClient::with_tee` / `AsyncProverClient::with_tee` in
-Rust or `ZolanaClientConfig.proverTee` in TypeScript to select another trusted
+for every remote endpoint, including Helius gateways. Direct loopback development
+may use plaintext. Rust clients using an explicit proxy require attestation even
+for loopback destinations, since the proxy can carry traffic off-machine.
+Use `ProverClient::with_tee` / `AsyncProverClient::with_tee` in Rust or `ZolanaClientConfig.proverTee` in TypeScript to select another trusted
 policy. There is no remote plaintext opt out. `attest` / `attestProver` returns
 the verified identity on demand.
 
@@ -55,6 +56,16 @@ Publish reviewed measurements and keys in an SDK release, or supply an explicit
 policy from a trusted release/configuration. Never automatically trust new pins
 returned by the prover. The Nitro deployment guide describes measuring and
 verifying releases before updating both SDK policy files.
+
+The current bundled pins are **not** approval of this branch's final enclave
+artifact. Before releasing these defaults for custom-ring use, build and deploy
+an enclave containing both the baked ring keys and the plaintext-rejecting
+server middleware. Measure that exact artifact and approve its HPKE public key
+(including any `tee-2` KMS rotation), then update both SDK policy files together.
+Verify that the final deployment serves the required circuit keys and rejects
+plaintext proofs. Until that release is available, custom-ring operators need
+an explicit approved policy for a deployment with those circuits. Do not replace
+the bundled pins with measurements or keys merely reported by the endpoint.
 
 ## Roles
 
