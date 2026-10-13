@@ -1404,7 +1404,7 @@ describe("multi-recipient transfer", () => {
     });
   });
 
-  it("refuses empty, oversized and zero-value payment lists without reserving notes", async () => {
+  it("refuses empty, oversized and zero-value payment lists without reserving UTXOs", async () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [100n]);
     const recipient = ShieldedKeypair.generate().shieldedAddress();
@@ -1439,7 +1439,7 @@ describe("multi-recipient transfer", () => {
     ).rejects.toMatchObject({
       causeCodes: ["WALLET_CREATE_TRANSFER", "WALLET_INVALID_AMOUNT"],
     });
-    // Nothing above reserved the note, so the whole balance is still spendable.
+    // Nothing above reserved the UTXO, so the whole balance is still spendable.
     await expect(
       build(wallet, keypair, [
         { recipient, amount: 60n },
@@ -1448,7 +1448,7 @@ describe("multi-recipient transfer", () => {
     ).resolves.toBe(TRANSACTION);
   });
 
-  it("refuses an unregistered recipient before reserving notes", async () => {
+  it("refuses an unregistered recipient before reserving UTXOs", async () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [100n]);
     const getAccount = vi.fn(async () => undefined);
@@ -1476,10 +1476,10 @@ describe("multi-recipient transfer", () => {
     ).resolves.toBe(TRANSACTION);
   });
 
-  it("selects at most the notes the wider proof takes", async () => {
+  it("selects at most the UTXOs the wider proof takes", async () => {
     const keypair = spendingKeypair();
     const recipient = ShieldedKeypair.generate().shieldedAddress();
-    const notes = () =>
+    const utxos = () =>
       fundedWallet(
         keypair,
         Array.from({ length: 25 }, () => 4n),
@@ -1494,16 +1494,16 @@ describe("multi-recipient transfer", () => {
           { recipient, amount: 10n },
         ],
       });
-    // Two payments and change prove on 4-output keys, which take 24 notes.
-    const covered = await pay(notes(), 96n);
+    // Two payments and change prove on 4-output keys, which take 24 UTXOs.
+    const covered = await pay(utxos(), 96n);
     expect(covered.transaction.inputCount()).toBe(24);
-    await expect(pay(notes(), 100n)).rejects.toMatchObject({
+    await expect(pay(utxos(), 100n)).rejects.toMatchObject({
       code: "WALLET_CREATE_TRANSFER",
       causeCode: "WALLET_TOO_MANY_INPUTS",
     });
-    // One recipient keeps the 2-output cap, so the same notes still cover it.
+    // One recipient keeps the 2-output cap, so the same UTXOs still cover it.
     await expect(
-      createTransfer({ wallet: notes(), payer: PAYER, recipient, asset: SOL_MINT, amount: 100n }),
+      createTransfer({ wallet: utxos(), payer: PAYER, recipient, asset: SOL_MINT, amount: 100n }),
     ).resolves.toHaveProperty("transaction");
   });
 });

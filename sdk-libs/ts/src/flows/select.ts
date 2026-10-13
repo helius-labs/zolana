@@ -14,9 +14,9 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
 export const MAX_SPEND_INPUTS = 40;
 
 /**
- * @internal Notes a spend with `outputs` outputs selects at most: the widest
+ * @internal UTXOs a spend with `outputs` outputs selects at most: the widest
  * shape holding that many outputs, capped at `MAX_SPEND_INPUTS`. A transfer with
- * two payments and change proves on 4-output keys, which take at most 24 notes.
+ * two payments and change proves on 4-output keys, which take at most 24 UTXOs.
  */
 export function maxSpendInputs(outputs: number): number {
   const widest = SPP_SUPPORTED_SHAPES.filter((shape) => shape.outputs >= outputs).reduce(

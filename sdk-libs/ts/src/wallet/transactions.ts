@@ -102,7 +102,7 @@ export async function buildTransferTransaction(
  * One private transfer of `asset` to several recipients, for example a payment
  * and an application fee. The proof hides every amount and recipient, and the
  * approval handler sees a `multiTransfer` intent listing the payments (a
- * `transfer` intent for a single payment). Notes beyond the input count the
+ * `transfer` intent for a single payment). UTXOs beyond the input count the
  * wider proof allows fail with `WALLET_TOO_MANY_INPUTS`; merge first.
  */
 export async function buildMultiTransferTransaction(

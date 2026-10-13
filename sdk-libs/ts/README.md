@@ -284,7 +284,7 @@ const transfer = await buildMultiTransferTransaction({
 });
 ```
 
-More outputs take a wider proof that accepts fewer notes: two payments spend at
+More outputs take a wider proof that accepts fewer UTXOs: two payments spend at
 most 24, past which the build fails with `WALLET_TOO_MANY_INPUTS` until the
 balance is merged.
 
