@@ -285,6 +285,26 @@ For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`; the recipient token account is
 created idempotently when needed.
 
+### Sponsored fees
+
+`feePayer` on a transfer, withdrawal, or split may be a sponsor other than
+the wallet owner. The built transaction then lists the owner as a required
+signer, so both keys sign it:
+
+```ts
+declare const sponsor: KeyPairSigner;
+
+const sponsored = await buildTransferTransaction({
+  client,
+  wallet,
+  keys,
+  feePayer: sponsor.address,
+  recipient: recipientSolanaAddress,
+  amount: 25_000_000n,
+});
+const signed = await signTransactionWithSigners([sponsor, feePayer], sponsored);
+```
+
 ## Wallet sync and persistence
 
 Call `syncWallet`:

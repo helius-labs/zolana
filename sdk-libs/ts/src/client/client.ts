@@ -1,5 +1,5 @@
 import { prepareMerge } from "./prover/merge.js";
-import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
+import { prepareTransfer, checkedTransferCache, ownerSignerAddresses } from "./prover/assembly.js";
 import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
 import {
   assertIsAddress,
@@ -1100,6 +1100,8 @@ export class ZolanaClient
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
       feePayer,
+      // A sponsored fee payer is not the input owner, so the owner signs too.
+      ownerSigners: ownerSignerAddresses(authorized.proofInputs.inputUtxos, feePayer),
       inputTree: authorized.tree,
       outputTree: this.tree,
       setupInstructions: authorized.setupInstructions,
@@ -1165,6 +1167,8 @@ export async function buildUnsignedTransaction(
     computeUnitLimit: number;
     priorityFeeLamports?: bigint;
     feePayer: Address;
+    /** Ed25519 input owners other than `feePayer`, each a required signer. */
+    ownerSigners?: readonly Address[];
     inputTree: Address;
     outputTree: Address;
     setupInstructions?: readonly Instruction[];
@@ -1190,6 +1194,7 @@ export async function buildUnsignedTransaction(
         payer: input.feePayer,
         inputTree: input.inputTree,
         outputTree: input.outputTree,
+        ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
         data: input.data,
         ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
       }),

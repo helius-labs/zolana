@@ -35,7 +35,10 @@ export interface PrivateTransactionParams {
   readonly wallet: Wallet;
   /** The wallet's privacy roles, in-process (`LocalKeys`) or behind a remote holder. */
   readonly keys: WalletKeys;
-  /** The fee payer is also the shielded owner, so its signature authorizes the spend. */
+  /**
+   * Pays the fee. When it is not the shielded owner, the owner's Ed25519 key
+   * is a required signer of the built transaction as well.
+   */
   readonly feePayer: Address;
   /** Approves the intent before proving; unattended when absent. */
   readonly approve?: ApprovalHandler;

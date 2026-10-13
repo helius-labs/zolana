@@ -1,6 +1,7 @@
-import { AccountRole, address } from "@solana/kit";
+import { AccountRole, address, type Blockhash } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 import * as pda from "../src/interface/pda/index.js";
+import { buildUnsignedTransaction } from "../src/client/client.js";
 
 import prefixVector from "../../../test-vectors/transact_account_prefix.json" with { type: "json" };
 
@@ -28,6 +29,7 @@ const TREE = address("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
 const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
 const RING_AUTH = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
+const OWNER_SIGNER = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 const SYSTEM = address("11111111111111111111111111111111");
 const PREFIX_ADDRESSES = new Map<string, Address>([
   ["payer", PAYER],
@@ -157,6 +159,43 @@ describe("nullifier PDA accounts", () => {
       [SOL_INTERFACE, AccountRole.WRITABLE],
       [OWNER, AccountRole.WRITABLE],
     ]);
+  });
+
+  it("places owner signers after the nullifier PDAs and before settlement in transact", async () => {
+    const inputs = [input(71)];
+    const instruction = await transactInstruction({
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      ownerSigners: [OWNER_SIGNER],
+      withdrawal: { kind: "sol", recipient: OWNER },
+      data: transactData(inputs),
+    });
+
+    const [pda] = await nullifierPdas(inputs);
+    expect(instruction.accounts?.slice(5).map((meta) => [meta.address, meta.role])).toEqual([
+      [pda, AccountRole.WRITABLE],
+      [OWNER_SIGNER, AccountRole.READONLY_SIGNER],
+      [SOL_INTERFACE, AccountRole.WRITABLE],
+      [OWNER, AccountRole.WRITABLE],
+    ]);
+  });
+
+  it("makes every owner signer a required signer of the built transaction", async () => {
+    const transaction = await buildUnsignedTransaction({
+      computeUnitLimit: 1_000_000,
+      feePayer: PAYER,
+      ownerSigners: [OWNER_SIGNER],
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      data: transactData([input(71)]),
+      lifetime: {
+        blockhash: "11111111111111111111111111111111" as Blockhash,
+        lastValidBlockHeight: 1n,
+      },
+    });
+
+    expect(Object.keys(transaction.signatures)).toEqual([PAYER, OWNER_SIGNER]);
   });
 
   it("lists one ring input tree per context and derives each PDA under its input's tree", async () => {

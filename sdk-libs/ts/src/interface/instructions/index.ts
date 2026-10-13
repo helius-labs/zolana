@@ -429,35 +429,45 @@ export function checkTransactCacheAccounts(
 }
 
 async function transactAccounts(
-  payer: SignerAccount,
-  inputTree: Address,
-  outputTree: Address,
-  inputs: readonly InputUtxo[],
-  treeContexts: readonly TreeContext[],
-  withdrawal?: TransactWithdrawal,
-  cache?: TransactCacheAccounts,
+  input: Readonly<{
+    payer: SignerAccount;
+    inputTree: Address;
+    outputTree: Address;
+    ownerSigners?: readonly SignerAccount[];
+    withdrawal?: TransactWithdrawal;
+    cache?: TransactCacheAccounts;
+    data: TransactInstructionData;
+  }>,
 ): Promise<Meta[]> {
+  const { inputs, treeContexts } = input.data;
   validateSingleInputTree(inputs, treeContexts);
-  const accounts = [
-    meta(payer, true, true),
-    meta(outputTree, false, true),
+  return [
+    meta(input.payer, true, true),
+    meta(input.outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
-    meta(inputTree, false, true),
+    meta(input.inputTree, false, true),
     ...(await nullifierPdaAccounts(
-      inputTree,
-      inputs.map((input) => input.nullifierHash),
+      input.inputTree,
+      inputs.map((spent) => spent.nullifierHash),
     )),
+    ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
+    ...settlementAccounts(input.withdrawal),
+    ...cacheAccountMetas(input.cache),
   ];
-  accounts.push(...settlementAccounts(withdrawal), ...cacheAccountMetas(cache));
-  return accounts;
 }
 
+/**
+ * Mirrors Rust `Transact::instruction`. `ownerSigners` are the Ed25519 input
+ * owners other than `payer`; they sign after the nullifier PDAs, so a sponsor
+ * can pay for a spend it does not own.
+ */
 export async function transactInstruction(
   input: Readonly<{
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
+    ownerSigners?: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
     cache?: TransactCacheAccounts;
     data: TransactInstructionData;
@@ -466,15 +476,7 @@ export async function transactInstruction(
   checkTransactCacheAccounts(input.data.circuit, input.cache);
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    await transactAccounts(
-      input.payer,
-      input.inputTree,
-      input.outputTree,
-      input.data.inputs,
-      input.data.treeContexts,
-      input.withdrawal,
-      input.cache,
-    ),
+    await transactAccounts(input),
   );
 }
 

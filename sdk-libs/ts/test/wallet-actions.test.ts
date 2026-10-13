@@ -61,6 +61,7 @@ import {
   selectRingInputs,
 } from "../src/ring/transfer.js";
 import { RING_INPUT_SLOTS } from "../src/client/prover/types.js";
+import { ownerSignerAddresses } from "../src/client/prover/assembly.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
@@ -273,7 +274,7 @@ describe("private transaction construction", () => {
     });
   });
 
-  it("rejects an Ed25519 spend whose fee payer is not its owner", async () => {
+  it("authorizes an Ed25519 spend whose fee payer sponsors the owner", async () => {
     const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(7)));
     const wallet = fundedWallet(keypair, [100n]);
     const created = await createWithdrawal({
@@ -284,13 +285,18 @@ describe("private transaction construction", () => {
       amount: 50n,
     });
 
-    await expect(
-      authorizePrivateTransaction(
+    const material = authorizedPrivateTransactionMaterial(
+      await authorizePrivateTransaction(
         created.transaction,
         wallet,
         LocalShieldedKeys.fromKeypair(keypair),
       ),
-    ).rejects.toMatchObject({ code: "TRANSACTION_ED25519_PAYER_MISMATCH" });
+    );
+    if (material === undefined) throw new Error("authorization was not minted");
+    expect(material.proofInputs.payer).toBe(PAYER);
+    expect(ownerSignerAddresses(material.proofInputs.inputUtxos, PAYER)).toEqual([
+      keypair.shieldedAddress().solanaAddress(),
+    ]);
   });
 
   it("does not spend ring-bound UTXOs through a default-ring action", async () => {
@@ -745,24 +751,34 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
-  it("refuses a fee payer other than the UTXO owner", async () => {
+  it("builds a transfer and a split whose fee payer sponsors the UTXO owner", async () => {
     const keypair = spendingKeypair();
-    const wallet = fundedWallet(keypair, [100n]);
-    const { client } = capturePrivateBuild();
+    const owner = keypair.shieldedAddress().solanaAddress();
+    const { client, assemble } = capturePrivateBuild();
 
-    await expect(
-      buildTransferTransaction({
-        client,
-        wallet,
-        keys: localKeys(keypair),
-        feePayer: RECIPIENT,
-        recipient: ShieldedKeypair.generate().shieldedAddress(),
-        amount: 25n,
-      }),
-    ).rejects.toMatchObject({
-      code: "WALLET_BUILD_TRANSFER",
-      causeCode: "TRANSACTION_ED25519_PAYER_MISMATCH",
+    await buildTransferTransaction({
+      client,
+      wallet: fundedWallet(keypair, [100n]),
+      keys: localKeys(keypair),
+      feePayer: RECIPIENT,
+      recipient: ShieldedKeypair.generate().shieldedAddress(),
+      amount: 25n,
     });
+    await buildSplitTransaction({
+      client,
+      wallet: fundedWallet(keypair, [100n]),
+      keys: localKeys(keypair),
+      feePayer: RECIPIENT,
+    });
+
+    expect(assemble).toHaveBeenCalledTimes(2);
+    for (const [request] of assemble.mock.calls) {
+      expect(request.feePayer).toBe(RECIPIENT);
+      const material = authorizedPrivateTransactionMaterial(request.authorized);
+      if (material === undefined) throw new Error("authorization was not minted");
+      expect(material.proofInputs.payer).toBe(RECIPIENT);
+      expect(ownerSignerAddresses(material.proofInputs.inputUtxos, RECIPIENT)).toEqual([owner]);
+    }
   });
 
   it("hands the build's request context to the key holder", async () => {

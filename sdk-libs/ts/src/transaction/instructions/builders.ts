@@ -400,14 +400,6 @@ export class ConfidentialSplit {
     if (input.owner.signingPublicKey.signatureType() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
-    // The builders collect no signature but the payer's, a UTXO owned by
-    // anyone else cannot be authorized here.
-    if (input.owner.solanaAddress() !== input.payer) {
-      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
-        owner: input.owner.solanaAddress(),
-        payer: input.payer,
-      });
-    }
     // Ownership is proven from the nullifier secret behind `ownerHash`, so an
     // input the splitter cannot open is unprovable. A zero-owner slot has no
     // openable owner hash at all.
@@ -630,9 +622,9 @@ export class PreparedSplit {
     }>,
   ): SppProofInputs {
     const tag = this.ownerViewTag();
-    // A split is self-owned throughout, so when the owner is the fee payer the
-    // tag is already account index 0 and costs 2 bytes instead of 33. At eight
-    // slots that is what keeps the transaction inside one legacy packet.
+    // A split is self-owned throughout. When the owner is the fee payer the tag
+    // is already account index 0 and costs 2 bytes instead of 33; a sponsored
+    // split carries the inline tag.
     const ownerTag: OwnerTag = equal(tag, decodeAddress(this.payer))
       ? { kind: "account", index: 0 }
       : { kind: "inline", value: tag };

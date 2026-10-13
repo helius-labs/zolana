@@ -5,12 +5,23 @@
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
-path. A Nitro Enclave prover can be held to one encryption key.
+path. A Nitro Enclave prover can be held to one encryption key, and a
+sponsor can pay the fee of a private transfer, withdrawal, or split.
+
+Breaking
+
+- `TransactionErrorCode` no longer includes `TRANSACTION_ED25519_PAYER_MISMATCH`,
+  since a fee payer other than the owner is now accepted → remove it from
+  exhaustive switches.
 
 Added
 
 - `AwsNitroPolicy.hpkePublicKey` optionally pins the prover's encryption key, and
   `proverTee` then refuses an attestation that offers any other key.
+- `buildTransferTransaction`, `buildWithdrawalTransaction` and
+  `buildSplitTransaction` accept a `feePayer` other than the wallet owner and
+  return a transaction the owner co-signs, and `transactInstruction` takes
+  `ownerSigners` to list those co-signers.
 
 Changed
 

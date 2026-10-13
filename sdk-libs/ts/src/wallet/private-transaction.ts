@@ -110,14 +110,9 @@ export async function authorizePrivateTransaction(
       });
     }
   });
+  // A payer other than the owner sponsors the fee; the transact then lists
+  // the owner as an owner signer, so the owner still signs the spend.
   const address = keys.address();
-  // The default transact appends no owner signer accounts, the owner must pay.
-  if (address.solanaAddress() !== transaction.payer()) {
-    throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
-      owner: address.solanaAddress(),
-      payer: transaction.payer(),
-    });
-  }
   const inputs = unsignedInputs.map(({ entry }) => proofInputFromEntry(entry, address));
   return authorizeWithInputs(
     transaction,
