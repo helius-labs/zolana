@@ -17,8 +17,8 @@ export const FIRST_ASSET_ID = 2n;
 export const STATE_HEIGHT = 32;
 /** Final roots for the latest 500 slots that actually updated the state tree. */
 export const STATE_ROOT_HISTORY_CAPACITY = 500;
-export const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE = 25_000n;
-export const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE = 250n;
+export const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE = 24_995n;
+export const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE = 4999n;
 export const NULLIFIER_TREE_HEIGHT = 40;
 export const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY = Number(
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
@@ -54,7 +54,7 @@ export function defaultTreeFees(zkpBatchSize: bigint): TreeFeeSchedule {
 }
 
 export const PROTOCOL_CONFIG_SIZE = 166;
-export const TREE_ACCOUNT_SIZE = 40_080;
+export const TREE_ACCOUNT_SIZE = 18_608;
 /// The program allocates a tree PDA in chunks of this many bytes; creation
 /// repeats the create-tree instruction once per chunk within one transaction.
 export const TREE_ALLOCATION_STEP = 10 * 1024;

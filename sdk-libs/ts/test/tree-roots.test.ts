@@ -22,7 +22,7 @@ import { filled, treeAccount } from "./helpers/tree-account.js";
 
 describe("tree head roots", () => {
   it("pins the Rust root history offsets", () => {
-    expect(TREE_ACCOUNT_SIZE).toBe(40_080);
+    expect(TREE_ACCOUNT_SIZE).toBe(18_608);
     expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
     expect(UTXO_ROOT_HISTORY_CAPACITY).toBe(STATE_ROOT_HISTORY_CAPACITY);
     expect(UTXO_ROOT_HISTORY_CURSOR_OFFSET).toBe(112);
@@ -35,7 +35,7 @@ describe("tree head roots", () => {
   });
 
   it("reads the Rust account layout", () => {
-    const account = new Uint8Array(40_080);
+    const account = new Uint8Array(18_608);
     const header = new DataView(account.buffer);
     account[0] = StateDiscriminator.treeAccount;
     header.setUint16(112, 2, true);
@@ -45,37 +45,37 @@ describe("tree head roots", () => {
     header.setBigUint64(120, 123_456_789n, true);
     account.set(filled(0x12), 80);
     account.set(filled(0x12), 1_152 + 2 * 32);
-    header.setBigUint64(17_224, 5n, true);
-    account.set(filled(0x24), 17_232 + 4 * 32);
+    header.setBigUint64(17_224, 4n, true);
+    account.set(filled(0x23), 17_232 + 3 * 32);
 
     expect(decodeTreeHeadRoots(account)).toEqual({
       stateRoot: filled(0x12),
       stateRootIndex: 2,
-      nullifierRoot: filled(0x24),
-      nullifierRootIndex: 4,
+      nullifierRoot: filled(0x23),
+      nullifierRootIndex: 3,
     });
   });
 
   it("reads the utxo cursor slot and the nullifier slot before the write cursor", () => {
     expect(UTXO_ROOT_HISTORY_CAPACITY).toBe(500);
-    expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(100);
-    const account = treeAccount({ stateCursor: 2, written: 3, nullifierCursor: 5n });
+    expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(5);
+    const account = treeAccount({ stateCursor: 2, written: 3, nullifierCursor: 4n });
     expect(decodeTreeHeadRoots(account)).toEqual({
       stateRoot: filled(0x12),
       stateRootIndex: 2,
-      nullifierRoot: filled(0x24),
-      nullifierRootIndex: 4,
+      nullifierRoot: filled(0x23),
+      nullifierRootIndex: 3,
     });
   });
 
   it("wraps the nullifier index below zero to the last slot and refuses a cursor at capacity", () => {
     const account = treeAccount({ stateCursor: 0, written: 1, nullifierCursor: 0n });
     expect(decodeTreeHeadRoots(account)).toMatchObject({
-      nullifierRoot: filled(0x20 + (99 % 16)),
-      nullifierRootIndex: 99,
+      nullifierRoot: filled(0x24),
+      nullifierRootIndex: 4,
     });
     expect(() =>
-      decodeTreeHeadRoots(treeAccount({ stateCursor: 0, written: 1, nullifierCursor: 100n })),
+      decodeTreeHeadRoots(treeAccount({ stateCursor: 0, written: 1, nullifierCursor: 5n })),
     ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_ACCOUNT_DATA" }));
   });
 

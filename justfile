@@ -1499,7 +1499,7 @@ build-spp-keys:
     prover/server/scripts/generate_keys_merge.sh "$keys_dir"
     prover/server/scripts/generate_keys_custom_ring.sh "$keys_dir"
     # The generate_* scripts leave the light-prover binary in prover/server.
-    for spec in 10 250; do
+    for spec in 10 4999; do
         prover/server/light-prover setup \
             --circuit address-append \
             --address-append-tree-height 40 \
@@ -1510,7 +1510,7 @@ build-spp-keys:
     prover/server/scripts/regenerate_all_vkeys.sh "$keys_dir"
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' EXIT
-    for spec in 10 250; do
+    for spec in 10 4999; do
         stem="batch_address-append_40_${spec}"
         module="batch_address_append_40_${spec}"
         prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null

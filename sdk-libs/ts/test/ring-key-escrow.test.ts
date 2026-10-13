@@ -546,7 +546,7 @@ describe("policy trees", () => {
             treeAccount({
               stateCursor: 4,
               written: 5,
-              nullifierCursor: 6n,
+              nullifierCursor: 4n,
               treeId: ADDRESS.treeId,
             }),
           )

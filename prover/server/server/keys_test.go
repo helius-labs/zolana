@@ -26,20 +26,20 @@ func servedKeys(t *testing.T, patterns ...string) *ServedKeys {
 
 func TestServedKeysDefaultToEveryKey(t *testing.T) {
 	names := servedKeys(t).Names()
-	if len(names) != len(common.KeyFiles()) || !slices.Contains(names, "batch_address-append_40_250") {
+	if len(names) != len(common.KeyFiles()) || !slices.Contains(names, "batch_address-append_40_4999") {
 		t.Fatalf("default served keys %v", names)
 	}
 }
 
 func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
-	served := servedKeys(t, "*_49_*", "*_54_*", "batch_address-append_40_250")
+	served := servedKeys(t, "*_49_*", "*_54_*", "batch_address-append_40_4999")
 	for file, want := range map[string]bool{
-		"transfer_p256_ring_49_2.key":     true,
-		"merge_54_1.key":                  true,
-		"batch_address-append_40_250.key": true,
-		"transfer_confidential_1_2.key":   false,
-		"merge_24_1.key":                  false,
-		"batch_address-append_40_10.key":  false,
+		"transfer_p256_ring_49_2.key":      true,
+		"merge_54_1.key":                   true,
+		"batch_address-append_40_4999.key": true,
+		"transfer_confidential_1_2.key":    false,
+		"merge_24_1.key":                   false,
+		"batch_address-append_40_10.key":   false,
 	} {
 		if served.Serves(file) != want {
 			t.Errorf("serves %s = %v, want %v", file, !want, want)

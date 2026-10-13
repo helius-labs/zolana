@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn schedule_is_solvent_and_at_cost() {
-        for (zkp_batch_size, closes) in [(250, 24), (10, 24), (250, 100)] {
+        for (zkp_batch_size, closes) in [(4999, 24), (10, 24), (4999, 100)] {
             let fees = at_cost_for_transaction_size(zkp_batch_size, closes).unwrap();
             assert_eq!(fees.append_reimbursement, BASE_TRANSACTION_FEE_LAMPORTS);
             assert_eq!(
@@ -123,7 +123,7 @@ mod tests {
             assert!(collected >= paid);
             assert!(collected - paid < zkp_batch_size);
         }
-        assert!(at_cost_for_transaction_size(250, 0).is_err());
+        assert!(at_cost_for_transaction_size(4999, 0).is_err());
     }
 
     #[test]
@@ -131,9 +131,9 @@ mod tests {
         let forester = forester();
         assert_eq!(forester.closes_per_transaction().unwrap(), 57);
         assert_eq!(
-            at_cost_for_transaction_size(250, 57).unwrap(),
+            at_cost_for_transaction_size(4999, 57).unwrap(),
             TreeFeeSchedule {
-                fee_per_nullifier: 108,
+                fee_per_nullifier: 90,
                 append_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS,
                 close_reimbursement: 88,
             }

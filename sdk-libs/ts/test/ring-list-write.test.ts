@@ -266,7 +266,7 @@ describe("entry transition proving", () => {
         ? undefined
         : ownedAccount(
             SHIELDED_POOL_PROGRAM_ID,
-            treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 6n }),
+            treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 4n }),
           ),
     );
     const proveTransferInputs = vi.fn(async () => ZERO_PROOF);
@@ -481,7 +481,7 @@ describe("list writes", () => {
         ADDRESS_TREE,
         ownedAccount(
           SHIELDED_POOL_PROGRAM_ID,
-          treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 6n }),
+          treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 4n }),
         ),
       ],
     ]);

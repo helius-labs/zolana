@@ -155,7 +155,7 @@ and the queue both start one leaf above zero.
    size exactly. The buffer must be zeroed: hash chains and cached updates are
    never written here, and every later reuse relies on them starting zero.
 2. Require `height == 40`, `Z` to be a size with a committed verifying key
-   (`10` or `250`), and `B` to be a nonzero multiple of `Z` with
+   (`10` or `4999`), and `B` to be a nonzero multiple of `Z` with
    `B / Z = RH`, the root-history capacity the layout was compiled with. A `Z`
    without a verifying key would wedge the queue once both batches filled.
 3. Write the header: discriminator, `state = INITIALIZED`, `tree_id`, the
@@ -301,7 +301,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 `new_root` for the ordered values committed by `leaves_hash`, starting at
 `start_index`. By the `tree.next_index` invariant in [State](#state), with
 `a = batches[p].num_inserted_zkp_batches`, this equals
-`tree.next_index + (i - a) * Z`. Supported `Z` values are `10` and `250`.
+`tree.next_index + (i - a) * Z`. Supported `Z` values are `10` and `4999`.
 
 **Checks and state changes**
 
@@ -505,9 +505,9 @@ network_fee = maintenance_transactions * base_fee
 locked_nullifier_pda_rent = L * Rent::minimum_balance(10)
 ```
 
-With `B = 25_000` and `Z = 250`, a full batch is 100 append transactions and
-`ceil(25_000 / 57) = 439` cleanup transactions. At a 5,000-lamport signature
-fee those 539 transactions cost 0.002695 SOL in base fees. The counts are for
+With `B = 24_995` and `Z = 4999`, a full batch is 5 append transactions and
+`ceil(24_995 / 57) = 439` cleanup transactions. At a 5,000-lamport signature
+fee those 444 transactions cost 0.00222 SOL in base fees. The counts are for
 the successful path: proof replacements, retries, and duplicate cleanup
 attempts are additional.
 
@@ -515,7 +515,7 @@ Only the append has a measured compute bound, which tests hold below 500,000
 units at the test batch size.
 
 At the current default rent rate, one ten-byte PDA requires 960,480
-lamports. One full batch locks 24.012 SOL, all returned to the tree when its
+lamports. One full batch locks 24.0071976 SOL, all returned to the tree when its
 PDAs are closed.
 
 ### Working capital
@@ -534,7 +534,7 @@ the successor batch's PDAs, and the PDAs being created in the reused
 batch. With prompt cleanup, this is the working capital required for continuous
 insertion. Closed PDAs return their rent to the tree; delayed cleanup can
 lock capital beyond this amount and eventually stop insertion. With
-`B = 25_000` this is 72.036 SOL; with `B = 630_000` it is 1,815.3072 SOL.
+`B = 24_995` this is 72.0215928 SOL; with `B = 630_000` it is 1,815.3072 SOL.
 
 ### Fee schedule
 
@@ -569,7 +569,7 @@ append_reimbursement = 5_000
 close_reimbursement  = ceil(5_000 / C) = 88
 fee_per_nullifier    = ceil((5_000 + Z * 88) / Z)
 
-Z = 250: 108 lamports per nullifier
+Z = 4999: 90 lamports per nullifier
 Z = 10:  588 lamports per nullifier
 ```
 
