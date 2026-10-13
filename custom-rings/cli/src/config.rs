@@ -12,6 +12,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
 use toml_edit::{DocumentMut, Item};
+use zolana_client::prover::tee::{TeeError, TeePolicy};
 use zolana_transaction::SOL_MINT;
 
 use crate::{
@@ -173,6 +174,9 @@ pub struct Urls {
     pub rpc: String,
     pub indexer: String,
     pub prover: String,
+    /// Approved TEE policy file, relative to ring.toml (or absolute).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prover_tee_policy: Option<PathBuf>,
     pub ring_rpc: String,
     /// When set, `init` accepts an auditor key only under this service key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -180,6 +184,17 @@ pub struct Urls {
 }
 
 impl Urls {
+    pub fn tee_policy(&self, root: &ProjectRoot) -> Result<Option<TeePolicy>, ConfigError> {
+        self.prover_tee_policy
+            .as_ref()
+            .map(|path| {
+                let path = expand_tilde(&root.resolve(path))?;
+                TeePolicy::from_file_json(&file::read(&path)?)
+                    .map_err(|source| ConfigError::ProverTeePolicy { path, source })
+            })
+            .transpose()
+    }
+
     pub fn port(url: &str) -> Option<u16> {
         let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
         let authority = rest.split(['/', '?']).next().unwrap_or_default();
@@ -206,6 +221,12 @@ impl Urls {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("invalid prover TEE policy {path}: {source}")]
+    ProverTeePolicy {
+        path: PathBuf,
+        #[source]
+        source: TeeError,
+    },
     #[error(transparent)]
     File(#[from] FileError),
     #[error("{path} has no target line")]
@@ -492,6 +513,44 @@ indexer = "http://127.0.0.1:8784"
 prover = "http://127.0.0.1:3001"
 ring_rpc = "http://127.0.0.1:8785"
 "#;
+
+    #[test]
+    fn prover_tee_policy_is_selected_per_cluster_and_relative_to_ring_toml() {
+        let dir = std::env::temp_dir().join(format!("ring-tee-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = ProjectRoot::for_config(&dir.join("ring.toml"));
+        let mut config: RingConfig = toml::from_str(EXAMPLE).unwrap();
+        // An absent option keeps the SDK defaults; the unselected target's file
+        // must not affect local development.
+        config.devnet.prover_tee_policy = Some("approved.json".into());
+        assert!(config.urls().tee_policy(&root).unwrap().is_none());
+        config.target = Target::Devnet;
+        assert!(config.urls().tee_policy(&root).is_err());
+        let policy = TeePolicy::default_deployment()
+            .unwrap()
+            .with_max_age(std::time::Duration::from_secs(123));
+        let json = serde_json::to_value(&policy).unwrap();
+        for document in [json.clone(), serde_json::json!({"deployment": json})] {
+            std::fs::write(dir.join("approved.json"), document.to_string()).unwrap();
+            assert_eq!(
+                config.urls().tee_policy(&root).unwrap(),
+                Some(policy.clone())
+            );
+        }
+        let reparsed: RingConfig = toml::from_str(&config.render().unwrap()).unwrap();
+        assert_eq!(
+            reparsed.devnet.prover_tee_policy,
+            config.devnet.prover_tee_policy
+        );
+        for invalid in ["not json", "{}", r#"{"deployment":null}"#] {
+            std::fs::write(dir.join("approved.json"), invalid).unwrap();
+            assert!(matches!(
+                config.urls().tee_policy(&root),
+                Err(ConfigError::ProverTeePolicy { .. })
+            ));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn port_reads_the_authority_only() {

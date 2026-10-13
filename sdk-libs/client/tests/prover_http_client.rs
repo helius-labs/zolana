@@ -20,11 +20,11 @@ use zolana_client::{
     ClientError, Prover,
 };
 
-const PROVER_URL: &str = "https://gateway.invalid/v1/zolana?api-key=secret";
-const PROVE_URL: &str = "https://gateway.invalid/v1/zolana/prove/test?api-key=secret";
+const PROVER_URL: &str = "http://127.0.0.1:3001/v1/zolana?api-key=secret";
+const PROVE_URL: &str = "http://127.0.0.1:3001/v1/zolana/prove/test?api-key=secret";
 const STATUS_URL: &str =
-    "https://gateway.invalid/v1/zolana/prove/test/status?api-key=secret&jobId=job-1";
-const PROVING_KEYS_URL: &str = "https://gateway.invalid/v1/zolana/proving-keys?api-key=secret";
+    "http://127.0.0.1:3001/v1/zolana/prove/test/status?api-key=secret&jobId=job-1";
+const PROVING_KEYS_URL: &str = "http://127.0.0.1:3001/v1/zolana/proving-keys?api-key=secret";
 
 struct Request(Delivery);
 
@@ -364,7 +364,7 @@ fn assert_only_attested(requests: &[HttpRequest]) {
     assert!(
         requests[0]
             .url
-            .starts_with("https://gateway.invalid/v1/zolana/tee/v1/attestation?"),
+            .starts_with("http://127.0.0.1:3001/v1/zolana/tee/v1/attestation?"),
         "{}",
         requests[0].url
     );
@@ -391,6 +391,46 @@ async fn an_async_tee_client_attests_through_the_client() {
         .unwrap_err();
     assert!(matches!(error, ClientError::Tee(_)), "{error}");
     assert_only_attested(&requests.lock().unwrap());
+}
+
+/// Both public clients must attest by default, including gateway URLs.
+#[tokio::test(flavor = "multi_thread")]
+async fn remote_defaults_never_send_witnesses_after_failed_attestation() {
+    for url in [
+        "https://prover.example",
+        "https://devnet.helius-rpc.com/v1/zolana?api-key=secret",
+    ] {
+        let (client, requests) = FakeClient::answering(vec![Ok((404, json!({})))]);
+        let error = ProverClient::with_client(url.into(), client)
+            .prove(&IN_RESPONSE)
+            .unwrap_err();
+        assert!(
+            matches!(&error, ClientError::ProverServer(message) if message.starts_with("attestation failed with status 404")),
+            "{error}"
+        );
+        {
+            let recorded = requests.lock().unwrap();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!(recorded[0].method, Method::GET);
+            assert!(recorded[0].body.is_empty());
+            assert!(recorded[0].url.contains("/tee/v1/attestation?"));
+        }
+
+        let (client, requests) = FakeClient::answering(vec![Ok((404, json!({})))]);
+        let error = AsyncProverClient::with_client(url.into(), client)
+            .prove(&IN_RESPONSE)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&error, ClientError::ProverServer(message) if message.starts_with("attestation failed with status 404")),
+            "{error}"
+        );
+        let recorded = requests.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].method, Method::GET);
+        assert!(recorded[0].body.is_empty());
+        assert!(recorded[0].url.contains("/tee/v1/attestation?"));
+    }
 }
 
 /// Never answers, as a transport that ignores [`HttpRequest::timeout`].

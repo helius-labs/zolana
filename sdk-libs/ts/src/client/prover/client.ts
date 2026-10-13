@@ -47,9 +47,15 @@ import {
   sleep,
   type ComposedSignal,
 } from "../internal.js";
-import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
+import {
+  TransportFailure,
+  checkedFetch,
+  isLoopbackHost,
+  readBoundedJson,
+} from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
@@ -177,7 +183,7 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy.
+       * attests to the policy. Remote endpoints default to the bundled Nitro policy.
        */
       tee?: TeePolicy;
     }>,
@@ -197,7 +203,9 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+    const policy =
+      input.tee === undefined && !isLoopbackHost(url.hostname) ? defaultTeePolicy() : input.tee;
+    this.#tee = policy === undefined ? undefined : new TeeSession(policy);
   }
 
   /** Attests the prover now against the `tee` policy. */
@@ -439,6 +447,11 @@ export class ProverClient {
     key: ExpectedProvingKey,
     context?: RequestContext,
   ): Promise<unknown> {
+    if (this.#tee === undefined && !isLoopbackHost(this.#url.hostname)) {
+      throw new ClientError("CLIENT_PROVER_TEE_ATTESTATION", {
+        details: { check: "policy_required" },
+      });
+    }
     if (route === "indexed" && this.#keyless) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }
@@ -525,10 +538,7 @@ export class ProverClient {
    * On the Helius gateway, `/prove`, where the prover reads the key from the body.
    */
   #keyUrl(key: ExpectedProvingKey): URL {
-    const url = new URL(this.#url);
-    if (this.#keyless) return url;
-    url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
-    return url;
+    return proofKeyUrl(this.#url, key, this.#keyless);
   }
 
   async #poll(
@@ -626,6 +636,13 @@ export class ProverClient {
       }
     }
   }
+}
+
+/** The proving key path, or the gateway's key-less path, with its query intact. */
+export function proofKeyUrl(base: URL, key: ExpectedProvingKey, keyless: boolean): URL {
+  const url = new URL(base);
+  if (!keyless) url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+  return url;
 }
 
 type ProverKeyStatus = Readonly<{

@@ -1,10 +1,13 @@
 //! Prover URLs, and keeping a gateway `api-key` out of printed ones.
 
-use url::Url;
+use url::{Host, Url};
 
 use crate::{
     error::ClientError,
-    prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
+    prover::{
+        tee::{ATTESTATION_PATH, DEFAULT_PROVER_URL},
+        ExpectedProvingKey,
+    },
 };
 
 const API_KEY: &str = "api-key";
@@ -27,6 +30,29 @@ impl ProverEndpoint {
         Self {
             base: Url::parse(url).ok(),
         }
+    }
+
+    /// Plain witness traffic is permitted only to a prover on this host.
+    /// Any other address needs an attested encryption policy before proving.
+    pub(crate) fn is_loopback(&self) -> bool {
+        self.base.as_ref().is_some_and(|url| match url.host() {
+            Some(Host::Domain(host)) => {
+                let host = host.trim_end_matches('.');
+                host == "localhost" || host.ends_with(".localhost")
+            }
+            Some(Host::Ipv4(address)) => address.is_loopback(),
+            Some(Host::Ipv6(address)) => address.is_loopback(),
+            None => false,
+        })
+    }
+
+    /// The pinned deployment has no indexer, so callers supply proof data.
+    pub(crate) fn is_default_tee_prover(&self) -> bool {
+        let default = Url::parse(DEFAULT_PROVER_URL).expect("valid default prover URL");
+        self.base.as_ref().is_some_and(|url| {
+            url.origin() == default.origin()
+                && url.path().trim_end_matches('/') == default.path().trim_end_matches('/')
+        })
     }
 
     /// Whether this is the Helius gateway's zolana namespace on a
@@ -144,6 +170,46 @@ mod tests {
 
     fn url(base: &str, path: &str) -> String {
         ProverEndpoint::parse(base).url(path).unwrap().into()
+    }
+
+    #[test]
+    fn plaintext_proving_is_local_only() {
+        for url in [
+            "http://localhost:3001",
+            "https://node.localhost:3001",
+            "http://127.0.0.2:3001",
+            "http://[::1]:3001",
+        ] {
+            assert!(ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
+        for url in [
+            "https://prover.example",
+            "https://localhost.example",
+            "http://10.0.0.1:3001",
+            "not a url",
+        ] {
+            assert!(!ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
+    }
+
+    #[test]
+    fn default_deployment_requires_its_origin_and_base_path() {
+        assert!(ProverEndpoint::parse(DEFAULT_PROVER_URL).is_default_tee_prover());
+        assert!(
+            ProverEndpoint::parse(&format!("{DEFAULT_PROVER_URL}/?api-key=k"))
+                .is_default_tee_prover()
+        );
+        for url in [
+            format!("{DEFAULT_PROVER_URL}/other"),
+            format!("{DEFAULT_PROVER_URL}:8443"),
+            DEFAULT_PROVER_URL.replace("https:", "http:"),
+            format!("{DEFAULT_PROVER_URL}.evil.example"),
+        ] {
+            assert!(
+                !ProverEndpoint::parse(&url).is_default_tee_prover(),
+                "{url}"
+            );
+        }
     }
 
     #[test]

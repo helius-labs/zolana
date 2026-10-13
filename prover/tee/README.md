@@ -26,16 +26,46 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-In Rust, `ProverClient::with_tee(TeePolicy::default_deployment()?)` and `AsyncProverClient::with_tee` make every call attested and encrypted, and a `ZolanaClient` attests through the prover client it is built with.
-`ProverClient::attest` returns the verified `AttestedProver` on demand.
-The `zolana` commands that prove take `--prover-tee`, or `ZOLANA_PROVER_TEE`, and `zolana vks check --prover-url <url> --prover-tee` attests a prover before it checks its proving keys.
-In TypeScript, `ZolanaClientConfig.proverTee` takes `defaultTeePolicy()`, and `ZolanaClient.attestProver` returns the verified prover.
-Without a policy the clients send plaintext requests, which the server still accepts.
+Rust and TypeScript prover clients automatically use the bundled Nitro policy
+for every remote endpoint, including Helius gateways. Direct loopback development
+may use plaintext. Rust clients using an explicit proxy require attestation even
+for loopback destinations, since the proxy can carry traffic off-machine.
+Use `ProverClient::with_tee` / `AsyncProverClient::with_tee` in Rust or `ZolanaClientConfig.proverTee` in TypeScript to select another trusted
+policy. There is no remote plaintext opt out. `attest` / `attestProver` returns
+the verified identity on demand.
 
-The SDK pins no default deployment, so TEE stays opt-in.
-`deployments/nitro-c7a.json` pins the running prover, an AWS Nitro c7a.24xlarge enclave at `https://d3psb33kf6y5qv.cloudfront.net`.
-Load a pin with `TeePolicy::from_file_json` in Rust or `teePolicyFromJson(pin.deployment)` in TypeScript, and give the client the prover URL with its `api-key` query parameter.
-A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
+The default policy pins the devnet deployment at
+`https://d55y5ksdsm1vw.cloudfront.net`. TypeScript clients given a Helius devnet
+RPC URL and no explicit prover URL route proofs there without forwarding the
+RPC API key. This enclave has no indexer, so proof data is fetched by the client.
+The pinned devnet image predates the baked custom-ring proving keys; remote
+custom-ring proofs need an updated deployment and its approved measurements.
+Other explicit prover URLs are preserved and must attest to the configured policy.
+A gateway that cannot serve attestation fails before receiving a witness.
+
+A server started with `--tee` rejects plaintext proof requests before reading
+the body. Attestation, health, readiness, gateway auth probes and public
+proving-key digest routes remain available without encryption.
+
+### Updating pins
+
+The bundled policy identifies a particular deployment, not every future build.
+An image rebuild can change its measurements; an HPKE key rotation changes the
+key pin. Old clients reject changed identities until their policy is updated.
+Publish reviewed measurements and keys in an SDK release, or supply an explicit
+policy from a trusted release/configuration. Never automatically trust new pins
+returned by the prover. The Nitro deployment guide describes measuring and
+verifying releases before updating both SDK policy files.
+
+The current bundled pins are **not** approval of this branch's final enclave
+artifact. Before releasing these defaults for custom-ring use, build and deploy
+an enclave containing both the baked ring keys and the plaintext-rejecting
+server middleware. Measure that exact artifact and approve its HPKE public key
+(including any `tee-2` KMS rotation), then update both SDK policy files together.
+Verify that the final deployment serves the required circuit keys and rejects
+plaintext proofs. Until that release is available, custom-ring operators need
+an explicit approved policy for a deployment with those circuits. Do not replace
+the bundled pins with measurements or keys merely reported by the endpoint.
 
 ## Roles
 
@@ -103,4 +133,4 @@ The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prov
 - Phala's `deploy` defaults to public logs. A log line holding a request body is then readable by anyone, so the script passes `--no-public-logs`.
 - With public logs off, Phala serves no container logs to the owner either. Reading a fault takes a redeploy with `--public-logs`, and a release with logs off afterwards.
 - A prover URL without `api-key` fails attestation, because the attestation route sits behind the prover API key like the proof routes.
-- A client built without a policy sends plaintext to the same prover and sees no error. Set the policy where the client is built, not per call.
+- Remote clients use the bundled policy unless configured with another trusted policy. Set overrides where the client is built, not per call. A TEE prover also rejects plaintext proof requests from older clients; its HTTP gateway may already have received their bodies, so update clients before directing them to a TEE deployment.

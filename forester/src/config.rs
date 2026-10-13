@@ -15,10 +15,11 @@
 //! Resolving into a struct fixes all three and leaves the environment as an
 //! implementation detail of `main`.
 
-use std::env;
+use std::{env, path::Path};
 
 use anyhow::{Context, Result};
 use solana_keypair::Keypair;
+use zolana_client::{prover::tee::TeePolicy, ProverClient};
 
 /// Endpoints and credentials resolved from the environment.
 #[derive(Debug)]
@@ -29,6 +30,8 @@ pub struct ForesterConfig {
     /// read-only commands, so the requirement is enforced where it applies
     /// rather than at load time.
     pub prover_url: Option<String>,
+    /// Approved policy loaded from PROVER_TEE_POLICY before any work starts.
+    pub prover_tee: Option<TeePolicy>,
     /// Raw `PAYER` value, not yet parsed into a keypair.
     ///
     /// Held as the unparsed string so a caller that does not sign never
@@ -38,13 +41,15 @@ pub struct ForesterConfig {
 }
 
 impl ForesterConfig {
-    /// Read every supported variable. Fails only on the two that no command can
-    /// work without.
+    /// Read supported variables and validate any explicit prover TEE policy.
     pub fn from_env() -> Result<Self> {
         Ok(Self {
             rpc_url: env::var("RPC_URL").context("RPC_URL is not set")?,
             photon_url: env::var("PHOTON_URL").context("PHOTON_URL is not set")?,
             prover_url: env::var("PROVER_URL").ok().filter(|url| !url.is_empty()),
+            prover_tee: env::var_os("PROVER_TEE_POLICY")
+                .map(|path| load_prover_tee_policy(Path::new(&path)))
+                .transpose()?,
             payer: env::var("PAYER").ok().filter(|payer| !payer.is_empty()),
         })
     }
@@ -54,6 +59,15 @@ impl ForesterConfig {
         self.prover_url
             .as_deref()
             .context("PROVER_URL is not set (required to prove and submit)")
+    }
+
+    /// Build the prover with the configured trust policy.
+    pub fn prover(&self) -> Result<ProverClient> {
+        let prover = ProverClient::new(self.require_prover_url()?.to_owned());
+        Ok(match &self.prover_tee {
+            Some(policy) => prover.with_tee(policy.clone()),
+            None => prover,
+        })
     }
 
     /// Whether a signing key is configured, without parsing it.
@@ -75,6 +89,13 @@ impl ForesterConfig {
     }
 }
 
+fn load_prover_tee_policy(path: &Path) -> Result<TeePolicy> {
+    let json = std::fs::read_to_string(path)
+        .with_context(|| format!("cannot read PROVER_TEE_POLICY {}", path.display()))?;
+    TeePolicy::from_file_json(&json)
+        .with_context(|| format!("invalid PROVER_TEE_POLICY {}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,8 +107,31 @@ mod tests {
             rpc_url: "http://rpc".into(),
             photon_url: "http://photon".into(),
             prover_url: prover.map(str::to_string),
+            prover_tee: None,
             payer: payer.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn prover_tee_policy_files_accept_approved_policies_and_fail_closed() {
+        let path =
+            std::env::temp_dir().join(format!("forester-tee-policy-{}.json", std::process::id()));
+        let policy = TeePolicy::default_deployment()
+            .unwrap()
+            .with_max_age(std::time::Duration::from_secs(123));
+        let json = serde_json::to_value(&policy).unwrap();
+        for document in [json.clone(), serde_json::json!({"deployment": json})] {
+            std::fs::write(&path, document.to_string()).unwrap();
+            assert_eq!(load_prover_tee_policy(&path).unwrap(), policy);
+        }
+        for invalid in ["not json", "{}", r#"{"deployment":null}"#] {
+            std::fs::write(&path, invalid).unwrap();
+            let error = load_prover_tee_policy(&path).unwrap_err();
+            assert!(error.to_string().contains("PROVER_TEE_POLICY"));
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert!(load_prover_tee_policy(&path).is_err());
+        assert!(load_prover_tee_policy(Path::new("")).is_err());
     }
 
     #[test]

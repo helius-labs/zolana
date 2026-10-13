@@ -3,6 +3,8 @@ import { wireDecoder } from "../src/interface/decode.js";
 import { resolvedTrees } from "../src/client/prover/indexed.js";
 import { NO_UTXO_ROOT } from "../src/interface/tree-slot.js";
 import { prepareTransfer } from "../src/client/prover/assembly.js";
+import { resolveClientEndpoints } from "../src/endpoint.js";
+import { ProverClient } from "../src/client/prover/client.js";
 import {
   SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
   SolanaError,
@@ -184,7 +186,7 @@ async function serviceRequestUrls(
   overrides: ServiceOverrides = {},
 ): Promise<readonly string[]> {
   const urls: string[] = [];
-  const fetch = vi.fn(async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+  const fetch = vi.fn(async (input: URL | RequestInfo): Promise<Response> => {
     const requestUrl = input instanceof Request ? input.url : String(input);
     urls.push(requestUrl);
     const path = new URL(requestUrl).pathname;
@@ -197,11 +199,6 @@ async function serviceRequestUrls(
         }),
         { headers: { "content-type": "application/json" } },
       );
-    }
-    if (/\/prove\/[a-z0-9_-]+$/u.test(path)) {
-      return new Response(JSON.stringify(proofFor(String(init?.body))), {
-        headers: { "content-type": "application/json" },
-      });
     }
     throw new Error(`unexpected request: ${requestUrl}`);
   }) as typeof globalThis.fetch;
@@ -217,22 +214,10 @@ async function serviceRequestUrls(
   });
 
   await instance.getShieldedTransactionsByNullifiers({ nullifiers: [bytes(7)] });
-  const fixture = proofFixture();
-  // Proving reads the two proof endpoints directly, so those stay off the
-  // wire here; only the prover request is under test.
-  vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
-    context: { blockTime: 1n, slot: 1n },
-    proofs: [fixture.spendProof.state],
-  });
-  vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
-    context: { blockTime: 1n, slot: 1n },
-    proofs: [fixture.spendProof.nullifier, ...fixture.dummyProofs],
-  });
-  await instance.proveTransact(
-    fixture.proofInputs,
-    LocalKeys.fromKeypair(fixture.keypair, instance.proofService),
-  );
-  return urls;
+  // Remote proof submission requires an attested policy; endpoint resolution
+  // is checked here, while the local proof tests cover the request path.
+  const endpoint = resolveClientEndpoints({ solanaRpcUrl, ...overrides }).prover;
+  return [...urls, String(endpoint)];
 }
 
 function proverFetch(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
@@ -312,7 +297,7 @@ describe("ZolanaClient", () => {
       overrides: {},
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove/transfer_confidential_1_2",
+        "https://rpc.example.com/zolana",
       ],
     },
     {
@@ -320,7 +305,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove/transfer_confidential_1_2",
+        "https://rpc.example.com/zolana",
       ],
     },
     {
@@ -328,7 +313,7 @@ describe("ZolanaClient", () => {
       overrides: { proverUrl: PROVER_URL },
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove/transfer_confidential_1_2",
+        "https://prover.example.com/api",
       ],
     },
     {
@@ -336,7 +321,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL, proverUrl: PROVER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove/transfer_confidential_1_2",
+        "https://prover.example.com/api",
       ],
     },
   ] satisfies readonly Readonly<{
@@ -352,7 +337,7 @@ describe("ZolanaClient", () => {
       serviceRequestUrls(RPC_URL, { indexerUrl: undefined, proverUrl: undefined }),
     ).resolves.toEqual([
       "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-      "https://rpc.example.com/zolana/prove/transfer_confidential_1_2",
+      "https://rpc.example.com/zolana",
     ]);
   });
 
@@ -362,7 +347,7 @@ describe("ZolanaClient", () => {
 
     await expect(serviceRequestUrls(rpcUrl)).resolves.toEqual([
       "https://gateway.example.com/base/getShieldedTransactionsByNullifiers?cluster=devnet",
-      "https://gateway.example.com/base/prove/transfer_confidential_1_2?cluster=devnet",
+      "https://gateway.example.com/base?cluster=devnet",
     ]);
     expect(rpcUrl.href).toBe(original);
   });
@@ -738,6 +723,26 @@ describe("ZolanaClient", () => {
       secret.fill(0);
       nullifierKey.destroy();
     }
+  });
+
+  it("refuses to send a remote witness without an attested TEE policy", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const prover = new ProverClient({ url: PROVER_URL, fetch });
+    const fixture = proofFixture();
+    const { proverInputs } = assemble(fixture.proofInputs, [fixture.spendProof]);
+    const keys = LocalKeys.fromKeypair(fixture.keypair, prover);
+
+    await expect(keys.prove(proverInputs)).rejects.toMatchObject({
+      code: "CLIENT_PROVER_TEE_ATTESTATION",
+      details: { check: "unavailable" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(String(url)).toContain("/tee/v1/attestation?nonce=");
+    expect(new Request(String(url), init).method).toBe("GET");
+    expect(init?.body).toBeUndefined();
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {
@@ -1242,10 +1247,10 @@ describe("prover indexer fetching", () => {
       });
       const instance = new ZolanaClient({
         proofDataSource: "prover",
-        proverUrl: "https://prover.test/v1/zolana?api-key=secret",
+        proverUrl: "http://127.0.0.1:3001/v1/zolana?api-key=secret",
         fetch,
       });
-      const indexedUrl = `https://prover.test/v1/zolana/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
+      const indexedUrl = `http://127.0.0.1:3001/v1/zolana/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
       const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
       try {
         const result =
@@ -1260,7 +1265,7 @@ describe("prover indexer fetching", () => {
           expect(String(fetch.mock.calls[1]?.[0])).toBe(indexedUrl);
           expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
           expect(String(fetch.mock.calls[2]?.[0])).toBe(
-            "https://prover.test/v1/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
+            "http://127.0.0.1:3001/v1/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
           );
         }
         expect(String(fetch.mock.calls[0]?.[0])).toBe(indexedUrl);

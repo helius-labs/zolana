@@ -21,7 +21,7 @@ pub const DEFAULT_AUTHORITY_KEYPAIR: &str = "~/.config/solana/id.json";
 
 const DEVNET_RPC: &str = "https://api.devnet.solana.com";
 const DEVNET_INDEXER: &str = "https://d2xah7tnhdhcom.cloudfront.net";
-const DEVNET_PROVER: &str = "https://d21ni15goiip6l.cloudfront.net";
+const DEVNET_PROVER: &str = zolana_client::prover::tee::DEFAULT_PROVER_URL;
 const DEVNET_RING_RPC: &str = "https://d24brah9h1i4q9.cloudfront.net";
 const DEVNET_RING_RPC_PUBKEY: &str = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs";
 
@@ -131,6 +131,7 @@ fn localnet_defaults() -> Urls {
         indexer: "http://127.0.0.1:8784".to_owned(),
         prover: "http://127.0.0.1:3001".to_owned(),
         ring_rpc: "http://127.0.0.1:8785".to_owned(),
+        prover_tee_policy: None,
         ring_rpc_pubkey: None,
     }
 }
@@ -141,6 +142,7 @@ fn devnet_defaults() -> Urls {
         indexer: DEVNET_INDEXER.to_owned(),
         prover: DEVNET_PROVER.to_owned(),
         ring_rpc: DEVNET_RING_RPC.to_owned(),
+        prover_tee_policy: None,
         ring_rpc_pubkey: Some(DEVNET_RING_RPC_PUBKEY.to_owned()),
     }
 }

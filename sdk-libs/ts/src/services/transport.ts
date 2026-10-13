@@ -59,7 +59,7 @@ export function checkedEndpoint(value: unknown, policy: EndpointPolicy): URL {
 // Browsers refuse `fetch` called with another receiver, so the global stays bound.
 const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
 
-function isLoopbackHost(hostname: string): boolean {
+export function isLoopbackHost(hostname: string): boolean {
   const host = hostname.endsWith(".") ? hostname.slice(0, -1) : hostname;
   return (
     host === "localhost" ||
