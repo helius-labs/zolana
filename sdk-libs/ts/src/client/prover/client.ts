@@ -55,6 +55,7 @@ import {
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
@@ -182,7 +183,7 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy.
+       * attests to the policy. Remote endpoints default to the bundled Nitro policy.
        */
       tee?: TeePolicy;
     }>,
@@ -202,7 +203,9 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+    const policy =
+      input.tee === undefined && !isLoopbackHost(url.hostname) ? defaultTeePolicy() : input.tee;
+    this.#tee = policy === undefined ? undefined : new TeeSession(policy);
   }
 
   /** Attests the prover now against the `tee` policy. */

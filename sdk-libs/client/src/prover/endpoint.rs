@@ -4,7 +4,10 @@ use url::{Host, Url};
 
 use crate::{
     error::ClientError,
-    prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
+    prover::{
+        tee::{ATTESTATION_PATH, DEFAULT_PROVER_URL},
+        ExpectedProvingKey,
+    },
 };
 
 const API_KEY: &str = "api-key";
@@ -40,6 +43,15 @@ impl ProverEndpoint {
             Some(Host::Ipv4(address)) => address.is_loopback(),
             Some(Host::Ipv6(address)) => address.is_loopback(),
             None => false,
+        })
+    }
+
+    /// The pinned deployment has no indexer, so callers supply proof data.
+    pub(crate) fn is_default_tee_prover(&self) -> bool {
+        let default = Url::parse(DEFAULT_PROVER_URL).expect("valid default prover URL");
+        self.base.as_ref().is_some_and(|url| {
+            url.origin() == default.origin()
+                && url.path().trim_end_matches('/') == default.path().trim_end_matches('/')
         })
     }
 
@@ -177,6 +189,26 @@ mod tests {
             "not a url",
         ] {
             assert!(!ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
+    }
+
+    #[test]
+    fn default_deployment_requires_its_origin_and_base_path() {
+        assert!(ProverEndpoint::parse(DEFAULT_PROVER_URL).is_default_tee_prover());
+        assert!(
+            ProverEndpoint::parse(&format!("{DEFAULT_PROVER_URL}/?api-key=k"))
+                .is_default_tee_prover()
+        );
+        for url in [
+            format!("{DEFAULT_PROVER_URL}/other"),
+            format!("{DEFAULT_PROVER_URL}:8443"),
+            DEFAULT_PROVER_URL.replace("https:", "http:"),
+            format!("{DEFAULT_PROVER_URL}.evil.example"),
+        ] {
+            assert!(
+                !ProverEndpoint::parse(&url).is_default_tee_prover(),
+                "{url}"
+            );
         }
     }
 

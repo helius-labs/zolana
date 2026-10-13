@@ -726,7 +726,9 @@ describe("ZolanaClient", () => {
   });
 
   it("refuses to send a remote witness without an attested TEE policy", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>();
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 404 }));
     const prover = new ProverClient({ url: PROVER_URL, fetch });
     const fixture = proofFixture();
     const { proverInputs } = assemble(fixture.proofInputs, [fixture.spendProof]);
@@ -734,9 +736,13 @@ describe("ZolanaClient", () => {
 
     await expect(keys.prove(proverInputs)).rejects.toMatchObject({
       code: "CLIENT_PROVER_TEE_ATTESTATION",
-      details: { check: "policy_required" },
+      details: { check: "unavailable" },
     });
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(String(url)).toContain("/tee/v1/attestation?nonce=");
+    expect(new Request(String(url), init).method).toBe("GET");
+    expect(init?.body).toBeUndefined();
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {

@@ -1065,13 +1065,23 @@ describe("prover request routing", () => {
     ]);
     expect(status.searchParams.get("jobId")).toBe("job-123");
 
-    const fetch = vi.fn<typeof globalThis.fetch>();
-    const prover = new ProverClient({ url: base, fetch });
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const prover = new ProverClient({
+      url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+      fetch,
+    });
     await expect(prover.prove(transferInputs())).rejects.toMatchObject({
       code: "CLIENT_PROVER_TEE_ATTESTATION",
-      details: { check: "policy_required" },
+      details: { check: "unavailable" },
     });
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(new URL(String(url)).pathname).toBe("/v1/zolana/tee/v1/attestation");
+    expect(new URL(String(url)).searchParams.get("nonce")).toMatch(/^[0-9a-f]{64}$/u);
+    expect(new Request(String(url), init).method).toBe("GET");
+    expect(init?.body).toBeUndefined();
   });
 });
 

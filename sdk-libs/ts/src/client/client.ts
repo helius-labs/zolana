@@ -13,7 +13,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
-import { isZolanaGateway, resolveClientEndpoints } from "../endpoint.js";
+import { isDefaultTeeProver, isZolanaGateway, resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -145,7 +145,7 @@ const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
-  /** `"prover"` unless set, `"client"` on the Helius gateway, which refuses `"prover"`. */
+  /** `"prover"` unless set, `"client"` on the gateway and default TEE deployment, which refuse `"prover"`. */
   readonly proofDataSource?: ProofDataSource;
   /**
    * Serves the indexer and the prover too, unless either names its own URL.
@@ -176,7 +176,8 @@ export interface ZolanaClientConfig {
   readonly proverAsyncPoll?: AsyncPollConfig;
   /**
    * Encrypts every prover call to a prover that attests to the policy, usually
-   * `defaultTeePolicy()`. Required for proof submissions to a remote prover.
+   * `defaultTeePolicy()`, used automatically for all remote provers. Override
+   * this policy for another trusted deployment; remote plaintext is forbidden.
    */
   readonly proverTee?: TeePolicy;
   readonly fetch?: typeof globalThis.fetch;
@@ -184,7 +185,7 @@ export interface ZolanaClientConfig {
    * Permit plain http to non-loopback indexer and prover URLs.
    *
    * Off by default: an indexer response can reveal which UTXOs an identity
-   * owns. A remote prover still requires `proverTee` and encrypts the witness
+   * owns. A remote prover still requires attestation and encrypts the witness
    * inside the HTTP body. Set this only where the network is already private.
    */
   readonly allowInsecureHttp?: boolean;
@@ -303,8 +304,8 @@ export class ZolanaClient
         cause,
       });
     }
-    // The Helius gateway has no indexed route, so proof data comes from the client there.
-    const gateway = isZolanaGateway(proverUrl);
+    // The gateway and default enclave have no indexed route.
+    const gateway = isZolanaGateway(proverUrl) || isDefaultTeeProver(proverUrl);
     if (input.proofDataSource === "prover" && gateway) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }

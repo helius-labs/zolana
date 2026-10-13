@@ -685,8 +685,17 @@ impl AsyncProverClient {
     /// Send every request through `http` instead of the default client.
     ///
     /// Async counterpart of [`ProverClient::with_client`].
+    /// Remote endpoints automatically use the bundled TEE policy. Override it
+    /// with `with_tee` for another approved deployment or key rotation.
     pub fn with_client(server_address: String, http: impl HttpClient + 'static) -> Self {
         let endpoint = ProverEndpoint::parse(&server_address);
+        // If a bundled policy is unavailable, send_response still refuses
+        // remote witnesses. Only loopback development permits plaintext.
+        let tee = if endpoint.is_loopback() {
+            None
+        } else {
+            TeePolicy::default_deployment().ok().map(TeeSession::new)
+        };
         Self {
             proof_data_source: ProofDataSource::for_endpoint(&endpoint),
             endpoint,
@@ -694,7 +703,7 @@ impl AsyncProverClient {
             async_poll: AsyncPollConfig::default(),
             proof_timeout: Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS),
             delivery: Delivery::InResponse,
-            tee: None,
+            tee,
         }
     }
 
@@ -1328,7 +1337,10 @@ mod tests {
 
     #[test]
     fn remote_proof_requires_a_tee_policy_before_http() {
-        let client = ProverClient::with_client("https://prover.example".into(), NoRequests);
+        let mut client = ProverClient::with_client("https://prover.example".into(), NoRequests);
+        assert!(client.client.tee.is_some());
+        // Even a missing bundled policy must never fall back to plaintext.
+        client.client.tee = None;
         assert!(matches!(
             client.send(
                 r#"{"privateWitness":"secret"}"#,
@@ -2590,7 +2602,9 @@ mod tests {
             endpoint.status_url(&test_key(), "gateway-job").unwrap().as_str(),
             "https://beta-devnet.helius-rpc.com/v1/zolana/prove/status?api-key=secret&jobId=gateway-job"
         );
-        let gateway = ProverClient::with_client(url.into(), NoRequests);
+        let mut gateway = ProverClient::with_client(url.into(), NoRequests);
+        assert!(gateway.client.tee.is_some());
+        gateway.client.tee = None;
         assert_eq!(gateway.proof_data_source(), ProofDataSource::Client);
         assert!(matches!(
             gateway.send("{}", Delivery::InResponse, &test_key()),

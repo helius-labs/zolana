@@ -146,7 +146,7 @@ dashboard reports protocol and service health.
 | ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
 | Indexer    | `https://d2xah7tnhdhcom.cloudfront.net`            | Fetches encrypted state.                                                                  |
-| Prover     | `https://d21ni15goiip6l.cloudfront.net`            | Generates ZK proofs.                                                                      |
+| Prover     | `https://d55y5ksdsm1vw.cloudfront.net`             | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
 | Ring RPC   | `https://d24brah9h1i4q9.cloudfront.net`            | Releases and uses custom-ring auditor keys.                                               |
 | Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
@@ -154,9 +154,14 @@ dashboard reports protocol and service health.
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
   indexerUrl: "https://d2xah7tnhdhcom.cloudfront.net",
-  proverUrl: "https://d21ni15goiip6l.cloudfront.net",
+  proverUrl: "https://d55y5ksdsm1vw.cloudfront.net",
 });
 ```
+
+Every remote prover must attest before receiving a witness. `proverTee` overrides
+the bundled policy for another trusted deployment. An image or key rotation can
+change the pins: ship an updated SDK or supply an approved policy. A mismatch
+stops the request; pins are never automatically learned from the server.
 
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
@@ -167,7 +172,8 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
-The prover fetches Merkle data by default. Configure its `PROVER_INDEXER_URL`
+The default Nitro deployment and Helius gateway use client-fetched Merkle data.
+Other provers fetch Merkle data by default. Configure their `PROVER_INDEXER_URL`
 for the same network. Set `proofDataSource: "client"` to fetch proof data in
 the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement

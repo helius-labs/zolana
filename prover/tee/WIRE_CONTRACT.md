@@ -12,7 +12,7 @@ JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana
 In TEE mode the prover rejects proof requests without `Zolana-Tee` before reading
 their bodies. The attestation, health, readiness, gateway auth probe and public
 proving-key digest routes are the only plaintext exceptions. A remote SDK client
-requires an attestation policy before sending a proof. A local non-TEE prover can
+uses the bundled Nitro policy by default and requires verified attestation before sending a proof. A local non-TEE prover can
 still accept plaintext on loopback.
 The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/zolana` gateway prefix.
 

@@ -16,7 +16,30 @@ export const LOCALNET_PROVER_ENDPOINT = "http://127.0.0.1:3001";
 /** Where a Helius RPC host serves the indexer and the prover. */
 export const ZOLANA_GATEWAY_PATH = "/v1/zolana";
 
+/**
+ * The devnet Nitro Enclave prover the SDK's default TEE deployment pins. A
+ * Helius devnet RPC URL sends proofs here rather than to its gateway.
+ */
+export const DEFAULT_TEE_PROVER_ENDPOINT = "https://d55y5ksdsm1vw.cloudfront.net";
+
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
+// devnet.helius-rpc.com and beta-devnet.helius-rpc.com.
+const HELIUS_DEVNET_HOST = /(^|[.-])devnet\.helius-rpc\.com$/u;
+
+/** Whether `url` is the prover of the SDK's default TEE deployment, whose enclave has no indexer. */
+export function isDefaultTeeProver(url: URL): boolean {
+  const deployment = new URL(DEFAULT_TEE_PROVER_ENDPOINT);
+  return url.origin === deployment.origin && url.pathname.replace(/\/+$/u, "") === "";
+}
+
+function isHeliusDevnet(rpc: string | URL | undefined): boolean {
+  if (rpc === undefined) return false;
+  try {
+    return HELIUS_DEVNET_HOST.test(new URL(rpc).hostname);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Whether `url` is the Helius gateway's zolana namespace on a
@@ -66,7 +89,8 @@ export interface ResolvedClientEndpoints {
  *
  * Each service takes the URL named for it, else `solanaRpcUrl`, else its local
  * default. A Helius RPC root lends the indexer and the prover its `/v1/zolana`
- * namespace. Resolution lives here alone so the local defaults and the named URLs
+ * namespace, except that a Helius devnet RPC URL sends proofs to
+ * `DEFAULT_TEE_PROVER_ENDPOINT`. Resolution lives here alone so the local defaults and the named URLs
  * cannot disagree about where a service ended up.
  */
 export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedClientEndpoints {
@@ -88,7 +112,10 @@ export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedCli
   };
 
   const photon = resolve(input.indexerUrl, "indexerUrl", LOCALNET_PHOTON_ENDPOINT);
-  const prover = resolve(input.proverUrl, "proverUrl", LOCALNET_PROVER_ENDPOINT);
+  const prover =
+    input.proverUrl === undefined && isHeliusDevnet(input.solanaRpcUrl)
+      ? { url: DEFAULT_TEE_PROVER_ENDPOINT, field: "solanaRpcUrl" }
+      : resolve(input.proverUrl, "proverUrl", LOCALNET_PROVER_ENDPOINT);
   const subscriptions = input.solanaRpcSubscriptionsUrl;
 
   return Object.freeze({

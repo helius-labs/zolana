@@ -21,7 +21,7 @@ pub const DEFAULT_AUTHORITY_KEYPAIR: &str = "~/.config/solana/id.json";
 
 const DEVNET_RPC: &str = "https://api.devnet.solana.com";
 const DEVNET_INDEXER: &str = "https://d2xah7tnhdhcom.cloudfront.net";
-const DEVNET_PROVER: &str = "https://d21ni15goiip6l.cloudfront.net";
+const DEVNET_PROVER: &str = zolana_client::prover::tee::DEFAULT_PROVER_URL;
 const DEVNET_RING_RPC: &str = "https://d24brah9h1i4q9.cloudfront.net";
 const DEVNET_RING_RPC_PUBKEY: &str = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs";
 
