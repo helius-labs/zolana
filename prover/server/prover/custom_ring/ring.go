@@ -15,9 +15,7 @@ import (
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
-	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	"github.com/helius-labs/zolana/prover/server/prover/timing"
 )
 
 // Keeps each ring statement's decoder and compiled witness shape together.
@@ -34,7 +32,7 @@ type Request interface {
 type RingProof struct {
 	System     *common.RingProofSystem
 	Parameters Request
-	Timing     *timing.Trace
+	Prover     common.Prover
 }
 
 type Convert struct {
@@ -154,7 +152,7 @@ func DecodeRequest(circuitType common.CircuitType, payload []byte) (Request, err
 
 func (request RingProof) Prove() (*common.Proof, error) {
 	ps := request.System
-	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, request.Parameters.assignment)
+	proof, err := request.Prover.Run(ps.ConstraintSystem, ps.ProvingKey, request.Parameters.assignment)
 	if err != nil {
 		return nil, err
 	}

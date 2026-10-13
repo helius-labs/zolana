@@ -5,10 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/consensys/gnark/backend/groth16"
-	"github.com/consensys/gnark/constraint"
-	"github.com/consensys/gnark/frontend"
-
 	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
@@ -72,9 +68,7 @@ func (p circuitProver) request(payload []byte) (*common.Proof, *Error) {
 	if err != nil {
 		return nil, provingError(fmt.Errorf("%s: %w", req.Circuit, err))
 	}
-	return proved(req.Prove(ps, func(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {
-		return backend.ProveAssignment(p.trace, ccs, pk, assign)
-	}))
+	return proved(req.Prove(ps, backend.Prover(p.trace)))
 }
 
 func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
@@ -91,7 +85,7 @@ func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
 	}
-	return proved(transfereddsaonly.P256Proof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
+	return proved(transfereddsaonly.P256Proof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
 }
 
 func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {
@@ -110,7 +104,7 @@ func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common
 	if err != nil {
 		return nil, customRingFailure(provingError(fmt.Errorf("%s: %w", circuit, err)))
 	}
-	proof, err := customring.RingProof{System: ps, Parameters: request, Timing: p.trace}.Prove()
+	proof, err := customring.RingProof{System: ps, Parameters: request, Prover: backend.Prover(p.trace)}.Prove()
 	if err != nil {
 		return nil, customRingFailure(provingError(err))
 	}
@@ -140,7 +134,7 @@ func (p circuitProver) batchAddressAppend(payload []byte) (*common.Proof, *Error
 	if err != nil {
 		return nil, provingError(fmt.Errorf("batch address append: %w", err))
 	}
-	return proved(nullifiertree.BatchAddressAppendProof{System: ps, Parameters: &params, Timing: p.trace}.Prove())
+	return proved(nullifiertree.BatchAddressAppendProof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
 }
 
 func (p circuitProver) decode(payload []byte, params any) *Error {
