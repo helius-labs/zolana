@@ -2,10 +2,7 @@ use custom_ring_interface::{
     DepositAudit, KeyRegistryRoot, RingProgramConfig, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT,
     KEY_REGISTRY_ROOT_HISTORY, RING_PROGRAM_CONFIG,
 };
-use custom_ring_sdk::{
-    CustomRing, DepositAsset, DepositError, DepositProofEnvironment, KeyRegistrationError,
-    RingDeposit,
-};
+use custom_ring_sdk::{CustomRing, DepositAsset, RingDeposit, RingError};
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
@@ -14,16 +11,30 @@ use std::{
 use solana_account::Account;
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc};
+use zolana_client::{
+    ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc, WitnessReader,
+    ZolanaClient,
+};
 use zolana_indexer_api::{GetRingKeyRegistryEntryResponse, RingMemberProofRequest};
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_transaction::RingDepositPlaintext;
 
+/// One mock serves both the RPC and the indexer of the client.
+fn client<R: Rpc + WitnessReader + Clone + Send + Sync + 'static>(
+    rpc: R,
+    prover: ProverClient,
+) -> ZolanaClient<R, R> {
+    ZolanaClient::new(rpc.clone(), rpc, prover)
+}
+
+#[derive(Clone)]
 struct DepositRpc {
     ring: CustomRing,
     config: Account,
     setting: Option<Account>,
 }
+
+impl WitnessReader for DepositRpc {}
 
 impl Rpc for DepositRpc {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
@@ -57,7 +68,6 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
         owner: ring.program_id(),
         ..Account::default()
     };
-    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned());
     for setting in [None, Some(inactive)] {
         let rpc = DepositRpc {
             ring,
@@ -68,7 +78,9 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
             },
             setting,
         };
-        let prepared = RingDeposit {
+        let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned());
+        let client = client(rpc, unreachable);
+        let deposit = RingDeposit {
             ring,
             payer: &recipient,
             recipient: &recipient,
@@ -76,20 +88,13 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
             asset: DepositAsset::Sol,
             amount: 11,
             cosigner: None,
-        }
-        .prepare(&rpc)
-        .unwrap();
+        };
+        let prepared = client.block_on(deposit.prepare(client.as_async())).unwrap();
         assert_eq!(
             prepared.budget(),
             ComputeBudgetConfig::for_instruction_count(1)
         );
-        let instruction = prepared
-            .prove(DepositProofEnvironment {
-                indexer: &rpc,
-                rpc: &rpc,
-                prover: &unreachable,
-            })
-            .unwrap();
+        let instruction = client.block_on(prepared.prove(client.as_async())).unwrap();
         assert_eq!(
             instruction.data[0],
             zolana_interface::instruction::tag::RING_DEPOSIT
@@ -112,11 +117,14 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
 }
 
 /// Answers config and registry reads, every member is unregistered.
+#[derive(Clone)]
 struct EscrowRpc {
     ring: CustomRing,
     config: Account,
     registry: Option<Account>,
 }
+
+impl WitnessReader for EscrowRpc {}
 
 impl Rpc for EscrowRpc {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
@@ -157,17 +165,18 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
     let registry = KeyRegistryRoot {
         discriminator: KEY_REGISTRY_ROOT,
         next_index: 1u64.to_le_bytes(),
-        bump: custom_ring_interface::pda::key_registry_root(&ring.program_id()).1,
+        bump: Address::find_program_address(&[KeyRegistryRoot::SEED], &ring.program_id()).1,
         history_cursor: 0,
         history,
     };
-    let send = |registry: Option<Account>, prover: &ProverClient| {
+    let send = |registry: Option<Account>, prover: ProverClient| {
         let rpc = EscrowRpc {
             ring,
             config: account(bytemuck::bytes_of(&config).to_vec()),
             registry,
         };
-        RingDeposit {
+        let client = client(rpc, prover);
+        let deposit = RingDeposit {
             ring,
             payer: &recipient,
             recipient: &recipient,
@@ -175,39 +184,34 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
             asset: DepositAsset::Sol,
             amount: 11,
             cosigner: None,
-        }
-        .prepare(&rpc)?
-        .prove(DepositProofEnvironment {
-            indexer: &rpc,
-            rpc: &rpc,
-            prover,
+        };
+        client.block_on(async {
+            let prepared = deposit.prepare(client.as_async()).await?;
+            prepared.prove(client.as_async()).await
         })
     };
     let owner = zolana_ring_policy::Member::owner_tag(recipient.pubkey().as_array()).unwrap();
-    let refused = |result: Result<_, DepositError>| {
+    let refused = |result: Result<_, RingError>| {
         matches!(
             result,
-            Err(DepositError::KeyRegistration(
-                KeyRegistrationError::UnregisteredOutputKey { owner: refused }
-            )) if refused == owner
+            Err(RingError::UnregisteredOutputKey { owner: refused }) if refused == owner
         )
     };
     let registry_account = || Some(account(bytemuck::bytes_of(&registry).to_vec()));
-
-    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned())
-        .with_proof_data_source(ProofDataSource::Client);
+    let unreachable = || {
+        ProverClient::new("http://127.0.0.1:1".to_owned())
+            .with_proof_data_source(ProofDataSource::Client)
+    };
     assert!(matches!(
-        send(None, &unreachable),
-        Err(DepositError::KeyRegistration(
-            KeyRegistrationError::MissingKeyRegistry
-        ))
+        send(None, unreachable()),
+        Err(RingError::MissingKeyRegistry)
     ));
-    assert!(refused(send(registry_account(), &unreachable)));
+    assert!(refused(send(registry_account(), unreachable())));
 
     let prover = refusing_prover(owner.as_bytes());
     assert!(refused(send(
         registry_account(),
-        &ProverClient::new(prover.url.clone())
+        ProverClient::new(prover.url.clone())
     )));
     prover.handle.join().unwrap();
 }

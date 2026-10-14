@@ -1,16 +1,15 @@
-//! Deposits into a ring, which carry no auditor message.
-//!
-//! A deposit publishes its asset, amount and ring in the clear, so an auditor
-//! reads it without a key. Only the blinding and any memo stay encrypted.
+//! Deposits publish asset, amount and ring in the clear, only the blinding and memo stay sealed.
 
 use borsh::BorshDeserialize;
+use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding, ENCRYPTED_RING_DEPOSIT_SCHEME};
+use zolana_transaction::error::TransactionError;
 
 /// One deposit slot of a transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingDeposit {
-    /// The owner tag of the note, so the account the value was shielded for.
+    /// The note's owner tag, the account the value was shielded for.
     pub depositor: [u8; 32],
     pub asset: Address,
     pub amount: u64,
@@ -32,15 +31,58 @@ fn deposit_of(view_tag: &[u8; 32], payload: &[u8], ring: Address) -> Option<Ring
     else {
         return None;
     };
-    let (&scheme, body) = blob.split_first()?;
-    if scheme != ENCRYPTED_RING_DEPOSIT_SCHEME {
+    let (&ENCRYPTED_RING_DEPOSIT_SCHEME, body) = blob.split_first()? else {
         return None;
-    }
+    };
     let output = EncryptedRingDepositOutput::try_from_slice(body).ok()?;
-    let deposited = Address::new_from_array(output.ring_program_id);
-    (deposited == ring).then(|| RingDeposit {
+    (output.ring_program_id == ring.to_bytes()).then(|| RingDeposit {
         depositor: *view_tag,
         asset: Address::new_from_array(output.asset),
         amount: output.amount,
     })
+}
+
+/// The recipient's ciphertext inside a deposit's audit capsule, `None` without a capsule.
+pub fn deposit_payload(bytes: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
+    RingDepositAuditCapsule::parse(bytes)
+        .map(|capsule| capsule.map(|capsule| capsule.recipient_ciphertext))
+        .map_err(|error| TransactionError::Deserialize(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_keypair::ViewingKey;
+    use zolana_transaction::serialization::ring_deposit::RingDepositPlaintext;
+
+    #[test]
+    fn recipient_opens_plain_and_auditor_wrapped_ciphertexts() {
+        let recipient = ViewingKey::new();
+        let plaintext = RingDepositPlaintext {
+            blinding: [7; 32],
+            utxo_data: Some(vec![1, 2]),
+            memo: Some(vec![3]),
+            ring_data: vec![4],
+        };
+        let mut encrypted = plaintext.encrypt(&recipient.pubkey()).unwrap();
+        assert_eq!(
+            RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
+            plaintext
+        );
+        assert_eq!(deposit_payload(&encrypted.ciphertext).unwrap(), None);
+        encrypted.ciphertext = RingDepositAuditCapsule {
+            slot_index: 7,
+            eph_pk: &[2; 33],
+            ciphertext: &[3; 64],
+            recipient_ciphertext: &encrypted.ciphertext,
+        }
+        .encode();
+        let wrapped = encrypted.ciphertext.clone();
+        encrypted.ciphertext = deposit_payload(&wrapped).unwrap().unwrap().to_vec();
+        assert_eq!(
+            RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
+            plaintext
+        );
+        assert!(deposit_payload(&wrapped[..105]).is_err());
+    }
 }

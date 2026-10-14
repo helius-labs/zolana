@@ -4,6 +4,7 @@
 use core::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, CoSignScope, CoSigner, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
     CustomRingTransactIxData, Delegate, KeyRegistryRoot, PlainGroth16Proof, PolicyConfig,
@@ -16,7 +17,6 @@ use custom_ring_interface::{
     POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
     READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
-use custom_ring_program::CustomRingError;
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
     Mollusk,
@@ -1777,7 +1777,11 @@ pub fn deposit_fixture_with(config: Account) -> Fixture {
     slots.push(Slot {
         label: "deposit_audit",
         meta: AccountMeta::new_readonly(
-            custom_ring_interface::pda::deposit_audit(&program_id()).0,
+            Address::find_program_address(
+                &[custom_ring_interface::DepositAudit::SEED],
+                &program_id(),
+            )
+            .0,
             false,
         ),
         account: account(0),

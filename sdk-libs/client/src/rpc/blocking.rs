@@ -116,6 +116,14 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
             .await
     }
 
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.run(move |rpc| rpc.get_signature_statuses_with_history(signatures))
+            .await
+    }
+
     async fn get_minimum_balance_for_rent_exemption(
         &self,
         data_len: usize,

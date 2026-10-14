@@ -30,7 +30,7 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
+    rpc::{AsyncRpc, EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -188,9 +188,27 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
     if asset == SOL_MINT {
         return Ok(SOL_ASSET_ID);
     }
+    asset_id(asset, rpc.get_account(pda::spl_asset_registry(&asset))?)
+}
+
+/// [`fetch_asset_id`] over an [`AsyncRpc`].
+pub async fn fetch_asset_id_async<R: AsyncRpc + ?Sized>(
+    rpc: &R,
+    asset: Address,
+) -> Result<u64, ClientError> {
+    if asset == SOL_MINT {
+        return Ok(SOL_ASSET_ID);
+    }
+    asset_id(
+        asset,
+        rpc.get_account(pda::spl_asset_registry(&asset)).await?,
+    )
+}
+
+fn asset_id(asset: Address, account: Option<Account>) -> Result<u64, ClientError> {
     let not_registered = || ClientError::SplAssetNotRegistered { mint: asset };
     let address = pda::spl_asset_registry(&asset);
-    let account = rpc.get_account(address)?.ok_or_else(not_registered)?;
+    let account = account.ok_or_else(not_registered)?;
     // Any other owner means lamports were sent there, not that the mint was registered.
     if account.owner != PROGRAM_ID_PUBKEY {
         return Err(not_registered());
@@ -291,7 +309,7 @@ fn spending_transactions<I: Rpc + ?Sized>(
 /// says so: the indexer names a cursor on any row, so following it would ask
 /// for an empty page. A cursor that did not move would ask for the same page
 /// forever, so it fails with [`ClientError::IndexerCursorNotAdvanced`].
-fn next_page(
+pub fn next_page(
     cursor: &Option<Vec<u8>>,
     next: Option<Vec<u8>>,
     scanned_through: &Option<Vec<u8>>,

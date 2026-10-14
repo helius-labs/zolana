@@ -2,12 +2,10 @@
 //! use a fresh AES-CTR keystream per call and to open under the auditor key
 //! alone. The `finish` public-input binding is pinned in the `proof` unit tests.
 
-use custom_ring_sdk::{
-    to_instruction_proof, AuditorMessage, CustomRingProofError, CustomRingProofParams,
-    EncryptedAudit,
-};
+use custom_ring_sdk::{to_instruction_proof, CustomRingProofParams, EncryptedAudit, RingError};
 use zolana_client::{Proof, ProofInputUtxo};
 use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_ring_client::AuditorMessage;
 
 /// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go
 /// circuit test's own: byte `i` is `seed ^ i` with byte 0 forced to 0x01 so the
@@ -93,6 +91,6 @@ fn instruction_proof_conversion_requires_the_commitment() {
 
     assert!(matches!(
         to_instruction_proof(proof),
-        Err(CustomRingProofError::MissingCommitment)
+        Err(RingError::MissingCommitment)
     ));
 }

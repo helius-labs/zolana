@@ -1,10 +1,10 @@
 //! Behavior of the host mirror of the custom-ring circuit crypto.
 
-use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
+use custom_ring_interface::{pack_2fe, FieldPair};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{KeypairError, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, AuditError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
 };
 
 fn tx_viewing_sk() -> [u8; 32] {
@@ -112,10 +112,10 @@ fn parse_rejects_a_foreign_view_tag() {
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("encrypt");
 
     let message = sealed.message.to_message_data(&other_pk);
-    assert_eq!(
+    assert!(matches!(
         AuditorMessage::parse(&message, &auditor_pk),
-        Err(AuditEncryptionError::ViewTagMismatch)
-    );
+        Err(AuditError::ViewTagMismatch)
+    ));
 }
 
 #[test]
@@ -126,26 +126,24 @@ fn parse_rejects_wrong_data_lengths() {
 
     let mut short = valid.clone();
     short.data.pop();
-    assert_eq!(
-        AuditorMessage::parse(&short, &auditor_pk),
-        Err(AuditEncryptionError::MessageLength(AUDITOR_MESSAGE_LEN - 1))
+    assert!(
+        matches!(AuditorMessage::parse(&short, &auditor_pk), Err(AuditError::MessageLength(len)) if len == AUDITOR_MESSAGE_LEN - 1)
     );
 
     let mut long = valid.clone();
     long.data.push(0);
-    assert_eq!(
-        AuditorMessage::parse(&long, &auditor_pk),
-        Err(AuditEncryptionError::MessageLength(AUDITOR_MESSAGE_LEN + 1))
+    assert!(
+        matches!(AuditorMessage::parse(&long, &auditor_pk), Err(AuditError::MessageLength(len)) if len == AUDITOR_MESSAGE_LEN + 1)
     );
 
     let truncated = MessageData {
         view_tag: valid.view_tag,
         data: Vec::new(),
     };
-    assert_eq!(
+    assert!(matches!(
         AuditorMessage::parse(&truncated, &auditor_pk),
-        Err(AuditEncryptionError::MessageLength(0))
-    );
+        Err(AuditError::MessageLength(0))
+    ));
 }
 
 #[test]
@@ -154,12 +152,10 @@ fn parse_rejects_an_invalid_ephemeral_key() {
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("encrypt");
     let mut message = sealed.message.to_message_data(&auditor_pk);
     message.data[..33].fill(0);
-    assert_eq!(
+    assert!(matches!(
         AuditorMessage::parse(&message, &auditor_pk),
-        Err(AuditEncryptionError::Keypair(
-            KeypairError::InvalidPublicKey
-        ))
-    );
+        Err(AuditError::Keypair(KeypairError::InvalidPublicKey))
+    ));
 }
 
 /// `lo = 0x00 || bytes[0..31]`, `hi = bytes[31]` right-aligned; hand-computed for
@@ -172,7 +168,7 @@ fn pack32_layout() {
         *byte = (index as u8) + 1;
     }
 
-    let FieldPair { lo, hi } = pack32_to_2fe(&input);
+    let FieldPair { lo, hi } = pack_2fe(&input);
     assert_eq!(
         lo,
         hex_bytes::<32>("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
@@ -192,7 +188,7 @@ fn pack33_layout() {
         *byte = (index as u8) + 1;
     }
 
-    let FieldPair { lo, hi } = pack33_to_2fe(&input);
+    let FieldPair { lo, hi } = pack_2fe(&input);
     assert_eq!(
         lo,
         hex_bytes::<32>("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")

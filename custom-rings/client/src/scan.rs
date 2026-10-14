@@ -1,92 +1,79 @@
-//! Finding the transactions an auditor can open.
-//!
-//! The auditor scans for its own view tag, which is the auditor key's
-//! x-coordinate ([`auditor_view_tag`]). Photon's
-//! `get_shielded_transactions_by_tags` matches the requested tags against both
-//! output view tags and MESSAGE view tags (an OR of two EXISTS subqueries in
-//! `services/photon/src/api/method/rings/get_shielded_transactions_by_tags.rs`)
-//! and hydrates the matching transactions' messages back, which is what makes it
-//! usable here. `get_encrypted_utxos_by_tags` matches outputs only and would
-//! never see an auditor message.
-//!
-//! The indexer knows nothing about rings. Each matched transaction is
-//! attributed to the ring through its confirmed call stack
-//! ([`TransactionOrigin`]).
+//! The auditor scans for its view tag, which Photon matches on output and message tags alike,
+//! so the message match is re-applied and each match is attributed through its call stack.
 
 use std::{
     collections::HashMap,
+    future::Future,
     num::{NonZeroU32, NonZeroUsize},
 };
 
-use solana_signature::Signature;
-use zolana_client::{IndexerRpcConfig, Rpc};
+use solana_address::Address;
+use zolana_client::{next_page, AsyncRpc, ClientError, IndexerRpcConfig};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
-    decrypt::TransactionAudit, encryption::auditor_view_tag, error::AuditError,
-    origin::TransactionOrigin, types::AuditedTransaction,
+    decrypt::TransactionAudit, encryption::auditor_view_tag, origin::TransactionOrigin,
+    types::AuditedTransaction, AuditError,
 };
 
-pub struct RingEnvironment<'a, I, O> {
-    pub indexer: &'a I,
-    pub origin: &'a O,
+/// One bounded read, `next_cursor` is live only when the page cap stopped it.
+pub struct ScanPage<T> {
+    pub transactions: Vec<T>,
+    pub next_cursor: Option<Vec<u8>>,
 }
 
-impl<I, O> Clone for RingEnvironment<'_, I, O> {
-    fn clone(&self) -> Self {
-        *self
+pub type RingScanPage = ScanPage<ShieldedTransaction>;
+pub type AuditedPage = ScanPage<AuditedTransaction>;
+
+/// One indexer page with its transactions, the next cursor and where the scan reached.
+pub(crate) type Page = (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>);
+
+/// Reads from `cursor` until `scanned_through` or the cap, a cursor that does not move fails.
+pub(crate) async fn pages<F, Fut>(
+    mut cursor: Option<Vec<u8>>,
+    max_pages: NonZeroUsize,
+    mut fetch: F,
+) -> Result<(RingScanPage, usize), AuditError>
+where
+    F: FnMut(Option<Vec<u8>>) -> Fut,
+    Fut: Future<Output = Result<Page, ClientError>>,
+{
+    let (mut transactions, mut read) = (Vec::new(), 0);
+    loop {
+        let (page, next, scanned_through) = fetch(cursor.clone()).await?;
+        transactions.extend(page);
+        read += 1;
+        cursor = next_page(&cursor, next, &scanned_through)?;
+        if cursor.is_none() || read == max_pages.get() {
+            let next_cursor = cursor;
+            return Ok((
+                ScanPage {
+                    transactions,
+                    next_cursor,
+                },
+                read,
+            ));
+        }
     }
 }
 
-impl<I, O> Copy for RingEnvironment<'_, I, O> {}
+pub(crate) const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(100).unwrap();
+const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 
-pub struct RingScanPage {
-    pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
-}
-
-pub struct AuditedPage {
-    pub transactions: Vec<AuditedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
-}
-
+/// Every indexed transaction of the ring that carries a message tagged for `auditor_key`.
 #[must_use = "run or discard the scan explicitly"]
-/// Every indexed transaction that carries a message tagged for `auditor_key`.
-///
-/// The tag match is re-applied to the returned messages because the indexer
-/// matches output tags and message tags.
-pub struct RingScan<'a> {
-    ring_program_id: solana_address::Address,
-    auditor_key: &'a P256Pubkey,
+pub struct RingScan {
+    ring_program_id: Address,
+    auditor_key: P256Pubkey,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
 }
 
-#[must_use = "run or discard the audit explicitly"]
-/// Scans and audits the bounded page range in one operation.
-pub struct RingAudit<'a> {
-    ring_program_id: solana_address::Address,
-    auditor: &'a ViewingKey,
-    cursor: Option<Vec<u8>>,
-    page_size: NonZeroU32,
-    max_pages: NonZeroUsize,
-    indexer_config: Option<IndexerRpcConfig>,
-}
-
-const DEFAULT_MAX_PAGES: NonZeroUsize = match NonZeroUsize::new(32) {
-    Some(value) => value,
-    None => NonZeroUsize::MIN,
-};
-const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(100) {
-    Some(limit) => limit,
-    None => NonZeroU32::MIN,
-};
-
-impl<'a> RingScan<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor_key: &'a P256Pubkey) -> Self {
+impl RingScan {
+    pub fn new(ring_program_id: Address, auditor_key: P256Pubkey) -> Self {
         Self {
             ring_program_id,
             auditor_key,
@@ -97,167 +84,149 @@ impl<'a> RingScan<'a> {
         }
     }
 
-    #[must_use = "use the updated scan"]
     pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
         self.cursor = Some(cursor);
         self
     }
 
-    #[must_use = "use the updated scan"]
     pub fn with_page_size(mut self, page_size: NonZeroU32) -> Self {
         self.page_size = page_size;
         self
     }
 
-    #[must_use = "use the updated scan"]
     pub fn with_max_pages(mut self, max_pages: NonZeroUsize) -> Self {
         self.max_pages = max_pages;
         self
     }
 
-    /// Every page waits until the indexer has persisted
-    /// `config.require_slot`.
-    #[must_use = "use the updated scan"]
+    /// Every page waits until the indexer has persisted `config.require_slot`.
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
         self.indexer_config = Some(config);
         self
     }
 
-    #[must_use = "use the updated scan"]
     pub(crate) fn indexer_config(mut self, config: Option<IndexerRpcConfig>) -> Self {
         self.indexer_config = config;
         self
     }
 
-    pub fn run<I: Rpc, O: TransactionOrigin>(
+    pub async fn run<I: AsyncRpc, O: TransactionOrigin>(
         self,
-        env: RingEnvironment<'_, I, O>,
+        indexer: &I,
+        origin: &O,
     ) -> Result<RingScanPage, AuditError> {
-        let view_tag = auditor_view_tag(self.auditor_key);
+        let view_tag = auditor_view_tag(&self.auditor_key);
+        let (mut page, _) = pages(self.cursor, self.max_pages, |cursor| async move {
+            let page = indexer
+                .get_shielded_transactions_by_tags(
+                    vec![view_tag],
+                    cursor,
+                    Some(self.page_size.get()),
+                    self.indexer_config,
+                )
+                .await?;
+            Ok((page.transactions, page.next_cursor, page.scanned_through))
+        })
+        .await?;
+        let mut invoked = HashMap::new();
         let mut transactions = Vec::new();
-        let mut cursor = self.cursor;
-        let mut origins: HashMap<(Signature, u16), bool> = HashMap::new();
-        for _ in 0..self.max_pages.get() {
-            let page = env.indexer.get_shielded_transactions_by_tags(
-                vec![view_tag],
-                cursor.clone(),
-                Some(self.page_size.get()),
-                self.indexer_config,
-            )?;
-            for tx in page.transactions {
-                if tx.ring_program_id != Some(self.ring_program_id) {
-                    continue;
-                }
-                if !tx
+        for tx in page.transactions {
+            if tx.ring_program_id != Some(self.ring_program_id)
+                || !tx
                     .messages
                     .iter()
                     .any(|message| message.view_tag == view_tag)
-                {
-                    continue;
-                }
-                let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
-                let origin_key = (tx.tx_signature, event_index);
-                let ring_invoked = match origins.get(&origin_key) {
-                    Some(known) => *known,
-                    None => {
-                        let invoked = env.origin.ring_invoked(
-                            tx.tx_signature,
-                            event_index,
-                            self.ring_program_id,
-                        )?;
-                        origins.insert(origin_key, invoked);
-                        invoked
-                    }
-                };
-                if ring_invoked {
-                    transactions.push(tx);
-                }
+            {
+                continue;
             }
-            let Some(next) = page.next_cursor else {
-                return Ok(RingScanPage {
-                    transactions,
-                    next_cursor: None,
-                });
+            let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
+            let key = (tx.tx_signature, event_index);
+            let ring_invoked = match invoked.get(&key) {
+                Some(known) => *known,
+                None => {
+                    let origin = origin
+                        .origin(tx.tx_signature, event_index, self.ring_program_id)
+                        .await?;
+                    *invoked.entry(key).or_insert(origin.ring_invoked)
+                }
             };
-            if cursor.as_ref() == Some(&next) {
-                return Err(AuditError::CursorNotAdvanced);
+            if ring_invoked {
+                transactions.push(tx);
             }
-            cursor = Some(next);
         }
-        Ok(RingScanPage {
-            transactions,
-            next_cursor: cursor,
+        page.transactions = transactions;
+        Ok(page)
+    }
+
+    /// Scans the tag of `auditor` and opens every match with it.
+    pub async fn audit<I: AsyncRpc, O: TransactionOrigin>(
+        mut self,
+        auditor: &ViewingKey,
+        indexer: &I,
+        origin: &O,
+        assets: &AssetRegistry,
+    ) -> Result<AuditedPage, AuditError> {
+        self.auditor_key = auditor.pubkey();
+        let page = self.run(indexer, origin).await?;
+        Ok(ScanPage {
+            transactions: page
+                .transactions
+                .iter()
+                .map(|transaction| {
+                    TransactionAudit {
+                        auditor,
+                        transaction,
+                        assets,
+                    }
+                    .run()
+                })
+                .collect::<Result<_, _>>()?,
+            next_cursor: page.next_cursor,
         })
     }
 }
 
-impl<'a> RingAudit<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor: &'a ViewingKey) -> Self {
-        Self {
-            ring_program_id,
-            auditor,
-            cursor: None,
-            page_size: DEFAULT_PAGE_SIZE,
-            max_pages: DEFAULT_MAX_PAGES,
-            indexer_config: None,
-        }
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    #[must_use = "use the updated audit"]
-    pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
-        self.cursor = Some(cursor);
-        self
-    }
+    /// Per page, its next cursor and where the scan reached.
+    type Served = (Option<Vec<u8>>, Option<Vec<u8>>);
 
-    #[must_use = "use the updated audit"]
-    pub fn with_page_size(mut self, page_size: NonZeroU32) -> Self {
-        self.page_size = page_size;
-        self
-    }
-
-    #[must_use = "use the updated audit"]
-    pub fn with_max_pages(mut self, max_pages: NonZeroUsize) -> Self {
-        self.max_pages = max_pages;
-        self
-    }
-
-    /// Every page waits until the indexer has persisted
-    /// `config.require_slot`.
-    #[must_use = "use the updated audit"]
-    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
-        self.indexer_config = Some(config);
-        self
-    }
-
-    pub fn run<I: Rpc, O: TransactionOrigin>(
-        self,
-        env: RingEnvironment<'_, I, O>,
-        assets: &AssetRegistry,
-    ) -> Result<AuditedPage, AuditError> {
-        let auditor_key = self.auditor.pubkey();
-        let mut scan = RingScan::new(self.ring_program_id, &auditor_key)
-            .with_page_size(self.page_size)
-            .with_max_pages(self.max_pages)
-            .indexer_config(self.indexer_config);
-        if let Some(cursor) = self.cursor {
-            scan = scan.with_cursor(cursor);
-        }
-        let page = scan.run(env)?;
-        let transactions = page
-            .transactions
-            .iter()
-            .map(|transaction| {
-                TransactionAudit {
-                    auditor: self.auditor,
-                    transaction,
-                    assets,
-                }
-                .run()
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(AuditedPage {
-            transactions,
-            next_cursor: page.next_cursor,
+    /// Serves `pages_served` in order, a cursor names the page index.
+    async fn read(
+        pages_served: &[Served],
+        max_pages: usize,
+    ) -> Result<(RingScanPage, usize), AuditError> {
+        let max_pages = NonZeroUsize::new(max_pages).unwrap();
+        pages(None, max_pages, |cursor| async move {
+            let index = cursor.map_or(0, |cursor| usize::from(cursor[0]));
+            let (next, scanned_through) = pages_served[index].clone();
+            Ok((Vec::new(), next, scanned_through))
         })
+        .await
+    }
+
+    #[tokio::test]
+    async fn the_last_page_at_the_cap_completes_the_read() {
+        let served = [(Some(vec![1]), None), (Some(vec![2]), Some(vec![2]))];
+        let (page, read) = read(&served, 2).await.unwrap();
+        assert_eq!((page.next_cursor, read), (None, 2));
+    }
+
+    #[tokio::test]
+    async fn the_cap_returns_the_live_cursor() {
+        let served = [(Some(vec![1]), None), (Some(vec![2]), None)];
+        let (page, read) = read(&served, 2).await.unwrap();
+        assert_eq!((page.next_cursor, read), (Some(vec![2]), 2));
+    }
+
+    #[tokio::test]
+    async fn a_cursor_that_does_not_move_fails() {
+        let served = [(Some(vec![1]), None), (Some(vec![1]), None)];
+        assert!(matches!(
+            read(&served, 4).await,
+            Err(AuditError::Client(ClientError::IndexerCursorNotAdvanced))
+        ));
     }
 }

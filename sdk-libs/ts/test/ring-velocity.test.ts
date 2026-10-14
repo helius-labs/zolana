@@ -13,11 +13,17 @@ import type { CustomRingVelocityRow } from "../src/client/prover/types.js";
 import { registerRingSpendInstruction } from "../src/ring/instructions.js";
 import {
   chargeRows,
+  chargeVelocityRows,
   recordShape,
   senderOutflow,
   type RingMoneyTransfer,
 } from "../src/ring/velocity.js";
-import { memberOfAsset, memberOfIdentity, type Member } from "../src/ring/policy.js";
+import {
+  memberOfAsset,
+  memberOfIdentity,
+  zeroSpendCounters,
+  type Member,
+} from "../src/ring/policy.js";
 
 const filled = (byte: number): Bytes32 => new Uint8Array(32).fill(byte) as Bytes32;
 const addressOf = (bytes: Bytes32) => getAddressDecoder().decode(bytes);
@@ -130,6 +136,34 @@ describe("velocity outflow and charge", () => {
     expect(() => charge(700n)).toThrow(
       expect.objectContaining({ code: "RING_VELOCITY_CAP_EXCEEDED" }),
     );
+  });
+
+  it("keeps a zero counter on a cosign-only row and charges a capped row", () => {
+    const { member } = senderIdentity();
+    const asset = memberOfAsset(ASSET);
+    const capped = memberOfAsset(addressOf(filled(0xd5)));
+    const max = (1n << 64n) - 1n;
+    const counters = zeroSpendCounters([asset, capped]);
+    const previous = { ...counters, spent: [max, 100n, ...counters.spent.slice(2)] };
+    const charge = (cap: bigint) =>
+      chargeVelocityRows({
+        moneyTransfer: moneyTransfer(member, [moneyInput(max)]),
+        rows: [
+          { asset, cap: 0n, cosignAbove: 300n },
+          { asset: capped, cap, cosignAbove: 0n },
+        ],
+        previous,
+      });
+    const charged = charge(1_000n);
+    expect(charged.spent).toEqual([0n, 100n]);
+    expect(charged.approvalRequired).toBe(true);
+    expect(() =>
+      chargeVelocityRows({
+        moneyTransfer: moneyTransfer(member, [moneyInput(800n)]),
+        rows: [{ asset, cap: 850n, cosignAbove: 0n }],
+        previous: { ...counters, spent: [100n, ...counters.spent.slice(1)] },
+      }),
+    ).toThrow(expect.objectContaining({ code: "RING_VELOCITY_CAP_EXCEEDED" }));
   });
 
   it("asks no co-signer at the threshold", () => {

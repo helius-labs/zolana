@@ -1,9 +1,9 @@
 //! Pins key-registry root init and the register-key account checks before the proof.
 
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     KeyRegistryRoot, KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
 };
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use solana_pubkey::Pubkey;
 

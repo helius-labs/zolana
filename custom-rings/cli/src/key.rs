@@ -1,12 +1,12 @@
 //! `key`, the member's nullifier key sealed to the ring auditor in the key registry.
 
 use custom_ring_sdk::{
-    AccountReadError, CurrentKeyRegistryRoot, CustomRing, KeyRegistrationError, ReadSealedKey,
-    RegisterKey, TransferProofEnvironment, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, CurrentKeyRegistryRoot, CustomRing, InstructionTag, ReadSealedKey,
+    RegisterKey, RingError,
 };
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SolanaRpc};
+use zolana_client::{BlockingIndexer, BlockingRpc, ClientError, ZolanaClient};
 use zolana_keypair::{KeypairError, ShieldedKeypair};
 use zolana_ring_policy::{Member, MemberError};
 
@@ -17,7 +17,7 @@ use crate::{
     step::{no_hint, IdempotentStep, Observed, StepError},
     transact::{sender_keypair_file, wait_for, Probe, WaitError, SENDER_FEE_BUDGET},
     ui::{Ask, AskError},
-    Context, ContextError, KeyCommand,
+    Context, ContextError, KeyCommand, Zolana,
 };
 
 #[derive(Debug, Error)]
@@ -25,13 +25,11 @@ pub enum KeyError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
     Member(#[from] MemberError),
     #[error(transparent)]
     Keypair(#[from] KeypairError),
     #[error(transparent)]
-    Registration(Box<KeyRegistrationError>),
+    Ring(Box<RingError>),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error(transparent)]
@@ -50,9 +48,7 @@ pub enum KeyError {
     NoKeyRegistry,
 }
 
-boxed_from!(KeyError {
-    Registration(KeyRegistrationError),
-});
+boxed_from!(KeyError { Ring(RingError) });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Plan {
@@ -82,19 +78,15 @@ pub fn run(ctx: &mut Context, command: KeyCommand) -> Result<(), KeyError> {
                 ring: ctx.ring,
                 member: &member,
             };
-            let indexer = ctx.indexer();
+            let zolana = ctx.zolana();
             line("member", sender.pubkey());
-            let registered = enrolment.registered(&indexer, &ctx.rpc)?;
+            let registered = enrolment.registered(&zolana)?;
             match enrolment.plan(registered, ctx.ask.as_mut())? {
                 Plan::AlreadyRegistered => line("key", "already registered"),
                 Plan::Declined => line("key", "not registered"),
                 Plan::Enroll => {
                     ctx.fund_authority(&sender, SENDER_FEE_BUDGET)?;
-                    enrolment.register(TransferProofEnvironment {
-                        indexer: &indexer,
-                        rpc: &ctx.rpc,
-                        prover: &ctx.prover(),
-                    })?;
+                    enrolment.register(&zolana)?;
                     line("key", "registered");
                 }
             }
@@ -103,11 +95,12 @@ pub fn run(ctx: &mut Context, command: KeyCommand) -> Result<(), KeyError> {
     Ok(())
 }
 
-pub(crate) fn registry_root(
+pub(crate) fn registry_root<R: BlockingRpc, I: BlockingIndexer>(
     ring: CustomRing,
-    rpc: &impl Rpc,
+    zolana: &ZolanaClient<R, I>,
 ) -> Result<CurrentKeyRegistryRoot, KeyError> {
-    ring.read_key_registry_root(rpc)?
+    zolana
+        .block_on(ring.key_registry_root(zolana.as_async()))?
         .ok_or(KeyError::NoKeyRegistry)
 }
 
@@ -121,14 +114,11 @@ impl KeyOutcome {
 }
 
 impl KeyEnrolment<'_> {
-    pub(crate) fn ensure<I: Rpc>(
-        &self,
-        env: TransferProofEnvironment<'_, I, SolanaRpc>,
-    ) -> Result<KeyOutcome, KeyError> {
-        if self.registered(env.indexer, env.rpc)? {
+    pub(crate) fn ensure(&self, zolana: &Zolana) -> Result<KeyOutcome, KeyError> {
+        if self.registered(zolana)? {
             return Ok(KeyOutcome::Present);
         }
-        self.register(env)?;
+        self.register(zolana)?;
         Ok(KeyOutcome::Registered)
     }
 
@@ -148,29 +138,29 @@ impl KeyEnrolment<'_> {
 
     /// Only the sender's key included under the current registry root counts as
     /// enrolled.
-    fn registered(&self, indexer: &impl Rpc, rpc: &impl Rpc) -> Result<bool, KeyError> {
+    fn registered<R: BlockingRpc, I: BlockingIndexer>(
+        &self,
+        zolana: &ZolanaClient<R, I>,
+    ) -> Result<bool, KeyError> {
         let member = self.member_tag()?;
         let nullifier_pubkey = self.member.shielded_address()?.nullifier_pubkey;
         wait_for(
             format!("key registry entry of {}", self.member.pubkey()),
             || {
-                let root = registry_root(self.ring, rpc)?;
-                match (ReadSealedKey {
+                let root = registry_root(self.ring, zolana)?;
+                let read = ReadSealedKey {
                     ring: self.ring,
                     member,
                     root,
-                })
-                .read(indexer)
-                {
+                };
+                match zolana.block_on(read.read(zolana.as_async())) {
                     Ok(entry) => {
                         // 1. Indexer metadata alone cannot suppress key
                         // registration.
                         entry.verify_nullifier_pubkey(&nullifier_pubkey)?;
                         Ok(Probe::Ready(true))
                     }
-                    Err(KeyRegistrationError::Client(error))
-                        if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
-                    {
+                    Err(RingError::Client(ClientError::RingKeyRegistryMemberUnregistered)) => {
                         Ok(Probe::Ready(false))
                     }
                     Err(error) if error.is_projection_lag() => {
@@ -186,26 +176,18 @@ impl KeyEnrolment<'_> {
         })
     }
 
-    fn register<I: Rpc>(
-        &self,
-        env: TransferProofEnvironment<'_, I, SolanaRpc>,
-    ) -> Result<(), KeyError> {
-        let rpc = env.rpc;
-        let proven = RegisterKey {
+    fn register(&self, zolana: &Zolana) -> Result<(), KeyError> {
+        let registration = RegisterKey {
             ring: self.ring,
             member: self.member,
-        }
-        .prove(TransferProofEnvironment {
-            indexer: env.indexer,
-            rpc: env.rpc,
-            prover: env.prover,
-        })?;
+        };
+        let proven = zolana.block_on(registration.prove(zolana.as_async()))?;
         IdempotentStep {
-            rpc,
+            rpc: zolana.rpc(),
             authority: self.member,
             co_signers: &[],
             name: "register_key",
-            compute_unit_limit: REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: compute_unit_limit(InstructionTag::RegisterKey),
             hint: no_hint,
         }
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
@@ -219,7 +201,7 @@ impl KeyEnrolment<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::sync::atomic::{AtomicU8, Ordering};
 
     use custom_ring_interface::{
         KeyRegistryLeaf, KeyRegistryRoot, MerklePath, RegisteredKey, KEY_REGISTRY_HEIGHT,
@@ -227,6 +209,7 @@ mod tests {
     };
     use solana_account::Account;
     use solana_address::Address;
+    use zolana_client::{ProverClient, Rpc, WitnessReader};
     use zolana_indexer_api::{
         Base64String, Context as RegistryContext, GetRingKeyRegistryEntryResponse, Hash,
         RingMemberProofRequest,
@@ -248,7 +231,7 @@ mod tests {
     };
 
     struct RegistryRpc {
-        reads: Cell<u8>,
+        reads: AtomicU8,
         advance: bool,
         root: CurrentKeyRegistryRoot,
     }
@@ -256,7 +239,7 @@ mod tests {
     impl RegistryRpc {
         fn fixed() -> Self {
             Self {
-                reads: Cell::new(0),
+                reads: AtomicU8::new(0),
                 advance: false,
                 root: ROOT,
             }
@@ -265,11 +248,12 @@ mod tests {
 
     impl Rpc for RegistryRpc {
         fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-            let (expected, bump) =
-                custom_ring_interface::pda::key_registry_root(&ring().program_id());
+            let (expected, bump) = Address::find_program_address(
+                &[custom_ring_interface::KeyRegistryRoot::SEED],
+                &ring().program_id(),
+            );
             assert_eq!(address, expected);
-            let reads = self.reads.get();
-            self.reads.set(reads + 1);
+            let reads = self.reads.fetch_add(1, Ordering::Relaxed);
             let current = if self.advance && reads > 0 {
                 [1; 32]
             } else {
@@ -296,6 +280,15 @@ mod tests {
     }
 
     struct StubIndexer(Option<GetRingKeyRegistryEntryResponse>);
+
+    impl WitnessReader for StubIndexer {}
+
+    fn zolana<I: Rpc + WitnessReader + Send + Sync + 'static>(
+        rpc: RegistryRpc,
+        indexer: I,
+    ) -> ZolanaClient<RegistryRpc, I> {
+        ZolanaClient::new(rpc, indexer, ProverClient::local())
+    }
 
     impl Rpc for StubIndexer {
         fn get_ring_key_registry_entry(
@@ -377,7 +370,9 @@ mod tests {
         };
         let mut ask = Scripted::new([]);
         let RegisteredEntry { rpc, indexer } = registered_entry(&member);
-        let registered = enrolment.registered(&indexer, &rpc).expect("registered");
+        let registered = enrolment
+            .registered(&zolana(rpc, indexer))
+            .expect("registered");
         assert_eq!(
             enrolment.plan(registered, &mut ask).expect("plan"),
             Plan::AlreadyRegistered
@@ -391,9 +386,8 @@ mod tests {
             ring: ring(),
             member: &member,
         };
-        let indexer = StubIndexer(None);
         let registered = enrolment
-            .registered(&indexer, &RegistryRpc::fixed())
+            .registered(&zolana(RegistryRpc::fixed(), StubIndexer(None)))
             .expect("registered");
         let mut yes = Scripted::new([Answer::Yes(true)]);
         assert_eq!(
@@ -409,14 +403,14 @@ mod tests {
 
     #[test]
     fn a_lagging_registry_is_polled_until_it_answers() {
-        struct Lagging(std::cell::Cell<u8>);
+        struct Lagging(AtomicU8);
+        impl WitnessReader for Lagging {}
         impl Rpc for Lagging {
             fn get_ring_key_registry_entry(
                 &self,
                 _request: RingMemberProofRequest,
             ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-                let calls = self.0.get();
-                self.0.set(calls + 1);
+                let calls = self.0.fetch_add(1, Ordering::Relaxed);
                 if calls == 0 {
                     return Err(ClientError::RingKeyRegistryOutOfSync);
                 }
@@ -428,23 +422,21 @@ mod tests {
             ring: ring(),
             member: &member,
         };
-        let indexer = Lagging(std::cell::Cell::new(0));
-        assert!(!enrolment
-            .registered(&indexer, &RegistryRpc::fixed())
-            .expect("registered"));
-        assert_eq!(indexer.0.get(), 2);
+        let client = zolana(RegistryRpc::fixed(), Lagging(AtomicU8::new(0)));
+        assert!(!enrolment.registered(&client).expect("registered"));
+        assert_eq!(client.indexer().0.load(Ordering::Relaxed), 2);
     }
 
     #[test]
     fn a_changed_registry_root_is_refetched_before_retrying() {
-        struct Advanced(Cell<u8>);
+        struct Advanced(AtomicU8);
+        impl WitnessReader for Advanced {}
         impl Rpc for Advanced {
             fn get_ring_key_registry_entry(
                 &self,
                 request: RingMemberProofRequest,
             ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-                let calls = self.0.get();
-                self.0.set(calls + 1);
+                let calls = self.0.fetch_add(1, Ordering::Relaxed);
                 if calls == 0 {
                     assert_eq!(request.expected_root.0, ROOT.root);
                     assert_eq!(request.expected_next_index, ROOT.next_index);
@@ -460,15 +452,15 @@ mod tests {
             ring: ring(),
             member: &member,
         };
-        let indexer = Advanced(Cell::new(0));
         let rpc = RegistryRpc {
-            reads: Cell::new(0),
+            reads: AtomicU8::new(0),
             advance: true,
             root: ROOT,
         };
-        assert!(!enrolment.registered(&indexer, &rpc).expect("registered"));
-        assert_eq!(indexer.0.get(), 2);
-        assert_eq!(rpc.reads.get(), 2);
+        let client = zolana(rpc, Advanced(AtomicU8::new(0)));
+        assert!(!enrolment.registered(&client).expect("registered"));
+        assert_eq!(client.indexer().0.load(Ordering::Relaxed), 2);
+        assert_eq!(client.rpc().reads.load(Ordering::Relaxed), 2);
     }
 
     #[test]
@@ -487,9 +479,8 @@ mod tests {
             let RegisteredEntry { rpc, mut indexer } = registered_entry(&member);
             mutate(indexer.0.as_mut().unwrap());
             assert!(matches!(
-                enrolment.registered(&indexer, &rpc),
-                Err(KeyError::Registration(error))
-                    if matches!(*error, KeyRegistrationError::InvalidEntryProof)
+                enrolment.registered(&zolana(rpc, indexer)),
+                Err(KeyError::Ring(error)) if matches!(*error, RingError::InvalidEntryProof)
             ));
         }
     }
@@ -505,15 +496,15 @@ mod tests {
             member: &member,
         };
         assert!(matches!(
-            enrolment.registered(&indexer, &rpc),
-            Err(KeyError::Registration(error))
-                if matches!(*error, KeyRegistrationError::InvalidEntryProof)
+            enrolment.registered(&zolana(rpc, indexer)),
+            Err(KeyError::Ring(error)) if matches!(*error, RingError::InvalidEntryProof)
         ));
     }
 
     #[test]
     fn a_transport_failure_is_not_read_as_unregistered() {
         struct Down;
+        impl WitnessReader for Down {}
         impl Rpc for Down {
             fn get_ring_key_registry_entry(
                 &self,
@@ -528,8 +519,8 @@ mod tests {
             member: &member,
         };
         assert!(matches!(
-            enrolment.registered(&Down, &RegistryRpc::fixed()),
-            Err(KeyError::Registration(error)) if matches!(*error, KeyRegistrationError::Client(_))
+            enrolment.registered(&zolana(RegistryRpc::fixed(), Down)),
+            Err(KeyError::Ring(error)) if matches!(*error, RingError::Client(_))
         ));
     }
 }

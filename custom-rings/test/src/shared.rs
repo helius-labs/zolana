@@ -11,19 +11,17 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use custom_ring_cli::transact::{self, Probe};
-use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, EntryProofError, InitSppRingConfig, LiveSpendRecord,
-    TransactSend, TRANSACT_COMPUTE_UNIT_LIMIT,
-};
+use custom_ring_sdk::{compute_unit_limit, CustomRing, InstructionTag, LiveSpendRecord, RingError};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
+    compile_message,
     prover::{indexed::ProofDataSource, SERVER_ADDRESS},
-    ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient, ProverLaunch, Rpc,
-    SolanaRpc, ZolanaClient, ZolanaIndexer,
+    sign_transaction, ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient,
+    ProverLaunch, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     pda,
@@ -135,7 +133,24 @@ impl TestEnv {
 
     /// The raw id a tree hashes its UTXOs under.
     pub fn tree_id(&self, tree: Address) -> Result<u16> {
-        Ok(custom_ring_sdk::tree_id(self.client.rpc(), tree)?)
+        Ok(self.run(custom_ring_sdk::tree_id(self.client.as_async(), tree))?)
+    }
+
+    /// Runs an SDK operation on the blocking client.
+    pub fn run<T>(
+        &self,
+        operation: impl std::future::Future<Output = Result<T, RingError>>,
+    ) -> Result<T, RingError> {
+        self.client.block_on(operation)
+    }
+
+    /// The same services behind `prover`.
+    pub fn client_with(&self, prover: ProverClient) -> ZolanaClient<SolanaRpc> {
+        ZolanaClient::new(
+            SolanaRpc::new(self.rpc_url.clone()),
+            ZolanaIndexer::new(self.indexer_url.clone()),
+            prover,
+        )
     }
 
     /// The tree the cli names by default.
@@ -236,17 +251,13 @@ impl<'a> RegisterRing<'a> {
 
     pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
         let authority = self.payer.pubkey();
+        let has_policy = matches!(self.tier, Tier::Policy { .. });
         send(
             rpc,
             self.payer,
-            &[CreateConfig {
-                ring: self.ring,
-                payer: authority,
-                authority,
-                auditor_pubkey: self.auditor_pubkey,
-                has_policy: matches!(self.tier, Tier::Policy { .. }),
-            }
-            .instruction()?],
+            &[self
+                .ring
+                .create_config(authority, authority, self.auditor_pubkey, has_policy)?],
         )?;
         Ok(ConfiguredRing {
             ring: self.ring,
@@ -260,13 +271,9 @@ impl<'a> ConfiguredRing<'a> {
     /// The program refuses it for a policy ring until the policy is pinned.
     pub fn registration(&self) -> Instruction {
         let authority = self.payer.pubkey();
-        InitSppRingConfig {
-            ring: self.ring,
-            payer: authority,
-            authority,
-            has_policy: matches!(self.tier, Tier::Policy { .. }),
-        }
-        .instruction()
+        let has_policy = matches!(self.tier, Tier::Policy { .. });
+        self.ring
+            .init_spp_ring_config(authority, authority, has_policy)
     }
 
     pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
@@ -281,15 +288,13 @@ impl<'a> ConfiguredRing<'a> {
             send(
                 rpc,
                 self.payer,
-                &[CreatePolicy {
-                    ring: self.ring,
-                    payer: authority,
+                &[self.ring.create_policy(
+                    authority,
                     authority,
                     address_tree,
                     rules,
-                    shared_sources,
-                }
-                .instruction()?],
+                    &shared_sources,
+                )?],
             )?;
         }
         Ok(PinnedRing {
@@ -565,7 +570,7 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
 }
 
 pub fn wait_for_spend_record(
-    read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
+    read: impl Fn() -> Result<Option<LiveSpendRecord>, RingError>,
     version: u64,
 ) -> Result<LiveSpendRecord> {
     Ok(transact::wait_for(
@@ -588,15 +593,12 @@ pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<
         ixs,
         payer.pubkey(),
         &[payer],
-        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+        ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Transact)),
     )?)
 }
 
-/// The [`TransactSend`] submission path for a transaction that must be REJECTED:
-/// returns the runtime's typed failure so a test can assert the exact program
-/// error code and the failing instruction index (`Rejection::custom(..).at(0)`,
-/// index 0 because a v1 message carries no compute-budget instruction).
-/// [`TransactSend::send`] stringifies the error, which cannot be asserted on.
+/// Sends a transaction that must be rejected and returns the runtime's typed failure,
+/// the instruction sits at index 0 of a v1 message.
 pub fn send_expecting_rejection(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
@@ -620,12 +622,14 @@ pub struct RejectedTransact<'a> {
 
 impl RejectedTransact<'_> {
     pub fn send(self, rpc: &SolanaRpc) -> Result<ClientError> {
-        let tx = TransactSend {
-            payer: self.payer,
-            signers: self.signers,
-            instruction: self.instruction,
-        }
-        .build(rpc)?;
+        let (blockhash, _) = rpc.get_latest_blockhash()?;
+        let budget = ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Transact));
+        let message =
+            compile_message(&self.payer.pubkey(), &[self.instruction], blockhash, budget)?;
+        let signers: Vec<&dyn Signer> = std::iter::once(self.payer)
+            .chain(self.signers.iter().copied())
+            .collect();
+        let tx = sign_transaction(message, &signers)?;
         match rpc.client().send_and_confirm_transaction(&tx) {
             Ok(signature) => Err(anyhow!(
                 "transaction {signature} was expected to be rejected but landed"

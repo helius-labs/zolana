@@ -1,7 +1,7 @@
 //! Pins stateless transfer limits and their approval requirements.
 
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{tag, CoSignScope};
-use custom_ring_program::CustomRingError;
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_interface::{

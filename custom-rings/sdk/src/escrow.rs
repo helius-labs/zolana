@@ -1,21 +1,23 @@
 use custom_ring_interface::{KeyEscrow, KEY_REGISTRY_HEIGHT};
 use futures::future::try_join_all;
-use zolana_client::{AsyncRpc, ClientError, Rpc};
+use serde::Serialize;
+use zolana_client::{AsyncRpc, ClientError};
 use zolana_ring_policy::Member;
 
 use crate::{
-    instructions::spend::ReadEnvironment,
-    projection::{retry_projection_lag, retry_projection_lag_async},
-    CurrentKeyRegistryRoot, CustomRing, CustomRingConfig, KeyRegistrationError, ReadSealedKey,
-    SealedKeyEntry,
+    prover::fe, CurrentKeyRegistryRoot, CustomRing, CustomRingConfig, ReadSealedKey, RingError,
 };
 
 /// Opens the registry leaf `Poseidon(owner, next, Poseidon(nullifier_pk, ct_hash))`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RegistryKeyOpening {
+    #[serde(with = "fe")]
     pub next: [u8; 32],
+    #[serde(with = "fe")]
     pub ct_hash: [u8; 32],
     pub index: u64,
+    #[serde(serialize_with = "fe::seq")]
     pub path: [[u8; 32]; KEY_REGISTRY_HEIGHT],
 }
 
@@ -23,16 +25,6 @@ pub struct RegistryKeyOpening {
 pub(crate) struct OutputKey {
     pub owner_pk_hash: [u8; 32],
     pub nullifier_pk: [u8; 32],
-}
-
-impl OutputKey {
-    fn escrowed(self) -> Result<EscrowedKey, KeyRegistrationError> {
-        Ok(EscrowedKey {
-            owner: Member::owner_identity(&self.owner_pk_hash)
-                .map_err(|_| KeyRegistrationError::Hashing)?,
-            nullifier_pk: self.nullifier_pk,
-        })
-    }
 }
 
 /// Present only with escrow on.
@@ -50,144 +42,77 @@ pub(crate) struct EscrowedKeys {
 }
 
 impl KeyRegistry {
-    pub fn pending<R: Rpc>(self, rpc: &R) -> Result<EscrowedKeys, KeyRegistrationError> {
-        Ok(EscrowedKeys {
-            root: self.root(self.ring.read_key_registry_root(rpc)?)?,
-            keys: Vec::new(),
-        })
-    }
-
-    pub async fn pending_async<R: AsyncRpc>(
-        self,
-        rpc: &R,
-    ) -> Result<EscrowedKeys, KeyRegistrationError> {
-        Ok(EscrowedKeys {
-            root: self.root(self.ring.read_key_registry_root_async(rpc).await?)?,
-            keys: Vec::new(),
-        })
-    }
-
     pub fn of(ring: CustomRing, config: &CustomRingConfig) -> Option<Self> {
-        match config.key_escrow {
-            KeyEscrow::Off => None,
-            KeyEscrow::Registry => Some(Self { ring }),
-        }
+        (config.key_escrow == KeyEscrow::Registry).then_some(Self { ring })
     }
 
-    pub fn openings<I: Rpc, R: Rpc>(
+    async fn root(
         self,
-        env: ReadEnvironment<'_, I, R>,
-        keys: &[Option<OutputKey>],
-    ) -> Result<EscrowedKeys, KeyRegistrationError> {
-        let outputs = EscrowedOutputs::new(keys)?;
-        retry_projection_lag(|| {
-            let root = self.root(self.ring.read_key_registry_root(env.rpc)?)?;
-            let entries = outputs
-                .owners
-                .iter()
-                .map(|owner| enrolled(self.sealed_key(*owner, root).read(env.indexer)))
-                .collect::<Result<Vec<_>, _>>()?;
-            outputs.open(root, &entries)
+        rpc: &(impl AsyncRpc + ?Sized),
+    ) -> Result<CurrentKeyRegistryRoot, RingError> {
+        self.ring
+            .key_registry_root(rpc)
+            .await?
+            .ok_or(RingError::MissingKeyRegistry)
+    }
+
+    /// The root alone, the prover resolves the openings.
+    pub async fn pending(self, rpc: &(impl AsyncRpc + ?Sized)) -> Result<EscrowedKeys, RingError> {
+        Ok(EscrowedKeys {
+            root: self.root(rpc).await?,
+            keys: Vec::new(),
         })
     }
 
-    pub async fn openings_async<I: AsyncRpc, R: AsyncRpc>(
+    /// One registry read per distinct owner, an unenrolled key fails before proving.
+    pub async fn openings(
         self,
-        env: ReadEnvironment<'_, I, R>,
+        rpc: &(impl AsyncRpc + ?Sized),
         keys: &[Option<OutputKey>],
-    ) -> Result<EscrowedKeys, KeyRegistrationError> {
-        let outputs = EscrowedOutputs::new(keys)?;
-        let outputs = &outputs;
-        retry_projection_lag_async(|| async move {
-            let root = self.root(self.ring.read_key_registry_root_async(env.rpc).await?)?;
-            let entries = try_join_all(outputs.owners.iter().map(|owner| async move {
-                enrolled(self.sealed_key(*owner, root).read_async(env.indexer).await)
-            }))
-            .await?;
-            outputs.open(root, &entries)
-        })
-        .await
-    }
-
-    fn root(
-        self,
-        root: Option<CurrentKeyRegistryRoot>,
-    ) -> Result<CurrentKeyRegistryRoot, KeyRegistrationError> {
-        root.ok_or(KeyRegistrationError::MissingKeyRegistry)
-    }
-
-    fn sealed_key(self, member: Member, root: CurrentKeyRegistryRoot) -> ReadSealedKey {
-        ReadSealedKey {
-            ring: self.ring,
-            member,
-            root,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct EscrowedKey {
-    owner: Member,
-    nullifier_pk: [u8; 32],
-}
-
-struct EscrowedOutputs {
-    keys: Vec<Option<EscrowedKey>>,
-    /// Distinct, one registry read each.
-    owners: Vec<Member>,
-}
-
-impl EscrowedOutputs {
-    fn new(keys: &[Option<OutputKey>]) -> Result<Self, KeyRegistrationError> {
+    ) -> Result<EscrowedKeys, RingError> {
+        let root = self.root(rpc).await?;
         let keys = keys
             .iter()
-            .map(|key| key.map(OutputKey::escrowed).transpose())
-            .collect::<Result<Vec<_>, KeyRegistrationError>>()?;
-        let mut owners = Vec::new();
-        for key in keys.iter().flatten() {
-            if !owners.contains(&key.owner) {
-                owners.push(key.owner);
+            .map(|key| {
+                key.map(|key| Ok::<_, RingError>((Member::from_bytes(key.owner_pk_hash)?, key)))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut owners: Vec<Member> = Vec::new();
+        for (owner, _) in keys.iter().flatten() {
+            if !owners.contains(owner) {
+                owners.push(*owner);
             }
         }
-        Ok(Self { keys, owners })
-    }
-
-    /// `entries` follow `owners`, `None` for an owner the registry does not hold.
-    fn open(
-        &self,
-        root: CurrentKeyRegistryRoot,
-        entries: &[Option<SealedKeyEntry>],
-    ) -> Result<EscrowedKeys, KeyRegistrationError> {
-        let keys = self
-            .keys
-            .iter()
+        let entries = try_join_all(owners.iter().map(|&member| async move {
+            match (ReadSealedKey {
+                ring: self.ring,
+                member,
+                root,
+            })
+            .read(rpc)
+            .await
+            {
+                Err(RingError::Client(ClientError::RingKeyRegistryMemberUnregistered)) => Ok(None),
+                entry => entry.map(Some),
+            }
+        }))
+        .await?;
+        let keys = keys
+            .into_iter()
             .map(|key| {
-                key.map(|key| {
-                    self.owners
+                key.map(|(owner, key)| {
+                    owners
                         .iter()
-                        .zip(entries)
-                        .find_map(|(owner, entry)| (*owner == key.owner).then_some(entry))
-                        .and_then(Option::as_ref)
-                        .ok_or(KeyRegistrationError::UnregisteredOutputKey { owner: key.owner })?
+                        .zip(&entries)
+                        .find_map(|(known, entry)| (*known == owner).then_some(entry.as_ref()))
+                        .flatten()
+                        .ok_or(RingError::UnregisteredOutputKey { owner })?
                         .opening(&key.nullifier_pk)
                 })
                 .transpose()
             })
             .collect::<Result<_, _>>()?;
         Ok(EscrowedKeys { root, keys })
-    }
-}
-
-fn enrolled(
-    read: Result<SealedKeyEntry, KeyRegistrationError>,
-) -> Result<Option<SealedKeyEntry>, KeyRegistrationError> {
-    match read {
-        Ok(entry) => Ok(Some(entry)),
-        Err(KeyRegistrationError::Client(error))
-            if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error),
     }
 }

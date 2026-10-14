@@ -78,6 +78,14 @@ pub trait Rpc {
         Err(unsupported("get_signature_statuses"))
     }
 
+    /// Searches past the recent status cache, the default reads only the cache.
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.get_signature_statuses(signatures)
+    }
+
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         Err(unsupported("get_minimum_balance_for_rent_exemption"))
     }
@@ -324,6 +332,14 @@ pub trait AsyncRpc: Send + Sync {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         Err(unsupported("get_signature_statuses"))
+    }
+
+    /// Searches past the recent status cache, the default reads only the cache.
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.get_signature_statuses(signatures).await
     }
 
     async fn get_minimum_balance_for_rent_exemption(

@@ -20,6 +20,8 @@ Breaking
 - `PROVING_KEY_SHA256S` pins rotated custom ring proving keys, so
   `ProverClient` rejects a ring proof from a prover on the previous keys with
   `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this release.
+- `RingErrorCode` now includes `RING_AUDIT_NONCANONICAL_KEY` → handle it in
+  exhaustive switches.
 
 Added
 
@@ -32,6 +34,17 @@ Changed
 
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
+
+Fixed
+
+- `recoverTransactionViewingKey`, `auditRingTransaction` and `auditRing`
+  accepted a recovered transaction viewing key at or above the P-256 group
+  order and read the output disclosures under another key, they now refuse a
+  key of zero or at or above the order with `RING_AUDIT_NONCANONICAL_KEY`.
+- `proveCustomRingTransfer` and `buildRingTransferTransaction` charged a
+  velocity row without a cap, so a co-sign-only row could overflow and block
+  its member, such a row now keeps a zero counter and still asks the co-signer
+  above its threshold.
 
 ## 0.4.1-alpha — 2026-10-08
 

@@ -1,6 +1,6 @@
 //! `check_mutator` authorization on the entry-mutation path, both `Writer` arms.
 
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_ring_policy::ListId;

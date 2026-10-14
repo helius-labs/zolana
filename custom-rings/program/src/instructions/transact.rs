@@ -430,7 +430,7 @@ fn counters_disclosure_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use custom_ring_interface::{pack33_to_2fe, AUDITOR_MESSAGE_LEN, AUDIT_DISCLOSURE_FIELD_COUNT};
+    use custom_ring_interface::{pack_2fe, AUDITOR_MESSAGE_LEN, AUDIT_DISCLOSURE_FIELD_COUNT};
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
@@ -464,9 +464,9 @@ mod tests {
     }
 
     #[test]
-    fn pack33_to_2fe_matches_go() {
+    fn pack_2fe_matches_go_for_33_bytes() {
         assert_eq!(
-            pack33_to_2fe(&bytes::<33>(TX_PK)),
+            pack_2fe(&bytes::<33>(TX_PK)),
             custom_ring_interface::FieldPair {
                 lo: bytes::<32>(TX_PK_LO),
                 hi: bytes::<32>(TX_PK_HI),

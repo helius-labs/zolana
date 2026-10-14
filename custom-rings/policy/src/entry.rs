@@ -199,12 +199,6 @@ pub struct ListNamespace {
     pub owner_hash: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Leaf<'a> {
-    pub data_hash: &'a [u8; 32],
-    pub blinding: &'a [u8; 32],
-}
-
 impl ListNamespace {
     pub fn new(pda: &[u8; 32]) -> Result<Self, HasherError> {
         let owner_pk_field = solana_owner_identity(pda)?;
@@ -232,14 +226,19 @@ impl ListNamespace {
     }
 
     /// The shape every namespace record takes.
-    pub fn leaf_hash(&self, leaf: Leaf<'_>, tree_id: u16) -> Result<[u8; 32], HasherError> {
-        let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, leaf.blinding])?;
+    pub fn leaf_hash(
+        &self,
+        data_hash: &[u8; 32],
+        blinding: &[u8; 32],
+        tree_id: u16,
+    ) -> Result<[u8; 32], HasherError> {
+        let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, blinding])?;
         Poseidon::hashv(&[
             &field_u16(UTXO_DOMAIN),
             &tree_id_field(tree_id),
             &SOL_ASSET_FIELD,
             &[0u8; 32],
-            leaf.data_hash,
+            data_hash,
             &NO_RING_HASH,
             &owner_utxo_hash,
         ])
@@ -327,13 +326,7 @@ impl ListEntry {
         address: &[u8; 32],
         tree_id: u16,
     ) -> Result<[u8; 32], HasherError> {
-        owner.leaf_hash(
-            Leaf {
-                data_hash: &self.data_hash(address)?,
-                blinding: &self.blinding,
-            },
-            tree_id,
-        )
+        owner.leaf_hash(&self.data_hash(address)?, &self.blinding, tree_id)
     }
 }
 

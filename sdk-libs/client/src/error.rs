@@ -494,6 +494,14 @@ pub enum ClientError {
 }
 
 impl ClientError {
+    /// The runtime's refusal a send or a confirmation carried, if any.
+    pub fn transaction_error(&self) -> Option<solana_transaction_error::TransactionError> {
+        match self {
+            Self::SolanaRpcTransaction { source, .. } => source.get_transaction_error(),
+            _ => None,
+        }
+    }
+
     pub fn for_signature(self, signature: &solana_signature::Signature) -> Self {
         match self {
             Self::Rpc(message) => Self::Rpc(format!("{signature}: {message}")),

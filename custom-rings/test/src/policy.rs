@@ -5,15 +5,14 @@ use std::num::NonZeroU64;
 
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
-    CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    EntryProofEnvironment, LiveEntry, PolicyConfig, PoolTree, ProvenTransfer, ReadEntry,
-    RingDeposit, RingDepositReceipt, TransactSend, TransferError, TransferProofEnvironment,
-    UpdateEntry, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput,
+    DepositAsset, InstructionTag, LiveEntry, PolicyConfig, PoolTree, ProvenTransfer, ReadEntry,
+    RingDeposit, RingDepositReceipt, RingError, UpdateEntry,
 };
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc};
+use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_policy::{
@@ -25,7 +24,9 @@ use zolana_transaction::{
     Utxo,
 };
 
-use crate::shared::{custom_ring_program_id, setup_with_extra_rings, RegisterRing, TestEnv, Tier};
+use crate::shared::{
+    custom_ring_program_id, send, setup_with_extra_rings, RegisterRing, TestEnv, Tier,
+};
 
 pub const DEPOSIT: u64 = 1_000_000_000;
 pub const TRANSFER_AMOUNT: u64 = 250_000_000;
@@ -85,8 +86,8 @@ pub fn owner_member(owner: &ShieldedKeypair) -> Result<Member> {
     )?)
 }
 
-pub fn policy_config<R: Rpc>(ring: CustomRing, rpc: &R) -> Result<PolicyConfig> {
-    ring.read_policy_config(rpc)?
+pub fn policy_config(ring: CustomRing, env: &TestEnv) -> Result<PolicyConfig> {
+    env.run(ring.policy_config(env.client.as_async()))?
         .ok_or_else(|| anyhow!("policy config of {}", ring.program_id()))
 }
 
@@ -128,25 +129,22 @@ pub struct RingNotes<'a> {
 
 impl RingNotes<'_> {
     pub fn deposit(self) -> Result<Vec<Utxo>> {
-        let rpc = self.env.client.rpc();
-        let indexer = self.env.client.indexer();
+        let env = self.env;
+        let indexer = env.client.indexer();
         (0..self.count)
             .map(|_| {
-                let RingDepositReceipt { utxo, .. } = RingDeposit {
+                let deposit = RingDeposit {
                     ring: self.ring,
                     payer: self.owner,
                     recipient: self.owner,
-                    tree: self.env.tree,
+                    tree: env.tree,
                     asset: DepositAsset::Sol,
                     amount: self.amount,
                     cosigner: None,
-                }
-                .send(custom_ring_sdk::DepositProofEnvironment {
-                    indexer,
-                    rpc,
-                    prover: &zolana_client::ProverClient::local(),
-                })?;
-                let tree_id = custom_ring_sdk::tree_id(rpc, self.env.tree)?;
+                };
+                let RingDepositReceipt { utxo, .. } =
+                    env.run(deposit.send(env.client.as_async()))?;
+                let tree_id = env.tree_id(env.tree)?;
                 let leaf = utxo.hash(
                     &self.owner.nullifier_key.pubkey()?,
                     &[0; 32],
@@ -171,8 +169,10 @@ pub struct PolicyTransfer<'a> {
 }
 
 impl PolicyTransfer<'_> {
-    pub fn prove(self, prover: &ProverClient) -> Result<ProvenTransfer, TransferError> {
-        let tree_id = custom_ring_sdk::tree_id(self.env.client.rpc(), self.env.tree)?;
+    pub fn prove(self, client: &ZolanaClient<SolanaRpc>) -> Result<ProvenTransfer, RingError> {
+        let tree_id = self
+            .env
+            .run(custom_ring_sdk::tree_id(client.as_async(), self.env.tree))?;
         let hash = self.note.hash(
             &self.sender.nullifier_key.pubkey()?,
             &[0; 32],
@@ -197,24 +197,22 @@ impl PolicyTransfer<'_> {
         .with_output_tree_id(tree_id)?;
         transfer.transfer_sol(&self.recipient.shielded_address()?, self.amount)?;
         transfer.pad_utxos(Shape::IN1_OUT2, &self.sender.shielded_address()?)?;
-        CustomRingTransfer::new(CustomRingTransferInput {
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
             nullifier_key: Some(&self.sender.nullifier_key),
             transaction: transfer,
-        })
-        .prove(TransferProofEnvironment {
-            indexer: self.env.client.indexer(),
-            rpc: self.env.client.rpc(),
-            prover,
-        })
+        });
+        client.block_on(transfer.prove(client.as_async()))
     }
 
-    /// Refused at witness build, the unreachable prover is never asked.
+    /// Refused before proving, the unreachable prover is never asked.
     pub fn expect_refusal(self) -> Result<()> {
-        let unreachable = ProverClient::new("http://127.0.0.1:1".to_string());
+        let unreachable = self
+            .env
+            .client_with(ProverClient::new("http://127.0.0.1:1".to_string()));
         match self.prove(&unreachable) {
-            Err(TransferError::PolicyRuleUnsatisfied) => Ok(()),
+            Err(RingError::PolicyRuleUnsatisfied) => Ok(()),
             Err(other) => Err(anyhow!("expected PolicyRuleUnsatisfied, got {other}")),
             Ok(_) => Err(anyhow!(
                 "expected PolicyRuleUnsatisfied, the transfer was proven"
@@ -223,11 +221,11 @@ impl PolicyTransfer<'_> {
     }
 
     /// Returns once photon serves the first output leaf, the next proof sees a synced index.
-    pub fn land(self, prover: &ProverClient) -> Result<Signature> {
+    pub fn land(self) -> Result<Signature> {
         let env = self.env;
         let payer = self.sender;
         let proven = self
-            .prove(prover)
+            .prove(&env.client)
             .map_err(|error| anyhow!("transfer proof failed {error}"))?;
         let landed = proven
             .data
@@ -235,12 +233,7 @@ impl PolicyTransfer<'_> {
             .first()
             .ok_or_else(|| anyhow!("transfer output"))?
             .utxo_hash;
-        let signature = TransactSend {
-            payer,
-            signers: &[],
-            instruction: proven.instruction()?,
-        }
-        .send(env.client.rpc())?;
+        let signature = send(env.client.rpc(), payer, &[proven.instruction()?])?;
         wait_for_merkle_proof(env.client.indexer(), env.tree, landed);
         Ok(signature)
     }
@@ -262,52 +255,49 @@ pub struct EntryWrite<'a> {
 }
 
 impl EntryWrite<'_> {
-    pub fn send(self, prover: &ProverClient) -> Result<LiveEntry> {
+    pub fn send(self) -> Result<LiveEntry> {
         let address_tree = self.address_tree()?;
-        self.send_to(prover, address_tree)
+        self.send_to(address_tree)
     }
 
     fn address_tree(&self) -> Result<PoolTree> {
-        Ok(PoolTree::address_tree(&policy_config(
-            self.ring,
-            self.env.client.rpc(),
-        )?))
+        Ok(PoolTree::address_tree(&policy_config(self.ring, self.env)?))
     }
 
     /// The written version lands in `output_tree`, its address stays in the address tree.
-    pub fn send_to(self, prover: &ProverClient, output_tree: PoolTree) -> Result<LiveEntry> {
+    pub fn send_to(self, output_tree: PoolTree) -> Result<LiveEntry> {
         let env = self.env;
         let rpc = env.client.rpc();
         let indexer = env.client.indexer();
+        let client = env.client.as_async();
         let authority = env.payer.pubkey();
-        let environment = EntryProofEnvironment {
-            indexer,
-            rpc,
-            prover,
-        };
         let address_tree = self.address_tree()?;
         let proven = match self.target {
-            EntryTarget::Claim { list_id, member } => CreateEntry {
-                ring: self.ring,
-                payer: authority,
-                address_tree,
-                output_tree,
-                list_id,
-                member,
-                state: self.state,
-                content_hash: [0u8; 32],
+            EntryTarget::Claim { list_id, member } => {
+                let create = CreateEntry {
+                    ring: self.ring,
+                    payer: authority,
+                    address_tree,
+                    output_tree,
+                    list_id,
+                    member,
+                    state: self.state,
+                    content_hash: [0u8; 32],
+                };
+                env.run(create.prove(client))?
             }
-            .prove(environment)?,
-            EntryTarget::Successor(spent) => UpdateEntry {
-                ring: self.ring,
-                payer: authority,
-                address_tree,
-                output_tree,
-                spent,
-                state: self.state,
-                content_hash: [0u8; 32],
+            EntryTarget::Successor(spent) => {
+                let update = UpdateEntry {
+                    ring: self.ring,
+                    payer: authority,
+                    address_tree,
+                    output_tree,
+                    spent,
+                    state: self.state,
+                    content_hash: [0u8; 32],
+                };
+                env.run(update.prove(client))?
             }
-            .prove(environment)?,
         };
         let entry = proven.entry();
         let instructions = [proven.instruction()?];
@@ -320,17 +310,18 @@ impl EntryWrite<'_> {
             &instructions,
             self.fee_payer.pubkey(),
             &signers,
-            ComputeBudgetConfig::new(ENTRY_MUTATION_COMPUTE_UNIT_LIMIT),
+            ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::CreateEntry)),
         )?;
         wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
-        let live = ReadEntry::new(
+        let read = ReadEntry::new(
             address_tree.id,
             self.ring.namespace_pda(),
             entry.list_id,
             entry.member,
-        )
-        .read(indexer)?
-        .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
+        );
+        let live = env
+            .run(read.read(client))?
+            .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
         assert_eq!(live.entry, entry, "indexed entry equals the mutation");
         assert_eq!(
             live.tree_id, output_tree.id,

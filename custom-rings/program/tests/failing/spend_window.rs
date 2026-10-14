@@ -1,7 +1,7 @@
 //! Pins independent public deposit and withdrawal counters for each mint.
 
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{SpendWindow, AUDITOR_MESSAGE_LEN, SPEND_WINDOW};
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use pinocchio::Address;
 use solana_account::Account;

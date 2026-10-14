@@ -258,6 +258,16 @@ impl Rpc for SolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
     }
 
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses_with_history(&signatures)
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
+    }
+
     fn health(&self) -> Result<(), ClientError> {
         self.client
             .get_health()

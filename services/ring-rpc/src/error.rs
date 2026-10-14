@@ -2,7 +2,7 @@ use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::error;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_ring_client::OriginError;
+use zolana_ring_client::AuditError;
 
 use crate::authorize::Unauthorized;
 
@@ -21,7 +21,7 @@ pub enum RingRpcError {
     #[error(transparent)]
     Upstream(#[from] ClientError),
     #[error(transparent)]
-    Origin(#[from] OriginError),
+    Origin(#[from] AuditError),
     #[error("indexer returned data outside the audit bounds")]
     InvalidIndexerResponse,
     #[error("audit service state is unavailable")]

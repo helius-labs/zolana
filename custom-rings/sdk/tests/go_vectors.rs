@@ -8,9 +8,9 @@
 //! below the group order. Every expected value below was printed by the Go
 //! implementation, so a divergence in either language fails this file.
 
-use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
-use custom_ring_sdk::AuditorMessage;
+use custom_ring_interface::{pack_2fe, FieldPair};
 use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_ring_client::AuditorMessage;
 
 const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
 const EPH_SK: &str = "01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d";
@@ -66,21 +66,21 @@ fn ecdh_matches_go_in_both_directions() {
 #[test]
 fn packing_matches_go() {
     assert_eq!(
-        pack32_to_2fe(&hex_bytes::<32>(DH)),
+        pack_2fe(&hex_bytes::<32>(DH)),
         FieldPair {
             lo: hex_bytes::<32>(DH_LO),
             hi: hex_bytes::<32>(DH_HI),
         }
     );
     assert_eq!(
-        pack33_to_2fe(&hex_bytes::<33>(EPH_PK)),
+        pack_2fe(&hex_bytes::<33>(EPH_PK)),
         FieldPair {
             lo: hex_bytes::<32>(EPH_LO),
             hi: hex_bytes::<32>(EPH_HI),
         }
     );
     assert_eq!(
-        pack33_to_2fe(&hex_bytes::<33>(AUDITOR_PK)),
+        pack_2fe(&hex_bytes::<33>(AUDITOR_PK)),
         FieldPair {
             lo: hex_bytes::<32>(AUDITOR_LO),
             hi: hex_bytes::<32>(AUDITOR_HI),

@@ -5,18 +5,19 @@
 
 use custom_ring_interface::{
     tag, CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
-    MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    MAX_RING_DEPOSIT_AUDIT_SLOTS, PROVING_KEY_SHA256S,
 };
-use custom_ring_sdk::{
-    to_instruction_proof, CustomRing, Deposit, DepositAsset, EscrowBinding, RingDepositProofRequest,
-};
+use custom_ring_sdk::{to_instruction_proof, CustomRing, Deposit, DepositAsset, EscrowBinding};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
+use serde_json::{json, Value};
 use solana_address::Address;
 use zeroize::Zeroizing;
-use zolana_client::{Prover, ProverClient};
+use zolana_client::{
+    prover::ExpectedProvingKey, ClientError, ProveRequest, Prover, ProverClient, ProverLaunch,
+};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_program::instruction::{RingAssetDeposit, RingDeposit};
-use zolana_ring_client::{DepositOpening, DepositSeal};
+use zolana_ring_client::{seal_deposits, DepositOpening};
 use zolana_transaction::{owner_utxo_hash, RingDepositPlaintext};
 
 // `proven_fixture` in the program's deposit audit tests pins these accounts
@@ -34,7 +35,11 @@ const REGISTRY_INDEX: usize = 1 + CustomRingProof::SIZE;
 #[test]
 #[ignore = "rewrites the program's deposit audit fixtures, run with just dump-deposit-audit-fixtures"]
 fn dump_deposit_audit_fixtures() {
-    zolana_test_utils::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    ProverLaunch::new_with_cli(format!("{root}/target/debug/zolana"))
+        .and_then(|launch| launch.with_keys_dir(format!("{root}/prover/server/proving-keys")))
+        .and_then(ProverLaunch::spawn)
+        .expect("start or reuse the workspace prover");
     let prover = ProverClient::local();
     let dir = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -98,12 +103,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
             .expect("recipient ciphertext"),
         });
     }
-    let encryption = DepositSeal {
-        openings: &openings,
-        auditor_pk: &auditor,
-    }
-    .seal()
-    .expect("seal openings");
+    let encryption = seal_deposits(&openings, &auditor).expect("seal openings");
     for ((slot, deposit), ciphertext) in (0u8..).zip(&mut deposits).zip(&encryption.ciphertexts) {
         deposit.encrypted.ciphertext = RingDepositAuditCapsule {
             slot_index: slot,
@@ -152,20 +152,21 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
             .to_encoded_point(false)
             .as_bytes(),
     );
-    let proof = prover
-        .prove(&RingDepositProofRequest {
-            public_input_hash: &public_input_hash,
-            context_hash: &context_hash,
-            count: count as u8,
-            owner_pk_hashes: &owner_pk_hashes,
-            nullifier_pks: &nullifier_pks,
-            blindings: &blindings,
-            keys: &[None; MAX_RING_DEPOSIT_AUDIT_SLOTS],
-            key_registry_root: None,
-            ephemeral_sk: &encryption.ephemeral_sk,
-            auditor_pk: &auditor_uncompressed,
-        })
-        .expect("deposit proof");
+    let request = DepositRequest(json!({
+        "circuitType": "custom-ring-deposit",
+        "publicInputHash": hex0x(&public_input_hash),
+        "contextHash": hex0x(&context_hash),
+        "count": count,
+        "ownerPkHashes": owner_pk_hashes.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
+        "nullifierPks": nullifier_pks.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
+        "blindings": blindings.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
+        "keys": vec![Value::Null; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+        "ephSk": hex0x(encryption.ephemeral_sk.as_slice()),
+        "auditorPk": hex0x(&auditor_uncompressed),
+        "keyEscrow": false,
+        "keyRegistryRoot": hex0x(&[0; 32]),
+    }));
+    let proof = prover.prove(&request).expect("deposit proof");
     // 3. Wrap the SPP bytes with the SDK and drop the registry index byte.
     let instruction = Deposit {
         ring,
@@ -184,4 +185,29 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     assert_eq!(registry_index, 0);
     assert_eq!(spp_data, spp.data.as_slice());
     [head, spp_data].concat()
+}
+
+fn hex0x(bytes: &[u8]) -> String {
+    format!("0x{}", hex::encode(bytes))
+}
+
+/// The deposit circuit body in the wire layout `custom-ring-deposit.json` pins.
+struct DepositRequest(Value);
+
+impl ProveRequest for DepositRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        Ok(Zeroizing::new(self.0.to_string()))
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        let name = "custom_ring_deposit.key";
+        PROVING_KEY_SHA256S
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, sha256)| ExpectedProvingKey {
+                name: name.to_owned(),
+                sha256: *sha256,
+            })
+            .ok_or_else(|| ClientError::Prover(format!("no pinned key {name}")))
+    }
 }

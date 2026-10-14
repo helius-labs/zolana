@@ -4,7 +4,7 @@
 //! cannot execute (SPP is not loaded here), so both assertable failures are
 //! pre-CPI. The successful forward is covered by the localnet end-to-end test.
 
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;

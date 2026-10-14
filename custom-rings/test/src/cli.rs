@@ -19,7 +19,7 @@ use zolana_test_utils::{
 };
 
 use crate::{
-    policy::owner_member,
+    policy::{owner_member, policy_config},
     shared::{custom_ring_program_id, prover_url, TestEnv},
 };
 
@@ -80,14 +80,11 @@ impl RingProject {
         let indexer = write.env.client.indexer();
         let ring = CustomRing::new(self.program_id);
         let namespace = ring.namespace_pda();
-        let address_tree_id = ring
-            .read_policy_config(write.env.client.rpc())?
-            .ok_or_else(|| anyhow!("policy config of {}", self.program_id))?
-            .address_tree_id();
+        let address_tree_id = policy_config(ring, write.env)?.address_tree_id();
         let deadline = Instant::now() + INDEXING_TIMEOUT;
         let live = loop {
             let read = ReadEntry::new(address_tree_id, namespace, write.list_id, member);
-            match read.read(indexer) {
+            match write.env.run(read.read(write.env.client.as_async())) {
                 Ok(Some(live)) if live.entry.state == write.state => break live,
                 _ if Instant::now() > deadline => {
                     bail!("{:?} {:?} entry not indexed", write.list_id, write.state)

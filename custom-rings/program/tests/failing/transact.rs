@@ -6,8 +6,8 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{tag, CustomRingProof, PlainGroth16Proof, AUDITOR_MESSAGE_LEN};
-use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;

@@ -112,16 +112,36 @@ fn witnesses_from_interleaved_trees_come_back_in_input_order() {
     .expect("witnesses");
 
     assert_in_input_order(&witnesses, &inputs);
-    // Padding is hashed under the first input tree, so its non-inclusion
-    // witness has to come from that tree rather than from whichever tree
-    // happened to be fetched last.
+    // Random padding is hashed under the last declared tree, so its
+    // non-inclusion witness comes from there.
     assert_eq!(witnesses.dummy_nullifier_proofs.len(), 1);
     let dummy = witnesses
         .dummy_nullifier_proofs
         .first()
         .expect("one padding witness");
     assert_eq!(dummy.leaf, [0x55; 32]);
-    assert_eq!(dummy.merkle_context.tree, pda::tree(7));
+    assert_eq!(dummy.merkle_context.tree, pda::tree(9));
+}
+
+/// Compact padding names tree slot 0, so its witness comes from the first tree.
+#[test]
+fn compact_padding_is_proved_in_the_first_input_tree() {
+    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let inputs = interleaved_inputs();
+    let compact = SppProofInputUtxo::compact(7).unwrap().nullifier;
+
+    let witnesses = WitnessReader::input_witnesses(
+        &indexer,
+        &inputs.iter().collect::<Vec<_>>(),
+        &[compact, compact],
+        None,
+    )
+    .expect("witnesses");
+
+    assert!(witnesses
+        .dummy_nullifier_proofs
+        .iter()
+        .all(|proof| proof.merkle_context.tree == pda::tree(7)));
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-use custom_ring_program::CustomRingError::*;
+use custom_ring_interface::CustomRingError::*;
 
 #[test]
 fn error_codes_are_stable() {
@@ -81,7 +81,7 @@ fn error_codes_are_stable() {
 
 /// A new variant fails the build until the match covers it.
 #[allow(dead_code)]
-fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
+fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
     match error {
         InvalidInstructionData
         | ProofVerificationFailed

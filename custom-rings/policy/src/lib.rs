@@ -7,7 +7,7 @@ mod rule_table;
 mod spend;
 
 pub use entry::{
-    entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, Leaf, ListEntry, ListId,
+    entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, ListEntry, ListId,
     ListNamespace, ListSet, Writer, ENTRY_OUTPUT_DATA_LEN, LIST_ENTRY_LEN, NAMESPACE_PDA_SEED,
     ZERO_NULLIFIER_PK,
 };

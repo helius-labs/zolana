@@ -3,15 +3,13 @@ use std::num::NonZeroU64;
 use anyhow::Result;
 use custom_ring_cli::transact;
 use custom_ring_sdk::{
-    tree_id, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    DepositProofEnvironment, ReadEnvironment, ReadSpendRecord, RegisterSpend, RingDeposit,
-    TransactSend, TransferProofEnvironment,
+    CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset, ReadSpendRecord,
+    RegisterSpend, RingDeposit,
 };
 use custom_ring_test_validator::shared::{
     custom_ring_program_id, send, setup, wait_for_spend_record, RegisterRing, Tier,
 };
 use solana_signer::Signer;
-use zolana_client::ProverClient;
 use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_policy::{Member, RuleTable, VelocityRow};
@@ -32,7 +30,7 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
     let env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
-    let prover = ProverClient::local();
+    let client = env.client.as_async();
     let ring = CustomRing::new(custom_ring_program_id()?);
     RegisterRing {
         ring,
@@ -41,15 +39,9 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
         tier: Tier::policy(&RULES, env.tree),
     }
     .send(rpc)?;
-    let proving = || TransferProofEnvironment {
-        indexer,
-        rpc,
-        prover: &prover,
-    };
-    let address_tree_id = tree_id(rpc, env.tree)?;
+    let address_tree_id = env.tree_id(env.tree)?;
     let read = |member: Member| {
-        ReadSpendRecord::new(ring, address_tree_id, member)
-            .read_current(ReadEnvironment { indexer, rpc })
+        env.run(ReadSpendRecord::new(ring, address_tree_id, member).read_current(client))
     };
     let members = [
         ShieldedKeypair::new_ed25519()?,
@@ -65,8 +57,8 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
         let registration = RegisterSpend {
             ring,
             payer: member.pubkey(),
-        }
-        .prove(proving())?;
+        };
+        let registration = env.run(registration.prove(client))?;
         send(rpc, member, &[registration.instruction()?])?;
         wait_for_spend_record(|| read(tag), 0)?;
         let deposit = RingDeposit {
@@ -77,12 +69,8 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
             asset: DepositAsset::Sol,
             amount: 2_000_000,
             cosigner: None,
-        }
-        .send(DepositProofEnvironment {
-            indexer,
-            rpc,
-            prover: &prover,
-        })?;
+        };
+        let deposit = env.run(deposit.send(client))?;
         transact::wait_for_indexed_transaction(indexer, deposit.signature)?;
         let input = zolana_test_utils::utxo::indexed(
             deposit.utxo,
@@ -110,17 +98,12 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
     }
 
     let proofs = transfers
-        .into_iter()
-        .map(|transfer| transfer.prove(proving()))
+        .iter()
+        .map(|transfer| env.run(transfer.prove(client)))
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(proofs[0].policy, proofs[1].policy);
     for (member, proof) in members.iter().zip(&proofs) {
-        TransactSend {
-            payer: member,
-            signers: &[],
-            instruction: proof.instruction()?,
-        }
-        .send(rpc)?;
+        send(rpc, member, &[proof.instruction()?])?;
     }
     for &tag in &tags {
         wait_for_spend_record(|| read(tag), 1)?;
@@ -136,7 +119,7 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
-    let prover = ProverClient::local();
+    let client = env.client.as_async();
     let ring = CustomRing::new(custom_ring_program_id()?);
     RegisterRing {
         ring,
@@ -145,26 +128,18 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
         tier: Tier::policy(&RULES, env.tree),
     }
     .send(rpc)?;
-    let proving = || TransferProofEnvironment {
-        indexer,
-        rpc,
-        prover: &prover,
-    };
-    let address_tree_id = tree_id(rpc, env.tree)?;
+    let address_tree_id = env.tree_id(env.tree)?;
     let second_tree_id = env.tree_id(env.create_registered_tree()?)?;
     assert_ne!(address_tree_id, second_tree_id);
     let member = ShieldedKeypair::new_ed25519()?;
     env.fund(member.pubkey(), 1_000_000_000)?;
     let tag = Member::owner_tag(member.pubkey().as_array())?;
-    let read = || {
-        ReadSpendRecord::new(ring, address_tree_id, tag)
-            .read_current(ReadEnvironment { indexer, rpc })
-    };
+    let read = || env.run(ReadSpendRecord::new(ring, address_tree_id, tag).read_current(client));
     let registration = RegisterSpend {
         ring,
         payer: member.pubkey(),
-    }
-    .prove(proving())?;
+    };
+    let registration = env.run(registration.prove(client))?;
     send(rpc, &member, &[registration.instruction()?])?;
     wait_for_spend_record(read, 0)?;
 
@@ -177,12 +152,8 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
             asset: DepositAsset::Sol,
             amount: 2_000_000,
             cosigner: None,
-        }
-        .send(DepositProofEnvironment {
-            indexer,
-            rpc,
-            prover: &prover,
-        })?;
+        };
+        let deposit = env.run(deposit.send(client))?;
         transact::wait_for_indexed_transaction(indexer, deposit.signature)?;
         let input = zolana_test_utils::utxo::indexed(
             deposit.utxo,
@@ -201,19 +172,14 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
             canonical_shape(transaction.inputs().len(), 2)?,
             &member.shielded_address()?,
         )?;
-        let proof = CustomRingTransfer::new(CustomRingTransferInput {
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender: &member,
             nullifier_key: Some(&member.nullifier_key),
             transaction,
-        })
-        .prove(proving())?;
-        TransactSend {
-            payer: &member,
-            signers: &[],
-            instruction: proof.instruction()?,
-        }
-        .send(rpc)?;
+        });
+        let proof = env.run(transfer.prove(client))?;
+        send(rpc, &member, &[proof.instruction()?])?;
         let live = wait_for_spend_record(read, version)?;
         assert_eq!(
             live.tree_id, output_tree_id,

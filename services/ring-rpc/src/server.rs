@@ -289,7 +289,7 @@ mod tests {
     use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
     use zolana_keypair::ViewingKey;
-    use zolana_ring_client::{OriginError, RingOrigin};
+    use zolana_ring_client::{AuditError, RingOrigin};
     use zolana_transaction::AssetRegistry;
 
     use crate::{
@@ -330,7 +330,7 @@ mod tests {
             _signature: Signature,
             _event_index: u16,
             _ring: Address,
-        ) -> Result<RingOrigin, OriginError> {
+        ) -> Result<RingOrigin, AuditError> {
             Ok(RingOrigin {
                 ring_invoked: false,
                 signers: Vec::new(),

@@ -1,10 +1,9 @@
-use crate::{
-    encryption::AuditEncryptionError, origin::OriginError, record::MalformedRecordCarrier,
-};
-use solana_address::Address;
+use solana_signature::Signature;
 use thiserror::Error;
-use zolana_client::ClientError;
+use zolana_client::{BlockingInsideRuntime, ClientError};
+use zolana_hasher::HasherError;
 use zolana_keypair::KeypairError;
+use zolana_ring_policy::MemberError;
 use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]
@@ -13,25 +12,17 @@ pub enum AuditError {
     MissingAuditorMessage,
     #[error("transaction carries more than one message tagged for the auditor")]
     DuplicateAuditorMessage,
-    /// The ring program accepts the auditor message only as the last entry of
-    /// `TransactIxData::messages`, so a match anywhere else is a transaction the
-    /// program cannot have verified.
+    /// The program accepts the auditor message only as the last message.
     #[error("auditor message is at index {index} of {count} messages, expected the last")]
     AuditorMessageNotLast { index: usize, count: usize },
     #[error("transaction publishes no tx_viewing_pk")]
     MissingTxViewingPk,
     #[error("transaction publishes no salt")]
     MissingSalt,
-    /// The ring proof binds the ciphertext to `tx_viewing_pk`, so on a
-    /// program-verified transaction this cannot happen; it means the message was
-    /// tagged for this auditor but encrypted for someone else, or was tampered
-    /// with after indexing.
     #[error("recovered transaction viewing key does not match the published tx_viewing_pk")]
     TxViewingKeyMismatch,
-    #[error("recovered transaction viewing scalar is not a valid P256 secret key {0}")]
-    RecoveredKeyInvalid(KeypairError),
-    #[error("output slot count exceeds the bound u32 slot index {0}")]
-    SlotIndexOverflow(usize),
+    #[error("recovered transaction viewing secret is zero or not below the P-256 order")]
+    NonCanonicalViewingKey,
     #[error("transaction has {0} output slots, but the audit proof supports four")]
     OutputDisclosureCount(usize),
     #[error("proof-bound opening does not match output commitment at slot {0}")]
@@ -47,44 +38,59 @@ pub enum AuditError {
         asset_id: u64,
         source: TransactionError,
     },
-    #[error("ring scan cursor did not advance")]
-    CursorNotAdvanced,
     #[error("ring transaction event index is unavailable")]
     MissingEventIndex,
-    #[error(transparent)]
-    Encryption(#[from] AuditEncryptionError),
-    #[error(transparent)]
-    Indexer(#[from] ClientError),
-    #[error(transparent)]
-    Origin(#[from] OriginError),
-}
-
-#[derive(Debug, Error)]
-pub enum RecoveryError {
-    #[error("ring deposit opening does not match its commitment")]
+    #[error("message view tag is not the auditor view tag")]
+    ViewTagMismatch,
+    #[error("auditor message data must be {expected} bytes, got {0}", expected = crate::AUDITOR_MESSAGE_LEN)]
+    MessageLength(usize),
+    #[error("output disclosure contains a value at or above the field modulus")]
+    DisclosureField,
+    #[error("output count must be between one and four, got {0}")]
+    OutputCount(usize),
+    #[error("nullifier ciphertext did not decrypt to a zero-padded secret")]
+    NullifierPad,
+    #[error("deposit count must be between one and eight, got {0}")]
+    DepositCount(usize),
+    #[error("deposit slot must be below eight, got {0}")]
+    DepositSlot(usize),
+    #[error("deposit opening does not match the owner commitment")]
     DepositOpeningMismatch,
-    #[error(transparent)]
-    Audit(#[from] AuditError),
-    #[error(transparent)]
-    Indexer(#[from] ClientError),
-    #[error(transparent)]
-    Keypair(#[from] KeypairError),
-    #[error(transparent)]
-    Transaction(#[from] TransactionError),
-    #[error(transparent)]
-    Member(#[from] zolana_ring_policy::MemberError),
+    #[error("the counters message is malformed")]
+    MalformedCounters,
     #[error("recovered nullifier key does not match the source member identity")]
     NullifierKeyMismatch,
     #[error("ring history exceeds the scan bound, spent notes cannot be excluded")]
     IncompleteScan,
     #[error("audited output slot index {0} is absent from its transaction")]
     MissingOutputSlot(u32),
-    #[error("the tree {0} does not resolve a tree id")]
-    UnknownTree(Address),
+    #[error("transaction {signature} is unavailable {message}")]
+    Unavailable {
+        signature: Signature,
+        message: String,
+    },
+    #[error("inner instruction stack height {0} has no parent")]
+    InvalidStackHeight(u32),
+    #[error("ring transact instruction data is undecodable {0}")]
+    InvalidTransactData(String),
+    #[error("ring transact settlement accounts do not match its interface transfers")]
+    SettlementAccounts,
+    #[error("trusted event index {0} is unavailable")]
+    InvalidEventIndex(u16),
+    #[error(transparent)]
+    Client(#[from] ClientError),
+    #[error(transparent)]
+    Keypair(#[from] KeypairError),
+    #[error(transparent)]
+    Transaction(#[from] TransactionError),
+    #[error(transparent)]
+    Member(#[from] MemberError),
+    #[error(transparent)]
+    Hasher(#[from] HasherError),
 }
 
-impl From<MalformedRecordCarrier> for AuditError {
-    fn from(_: MalformedRecordCarrier) -> Self {
-        Self::InvalidSpendRecordMessage
+impl From<BlockingInsideRuntime> for AuditError {
+    fn from(error: BlockingInsideRuntime) -> Self {
+        Self::Client(error.into())
     }
 }

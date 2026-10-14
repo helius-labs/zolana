@@ -71,6 +71,13 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
         self.block_on(self.client.get_signature_statuses(signatures))
     }
 
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.block_on(self.client.get_signature_statuses_with_history(signatures))
+    }
+
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         self.block_on(self.client.get_minimum_balance_for_rent_exemption(data_len))
     }

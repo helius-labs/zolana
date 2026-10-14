@@ -17,10 +17,7 @@ use zolana_client::{
 };
 use zolana_interface::{is_reserved_p256_derivation_point, BPF_LOADER_UPGRADEABLE_ID};
 use zolana_keypair::P256Pubkey;
-use zolana_ring_client::{
-    ring_deposits_in, ConfirmedTransaction, OriginError, ReaderKey, RingOrigin,
-    ORIGIN_TRANSACTION_CONFIG,
-};
+use zolana_ring_client::{ring_deposits_in, AuditError, ReaderKey, RingOrigin, TransactionOrigin};
 use zolana_transaction::AssetRegistry;
 
 use crate::{api::DepositRecord, audit::Page};
@@ -36,7 +33,7 @@ pub trait TransactionSource: Send + Sync {
         signature: Signature,
         event_index: u16,
         ring: Address,
-    ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send;
+    ) -> impl Future<Output = Result<RingOrigin, AuditError>> + Send;
 
     fn ring_deposits(
         &self,
@@ -231,21 +228,8 @@ impl TransactionSource for ChainSource {
         signature: Signature,
         event_index: u16,
         ring: Address,
-    ) -> Result<RingOrigin, OriginError> {
-        let transaction = self
-            .rpc
-            .client()
-            .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
-            .await
-            .map_err(|error| OriginError::Unavailable {
-                signature,
-                message: error.to_string(),
-            })?;
-        ConfirmedTransaction {
-            signature,
-            transaction,
-        }
-        .origin(event_index, ring)
+    ) -> Result<RingOrigin, AuditError> {
+        self.rpc.origin(signature, event_index, ring).await
     }
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {

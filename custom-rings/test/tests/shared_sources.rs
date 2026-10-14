@@ -5,8 +5,8 @@
 //! list on its own ring.
 
 use anyhow::Result;
-use custom_ring_program::CustomRingError;
-use custom_ring_sdk::{CreateEntry, EntryProofEnvironment, PoolTree, SetSourceOwner, SourceOwner};
+use custom_ring_interface::CustomRingError;
+use custom_ring_sdk::{CreateEntry, PoolTree, SourceOwner};
 use custom_ring_test_validator::{
     policy::{
         owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
@@ -15,7 +15,6 @@ use custom_ring_test_validator::{
     shared::{send, send_expecting_rejection, RegisterRing, Tier},
 };
 use solana_signer::Signer;
-use zolana_client::ProverClient;
 use zolana_keypair::ViewingKey;
 use zolana_program_test::Rejection;
 use zolana_ring_policy::{EntryState, ListId};
@@ -29,8 +28,6 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         subscriber,
     } = CuratedRings::setup()?;
     let rpc = env.client.rpc();
-    let indexer = env.client.indexer();
-    let prover = ProverClient::local();
     let authority = env.payer.pubkey();
     let transfer = |note: &Utxo| PolicyTransfer {
         ring: subscriber,
@@ -55,7 +52,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         },
     }
     .send(rpc)?;
-    let stored = policy_config(subscriber, rpc)?;
+    let stored = policy_config(subscriber, &env)?;
     assert_eq!(
         stored.source_for(ListId::Block),
         Some(curator.namespace_pda()),
@@ -75,7 +72,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
 
     // 3. No Block entry exists yet, the transfer passes on the absence proof
     //    against the curator's empty entries.
-    transfer(&notes[0]).land(&prover)?;
+    transfer(&notes[0]).land()?;
 
     // 4. One curator write refuses the next transfer at witness build.
     let member = owner_member(&env.recipient.keypair)?;
@@ -89,12 +86,12 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         fee_payer: &env.payer,
         env: &env,
     }
-    .send(&prover)?;
+    .send()?;
     transfer(&notes[1]).expect_refusal()?;
 
     // 5. The curator-served list is immutable on the subscriber ring, the
     //    program refuses the mutation after a valid entry proof.
-    let subscriber_tree = PoolTree::address_tree(&policy_config(subscriber, rpc)?);
+    let subscriber_tree = PoolTree::address_tree(&policy_config(subscriber, &env)?);
     let foreign = CreateEntry {
         ring: subscriber,
         payer: authority,
@@ -104,12 +101,8 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         member,
         state: EntryState::Active,
         content_hash: [0u8; 32],
-    }
-    .prove(EntryProofEnvironment {
-        indexer,
-        rpc,
-        prover: &prover,
-    })?;
+    };
+    let foreign = env.run(foreign.prove(env.client.as_async()))?;
     let rejection = send_expecting_rejection(rpc, &env.payer, foreign.instruction()?)?;
     Rejection::custom(CustomRingError::ForeignSource as u32)
         .at(0)
@@ -125,7 +118,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         fee_payer: &env.payer,
         env: &env,
     }
-    .send(&prover)?;
+    .send()?;
     RingNotes {
         ring: subscriber,
         owner: &env.sender.keypair,
@@ -134,7 +127,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         env: &env,
     }
     .deposit()?;
-    transfer(&notes[1]).land(&prover)?;
+    transfer(&notes[1]).land()?;
 
     // 7. A relayer pays the reactivation, the curator authority only co-signs.
     //    With the entry active again, re-pointing Block to the subscriber's
@@ -147,19 +140,13 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         fee_payer: &relayer,
         env: &env,
     }
-    .send(&prover)?;
+    .send()?;
     send(
         rpc,
         &env.payer,
-        &[SetSourceOwner {
-            ring: subscriber,
-            authority,
-            list_id: ListId::Block,
-            source: SourceOwner::Own,
-        }
-        .instruction()?],
+        &[subscriber.set_source_owner(authority, ListId::Block, SourceOwner::Own)?],
     )?;
-    let repointed = policy_config(subscriber, rpc)?;
+    let repointed = policy_config(subscriber, &env)?;
     assert_eq!(
         repointed.source_for(ListId::Block),
         Some(subscriber.namespace_pda()),
@@ -167,7 +154,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     );
     assert_eq!(repointed.generation(), 2, "a re-point counts a generation");
     assert!(repointed.generation_slot() > stored.generation_slot());
-    transfer(&notes[2]).land(&prover)?;
+    transfer(&notes[2]).land()?;
 
     Ok(())
 }

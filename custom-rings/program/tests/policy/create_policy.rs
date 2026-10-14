@@ -1,5 +1,5 @@
-use custom_ring_interface::{PolicyTableIxData, CREATE_POLICY_COMPUTE_UNIT_LIMIT, POLICY_CONFIG};
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
+use custom_ring_interface::{compute_unit_limit, InstructionTag, PolicyTableIxData, POLICY_CONFIG};
 use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
 use zolana_account_checks::AccountError;
@@ -136,7 +136,9 @@ fn the_largest_table_with_no_curator_fits_the_create_policy_budget() {
     let (mollusk, _) = setup_mollusk();
     let rules = largest_table();
     let fixture = create_policy_fixture_with(&table_ix_data(&rules, &own_specs(&rules)));
-    assert!(consumed(&mollusk, &fixture) <= u64::from(CREATE_POLICY_COMPUTE_UNIT_LIMIT));
+    assert!(
+        consumed(&mollusk, &fixture) <= u64::from(compute_unit_limit(InstructionTag::CreatePolicy))
+    );
 }
 
 #[test]

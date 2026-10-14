@@ -1,13 +1,11 @@
 //! `spend`, the sender's spend record on a velocity ring.
 
 use custom_ring_sdk::{
-    policy_config_table, AccountReadError, CustomRing, EntryError, EntryProofError,
-    LiveSpendRecord, PolicyConfig, PolicyMatchError, ReadEnvironment, ReadSpendRecord,
-    RegisterSpend, TransferProofEnvironment, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, policy_config_table, CustomRing, InstructionTag, LiveSpendRecord,
+    PolicyConfig, ReadSpendRecord, RegisterSpend, RingError,
 };
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ProverClient, SolanaRpc, ZolanaIndexer};
 use zolana_keypair::KeypairError;
 use zolana_ring_policy::{Member, MemberError};
 
@@ -18,7 +16,7 @@ use crate::{
     step::{no_hint, IdempotentStep, Observed, StepError},
     transact::{sender_keypair_file, wait_for, Probe, WaitError, SENDER_FEE_BUDGET},
     ui::{self, Icon},
-    Context, ContextError, SpendCommand,
+    Context, ContextError, SpendCommand, Zolana,
 };
 
 #[derive(Debug, Error)]
@@ -26,17 +24,11 @@ pub enum SpendError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
-    PolicyMatch(Box<PolicyMatchError>),
+    Ring(Box<RingError>),
     #[error(transparent)]
     Member(#[from] MemberError),
     #[error(transparent)]
     Keypair(#[from] KeypairError),
-    #[error(transparent)]
-    Proof(Box<EntryProofError>),
-    #[error(transparent)]
-    Build(Box<EntryError>),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error(transparent)]
@@ -53,11 +45,7 @@ pub enum SpendError {
     NotVelocity,
 }
 
-boxed_from!(SpendError {
-    PolicyMatch(PolicyMatchError),
-    Proof(EntryProofError),
-    Build(EntryError),
-});
+boxed_from!(SpendError { Ring(RingError) });
 
 pub(crate) enum RegistrationOutcome {
     Registered,
@@ -68,9 +56,7 @@ pub(crate) struct Registration<'a> {
     pub ring: CustomRing,
     pub sender: &'a dyn Signer,
     pub config: &'a PolicyConfig,
-    pub rpc: &'a SolanaRpc,
-    pub indexer: &'a ZolanaIndexer,
-    pub prover: &'a ProverClient,
+    pub zolana: &'a Zolana,
 }
 
 struct RecordQuery<'a> {
@@ -82,6 +68,7 @@ struct RecordQuery<'a> {
 pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
     let sender = sender_keypair_file(ctx)?;
     let config = windowed_config(ctx.ring, &ctx.rpc)?;
+    let zolana = ctx.zolana();
     match command {
         SpendCommand::Register => {
             ctx.fund_authority(&sender, SENDER_FEE_BUDGET)?;
@@ -89,9 +76,7 @@ pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
                 ring: ctx.ring,
                 sender: &sender,
                 config: &config,
-                rpc: &ctx.rpc,
-                indexer: &ctx.indexer(),
-                prover: &ctx.prover(),
+                zolana: &zolana,
             }
             .ensure()?;
             line("member", sender.pubkey());
@@ -103,10 +88,7 @@ pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
                 config: &config,
                 member: Member::owner_tag(sender.pubkey().as_array())?,
             }
-            .read(ReadEnvironment {
-                indexer: &ctx.indexer(),
-                rpc: &ctx.rpc,
-            })?;
+            .read(&zolana)?;
             ui::heading(
                 Icon::Policy,
                 &format!("spend record of {}", sender.pubkey()),
@@ -142,36 +124,29 @@ impl Registration<'_> {
             config: self.config,
             member: Member::owner_tag(member.as_array())?,
         };
-        let env = ReadEnvironment {
-            indexer: self.indexer,
-            rpc: self.rpc,
-        };
-        if let Some(live) = query.read(env)? {
+        let zolana = self.zolana;
+        if let Some(live) = query.read(zolana)? {
             return Ok(RegistrationOutcome::Present {
                 version: live.record.version,
             });
         }
-        let proven = RegisterSpend {
+        let registration = RegisterSpend {
             ring: self.ring,
             payer: member,
-        }
-        .prove(TransferProofEnvironment {
-            indexer: self.indexer,
-            rpc: self.rpc,
-            prover: self.prover,
-        })?;
+        };
+        let proven = zolana.block_on(registration.prove(zolana.as_async()))?;
         IdempotentStep {
-            rpc: self.rpc,
+            rpc: zolana.rpc(),
             authority: self.sender,
             co_signers: &[],
             name: "register_spend",
-            compute_unit_limit: REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: compute_unit_limit(InstructionTag::RegisterSpend),
             hint: no_hint,
         }
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
         wait_for(format!("spend record of {member}"), || {
             query
-                .read(env)
+                .read(zolana)
                 .map(|record| record.map_or(Probe::NotYet, |_| Probe::Ready(())))
         })
         .map_err(timed_out)?;
@@ -181,9 +156,10 @@ impl Registration<'_> {
 
 pub(crate) fn windowed_config(
     ring: CustomRing,
-    rpc: &SolanaRpc,
+    rpc: &zolana_client::SolanaRpc,
 ) -> Result<PolicyConfig, SpendError> {
-    let config = ring.read_policy_config(rpc)?.ok_or(SpendError::NoPolicy)?;
+    let config = crate::read_account::<PolicyConfig>(rpc, ring, ring.policy_config_pda())?
+        .ok_or(SpendError::NoPolicy)?;
     if policy_config_table(&config)?.window_slots() == 0 {
         return Err(SpendError::NotVelocity);
     }
@@ -191,14 +167,9 @@ pub(crate) fn windowed_config(
 }
 
 impl RecordQuery<'_> {
-    fn read(
-        &self,
-        env: ReadEnvironment<'_, ZolanaIndexer, SolanaRpc>,
-    ) -> Result<Option<LiveSpendRecord>, SpendError> {
-        Ok(
-            ReadSpendRecord::new(self.ring, self.config.address_tree_id(), self.member)
-                .read_current(env)?,
-        )
+    fn read(&self, zolana: &Zolana) -> Result<Option<LiveSpendRecord>, SpendError> {
+        let read = ReadSpendRecord::new(self.ring, self.config.address_tree_id(), self.member);
+        Ok(zolana.block_on(read.read_current(zolana.as_async()))?)
     }
 }
 

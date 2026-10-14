@@ -1,12 +1,9 @@
-//! Attributing a confirmed transaction to a ring.
-//!
-//! The indexer matches the auditor view tag without knowing rings. The ring
-//! is recovered from the call stack of the confirmed transaction instead.
+//! The indexer matches tags without knowing rings, the confirmed call stack names the ring.
+
+use core::future::Future;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use thiserror::Error;
-use zolana_client::ClientError;
 use zolana_event::tag;
 use zolana_event_parser::{event_parent, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
@@ -15,12 +12,13 @@ use zolana_interface::{
 };
 use zolana_transaction::SOL_MINT;
 
-/// What a confirmed transaction says about its ring, its signers, and the value
-/// it settled out of the ring.
+use crate::AuditError;
+
+/// What a confirmed transaction says about its ring, its signers and the value it settled out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingOrigin {
     pub ring_invoked: bool,
-    /// Required signers, fee payer first. Every real input owner signs.
+    /// Fee payer first, every real input owner signs.
     pub signers: Vec<Address>,
     pub withdrawals: Vec<RingWithdrawal>,
 }
@@ -34,87 +32,44 @@ pub struct RingWithdrawal {
     pub amount: u64,
 }
 
-/// Whether a confirmed transaction ran the shielded pool under `ring`.
-pub trait TransactionOrigin {
-    fn ring_invoked(
-        &self,
-        signature: Signature,
-        event_index: u16,
-        ring: Address,
-    ) -> Result<bool, OriginError> {
-        Ok(self.origin(signature, event_index, ring)?.ring_invoked)
-    }
-
+/// Reads the origin of the event at `event_index` of a confirmed transaction.
+pub trait TransactionOrigin: Sync {
     fn origin(
         &self,
         signature: Signature,
         event_index: u16,
         ring: Address,
-    ) -> Result<RingOrigin, OriginError>;
+    ) -> impl Future<Output = Result<RingOrigin, AuditError>> + Send;
 }
 
-#[derive(Debug, Error)]
-pub enum OriginError {
-    #[error("transaction {signature} is unavailable {message}")]
-    Unavailable {
-        signature: Signature,
-        message: String,
-    },
-    #[error(transparent)]
-    Decode(#[from] ClientError),
-    #[error("inner instruction stack height {0} has no parent")]
-    InvalidStackHeight(u32),
-    #[error("ring transact instruction data is undecodable {0}")]
-    InvalidTransactData(String),
-    #[error("ring transact settlement accounts do not match its interface transfers")]
-    SettlementAccounts,
-    #[error("trusted event index {0} is unavailable")]
-    InvalidEventIndex(u16),
-}
-
+/// The trusted event at `event_index` must come from a pool instruction `ring` called directly.
 pub fn ring_event_origin_in(
     groups: &[InstructionGroup],
     event_index: u16,
     ring: Address,
-) -> Result<RingOrigin, OriginError> {
+) -> Result<RingOrigin, AuditError> {
     let ring_instructions = ring_instructions_in(groups, ring)?;
     let source = trusted_event_sources(groups)
         .nth(usize::from(event_index))
-        .ok_or(OriginError::InvalidEventIndex(event_index))?;
+        .ok_or(AuditError::InvalidEventIndex(event_index))?;
     let ring_invoked = ring_instructions
         .iter()
         .any(|instruction| core::ptr::eq(*instruction, source));
-    let withdrawals = if ring_invoked {
-        ring_withdrawals_of(&[source])?
-    } else {
-        Vec::new()
-    };
     Ok(RingOrigin {
         ring_invoked,
         signers: Vec::new(),
-        withdrawals,
+        withdrawals: match ring_invoked {
+            true => ring_withdrawals_of(&[source])?,
+            false => Vec::new(),
+        },
     })
 }
 
-/// `ring_transact` needs the ring's `ring_auth` PDA as signer, so only a pool
-/// instruction whose direct caller is `ring` belongs to the ring.
-pub fn ring_invoked_in(groups: &[InstructionGroup], ring: Address) -> Result<bool, OriginError> {
-    Ok(!ring_instructions_in(groups, ring)?.is_empty())
-}
-
-/// The value the ring settled out in the clear, in call order.
-pub fn ring_withdrawals_in(
-    groups: &[InstructionGroup],
-    ring: Address,
-) -> Result<Vec<RingWithdrawal>, OriginError> {
-    ring_withdrawals_of(&ring_instructions_in(groups, ring)?)
-}
-
-/// Every pool instruction the ring itself invoked, in call order.
+/// `ring_transact` needs the ring's `ring_auth` signer, so only the ring's direct callees count.
 fn ring_instructions_in(
     groups: &[InstructionGroup],
     ring: Address,
-) -> Result<Vec<&ParsedInstruction>, OriginError> {
+) -> Result<Vec<&ParsedInstruction>, AuditError> {
     let pool = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut found = Vec::new();
     for group in groups {
@@ -125,7 +80,7 @@ fn ring_instructions_in(
                 .ok()
                 .and_then(|height| height.checked_sub(2))
                 .filter(|depth| *depth < callers.len())
-                .ok_or(OriginError::InvalidStackHeight(height))?;
+                .ok_or(AuditError::InvalidStackHeight(height))?;
             if inner.program_id == pool && callers[parent_depth] == ring {
                 found.push(inner);
             }
@@ -151,87 +106,77 @@ fn trusted_event_sources(groups: &[InstructionGroup]) -> impl Iterator<Item = &P
                 }
                 let parent = event_parent(group, index)?;
                 (parent.program_id == pool
-                    && parent
-                        .data
-                        .first()
-                        .copied()
-                        .is_some_and(is_event_source_tag))
+                    && parent.data.first().is_some_and(|tag| {
+                        matches!(
+                            *tag,
+                            tag::DEPOSIT
+                                | tag::RING_DEPOSIT
+                                | tag::TRANSACT
+                                | tag::RING_TRANSACT
+                                | tag::RING_AUTHORITY_TRANSACT
+                                | tag::MERGE_TRANSACT
+                                | tag::RING_MERGE_TRANSACT
+                        )
+                    }))
                 .then_some(parent)
             })
     })
 }
 
-fn is_event_source_tag(tag_byte: u8) -> bool {
-    matches!(
-        tag_byte,
-        tag::DEPOSIT
-            | tag::RING_DEPOSIT
-            | tag::TRANSACT
-            | tag::RING_TRANSACT
-            | tag::RING_AUTHORITY_TRANSACT
-            | tag::MERGE_TRANSACT
-            | tag::RING_MERGE_TRANSACT
-    )
-}
-
-/// The public settlement legs of the ring's pool instructions. An SPL leg
-/// reports the group's mint and credits a token account rather than a wallet.
+/// An SPL leg reports its group's mint and credits a token account.
 fn ring_withdrawals_of(
     instructions: &[&ParsedInstruction],
-) -> Result<Vec<RingWithdrawal>, OriginError> {
+) -> Result<Vec<RingWithdrawal>, AuditError> {
     let sol_interface = Address::new_from_array(SOL_INTERFACE);
     let cpi_authority = Address::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
     let mut withdrawals = Vec::new();
     for instruction in instructions {
-        let Some(data) = transact_data(instruction)? else {
+        let Some((&tag::RING_TRANSACT, payload)) = instruction.data.split_first() else {
             continue;
         };
-        let transfers = data.interface_transfers;
-        let mut settlement = settlement_accounts(&transfers, data.circuit, &instruction.accounts)
-            .ok_or(OriginError::SettlementAccounts)?;
-        for transfer in transfers {
+        let data = TransactIxData::deserialize(payload)
+            .map_err(|error| AuditError::InvalidTransactData(error.to_string()))?;
+        let mut settlement = settlement_accounts(
+            &data.interface_transfers,
+            data.circuit,
+            &instruction.accounts,
+        )
+        .ok_or(AuditError::SettlementAccounts)?;
+        for transfer in data.interface_transfers {
             let (group, rest) = settlement.split_at(transfer.settlement_account_count());
             settlement = rest;
-            match transfer {
-                InterfaceTransfer::SolWithdrawal { amount } => {
-                    if group[0] != sol_interface {
-                        return Err(OriginError::SettlementAccounts);
-                    }
-                    withdrawals.push(RingWithdrawal {
+            let (authority, withdrawal) = match transfer {
+                InterfaceTransfer::SolWithdrawal { amount } => (
+                    sol_interface,
+                    RingWithdrawal {
                         recipient: group[1],
                         asset: SOL_MINT,
                         amount,
-                    });
-                }
-                InterfaceTransfer::SplWithdrawal { amount, .. } => {
-                    if group[0] != cpi_authority {
-                        return Err(OriginError::SettlementAccounts);
-                    }
-                    withdrawals.push(RingWithdrawal {
+                    },
+                ),
+                InterfaceTransfer::SplWithdrawal { amount, .. } => (
+                    cpi_authority,
+                    RingWithdrawal {
                         recipient: group[3],
                         asset: group[1],
                         amount,
-                    });
+                    },
+                ),
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SplDeposit { .. } => {
+                    continue
                 }
-                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SplDeposit { .. } => {}
+            };
+            if group[0] != authority {
+                return Err(AuditError::SettlementAccounts);
             }
+            withdrawals.push(withdrawal);
         }
     }
     Ok(withdrawals)
 }
 
-/// `None` for a pool instruction that is not a `ring_transact`.
-fn transact_data(instruction: &ParsedInstruction) -> Result<Option<TransactIxData>, OriginError> {
-    let Some((&tag::RING_TRANSACT, payload)) = instruction.data.split_first() else {
-        return Ok(None);
-    };
-    let data = TransactIxData::deserialize(payload)
-        .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
-    Ok(Some(data))
-}
-
 #[cfg(feature = "solana-rpc")]
-pub use rpc::{ConfirmedTransaction, ORIGIN_TRANSACTION_CONFIG};
+pub use rpc::{confirmed_origin, ORIGIN_TRANSACTION_CONFIG};
 
 #[cfg(feature = "solana-rpc")]
 mod rpc {
@@ -243,41 +188,33 @@ mod rpc {
         EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction, UiMessage,
         UiTransactionEncoding,
     };
-    use zolana_client::{ConfirmedInstructionGroups, SolanaRpc};
+    use zolana_client::{AsyncSolanaRpc, Blocking, ConfirmedInstructionGroups, SolanaRpc};
 
-    use super::{ring_event_origin_in, OriginError, RingOrigin, TransactionOrigin};
+    use super::{ring_event_origin_in, RingOrigin, TransactionOrigin};
+    use crate::AuditError;
 
+    /// A v1 transaction read back at a maximum version of 0 is an error, not the transaction.
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
         commitment: Some(CommitmentConfig::confirmed()),
-        // A v1 transaction read back at a maximum supported version of 0 comes
-        // back as an error rather than as the transaction, so every ring
-        // origin lookup would fail the moment the client started sending v1.
         max_supported_transaction_version: Some(1),
     };
 
-    #[must_use]
-    pub struct ConfirmedTransaction {
-        pub signature: Signature,
-        pub transaction: EncodedConfirmedTransactionWithStatusMeta,
+    /// The origin of the event at `event_index` with the transaction's required signers.
+    pub fn confirmed_origin(
+        transaction: EncodedConfirmedTransactionWithStatusMeta,
+        event_index: u16,
+        ring: Address,
+    ) -> Result<RingOrigin, AuditError> {
+        let signers = signers_of(&transaction);
+        let groups = ConfirmedInstructionGroups::try_from(transaction)?;
+        Ok(RingOrigin {
+            signers,
+            ..ring_event_origin_in(&groups.groups, event_index, ring)?
+        })
     }
 
-    impl ConfirmedTransaction {
-        pub fn ring_invoked(self, event_index: u16, ring: Address) -> Result<bool, OriginError> {
-            Ok(self.origin(event_index, ring)?.ring_invoked)
-        }
-
-        pub fn origin(self, event_index: u16, ring: Address) -> Result<RingOrigin, OriginError> {
-            let signers = signers_of(&self.transaction);
-            let groups = ConfirmedInstructionGroups::try_from(self.transaction)?;
-            let mut origin = ring_event_origin_in(&groups.groups, event_index, ring)?;
-            origin.signers = signers;
-            Ok(origin)
-        }
-    }
-
-    /// The first `num_required_signatures` account keys. An unknown encoding
-    /// names no signer.
+    /// The first `num_required_signatures` keys, an unknown encoding names no signer.
     fn signers_of(transaction: &EncodedConfirmedTransactionWithStatusMeta) -> Vec<Address> {
         let EncodedTransaction::Json(ui) = &transaction.transaction.transaction else {
             return Vec::new();
@@ -302,25 +239,50 @@ mod rpc {
             .collect()
     }
 
-    impl TransactionOrigin for SolanaRpc {
-        fn origin(
+    fn unavailable(signature: Signature, error: impl ToString) -> AuditError {
+        AuditError::Unavailable {
+            signature,
+            message: error.to_string(),
+        }
+    }
+
+    impl TransactionOrigin for AsyncSolanaRpc {
+        async fn origin(
             &self,
             signature: Signature,
             event_index: u16,
             ring: Address,
-        ) -> Result<RingOrigin, OriginError> {
+        ) -> Result<RingOrigin, AuditError> {
             let transaction = self
                 .client()
                 .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
-                .map_err(|error| OriginError::Unavailable {
-                    signature,
-                    message: error.to_string(),
-                })?;
-            ConfirmedTransaction {
-                signature,
-                transaction,
-            }
-            .origin(event_index, ring)
+                .await
+                .map_err(|error| unavailable(signature, error))?;
+            confirmed_origin(transaction, event_index, ring)
+        }
+    }
+
+    /// The read runs on Tokio's blocking pool, as every other `Blocking` call does.
+    impl TransactionOrigin for Blocking<SolanaRpc> {
+        async fn origin(
+            &self,
+            signature: Signature,
+            event_index: u16,
+            ring: Address,
+        ) -> Result<RingOrigin, AuditError> {
+            let rpc = self.clone();
+            let transaction = tokio::task::spawn_blocking(move || {
+                rpc.inner()
+                    .client()
+                    .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
+            })
+            .await
+            .map_err(|error| unavailable(signature, error))?
+            .map_err(|error| unavailable(signature, error))?;
+            confirmed_origin(transaction, event_index, ring)
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

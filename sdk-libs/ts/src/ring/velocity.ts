@@ -358,7 +358,7 @@ export function chargeRows(
   });
 }
 
-function chargeVelocityRows(
+export function chargeVelocityRows(
   input: Readonly<{
     moneyTransfer: RingMoneyTransfer;
     rows: readonly CustomRingVelocityRow[];
@@ -368,16 +368,18 @@ function chargeVelocityRows(
   let approvalRequired = false;
   const spent = input.rows.map((row) => {
     const outflow = senderOutflow(input.moneyTransfer, row.asset);
+    if (row.cosignAbove !== 0n && outflow > row.cosignAbove) approvalRequired = true;
+    // A row without a cap keeps a zero counter, as the circuit records it.
+    if (row.cap === 0n) return 0n;
     const before =
       input.previous === undefined ? 0n : spendCountersSpent(input.previous, row.asset);
     const charged = before + outflow;
     if (charged > U64_MAX)
       throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset: row.asset } });
-    if (row.cap !== 0n && charged > row.cap)
+    if (charged > row.cap)
       throw new RingError("RING_VELOCITY_CAP_EXCEEDED", {
         details: { asset: row.asset, cap: row.cap, spent: charged },
       });
-    if (row.cosignAbove !== 0n && outflow > row.cosignAbove) approvalRequired = true;
     return charged;
   });
   return { spent, approvalRequired };

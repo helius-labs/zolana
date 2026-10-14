@@ -37,13 +37,14 @@ mod workspace;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
-use custom_ring_sdk::{CustomRing, ReaderKey, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
+use custom_ring_sdk::{CustomRing, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer};
 use zolana_keypair::ShieldedAddress;
+use zolana_ring_client::ReaderKey;
 
 pub use crate::{
     config::{ConfigError, RingConfig, Target, RING_TOML},
@@ -55,6 +56,23 @@ pub use crate::{
     ring_rpc::{RingRpcClient, Trust},
     ui::{line, Ask},
 };
+
+/// A ring account read through its interface layout, owner and discriminator checked.
+pub fn read_account<A: custom_ring_interface::RingAccount>(
+    rpc: &impl Rpc,
+    ring: CustomRing,
+    address: Address,
+) -> Result<Option<A>, custom_ring_sdk::RingError> {
+    rpc.get_account(address)?
+        .map(|account| {
+            A::decode(&account.owner, &ring.program_id(), &account.data)
+                .ok_or(custom_ring_sdk::RingError::InvalidAccount { address })
+        })
+        .transpose()
+}
+
+/// The blocking client the SDK's `async` operations run on.
+pub type Zolana = ZolanaClient<SolanaRpc, ZolanaIndexer>;
 
 /// What localnet tops the authority up to.
 const LOCALNET_AUTHORITY_BALANCE: u64 = 100_000_000_000;
@@ -610,6 +628,12 @@ impl Context {
 
     pub fn prover(&self) -> ProverClient {
         self.config.urls().prover_client()
+    }
+
+    /// The ring's services behind one blocking client, for the SDK's `async` calls.
+    pub fn zolana(&self) -> Zolana {
+        let rpc = SolanaRpc::new(self.config.urls().rpc.clone());
+        ZolanaClient::new(rpc, self.indexer(), self.prover())
     }
 
     /// `unpinned` applies only when ring.toml pins no service key.
