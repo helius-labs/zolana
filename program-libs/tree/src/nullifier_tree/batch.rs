@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(feature = "test-only")]
 use zerocopy::FromZeros;
 use zerocopy::{FromBytes, Immutable, KnownLayout};
@@ -46,8 +45,6 @@ impl From<BatchState> for u64 {
     KnownLayout,
     Immutable,
     FromBytes,
-    BorshSerialize,
-    BorshDeserialize,
     bytemuck::Pod,
     bytemuck::Zeroable,
 )]
@@ -75,8 +72,6 @@ impl CachedTreeUpdate {
     KnownLayout,
     Immutable,
     FromBytes,
-    BorshSerialize,
-    BorshDeserialize,
 )]
 pub struct Batch<const ZKP_BATCHES: usize> {
     /// Elements in the ZKP batch currently being filled.
