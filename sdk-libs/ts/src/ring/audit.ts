@@ -1,4 +1,3 @@
-import { p256 } from "@noble/curves/nist.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
@@ -20,7 +19,7 @@ import {
   type AuditOutputOpening,
   type AuditorMessage,
 } from "../keypair/audit.js";
-import { bigIntToBytes, bytesToBigInt } from "../keypair/bytes.js";
+import { bigIntToBytes } from "../keypair/bytes.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { TransactionError } from "../transaction/error.js";
@@ -86,7 +85,6 @@ export interface RingAuditPage {
 
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_MAX_PAGES = 32;
-const P256_ORDER = p256.Point.Fn.ORDER;
 
 /** Mirrors Rust `auditor_message`, the program accepts the tagged message only as the unique last entry. */
 export function auditorMessage(
@@ -116,9 +114,8 @@ export function auditorMessage(
 }
 
 /**
- * Mirrors Rust `recover_tx_viewing_key`. The circuit binds the secret modulo the
- * P-256 group order, so any representative of the scalar class decrypts to the
- * canonical key.
+ * Mirrors Rust `recover_tx_viewing_key`. The circuit proves `0 < sk < n` and keys the
+ * disclosure stream with these exact bytes, so another representative is refused.
  */
 export function recoverTransactionViewingKey(
   auditor: ViewingKey,
@@ -126,7 +123,9 @@ export function recoverTransactionViewingKey(
 ): ViewingKey {
   const recovered = decryptTransactionViewingSecret(auditor, message);
   try {
-    return ViewingKey.fromBytes(bigIntToBytes(bytesToBigInt(recovered) % P256_ORDER) as Bytes32);
+    return ViewingKey.fromBytes(recovered);
+  } catch (cause) {
+    throw new RingError("RING_AUDIT_NONCANONICAL_KEY", { cause });
   } finally {
     recovered.fill(0);
   }

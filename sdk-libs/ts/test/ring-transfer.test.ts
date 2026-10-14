@@ -1214,24 +1214,32 @@ describe("ring audit", () => {
     expect(getProgramAccounts).toHaveBeenCalledTimes(1);
   });
 
-  it("reduces a noncanonical scalar like Rust `recovery_reduces_a_noncanonical_scalar`", () => {
+  it("opens only a canonical scalar like Rust `recovery_refuses_a_noncanonical_scalar`", () => {
     const auditor = ViewingKey.generate();
-    const secret = bigIntToBytes(0x0123_4567_89ab_cdefn) as Bytes32;
-    const viewingKey = ViewingKey.fromBytes(secret);
-    const shifted = bigIntToBytes(bytesToBigInt(secret) + p256.Point.Fn.ORDER) as Bytes32;
-    const ephemeral = ViewingKey.generate();
-    const shared = auditSharedSecret(
-      ephemeral.ecdh(auditor.publicKey()),
-      ephemeral.publicKey(),
-      auditor.publicKey(),
+    const order = p256.Point.Fn.ORDER;
+    const recover = (value: bigint) => {
+      const ephemeral = ViewingKey.generate();
+      const shared = auditSharedSecret(
+        ephemeral.ecdh(auditor.publicKey()),
+        ephemeral.publicKey(),
+        auditor.publicKey(),
+      );
+      const plaintext = bigIntToBytes(value, 32) as Bytes32;
+      return recoverTransactionViewingKey(auditor, {
+        ephemeralPublicKey: ephemeral.publicKey(),
+        ciphertext: symmetricApply(shared, AUDIT_ENC_INFO, plaintext) as Bytes32,
+        disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
+      });
+    };
+    const top = order - 1n;
+    expect(recover(top).publicKey().toBytes()).toEqual(
+      ViewingKey.fromBytes(bigIntToBytes(top, 32) as Bytes32)
+        .publicKey()
+        .toBytes(),
     );
-    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, shifted) as Bytes32;
-    const recovered = recoverTransactionViewingKey(auditor, {
-      ephemeralPublicKey: ephemeral.publicKey(),
-      ciphertext,
-      disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
-    });
-    expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
+    for (const value of [0n, order, order + 1n, (1n << 256n) - 1n]) {
+      expect(() => recover(value)).toThrow("RING_AUDIT_NONCANONICAL_KEY");
+    }
   });
 });
 
