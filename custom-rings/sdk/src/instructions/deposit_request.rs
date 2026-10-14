@@ -185,6 +185,52 @@ mod tests {
     }
 
     #[test]
+    fn the_deposit_request_body_matches_the_golden_file() {
+        use crate::golden_tests::{assert_golden, auditor, field, EPH_SK};
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+        let slots = |seed: u64| {
+            core::array::from_fn(|index| {
+                if index < 2 {
+                    field(seed + index as u64)
+                } else {
+                    [0; 32]
+                }
+            })
+        };
+        let mut keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        for (index, key) in keys.iter_mut().take(2).enumerate() {
+            *key = Some(RegistryKeyOpening {
+                next: field(40 + index as u64),
+                ct_hash: field(42 + index as u64),
+                index: 5 + index as u64,
+                path: core::array::from_fn(|level| field(100 * (index as u64 + 1) + level as u64)),
+            });
+        }
+        let auditor_pk: [u8; 65] = auditor()
+            .to_p256()
+            .unwrap()
+            .to_encoded_point(false)
+            .as_bytes()
+            .try_into()
+            .unwrap();
+        let body = RingDepositProofRequest {
+            public_input_hash: &field(1),
+            context_hash: &field(2),
+            count: 2,
+            owner_pk_hashes: &slots(10),
+            nullifier_pks: &slots(20),
+            blindings: &slots(30),
+            keys: &keys,
+            key_registry_root: Some(&field(9)),
+            ephemeral_sk: &EPH_SK,
+            auditor_pk: &auditor_pk,
+        }
+        .body()
+        .unwrap();
+        assert_golden("custom-ring-deposit", &body);
+    }
+
+    #[test]
     fn escrow_off_sends_a_zero_root() {
         let slots = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
         let body = RingDepositProofRequest {

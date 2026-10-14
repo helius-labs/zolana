@@ -805,6 +805,72 @@ mod tests {
     }
 
     #[test]
+    fn the_registration_request_body_matches_the_golden_file() {
+        use crate::golden_tests::{assert_golden, auditor, key, EPH_SK};
+        let ring = CustomRing::new(Address::new_from_array([5; 32]));
+        let nullifier_key = NullifierKey::from_secret([7u8; 31]);
+        let envelope = NullifierKeyEnvelope {
+            ephemeral_sk: Zeroizing::new(EPH_SK),
+            sealed: SealedNullifierKey {
+                eph_pk: key(EPH_SK).pubkey(),
+                ciphertext: [0x2a; 32],
+            },
+            nullifier_pk: nullifier_key.pubkey().unwrap(),
+        };
+        let member = Member::owner_tag(&[9; 32]).unwrap();
+        let mut tree = KeyRegistryTree::new().unwrap();
+        for byte in [3u8, 12] {
+            tree.register(Registration {
+                member: *Member::owner_tag(&[byte; 32]).unwrap().as_bytes(),
+                key: [byte; 32],
+            })
+            .unwrap();
+        }
+        let proof_inputs = tree
+            .register(Registration {
+                member: *member.as_bytes(),
+                key: RegisteredKey {
+                    nullifier_pk: &envelope.nullifier_pk,
+                    ciphertext: &envelope.sealed.ciphertext,
+                }
+                .hash()
+                .unwrap(),
+            })
+            .unwrap();
+        let query = ring.member_proof_request(
+            &member,
+            CurrentKeyRegistryRoot {
+                root: proof_inputs.old_root,
+                next_index: proof_inputs.new_index,
+                history_index: 0,
+            },
+        );
+        let response = GetRingKeyRegistryRegisterProofResponse {
+            context: Context::default(),
+            root: Hash(proof_inputs.old_root),
+            next_index: proof_inputs.new_index,
+            member: Hash(proof_inputs.member),
+            low_member: Hash(proof_inputs.low_member),
+            low_next: Hash(proof_inputs.low_next),
+            low_key_hash: Hash(proof_inputs.low_key),
+            low_index: proof_inputs.low_index,
+            low_proof: proof_inputs.low_proof.into_iter().map(Hash).collect(),
+            new_proof: proof_inputs.new_proof.into_iter().map(Hash).collect(),
+        };
+        let registration = KeySeal {
+            envelope: &envelope,
+            auditor: auditor(),
+            secret: Zeroizing::new(right_align(&nullifier_key.secret())),
+        }
+        .register(&query, response)
+        .unwrap();
+        assert_golden(
+            "custom-ring-register-key",
+            &registration.request.body().unwrap(),
+        );
+    }
+
+    #[test]
     fn registration_rejects_response_substitution_and_malformed_paths() {
         let fixture = Fixture::new();
         let mutations: [fn(&mut GetRingKeyRegistryRegisterProofResponse); 5] = [

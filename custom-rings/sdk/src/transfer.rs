@@ -3816,6 +3816,192 @@ mod tests {
         }
     }
 
+    fn golden_opening(
+        seed: u64,
+        key: Option<RegistryKeyOpening>,
+    ) -> crate::instructions::transact::CustomRingOpening {
+        use crate::golden_tests::field;
+        crate::instructions::transact::CustomRingOpening {
+            domain: field(seed),
+            tree_id: field(seed + 1),
+            owner_pk_hash: field(seed + 2),
+            nullifier_pk: field(seed + 3),
+            asset: field(seed + 4),
+            amount: field(seed + 5),
+            blinding: field(seed + 6),
+            data_hash: field(seed + 7),
+            ring_data_hash: field(seed + 8),
+            ring_program_id: field(seed + 9),
+            key,
+        }
+    }
+
+    pub(crate) fn golden_policy_request() -> CustomRingPolicyProofRequest {
+        use crate::golden_tests::{auditor, field, key, EPH_SK, TX_SK};
+        use crate::instructions::transact::{RuleAnswer, SourceOwnerEntry};
+        use crate::SpendRecordProofInput;
+        use zolana_interface::tree_slot::TreeSlot;
+        use zolana_ring_policy::ANSWER_SLOTS;
+        let registry_key = RegistryKeyOpening {
+            next: field(700),
+            ct_hash: field(701),
+            index: 3,
+            path: core::array::from_fn(|index| field(710 + index as u64)),
+        };
+        CustomRingPolicyProofRequest {
+            indexed: None,
+            public_input_hash: field(1),
+            private_tx_hash: field(2),
+            tx_viewing_key: key(TX_SK),
+            ephemeral_key: key(EPH_SK),
+            auditor_key: auditor(),
+            salt: [5; 16],
+            n_in: 2,
+            n_out: 3,
+            inputs: core::array::from_fn(|index| golden_opening(10 + 16 * index as u64, None)),
+            outputs: core::array::from_fn(|index| {
+                golden_opening(
+                    100 + 16 * index as u64,
+                    (index == 0).then_some(registry_key),
+                )
+            }),
+            address_chain: [0; 32],
+            private_tx_blinding: field(3),
+            sources: core::array::from_fn(|index| SourceOwnerEntry {
+                list_id: if index < 2 { index as u8 + 1 } else { 0 },
+                owner_hash: if index < 2 {
+                    field(200 + index as u64)
+                } else {
+                    [0; 32]
+                },
+            }),
+            policy_len: 2,
+            rules: core::array::from_fn(|index| {
+                if index < 2 {
+                    field(220 + index as u64)
+                } else {
+                    [0; 32]
+                }
+            }),
+            inline_assets: core::array::from_fn(|index| field(300 + index as u64)),
+            inline_limits: core::array::from_fn(|index| 1_000 * index as u64),
+            inline_count: 2,
+            tree_slots: vec![
+                TreeSlot::new(4, field(400), field(401)),
+                TreeSlot::new(9, field(402), field(403)),
+            ],
+            address_tree_id: 4,
+            key_registry_root: Some(field(500)),
+            velocity: VelocityProofInput {
+                window_slots: 600,
+                rows: core::array::from_fn(|index| VelocityRow {
+                    asset: field(610 + index as u64),
+                    cap: if index < 2 { 50_000 } else { 0 },
+                    cosign_above: if index == 1 { 7_000 } else { 0 },
+                }),
+                row_count: 2,
+                ring_id: field(601),
+                namespace_owner_hash: field(602),
+                window_index: 7,
+                approval_required: true,
+                record: SpendRecordProofInput {
+                    version: 3,
+                    window: 6,
+                    commitment: field(603),
+                    salt: field(604),
+                    assets: core::array::from_fn(|index| field(620 + index as u64)),
+                    spent: core::array::from_fn(|index| [40, 60, 0, 0, 0, 0, 0, 0][index]),
+                    next_salt: field(605),
+                },
+            },
+            answers: (0..ANSWER_SLOTS)
+                .map(|index| {
+                    if index >= 2 {
+                        return RuleAnswer::default();
+                    }
+                    let seed = 800 + 100 * index as u64;
+                    RuleAnswer {
+                        enabled: true,
+                        tree_slot: index as u8,
+                        mode: index as u8,
+                        list_id: 2 - index as u8,
+                        state: 1,
+                        absent_branch: 1 + index as u8,
+                        member: field(seed),
+                        content_hash: field(seed + 1),
+                        version: 4,
+                        blinding: field(seed + 2),
+                        low: field(seed + 3),
+                        next: field(seed + 4),
+                        nullifier_path: (0..40).map(|level| field(seed + 10 + level)).collect(),
+                        nullifier_path_index: 11,
+                        state_path: (0..32).map(|level| field(seed + 60 + level)).collect(),
+                        state_path_index: 12,
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    fn golden_reads() -> PolicyReads {
+        PolicyReads {
+            trees: Vec::new(),
+            escrow: crate::EscrowBinding::Off,
+            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
+            revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
+        }
+    }
+
+    #[test]
+    fn prover_request_bodies_match_the_golden_files() {
+        use crate::golden_tests::{assert_golden, auditor, field, key, EPH_SK, TX_SK};
+        let base = CustomRingBaseProofRequest {
+            public_input_hash: field(1),
+            private_tx_hash: field(2),
+            tx_viewing_key: key(TX_SK),
+            ephemeral_key: key(EPH_SK),
+            auditor_key: auditor(),
+            salt: [7; 16],
+            outputs: (0..2)
+                .map(|index| ProofInputUtxo {
+                    domain: field(30 + 10 * index),
+                    tree_id: field(31 + 10 * index),
+                    owner_hash: field(32 + 10 * index),
+                    asset: field(33 + 10 * index),
+                    amount: field(34 + 10 * index),
+                    blinding: field(35 + 10 * index),
+                    data_hash: field(36 + 10 * index),
+                    ring_data_hash: field(37 + 10 * index),
+                    ring_program_id: field(38 + 10 * index),
+                })
+                .collect(),
+        };
+        assert_golden("custom-ring-base", &base.body().unwrap());
+        assert_golden(
+            "custom-ring-policy",
+            &golden_policy_request().body().unwrap(),
+        );
+        let wrapped = |kind| PolicyRequest {
+            request: Box::new(golden_policy_request()),
+            reads: golden_reads(),
+            approval_required: true,
+            kind,
+        };
+        assert_golden(
+            "custom-ring-compressed-policy",
+            &wrapped(PolicyProofKind::Compressed(CompressedDisclosure {
+                transaction_salt: [9; 16],
+                counters_disclosure_hash: field(77),
+            }))
+            .body()
+            .unwrap(),
+        );
+        assert_golden(
+            "custom-ring-delegate-policy",
+            &wrapped(PolicyProofKind::Delegate).body().unwrap(),
+        );
+    }
+
     #[test]
     fn dummy_framing_matches_ring_slot_lengths() {
         let mut proof_inputs = framed_fixture(&[Some(ring().program_id()); 4]);
