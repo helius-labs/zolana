@@ -77,6 +77,15 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         self.rpc.get_signature_statuses(signatures).await
     }
 
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.rpc
+            .get_signature_statuses_with_history(signatures)
+            .await
+    }
+
     async fn get_minimum_balance_for_rent_exemption(
         &self,
         data_len: usize,

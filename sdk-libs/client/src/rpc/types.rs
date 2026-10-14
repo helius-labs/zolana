@@ -12,7 +12,11 @@ use zolana_keypair::P256Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use zolana_user_registry_interface::UserRecord;
 
-use crate::{error::ClientError, prover::ProofCompressed};
+use crate::{
+    error::ClientError,
+    prover::ProofCompressed,
+    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -156,6 +160,24 @@ pub struct MerkleProof {
     pub root_index: u16,
 }
 
+impl MerkleProof {
+    /// The proof is for `leaf` in `tree` along a full path; `index` names the proof in errors.
+    pub fn check_leaf(
+        &self,
+        leaf: &[u8; 32],
+        tree: &Address,
+        index: usize,
+    ) -> Result<(), ClientError> {
+        if self.leaf != *leaf {
+            return Err(ClientError::StateProofLeafMismatch { index });
+        }
+        if self.merkle_context.tree != *tree {
+            return Err(ClientError::StateProofTreeMismatch { index });
+        }
+        check_path(&self.path, STATE_TREE_HEIGHT)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GetMerkleProofsResponse {
     pub context: Context,
@@ -178,6 +200,34 @@ pub struct NonInclusionProof {
     pub root_seq: u64,
     /// On-chain root-history position for `root`.
     pub root_index: u16,
+}
+
+impl NonInclusionProof {
+    /// The proof is for `leaf` in `tree` along a full path; `index` names the proof in errors.
+    pub fn check_leaf(
+        &self,
+        leaf: &[u8; 32],
+        tree: &Address,
+        index: usize,
+    ) -> Result<(), ClientError> {
+        if self.leaf != *leaf {
+            return Err(ClientError::NullifierProofLeafMismatch { index });
+        }
+        if self.merkle_context.tree != *tree {
+            return Err(ClientError::NullifierProofTreeMismatch { index });
+        }
+        check_path(&self.path, NULLIFIER_TREE_HEIGHT)
+    }
+}
+
+fn check_path(path: &[[u8; 32]], expected: usize) -> Result<(), ClientError> {
+    if path.len() != expected {
+        return Err(ClientError::ProofPathLength {
+            got: path.len(),
+            expected,
+        });
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

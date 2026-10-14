@@ -76,7 +76,8 @@ pub use rpc::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
-pub use scan::{fetch_asset_id, UtxoScan, UtxoScanResult};
+pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
+pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

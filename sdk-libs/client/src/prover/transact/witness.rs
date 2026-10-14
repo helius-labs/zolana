@@ -17,7 +17,7 @@ use crate::{
         },
         ProofCompressed, Prover, ProverExt, TransferInputs,
     },
-    rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+    rpc::{MerkleProof, NonInclusionProof},
 };
 
 /// State-inclusion and nullifier-non-inclusion proofs for one real input UTXO.
@@ -33,20 +33,10 @@ impl SpendProof {
         input: &SppProofInputUtxo,
         index: usize,
     ) -> Result<(), ClientError> {
-        if self.state.leaf != input.utxo_hash {
-            return Err(ClientError::StateProofLeafMismatch { index });
-        }
-        if self.state.merkle_context.tree != pda::tree(input.tree_id) {
-            return Err(ClientError::StateProofTreeMismatch { index });
-        }
+        self.state
+            .check_leaf(&input.utxo_hash, &pda::tree(input.tree_id), index)?;
         if self.state.leaf_index != input.leaf_index {
             return Err(ClientError::StateProofIndexMismatch { index });
-        }
-        if self.state.path.len() != STATE_TREE_HEIGHT {
-            return Err(ClientError::ProofPathLength {
-                got: self.state.path.len(),
-                expected: STATE_TREE_HEIGHT,
-            });
         }
         validate_nullifier_proof(&self.nullifier, input, index)
     }
@@ -57,19 +47,7 @@ pub(crate) fn validate_nullifier_proof(
     input: &SppProofInputUtxo,
     index: usize,
 ) -> Result<(), ClientError> {
-    if proof.leaf != input.nullifier {
-        return Err(ClientError::NullifierProofLeafMismatch { index });
-    }
-    if proof.merkle_context.tree != pda::tree(input.tree_id) {
-        return Err(ClientError::NullifierProofTreeMismatch { index });
-    }
-    if proof.path.len() != NULLIFIER_TREE_HEIGHT {
-        return Err(ClientError::ProofPathLength {
-            got: proof.path.len(),
-            expected: NULLIFIER_TREE_HEIGHT,
-        });
-    }
-    Ok(())
+    proof.check_leaf(&input.nullifier, &pda::tree(input.tree_id), index)
 }
 
 /// Attach the fetched Merkle proofs to the proof inputs positionally: each real

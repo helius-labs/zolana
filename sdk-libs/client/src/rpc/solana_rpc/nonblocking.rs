@@ -236,6 +236,17 @@ impl AsyncRpc for AsyncSolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
     }
 
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses_with_history(&signatures)
+            .await
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
+    }
+
     async fn health(&self) -> Result<(), ClientError> {
         self.client
             .get_health()

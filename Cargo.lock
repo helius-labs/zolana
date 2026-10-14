@@ -11729,6 +11729,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction",
+ "solana-transaction-error",
  "solana-transaction-status-client-types",
  "thiserror 2.0.20",
  "tokio",
