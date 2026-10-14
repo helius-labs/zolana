@@ -18,8 +18,9 @@ use jsonrpsee::{
     types::ErrorObjectOwned,
     RpcModule,
 };
+use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
-use tower::{Layer, Service};
+use tower::Service;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::{
@@ -29,9 +30,9 @@ use crate::{
         RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
         GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
     },
-    audit::{AuditRead, PageOptions},
-    hub::{Hub, ReadinessStatus},
-    limits::PublicRequest,
+    audit::{AuditRead, Page},
+    error::RingRpcError,
+    hub::{Hub, Lane, ReadinessStatus},
     origins::{OriginError, Origins},
     upstream::{DepositPage, TransactionSource},
 };
@@ -79,7 +80,13 @@ pub async fn run_server<S: TransactionSource + 'static>(
     let middleware = tower::ServiceBuilder::new()
         .layer(cors(hub.origins())?)
         .layer(tower::timeout::TimeoutLayer::new(options.request_timeout))
-        .layer(ReadyLayer { hub: hub.clone() })
+        .layer(tower::layer::layer_fn({
+            let hub = hub.clone();
+            move |inner| ReadyService {
+                inner,
+                hub: hub.clone(),
+            }
+        }))
         .layer(ProxyGetRequestLayer::new([("/health", HEALTH)])?);
     let server = ServerBuilder::default()
         .set_config(
@@ -115,134 +122,107 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     hub: Arc<Hub<S>>,
 ) -> Result<RpcModule<Arc<Hub<S>>>, RegisterMethodError> {
     let mut module = RpcModule::new(hub);
-
-    module.register_async_method(HEALTH, |_params, hub, _extensions| async move {
+    module.register_async_method(HEALTH, |_, hub, _| async move {
         Ok::<_, ErrorObjectOwned>(HealthResponse {
             mode: hub.mode(),
             service_pubkey: hub.service_pubkey().into(),
         })
     })?;
-
-    module.register_async_method(CREATE_AUDITOR_KEY, |params, hub, _extensions| async move {
-        let request = params.parse::<CreateAuditorKeyRequest>()?;
-        hub.accept_authentication()
-            .map_err(ErrorObjectOwned::from)?;
-        let _authentication = hub.authentication_slot().map_err(ErrorObjectOwned::from)?;
-        let ring = request.ring_program_id.0;
-        let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
-        service
-            .authorize_auditor_key(&request.auth)
-            .await
-            .map_err(ErrorObjectOwned::from)?;
-        let ring = service.ring();
-        let auditor_pubkey = service.auditor_pubkey();
-        let signature = hub.sign_attestation(&auditor_key_attestation(&ring, &auditor_pubkey));
-        Ok::<_, ErrorObjectOwned>(CreateAuditorKeyResponse {
-            ring_program_id: ring.into(),
-            auditor_pubkey: auditor_pubkey.into(),
-            auditor_view_tag: service.auditor_view_tag().into(),
-            service_pubkey: hub.service_pubkey().into(),
-            signature: signature.into(),
-        })
-    })?;
-
-    module.register_async_method(RING_DEPOSITS, |params, hub, _extensions| async move {
-        let request = params.parse::<RingDepositsRequest>()?;
-        let limit = request.page_limit();
-        let before = request.before().map_err(ErrorObjectOwned::from)?;
-        hub.validate_ring(request.ring_program_id.0)
-            .map_err(ErrorObjectOwned::from)?;
-        hub.accept_public(PublicRequest::DepositScan { signatures: limit })
-            .map_err(ErrorObjectOwned::from)?;
-        let _scan = hub.deposit_slot().map_err(ErrorObjectOwned::from)?;
-        let service = hub
-            .service_for(request.ring_program_id.0)
-            .map_err(ErrorObjectOwned::from)?;
-        let history = hub
-            .ring_deposits(DepositPage {
-                ring: service.ring(),
-                limit,
-                before,
+    method(
+        &mut module,
+        CREATE_AUDITOR_KEY,
+        |hub, request: CreateAuditorKeyRequest| async move {
+            let _slot = hub.admit(Lane::Authentication)?;
+            let service = hub.service(Some(request.ring_program_id.0))?;
+            service.authorize_auditor_key(&request.auth).await?;
+            let (ring, auditor_pubkey) = (service.ring(), service.auditor_pubkey());
+            let signature = hub.sign_attestation(&auditor_key_attestation(&ring, &auditor_pubkey));
+            Ok(CreateAuditorKeyResponse {
+                ring_program_id: ring.into(),
+                auditor_pubkey: auditor_pubkey.into(),
+                auditor_view_tag: service.auditor_view_tag().into(),
+                service_pubkey: hub.service_pubkey().into(),
+                signature: signature.into(),
             })
-            .await
-            .map_err(ErrorObjectOwned::from)?;
-        Ok::<_, ErrorObjectOwned>(RingDepositsResponse::from(history))
-    })?;
-
-    module.register_async_method(RING_STATUS, |params, hub, _extensions| async move {
-        let request = params.parse::<RingStatusRequest>()?;
-        hub.accept_public(PublicRequest::Standard)
-            .map_err(ErrorObjectOwned::from)?;
-        let ring = request.ring_program_id.0;
-        let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
-        let auditor_pubkey = service.auditor_pubkey();
-        let configured = service
-            .configured_auditor()
-            .await
-            .map_err(ErrorObjectOwned::from)?;
-        let state = match configured {
-            None => RingState::Uninitialized,
-            Some(key) if key == auditor_pubkey => RingState::Served,
-            Some(_) => RingState::ForeignAuditor,
-        };
-        Ok::<_, ErrorObjectOwned>(RingStatusResponse {
-            ring_program_id: service.ring().into(),
-            state,
-            config_auditor_pubkey: configured.map(Into::into),
-            service_pubkey: hub.service_pubkey().into(),
-        })
-    })?;
-
-    module.register_async_method(
-        GET_DECRYPTED_TRANSACTIONS,
-        |params, hub, _extensions| async move {
-            let request = params.parse::<GetDecryptedTransactionsRequest>()?;
-            hub.accept_authentication()
-                .map_err(ErrorObjectOwned::from)?;
-            let authentication = hub.authentication_slot().map_err(ErrorObjectOwned::from)?;
-            let service = match request.ring_program_id {
-                Some(ring) => hub.service_for(ring.0),
-                None => hub.service(),
-            }
-            .map_err(ErrorObjectOwned::from)?;
-            let mut page = PageOptions::default();
-            if let Some(cursor) = request.cursor {
-                page = page.with_cursor(cursor).map_err(ErrorObjectOwned::from)?;
-            }
-            if let Some(limit) = request.limit {
-                page = page.with_limit(limit).map_err(ErrorObjectOwned::from)?;
-            }
-            let page = page.build().map_err(ErrorObjectOwned::from)?;
-            let read = service
-                .authorize(AuditRead {
-                    auth: &request.auth,
-                    page: &page,
-                })
-                .await
-                .map_err(ErrorObjectOwned::from)?;
-            drop(authentication);
-            hub.accept_audit().map_err(ErrorObjectOwned::from)?;
-            let _slot = hub.read_slot().map_err(ErrorObjectOwned::from)?;
-            read.execute().await.map_err(ErrorObjectOwned::from)
         },
     )?;
-
+    method(
+        &mut module,
+        RING_DEPOSITS,
+        |hub, request: RingDepositsRequest| async move {
+            let (limit, before) = (request.page_limit(), request.before()?);
+            let ring = request.ring_program_id.0;
+            hub.validate_ring(ring)?;
+            let _scan = hub.admit(Lane::Deposits(limit))?;
+            let page = DepositPage {
+                ring,
+                limit,
+                before,
+            };
+            Ok(RingDepositsResponse::from(hub.ring_deposits(page).await?))
+        },
+    )?;
+    method(
+        &mut module,
+        RING_STATUS,
+        |hub, request: RingStatusRequest| async move {
+            hub.admit(Lane::Public)?;
+            let service = hub.service(Some(request.ring_program_id.0))?;
+            let configured = service.configured_auditor().await?;
+            let state = match configured {
+                None => RingState::Uninitialized,
+                Some(key) if key == service.auditor_pubkey() => RingState::Served,
+                Some(_) => RingState::ForeignAuditor,
+            };
+            Ok(RingStatusResponse {
+                ring_program_id: service.ring().into(),
+                state,
+                config_auditor_pubkey: configured.map(Into::into),
+                service_pubkey: hub.service_pubkey().into(),
+            })
+        },
+    )?;
+    method(
+        &mut module,
+        GET_DECRYPTED_TRANSACTIONS,
+        |hub, request: GetDecryptedTransactionsRequest| async move {
+            let authentication = hub.admit(Lane::Authentication)?;
+            let service = hub.service(request.ring_program_id.map(|ring| ring.0))?;
+            let page = Page::new(request.cursor, request.limit)?;
+            let auth = &request.auth;
+            let read = service.authorize(AuditRead { auth, page: &page }).await?;
+            // Decrypting holds a read slot, the authentication slot is free again.
+            drop(authentication);
+            let _slot = hub.admit(Lane::Read)?;
+            read.execute().await
+        },
+    )?;
     Ok(module)
 }
 
-struct ReadyLayer<S> {
-    hub: Arc<Hub<S>>,
-}
-
-impl<S, Inner> Layer<Inner> for ReadyLayer<S> {
-    type Service = ReadyService<S, Inner>;
-
-    fn layer(&self, inner: Inner) -> Self::Service {
-        ReadyService {
-            inner,
-            hub: self.hub.clone(),
+/// Every handler error becomes a JSON-RPC error through one conversion.
+fn method<S, P, T, F, Fut>(
+    module: &mut RpcModule<Arc<Hub<S>>>,
+    name: &'static str,
+    handler: F,
+) -> Result<(), RegisterMethodError>
+where
+    S: TransactionSource + 'static,
+    P: DeserializeOwned + Send + 'static,
+    T: Serialize + Clone + Send + 'static,
+    F: Fn(Arc<Hub<S>>, P) -> Fut + Clone + Send + Sync + 'static,
+    Fut: Future<Output = Result<T, RingRpcError>> + Send,
+{
+    module.register_async_method(name, move |params, hub, _| {
+        let handler = handler.clone();
+        async move {
+            let request = params.parse::<P>()?;
+            handler(Arc::clone(&*hub), request)
+                .await
+                .map_err(ErrorObjectOwned::from)
         }
-    }
+    })?;
+    Ok(())
 }
 
 struct ReadyService<S, Inner> {
@@ -278,30 +258,23 @@ where
     fn call(&mut self, request: HttpRequest<B>) -> Self::Future {
         if request.method() == Method::GET && request.uri().path() == "/ready" {
             let hub = self.hub.clone();
-            return Box::pin(async move { Ok(readiness(&hub).await) });
+            return Box::pin(async move {
+                let (status, body) = match hub.readiness().await {
+                    ReadinessStatus::Ready => (StatusCode::OK, "ready"),
+                    ReadinessStatus::Unavailable(check) => (StatusCode::SERVICE_UNAVAILABLE, check),
+                };
+                let mut response = hyper::Response::new(HttpBody::from(body));
+                *response.status_mut() = status;
+                response.headers_mut().insert(
+                    CONTENT_TYPE,
+                    hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+                );
+                Ok(response)
+            });
         }
         let future = self.inner.call(request);
         Box::pin(async move { future.await.map_err(Into::into) })
     }
-}
-
-async fn readiness<S: TransactionSource + 'static>(hub: &Arc<Hub<S>>) -> HttpResponse {
-    match hub.readiness().await {
-        ReadinessStatus::Ready => text_response(StatusCode::OK, "ready"),
-        ReadinessStatus::Unavailable(check) => {
-            text_response(StatusCode::SERVICE_UNAVAILABLE, check)
-        }
-    }
-}
-
-fn text_response(status: StatusCode, body: &'static str) -> HttpResponse {
-    let mut response = hyper::Response::new(HttpBody::from(body));
-    *response.status_mut() = status;
-    response.headers_mut().insert(
-        CONTENT_TYPE,
-        hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
-    );
-    response
 }
 
 #[cfg(test)]
@@ -704,49 +677,58 @@ mod tests {
     fn concurrent_reads_are_capped_and_refused_rather_than_queued() {
         let hub = hub(source(), Origins::default());
         let held = (0..MAX_CONCURRENT_READS)
-            .map(|_| hub.read_slot().expect("read slot"))
+            .map(|_| hub.admit(Lane::Read).expect("read slot"))
             .collect::<Vec<_>>();
 
-        assert!(matches!(hub.read_slot(), Err(RingRpcError::Busy)));
+        assert!(matches!(hub.admit(Lane::Read), Err(RingRpcError::Busy)));
         drop(held);
-        let _reopened = hub.read_slot().expect("released slot");
+        let _reopened = hub.admit(Lane::Read).expect("released slot");
     }
 
     #[test]
     fn concurrent_deposit_scans_are_capped() {
         let hub = hub(source(), Origins::default());
         let held = (0..MAX_CONCURRENT_DEPOSIT_SCANS)
-            .map(|_| hub.deposit_slot().expect("deposit slot"))
+            .map(|_| hub.admit(Lane::Deposits(1)).expect("deposit slot"))
             .collect::<Vec<_>>();
 
-        assert!(matches!(hub.deposit_slot(), Err(RingRpcError::Busy)));
+        assert!(matches!(
+            hub.admit(Lane::Deposits(1)),
+            Err(RingRpcError::Busy)
+        ));
         drop(held);
-        let _reopened = hub.deposit_slot().expect("released slot");
+        let _reopened = hub.admit(Lane::Deposits(1)).expect("released slot");
     }
 
     #[test]
     fn authentication_attempts_do_not_consume_audit_capacity() {
         let hub = hub(source(), Origins::default());
         for _ in 0..MAX_REQUEST_UNITS_PER_SECOND {
-            hub.accept_authentication().expect("authentication");
+            hub.admit(Lane::Authentication).expect("authentication");
         }
         assert!(matches!(
-            hub.accept_authentication(),
+            hub.admit(Lane::Authentication),
             Err(RingRpcError::Busy)
         ));
-        hub.accept_audit().expect("audit capacity");
+        hub.admit(Lane::Read).expect("audit capacity");
     }
 
     #[test]
     fn concurrent_authentication_attempts_are_capped() {
         let hub = hub(source(), Origins::default());
         let held = (0..MAX_CONCURRENT_AUTHENTICATIONS)
-            .map(|_| hub.authentication_slot().expect("authentication slot"))
+            .map(|_| {
+                hub.admit(Lane::Authentication)
+                    .expect("authentication slot")
+            })
             .collect::<Vec<_>>();
 
-        assert!(matches!(hub.authentication_slot(), Err(RingRpcError::Busy)));
+        assert!(matches!(
+            hub.admit(Lane::Authentication),
+            Err(RingRpcError::Busy)
+        ));
         drop(held);
-        let _reopened = hub.authentication_slot().expect("released slot");
+        let _reopened = hub.admit(Lane::Authentication).expect("released slot");
     }
 
     /// Every derived key is bound to the genesis hash captured at boot, so

@@ -357,7 +357,7 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
         .derived(RootSecret::from_bytes([7; 32])?)
         .map_err(|e| anyhow!("hub {e:?}"))?;
     let service = hub
-        .service_for(ring_program)
+        .service(Some(ring_program))
         .map_err(|e| anyhow!("service {e:?}"))?;
     let request = |authority: &Keypair, genesis: [u8; 32]| {
         CreateAuditorKeyRequest::for_ring(ring_program, genesis).sign(authority)

@@ -30,63 +30,41 @@ pub enum RingRpcError {
     Busy,
 }
 
+/// A client sees its own request errors, and only a generic message for a server fault.
 impl From<RingRpcError> for ErrorObjectOwned {
-    fn from(error: RingRpcError) -> Self {
-        match error {
-            RingRpcError::RingRequired
-            | RingRpcError::RingNotServed
-            | RingRpcError::InvalidPage
-            | RingRpcError::Unauthorized(_) => ErrorObjectOwned::owned(
-                ErrorCode::InvalidRequest.code(),
-                error.to_string(),
-                None::<()>,
-            ),
-            RingRpcError::Upstream(inner) => {
+    fn from(failure: RingRpcError) -> Self {
+        use RingRpcError::*;
+        let (code, message) = match &failure {
+            RingRequired | RingNotServed | InvalidPage | Unauthorized(_) => {
+                let message = failure.to_string();
+                return ErrorObjectOwned::owned(
+                    ErrorCode::InvalidRequest.code(),
+                    message,
+                    None::<()>,
+                );
+            }
+            Busy => (ErrorCode::ServerIsBusy, "audit service is busy"),
+            Upstream(inner) => {
                 error!("upstream request failed {inner}");
-                ErrorObjectOwned::owned(
-                    ErrorCode::InternalError.code(),
-                    "upstream request failed",
-                    None::<()>,
-                )
+                (ErrorCode::InternalError, "upstream request failed")
             }
-            RingRpcError::Origin(inner) => {
+            Origin(inner) => {
                 error!("transaction origin lookup failed {inner}");
-                ErrorObjectOwned::owned(
-                    ErrorCode::InternalError.code(),
-                    "upstream request failed",
-                    None::<()>,
-                )
+                (ErrorCode::InternalError, "upstream request failed")
             }
-            RingRpcError::InvalidIndexerResponse => {
+            InvalidIndexerResponse => {
                 error!("indexer returned data outside the audit bounds");
-                ErrorObjectOwned::owned(
-                    ErrorCode::InternalError.code(),
-                    "indexer response is invalid",
-                    None::<()>,
-                )
+                (ErrorCode::InternalError, "indexer response is invalid")
             }
-            RingRpcError::Derivation(inner) => {
-                let _ = inner;
+            Derivation(_) => {
                 error!("auditor key derivation failed");
-                ErrorObjectOwned::owned(
-                    ErrorCode::InternalError.code(),
-                    "auditor key is unavailable",
-                    None::<()>,
-                )
+                (ErrorCode::InternalError, "auditor key is unavailable")
             }
-            RingRpcError::StateUnavailable => {
+            StateUnavailable => {
                 error!("audit service state is unavailable");
-                ErrorObjectOwned::owned(
-                    ErrorCode::InternalError.code(),
-                    "audit service is unavailable",
-                    None::<()>,
-                )
+                (ErrorCode::InternalError, "audit service is unavailable")
             }
-            RingRpcError::Busy => ErrorObjectOwned::owned(
-                ErrorCode::ServerIsBusy.code(),
-                "audit service is busy",
-                None::<()>,
-            ),
-        }
+        };
+        ErrorObjectOwned::owned(code.code(), message, None::<()>)
     }
 }

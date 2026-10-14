@@ -22,15 +22,14 @@ use zolana_ring_client::{
     auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin, RingWithdrawal,
 };
 use zolana_ring_rpc::{
-    auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, Clock,
+    auditor_key_attestation, check_read, rpc_module, unix_now, Attestation, AuditRead, Clock,
     CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedWithdrawal, DepositHistory,
     DepositPage, DepositRecord, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation,
-    ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration,
-    RingDepositsRequest, RingDepositsResponse, RingRpcError, RingState, RingStatusRequest,
-    RingStatusResponse, RootSecret, SkippedReason, TransactionPage, TransactionSource,
-    Unauthorized, WebAuthnAssertion, AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
-    HEALTH, RING_DEPOSITS, RING_STATUS,
+    HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page, ReadAttestation, ReadAuth,
+    ReadBuildError, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
+    RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
+    RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
+    AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -192,42 +191,32 @@ fn auth<S: ReadSigner + ?Sized>(signer: &S) -> ReadAuth {
     signed_request(signer, RING, unix_now().expect("clock")).auth
 }
 
-fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<Claim, Unauthorized> {
+fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<ReaderKey, Unauthorized> {
     let nonce: &[u8; 32] = auth
         .nonce
         .0
         .as_slice()
         .try_into()
         .map_err(|_| Unauthorized::InvalidNonce)?;
-    ReadCheck::new(
-        auth,
-        &ReadAttestation {
-            ring: RING,
-            timestamp: auth.timestamp,
-            nonce,
-            cursor: None,
-            limit: None,
-        },
-    )
-    .at(unix_now().expect("clock"))
-    .against(origins)
-    .decide()
+    let attestation = ReadAttestation {
+        ring: RING,
+        cursor: None,
+        limit: None,
+    }
+    .message(auth.timestamp, nonce);
+    check_read(auth, &attestation, unix_now().expect("clock"), origins)
 }
 
 #[test]
 fn signatures_bind_the_reader_and_request() {
     let wallet = delegate();
     assert_eq!(
-        decide_now(&auth(&wallet), &origins())
-            .expect("wallet claim")
-            .reader_key(),
+        decide_now(&auth(&wallet), &origins()).expect("wallet claim"),
         ReaderKey::ed25519(wallet.pubkey()).expect("reader")
     );
     let passkey = Passkey::new(46);
     assert_eq!(
-        decide_now(&auth(&passkey), &origins())
-            .expect("passkey claim")
-            .reader_key(),
+        decide_now(&auth(&passkey), &origins()).expect("passkey claim"),
         ReaderKey::p256(passkey.pubkey()).expect("reader")
     );
 
@@ -661,13 +650,16 @@ impl Fixture {
 }
 
 fn page() -> Page {
-    PageOptions::default().build().expect("page")
+    Page::new(None, None).expect("page")
 }
 
 #[tokio::test]
 async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     let fixture = Fixture::new();
-    let service = fixture.hub(fixture.source()).service().expect("service");
+    let service = fixture
+        .hub(fixture.source())
+        .service(None)
+        .expect("service");
     let page = page();
     let request = auth(&delegate());
     let response = service
@@ -758,7 +750,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     );
     let unknown_transactions = source.transactions.clone();
     let reads = source.asset_reads.clone();
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let page = page();
     let ed25519 = auth(&delegate());
     let p256 = auth(&Passkey::new(46));
@@ -784,7 +776,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
         .with_transactions(unknown_transactions.clone());
     source.assets = None;
     let reads = source.asset_reads.clone();
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let first = auth(&delegate());
     assert!(service
         .read(AuditRead {
@@ -806,7 +798,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     let mut source = fixture.source().with_transactions(unknown_transactions);
     source.asset_delay = Some(Duration::from_secs(1));
     let reads = source.asset_reads.clone();
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let first = auth(&delegate());
     assert!(tokio::time::timeout(
         Duration::from_millis(1),
@@ -832,7 +824,10 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
 async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
     let fixture = Fixture::new();
     let page = page();
-    let service = fixture.hub(fixture.source()).service().expect("service");
+    let service = fixture
+        .hub(fixture.source())
+        .service(None)
+        .expect("service");
     for signer in [&delegate() as &dyn ReadSigner, &Passkey::new(46)] {
         let request = auth(signer);
         assert!(service
@@ -865,7 +860,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
             authority: authority().pubkey(),
         },
     );
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let request = auth(&delegate());
     assert!(matches!(
         service
@@ -885,7 +880,7 @@ async fn rows_outside_the_ring_are_dropped() {
     source
         .origins
         .insert((fixture.audited.tx_signature, 0), false);
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let page = page();
     let request = auth(&delegate());
     let response = service
@@ -910,7 +905,7 @@ async fn origin_cache_separates_event_ordinals_in_one_transaction() {
     let mut source = fixture.source();
     source.transactions = vec![first, second];
     source.origins = HashMap::from([((signature, 0), true), ((signature, 1), false)]);
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let page = page();
     let request = auth(&delegate());
     let response = service
@@ -931,7 +926,7 @@ async fn missing_event_index_fails_closed() {
     transaction.event_index = None;
     let mut source = fixture.source();
     source.transactions = vec![transaction];
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let page = page();
     let request = auth(&delegate());
 
@@ -951,7 +946,7 @@ async fn unknown_origins_fail_the_page() {
     let fixture = Fixture::new();
     let mut source = fixture.source();
     source.origins.remove(&(fixture.audited.tx_signature, 0));
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let page = page();
     let request = auth(&delegate());
     assert!(matches!(
@@ -968,7 +963,10 @@ async fn unknown_origins_fail_the_page() {
 #[tokio::test]
 async fn accepted_nonces_are_single_use() {
     let fixture = Fixture::new();
-    let service = fixture.hub(fixture.source()).service().expect("service");
+    let service = fixture
+        .hub(fixture.source())
+        .service(None)
+        .expect("service");
     let page = page();
     let request = auth(&delegate());
     assert!(service
@@ -1005,7 +1003,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     let source = fixture
         .source()
         .with_transactions(vec![fixture.audited.clone(); 101]);
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let request = auth(&signer);
     assert!(matches!(
         service
@@ -1020,7 +1018,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     for cursor in [Vec::new(), vec![1; 257]] {
         let mut source = fixture.source();
         source.next_cursor = Some(cursor);
-        let service = fixture.hub(source).service().expect("service");
+        let service = fixture.hub(source).service(None).expect("service");
         let request = auth(&signer);
         assert!(matches!(
             service
@@ -1035,12 +1033,8 @@ async fn indexer_pages_must_match_the_attested_bounds() {
 
     let mut source = fixture.source();
     source.next_cursor = Some(vec![8]);
-    let service = fixture.hub(source).service().expect("service");
-    let repeated_page = PageOptions::default()
-        .with_cursor(vec![8].into())
-        .expect("cursor")
-        .build()
-        .expect("page");
+    let service = fixture.hub(source).service(None).expect("service");
+    let repeated_page = Page::new(Some(vec![8].into()), None).expect("page");
     let request = GetDecryptedTransactionsRequest::read(RING)
         .with_cursor(vec![8].into())
         .expect("cursor")
@@ -1060,7 +1054,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     let mut source = fixture.source();
     source.transactions[0].nullifiers.push([2; 32]);
     source.transactions[0].output_slots = vec![source.transactions[0].output_slots[0].clone(); 17];
-    let service = fixture.hub(source).service().expect("service");
+    let service = fixture.hub(source).service(None).expect("service");
     let request = auth(&signer);
     assert!(matches!(
         service
@@ -1085,7 +1079,7 @@ fn request_builder_rejects_noncanonical_pages() {
         Err(ReadBuildError::Limit)
     ));
     assert!(matches!(
-        PageOptions::default().with_cursor(Vec::new().into()),
+        Page::new(Some(Vec::new().into()), None),
         Err(RingRpcError::InvalidPage)
     ));
 }
@@ -1149,7 +1143,7 @@ async fn authorize(
     hub: &Hub<StaticSource>,
     request: &CreateAuditorKeyRequest,
 ) -> Result<(), RingRpcError> {
-    hub.service_for(RING)
+    hub.service(Some(RING))
         .expect("service")
         .authorize_auditor_key(&request.auth)
         .await
@@ -1455,7 +1449,7 @@ async fn ring_status_reports_the_state_of_each_ring() {
             .derived(RootSecret::from_bytes([7; 32]).expect("root"))
             .expect("hub"),
     );
-    let derived = hub.service_for(served).expect("service").auditor_pubkey();
+    let derived = hub.service(Some(served)).expect("service").auditor_pubkey();
     let mut source = fixture.source();
     source.configs = HashMap::from([
         (
@@ -1525,8 +1519,14 @@ async fn two_rings_read_only_their_own_transactions() {
     let probe = hub_of(fixture.source());
     let ring_a = Address::new_from_array([1; 32]);
     let ring_b = Address::new_from_array([2; 32]);
-    let key_a = probe.service_for(ring_a).expect("ring a").auditor_pubkey();
-    let key_b = probe.service_for(ring_b).expect("ring b").auditor_pubkey();
+    let key_a = probe
+        .service(Some(ring_a))
+        .expect("ring a")
+        .auditor_pubkey();
+    let key_b = probe
+        .service(Some(ring_b))
+        .expect("ring b")
+        .auditor_pubkey();
     assert_ne!(key_a, key_b);
 
     let tx_a = ViewingKey::new();
@@ -1588,7 +1588,7 @@ async fn two_rings_read_only_their_own_transactions() {
     ] {
         let request = signed_request(&delegate(), ring, unix_now().expect("clock")).auth;
         let response = hub
-            .service_for(ring)
+            .service(Some(ring))
             .expect("service")
             .read(AuditRead {
                 auth: &request,
@@ -1623,7 +1623,7 @@ async fn a_ring_registered_with_another_auditor_stays_closed() {
         .with_origins(origins())
         .derived(RootSecret::from_bytes([7; 32]).expect("root"))
         .expect("hub");
-    let service = hub.service_for(ring).expect("service");
+    let service = hub.service(Some(ring)).expect("service");
     assert_ne!(service.auditor_pubkey(), fixture.auditor.pubkey());
 
     assert_eq!(
@@ -1631,7 +1631,7 @@ async fn a_ring_registered_with_another_auditor_stays_closed() {
         Some(fixture.auditor.pubkey())
     );
     assert_eq!(
-        hub.service_for(uninitialized)
+        hub.service(Some(uninitialized))
             .expect("service")
             .configured_auditor()
             .await
@@ -1668,14 +1668,14 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     let hub = Hub::builder(source, genesis_hash)
         .derived(root)
         .expect("hub");
-    let key_a = hub.service_for(ring_a).expect("ring a").auditor_pubkey();
-    let key_b = hub.service_for(ring_b).expect("ring b").auditor_pubkey();
+    let key_a = hub.service(Some(ring_a)).expect("ring a").auditor_pubkey();
+    let key_b = hub.service(Some(ring_b)).expect("ring b").auditor_pubkey();
     let other_genesis = Hub::builder(fixture.source(), [10; 32])
         .derived(RootSecret::from_bytes(root_bytes).expect("root"))
         .expect("hub");
     assert_ne!(
         other_genesis
-            .service_for(ring_a)
+            .service(Some(ring_a))
             .expect("ring a")
             .auditor_pubkey(),
         key_a
@@ -1693,10 +1693,13 @@ async fn derived_keys_are_ring_and_cluster_specific() {
         .derived(derivation_root)
         .expect("hub");
     assert_eq!(
-        second.service_for(ring_a).expect("ring a").auditor_pubkey(),
+        second
+            .service(Some(ring_a))
+            .expect("ring a")
+            .auditor_pubkey(),
         key_a
     );
-    assert!(matches!(hub.service(), Err(RingRpcError::RingRequired)));
+    assert!(matches!(hub.service(None), Err(RingRpcError::RingRequired)));
 
     let module = rpc_module(Arc::new(hub)).expect("module");
     let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");

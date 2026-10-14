@@ -4,28 +4,20 @@ use bytemuck::Pod;
 use custom_ring_interface::{
     ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
 };
-use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
-use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
+use solana_loader_v3_interface::get_program_data_address;
 use solana_rpc_client::{
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
 };
-use solana_rpc_client_api::{
-    config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
-    filter::RpcFilterType,
-};
 use solana_signature::Signature;
 use zolana_api::ZolanaApi;
 use zolana_client::{
-    AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
+    program_data, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
     GetShieldedTransactionsByTagsResponse,
 };
-use zolana_interface::{
-    is_reserved_p256_derivation_point, state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID,
-    SHIELDED_POOL_PROGRAM_ID,
-};
+use zolana_interface::{is_reserved_p256_derivation_point, BPF_LOADER_UPGRADEABLE_ID};
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::{
     ring_deposits_in, ConfirmedTransaction, OriginError, ReaderKey, RingOrigin,
@@ -33,10 +25,7 @@ use zolana_ring_client::{
 };
 use zolana_transaction::AssetRegistry;
 
-use crate::{
-    api::DepositRecord,
-    audit::{Page, MAX_ASSET_REGISTRY_ACCOUNTS},
-};
+use crate::{api::DepositRecord, audit::Page};
 
 pub trait TransactionSource: Send + Sync {
     fn transactions_by_tag(
@@ -277,14 +266,16 @@ impl TransactionSource for ChainSource {
     }
 
     async fn upgrade_authority(&self, program: Address) -> Result<Option<Address>, ClientError> {
+        let loader = Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
         let address = get_program_data_address(&program);
-        let Some(account) = self
-            .owned_account(address, Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID))
-            .await?
-        else {
+        let Some(account) = self.owned_account(address, loader).await? else {
             return Ok(None);
         };
-        ProgramDataAccount { account: &account }.upgrade_authority()
+        let data = program_data(&account)
+            .ok_or_else(|| ClientError::Rpc("program data account is invalid".to_owned()))?;
+        Ok(data
+            .upgrade_authority
+            .filter(|key| *key != Address::default()))
     }
 
     async fn reader_granted(&self, request: ReaderGrant) -> Result<bool, ClientError> {
@@ -312,36 +303,7 @@ impl TransactionSource for ChainSource {
     }
 
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
-        let program = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-        let accounts = self
-            .rpc
-            .client()
-            .get_program_ui_accounts_with_config(
-                &program,
-                RpcProgramAccountsConfig {
-                    filters: Some(vec![RpcFilterType::DataSize(SplAssetRegistry::SIZE as u64)]),
-                    account_config: RpcAccountInfoConfig {
-                        encoding: Some(UiAccountEncoding::Base64),
-                        commitment: Some(CommitmentConfig::confirmed()),
-                        ..RpcAccountInfoConfig::default()
-                    },
-                    ..RpcProgramAccountsConfig::default()
-                },
-            )
-            .await
-            .map_err(|_| ClientError::Rpc("asset registry request failed".to_owned()))?;
-        if accounts.len() > MAX_ASSET_REGISTRY_ACCOUNTS {
-            return Err(ClientError::Rpc(
-                "asset registry response is too large".to_owned(),
-            ));
-        }
-        let entries = accounts.into_iter().filter_map(|(_, account)| {
-            let account = account.to_account()?;
-            SplAssetRegistry::from_account_bytes(&account.data)
-                .ok()
-                .map(|registry| (registry.asset_id, registry.mint))
-        });
-        AssetRegistry::new(entries).map_err(ClientError::from)
+        self.rpc.asset_registry().await
     }
 }
 
@@ -372,29 +334,6 @@ impl ConfigAccount<'_> {
             auditor_pubkey,
             authority: config.authority,
         })
-    }
-}
-
-struct ProgramDataAccount<'a> {
-    account: &'a solana_account::Account,
-}
-
-impl ProgramDataAccount<'_> {
-    fn upgrade_authority(self) -> Result<Option<Address>, ClientError> {
-        let invalid = || ClientError::Rpc("program data account is invalid".to_owned());
-        let (state, _) = bincode::serde::decode_from_slice::<UpgradeableLoaderState, _>(
-            &self.account.data,
-            bincode::config::legacy(),
-        )
-        .map_err(|_| invalid())?;
-        let UpgradeableLoaderState::ProgramData {
-            upgrade_authority_address,
-            ..
-        } = state
-        else {
-            return Err(invalid());
-        };
-        Ok(upgrade_authority_address.filter(|key| *key != Address::default()))
     }
 }
 
@@ -483,58 +422,6 @@ mod tests {
         config.auditor_pubkey = key;
         config.bump = bump;
         account(ring, &config)
-    }
-
-    fn program_data(state: &UpgradeableLoaderState, owner: Address) -> Account {
-        Account {
-            lamports: 1,
-            data: bincode::serde::encode_to_vec(state, bincode::config::legacy()).expect("state"),
-            owner,
-            executable: false,
-            rent_epoch: 0,
-        }
-    }
-
-    #[test]
-    fn program_data_reports_the_upgrade_authority_or_none_when_immutable() {
-        let loader = Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
-        let authority = Address::new_from_array([6; 32]);
-        let upgradeable = program_data(
-            &UpgradeableLoaderState::ProgramData {
-                slot: 1,
-                upgrade_authority_address: Some(authority),
-            },
-            loader,
-        );
-        assert_eq!(
-            ProgramDataAccount {
-                account: &upgradeable
-            }
-            .upgrade_authority()
-            .expect("program data"),
-            Some(authority)
-        );
-        let immutable = program_data(
-            &UpgradeableLoaderState::ProgramData {
-                slot: 1,
-                upgrade_authority_address: None,
-            },
-            loader,
-        );
-        assert_eq!(
-            ProgramDataAccount {
-                account: &immutable
-            }
-            .upgrade_authority()
-            .expect("program data"),
-            None
-        );
-        let not_program_data = program_data(&UpgradeableLoaderState::Uninitialized, loader);
-        assert!(ProgramDataAccount {
-            account: &not_program_data
-        }
-        .upgrade_authority()
-        .is_err());
     }
 
     #[test]

@@ -10,59 +10,51 @@ const FLAG_USER_PRESENT: u8 = 0x01;
 const FLAG_USER_VERIFIED: u8 = 0x04;
 const AUTHENTICATOR_DATA_MIN: usize = 37;
 
-#[must_use]
-pub struct Verification<'a> {
-    pub assertion: &'a WebAuthnAssertion,
-    pub signature_der: &'a [u8],
-    pub pubkey: &'a P256Pubkey,
-    pub attestation: &'a [u8],
-    pub origins: &'a Origins,
-}
-
-impl Verification<'_> {
-    pub fn verify(self) -> Result<(), Unauthorized> {
-        let client: ClientData = serde_json::from_slice(&self.assertion.client_data_json.0)
-            .map_err(|_| Unauthorized::NotAnAssertion)?;
-        if client.kind != "webauthn.get" {
-            return Err(Unauthorized::NotAnAssertion);
-        }
-        if client.cross_origin || client.top_origin.is_some() {
-            return Err(Unauthorized::CrossOriginAssertion);
-        }
-        let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(self.attestation));
-        if client.challenge != expected {
-            return Err(Unauthorized::ChallengeMismatch);
-        }
-        if !self.origins.allows(client.origin) {
-            return Err(Unauthorized::OriginNotAllowed);
-        }
-        let relying_party_id = self
-            .origins
-            .relying_party_id()
-            .ok_or(Unauthorized::OriginNotAllowed)?;
-
-        let data = &self.assertion.authenticator_data.0;
-        if data.len() < AUTHENTICATOR_DATA_MIN {
-            return Err(Unauthorized::NotAnAssertion);
-        }
-        if data[..32] != Sha256::digest(relying_party_id)[..] {
-            return Err(Unauthorized::RelyingPartyMismatch);
-        }
-        let flags = data[32];
-        if flags & FLAG_USER_PRESENT == 0 || flags & FLAG_USER_VERIFIED == 0 {
-            return Err(Unauthorized::UserVerificationMissing);
-        }
-
-        let signature =
-            Signature::from_der(self.signature_der).map_err(|_| Unauthorized::BadSignature)?;
-        let key = VerifyingKey::from_sec1_bytes(self.pubkey.as_bytes())
-            .map_err(|_| Unauthorized::UnknownReaderKey)?;
-        let mut signed = Sha256::new();
-        signed.update(data);
-        signed.update(Sha256::digest(&self.assertion.client_data_json.0));
-        key.verify_prehash(&signed.finalize(), &signature)
-            .map_err(|_| Unauthorized::BadSignature)
+/// A passkey signs its authenticator data and the hash of client data whose challenge
+/// is the SHA-256 of the attestation.
+pub(crate) fn verify(
+    assertion: &WebAuthnAssertion,
+    signature_der: &[u8],
+    pubkey: &P256Pubkey,
+    attestation: &[u8],
+    origins: &Origins,
+) -> Result<(), Unauthorized> {
+    let client: ClientData = serde_json::from_slice(&assertion.client_data_json.0)
+        .map_err(|_| Unauthorized::NotAnAssertion)?;
+    if client.kind != "webauthn.get" {
+        return Err(Unauthorized::NotAnAssertion);
     }
+    if client.cross_origin || client.top_origin.is_some() {
+        return Err(Unauthorized::CrossOriginAssertion);
+    }
+    if client.challenge != URL_SAFE_NO_PAD.encode(Sha256::digest(attestation)) {
+        return Err(Unauthorized::ChallengeMismatch);
+    }
+    if !origins.allows(client.origin) {
+        return Err(Unauthorized::OriginNotAllowed);
+    }
+    let relying_party_id = origins
+        .relying_party_id()
+        .ok_or(Unauthorized::OriginNotAllowed)?;
+    let data = &assertion.authenticator_data.0;
+    if data.len() < AUTHENTICATOR_DATA_MIN {
+        return Err(Unauthorized::NotAnAssertion);
+    }
+    if data[..32] != Sha256::digest(relying_party_id)[..] {
+        return Err(Unauthorized::RelyingPartyMismatch);
+    }
+    if data[32] & FLAG_USER_PRESENT == 0 || data[32] & FLAG_USER_VERIFIED == 0 {
+        return Err(Unauthorized::UserVerificationMissing);
+    }
+    let signature = Signature::from_der(signature_der).map_err(|_| Unauthorized::BadSignature)?;
+    let key = VerifyingKey::from_sec1_bytes(pubkey.as_bytes())
+        .map_err(|_| Unauthorized::UnknownReaderKey)?;
+    let signed = Sha256::new()
+        .chain_update(data)
+        .chain_update(Sha256::digest(&assertion.client_data_json.0))
+        .finalize();
+    key.verify_prehash(&signed, &signature)
+        .map_err(|_| Unauthorized::BadSignature)
 }
 
 #[derive(Deserialize)]
@@ -117,18 +109,16 @@ mod tests {
             authenticator_data: authenticator_data.into(),
             client_data_json: client_data_json.into(),
         };
-        Verification {
-            assertion: &assertion,
-            signature_der: &[0; 8],
-            pubkey: &ViewingKey::new().pubkey(),
-            attestation: ATTESTATION,
-            origins: &origins(),
-        }
-        .verify()
+        super::verify(
+            &assertion,
+            &[0; 8],
+            &ViewingKey::new().pubkey(),
+            ATTESTATION,
+            &origins(),
+        )
     }
 
-    /// A registration assertion signs a different message, so accepting one
-    /// here would verify a signature the reader never made over a read.
+    /// A registration assertion signs another message, which the reader never made over a read.
     #[test]
     fn client_data_that_is_not_a_get_assertion_is_refused() {
         for json in [
@@ -143,8 +133,7 @@ mod tests {
         }
     }
 
-    /// The relying party hash and the flag byte are read at fixed offsets, so
-    /// the length gate is what keeps a short assertion from being indexed.
+    /// The length gate keeps the fixed offsets of the relying party hash and flags in bounds.
     #[test]
     fn authenticator_data_shorter_than_its_fixed_header_is_refused() {
         assert_eq!(

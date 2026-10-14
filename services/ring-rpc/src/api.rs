@@ -22,8 +22,7 @@ pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
 pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 
-/// The one cursor rule, shared by the request builder, the page options and
-/// the indexer response check.
+/// One cursor rule for the request builder, the page and the indexer response check.
 pub(crate) fn cursor_in_bounds(cursor: &[u8]) -> bool {
     !cursor.is_empty() && cursor.len() <= AUDIT_CURSOR_LIMIT
 }
@@ -55,25 +54,8 @@ pub struct AuthorityAuth {
     pub genesis_hash: Hash,
     pub timestamp: u64,
     pub nonce: Base64String,
-    /// Raw Ed25519 over `AuditorKeyAttestation::bytes`.
+    /// Raw Ed25519 over the `AuditorKeyAttestation` message.
     pub signature: Base64String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use]
-pub(crate) struct AuditorKeyAttestation<'a> {
-    pub genesis_hash: &'a [u8; 32],
-    pub ring: Address,
-    pub timestamp: u64,
-    pub nonce: &'a [u8; 32],
-}
-
-#[must_use]
-pub struct AuditorKeyRequest {
-    ring: Address,
-    genesis_hash: [u8; 32],
-    timestamp: Option<u64>,
-    nonce: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,8 +80,7 @@ pub struct RingDepositsRequest {
     pub cursor: Option<Base64String>,
 }
 
-/// Value entering the ring. A deposit publishes its asset and amount, so this
-/// needs no auditor key.
+/// A deposit publishes its asset and amount, so this needs no auditor key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DepositRecord {
@@ -118,8 +99,7 @@ pub struct RingDepositsResponse {
     /// Absent once the ring has no older history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<Base64String>,
-    /// Slot of the oldest signature examined, absent when the page examined
-    /// nothing.
+    /// Slot of the oldest signature examined, absent when the page examined nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oldest_slot: Option<u64>,
 }
@@ -162,8 +142,7 @@ pub struct RingStatusRequest {
     pub ring_program_id: SerializablePubkey,
 }
 
-/// Unsigned, so it never carries the key this service holds, only the one the
-/// chain already publishes.
+/// Unsigned, so it carries only the key the chain already publishes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingStatusResponse {
@@ -180,14 +159,14 @@ pub struct RingStatusResponse {
 pub enum RingState {
     /// The config names this service's key, reads work.
     Served,
-    /// The config names another auditor, and it cannot change, so this service
-    /// can never open the ring.
+    /// The config names another auditor for good, so this service never opens the ring.
     ForeignAuditor,
     /// No config yet, so `init` is free to pin this service's key.
     Uninitialized,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "Base64String", into = "Base64String")]
 pub struct AuditorPubkey(P256Pubkey);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,25 +237,6 @@ pub enum ReadBuildError {
     Limit,
 }
 
-#[must_use]
-pub struct ReadRequest {
-    ring: Address,
-    cursor: Option<Base64String>,
-    limit: Option<Limit>,
-    timestamp: Option<u64>,
-    nonce: [u8; 32],
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use]
-pub struct ReadAttestation<'a> {
-    pub ring: Address,
-    pub timestamp: u64,
-    pub nonce: &'a [u8; 32],
-    pub cursor: Option<&'a [u8]>,
-    pub limit: Option<Limit>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetDecryptedTransactionsResponse {
@@ -302,8 +262,7 @@ pub struct DecryptedTransaction {
     pub outputs: Vec<DecryptedOutput>,
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,
-    /// Required signers, fee payer first. The sender is the one matching an
-    /// output owner tag.
+    /// Required signers, fee payer first. The sender matches an output owner tag.
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
@@ -348,8 +307,7 @@ pub struct DecryptedSpendCounter {
 pub struct DecryptedOutput {
     pub slot_index: u32,
     pub recipient_viewing_pk: Base64String,
-    /// The output slot's owner tag. Base58 of it is the Solana address of an
-    /// Ed25519 or PDA owner.
+    /// Base58 of it is the Solana address of an Ed25519 or PDA owner.
     pub owner_tag: Hash,
     pub asset: SerializablePubkey,
     pub amount: u64,
@@ -372,6 +330,8 @@ pub enum SkippedReason {
 }
 
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
+const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
+const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
 
 pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
     [
@@ -380,6 +340,171 @@ pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256P
         auditor_pubkey.as_bytes(),
     ]
     .concat()
+}
+
+/// What a signed request covers, besides its timestamp and nonce.
+pub trait Attestation {
+    fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadAttestation {
+    pub ring: Address,
+    pub cursor: Option<Base64String>,
+    pub limit: Option<Limit>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditorKeyAttestation {
+    pub ring: Address,
+    pub genesis_hash: [u8; 32],
+}
+
+#[must_use]
+pub struct SignedRequest<A> {
+    attestation: A,
+    timestamp: Option<u64>,
+    nonce: [u8; 32],
+}
+
+pub type ReadRequest = SignedRequest<ReadAttestation>;
+pub type AuditorKeyRequest = SignedRequest<AuditorKeyAttestation>;
+
+impl Attestation for ReadAttestation {
+    fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8> {
+        let cursor = self.cursor.as_ref().map_or(&[][..], |cursor| &cursor.0);
+        format!(
+            "{READ_DOMAIN}\nring: {}\ntimestamp: {timestamp}\nnonce: {}\nlimit: {}\ncursor: {}",
+            self.ring,
+            base64(nonce),
+            self.limit.as_ref().map_or(0, Limit::value),
+            base64(cursor),
+        )
+        .into_bytes()
+    }
+}
+
+impl Attestation for AuditorKeyAttestation {
+    fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8> {
+        format!(
+            "{AUDITOR_KEY_REQUEST_DOMAIN}\ngenesis: {}\nring: {}\ntimestamp: {timestamp}\nnonce: {}",
+            Hash(self.genesis_hash).to_base58(),
+            self.ring,
+            base64(nonce),
+        )
+        .into_bytes()
+    }
+}
+
+impl<A: Attestation> SignedRequest<A> {
+    pub fn new(attestation: A) -> Self {
+        let mut nonce = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        Self {
+            attestation,
+            timestamp: None,
+            nonce,
+        }
+    }
+
+    pub fn at(mut self, timestamp: u64) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+
+    fn message(&self) -> Result<(u64, Vec<u8>), RequestBuildError> {
+        let timestamp = self.timestamp.map_or_else(unix_now, Ok)?;
+        Ok((timestamp, self.attestation.message(timestamp, &self.nonce)))
+    }
+}
+
+impl ReadRequest {
+    pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, ReadBuildError> {
+        if !cursor_in_bounds(&cursor.0) {
+            return Err(ReadBuildError::Cursor);
+        }
+        self.attestation.cursor = Some(cursor);
+        Ok(self)
+    }
+
+    pub fn with_limit(mut self, limit: Limit) -> Result<Self, ReadBuildError> {
+        if !limit_in_bounds(&limit) {
+            return Err(ReadBuildError::Limit);
+        }
+        self.attestation.limit = Some(limit);
+        Ok(self)
+    }
+
+    pub fn sign<S: ReadSigner + ?Sized>(
+        self,
+        signer: &S,
+    ) -> Result<GetDecryptedTransactionsRequest, ReadBuildError> {
+        let (timestamp, message) = self.message()?;
+        let (signature, webauthn) = match signer.sign(&message)? {
+            ReadSignature::Ed25519(raw) => (raw.to_vec(), None),
+            ReadSignature::WebAuthn {
+                signature_der,
+                assertion,
+            } => (signature_der, Some(assertion)),
+        };
+        let ReadAttestation {
+            ring,
+            cursor,
+            limit,
+        } = self.attestation;
+        Ok(GetDecryptedTransactionsRequest {
+            ring_program_id: Some(ring.to_bytes().into()),
+            cursor,
+            limit,
+            auth: ReadAuth {
+                reader: signer.reader()?.to_bytes().to_vec().into(),
+                timestamp,
+                nonce: self.nonce.to_vec().into(),
+                signature: signature.into(),
+                webauthn,
+            },
+        })
+    }
+}
+
+impl AuditorKeyRequest {
+    pub fn sign<S: Signer + ?Sized>(
+        self,
+        authority: &S,
+    ) -> Result<CreateAuditorKeyRequest, RequestBuildError> {
+        let (timestamp, message) = self.message()?;
+        let signature = authority
+            .try_sign_message(&message)
+            .map_err(RequestBuildError::Signature)?;
+        let AuditorKeyAttestation { ring, genesis_hash } = self.attestation;
+        Ok(CreateAuditorKeyRequest {
+            ring_program_id: ring.to_bytes().into(),
+            auth: AuthorityAuth {
+                authority: authority.pubkey().to_bytes().into(),
+                genesis_hash: Hash(genesis_hash),
+                timestamp,
+                nonce: self.nonce.to_vec().into(),
+                signature: signature.as_ref().to_vec().into(),
+            },
+        })
+    }
+}
+
+impl GetDecryptedTransactionsRequest {
+    pub fn read(ring: Address) -> ReadRequest {
+        SignedRequest::new(ReadAttestation {
+            ring,
+            cursor: None,
+            limit: None,
+        })
+    }
+}
+
+impl CreateAuditorKeyRequest {
+    /// `genesis_hash` names the cluster, a signature never carries over to another one.
+    pub fn for_ring(ring: Address, genesis_hash: [u8; 32]) -> AuditorKeyRequest {
+        SignedRequest::new(AuditorKeyAttestation { ring, genesis_hash })
+    }
 }
 
 impl AuditorPubkey {
@@ -394,22 +519,23 @@ impl From<P256Pubkey> for AuditorPubkey {
     }
 }
 
-impl Serialize for AuditorPubkey {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        Base64String(self.0.as_bytes().to_vec()).serialize(serializer)
+impl From<AuditorPubkey> for Base64String {
+    fn from(key: AuditorPubkey) -> Self {
+        Self(key.0.as_bytes().to_vec())
     }
 }
 
-impl<'de> Deserialize<'de> for AuditorPubkey {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let encoded = Base64String::deserialize(deserializer)?;
+impl TryFrom<Base64String> for AuditorPubkey {
+    type Error = &'static str;
+
+    fn try_from(encoded: Base64String) -> Result<Self, Self::Error> {
         let bytes = encoded
             .0
             .try_into()
-            .map_err(|_| serde::de::Error::custom("auditor public key length is invalid"))?;
+            .map_err(|_| "auditor public key length is invalid")?;
         P256Pubkey::from_bytes(bytes)
             .map(Self)
-            .map_err(|_| serde::de::Error::custom("auditor public key is invalid"))
+            .map_err(|_| "auditor public key is invalid")
     }
 }
 
@@ -421,123 +547,7 @@ impl<T: Signer + ?Sized> ReadSigner for T {
     fn sign(&self, attestation: &[u8]) -> Result<ReadSignature, ReadBuildError> {
         self.try_sign_message(attestation)
             .map(|signature| ReadSignature::Ed25519(*signature.as_array()))
-            .map_err(RequestBuildError::Signature)
-            .map_err(Into::into)
-    }
-}
-
-impl GetDecryptedTransactionsRequest {
-    pub fn read(ring: Address) -> ReadRequest {
-        ReadRequest {
-            ring,
-            cursor: None,
-            limit: None,
-            timestamp: None,
-            nonce: fresh_nonce(),
-        }
-    }
-}
-
-impl ReadRequest {
-    pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, ReadBuildError> {
-        if !cursor_in_bounds(&cursor.0) {
-            return Err(ReadBuildError::Cursor);
-        }
-        self.cursor = Some(cursor);
-        Ok(self)
-    }
-
-    pub fn with_limit(mut self, limit: Limit) -> Result<Self, ReadBuildError> {
-        if !limit_in_bounds(&limit) {
-            return Err(ReadBuildError::Limit);
-        }
-        self.limit = Some(limit);
-        Ok(self)
-    }
-
-    pub fn at(mut self, timestamp: u64) -> Self {
-        self.timestamp = Some(timestamp);
-        self
-    }
-
-    pub fn sign<S: ReadSigner + ?Sized>(
-        self,
-        signer: &S,
-    ) -> Result<GetDecryptedTransactionsRequest, ReadBuildError> {
-        let timestamp = self.timestamp.map_or_else(unix_now, Ok)?;
-        let attestation = ReadAttestation {
-            ring: self.ring,
-            timestamp,
-            nonce: &self.nonce,
-            cursor: self.cursor.as_ref().map(|cursor| cursor.0.as_slice()),
-            limit: self.limit.clone(),
-        }
-        .bytes();
-        let (signature, webauthn) = match signer.sign(&attestation)? {
-            ReadSignature::Ed25519(raw) => (raw.to_vec(), None),
-            ReadSignature::WebAuthn {
-                signature_der,
-                assertion,
-            } => (signature_der, Some(assertion)),
-        };
-        Ok(GetDecryptedTransactionsRequest {
-            ring_program_id: Some(self.ring.to_bytes().into()),
-            cursor: self.cursor,
-            limit: self.limit,
-            auth: ReadAuth {
-                reader: signer.reader()?.to_bytes().to_vec().into(),
-                timestamp,
-                nonce: self.nonce.to_vec().into(),
-                signature: signature.into(),
-                webauthn,
-            },
-        })
-    }
-}
-
-impl CreateAuditorKeyRequest {
-    /// `genesis_hash` names the cluster, a signature never carries over to another one.
-    pub fn for_ring(ring: Address, genesis_hash: [u8; 32]) -> AuditorKeyRequest {
-        AuditorKeyRequest {
-            ring,
-            genesis_hash,
-            timestamp: None,
-            nonce: fresh_nonce(),
-        }
-    }
-}
-
-impl AuditorKeyRequest {
-    pub fn at(mut self, timestamp: u64) -> Self {
-        self.timestamp = Some(timestamp);
-        self
-    }
-
-    pub fn sign<S: Signer + ?Sized>(
-        self,
-        authority: &S,
-    ) -> Result<CreateAuditorKeyRequest, RequestBuildError> {
-        let timestamp = self.timestamp.map_or_else(unix_now, Ok)?;
-        let attestation = AuditorKeyAttestation {
-            genesis_hash: &self.genesis_hash,
-            ring: self.ring,
-            timestamp,
-            nonce: &self.nonce,
-        }
-        .bytes();
-        let signature = authority
-            .try_sign_message(&attestation)
-            .map_err(RequestBuildError::Signature)?;
-        Ok(CreateAuditorKeyRequest {
-            ring_program_id: self.ring.to_bytes().into(),
-            auth: AuthorityAuth {
-                authority: authority.pubkey().to_bytes().into(),
-                genesis_hash: Hash(self.genesis_hash),
-                timestamp,
-                nonce: self.nonce.to_vec().into(),
-                signature: signature.as_ref().to_vec().into(),
-            },
-        })
+            .map_err(|error| RequestBuildError::Signature(error).into())
     }
 }
 
@@ -546,42 +556,6 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
         .map_err(|_| RequestBuildError::Clock)
-}
-
-const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
-const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
-
-impl ReadAttestation<'_> {
-    pub fn bytes(&self) -> Vec<u8> {
-        format!(
-            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\ncursor: {}",
-            self.ring,
-            self.timestamp,
-            base64(self.nonce),
-            self.limit.as_ref().map_or(0, Limit::value),
-            base64(self.cursor.unwrap_or_default()),
-        )
-        .into_bytes()
-    }
-}
-
-impl AuditorKeyAttestation<'_> {
-    pub fn bytes(&self) -> Vec<u8> {
-        format!(
-            "{AUDITOR_KEY_REQUEST_DOMAIN}\ngenesis: {}\nring: {}\ntimestamp: {}\nnonce: {}",
-            Hash(*self.genesis_hash).to_base58(),
-            self.ring,
-            self.timestamp,
-            base64(self.nonce),
-        )
-        .into_bytes()
-    }
-}
-
-fn fresh_nonce() -> [u8; 32] {
-    let mut nonce = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut nonce);
-    nonce
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -596,12 +570,10 @@ mod tests {
     #[test]
     fn auditor_key_request_attestation_is_stable() {
         let attestation = AuditorKeyAttestation {
-            genesis_hash: &[9; 32],
+            genesis_hash: [9; 32],
             ring: Address::new_from_array([5; 32]),
-            timestamp: 1_700_000_000,
-            nonce: &[7; 32],
         }
-        .bytes();
+        .message(1_700_000_000, &[7; 32]);
         assert_eq!(
             String::from_utf8(attestation).expect("utf8"),
             "zolana/ring-rpc-auditor-key-request/v1\n\
@@ -620,8 +592,7 @@ mod tests {
         }
     }
 
-    /// `Limit` cannot hold zero, so the smallest audit page the wire can carry
-    /// is one.
+    /// `Limit` cannot hold zero, so the smallest audit page the wire carries is one.
     #[test]
     fn an_audit_page_holds_at_its_cursor_and_limit_bounds() {
         assert!(!cursor_in_bounds(&[]));
@@ -637,8 +608,7 @@ mod tests {
         ));
     }
 
-    /// The deposits limit counts signatures examined, so it is clamped into
-    /// range rather than refused.
+    /// The deposits limit counts signatures examined, so it is clamped, never refused.
     #[test]
     fn a_deposits_page_clamps_its_limit_into_range() {
         for (limit, expected) in [
@@ -656,8 +626,7 @@ mod tests {
         }
     }
 
-    /// The deposits cursor is a Solana signature, a different rule from the
-    /// opaque audit cursor.
+    /// The deposits cursor is a Solana signature, unlike the opaque audit cursor.
     #[test]
     fn a_deposits_cursor_is_exactly_one_signature() {
         assert_eq!(
@@ -682,12 +651,10 @@ mod tests {
     fn read_attestation_is_stable() {
         let message = ReadAttestation {
             ring: Address::new_from_array([7; 32]),
-            timestamp: 1_700_000_000,
-            nonce: &[4; 32],
-            cursor: Some(&[1, 2, 3]),
+            cursor: Some(vec![1, 2, 3].into()),
             limit: Some(Limit::new(5).expect("in range")),
         }
-        .bytes();
+        .message(1_700_000_000, &[4; 32]);
         assert_eq!(
             String::from_utf8(message).expect("text"),
             "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"

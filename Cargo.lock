@@ -12031,7 +12031,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "bincode 2.0.1",
  "bytemuck",
  "clap",
  "custom-ring-interface",
@@ -12039,7 +12038,6 @@ dependencies = [
  "hkdf",
  "hyper 1.11.1",
  "jsonrpsee",
- "libc",
  "log",
  "p256 0.13.2",
  "psl",
@@ -12049,13 +12047,11 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "solana-account 4.3.2",
- "solana-account-decoder-client-types",
  "solana-address 2.6.1",
  "solana-commitment-config",
  "solana-keypair",
  "solana-loader-v3-interface 8.0.1",
  "solana-rpc-client",
- "solana-rpc-client-api",
  "solana-signature",
  "solana-signer",
  "thiserror 2.0.20",
@@ -12070,6 +12066,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-secret-file",
  "zolana-transaction",
 ]
 

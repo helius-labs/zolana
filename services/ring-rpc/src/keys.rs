@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
-use zolana_keypair::ViewingKey;
+use zolana_keypair::{KeypairError, ViewingKey};
 
 use crate::{config::RootSecret, error::RingRpcError};
 
@@ -17,48 +17,37 @@ pub enum KeyMode {
 const DERIVATION_INFO: &[u8] = b"zolana/ring-auditor/v1";
 const SERVICE_KEY_INFO: &[u8] = b"zolana/ring-rpc-service/v1";
 
-/// The cluster and ring bind each auditor key.
-#[must_use]
-pub(crate) struct AuditorKeyDerivation<'a> {
-    pub root: &'a RootSecret,
-    pub genesis_hash: &'a [u8; 32],
-    pub ring: Address,
+pub(crate) enum KeySource {
+    Local { ring: Address, auditor: ViewingKey },
+    Derived(RootSecret),
 }
 
-impl AuditorKeyDerivation<'_> {
-    pub fn derive(self) -> Result<ViewingKey, RingRpcError> {
-        let mut info = Vec::with_capacity(
-            DERIVATION_INFO.len() + self.genesis_hash.len() + self.ring.as_ref().len() + 1,
-        );
-        info.extend_from_slice(DERIVATION_INFO);
-        info.extend_from_slice(self.genesis_hash);
-        info.extend_from_slice(self.ring.as_ref());
-        info.push(0);
-        let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, self.root.as_bytes());
-        for counter in 0..=u8::MAX {
-            *info.last_mut().ok_or(zolana_keypair::KeypairError::Hkdf)? = counter;
-            let mut secret = Zeroizing::new([0u8; 32]);
-            hkdf.expand(&info, secret.as_mut_slice())
-                .map_err(|_| zolana_keypair::KeypairError::Hkdf)?;
-            if let Ok(key) = ViewingKey::from_bytes(&secret) {
-                return Ok(key);
-            }
+/// The cluster and ring bind each key. A counter byte retries an expansion that is no scalar.
+pub(crate) fn derive_auditor_key(
+    root: &RootSecret,
+    genesis_hash: &[u8; 32],
+    ring: Address,
+) -> Result<ViewingKey, RingRpcError> {
+    let mut info = [DERIVATION_INFO, genesis_hash, ring.as_ref(), &[0]].concat();
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, root.as_bytes());
+    for counter in 0..=u8::MAX {
+        *info.last_mut().ok_or(KeypairError::Hkdf)? = counter;
+        let mut secret = Zeroizing::new([0u8; 32]);
+        hkdf.expand(&info, secret.as_mut_slice())
+            .map_err(|_| KeypairError::Hkdf)?;
+        if let Ok(key) = ViewingKey::from_bytes(&secret) {
+            return Ok(key);
         }
-        Err(zolana_keypair::KeypairError::ZeroScalar.into())
     }
+    Err(KeypairError::ZeroScalar.into())
 }
 
 pub(crate) fn service_keypair(secret: &[u8]) -> Result<Keypair, RingRpcError> {
     let mut seed = Zeroizing::new([0u8; 32]);
     hkdf::Hkdf::<sha2::Sha256>::new(None, secret)
         .expand(SERVICE_KEY_INFO, seed.as_mut_slice())
-        .map_err(|_| zolana_keypair::KeypairError::Hkdf)?;
+        .map_err(|_| KeypairError::Hkdf)?;
     Ok(Keypair::new_from_array(*seed))
-}
-
-pub(crate) enum KeySource {
-    Local { ring: Address, auditor: ViewingKey },
-    Derived(RootSecret),
 }
 
 #[cfg(test)]
@@ -67,18 +56,12 @@ mod tests {
 
     use super::*;
 
-    /// The ring config pins its auditor key on chain forever, so a change to
-    /// the derivation domain orphans every ring already registered.
+    /// The ring config pins its auditor key forever, so a new derivation domain orphans every ring.
     #[test]
     fn derived_keys_are_pinned_to_their_derivation_domain() {
         let root = RootSecret::from_bytes([7; 32]).expect("root secret");
-        let auditor = AuditorKeyDerivation {
-            root: &root,
-            genesis_hash: &[9; 32],
-            ring: Address::new_from_array([5; 32]),
-        }
-        .derive()
-        .expect("auditor key");
+        let auditor = derive_auditor_key(&root, &[9; 32], Address::new_from_array([5; 32]))
+            .expect("auditor key");
 
         assert_eq!(
             hex::encode(auditor.pubkey().as_bytes()),

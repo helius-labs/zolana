@@ -13,21 +13,22 @@ mod upstream;
 mod webauthn;
 
 pub use api::{
-    auditor_key_attestation, unix_now, AuditorKeyRequest, AuditorPubkey, AuthorityAuth,
-    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedOutput, DecryptedSpendCounter,
-    DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
-    DepositRecord, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    HealthResponse, ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature,
-    ReadSigner, RequestBuildError, RingDepositsRequest, RingDepositsResponse, RingState,
-    RingStatusRequest, RingStatusResponse, SkippedReason, SkippedTransaction, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    auditor_key_attestation, unix_now, Attestation, AuditorKeyAttestation, AuditorKeyRequest,
+    AuditorPubkey, AuthorityAuth, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+    DecryptedOutput, DecryptedSpendCounter, DecryptedSpendRecord, DecryptedTransaction,
+    DecryptedTransactionsPage, DecryptedWithdrawal, DepositRecord, GetDecryptedTransactionsRequest,
+    GetDecryptedTransactionsResponse, HealthResponse, ReadAttestation, ReadAuth, ReadBuildError,
+    ReadRequest, ReadSignature, ReadSigner, RequestBuildError, RingDepositsRequest,
+    RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse, SignedRequest,
+    SkippedReason, SkippedTransaction, WebAuthnAssertion, CREATE_AUDITOR_KEY,
+    GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
-pub use audit::{AuditRead, AuditService, Page, PageOptions};
-pub use authorize::{Claim, ReadCheck, Unauthorized, AUTH_SKEW};
+pub use audit::{AuditRead, AuditService, Page};
+pub use authorize::{check_read, Unauthorized, AUTH_SKEW};
 pub use config::{
     public_key_path, read_auditor_pubkey, write_auditor_key, write_auditor_pubkey,
-    write_root_secret, Cli, Command, FileMode, KeyAccess, KeyFile, KeyFileError, KeyKind,
-    KeygenArgs, RootSecret, RootSecretError, ServeArgs,
+    write_root_secret, Cli, Command, KeyAccess, KeyFile, KeyFileError, KeyKind, KeygenArgs,
+    RootSecret, RootSecretError, ServeArgs,
 };
 pub use error::RingRpcError;
 pub use hub::{Clock, Hub, HubBuilder, NotReady};

@@ -18,16 +18,14 @@ pub(crate) struct ReplayCheck {
 }
 
 impl ReplayGuard {
-    /// The nonce set only. `authorize` owns the skew rule and hands the same
-    /// clock reading here for the eviction window.
+    /// `now` is the reading the skew rule used, it also sets the eviction window.
     pub(crate) fn accept(&self, check: ReplayCheck) -> Result<(), Unauthorized> {
         let mut rings = self.0.lock().map_err(|_| Unauthorized::Replay)?;
         let accepted = rings.entry(check.ring).or_default();
         accepted.retain(|_, timestamp| check.now.abs_diff(*timestamp) <= AUTH_SKEW.as_secs());
-        if accepted.len() >= MAX_REPLAY_ENTRIES {
-            return Err(Unauthorized::Replay);
-        }
-        if accepted.insert(check.nonce, check.timestamp).is_some() {
+        if accepted.len() >= MAX_REPLAY_ENTRIES
+            || accepted.insert(check.nonce, check.timestamp).is_some()
+        {
             return Err(Unauthorized::Replay);
         }
         Ok(())

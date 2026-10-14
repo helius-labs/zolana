@@ -6,7 +6,7 @@ use log::info;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
     public_key_path, run_server, write_auditor_key, write_root_secret, ChainSource, Cli, Command,
-    Hub, KeyAccess, KeyFile, KeyKind, KeyMode, KeygenArgs, OriginPolicy, ServeArgs, ServerOptions,
+    Hub, KeyFile, KeyKind, KeyMode, KeygenArgs, OriginPolicy, ServeArgs, ServerOptions,
     TransactionSource, Upstreams,
 };
 
@@ -64,6 +64,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         request_timeout: args.request_timeout(),
     };
     let origin_transport = args.origin_transport();
+    let access = args.key_access();
     let mut origin_policy = OriginPolicy::new(args.allow_origins).with_transport(origin_transport);
     if let Some(relying_party_id) = args.webauthn_rp_id {
         origin_policy = origin_policy.with_relying_party_id(relying_party_id);
@@ -74,29 +75,15 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             let ring = args
                 .ring_program_id
                 .ok_or_else(|| anyhow::anyhow!("--ring-program-id must name the served ring"))?;
-            let auditor = KeyFile {
-                path,
-                access: if args.allow_shared_key_file {
-                    KeyAccess::Shared
-                } else {
-                    KeyAccess::OwnerOnly
-                },
-            }
-            .auditor_key()
-            .with_context(|| format!("loading {}", path.display()))?;
+            let auditor = KeyFile { path, access }
+                .auditor_key()
+                .with_context(|| format!("loading {}", path.display()))?;
             builder.local(ring, auditor)?
         }
         (None, Some(path)) => {
-            let root = KeyFile {
-                path,
-                access: if args.allow_shared_key_file {
-                    KeyAccess::Shared
-                } else {
-                    KeyAccess::OwnerOnly
-                },
-            }
-            .root_secret()
-            .with_context(|| format!("loading {}", path.display()))?;
+            let root = KeyFile { path, access }
+                .root_secret()
+                .with_context(|| format!("loading {}", path.display()))?;
             builder.derived(root)?
         }
         _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),
