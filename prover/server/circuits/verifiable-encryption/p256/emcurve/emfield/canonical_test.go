@@ -50,7 +50,7 @@ func canonicalModulusGapRejectsForgery(t *testing.T, config Config) {
 	}
 	forged := solver.OverrideHint(solver.GetHintID(modulusGapHint), func(q *big.Int, inputs, outputs []*big.Int) error {
 		gap := new(big.Int).Sub(pow2(256), big.NewInt(1))
-		rest := LookupLayout.writePieces(outputs, gap, LookupLayout.reducedWidths(256))
+		rest := P256Layout.writePieces(outputs, gap, P256Layout.reducedWidths(256))
 		rest[0].SetUint64(1)
 		return nil
 	})

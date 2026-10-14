@@ -169,8 +169,8 @@ func TestCRTSquareFrontendDifferential(t *testing.T) {
 
 func TestCRTQuadraticSquaresMatchFold(t *testing.T) {
 	q := ecc.BN254.ScalarField()
-	s := newArithmeticState(&Field{layout: LookupLayout, mod: p256P})
-	f := &Field{layout: LookupLayout, mod: p256P, arithmetic: s}
+	s := newArithmeticState(&Field{config: Config{Layout: P256Layout}, mod: p256P})
+	f := &Field{config: Config{Layout: P256Layout}, mod: p256P, arithmetic: s}
 	b := s.crtBasis(f, q)
 	if len(b.squareLeft) != 10 || len(b.squareRight) != 10 {
 		t.Fatalf("square products %d/%d, want 10", len(b.squareLeft), len(b.squareRight))

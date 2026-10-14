@@ -36,7 +36,7 @@ func TestFpBytesAreCanonical(t *testing.T) {
 	if shifted.BitLen() > 256 {
 		t.Fatalf("x + p must fit 256 bits for the test to mean anything")
 	}
-	circuit := &fpBytesCircuit{Limbs: make([]frontend.Variable, emfield.LookupLayout.NbLimbs)}
+	circuit := &fpBytesCircuit{Limbs: make([]frontend.Variable, emfield.P256Layout.NbLimbs)}
 	assert.ProverSucceeded(circuit, fpBytesWitness(x, x), test.WithCurves(ecc.BN254))
 	assert.ProverFailed(circuit, fpBytesWitness(shifted, x), test.WithCurves(ecc.BN254))
 	assert.ProverFailed(circuit, fpBytesWitness(shifted, shifted), test.WithCurves(ecc.BN254))
@@ -44,7 +44,7 @@ func TestFpBytesAreCanonical(t *testing.T) {
 
 // Invariant 2: Canonical limb checks accept values below the modulus and reject values at or above it.
 func TestLimbsBelowModulus(t *testing.T) {
-	cs := compile(t, &belowModulusCircuit{Limbs: make([]frontend.Variable, emfield.LookupLayout.NbLimbs)})
+	cs := compile(t, &belowModulusCircuit{Limbs: make([]frontend.Variable, emfield.P256Layout.NbLimbs)})
 	p := emulated.P256Fp{}.Modulus()
 	for _, row := range []struct {
 		value  *big.Int
@@ -362,4 +362,19 @@ func assertCircuitResult(t *testing.T, cs constraint.ConstraintSystem, w fronten
 	if err != nil && !strings.Contains(err.Error(), "is not satisfied") {
 		t.Fatalf("not a constraint rejection: %v", err)
 	}
+}
+
+func PointOnCurve(api frontend.API, publicKey [65]frontend.Variable) {
+	c := newCurve(api)
+	c.assertOnCurve(c.parseKey(publicKey))
+}
+
+func ScalarMulGenerator(api frontend.API, scalar [32]frontend.Variable) [65]frontend.Variable {
+	c := newCurve(api)
+	publicPoint := c.scalarMulBase(c.parseScalar(scalar))
+	var encodedPoint [65]frontend.Variable
+	encodedPoint[0] = frontend.Variable(0x04)
+	copy(encodedPoint[1:33], c.toBytes(publicPoint.X))
+	copy(encodedPoint[33:65], c.toBytes(publicPoint.Y))
+	return encodedPoint
 }

@@ -26,7 +26,7 @@ type Layout struct {
 	PieceBits int
 }
 
-var LookupLayout = Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}
+var P256Layout = Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}
 
 func (l Layout) header() []frontend.Variable {
 	return []frontend.Variable{l.NbLimbs, l.LimbBits, l.PieceBits}

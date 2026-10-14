@@ -16,21 +16,6 @@ func GroupOrder() *big.Int {
 	return new(big.Int).Set(emulated.P256Fr{}.Modulus())
 }
 
-func PointOnCurve(api frontend.API, publicKey [65]frontend.Variable) {
-	c := newCurve(api)
-	c.assertOnCurve(c.parseKey(publicKey))
-}
-
-func ScalarMulGenerator(api frontend.API, scalar [32]frontend.Variable) [65]frontend.Variable {
-	c := newCurve(api)
-	publicPoint := c.scalarMulBase(c.parseScalar(scalar))
-	var encodedPoint [65]frontend.Variable
-	encodedPoint[0] = frontend.Variable(0x04)
-	copy(encodedPoint[1:33], c.toBytes(publicPoint.X))
-	copy(encodedPoint[33:65], c.toBytes(publicPoint.Y))
-	return encodedPoint
-}
-
 func ScalarMul(api frontend.API, scalar [32]frontend.Variable, pointBytes [65]frontend.Variable) [65]frontend.Variable {
 	c := newCurve(api)
 	inputPoint := c.parseKey(pointBytes)

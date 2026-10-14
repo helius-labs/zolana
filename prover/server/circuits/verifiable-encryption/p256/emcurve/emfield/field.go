@@ -36,8 +36,7 @@ type Element struct {
 
 type Field struct {
 	api          frontend.API
-	layout       Layout
-	version      Arithmetic
+	config       Config
 	mod          *big.Int
 	modulusBits  int
 	widths       []int
@@ -64,7 +63,7 @@ type Config struct {
 	Arithmetic Arithmetic
 }
 
-var LookupConfig = Config{Layout: LookupLayout, Arithmetic: ArithmeticV1}
+var P256Config = Config{Layout: P256Layout, Arithmetic: ArithmeticV1}
 
 type fieldKey struct {
 	mod    string
@@ -72,7 +71,7 @@ type fieldKey struct {
 }
 
 func New(api frontend.API, modulus *big.Int) *Field {
-	return NewFor(api, modulus, LookupConfig)
+	return NewFor(api, modulus, P256Config)
 }
 
 func NewFor(api frontend.API, modulus *big.Int, config Config) *Field {
@@ -84,8 +83,7 @@ func NewFor(api frontend.API, modulus *big.Int, config Config) *Field {
 	}
 	f := &Field{
 		api:         api,
-		layout:      layout,
-		version:     config.Arithmetic,
+		config:      config,
 		mod:         new(big.Int).Set(modulus),
 		modulusBits: modulus.BitLen(),
 		widths:      layout.reducedWidths(modulus.BitLen()),
@@ -98,7 +96,7 @@ func NewFor(api frontend.API, modulus *big.Int, config Config) *Field {
 }
 
 func (f *Field) Layout() Layout {
-	return f.layout
+	return f.config.Layout
 }
 
 func (f *Field) Modulus() *big.Int {
@@ -133,8 +131,8 @@ func (l Layout) recompose(limbs []*big.Int) *big.Int {
 
 func (f *Field) Const(v *big.Int) *Element {
 	r := new(big.Int).Mod(v, f.mod)
-	limbs := f.layout.decompose(r, f.layout.NbLimbs)
-	e := &Element{limbs: make([]frontend.Variable, f.layout.NbLimbs), lo: limbs, hi: limbs, valueMin: r, valueMax: r}
+	limbs := f.config.Layout.decompose(r, f.config.Layout.NbLimbs)
+	e := &Element{limbs: make([]frontend.Variable, f.config.Layout.NbLimbs), lo: limbs, hi: limbs, valueMin: r, valueMax: r}
 	for i := range limbs {
 		e.limbs[i] = limbs[i]
 	}
@@ -151,7 +149,7 @@ func (f *Field) Bounded(limbs []frontend.Variable, widths []int) *Element {
 	for i, w := range widths {
 		e.lo[i] = new(big.Int)
 		e.hi[i] = new(big.Int).Sub(pow2(w), big.NewInt(1))
-		total = i*f.layout.LimbBits + w
+		total = i*f.config.Layout.LimbBits + w
 	}
 	e.valueMin = new(big.Int)
 	e.valueMax = new(big.Int).Sub(pow2(total), big.NewInt(1))
@@ -167,8 +165,8 @@ func (f *Field) WithBounds(limbs []frontend.Variable, lo, hi []*big.Int) *Elemen
 		if lo[i].Cmp(hi[i]) > 0 {
 			panic("empty limb interval")
 		}
-		e.valueMin.Add(e.valueMin, new(big.Int).Lsh(lo[i], uint(f.layout.LimbBits*i)))
-		e.valueMax.Add(e.valueMax, new(big.Int).Lsh(hi[i], uint(f.layout.LimbBits*i)))
+		e.valueMin.Add(e.valueMin, new(big.Int).Lsh(lo[i], uint(f.config.Layout.LimbBits*i)))
+		e.valueMax.Add(e.valueMax, new(big.Int).Lsh(hi[i], uint(f.config.Layout.LimbBits*i)))
 	}
 	return e
 }
@@ -193,7 +191,7 @@ func (f *Field) FromLimbs(limbs []frontend.Variable) *Element {
 func (f *Field) fromPieces(pieces []frontend.Variable, widths []int) (*Element, []frontend.Variable) {
 	limbs := make([]frontend.Variable, len(widths))
 	for i, limbWidth := range widths {
-		pieceCount := f.layout.nbPieces(limbWidth)
+		pieceCount := f.config.Layout.nbPieces(limbWidth)
 		limbs[i] = f.rc.Compose(pieces[:pieceCount], limbWidth)
 		pieces = pieces[pieceCount:]
 	}
@@ -308,7 +306,7 @@ func absMax(lo, hi *big.Int) *big.Int {
 }
 
 func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []frontend.Variable {
-	inputs := f.layout.header()
+	inputs := f.config.Layout.header()
 	for _, l := range f.modulusLimbs {
 		inputs = append(inputs, l)
 	}
@@ -322,7 +320,7 @@ func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []fron
 }
 
 func (f *Field) Hint(fn func(*big.Int, []*big.Int, []*big.Int) error, nbOutputs int, natives []frontend.Variable, elems ...*Element) []*Element {
-	piecesPerElement := f.layout.nbPiecesAll(f.widths)
+	piecesPerElement := f.config.Layout.nbPiecesAll(f.widths)
 	pieces, err := f.api.Compiler().NewHint(fn, nbOutputs*piecesPerElement, f.hintInputs(natives, elems)...)
 	if err != nil {
 		panic(fmt.Sprintf("field hint: %v", err))

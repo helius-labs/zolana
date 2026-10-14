@@ -169,11 +169,6 @@ func (c *curve) guardedAdd(p, q *point) *point {
 	return c.add(p, q)
 }
 
-func (c *curve) guardedAddReducing(p, q *point, reduceX, reduceY bool) *point {
-	c.assertDistinctX(p.X, q.X)
-	return c.addReducing(p, q, reduceX, reduceY)
-}
-
 func (c *curve) scalarFromBits(bits []frontend.Variable) *frElement {
 	var limbs []frontend.Variable
 	var widths []int

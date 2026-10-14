@@ -1,6 +1,6 @@
 import VerifiableEncryption.Circuit.Prelude
 import VerifiableEncryption.Circuit.Field
-import VerifiableEncryption.Circuit.Field6
+import VerifiableEncryption.Circuit.Field2
 import VerifiableEncryption.Circuit.Curve
 import VerifiableEncryption.Circuit.Aes
 import VerifiableEncryption.Circuit.Kdf
@@ -44,8 +44,8 @@ def GuardedAdd_8_8_8_8_8_8 (PX: List.Vector F 8) (PY: List.Vector F 8) (QX: List
     Gates.eq ((gate_1.get (1 : Fin 2)).get (7 : Fin 8)) (RY.get (7 : Fin 8)) ∧
     True
 
-def NativeSlopeGuard_8 (Lambda: List.Vector F 8) (Other: F): Prop :=
-    AssertDistinctSlope_8_hf8ff5ddf Lambda Other ∧
+def LadderOutputGuard_8_8 (ChordSlope: List.Vector F 8) (SecondSlope: List.Vector F 8): Prop :=
+    AssertLadderOutputDistinct_8_8_ha0b05675 ChordSlope SecondSlope ∧
     True
 
 def AgreeKey_32_65_6_p1 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vector F 65) (Packed: List.Vector F 6) (gate_72: F) (gate_80: F) (gate_88: F) (gate_96: F) (gate_104: F) (gate_112: F) (gate_120: F) (gate_128: F) (gate_136: F) (gate_144: F) (gate_152: F) (gate_160: F) (gate_168: F) (gate_176: F) (gate_184: F) (gate_192: F) (gate_198: F) (gate_199: F): Prop :=
@@ -441,148 +441,124 @@ def AgreeKey_32_65_6 (EphemeralSk: List.Vector F 32) (RecipientPk: List.Vector F
     ∃gate_199, gate_199 = Gates.mul (0:F) (256:F) ∧
     AgreeKey_32_65_6_p1 EphemeralSk RecipientPk Packed gate_72 gate_80 gate_88 gate_96 gate_104 gate_112 gate_120 gate_128 gate_136 gate_144 gate_152 gate_160 gate_168 gate_176 gate_184 gate_192 gate_198 gate_199
 
-def DerivePublicKey_32_32_p1 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F) (Hi: F) (gate_188: List.Vector (List.Vector F 8) 2) (gate_192: List.Vector F 4) (gate_199: F): Prop :=
-    ∃gate_200, gate_200 = Gates.add gate_199 (gate_192.get (1 : Fin 4)) ∧
-    ∃gate_201, gate_201 = Gates.mul gate_200 (256:F) ∧
-    ∃gate_202, gate_202 = Gates.add gate_201 (gate_192.get (2 : Fin 4)) ∧
+def DerivePublicKey_32_32_p1 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F) (Hi: F) (gate_164: List.Vector (List.Vector F 8) 2) (gate_168: List.Vector F 4) (gate_182: List.Vector F 4) (gate_196: List.Vector F 4): Prop :=
+    RangeCheck 8 (gate_196.get (3 : Fin 4)) ∧
+    ∃gate_201, gate_201 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_202, gate_202 = Gates.add gate_201 (gate_196.get (0 : Fin 4)) ∧
     ∃gate_203, gate_203 = Gates.mul gate_202 (256:F) ∧
-    ∃gate_204, gate_204 = Gates.add gate_203 (gate_192.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (7 : Fin 8)) gate_204 ∧
-    ∃gate_206 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_206.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_206.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_206.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_206.get (3 : Fin 4)) ∧
-    ∃gate_211, gate_211 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_212, gate_212 = Gates.add gate_211 (gate_206.get (0 : Fin 4)) ∧
-    ∃gate_213, gate_213 = Gates.mul gate_212 (256:F) ∧
-    ∃gate_214, gate_214 = Gates.add gate_213 (gate_206.get (1 : Fin 4)) ∧
-    ∃gate_215, gate_215 = Gates.mul gate_214 (256:F) ∧
-    ∃gate_216, gate_216 = Gates.add gate_215 (gate_206.get (2 : Fin 4)) ∧
+    ∃gate_204, gate_204 = Gates.add gate_203 (gate_196.get (1 : Fin 4)) ∧
+    ∃gate_205, gate_205 = Gates.mul gate_204 (256:F) ∧
+    ∃gate_206, gate_206 = Gates.add gate_205 (gate_196.get (2 : Fin 4)) ∧
+    ∃gate_207, gate_207 = Gates.mul gate_206 (256:F) ∧
+    ∃gate_208, gate_208 = Gates.add gate_207 (gate_196.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (5 : Fin 8)) gate_208 ∧
+    ∃gate_210 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_210.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_210.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_210.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_210.get (3 : Fin 4)) ∧
+    ∃gate_215, gate_215 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_216, gate_216 = Gates.add gate_215 (gate_210.get (0 : Fin 4)) ∧
     ∃gate_217, gate_217 = Gates.mul gate_216 (256:F) ∧
-    ∃gate_218, gate_218 = Gates.add gate_217 (gate_206.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (6 : Fin 8)) gate_218 ∧
-    ∃gate_220 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_220.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_220.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_220.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_220.get (3 : Fin 4)) ∧
-    ∃gate_225, gate_225 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_226, gate_226 = Gates.add gate_225 (gate_220.get (0 : Fin 4)) ∧
-    ∃gate_227, gate_227 = Gates.mul gate_226 (256:F) ∧
-    ∃gate_228, gate_228 = Gates.add gate_227 (gate_220.get (1 : Fin 4)) ∧
-    ∃gate_229, gate_229 = Gates.mul gate_228 (256:F) ∧
-    ∃gate_230, gate_230 = Gates.add gate_229 (gate_220.get (2 : Fin 4)) ∧
+    ∃gate_218, gate_218 = Gates.add gate_217 (gate_210.get (1 : Fin 4)) ∧
+    ∃gate_219, gate_219 = Gates.mul gate_218 (256:F) ∧
+    ∃gate_220, gate_220 = Gates.add gate_219 (gate_210.get (2 : Fin 4)) ∧
+    ∃gate_221, gate_221 = Gates.mul gate_220 (256:F) ∧
+    ∃gate_222, gate_222 = Gates.add gate_221 (gate_210.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (4 : Fin 8)) gate_222 ∧
+    ∃gate_224 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_224.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_224.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_224.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_224.get (3 : Fin 4)) ∧
+    ∃gate_229, gate_229 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_230, gate_230 = Gates.add gate_229 (gate_224.get (0 : Fin 4)) ∧
     ∃gate_231, gate_231 = Gates.mul gate_230 (256:F) ∧
-    ∃gate_232, gate_232 = Gates.add gate_231 (gate_220.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (5 : Fin 8)) gate_232 ∧
-    ∃gate_234 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_234.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_234.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_234.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_234.get (3 : Fin 4)) ∧
-    ∃gate_239, gate_239 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_240, gate_240 = Gates.add gate_239 (gate_234.get (0 : Fin 4)) ∧
-    ∃gate_241, gate_241 = Gates.mul gate_240 (256:F) ∧
-    ∃gate_242, gate_242 = Gates.add gate_241 (gate_234.get (1 : Fin 4)) ∧
-    ∃gate_243, gate_243 = Gates.mul gate_242 (256:F) ∧
-    ∃gate_244, gate_244 = Gates.add gate_243 (gate_234.get (2 : Fin 4)) ∧
+    ∃gate_232, gate_232 = Gates.add gate_231 (gate_224.get (1 : Fin 4)) ∧
+    ∃gate_233, gate_233 = Gates.mul gate_232 (256:F) ∧
+    ∃gate_234, gate_234 = Gates.add gate_233 (gate_224.get (2 : Fin 4)) ∧
+    ∃gate_235, gate_235 = Gates.mul gate_234 (256:F) ∧
+    ∃gate_236, gate_236 = Gates.add gate_235 (gate_224.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (3 : Fin 8)) gate_236 ∧
+    ∃gate_238 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_238.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_238.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_238.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_238.get (3 : Fin 4)) ∧
+    ∃gate_243, gate_243 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_244, gate_244 = Gates.add gate_243 (gate_238.get (0 : Fin 4)) ∧
     ∃gate_245, gate_245 = Gates.mul gate_244 (256:F) ∧
-    ∃gate_246, gate_246 = Gates.add gate_245 (gate_234.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (4 : Fin 8)) gate_246 ∧
-    ∃gate_248 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_248.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_248.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_248.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_248.get (3 : Fin 4)) ∧
-    ∃gate_253, gate_253 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_254, gate_254 = Gates.add gate_253 (gate_248.get (0 : Fin 4)) ∧
-    ∃gate_255, gate_255 = Gates.mul gate_254 (256:F) ∧
-    ∃gate_256, gate_256 = Gates.add gate_255 (gate_248.get (1 : Fin 4)) ∧
-    ∃gate_257, gate_257 = Gates.mul gate_256 (256:F) ∧
-    ∃gate_258, gate_258 = Gates.add gate_257 (gate_248.get (2 : Fin 4)) ∧
+    ∃gate_246, gate_246 = Gates.add gate_245 (gate_238.get (1 : Fin 4)) ∧
+    ∃gate_247, gate_247 = Gates.mul gate_246 (256:F) ∧
+    ∃gate_248, gate_248 = Gates.add gate_247 (gate_238.get (2 : Fin 4)) ∧
+    ∃gate_249, gate_249 = Gates.mul gate_248 (256:F) ∧
+    ∃gate_250, gate_250 = Gates.add gate_249 (gate_238.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (2 : Fin 8)) gate_250 ∧
+    ∃gate_252 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_252.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_252.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_252.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_252.get (3 : Fin 4)) ∧
+    ∃gate_257, gate_257 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_258, gate_258 = Gates.add gate_257 (gate_252.get (0 : Fin 4)) ∧
     ∃gate_259, gate_259 = Gates.mul gate_258 (256:F) ∧
-    ∃gate_260, gate_260 = Gates.add gate_259 (gate_248.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (3 : Fin 8)) gate_260 ∧
-    ∃gate_262 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_262.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_262.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_262.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_262.get (3 : Fin 4)) ∧
-    ∃gate_267, gate_267 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_268, gate_268 = Gates.add gate_267 (gate_262.get (0 : Fin 4)) ∧
-    ∃gate_269, gate_269 = Gates.mul gate_268 (256:F) ∧
-    ∃gate_270, gate_270 = Gates.add gate_269 (gate_262.get (1 : Fin 4)) ∧
-    ∃gate_271, gate_271 = Gates.mul gate_270 (256:F) ∧
-    ∃gate_272, gate_272 = Gates.add gate_271 (gate_262.get (2 : Fin 4)) ∧
+    ∃gate_260, gate_260 = Gates.add gate_259 (gate_252.get (1 : Fin 4)) ∧
+    ∃gate_261, gate_261 = Gates.mul gate_260 (256:F) ∧
+    ∃gate_262, gate_262 = Gates.add gate_261 (gate_252.get (2 : Fin 4)) ∧
+    ∃gate_263, gate_263 = Gates.mul gate_262 (256:F) ∧
+    ∃gate_264, gate_264 = Gates.add gate_263 (gate_252.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (1 : Fin 8)) gate_264 ∧
+    ∃gate_266 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_266.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_266.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_266.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_266.get (3 : Fin 4)) ∧
+    ∃gate_271, gate_271 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_272, gate_272 = Gates.add gate_271 (gate_266.get (0 : Fin 4)) ∧
     ∃gate_273, gate_273 = Gates.mul gate_272 (256:F) ∧
-    ∃gate_274, gate_274 = Gates.add gate_273 (gate_262.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (2 : Fin 8)) gate_274 ∧
-    ∃gate_276 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_276.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_276.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_276.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_276.get (3 : Fin 4)) ∧
-    ∃gate_281, gate_281 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_282, gate_282 = Gates.add gate_281 (gate_276.get (0 : Fin 4)) ∧
-    ∃gate_283, gate_283 = Gates.mul gate_282 (256:F) ∧
-    ∃gate_284, gate_284 = Gates.add gate_283 (gate_276.get (1 : Fin 4)) ∧
-    ∃gate_285, gate_285 = Gates.mul gate_284 (256:F) ∧
-    ∃gate_286, gate_286 = Gates.add gate_285 (gate_276.get (2 : Fin 4)) ∧
-    ∃gate_287, gate_287 = Gates.mul gate_286 (256:F) ∧
-    ∃gate_288, gate_288 = Gates.add gate_287 (gate_276.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (1 : Fin 8)) gate_288 ∧
-    ∃gate_290 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_290.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_290.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_290.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_290.get (3 : Fin 4)) ∧
-    ∃gate_295, gate_295 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_296, gate_296 = Gates.add gate_295 (gate_290.get (0 : Fin 4)) ∧
-    ∃gate_297, gate_297 = Gates.mul gate_296 (256:F) ∧
-    ∃gate_298, gate_298 = Gates.add gate_297 (gate_290.get (1 : Fin 4)) ∧
-    ∃gate_299, gate_299 = Gates.mul gate_298 (256:F) ∧
-    ∃gate_300, gate_300 = Gates.add gate_299 (gate_290.get (2 : Fin 4)) ∧
-    ∃gate_301, gate_301 = Gates.mul gate_300 (256:F) ∧
-    ∃gate_302, gate_302 = Gates.add gate_301 (gate_290.get (3 : Fin 4)) ∧
-    Gates.eq ((gate_188.get (0 : Fin 2)).get (0 : Fin 8)) gate_302 ∧
-    CompressedPacking_8_8_32 (gate_188.get (0 : Fin 2)) (gate_188.get (1 : Fin 2)) fun gate_304 =>
-    Gates.eq (gate_304.get (0 : Fin 2)) Lo ∧
-    Gates.eq (gate_304.get (1 : Fin 2)) Hi ∧
-    SplitLowBits_1_32 ((gate_188.get (1 : Fin 2)).get (0 : Fin 8)) fun gate_307 =>
-    ∃_ignored_, _ignored_ = Gates.add (2:F) (gate_307.get (1 : Fin 2)) ∧
-    Gates.eq (gate_192.get (0 : Fin 4)) (X.get (0 : Fin 32)) ∧
-    Gates.eq (gate_192.get (1 : Fin 4)) (X.get (1 : Fin 32)) ∧
-    Gates.eq (gate_192.get (2 : Fin 4)) (X.get (2 : Fin 32)) ∧
-    Gates.eq (gate_192.get (3 : Fin 4)) (X.get (3 : Fin 32)) ∧
-    Gates.eq (gate_206.get (0 : Fin 4)) (X.get (4 : Fin 32)) ∧
-    Gates.eq (gate_206.get (1 : Fin 4)) (X.get (5 : Fin 32)) ∧
-    Gates.eq (gate_206.get (2 : Fin 4)) (X.get (6 : Fin 32)) ∧
-    Gates.eq (gate_206.get (3 : Fin 4)) (X.get (7 : Fin 32)) ∧
-    Gates.eq (gate_220.get (0 : Fin 4)) (X.get (8 : Fin 32)) ∧
-    Gates.eq (gate_220.get (1 : Fin 4)) (X.get (9 : Fin 32)) ∧
-    Gates.eq (gate_220.get (2 : Fin 4)) (X.get (10 : Fin 32)) ∧
-    Gates.eq (gate_220.get (3 : Fin 4)) (X.get (11 : Fin 32)) ∧
-    Gates.eq (gate_234.get (0 : Fin 4)) (X.get (12 : Fin 32)) ∧
-    Gates.eq (gate_234.get (1 : Fin 4)) (X.get (13 : Fin 32)) ∧
-    Gates.eq (gate_234.get (2 : Fin 4)) (X.get (14 : Fin 32)) ∧
-    Gates.eq (gate_234.get (3 : Fin 4)) (X.get (15 : Fin 32)) ∧
-    Gates.eq (gate_248.get (0 : Fin 4)) (X.get (16 : Fin 32)) ∧
-    Gates.eq (gate_248.get (1 : Fin 4)) (X.get (17 : Fin 32)) ∧
-    Gates.eq (gate_248.get (2 : Fin 4)) (X.get (18 : Fin 32)) ∧
-    Gates.eq (gate_248.get (3 : Fin 4)) (X.get (19 : Fin 32)) ∧
-    Gates.eq (gate_262.get (0 : Fin 4)) (X.get (20 : Fin 32)) ∧
-    Gates.eq (gate_262.get (1 : Fin 4)) (X.get (21 : Fin 32)) ∧
-    Gates.eq (gate_262.get (2 : Fin 4)) (X.get (22 : Fin 32)) ∧
-    Gates.eq (gate_262.get (3 : Fin 4)) (X.get (23 : Fin 32)) ∧
-    Gates.eq (gate_276.get (0 : Fin 4)) (X.get (24 : Fin 32)) ∧
-    Gates.eq (gate_276.get (1 : Fin 4)) (X.get (25 : Fin 32)) ∧
-    Gates.eq (gate_276.get (2 : Fin 4)) (X.get (26 : Fin 32)) ∧
-    Gates.eq (gate_276.get (3 : Fin 4)) (X.get (27 : Fin 32)) ∧
-    Gates.eq (gate_290.get (0 : Fin 4)) (X.get (28 : Fin 32)) ∧
-    Gates.eq (gate_290.get (1 : Fin 4)) (X.get (29 : Fin 32)) ∧
-    Gates.eq (gate_290.get (2 : Fin 4)) (X.get (30 : Fin 32)) ∧
-    Gates.eq (gate_290.get (3 : Fin 4)) (X.get (31 : Fin 32)) ∧
+    ∃gate_274, gate_274 = Gates.add gate_273 (gate_266.get (1 : Fin 4)) ∧
+    ∃gate_275, gate_275 = Gates.mul gate_274 (256:F) ∧
+    ∃gate_276, gate_276 = Gates.add gate_275 (gate_266.get (2 : Fin 4)) ∧
+    ∃gate_277, gate_277 = Gates.mul gate_276 (256:F) ∧
+    ∃gate_278, gate_278 = Gates.add gate_277 (gate_266.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (0 : Fin 8)) gate_278 ∧
+    CompressedPacking_8_8_32 (gate_164.get (0 : Fin 2)) (gate_164.get (1 : Fin 2)) fun gate_280 =>
+    Gates.eq (gate_280.get (0 : Fin 2)) Lo ∧
+    Gates.eq (gate_280.get (1 : Fin 2)) Hi ∧
+    SplitLowBits_1_32 ((gate_164.get (1 : Fin 2)).get (0 : Fin 8)) fun gate_283 =>
+    ∃_ignored_, _ignored_ = Gates.add (2:F) (gate_283.get (1 : Fin 2)) ∧
+    Gates.eq (gate_168.get (0 : Fin 4)) (X.get (0 : Fin 32)) ∧
+    Gates.eq (gate_168.get (1 : Fin 4)) (X.get (1 : Fin 32)) ∧
+    Gates.eq (gate_168.get (2 : Fin 4)) (X.get (2 : Fin 32)) ∧
+    Gates.eq (gate_168.get (3 : Fin 4)) (X.get (3 : Fin 32)) ∧
+    Gates.eq (gate_182.get (0 : Fin 4)) (X.get (4 : Fin 32)) ∧
+    Gates.eq (gate_182.get (1 : Fin 4)) (X.get (5 : Fin 32)) ∧
+    Gates.eq (gate_182.get (2 : Fin 4)) (X.get (6 : Fin 32)) ∧
+    Gates.eq (gate_182.get (3 : Fin 4)) (X.get (7 : Fin 32)) ∧
+    Gates.eq (gate_196.get (0 : Fin 4)) (X.get (8 : Fin 32)) ∧
+    Gates.eq (gate_196.get (1 : Fin 4)) (X.get (9 : Fin 32)) ∧
+    Gates.eq (gate_196.get (2 : Fin 4)) (X.get (10 : Fin 32)) ∧
+    Gates.eq (gate_196.get (3 : Fin 4)) (X.get (11 : Fin 32)) ∧
+    Gates.eq (gate_210.get (0 : Fin 4)) (X.get (12 : Fin 32)) ∧
+    Gates.eq (gate_210.get (1 : Fin 4)) (X.get (13 : Fin 32)) ∧
+    Gates.eq (gate_210.get (2 : Fin 4)) (X.get (14 : Fin 32)) ∧
+    Gates.eq (gate_210.get (3 : Fin 4)) (X.get (15 : Fin 32)) ∧
+    Gates.eq (gate_224.get (0 : Fin 4)) (X.get (16 : Fin 32)) ∧
+    Gates.eq (gate_224.get (1 : Fin 4)) (X.get (17 : Fin 32)) ∧
+    Gates.eq (gate_224.get (2 : Fin 4)) (X.get (18 : Fin 32)) ∧
+    Gates.eq (gate_224.get (3 : Fin 4)) (X.get (19 : Fin 32)) ∧
+    Gates.eq (gate_238.get (0 : Fin 4)) (X.get (20 : Fin 32)) ∧
+    Gates.eq (gate_238.get (1 : Fin 4)) (X.get (21 : Fin 32)) ∧
+    Gates.eq (gate_238.get (2 : Fin 4)) (X.get (22 : Fin 32)) ∧
+    Gates.eq (gate_238.get (3 : Fin 4)) (X.get (23 : Fin 32)) ∧
+    Gates.eq (gate_252.get (0 : Fin 4)) (X.get (24 : Fin 32)) ∧
+    Gates.eq (gate_252.get (1 : Fin 4)) (X.get (25 : Fin 32)) ∧
+    Gates.eq (gate_252.get (2 : Fin 4)) (X.get (26 : Fin 32)) ∧
+    Gates.eq (gate_252.get (3 : Fin 4)) (X.get (27 : Fin 32)) ∧
+    Gates.eq (gate_266.get (0 : Fin 4)) (X.get (28 : Fin 32)) ∧
+    Gates.eq (gate_266.get (1 : Fin 4)) (X.get (29 : Fin 32)) ∧
+    Gates.eq (gate_266.get (2 : Fin 4)) (X.get (30 : Fin 32)) ∧
+    Gates.eq (gate_266.get (3 : Fin 4)) (X.get (31 : Fin 32)) ∧
     True
 
 def DerivePublicKey_32_32 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F) (Hi: F): Prop :=
@@ -682,111 +658,111 @@ def DerivePublicKey_32_32 (Sk: List.Vector F 32) (X: List.Vector F 32) (Lo: F) (
     ∃gate_93, gate_93 = Gates.add gate_92 (Sk.get (2 : Fin 32)) ∧
     ∃gate_94, gate_94 = Gates.mul gate_93 (256:F) ∧
     ∃gate_95, gate_95 = Gates.add gate_94 (Sk.get (3 : Fin 32)) ∧
-    ∃gate_96 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_96.get (0 : Fin 3)) ∧
-    ∃gate_98, gate_98 = Gates.mul (gate_96.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_99, gate_99 = Gates.add (0:F) gate_98 ∧
-    RangeCheck 11 (gate_96.get (1 : Fin 3)) ∧
-    ∃gate_101, gate_101 = Gates.mul (gate_96.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_102, gate_102 = Gates.add gate_99 gate_101 ∧
-    RangeCheck 10 (gate_96.get (2 : Fin 3)) ∧
-    ∃gate_104, gate_104 = Gates.mul (gate_96.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_105, gate_105 = Gates.add gate_102 gate_104 ∧
-    Gates.eq gate_39 gate_105 ∧
-    ∃gate_107 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_107.get (0 : Fin 3)) ∧
-    ∃gate_109, gate_109 = Gates.mul (gate_107.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_110, gate_110 = Gates.add (0:F) gate_109 ∧
-    RangeCheck 11 (gate_107.get (1 : Fin 3)) ∧
-    ∃gate_112, gate_112 = Gates.mul (gate_107.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_113, gate_113 = Gates.add gate_110 gate_112 ∧
-    RangeCheck 10 (gate_107.get (2 : Fin 3)) ∧
-    ∃gate_115, gate_115 = Gates.mul (gate_107.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_116, gate_116 = Gates.add gate_113 gate_115 ∧
-    Gates.eq gate_47 gate_116 ∧
-    ∃gate_118 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_118.get (0 : Fin 3)) ∧
-    ∃gate_120, gate_120 = Gates.mul (gate_118.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_121, gate_121 = Gates.add (0:F) gate_120 ∧
-    RangeCheck 11 (gate_118.get (1 : Fin 3)) ∧
-    ∃gate_123, gate_123 = Gates.mul (gate_118.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_124, gate_124 = Gates.add gate_121 gate_123 ∧
-    RangeCheck 10 (gate_118.get (2 : Fin 3)) ∧
-    ∃gate_126, gate_126 = Gates.mul (gate_118.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_127, gate_127 = Gates.add gate_124 gate_126 ∧
-    Gates.eq gate_55 gate_127 ∧
-    ∃gate_129 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_129.get (0 : Fin 3)) ∧
-    ∃gate_131, gate_131 = Gates.mul (gate_129.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_132, gate_132 = Gates.add (0:F) gate_131 ∧
-    RangeCheck 11 (gate_129.get (1 : Fin 3)) ∧
-    ∃gate_134, gate_134 = Gates.mul (gate_129.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_135, gate_135 = Gates.add gate_132 gate_134 ∧
-    RangeCheck 10 (gate_129.get (2 : Fin 3)) ∧
-    ∃gate_137, gate_137 = Gates.mul (gate_129.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_138, gate_138 = Gates.add gate_135 gate_137 ∧
-    Gates.eq gate_63 gate_138 ∧
-    ∃gate_140 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_140.get (0 : Fin 3)) ∧
-    ∃gate_142, gate_142 = Gates.mul (gate_140.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_143, gate_143 = Gates.add (0:F) gate_142 ∧
-    RangeCheck 11 (gate_140.get (1 : Fin 3)) ∧
-    ∃gate_145, gate_145 = Gates.mul (gate_140.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_146, gate_146 = Gates.add gate_143 gate_145 ∧
-    RangeCheck 10 (gate_140.get (2 : Fin 3)) ∧
-    ∃gate_148, gate_148 = Gates.mul (gate_140.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_149, gate_149 = Gates.add gate_146 gate_148 ∧
-    Gates.eq gate_71 gate_149 ∧
-    ∃gate_151 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_151.get (0 : Fin 3)) ∧
-    ∃gate_153, gate_153 = Gates.mul (gate_151.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_154, gate_154 = Gates.add (0:F) gate_153 ∧
-    RangeCheck 11 (gate_151.get (1 : Fin 3)) ∧
-    ∃gate_156, gate_156 = Gates.mul (gate_151.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_157, gate_157 = Gates.add gate_154 gate_156 ∧
-    RangeCheck 10 (gate_151.get (2 : Fin 3)) ∧
-    ∃gate_159, gate_159 = Gates.mul (gate_151.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_160, gate_160 = Gates.add gate_157 gate_159 ∧
-    Gates.eq gate_79 gate_160 ∧
-    ∃gate_162 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_162.get (0 : Fin 3)) ∧
-    ∃gate_164, gate_164 = Gates.mul (gate_162.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_165, gate_165 = Gates.add (0:F) gate_164 ∧
-    RangeCheck 11 (gate_162.get (1 : Fin 3)) ∧
-    ∃gate_167, gate_167 = Gates.mul (gate_162.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_168, gate_168 = Gates.add gate_165 gate_167 ∧
-    RangeCheck 10 (gate_162.get (2 : Fin 3)) ∧
-    ∃gate_170, gate_170 = Gates.mul (gate_162.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_171, gate_171 = Gates.add gate_168 gate_170 ∧
-    Gates.eq gate_87 gate_171 ∧
-    ∃gate_173 : List.Vector F 3, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHint
-    RangeCheck 11 (gate_173.get (0 : Fin 3)) ∧
-    ∃gate_175, gate_175 = Gates.mul (gate_173.get (0 : Fin 3)) (1:F) ∧
-    ∃gate_176, gate_176 = Gates.add (0:F) gate_175 ∧
-    RangeCheck 11 (gate_173.get (1 : Fin 3)) ∧
-    ∃gate_178, gate_178 = Gates.mul (gate_173.get (1 : Fin 3)) (2048:F) ∧
-    ∃gate_179, gate_179 = Gates.add gate_176 gate_178 ∧
-    RangeCheck 10 (gate_173.get (2 : Fin 3)) ∧
-    ∃gate_181, gate_181 = Gates.mul (gate_173.get (2 : Fin 3)) (4194304:F) ∧
-    ∃gate_182, gate_182 = Gates.add gate_179 gate_181 ∧
-    Gates.eq gate_95 gate_182 ∧
-    CheckPolynomial_8_h57d6a69c vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_184 =>
-    AssertCanonical_8_1_hcc2f8a19 gate_184 ∧
-    ∃gate_186, gate_186 = Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (0:F) (0:F)) (gate_184.get (0 : Fin 8))) (gate_184.get (1 : Fin 8))) (gate_184.get (2 : Fin 8))) (gate_184.get (3 : Fin 8))) (gate_184.get (4 : Fin 8))) (gate_184.get (5 : Fin 8))) (gate_184.get (6 : Fin 8))) (gate_184.get (7 : Fin 8)) ∧
-    Gates.ne gate_186 (0:F) ∧
-    ScalarMulBase_8_h3037b025 vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_188 =>
-    AssertCanonical_8_0_hcc2f8a19 (gate_188.get (0 : Fin 2)) ∧
-    AssertCanonical_8_0_hcc2f8a19 (gate_188.get (1 : Fin 2)) ∧
-    AssertCanonical_8_0_hcc2f8a19 (gate_188.get (0 : Fin 2)) ∧
-    ∃gate_192 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
-    RangeCheck 8 (gate_192.get (0 : Fin 4)) ∧
-    RangeCheck 8 (gate_192.get (1 : Fin 4)) ∧
-    RangeCheck 8 (gate_192.get (2 : Fin 4)) ∧
-    RangeCheck 8 (gate_192.get (3 : Fin 4)) ∧
-    ∃gate_197, gate_197 = Gates.mul (0:F) (256:F) ∧
-    ∃gate_198, gate_198 = Gates.add gate_197 (gate_192.get (0 : Fin 4)) ∧
-    ∃gate_199, gate_199 = Gates.mul gate_198 (256:F) ∧
-    DerivePublicKey_32_32_p1 Sk X Lo Hi gate_188 gate_192 gate_199
+    ∃gate_96 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_96.get (0 : Fin 2)) ∧
+    ∃gate_98, gate_98 = Gates.mul (gate_96.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_99, gate_99 = Gates.sub gate_39 gate_98 ∧
+    RangeCheck 10 (gate_96.get (1 : Fin 2)) ∧
+    ∃gate_101, gate_101 = Gates.mul (gate_96.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_102, gate_102 = Gates.sub gate_99 gate_101 ∧
+    RangeCheck 11 gate_102 ∧
+    ∃gate_104 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_104.get (0 : Fin 2)) ∧
+    ∃gate_106, gate_106 = Gates.mul (gate_104.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_107, gate_107 = Gates.sub gate_47 gate_106 ∧
+    RangeCheck 10 (gate_104.get (1 : Fin 2)) ∧
+    ∃gate_109, gate_109 = Gates.mul (gate_104.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_110, gate_110 = Gates.sub gate_107 gate_109 ∧
+    RangeCheck 11 gate_110 ∧
+    ∃gate_112 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_112.get (0 : Fin 2)) ∧
+    ∃gate_114, gate_114 = Gates.mul (gate_112.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_115, gate_115 = Gates.sub gate_55 gate_114 ∧
+    RangeCheck 10 (gate_112.get (1 : Fin 2)) ∧
+    ∃gate_117, gate_117 = Gates.mul (gate_112.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_118, gate_118 = Gates.sub gate_115 gate_117 ∧
+    RangeCheck 11 gate_118 ∧
+    ∃gate_120 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_120.get (0 : Fin 2)) ∧
+    ∃gate_122, gate_122 = Gates.mul (gate_120.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_123, gate_123 = Gates.sub gate_63 gate_122 ∧
+    RangeCheck 10 (gate_120.get (1 : Fin 2)) ∧
+    ∃gate_125, gate_125 = Gates.mul (gate_120.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_126, gate_126 = Gates.sub gate_123 gate_125 ∧
+    RangeCheck 11 gate_126 ∧
+    ∃gate_128 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_128.get (0 : Fin 2)) ∧
+    ∃gate_130, gate_130 = Gates.mul (gate_128.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_131, gate_131 = Gates.sub gate_71 gate_130 ∧
+    RangeCheck 10 (gate_128.get (1 : Fin 2)) ∧
+    ∃gate_133, gate_133 = Gates.mul (gate_128.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_134, gate_134 = Gates.sub gate_131 gate_133 ∧
+    RangeCheck 11 gate_134 ∧
+    ∃gate_136 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_136.get (0 : Fin 2)) ∧
+    ∃gate_138, gate_138 = Gates.mul (gate_136.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_139, gate_139 = Gates.sub gate_79 gate_138 ∧
+    RangeCheck 10 (gate_136.get (1 : Fin 2)) ∧
+    ∃gate_141, gate_141 = Gates.mul (gate_136.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_142, gate_142 = Gates.sub gate_139 gate_141 ∧
+    RangeCheck 11 gate_142 ∧
+    ∃gate_144 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_144.get (0 : Fin 2)) ∧
+    ∃gate_146, gate_146 = Gates.mul (gate_144.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_147, gate_147 = Gates.sub gate_87 gate_146 ∧
+    RangeCheck 10 (gate_144.get (1 : Fin 2)) ∧
+    ∃gate_149, gate_149 = Gates.mul (gate_144.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_150, gate_150 = Gates.sub gate_147 gate_149 ∧
+    RangeCheck 11 gate_150 ∧
+    ∃gate_152 : List.Vector F 2, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve/emfield.decomposeHighHint
+    RangeCheck 11 (gate_152.get (0 : Fin 2)) ∧
+    ∃gate_154, gate_154 = Gates.mul (gate_152.get (0 : Fin 2)) (2048:F) ∧
+    ∃gate_155, gate_155 = Gates.sub gate_95 gate_154 ∧
+    RangeCheck 10 (gate_152.get (1 : Fin 2)) ∧
+    ∃gate_157, gate_157 = Gates.mul (gate_152.get (1 : Fin 2)) (4194304:F) ∧
+    ∃gate_158, gate_158 = Gates.sub gate_155 gate_157 ∧
+    RangeCheck 11 gate_158 ∧
+    CheckPolynomial_8_h57d6a69c vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_160 =>
+    AssertCanonical_8_1_hcc2f8a19 gate_160 ∧
+    ∃gate_162, gate_162 = Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (Gates.add (0:F) (0:F)) (gate_160.get (0 : Fin 8))) (gate_160.get (1 : Fin 8))) (gate_160.get (2 : Fin 8))) (gate_160.get (3 : Fin 8))) (gate_160.get (4 : Fin 8))) (gate_160.get (5 : Fin 8))) (gate_160.get (6 : Fin 8))) (gate_160.get (7 : Fin 8)) ∧
+    Gates.ne gate_162 (0:F) ∧
+    ScalarMulBase_8_h3037b025 vec![gate_39, gate_47, gate_55, gate_63, gate_71, gate_79, gate_87, gate_95] fun gate_164 =>
+    AssertCanonical_8_0_hcc2f8a19 (gate_164.get (0 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_164.get (1 : Fin 2)) ∧
+    AssertCanonical_8_0_hcc2f8a19 (gate_164.get (0 : Fin 2)) ∧
+    ∃gate_168 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_168.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_168.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_168.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_168.get (3 : Fin 4)) ∧
+    ∃gate_173, gate_173 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_174, gate_174 = Gates.add gate_173 (gate_168.get (0 : Fin 4)) ∧
+    ∃gate_175, gate_175 = Gates.mul gate_174 (256:F) ∧
+    ∃gate_176, gate_176 = Gates.add gate_175 (gate_168.get (1 : Fin 4)) ∧
+    ∃gate_177, gate_177 = Gates.mul gate_176 (256:F) ∧
+    ∃gate_178, gate_178 = Gates.add gate_177 (gate_168.get (2 : Fin 4)) ∧
+    ∃gate_179, gate_179 = Gates.mul gate_178 (256:F) ∧
+    ∃gate_180, gate_180 = Gates.add gate_179 (gate_168.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (7 : Fin 8)) gate_180 ∧
+    ∃gate_182 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_182.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_182.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_182.get (2 : Fin 4)) ∧
+    RangeCheck 8 (gate_182.get (3 : Fin 4)) ∧
+    ∃gate_187, gate_187 = Gates.mul (0:F) (256:F) ∧
+    ∃gate_188, gate_188 = Gates.add gate_187 (gate_182.get (0 : Fin 4)) ∧
+    ∃gate_189, gate_189 = Gates.mul gate_188 (256:F) ∧
+    ∃gate_190, gate_190 = Gates.add gate_189 (gate_182.get (1 : Fin 4)) ∧
+    ∃gate_191, gate_191 = Gates.mul gate_190 (256:F) ∧
+    ∃gate_192, gate_192 = Gates.add gate_191 (gate_182.get (2 : Fin 4)) ∧
+    ∃gate_193, gate_193 = Gates.mul gate_192 (256:F) ∧
+    ∃gate_194, gate_194 = Gates.add gate_193 (gate_182.get (3 : Fin 4)) ∧
+    Gates.eq ((gate_164.get (0 : Fin 2)).get (6 : Fin 8)) gate_194 ∧
+    ∃gate_196 : List.Vector F 4, -- hint zolana/prover/circuits/verifiable-encryption/p256/emcurve.p256LimbBytesHint
+    RangeCheck 8 (gate_196.get (0 : Fin 4)) ∧
+    RangeCheck 8 (gate_196.get (1 : Fin 4)) ∧
+    RangeCheck 8 (gate_196.get (2 : Fin 4)) ∧
+    DerivePublicKey_32_32_p1 Sk X Lo Hi gate_164 gate_168 gate_182 gate_196
 
 def AesCtrBlock_32_12_16_16 (Key: List.Vector F 32) (Nonce: List.Vector F 12) (Plaintext: List.Vector F 16) (Ciphertext: List.Vector F 16): Prop :=
     AesKeyExpansion_32 Key fun gate_0 =>

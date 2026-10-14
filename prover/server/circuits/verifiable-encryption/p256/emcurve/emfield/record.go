@@ -219,9 +219,9 @@ func (f *Field) baseRecord(kind CheckKind) CheckRecord {
 	return CheckRecord{
 		Kind:         kind,
 		Modulus:      new(big.Int).Set(f.mod),
-		NbLimbs:      f.layout.NbLimbs,
-		LimbBits:     f.layout.LimbBits,
-		PieceBits:    f.layout.PieceBits,
+		NbLimbs:      f.config.Layout.NbLimbs,
+		LimbBits:     f.config.Layout.LimbBits,
+		PieceBits:    f.config.Layout.PieceBits,
 		ModulusLimbs: cloneBig(f.modulusLimbs),
 		ResultWidths: append([]int{}, f.widths...),
 	}
@@ -235,9 +235,9 @@ func (f *Field) recordBasis() {
 	b := BasisRecord{
 		Modulus:            new(big.Int).Set(f.mod),
 		NativeModulus:      new(big.Int).Set(f.api.Compiler().Field()),
-		NbLimbs:            f.layout.NbLimbs,
-		LimbBits:           f.layout.LimbBits,
-		PieceBits:          f.layout.PieceBits,
+		NbLimbs:            f.config.Layout.NbLimbs,
+		LimbBits:           f.config.Layout.LimbBits,
+		PieceBits:          f.config.Layout.PieceBits,
 		InverseVandermonde: map[int][][]*big.Int{},
 	}
 	if s == nil {

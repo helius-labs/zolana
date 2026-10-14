@@ -27,7 +27,7 @@ func (v *edwardsFieldCircuit) Define(api frontend.API) error {
 func TestEdwardsFoldAndCanonicalEdges(t *testing.T) {
 	p := new(big.Int).Sub(pow2(255), big.NewInt(19))
 	lay := Layout{NbLimbs: 6, LimbBits: 43, PieceBits: 11}
-	s := newArithmeticState(&Field{layout: lay, mod: p})
+	s := newArithmeticState(&Field{config: Config{Layout: lay}, mod: p})
 	if s.foldDigits == nil || s.foldDigits[0].Cmp(big.NewInt(152)) != 0 {
 		t.Fatal("wrong Edwards fold")
 	}

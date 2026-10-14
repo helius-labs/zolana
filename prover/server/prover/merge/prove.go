@@ -11,12 +11,6 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 	"zolana/prover/prover/backend"
-
-	// The pinned merge proving keys were set up while the P-256 gadgets still
-	// called gnark's sw_emulated hints, so their constraint systems name those
-	// hints. Registering them keeps the pinned keys solvable until the next
-	// rotation regenerates the merge keys from the current circuit.
-	_ "github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 )
 
 type MergeProof struct {

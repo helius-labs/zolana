@@ -84,7 +84,7 @@ func (f *Field) AssertZeroProjected(terms ...Term) {
 }
 
 func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *Element {
-	api, layout := f.api, f.layout
+	api, layout := f.api, f.config.Layout
 	nativeModulus := api.Compiler().Field()
 	halfNativeModulus := new(big.Int).Rsh(nativeModulus, 1)
 	limbCount, limbBits := layout.NbLimbs, layout.LimbBits
@@ -260,7 +260,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 		}
 		out, err := api.Compiler().NewHint(PlainCheckHint, outputCount, inputs...)
 		if err != nil {
-			panic(fmt.Sprintf("plain check hint: %v", err))
+			panic(fmt.Sprintf("check hint: %v", err))
 		}
 		if withResult {
 			remainder, out = f.fromPieces(out, f.widths)
@@ -428,10 +428,10 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 }
 
 func (f *Field) Lazy(inputTerms ...Term) *Element {
-	if f.arithmetic == nil || f.arithmetic.foldDigits == nil {
-		panic("lazy elements need the folded plain layout")
+	if f.arithmetic.foldDigits == nil {
+		panic("lazy elements need a layout whose top limb folds into balanced digits")
 	}
-	limbCount, limbBits := f.layout.NbLimbs, f.layout.LimbBits
+	limbCount, limbBits := f.config.Layout.NbLimbs, f.config.Layout.LimbBits
 	halfNativeModulus := new(big.Int).Rsh(f.api.Compiler().Field(), 1)
 	terms := make([]term, len(inputTerms))
 	for i, t := range inputTerms {
@@ -484,12 +484,12 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 func (f *Field) HintBalanced(fn solver.Hint, nbOutputs int, natives []frontend.Variable, elems ...*Element) []*Element {
 	api := f.api
 	limbCount := len(f.widths)
-	piecesPerElement := f.layout.nbPiecesAll(f.widths)
+	piecesPerElement := f.config.Layout.nbPiecesAll(f.widths)
 	raw, err := api.Compiler().NewHint(fn, nbOutputs*piecesPerElement, f.hintInputs(natives, elems)...)
 	if err != nil {
 		panic(fmt.Sprintf("field hint: %v", err))
 	}
-	inputs := f.layout.header()
+	inputs := f.config.Layout.header()
 	for _, l := range f.modulusLimbs {
 		inputs = append(inputs, l)
 	}
@@ -503,7 +503,7 @@ func (f *Field) HintBalanced(fn solver.Hint, nbOutputs int, natives []frontend.V
 		lowerBounds, upperBounds := make([]*big.Int, limbCount), make([]*big.Int, limbCount)
 		remainingPieces := pieces[i*piecesPerElement : (i+1)*piecesPerElement]
 		for j, w := range f.widths {
-			pieceCount := f.layout.nbPieces(w)
+			pieceCount := f.config.Layout.nbPieces(w)
 			unsignedLimb := f.rc.Compose(remainingPieces[:pieceCount], w)
 			remainingPieces = remainingPieces[pieceCount:]
 			limbs[j] = api.Sub(unsignedLimb, pow2(w-1))
@@ -517,7 +517,7 @@ func (f *Field) HintBalanced(fn solver.Hint, nbOutputs int, natives []frontend.V
 
 func newArithmeticState(f *Field) *arithmeticState {
 	s := &arithmeticState{inverseMatrices: map[int][][]*big.Int{}, products: map[productKey]frontend.Variable{}, crtProducts: map[productKey]frontend.Variable{}}
-	l := f.layout
+	l := f.config.Layout
 	top := new(big.Int).Mod(pow2(l.LimbBits*l.NbLimbs), f.mod)
 	digits := balancedDigits(top, l.LimbBits, l.NbLimbs)
 	if digits == nil {
@@ -561,7 +561,7 @@ func (s *arithmeticState) fold(n, degree int) [][]*big.Int {
 
 func (f *Field) foldedForms(terms []term, degree int, fold [][]*big.Int) func(j int) *linForm {
 	q := f.api.Compiler().Field()
-	n := f.layout.NbLimbs
+	n := f.config.Layout.NbLimbs
 	var crt *crtBasis
 	if fold != nil {
 		crt = f.arithmetic.crtBasis(f, q)
@@ -873,16 +873,16 @@ func mergeForm(destination, source *linForm, coefficient *big.Int) {
 func (s *arithmeticState) crtBasis(f *Field, q *big.Int) *crtBasis {
 	if !s.crtDone {
 		s.crtDone = true
-		n := f.layout.NbLimbs
+		n := f.config.Layout.NbLimbs
 		fp := make(poly, n+1)
 		for j, d := range s.foldDigits {
 			fp[j] = new(big.Int).Neg(d)
 		}
 		fp[n] = big.NewInt(1)
-		align := f.version == ArithmeticV2
+		align := f.config.Arithmetic == ArithmeticV2
 		s.crt = newCRTBasis(polyReduce(fp, q), n, q, func(d int) [][]*big.Int { return s.inverseVandermonde(d, q) }, align)
 		if s.crt != nil && align {
-			s.crt.alignQuadraticProducts(pow2(f.layout.LimbBits), q)
+			s.crt.alignQuadraticProducts(pow2(f.config.Layout.LimbBits), q)
 		}
 	}
 	return s.crt

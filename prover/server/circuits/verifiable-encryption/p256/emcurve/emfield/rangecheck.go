@@ -45,10 +45,6 @@ type rangeTableKey struct {
 	pieceBits int
 }
 
-func NewRangeChecker(api frontend.API) *RangeChecker {
-	return NewRangeCheckerFor(api, LookupLayout.PieceBits)
-}
-
 func NewRangeCheckerFor(api frontend.API, pieceBits int) *RangeChecker {
 	kv := store(api)
 	key := rangeTableKey{pieceBits}

@@ -27,7 +27,7 @@ import (
 
 // Invariant 1: The distinct-x guard rejects coordinates equal modulo the curve prime.
 func TestDistinctXGuard(t *testing.T) {
-	n := emfield.LookupLayout.NbLimbs
+	n := emfield.P256Layout.NbLimbs
 	cs := compile(t, &distinctXCircuit{P: make([]frontend.Variable, n), Q: make([]frontend.Variable, n)})
 	p := emulated.P256Fp{}.Modulus()
 	x := big.NewInt(0x1234_5678)

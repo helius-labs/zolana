@@ -40,7 +40,7 @@ func rangeCheckHintForgeriesAreRejected(t *testing.T, config Config) {
 			if err := decomposeHighHint(q, inputs, outputs); err != nil {
 				return err
 			}
-			outputs[0].Add(outputs[0], pow2(LookupLayout.PieceBits))
+			outputs[0].Add(outputs[0], pow2(P256Layout.PieceBits))
 			outputs[1].Sub(outputs[1], big.NewInt(1)).Mod(outputs[1], q)
 			return nil
 		}))
@@ -63,7 +63,7 @@ func TestPartialPieceRangeCheck(t *testing.T) {
 			{new(big.Int).Sub(pow2(bits), big.NewInt(1)), true},
 			{pow2(bits), false},
 			{new(big.Int).Sub(q, big.NewInt(1)), false},
-			{new(big.Int).ModInverse(pow2(LookupLayout.PieceBits-bits), q), false},
+			{new(big.Int).ModInverse(pow2(P256Layout.PieceBits-bits), q), false},
 		} {
 			w := smallRangeCircuit{Bits: bits}
 			for i := range w.V {
@@ -114,7 +114,7 @@ type smallRangeCircuit struct {
 }
 
 func (c *smallRangeCircuit) Define(api frontend.API) error {
-	rc := NewRangeChecker(api)
+	rc := NewRangeCheckerFor(api, P256Layout.PieceBits)
 	for _, v := range c.V {
 		rc.Check(v, c.Bits)
 	}

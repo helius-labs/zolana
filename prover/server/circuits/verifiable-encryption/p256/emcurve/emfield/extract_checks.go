@@ -220,7 +220,7 @@ func (f *Field) GadgetLazy(terms ...Term) *Element {
 // lazyBounds recomputes the output metadata of Lazy without building
 // constraints; the Lazy gadget checks it against Field.Lazy.
 func (f *Field) lazyBounds(inputTerms []Term) []*big.Int {
-	limbCount, limbBits := f.layout.NbLimbs, f.layout.LimbBits
+	limbCount, limbBits := f.config.Layout.NbLimbs, f.config.Layout.LimbBits
 	terms := make([]term, len(inputTerms))
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}

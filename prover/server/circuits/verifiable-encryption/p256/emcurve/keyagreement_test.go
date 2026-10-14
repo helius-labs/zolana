@@ -277,7 +277,7 @@ func smallCurvePoint(t *testing.T) (x, y *big.Int) {
 }
 
 func fieldLimbValues(v *big.Int) []frontend.Variable {
-	layout := emfield.LookupLayout
+	layout := emfield.P256Layout
 	out := make([]frontend.Variable, layout.NbLimbs)
 	mask := new(big.Int).Sub(pow2(layout.LimbBits), big.NewInt(1))
 	for i := range out {

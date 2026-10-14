@@ -43,12 +43,12 @@ type sha512Engine struct {
 
 type sha512Key struct{}
 
-func sha512New(api frontend.API) *sha512Engine {
+func sha512New(api frontend.API, pieceBits int) *sha512Engine {
 	kv := api.Compiler().(r1cKeyValueStore)
 	if e, ok := kv.GetKeyValue(sha512Key{}).(*sha512Engine); ok {
 		return e
 	}
-	e := &sha512Engine{api: api, parity: lookup.New(api, 1), rc: emfield.NewRangeChecker(api)}
+	e := &sha512Engine{api: api, parity: lookup.New(api, 1), rc: emfield.NewRangeCheckerFor(api, pieceBits)}
 	for i := 0; i < 1024; i++ {
 		var parity uint64
 		for j := 0; j < 5; j++ {
@@ -328,11 +328,13 @@ var sha512K = [80]uint64{
 // returns 64 digest bytes in SHA-512's standard big-endian order. The message
 // length and SHA padding are compile-time constants. This requires BN254 and
 // the commitment-aware Groth16 verifier, as the other lookup gadgets do.
-func Hash(api frontend.API, message []frontend.Variable) [64]frontend.Variable {
+// Range checks go to the shared table of pieceBits, the enclosing field's
+// piece width.
+func Hash(api frontend.API, pieceBits int, message []frontend.Variable) [64]frontend.Variable {
 	if api.Compiler().Field().BitLen() < 200 {
 		panic("sha512: native field needs at least 200 bits")
 	}
-	e := sha512New(api)
+	e := sha512New(api, pieceBits)
 	n := len(message)
 	blocks := (n+16)/128 + 1
 	padded := make([]frontend.Variable, blocks*128)

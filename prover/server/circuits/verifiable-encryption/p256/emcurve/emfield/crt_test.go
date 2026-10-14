@@ -20,8 +20,8 @@ func TestCRTProductMatchesTheFold(t *testing.T) {
 
 func crtProductMatchesTheFold(t *testing.T, version Arithmetic) {
 	q := ecc.BN254.ScalarField()
-	s := newArithmeticState(&Field{layout: LookupLayout, mod: p256P})
-	f := &Field{layout: LookupLayout, mod: p256P, version: version, arithmetic: s}
+	s := newArithmeticState(&Field{config: Config{Layout: P256Layout}, mod: p256P})
+	f := &Field{config: Config{Layout: P256Layout, Arithmetic: version}, mod: p256P, arithmetic: s}
 	b := s.crtBasis(f, q)
 	if b == nil {
 		t.Fatal("the P-256 fold polynomial has no cheaper residue basis")

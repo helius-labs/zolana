@@ -12,13 +12,15 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
+const testPieceBits = 11
+
 type sha512Circuit struct {
 	Message []frontend.Variable
 	Digest  [64]frontend.Variable `gnark:",public"`
 }
 
 func (c *sha512Circuit) Define(api frontend.API) error {
-	d := Hash(api, c.Message)
+	d := Hash(api, testPieceBits, c.Message)
 	for i := range d {
 		api.AssertIsEqual(d[i], c.Digest[i])
 	}
@@ -143,7 +145,7 @@ func TestSha512ConstantsFromPrimeRoots(t *testing.T) {
 type sha512SliceAdderCircuit struct{ A, B, Result frontend.Variable }
 
 func (c *sha512SliceAdderCircuit) Define(api frontend.API) error {
-	e := sha512New(api)
+	e := sha512New(api, testPieceBits)
 	e.rc.Check(c.A, 64)
 	e.rc.Check(c.B, 64)
 	out := e.add(sha512ScheduleWidths, c.A, c.B)

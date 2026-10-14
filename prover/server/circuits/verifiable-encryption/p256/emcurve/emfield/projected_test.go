@@ -24,7 +24,7 @@ type projectedEvalCircuit struct {
 }
 
 func (c *projectedEvalCircuit) Define(api frontend.API) error {
-	f := NewFor(api, elliptic.P256().Params().P, Config{Layout: LookupLayout, Arithmetic: ArithmeticV2})
+	f := NewFor(api, elliptic.P256().Params().P, Config{Layout: P256Layout, Arithmetic: ArithmeticV2})
 	x, y := f.FromLimbs(c.X[:]), f.FromLimbs(c.Y[:])
 	if c.Negative {
 		x = f.Neg(x)
@@ -114,7 +114,7 @@ func TestEvalProjectedRejectsNativeModulusAliases(t *testing.T) {
 }
 
 func (c *projectionPairCircuit) Define(api frontend.API) error {
-	f := NewFor(api, elliptic.P256().Params().P, Config{Layout: LookupLayout, Arithmetic: ArithmeticV2})
+	f := NewFor(api, elliptic.P256().Params().P, Config{Layout: P256Layout, Arithmetic: ArithmeticV2})
 	// Test the native polynomial tensor over all of Fq. Input limb bounds
 	// are unnecessary for this algebra test; integer lifting is tested by
 	// the existing field and complete P-256 gadget suites.

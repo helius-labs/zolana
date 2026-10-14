@@ -26,7 +26,7 @@ func Verify(api frontend.API, in Inputs) [32]frontend.Variable {
 	transcript = append(transcript, in.Signature[:32]...)
 	transcript = append(transcript, in.PublicKey[:]...)
 	transcript = append(transcript, in.Message...)
-	digest := sha512.Hash(api, transcript)
+	digest := sha512.Hash(api, layout.PieceBits, transcript)
 	return verifyDigest(api, in.PublicKey, in.Signature, digest)
 }
 

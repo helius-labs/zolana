@@ -97,7 +97,7 @@ func (s *arithmeticState) projectionBasis(f *Field, end int) *projectionPair {
 	if pair, ok := s.projections[end]; ok {
 		return pair
 	}
-	n, bits := f.layout.NbLimbs, f.layout.LimbBits
+	n, bits := f.config.Layout.NbLimbs, f.config.Layout.LimbBits
 	q := f.api.Compiler().Field()
 	if crt := s.crtBasis(f, q); crt != nil && crt.quadratic {
 		pair := &projectionPair{native: make([]*big.Int, len(crt.forms)), low: make([]*big.Int, len(crt.forms))}
@@ -217,7 +217,7 @@ func (s *arithmeticState) projectionBasis(f *Field, end int) *projectionPair {
 }
 
 func (f *Field) pairProjectedForms(terms []term, degree int, fold [][]*big.Int, end int) (*linForm, *linForm) {
-	q, n := f.api.Compiler().Field(), f.layout.NbLimbs
+	q, n := f.api.Compiler().Field(), f.config.Layout.NbLimbs
 	pair := f.arithmetic.projectionBasis(f, end)
 	if pair == nil {
 		return nil, nil
@@ -319,9 +319,9 @@ func (f *Field) pairProjectedForms(terms []term, degree int, fold [][]*big.Int, 
 	if len(fallback) > 0 {
 		forms := f.foldedForms(fallback, degree, fold)
 		for j := 0; j < n; j++ {
-			mergeForm(native, forms(j), pow2(f.layout.LimbBits*j))
+			mergeForm(native, forms(j), pow2(f.config.Layout.LimbBits*j))
 			if j < end {
-				mergeForm(low, forms(j), pow2(f.layout.LimbBits*j))
+				mergeForm(low, forms(j), pow2(f.config.Layout.LimbBits*j))
 			}
 		}
 	}

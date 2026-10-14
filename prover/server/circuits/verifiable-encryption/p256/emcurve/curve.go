@@ -52,7 +52,7 @@ func newCurve(api frontend.API) *curve {
 	fp := emfield.New(api, params.P)
 	return &curve{
 		api:    api,
-		layout: emfield.LookupLayout,
+		layout: emfield.P256Layout,
 		fp:     &fieldOps{fp},
 		fr:     &fieldOps{fr},
 		a:      fp.Const(new(big.Int).Sub(params.P, big.NewInt(3))),
@@ -103,15 +103,6 @@ func (c *curve) xDifferenceSquare(px, qx, xDifference *fpElement) *fpElement {
 	square := c.fp.Lazy(T(1, xDifference, xDifference))
 	c.squaredXDifferences[[2]*fpElement{px, qx}] = square
 	return square
-}
-
-func (c *curve) addReducing(p, q *point, reduceX, reduceY bool) *point {
-	yDifference := c.fp.Sub(q.Y, p.Y)
-	xDifference := c.fp.Sub(q.X, p.X)
-	slope := c.ratio(yDifference, xDifference)
-	x := c.evalOrLazy(reduceX, T(1, slope, slope), T(-1, p.X), T(-1, q.X))
-	y := c.evalOrLazy(reduceY, T(1, slope, c.fp.Sub(p.X, x)), T(-1, p.Y))
-	return &point{X: x, Y: y}
 }
 
 func (c *curve) tripleConstrained(p *point) *point {

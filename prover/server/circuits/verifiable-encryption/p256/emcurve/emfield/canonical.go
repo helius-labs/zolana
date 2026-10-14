@@ -47,14 +47,14 @@ func (f *Field) AssertCanonical(e *Element) {
 	if nativeModulus.Cmp(bound) > 0 && new(big.Int).Add(nativeModulus, f.mod).Cmp(new(big.Int).Lsh(bound, 1)) >= 0 {
 		value := frontend.Variable(0)
 		for i, limb := range e.limbs {
-			value = f.api.Add(value, f.api.Mul(limb, pow2(i*f.layout.LimbBits)))
+			value = f.api.Add(value, f.api.Mul(limb, pow2(i*f.config.Layout.LimbBits)))
 		}
 		f.rc.Check(f.api.Sub(new(big.Int).Sub(f.mod, big.NewInt(1)), value), f.modulusBits)
 		return
 	}
 	// 3. Otherwise hint the nonnegative gap to modulus - 1 and bound its limbs.
 	inputs := f.hintInputs(nil, []*Element{e})
-	pieces, err := f.api.Compiler().NewHint(modulusGapHint, f.layout.nbPiecesAll(f.widths)+1, inputs...)
+	pieces, err := f.api.Compiler().NewHint(modulusGapHint, f.config.Layout.nbPiecesAll(f.widths)+1, inputs...)
 	if err != nil {
 		panic(err)
 	}
@@ -63,7 +63,7 @@ func (f *Field) AssertCanonical(e *Element) {
 	f.api.AssertIsBoolean(carry)
 	// 4. Require element + gap = modulus - 1 using a bounded carry between halves.
 	maximumCanonicalValue := new(big.Int).Sub(f.mod, big.NewInt(1))
-	nbLimbs, limbBits := f.layout.NbLimbs, f.layout.LimbBits
+	nbLimbs, limbBits := f.config.Layout.NbLimbs, f.config.Layout.LimbBits
 	lowLimbCount := (nbLimbs + 1) / 2
 	maximumLow := new(big.Int).And(maximumCanonicalValue, new(big.Int).Sub(pow2(lowLimbCount*limbBits), big.NewInt(1)))
 	maximumHigh := new(big.Int).Rsh(maximumCanonicalValue, uint(lowLimbCount*limbBits))
@@ -87,7 +87,7 @@ func (f *Field) AssertCanonical(e *Element) {
 func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 	api := f.api
 	limbCount := len(f.widths)
-	maximumLimbs := f.layout.decompose(new(big.Int).Sub(f.mod, big.NewInt(1)), limbCount)
+	maximumLimbs := f.config.Layout.decompose(new(big.Int).Sub(f.mod, big.NewInt(1)), limbCount)
 	kinds := make([]limbKind, limbCount)
 	for i, w := range f.widths {
 		full := new(big.Int).Sub(pow2(w), big.NewInt(1))

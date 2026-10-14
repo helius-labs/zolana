@@ -24,8 +24,8 @@ func TestLayoutFoldsOnlyTheSolinasPrime(t *testing.T) {
 	if (&arithmeticState{}).fold(8, 14) != nil {
 		t.Fatal("empty state folded")
 	}
-	p := newArithmeticState(&Field{layout: LookupLayout, mod: p256P})
-	n := newArithmeticState(&Field{layout: LookupLayout, mod: p256N})
+	p := newArithmeticState(&Field{config: Config{Layout: P256Layout}, mod: p256P})
+	n := newArithmeticState(&Field{config: Config{Layout: P256Layout}, mod: p256N})
 	if p.foldDigits == nil || n.foldDigits != nil {
 		t.Fatalf("fold digits p %v n %v", p.foldDigits, n.foldDigits)
 	}
@@ -66,8 +66,8 @@ var arithmetics = []struct {
 	name   string
 	config Config
 }{
-	{"v1", LookupConfig},
-	{"v2", Config{Layout: LookupLayout, Arithmetic: ArithmeticV2}},
+	{"v1", P256Config},
+	{"v2", Config{Layout: P256Layout, Arithmetic: ArithmeticV2}},
 }
 
 type plainArithCircuit struct {
@@ -94,7 +94,7 @@ func (c *plainArithCircuit) Define(api frontend.API) error {
 
 func plainLimbs(v *big.Int) [8]frontend.Variable {
 	var out [8]frontend.Variable
-	for i, l := range LookupLayout.decompose(v, 8) {
+	for i, l := range P256Layout.decompose(v, 8) {
 		out[i] = l
 	}
 	return out
