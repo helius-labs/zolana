@@ -19,7 +19,7 @@ use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin, RingWithdrawal,
+    auditor_view_tag, AuditError, AuditorEncryption, ReaderKey, RingOrigin, RingWithdrawal,
 };
 use zolana_ring_rpc::{
     auditor_key_attestation, check_read, rpc_module, unix_now, Attestation, AuditRead, Clock,
@@ -346,7 +346,7 @@ impl TransactionSource for StaticSource {
         signature: Signature,
         event_index: u16,
         _ring: Address,
-    ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send {
+    ) -> impl Future<Output = Result<RingOrigin, AuditError>> + Send {
         let origin = self
             .origins
             .get(&(signature, event_index))
@@ -367,7 +367,7 @@ impl TransactionSource for StaticSource {
                     },
                 ],
             })
-            .ok_or_else(|| OriginError::Unavailable {
+            .ok_or_else(|| AuditError::Unavailable {
                 signature,
                 message: "not found".to_owned(),
             });
@@ -956,7 +956,7 @@ async fn unknown_origins_fail_the_page() {
                 page: &page,
             })
             .await,
-        Err(RingRpcError::Origin(OriginError::Unavailable { .. }))
+        Err(RingRpcError::Origin(AuditError::Unavailable { .. }))
     ));
 }
 

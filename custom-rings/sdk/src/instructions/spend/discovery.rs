@@ -5,7 +5,6 @@ use zolana_client::{
 use zolana_indexer_api::{Hash, RingSpendRecord, RingSpendRecordRequest, SerializablePubkey};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
-use zolana_ring_client::RecordCarrier;
 use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
 use crate::{
@@ -207,9 +206,21 @@ impl LineageLookup for SpendLookup {
         if ListNamespace::new(&slot.view_tag).ok()? != self.owner {
             return None;
         }
-        let record = RecordCarrier::decode(slot, &transaction.messages)
-            .ok()??
-            .record();
+        let record = match SpendRecord::from_output_data(&slot.payload) {
+            Some(record) => (record.version == 0).then_some(record)?,
+            None => SpendRecord::open_carrier(
+                &slot.view_tag,
+                &self.owner,
+                self.address_tree_id,
+                transaction
+                    .messages
+                    .iter()
+                    .map(|message| (&message.view_tag, message.data.as_slice())),
+                &slot.output_context.hash,
+                slot.output_context.tree_id,
+            )
+            .ok()?,
+        };
         if record.member != self.member {
             return None;
         }

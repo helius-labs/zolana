@@ -8,9 +8,12 @@
 //! the sender encrypted.
 
 use std::{
-    cell::{Cell, RefCell},
     collections::HashMap,
     num::{NonZeroU32, NonZeroUsize},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
 };
 
 use borsh::BorshDeserialize;
@@ -18,7 +21,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zeroize::Zeroizing;
 use zolana_client::{
-    Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
+    AsyncRpc, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
     ShieldedTransaction,
 };
 use zolana_interface::{
@@ -27,9 +30,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditOutputOpening, AuditedOutput, AuditedTransaction,
-    AuditorEncryption, OriginError, RingAudit, RingEnvironment, RingOrigin, RingScan,
-    TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, seal_counters, AuditError, AuditedOutput, AuditedTransaction,
+    AuditorEncryption, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
+    AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -226,7 +229,6 @@ fn free_form_message() -> MessageData {
 
 #[test]
 fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as_money() {
-    use zolana_ring_client::CountersSeal;
     use zolana_ring_policy::{spend_record_message_tag, Member, SpendCounters, SpendRecord};
     let auditor = ViewingKey::new();
     let tx_key = ViewingKey::new();
@@ -253,14 +255,7 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
             record_message.clone(),
             MessageData {
                 view_tag: namespace,
-                data: CountersSeal {
-                    tx: &tx_key,
-                    recipient: &tx_key.pubkey(),
-                    salt: SALT,
-                    counters: &counters,
-                }
-                .encrypt()
-                .unwrap(),
+                data: seal_counters(&tx_key, &tx_key.pubkey(), SALT, &counters).unwrap(),
             },
             auditor_message_data(&tx_key, &auditor.pubkey(), &slots),
         ],
@@ -364,10 +359,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     data: Data::default(),
                 },
             ],
-            output_openings: vec![
-                AuditOutputOpening::from(&proof_output(&sol_output, 0)),
-                AuditOutputOpening::from(&proof_output(&token_output, 1)),
-            ],
+            output_openings: vec![proof_output(&sol_output, 0), proof_output(&token_output, 1),],
             spend_records: vec![],
             undecryptable_slots: vec![],
         }
@@ -720,11 +712,12 @@ struct PagedIndexer {
     expected_tag: [u8; 32],
     pages: Vec<Vec<ShieldedTransaction>>,
     /// Page size asked for on each round trip, in call order.
-    requested: RefCell<Vec<Option<u32>>>,
+    requested: Mutex<Vec<Option<u32>>>,
 }
 
-impl Rpc for PagedIndexer {
-    fn get_shielded_transactions_by_tags(
+#[async_trait::async_trait]
+impl AsyncRpc for PagedIndexer {
+    async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
@@ -732,7 +725,7 @@ impl Rpc for PagedIndexer {
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
         assert_eq!(tags, vec![self.expected_tag]);
-        self.requested.borrow_mut().push(limit);
+        self.requested.lock().unwrap().push(limit);
         let page_index = usize::from(*cursor.unwrap_or_default().first().unwrap_or(&0));
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
         let next_cursor = (page_index + 1 < self.pages.len())
@@ -753,18 +746,18 @@ impl Rpc for PagedIndexer {
 struct KnownOrigins {
     ring: Address,
     origins: HashMap<Signature, bool>,
-    lookups: Cell<usize>,
+    lookups: AtomicUsize,
 }
 
 impl TransactionOrigin for KnownOrigins {
-    fn origin(
+    async fn origin(
         &self,
         signature: Signature,
         _event_index: u16,
         ring: Address,
-    ) -> Result<RingOrigin, OriginError> {
+    ) -> Result<RingOrigin, AuditError> {
         assert_eq!(ring, self.ring);
-        self.lookups.set(self.lookups.get() + 1);
+        self.lookups.fetch_add(1, Ordering::Relaxed);
         self.origins
             .get(&signature)
             .copied()
@@ -773,7 +766,7 @@ impl TransactionOrigin for KnownOrigins {
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
             })
-            .ok_or_else(|| OriginError::Unavailable {
+            .ok_or_else(|| AuditError::Unavailable {
                 signature,
                 message: "not found".to_owned(),
             })
@@ -785,8 +778,8 @@ fn with_signature(mut tx: ShieldedTransaction, byte: u8) -> ShieldedTransaction 
     tx
 }
 
-#[test]
-fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor() {
+#[tokio::test]
+async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor = ViewingKey::new();
     let auditor_pk = auditor.pubkey();
@@ -853,7 +846,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
             ],
             vec![second.clone()],
         ],
-        requested: RefCell::new(Vec::new()),
+        requested: Mutex::new(Vec::new()),
     };
     let origin = KnownOrigins {
         ring,
@@ -862,26 +855,27 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
             (second.tx_signature, true),
             (foreign_ring.tx_signature, false),
         ]),
-        lookups: Cell::new(0),
+        lookups: AtomicUsize::new(0),
     };
-    let env = RingEnvironment {
-        indexer: &indexer,
-        origin: &origin,
-    };
-
     assert_eq!(
-        RingScan::new(ring, &auditor_pk)
+        RingScan::new(ring, auditor_pk)
             .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
-            .run(env)
+            .run(&indexer, &origin)
+            .await
             .expect("scan")
             .transactions,
         vec![first, second]
     );
-    assert_eq!(origin.lookups.get(), 3, "one lookup per signature");
+    assert_eq!(
+        origin.lookups.load(Ordering::Relaxed),
+        3,
+        "one lookup per signature"
+    );
 
-    let audited = RingAudit::new(ring, &auditor)
+    let audited = RingScan::new(ring, auditor_pk)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
-        .run(env, &registry())
+        .audit(&auditor, &indexer, &origin, &registry())
+        .await
         .expect("audit all")
         .transactions;
     assert_eq!(audited.len(), 2);
@@ -915,8 +909,8 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
     );
 }
 
-#[test]
-fn scan_fails_when_an_origin_is_unavailable() {
+#[tokio::test]
+async fn scan_fails_when_an_origin_is_unavailable() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor = ViewingKey::new();
     let auditor_pk = auditor.pubkey();
@@ -928,22 +922,20 @@ fn scan_fails_when_an_origin_is_unavailable() {
     let indexer = PagedIndexer {
         expected_tag: auditor_view_tag(&auditor_pk),
         pages: vec![vec![tx]],
-        requested: RefCell::new(Vec::new()),
+        requested: Mutex::new(Vec::new()),
     };
     let origin = KnownOrigins {
         ring,
         origins: HashMap::new(),
-        lookups: Cell::new(0),
+        lookups: AtomicUsize::new(0),
     };
 
     assert!(matches!(
-        RingScan::new(ring, &auditor_pk)
+        RingScan::new(ring, auditor_pk)
             .with_max_pages(NonZeroUsize::new(1).expect("page limit"))
-            .run(RingEnvironment {
-                indexer: &indexer,
-                origin: &origin,
-            }),
-        Err(AuditError::Origin(OriginError::Unavailable { .. }))
+            .run(&indexer, &origin)
+            .await,
+        Err(AuditError::Unavailable { .. })
     ));
 }
 
@@ -969,7 +961,7 @@ fn indexer(auditor_pk: &P256Pubkey, pages: Vec<Vec<ShieldedTransaction>>) -> Pag
     PagedIndexer {
         expected_tag: auditor_view_tag(auditor_pk),
         pages,
-        requested: RefCell::new(Vec::new()),
+        requested: Mutex::new(Vec::new()),
     }
 }
 
@@ -981,7 +973,7 @@ fn ring_origins(ring: Address, pages: &[Vec<ShieldedTransaction>]) -> KnownOrigi
             .flatten()
             .map(|tx| (tx.tx_signature, true))
             .collect(),
-        lookups: Cell::new(0),
+        lookups: AtomicUsize::new(0),
     }
 }
 
@@ -989,24 +981,22 @@ fn signatures(transactions: &[ShieldedTransaction]) -> Vec<Signature> {
     transactions.iter().map(|tx| tx.tx_signature).collect()
 }
 
-#[test]
-fn the_page_size_is_asked_for_on_every_round_trip() {
+#[tokio::test]
+async fn the_page_size_is_asked_for_on_every_round_trip() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor_pk = ViewingKey::new().pubkey();
     let pages = paged_history(&auditor_pk, 3);
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages.clone());
 
-    let page = RingScan::new(ring, &auditor_pk)
+    let page = RingScan::new(ring, auditor_pk)
         .with_page_size(NonZeroU32::new(1).expect("page size"))
         .with_max_pages(NonZeroUsize::new(3).expect("page limit"))
-        .run(RingEnvironment {
-            indexer: &indexer,
-            origin: &origin,
-        })
+        .run(&indexer, &origin)
+        .await
         .expect("scan");
 
-    assert_eq!(*indexer.requested.borrow(), vec![Some(1); 3]);
+    assert_eq!(*indexer.requested.lock().unwrap(), vec![Some(1); 3]);
     assert_eq!(
         signatures(&page.transactions),
         signatures(&pages.concat().to_vec())
@@ -1015,21 +1005,18 @@ fn the_page_size_is_asked_for_on_every_round_trip() {
 
 /// A scan cut short by `max_pages` hands back the cursor of the page it did
 /// not read, and resuming there repeats nothing and skips nothing.
-#[test]
-fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
+#[tokio::test]
+async fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor_pk = ViewingKey::new().pubkey();
     let pages = paged_history(&auditor_pk, 3);
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages.clone());
-    let env = RingEnvironment {
-        indexer: &indexer,
-        origin: &origin,
-    };
 
-    let stopped = RingScan::new(ring, &auditor_pk)
+    let stopped = RingScan::new(ring, auditor_pk)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
-        .run(env)
+        .run(&indexer, &origin)
+        .await
         .expect("first scan");
     let cursor = stopped.next_cursor.clone().expect("unread history");
     assert_eq!(
@@ -1037,17 +1024,18 @@ fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
         signatures(&pages[..2].concat())
     );
 
-    let resumed = RingScan::new(ring, &auditor_pk)
+    let resumed = RingScan::new(ring, auditor_pk)
         .with_cursor(cursor)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
-        .run(env)
+        .run(&indexer, &origin)
+        .await
         .expect("resumed scan");
     assert_eq!(resumed.next_cursor, None);
     assert_eq!(signatures(&resumed.transactions), signatures(&pages[2]));
 }
 
-#[test]
-fn an_empty_page_does_not_end_the_scan() {
+#[tokio::test]
+async fn an_empty_page_does_not_end_the_scan() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor_pk = ViewingKey::new().pubkey();
     let last = paged_history(&auditor_pk, 1);
@@ -1055,36 +1043,32 @@ fn an_empty_page_does_not_end_the_scan() {
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages.clone());
 
-    let page = RingScan::new(ring, &auditor_pk)
+    let page = RingScan::new(ring, auditor_pk)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
-        .run(RingEnvironment {
-            indexer: &indexer,
-            origin: &origin,
-        })
+        .run(&indexer, &origin)
+        .await
         .expect("scan");
 
     assert_eq!(page.next_cursor, None);
     assert_eq!(signatures(&page.transactions), signatures(&pages[1]));
 }
 
-#[test]
-fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
+#[tokio::test]
+async fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor_pk = ViewingKey::new().pubkey();
     let pages = paged_history(&auditor_pk, 2);
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages);
 
-    let page = RingScan::new(ring, &auditor_pk)
+    let page = RingScan::new(ring, auditor_pk)
         .with_cursor(vec![2])
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
-        .run(RingEnvironment {
-            indexer: &indexer,
-            origin: &origin,
-        })
+        .run(&indexer, &origin)
+        .await
         .expect("scan");
 
     assert!(page.transactions.is_empty());
     assert_eq!(page.next_cursor, None);
-    assert_eq!(origin.lookups.get(), 0);
+    assert_eq!(origin.lookups.load(Ordering::Relaxed), 0);
 }

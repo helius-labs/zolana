@@ -1,5 +1,3 @@
-//! Ring attribution over the confirmed call stack.
-
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
@@ -14,10 +12,20 @@ use zolana_interface::{
     instruction::{InputUtxo, MessageData, OwnerTag, TransactOutput},
     verifying_keys::{Bsb22Commitment, CacheAccess, CacheWrite, RingP256ProofData},
 };
-use zolana_ring_client::{
-    ring_invoked_in, ring_withdrawals_in, ConfirmedTransaction, OriginError, RingWithdrawal,
-};
 use zolana_transaction::SOL_MINT;
+
+use super::*;
+
+fn ring_invoked_in(groups: &[InstructionGroup], ring: Address) -> Result<bool, AuditError> {
+    Ok(!ring_instructions_in(groups, ring)?.is_empty())
+}
+
+fn ring_withdrawals_in(
+    groups: &[InstructionGroup],
+    ring: Address,
+) -> Result<Vec<RingWithdrawal>, AuditError> {
+    ring_withdrawals_of(&ring_instructions_in(groups, ring)?)
+}
 
 const RING: Address = Address::new_from_array([9u8; 32]);
 const OTHER: Address = Address::new_from_array([8u8; 32]);
@@ -77,7 +85,7 @@ fn stack_height_without_a_parent_is_an_error() {
     let groups = [group(RING, &[(POOL, 4)])];
     assert!(matches!(
         ring_invoked_in(&groups, RING),
-        Err(OriginError::InvalidStackHeight(4))
+        Err(AuditError::InvalidStackHeight(4))
     ));
 }
 
@@ -139,15 +147,12 @@ fn a_lookup_table_is_rejected() {
     });
     let transaction: EncodedConfirmedTransactionWithStatusMeta =
         serde_json::from_value(json).expect("rpc shape");
-    let error = ConfirmedTransaction {
-        signature: Signature::from([6u8; 64]),
-        transaction,
-    }
-    .ring_invoked(0, RING)
-    .expect_err("lookup table");
+    let error = confirmed_origin(transaction, 0, RING)
+        .map(|origin| origin.ring_invoked)
+        .expect_err("lookup table");
     assert!(matches!(
         error,
-        OriginError::Decode(ClientError::AddressLookupTable)
+        AuditError::Client(ClientError::AddressLookupTable)
     ));
 }
 
@@ -225,18 +230,12 @@ fn event_ordinals_separate_two_origins_in_one_transaction() {
     let second: EncodedConfirmedTransactionWithStatusMeta =
         serde_json::from_value(json).expect("rpc shape");
 
-    assert!(ConfirmedTransaction {
-        signature,
-        transaction: first,
-    }
-    .ring_invoked(0, RING)
-    .expect("first origin"));
-    assert!(!ConfirmedTransaction {
-        signature,
-        transaction: second,
-    }
-    .ring_invoked(1, RING)
-    .expect("second origin"));
+    assert!(confirmed_origin(first, 0, RING)
+        .map(|origin| origin.ring_invoked)
+        .expect("first origin"));
+    assert!(!confirmed_origin(second, 1, RING)
+        .map(|origin| origin.ring_invoked)
+        .expect("second origin"));
 }
 
 /// The settlement walk reads instruction groups, so it needs no confirmed
@@ -297,7 +296,7 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
         }
     }
     let circuits: Vec<_> = circuits.into_iter().chain(writing).collect();
-    let vectors: Vec<_> = include_str!("../../../test-vectors/cached_ring_settlement.hex")
+    let vectors: Vec<_> = include_str!("../../../../test-vectors/cached_ring_settlement.hex")
         .lines()
         .collect();
     assert_eq!(vectors.len(), circuits.len());
@@ -393,7 +392,7 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
             .truncate(7);
         assert!(matches!(
             ring_withdrawals_in(&groups, RING),
-            Err(OriginError::SettlementAccounts)
+            Err(AuditError::SettlementAccounts)
         ));
     }
 }
@@ -510,14 +509,14 @@ fn withdrawing_transaction(
 /// accounts appended to the pool instruction.
 #[test]
 fn sol_withdrawal_reports_its_recipient_and_amount() {
-    let origin = ConfirmedTransaction {
-        signature: Signature::from([6u8; 64]),
-        transaction: withdrawing_transaction(
+    let origin = confirmed_origin(
+        withdrawing_transaction(
             vec![InterfaceTransfer::SolWithdrawal { amount: 4_200 }],
             vec![0, 5, 5, 2, 3, 4, 6, 7],
         ),
-    }
-    .origin(0, RING)
+        0,
+        RING,
+    )
     .expect("walk");
 
     assert!(origin.ring_invoked);
@@ -535,17 +534,17 @@ fn sol_withdrawal_reports_its_recipient_and_amount() {
 /// settlement group.
 #[test]
 fn spl_withdrawal_reports_its_mint_and_token_account() {
-    let origin = ConfirmedTransaction {
-        signature: Signature::from([6u8; 64]),
-        transaction: withdrawing_transaction(
+    let origin = confirmed_origin(
+        withdrawing_transaction(
             vec![InterfaceTransfer::SplWithdrawal {
                 amount: 9,
                 spl_interface_bump: 42,
             }],
             vec![0, 5, 5, 2, 3, 8, 9, 4, 10, 4],
         ),
-    }
-    .origin(0, RING)
+        0,
+        RING,
+    )
     .expect("walk");
 
     assert_eq!(
@@ -561,9 +560,8 @@ fn spl_withdrawal_reports_its_mint_and_token_account() {
 /// A preceding SPL withdrawal shifts the SOL settlement group by five accounts.
 #[test]
 fn mixed_spl_and_sol_legs_are_both_reported() {
-    let origin = ConfirmedTransaction {
-        signature: Signature::from([6u8; 64]),
-        transaction: withdrawing_transaction(
+    let origin = confirmed_origin(
+        withdrawing_transaction(
             vec![
                 InterfaceTransfer::SplWithdrawal {
                     amount: 9,
@@ -573,8 +571,9 @@ fn mixed_spl_and_sol_legs_are_both_reported() {
             ],
             vec![0, 5, 5, 2, 3, 8, 9, 4, 10, 4, 6, 7],
         ),
-    }
-    .origin(0, RING)
+        0,
+        RING,
+    )
     .expect("walk");
 
     assert_eq!(
@@ -596,17 +595,17 @@ fn mixed_spl_and_sol_legs_are_both_reported() {
 
 #[test]
 fn spl_settlement_group_without_the_cpi_authority_is_an_error() {
-    let origin = ConfirmedTransaction {
-        signature: Signature::from([6u8; 64]),
-        transaction: withdrawing_transaction(
+    let origin = confirmed_origin(
+        withdrawing_transaction(
             vec![InterfaceTransfer::SplWithdrawal {
                 amount: 9,
                 spl_interface_bump: 42,
             }],
             vec![0, 5, 5, 2, 3, 4, 9, 4, 10, 4],
         ),
-    }
-    .origin(0, RING);
+        0,
+        RING,
+    );
 
-    assert!(matches!(origin, Err(OriginError::SettlementAccounts)));
+    assert!(matches!(origin, Err(AuditError::SettlementAccounts)));
 }

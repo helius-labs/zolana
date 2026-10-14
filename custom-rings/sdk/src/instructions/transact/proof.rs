@@ -32,12 +32,12 @@ use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
 use super::request::CustomRingPrivateTxHash;
 
-use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
+use zolana_ring_client::{AuditError, AuditorEncryption, AuditorMessage};
 
 #[derive(Debug, Error)]
 pub enum CustomRingProofInputError {
     #[error(transparent)]
-    Encryption(#[from] AuditEncryptionError),
+    Encryption(#[from] AuditError),
     #[error(transparent)]
     Keypair(#[from] KeypairError),
     #[error(transparent)]

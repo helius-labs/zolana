@@ -8,12 +8,12 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc};
+use zolana_client::{
+    ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient,
+};
 use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ViewingKey};
-use zolana_ring_client::{
-    RecoveryEnvironment, RecoveryError, RingEnvironment, RingRecovery, SourceMember,
-};
+use zolana_ring_client::{AuditError, RingRecovery, SourceMember};
 use zolana_ring_policy::Member;
 use zolana_ring_rpc::KeyFileError;
 use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo, SOL_MINT};
@@ -62,7 +62,7 @@ pub enum DelegateError {
     #[error(transparent)]
     Registry(Box<KeyRegistrationError>),
     #[error(transparent)]
-    Recovery(Box<RecoveryError>),
+    Recovery(Box<AuditError>),
 }
 
 impl<E: Into<TransactError>> From<E> for DelegateError {
@@ -191,19 +191,20 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         Err(error) => return Err(DelegateError::Registry(Box::new(error))),
     };
     // 3. Accept verified openings and report incomplete recovery.
-    let recovered = RingRecovery::new(ctx.ring.program_id(), &auditor)
+    let recovery = RingRecovery::new(ctx.ring.program_id(), &auditor)
         .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?))
         .for_member(SourceMember {
             address: &source,
             nullifier_key: &nullifier_key,
-        })
-        .run(RecoveryEnvironment {
-            ring: RingEnvironment {
-                indexer: &indexer,
-                origin: &ctx.rpc,
-            },
-            assets: &assets,
-        })
+        });
+    let zolana = ZolanaClient::new(
+        SolanaRpc::new(ctx.config.urls().rpc.clone()),
+        ctx.indexer(),
+        ctx.prover(),
+    );
+    let client = zolana.as_async();
+    let recovered = zolana
+        .block_on(recovery.run(client.indexer(), client.rpc(), &assets))
         .map_err(|error| DelegateError::Recovery(Box::new(error)))?;
     if !recovered.unopened.is_empty() {
         line("unopened notes", recovered.unopened.len());
@@ -362,13 +363,14 @@ impl NoteSelection<'_> {
 mod tests {
     use custom_ring_sdk::CustomRing;
     use solana_signature::Signature;
+    use zolana_client::ProverClient;
     use zolana_client::{
         rpc::GetShieldedTransactionsByNullifiersResponse, Context,
         GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
         ShieldedTransaction,
     };
     use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
-    use zolana_ring_client::{AuditorEncryption, OriginError, RingOrigin, TransactionOrigin};
+    use zolana_ring_client::{AuditorEncryption, RingOrigin, TransactionOrigin};
     use zolana_transaction::{
         serialization::confidential::{
             Confidential, ConfidentialEncode, ConfidentialOutputPlaintext,
@@ -762,12 +764,12 @@ mod tests {
     struct AllRingInvoked;
 
     impl TransactionOrigin for AllRingInvoked {
-        fn origin(
+        async fn origin(
             &self,
             _signature: Signature,
             _event_index: u16,
             _ring: Address,
-        ) -> Result<RingOrigin, OriginError> {
+        ) -> Result<RingOrigin, AuditError> {
             Ok(RingOrigin {
                 ring_invoked: true,
                 signers: Vec::new(),
@@ -780,16 +782,15 @@ mod tests {
         indexer: &StubIndexer,
         auditor: &ViewingKey,
         source: SourceMember<'_>,
-    ) -> Result<Vec<WalletUtxo>, RecoveryError> {
-        RingRecovery::new(ring().program_id(), auditor)
-            .for_member(source)
-            .run(RecoveryEnvironment {
-                ring: RingEnvironment {
-                    indexer,
-                    origin: &AllRingInvoked,
-                },
-                assets: &AssetRegistry::default(),
-            })
+    ) -> Result<Vec<WalletUtxo>, AuditError> {
+        let stub = StubIndexer {
+            transactions: indexer.transactions.clone(),
+        };
+        let zolana = ZolanaClient::new((), stub, ProverClient::local());
+        let recovery = RingRecovery::new(ring().program_id(), auditor).for_member(source);
+        let assets = AssetRegistry::default();
+        zolana
+            .block_on(recovery.run(zolana.as_async().indexer(), &AllRingInvoked, &assets))
             .map(|recovered| recovered.utxos)
     }
 
@@ -883,7 +884,7 @@ mod tests {
                     nullifier_key: &stranger.nullifier_key,
                 },
             ),
-            Err(RecoveryError::NullifierKeyMismatch)
+            Err(AuditError::NullifierKeyMismatch)
         ));
     }
 }

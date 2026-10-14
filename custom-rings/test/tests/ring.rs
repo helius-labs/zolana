@@ -32,14 +32,14 @@ use custom_ring_cli::transact::{self, Probe};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, find_counters_message, AsyncTransferProofEnvironment, ClearSpendWindow,
-    CoSignScope, CoSignThreshold, CreateConfig, CreateKeyRegistryRoot, CustomRing,
-    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
+    auditor_view_tag, find_counters_message, open_counters, AsyncTransferProofEnvironment,
+    ClearSpendWindow, CoSignScope, CoSignThreshold, CreateConfig, CreateKeyRegistryRoot,
+    CustomRing, CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
     DelegateTransfer, DelegateTransferInput, Deposit, DepositError, DepositInstructionError,
     EscrowBinding, KeyRegistrationError, ProvenDelegateTransfer, ProvenTransfer, ReadEnvironment,
     ReadSealedKey, ReadSpendRecord, RegisterKey, RegisterSpend, RingDeposit, RingDepositReceipt,
-    SealedCounters, SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetSpendWindow,
-    TransactSend, TransferError, TransferProofEnvironment,
+    SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetSpendWindow, TransactSend, TransferError,
+    TransferProofEnvironment,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -81,10 +81,7 @@ use zolana_program::instruction::{
     TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
 };
 use zolana_program_test::Rejection;
-use zolana_ring_client::{
-    AuditedOutput, AuditedTransaction, RecoveryEnvironment, RingAudit, RingEnvironment,
-    RingRecovery, SourceMember,
-};
+use zolana_ring_client::{AuditedOutput, AuditedTransaction, RingRecovery, RingScan, SourceMember};
 use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
 use zolana_ring_rpc::{
     ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
@@ -854,14 +851,15 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         "the on-chain tx_viewing_pk is the key the sender derived"
     );
 
-    let audited = RingAudit::new(ring_program, &auditor)
-        .run(
-            RingEnvironment {
-                indexer,
-                origin: rpc,
-            },
+    let client = env.client.as_async();
+    let audited = env
+        .client
+        .block_on(RingScan::new(ring_program, auditor.pubkey()).audit(
+            &auditor,
+            client.indexer(),
+            client.rpc(),
             &env.assets,
-        )?
+        ))?
         .transactions;
     assert_eq!(
         audited.len(),
@@ -1143,14 +1141,15 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         "the on-chain tx_viewing_pk is the sender's"
     );
 
-    let audited = RingAudit::new(ring_program, &auditor)
-        .run(
-            RingEnvironment {
-                indexer,
-                origin: rpc,
-            },
+    let client = env.client.as_async();
+    let audited = env
+        .client
+        .block_on(RingScan::new(ring_program, auditor.pubkey()).audit(
+            &auditor,
+            client.indexer(),
+            client.rpc(),
             &env.assets,
-        )?
+        ))?
         .transactions;
     assert_eq!(audited.len(), 1, "one auditor-tagged transaction");
     let audited = audited
@@ -2153,13 +2152,13 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
     let live = wait_for_spend_record(read_record, 1)?;
     let tx_key = sender.get_transaction_viewing_key(&indexed.nullifiers[0])?;
-    let counters = SealedCounters {
-        body: &find_counters_message(&indexed.messages, ring.namespace_pda().as_array())?
+    let counters = open_counters(
+        &find_counters_message(&indexed.messages, ring.namespace_pda().as_array())?
             .ok_or_else(|| anyhow!("counters message"))?
             .data,
-        salt: indexed.salt.ok_or_else(|| anyhow!("transaction salt"))?,
-    }
-    .open(&tx_key)?;
+        indexed.salt.ok_or_else(|| anyhow!("transaction salt"))?,
+        &tx_key,
+    )?;
     assert_eq!(
         counters.spent(&sol_field),
         FIRST_SEND,
@@ -2736,18 +2735,14 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         "audited ring deposit",
         u64::from(custom_ring_sdk::AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT),
     )?;
-    let deposited = RingRecovery::new(ring_program, &auditor)
-        .for_member(SourceMember {
-            address: &member_address,
-            nullifier_key: &member.nullifier_key,
-        })
-        .run(RecoveryEnvironment {
-            ring: RingEnvironment {
-                indexer,
-                origin: rpc,
-            },
-            assets: &env.assets,
-        })?;
+    let recovery = RingRecovery::new(ring_program, &auditor).for_member(SourceMember {
+        address: &member_address,
+        nullifier_key: &member.nullifier_key,
+    });
+    let client = env.client.as_async();
+    let deposited =
+        env.client
+            .block_on(recovery.run(client.indexer(), client.rpc(), &env.assets))?;
     assert!(deposited.unopened.is_empty());
     assert!(deposited.unsupported_deposits.is_empty());
     assert_eq!(deposited.utxos.len(), 1);
@@ -2810,18 +2805,14 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         .instruction()],
     )?;
     env.enable_authority_rail(ring)?;
-    let recovered = RingRecovery::new(ring_program, &auditor)
-        .for_member(SourceMember {
-            address: &member_address,
-            nullifier_key: &nullifier_key,
-        })
-        .run(RecoveryEnvironment {
-            ring: RingEnvironment {
-                indexer,
-                origin: rpc,
-            },
-            assets: &env.assets,
-        })?;
+    let recovery = RingRecovery::new(ring_program, &auditor).for_member(SourceMember {
+        address: &member_address,
+        nullifier_key: &nullifier_key,
+    });
+    let client = env.client.as_async();
+    let recovered =
+        env.client
+            .block_on(recovery.run(client.indexer(), client.rpc(), &env.assets))?;
     assert!(recovered.unopened.is_empty(), "every audited note opens");
     let mut amounts: Vec<u64> = recovered
         .utxos
@@ -3530,13 +3521,15 @@ struct AuditLookup<'a> {
 
 impl AuditLookup<'_> {
     fn run(self, env: &TestEnv) -> Result<AuditedTransaction> {
-        RingAudit::new(self.ring_program, self.auditor)
-            .run(
-                RingEnvironment {
-                    indexer: env.client.indexer(),
-                    origin: env.client.rpc(),
-                },
-                &env.assets,
+        let client = env.client.as_async();
+        env.client
+            .block_on(
+                RingScan::new(self.ring_program, self.auditor.pubkey()).audit(
+                    self.auditor,
+                    client.indexer(),
+                    client.rpc(),
+                    &env.assets,
+                ),
             )?
             .transactions
             .into_iter()

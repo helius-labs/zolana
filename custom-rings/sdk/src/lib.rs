@@ -38,9 +38,8 @@ pub use custom_ring_interface::{
 
 pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
-    auditor_view_tag, find_counters_message, AuditEncryptionError, AuditorEncryption,
-    AuditorMessage, CountersSeal, SealedCounters, SealedNullifierKey, SpendCountersError,
-    AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, find_counters_message, open_counters, seal_counters, AuditError,
+    AuditorEncryption, AuditorMessage, SealedNullifierKey, AUDITOR_MESSAGE_LEN,
 };
 pub use zolana_ring_policy::RuleTableError;
 

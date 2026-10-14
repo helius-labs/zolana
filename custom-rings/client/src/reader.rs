@@ -6,7 +6,7 @@ use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use thiserror::Error;
-use zolana_keypair::{P256Pubkey, PublicKey};
+use zolana_keypair::{KeypairError, P256Pubkey, PublicKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ReaderKey {
@@ -30,6 +30,12 @@ pub enum ReaderKeyError {
     Body,
 }
 
+impl From<KeypairError> for ReaderKeyError {
+    fn from(_: KeypairError) -> Self {
+        Self::Body
+    }
+}
+
 impl ReaderKey {
     pub fn ed25519(address: Address) -> Result<Self, ReaderKeyError> {
         Ed25519ReaderKey::try_from(address).map(Self::Ed25519)
@@ -47,13 +53,10 @@ impl ReaderKey {
     }
 
     pub fn from_bytes(bytes: [u8; 34]) -> Result<Self, ReaderKeyError> {
-        let key = PublicKey::from_bytes(bytes).map_err(|_| ReaderKeyError::Body)?;
+        let key = PublicKey::from_bytes(bytes)?;
         match bytes[0] {
-            READER_KEY_ED25519 => {
-                let body = key.as_ed25519().map_err(|_| ReaderKeyError::Body)?;
-                Self::ed25519(Address::new_from_array(body))
-            }
-            READER_KEY_P256 => Self::p256(key.as_p256().map_err(|_| ReaderKeyError::Body)?),
+            READER_KEY_ED25519 => Self::ed25519(Address::new_from_array(key.as_ed25519()?)),
+            READER_KEY_P256 => Self::p256(key.as_p256()?),
             _ => Err(ReaderKeyError::Scheme),
         }
     }
@@ -106,16 +109,16 @@ impl TryFrom<P256Pubkey> for P256ReaderKey {
 impl FromStr for ReaderKey {
     type Err = ReaderKeyError;
 
+    /// Base58 text is an Ed25519 key, never a hex fallback.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if let Ok(address) = text.parse::<Address>() {
-            return Self::ed25519(address).map_err(|_| ReaderKeyError::Text);
-        }
-        let bytes: [u8; 33] = hex::decode(text)
-            .ok()
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or(ReaderKeyError::Text)?;
-        let key = P256Pubkey::from_bytes(bytes).map_err(|_| ReaderKeyError::Text)?;
-        Self::p256(key).map_err(|_| ReaderKeyError::Text)
+        let key = match text.parse::<Address>() {
+            Ok(address) => Self::ed25519(address).ok(),
+            Err(_) => hex::decode(text)
+                .ok()
+                .and_then(|bytes| P256Pubkey::from_bytes(bytes.try_into().ok()?).ok())
+                .and_then(|key| Self::p256(key).ok()),
+        };
+        key.ok_or(ReaderKeyError::Text)
     }
 }
 

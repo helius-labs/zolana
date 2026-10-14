@@ -23,7 +23,7 @@ use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::ProverClient;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
-use zolana_ring_client::{AuditedTransaction, RingAudit, RingEnvironment};
+use zolana_ring_client::{AuditedTransaction, RingScan};
 use zolana_ring_policy::{EntryState, ListId, Member};
 use zolana_ring_rpc::{
     run_server, BindPolicy, ChainSource, Hub, ServerOptions, TransactionSource, Upstreams,
@@ -428,14 +428,17 @@ impl<'a> DemoRing<'a> {
     }
 
     fn audited(&self) -> Result<Vec<AuditedTransaction>> {
-        Ok(RingAudit::new(self.ring.program_id(), &self.auditor)
-            .run(
-                RingEnvironment {
-                    indexer: self.env.client.indexer(),
-                    origin: self.env.client.rpc(),
-                },
+        let client = self.env.client.as_async();
+        let scan = RingScan::new(self.ring.program_id(), self.auditor.pubkey());
+        Ok(self
+            .env
+            .client
+            .block_on(scan.audit(
+                &self.auditor,
+                client.indexer(),
+                client.rpc(),
                 &self.env.assets,
-            )?
+            ))?
             .transactions)
     }
 

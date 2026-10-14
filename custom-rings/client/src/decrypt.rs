@@ -1,40 +1,27 @@
-//! Recovering the transaction viewing key from an auditor message and opening
-//! the transaction's confidential output slots with it.
-//!
-//! Why one key is enough: every confidential slot of an SPP transact is HPKE'd
-//! under the per-transaction viewing key and carries the recipient's viewing
-//! pubkey in its own body
-//! (`sdk-libs/transaction/src/serialization/confidential.rs`), so
-//! [`Confidential::decrypt_with_tx_key`] needs the transaction key and nothing
-//! else. Recovering that one scalar therefore opens everything the recipients
-//! see.
+//! Every confidential slot of a transact is sealed under the per-transaction viewing key,
+//! so the one key the auditor message carries opens the whole transaction.
 
-use crate::encryption::{auditor_view_tag, AuditorMessage};
-use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
+use custom_ring_interface::AUDIT_OUTPUT_SLOTS;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
+use zolana_event::MessageData;
 use zolana_hasher::primitives::{hash_bytes, right_align};
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::event::{confidential_encrypted_output_body, OutputDataEncoding};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_transaction::utxo::program_id_proof_input_hash;
+use zolana_ring_policy::{spend_record_message_tag, SpendCounters, SpendRecord};
 use zolana_transaction::{
-    serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
-    ShieldedTransaction, SOL_MINT,
+    serialization::confidential::Confidential, utxo::program_id_proof_input_hash, AssetRegistry,
+    EncryptedScheme, OutputSlot, ShieldedTransaction, SOL_MINT,
 };
 
-use zolana_event::MessageData;
-use zolana_ring_policy::SpendRecord;
-
 use crate::{
-    counters::{find_counters_message, SealedCounters},
-    error::AuditError,
-    record::RecordCarrier,
+    counters::{find_counters_message, open_counters},
+    encryption::{auditor_view_tag, AuditorMessage},
     types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
+    AuditError,
 };
 
 #[must_use]
-/// Opens every confidential output slot of `transaction` with the transaction
-/// viewing key the auditor message carries.
 pub struct TransactionAudit<'a> {
     pub auditor: &'a ViewingKey,
     pub transaction: &'a ShieldedTransaction,
@@ -43,120 +30,67 @@ pub struct TransactionAudit<'a> {
 
 impl TransactionAudit<'_> {
     pub fn run(self) -> Result<AuditedTransaction, AuditError> {
-        let message = auditor_message(self.transaction, &self.auditor.pubkey())?;
-        let tx_viewing_pk = self
-            .transaction
-            .tx_viewing_pk
-            .ok_or(AuditError::MissingTxViewingPk)?;
-        let salt = self.transaction.salt.ok_or(AuditError::MissingSalt)?;
-
+        let tx = self.transaction;
+        let message = auditor_message(tx, &self.auditor.pubkey())?;
+        let tx_viewing_pk = tx.tx_viewing_pk.ok_or(AuditError::MissingTxViewingPk)?;
+        let salt = tx.salt.ok_or(AuditError::MissingSalt)?;
         let tx_key = recover_tx_viewing_key(self.auditor, &message)?;
-        // The verified ring proof binds the ciphertext to `tx_viewing_pk`, so this
-        // holds for any transaction the program accepted. Checking it anyway turns a
-        // forged or misrouted message into one named error instead of a pile of
-        // failed slot decryptions.
+        // The ring proof binds the ciphertext to the published key, a mismatch is a forged message.
         if tx_key.pubkey() != tx_viewing_pk {
             return Err(AuditError::TxViewingKeyMismatch);
         }
-        if self.transaction.output_slots.len() > custom_ring_interface::AUDIT_OUTPUT_SLOTS {
-            return Err(AuditError::OutputDisclosureCount(
-                self.transaction.output_slots.len(),
-            ));
+        if tx.output_slots.len() > AUDIT_OUTPUT_SLOTS {
+            return Err(AuditError::OutputDisclosureCount(tx.output_slots.len()));
         }
-        let disclosed = message.open_outputs(&tx_key, salt)?;
-
-        let mut outputs = Vec::new();
-        let mut output_openings = Vec::with_capacity(self.transaction.output_slots.len());
-        let mut spend_records = Vec::new();
-        let mut undecryptable_slots = Vec::new();
-        for (position, slot) in self.transaction.output_slots.iter().enumerate() {
-            let slot_index =
-                u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;
-            let opening = disclosed[position];
-            let committed = ProofInputUtxo {
-                domain: opening.domain,
-                tree_id: opening.tree_id,
-                owner_hash: opening.owner_hash,
-                asset: opening.asset,
-                amount: opening.amount,
-                blinding: opening.blinding,
-                data_hash: opening.data_hash,
-                ring_data_hash: opening.ring_data_hash,
-                ring_program_id: opening.ring_program_id,
-            };
-            if committed.hash().ok() != Some(slot.output_context.hash) {
+        let mut audited = AuditedTransaction {
+            tx_signature: tx.tx_signature,
+            slot: tx.slot,
+            tx_viewing_pk,
+            outputs: Vec::new(),
+            output_openings: Vec::new(),
+            spend_records: Vec::new(),
+            undecryptable_slots: Vec::new(),
+        };
+        let openings = message.open_outputs(&tx_key, salt)?;
+        for (position, (slot, opening)) in tx.output_slots.iter().zip(openings).enumerate() {
+            let slot_index = position as u32;
+            if opening.hash().ok() != Some(slot.output_context.hash) {
                 return Err(AuditError::OutputCommitmentMismatch(slot_index));
             }
-            output_openings.push(opening);
-            let opened = OutputAudit {
-                tx_key: &tx_key,
-                slot,
-                salt,
-                slot_index,
-                assets: self.assets,
-                opening: &opening,
-            }
-            .run()?;
-            let record = match RecordCarrier::decode(slot, &self.transaction.messages)? {
-                None => None,
-                Some(RecordCarrier::Inline(record)) => Some(record),
-                Some(RecordCarrier::Sidecar(record)) => {
-                    if position + 1 != self.transaction.output_slots.len() {
-                        return Err(AuditError::InvalidSpendRecordMessage);
-                    }
-                    Some(record)
-                }
-            };
-            if let Some(record) = record {
-                if !matches!(slot.output_data(), Some(OutputDataEncoding::Plaintext(_)))
-                    && !opened.as_ref().is_some_and(|output| {
+            let opened = open_output(&tx_key, slot, salt, slot_index, self.assets, &opening)?;
+            audited.output_openings.push(opening);
+            let last = position + 1 == tx.output_slots.len();
+            match (carried_record(slot, &tx.messages, last)?, opened) {
+                (Some(record), opened) => {
+                    let plaintext =
+                        matches!(slot.output_data(), Some(OutputDataEncoding::Plaintext(_)));
+                    // A sealed carrier must be the zero SOL note the record names.
+                    let carrier = opened.is_some_and(|output| {
                         output.asset == SOL_MINT
                             && output.amount == 0
                             && output.ring_program_id.is_none()
                             && output.recipient_viewing_pk == tx_viewing_pk
                             && *output.blinding == record.blinding
-                    })
-                {
-                    return Err(AuditError::InvalidSpendRecordMessage);
+                    });
+                    if !plaintext && !carrier {
+                        return Err(AuditError::InvalidSpendRecordMessage);
+                    }
+                    audited.spend_records.push(AuditedSpendRecord {
+                        slot_index,
+                        counters: opened_counters(&tx_key, salt, &tx.messages, slot, &record)?,
+                        record,
+                    });
                 }
-                spend_records.push(AuditedSpendRecord {
-                    slot_index,
-                    counters: opened_counters(
-                        &tx_key,
-                        salt,
-                        &self.transaction.messages,
-                        slot,
-                        &record,
-                    )?,
-                    record,
-                });
-            } else if let Some(output) = opened {
-                outputs.push(output);
-            } else {
-                undecryptable_slots.push(slot_index);
+                (None, Some(output)) => audited.outputs.push(output),
+                (None, None) => audited.undecryptable_slots.push(slot_index),
             }
         }
-
-        Ok(AuditedTransaction {
-            tx_signature: self.transaction.tx_signature,
-            slot: self.transaction.slot,
-            tx_viewing_pk,
-            outputs,
-            output_openings,
-            spend_records,
-            undecryptable_slots,
-        })
+        Ok(audited)
     }
 }
 
-/// Locates the ring program's auditor message.
-///
-/// The program's convention (enforced on-chain) is exactly one message with the
-/// auditor view tag, as the last entry of `TransactIxData::messages`; both parts
-/// are re-checked here so a client audit of an unverified or replayed
-/// transaction reports the deviation instead of silently reading a different
-/// message.
-pub fn auditor_message(
+/// The one auditor-tagged message, which the program requires to be the last message.
+fn auditor_message(
     tx: &ShieldedTransaction,
     auditor_pk: &P256Pubkey,
 ) -> Result<AuditorMessage, AuditError> {
@@ -174,175 +108,165 @@ pub fn auditor_message(
     if index + 1 != count {
         return Err(AuditError::AuditorMessageNotLast { index, count });
     }
-    Ok(AuditorMessage::parse(message, auditor_pk)?)
+    AuditorMessage::parse(message, auditor_pk)
 }
 
-/// Decrypts the auditor message into the transaction viewing key.
+/// The circuit pins the secret below the P-256 order, so a representative above it is refused.
 pub fn recover_tx_viewing_key(
     auditor: &ViewingKey,
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
-    let recovered = message.decrypt(auditor)?;
-    let canonical = reduce_mod_group_order(&recovered);
-    ViewingKey::from_bytes(&canonical).map_err(AuditError::RecoveredKeyInvalid)
+    ViewingKey::from_bytes(&*message.decrypt(auditor)?)
+        .map_err(|_| AuditError::NonCanonicalViewingKey)
 }
 
-#[must_use]
-/// `Ok(None)` for a slot the audit cannot open.
-struct OutputAudit<'a> {
-    tx_key: &'a ViewingKey,
-    slot: &'a OutputSlot,
+/// `None` for a slot the transaction key does not open, which every dummy is.
+fn open_output(
+    tx_key: &ViewingKey,
+    slot: &OutputSlot,
     salt: [u8; SALT_LEN],
     slot_index: u32,
-    assets: &'a AssetRegistry,
-    opening: &'a crate::AuditOutputOpening,
-}
-
-impl OutputAudit<'_> {
-    fn run(self) -> Result<Option<AuditedOutput>, AuditError> {
-        let Some(OutputDataEncoding::Encrypted(blob)) = self.slot.output_data() else {
-            return Ok(None);
-        };
-        let Some((&scheme_byte, body)) = blob.split_first() else {
-            return Ok(None);
-        };
-        if !matches!(
-            EncryptedScheme::from_byte(scheme_byte),
-            Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
-        ) {
-            return Ok(None);
-        }
-        let Ok(recipient_viewing_pk) = Confidential::embedded_viewing_pk(body) else {
-            return Ok(None);
-        };
-        let Ok(plaintext) =
-            Confidential::decrypt_with_tx_key(self.tx_key, body, self.salt, self.slot_index)
-        else {
-            return Ok(None);
-        };
-        let asset =
-            self.assets
-                .resolve(plaintext.asset_id)
-                .map_err(|source| AuditError::UnknownAsset {
-                    asset_id: plaintext.asset_id,
-                    source,
-                })?;
-        let asset_field = hash_bytes(asset.asset.as_array())
-            .map_err(|_| AuditError::OutputPlaintextMismatch(self.slot_index))?;
-        let ring_program_id = program_id_proof_input_hash(&plaintext.ring_program_id)
-            .map_err(|_| AuditError::OutputPlaintextMismatch(self.slot_index))?;
-        if asset_field != self.opening.asset
-            || right_align(&plaintext.amount.to_be_bytes()) != self.opening.amount
-            || plaintext.blinding != self.opening.blinding
-            || ring_program_id != self.opening.ring_program_id
-        {
-            return Err(AuditError::OutputPlaintextMismatch(self.slot_index));
-        }
-        Ok(Some(AuditedOutput {
-            slot_index: self.slot_index,
-            recipient_viewing_pk,
-            owner_tag: self.slot.view_tag,
-            asset: asset.asset,
-            amount: plaintext.amount,
-            blinding: Zeroizing::new(plaintext.blinding),
-            ring_program_id: plaintext.ring_program_id,
-            data: plaintext.data,
-        }))
+    assets: &AssetRegistry,
+    opening: &ProofInputUtxo,
+) -> Result<Option<AuditedOutput>, AuditError> {
+    let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
+        return Ok(None);
+    };
+    let Some((&scheme, body)) = blob.split_first() else {
+        return Ok(None);
+    };
+    if !matches!(
+        EncryptedScheme::from_byte(scheme),
+        Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
+    ) {
+        return Ok(None);
     }
+    let (Ok(recipient_viewing_pk), Ok(plaintext)) = (
+        Confidential::embedded_viewing_pk(body),
+        Confidential::decrypt_with_tx_key(tx_key, body, salt, slot_index),
+    ) else {
+        return Ok(None);
+    };
+    let asset = assets
+        .resolve(plaintext.asset_id)
+        .map_err(|source| AuditError::UnknownAsset {
+            asset_id: plaintext.asset_id,
+            source,
+        })?;
+    if hash_bytes(asset.asset.as_array())? != opening.asset
+        || right_align(&plaintext.amount.to_be_bytes()) != opening.amount
+        || plaintext.blinding != opening.blinding
+        || program_id_proof_input_hash(&plaintext.ring_program_id)? != opening.ring_program_id
+    {
+        return Err(AuditError::OutputPlaintextMismatch(slot_index));
+    }
+    Ok(Some(AuditedOutput {
+        slot_index,
+        recipient_viewing_pk,
+        owner_tag: slot.view_tag,
+        asset: asset.asset,
+        amount: plaintext.amount,
+        blinding: Zeroizing::new(plaintext.blinding),
+        ring_program_id: plaintext.ring_program_id,
+        data: plaintext.data,
+    }))
 }
 
+/// A registration carries its record inline, a successor in the one message its namespace
+/// tags, from the last output slot.
+fn carried_record(
+    slot: &OutputSlot,
+    messages: &[MessageData],
+    last: bool,
+) -> Result<Option<SpendRecord>, AuditError> {
+    if let Some(record) = SpendRecord::from_output_data(&slot.payload) {
+        return Ok((record.version == 0).then_some(record));
+    }
+    let tag = spend_record_message_tag(&slot.view_tag)?;
+    let mut tagged = messages.iter().filter(|message| message.view_tag == tag);
+    let Some(message) = tagged.next() else {
+        return Ok(None);
+    };
+    if tagged.next().is_some()
+        || !last
+        || confidential_encrypted_output_body(&slot.payload).is_none()
+    {
+        return Err(AuditError::InvalidSpendRecordMessage);
+    }
+    SpendRecord::from_output_data(&message.data)
+        .map(Some)
+        .ok_or(AuditError::InvalidSpendRecordMessage)
+}
+
+/// `None` for a registration, else the counters that open the record's commitment.
 fn opened_counters(
     tx_key: &ViewingKey,
     salt: [u8; SALT_LEN],
     messages: &[MessageData],
     slot: &OutputSlot,
     record: &SpendRecord,
-) -> Result<Option<zolana_ring_policy::SpendCounters>, AuditError> {
+) -> Result<Option<SpendCounters>, AuditError> {
     if record.version == 0 {
         return Ok(None);
     }
-    let message = find_counters_message(messages, &slot.view_tag)
-        .map_err(|_| AuditError::InvalidSpendCountersDisclosure)?
-        .ok_or(AuditError::InvalidSpendCountersDisclosure)?;
-    let counters = SealedCounters {
-        body: &message.data,
-        salt,
-    }
-    .open(tx_key)
-    .map_err(|_| AuditError::InvalidSpendCountersDisclosure)?;
-    if counters
-        .commitment()
-        .map_err(|_| AuditError::InvalidSpendCountersDisclosure)?
-        != record.counters_commitment
-    {
-        return Err(AuditError::InvalidSpendCountersDisclosure);
-    }
-    Ok(Some(counters))
-}
-
-/// Reduces the recovered 32 bytes modulo the P-256 group order `n`.
-///
-/// The circuit witnesses the secret key as 32 big-endian bytes and only ever
-/// uses them through the emulated-field gadgets, i.e. it binds `bytes mod n`.
-/// A prover can therefore encrypt any representative of the scalar class -
-/// `sk`, `sk + n`, ... - and still satisfy
-/// `ScalarMulGenerator(bytes) == tx_viewing_pk`. Reducing here maps every such
-/// representative back to the canonical one that `ViewingKey::from_bytes`
-/// accepts. Any 256-bit integer is below `2n`, so p256's single conditional
-/// subtraction is a complete reduction.
-fn reduce_mod_group_order(bytes: &[u8; 32]) -> Zeroizing<[u8; 32]> {
-    let scalar = <Scalar as Reduce<U256>>::reduce_bytes(&FieldBytes::from(*bytes));
-    let mut reduced = Zeroizing::new([0u8; 32]);
-    reduced.copy_from_slice(scalar.to_bytes().as_slice());
-    reduced
+    find_counters_message(messages, &slot.view_tag)
+        .ok()
+        .flatten()
+        .and_then(|message| open_counters(&message.data, salt, tx_key).ok())
+        .filter(|counters| counters.commitment().ok() == Some(record.counters_commitment))
+        .map(Some)
+        .ok_or(AuditError::InvalidSpendCountersDisclosure)
 }
 
 #[cfg(test)]
 mod tests {
-    use p256::{
-        elliptic_curve::{bigint::ArrayEncoding, Curve},
-        NistP256,
-    };
-    use zolana_keypair::symmetric_apply;
-
-    use crate::encryption::{AuditSharedSecret, AUDIT_ENC_INFO};
-
     use super::*;
+    use crate::encryption::{seal_stream, AUDIT_ENC_INFO};
 
-    /// The circuit binds `bytes mod n`, so a prover may encrypt another
-    /// representative of the scalar class. Client-side reduction must recover the
-    /// canonical transaction viewing key.
-    #[test]
-    fn recovery_reduces_a_noncanonical_scalar() {
+    /// The P-256 group order.
+    const N: [u8; 32] = [
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63,
+        0x25, 0x51,
+    ];
+
+    fn with_last_byte(mut value: [u8; 32], last: u8) -> [u8; 32] {
+        value[31] = last;
+        value
+    }
+
+    /// Seals raw bytes as the transaction secret, no scalar check runs on the way in.
+    fn recover(secret: [u8; 32]) -> Result<ViewingKey, AuditError> {
         let auditor = ViewingKey::new();
-        let mut scalar = [0u8; 32];
-        scalar[24..].copy_from_slice(&0x0123_4567_89ab_cdefu64.to_be_bytes());
-        let viewing_key = ViewingKey::from_bytes(&scalar).expect("viewing key");
-        let shifted = p256::U256::from_be_slice(&scalar)
-            .wrapping_add(&NistP256::ORDER)
-            .to_be_byte_array();
-        let mut plaintext = [0u8; 32];
-        plaintext.copy_from_slice(shifted.as_slice());
-
         let ephemeral = ViewingKey::new();
-        let ephemeral_key = ephemeral.pubkey();
-        let auditor_key = auditor.pubkey();
-        let diffie_hellman_x = Zeroizing::new(ephemeral.ecdh(&auditor_key).expect("ecdh"));
-        let shared = AuditSharedSecret {
-            diffie_hellman_x: &diffie_hellman_x,
-            ephemeral_key: &ephemeral_key,
-            auditor_key: &auditor_key,
-        }
-        .derive()
-        .expect("shared secret");
-        symmetric_apply(&shared, AUDIT_ENC_INFO, &mut plaintext).expect("ciphertext");
-        let message = AuditorMessage::new(ephemeral_key, plaintext);
+        let mut ciphertext = secret;
+        seal_stream(
+            &ephemeral,
+            &auditor.pubkey(),
+            AUDIT_ENC_INFO,
+            &mut ciphertext,
+        )
+        .unwrap();
+        recover_tx_viewing_key(
+            &auditor,
+            &AuditorMessage::new(ephemeral.pubkey(), ciphertext),
+        )
+    }
 
-        assert_eq!(
-            recover_tx_viewing_key(&auditor, &message)
-                .expect("recovered key")
-                .pubkey(),
-            viewing_key.pubkey()
-        );
+    #[test]
+    fn the_largest_canonical_secret_opens() {
+        let below = with_last_byte(N, 0x50);
+        assert_eq!(*recover(below).unwrap().secret_bytes(), below);
+    }
+
+    /// A representative at or above the order would key another disclosure stream.
+    #[test]
+    fn a_secret_at_or_above_the_order_or_zero_is_refused() {
+        for secret in [N, with_last_byte(N, 0x52), [0xff; 32], [0; 32]] {
+            assert!(matches!(
+                recover(secret),
+                Err(AuditError::NonCanonicalViewingKey)
+            ));
+        }
     }
 }

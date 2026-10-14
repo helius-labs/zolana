@@ -41,7 +41,7 @@ use zolana_keypair::{
 use zolana_program::instruction::{
     DepositAsset, DepositBuildError, RingAssetDeposit, TransactInterfaceTransferAccounts,
 };
-use zolana_ring_client::{DepositEncryption, DepositOpening, DepositSeal};
+use zolana_ring_client::{seal_deposits, DepositEncryption, DepositOpening};
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
 use zolana_transaction::{
     instructions::transact::{
@@ -267,6 +267,8 @@ pub enum TransferError {
     DelegateRequiresEscrow,
     #[error(transparent)]
     KeyRegistration(#[from] KeyRegistrationError),
+    #[error(transparent)]
+    Audit(#[from] zolana_ring_client::AuditError),
 }
 
 impl crate::projection::ProjectionLag for TransferError {
@@ -293,7 +295,7 @@ impl From<ClientError> for TransferError {
 #[derive(Debug, Error)]
 pub enum DepositError {
     #[error(transparent)]
-    Encryption(#[from] zolana_ring_client::AuditEncryptionError),
+    Encryption(#[from] zolana_ring_client::AuditError),
     #[error(transparent)]
     Proof(#[from] CustomRingProofError),
     #[error("deposit proof input hashing failed")]
@@ -1925,14 +1927,13 @@ impl RingDeposit<'_> {
         // before any deposit is sent.
         let key_registry = KeyRegistry::of(self.ring, &config);
         let disclosure = if key_registry.is_some() || self.ring.read_deposit_audit(rpc)? {
-            let encryption = DepositSeal {
-                openings: &[DepositOpening {
+            let encryption = seal_deposits(
+                &[DepositOpening {
                     owner_hash,
                     blinding: Zeroizing::new(blinding),
                 }],
-                auditor_pk: &config.auditor_pubkey,
-            }
-            .seal()?;
+                &config.auditor_pubkey,
+            )?;
             deposit.encrypted.ciphertext = RingDepositAuditCapsule {
                 slot_index: 0,
                 eph_pk: encryption.ephemeral_pk.as_bytes(),

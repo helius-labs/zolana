@@ -1,18 +1,17 @@
 use custom_ring_interface::RingDepositAuditCapsule;
-use std::cell::{Cell, RefCell};
+use std::{cell::Cell, sync::Mutex};
 
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
-    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
+    rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, ClientError, Context,
+    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
 };
 use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{
-    AuditError, AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery,
-    NoteDataHashes, OriginError, RecoveredNotes, RecoveryEnvironment, RecoveryError,
-    RingEnvironment, RingOrigin, RingRecovery, SourceMember, TransactionOrigin,
+    seal_deposits, AuditError, AuditedOutput, AuditorEncryption, DepositOpening, MemberRecovery,
+    NoteDataHashes, RecoveredNotes, RingOrigin, RingRecovery, SourceMember, TransactionOrigin,
 };
 use zolana_transaction::{
     instructions::merge::MergeTransaction,
@@ -56,18 +55,14 @@ impl Fixture {
         })
     }
 
-    fn run(
+    async fn run(
         &self,
         recovery: MemberRecovery<'_>,
         history: &History,
-    ) -> Result<RecoveredNotes, RecoveryError> {
-        recovery.run(RecoveryEnvironment {
-            ring: RingEnvironment {
-                indexer: history,
-                origin: history,
-            },
-            assets: &AssetRegistry::default(),
-        })
+    ) -> Result<RecoveredNotes, AuditError> {
+        recovery
+            .run(history, history, &AssetRegistry::default())
+            .await
     }
 
     fn output(&self, amount: u64) -> SppProofOutputUtxo {
@@ -217,12 +212,7 @@ impl Fixture {
         };
         let owner_utxo_hash =
             zolana_transaction::owner_utxo_hash(&opening.owner_hash, &opening.blinding).unwrap();
-        let sealed = DepositSeal {
-            openings: &[opening],
-            auditor_pk: &self.auditor.pubkey(),
-        }
-        .seal()
-        .unwrap();
+        let sealed = seal_deposits(&[opening], &self.auditor.pubkey()).unwrap();
         let mut encrypted = RingDepositPlaintext {
             blinding: held.utxo.blinding,
             utxo_data: None,
@@ -268,9 +258,9 @@ fn output_context(note: &WalletUtxo) -> OutputContext {
 #[derive(Default)]
 struct History {
     transactions: Vec<ShieldedTransaction>,
-    queried: RefCell<Vec<Vec<[u8; 32]>>>,
+    queried: Mutex<Vec<Vec<[u8; 32]>>>,
     foreign: Vec<Signature>,
-    required_slots: RefCell<Vec<Option<u64>>>,
+    required_slots: Mutex<Vec<Option<u64>>>,
 }
 
 const INDEXED: u64 = 100;
@@ -278,7 +268,7 @@ const INDEXED: u64 = 100;
 impl History {
     fn read(&self, config: Option<IndexerRpcConfig>) -> Result<(), ClientError> {
         let required = config.and_then(|config| config.require_slot);
-        self.required_slots.borrow_mut().push(required);
+        self.required_slots.lock().unwrap().push(required);
         match required {
             Some(required) if required > INDEXED => Err(ClientError::IndexerNotCaughtUp {
                 required,
@@ -290,8 +280,9 @@ impl History {
     }
 }
 
-impl Rpc for History {
-    fn get_shielded_transactions_by_ring(
+#[async_trait::async_trait]
+impl AsyncRpc for History {
+    async fn get_shielded_transactions_by_ring(
         &self,
         options: zolana_client::RingHistoryOptions,
         config: Option<IndexerRpcConfig>,
@@ -309,7 +300,7 @@ impl Rpc for History {
             scanned_through: Some(Vec::new()),
         })
     }
-    fn get_shielded_transactions_by_tags(
+    async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
         _cursor: Option<Vec<u8>>,
@@ -342,7 +333,7 @@ impl Rpc for History {
         })
     }
 
-    fn get_shielded_transactions_by_nullifiers(
+    async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
         _cursor: Option<Vec<u8>>,
@@ -350,7 +341,7 @@ impl Rpc for History {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.read(config)?;
-        self.queried.borrow_mut().push(nullifiers.clone());
+        self.queried.lock().unwrap().push(nullifiers.clone());
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: Context {
                 block_time: 0,
@@ -374,12 +365,12 @@ impl Rpc for History {
 }
 
 impl TransactionOrigin for History {
-    fn origin(
+    async fn origin(
         &self,
         signature: Signature,
         _event_index: u16,
         _ring: Address,
-    ) -> Result<RingOrigin, OriginError> {
+    ) -> Result<RingOrigin, AuditError> {
         Ok(RingOrigin {
             ring_invoked: !self.foreign.contains(&signature),
             signers: Vec::new(),
@@ -388,8 +379,8 @@ impl TransactionOrigin for History {
     }
 }
 
-#[test]
-fn follows_chained_merges_across_trees_and_keeps_only_the_live_successor() {
+#[tokio::test]
+async fn follows_chained_merges_across_trees_and_keeps_only_the_live_successor() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -400,18 +391,22 @@ fn follows_chained_merges_across_trees_and_keeps_only_the_live_successor() {
         transactions: vec![successor_tx, merge_tx, third_tx, second_tx, first_tx],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert_eq!(recovered.utxos, vec![successor.clone()]);
     assert!(recovered.unopened.is_empty());
     assert!(history
         .queried
-        .borrow()
+        .lock()
+        .unwrap()
         .iter()
         .any(|query| query.contains(&successor.nullifier)));
 }
 
-#[test]
-fn checks_whether_a_rebuilt_successor_was_spent_without_an_auditor_message() {
+#[tokio::test]
+async fn checks_whether_a_rebuilt_successor_was_spent_without_an_auditor_message() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -424,13 +419,16 @@ fn checks_whether_a_rebuilt_successor_was_spent_without_an_auditor_message() {
         transactions: vec![first_tx, second_tx, merge_tx, burn],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert!(recovered.utxos.is_empty());
     assert!(recovered.unopened.is_empty());
 }
 
-#[test]
-fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs() {
+#[tokio::test]
+async fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -440,14 +438,17 @@ fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs
             transactions: vec![known, merge_tx.clone()],
             ..Default::default()
         };
-        let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+        let recovered = fixture
+            .run(fixture.recovery(), &history)
+            .await
+            .expect("recover");
         assert!(recovered.utxos.is_empty());
         assert_eq!(recovered.unopened, vec![merged.utxo_hash]);
     }
 }
 
-#[test]
-fn a_forged_merge_leaf_never_becomes_a_spendable_note() {
+#[tokio::test]
+async fn a_forged_merge_leaf_never_becomes_a_spendable_note() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -457,13 +458,16 @@ fn a_forged_merge_leaf_never_becomes_a_spendable_note() {
         transactions: vec![first_tx, second_tx, merge_tx],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert!(recovered.utxos.is_empty());
     assert_eq!(recovered.unopened, vec![[8; 32]]);
 }
 
-#[test]
-fn a_merge_from_another_program_cannot_supply_recovery_outputs() {
+#[tokio::test]
+async fn a_merge_from_another_program_cannot_supply_recovery_outputs() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -473,12 +477,15 @@ fn a_merge_from_another_program_cannot_supply_recovery_outputs() {
         transactions: vec![first_tx, second_tx, merge_tx],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert!(recovered.utxos.is_empty());
 }
 
-#[test]
-fn proof_bound_hash_metadata_is_recovered_without_a_caller_resolver() {
+#[tokio::test]
+async fn proof_bound_hash_metadata_is_recovered_without_a_caller_resolver() {
     let fixture = Fixture::new();
     let output = fixture
         .output(9)
@@ -489,13 +496,16 @@ fn proof_bound_hash_metadata_is_recovered_without_a_caller_resolver() {
         transactions: vec![transaction],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert!(recovered.unopened.is_empty());
     assert_eq!(recovered.utxos, vec![held]);
 }
 
-#[test]
-fn caller_hash_metadata_cannot_override_the_proof_bound_opening() {
+#[tokio::test]
+async fn caller_hash_metadata_cannot_override_the_proof_bound_opening() {
     let fixture = Fixture::new();
     let (held, transaction) =
         fixture.encrypt(fixture.output(9).with_ring_data_hash(RING, [4; 32]), 7);
@@ -513,13 +523,14 @@ fn caller_hash_metadata_cannot_override_the_proof_bound_opening() {
     };
     let recovered = fixture
         .run(fixture.recovery().with_data_hashes(&resolver), &history)
+        .await
         .expect("recover");
     assert!(recovered.unopened.is_empty());
     assert_eq!(recovered.utxos, vec![held]);
 }
 
-#[test]
-fn spent_notes_with_missing_hash_metadata_do_not_block_live_recovery() {
+#[tokio::test]
+async fn spent_notes_with_missing_hash_metadata_do_not_block_live_recovery() {
     let fixture = Fixture::new();
     let (held, transaction) =
         fixture.encrypt(fixture.output(9).with_ring_data_hash(RING, [4; 32]), 7);
@@ -532,18 +543,22 @@ fn spent_notes_with_missing_hash_metadata_do_not_block_live_recovery() {
         transactions: vec![transaction, spend],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert!(recovered.utxos.is_empty());
     assert!(recovered.unopened.is_empty());
     assert!(history
         .queried
-        .borrow()
+        .lock()
+        .unwrap()
         .iter()
         .any(|query| query.contains(&held.nullifier)));
 }
 
-#[test]
-fn direct_deposits_are_reported_separately_without_claiming_they_are_unspent() {
+#[tokio::test]
+async fn direct_deposits_are_reported_separately_without_claiming_they_are_unspent() {
     let fixture = Fixture::new();
     let (held, mut transaction) = fixture.encrypt(fixture.output(9), 7);
     transaction.proofless = true;
@@ -586,14 +601,17 @@ fn direct_deposits_are_reported_separately_without_claiming_they_are_unspent() {
         transactions: vec![transaction, foreign_ring, wrong_origin],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
     assert!(recovered.utxos.is_empty());
     assert!(recovered.unopened.is_empty());
     assert_eq!(recovered.unsupported_deposits, vec![held.utxo_hash]);
 }
 
-#[test]
-fn every_read_requires_the_slot_and_an_indexer_behind_it_fails_the_recovery() {
+#[tokio::test]
+async fn every_read_requires_the_slot_and_an_indexer_behind_it_fails_the_recovery() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -611,22 +629,23 @@ fn every_read_requires_the_slot_and_an_indexer_behind_it_fails_the_recovery() {
             })
     };
 
-    let recovered = fixture.run(recovery(INDEXED), &history).expect("recover");
+    let recovered = fixture
+        .run(recovery(INDEXED), &history)
+        .await
+        .expect("recover");
     assert_eq!(recovered.utxos, vec![merged]);
-    let required = history.required_slots.take();
+    let required = std::mem::take(&mut *history.required_slots.lock().unwrap());
     assert!(required.len() >= 3, "{required:?}");
     assert!(required.iter().all(|slot| *slot == Some(INDEXED)));
 
     assert!(matches!(
-        fixture.run(recovery(INDEXED + 1), &history),
-        Err(RecoveryError::Audit(AuditError::Indexer(
-            ClientError::IndexerNotCaughtUp { .. }
-        )))
+        fixture.run(recovery(INDEXED + 1), &history).await,
+        Err(AuditError::Client(ClientError::IndexerNotCaughtUp { .. }))
     ));
 }
 
-#[test]
-fn a_query_bound_never_returns_an_unchecked_merge_successor() {
+#[tokio::test]
+async fn a_query_bound_never_returns_an_unchecked_merge_successor() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -642,13 +661,13 @@ fn a_query_bound_never_returns_an_unchecked_merge_successor() {
             nullifier_key: &fixture.member.nullifier_key,
         });
     assert!(matches!(
-        fixture.run(recovery, &history),
-        Err(RecoveryError::IncompleteScan)
+        fixture.run(recovery, &history).await,
+        Err(AuditError::IncompleteScan)
     ));
 }
 
-#[test]
-fn audited_deposit_recovery_preserves_committed_data_hashes() {
+#[tokio::test]
+async fn audited_deposit_recovery_preserves_committed_data_hashes() {
     let fixture = Fixture::new();
     let output = SppProofOutputUtxo {
         data_hash: Some([3; 32]),
@@ -660,14 +679,14 @@ fn audited_deposit_recovery_preserves_committed_data_hashes() {
         transactions: vec![transaction],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).unwrap();
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
     assert_eq!(recovered.utxos, vec![held]);
     assert!(recovered.unopened.is_empty());
     assert!(recovered.unsupported_deposits.is_empty());
 }
 
-#[test]
-fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
+#[tokio::test]
+async fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.deposit(fixture.output(4), 2);
     let (second, second_tx) = fixture.deposit(fixture.output(5), 2);
@@ -676,7 +695,7 @@ fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
         transactions: vec![first_tx, second_tx, merge_tx.clone()],
         ..Default::default()
     };
-    let recovered = fixture.run(fixture.recovery(), &history).unwrap();
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
     assert_eq!(recovered.utxos, vec![merged.clone()]);
     assert!(recovered.unsupported_deposits.is_empty());
     let mut spent = merge_tx;
@@ -684,13 +703,13 @@ fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
     spent.nullifiers = vec![merged.nullifier];
     spent.output_slots.clear();
     history.transactions.push(spent);
-    let recovered = fixture.run(fixture.recovery(), &history).unwrap();
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
     assert!(recovered.utxos.is_empty());
     assert!(recovered.unopened.is_empty());
 }
 
-#[test]
-fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails() {
+#[tokio::test]
+async fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails() {
     let fixture = Fixture::new();
     let (_, transaction) = fixture.deposit(fixture.output(9), 7);
     let mut wrong_leaf = transaction.clone();
@@ -706,15 +725,15 @@ fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails() {
         ..Default::default()
     };
     assert!(matches!(
-        fixture.run(fixture.recovery(), &history),
-        Err(RecoveryError::DepositOpeningMismatch)
+        fixture.run(fixture.recovery(), &history).await,
+        Err(AuditError::DepositOpeningMismatch)
     ));
     let commitment = wrong_ciphertext.output_slots[0].output_context.hash;
     let history = History {
         transactions: vec![wrong_ciphertext.clone()],
         ..Default::default()
     };
-    let result = fixture.run(fixture.recovery(), &history).unwrap();
+    let result = fixture.run(fixture.recovery(), &history).await.unwrap();
     assert!(result.utxos.is_empty());
     assert_eq!(result.unsupported_deposits, vec![commitment]);
     wrong_ciphertext.output_slots[0].view_tag = [99; 32];
@@ -722,7 +741,7 @@ fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails() {
         transactions: vec![wrong_ciphertext],
         ..Default::default()
     };
-    let result = fixture.run(fixture.recovery(), &history).unwrap();
+    let result = fixture.run(fixture.recovery(), &history).await.unwrap();
     assert!(result.utxos.is_empty());
     assert!(result.unsupported_deposits.is_empty());
 }

@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 use zolana_client::{Prover, ProverClient};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_program::instruction::{RingAssetDeposit, RingDeposit};
-use zolana_ring_client::{DepositOpening, DepositSeal};
+use zolana_ring_client::{seal_deposits, DepositOpening};
 use zolana_transaction::{owner_utxo_hash, RingDepositPlaintext};
 
 // `proven_fixture` in the program's deposit audit tests pins these accounts
@@ -98,12 +98,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
             .expect("recipient ciphertext"),
         });
     }
-    let encryption = DepositSeal {
-        openings: &openings,
-        auditor_pk: &auditor,
-    }
-    .seal()
-    .expect("seal openings");
+    let encryption = seal_deposits(&openings, &auditor).expect("seal openings");
     for ((slot, deposit), ciphertext) in (0u8..).zip(&mut deposits).zip(&encryption.ciphertexts) {
         deposit.encrypted.ciphertext = RingDepositAuditCapsule {
             slot_index: slot,

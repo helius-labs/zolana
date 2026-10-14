@@ -4,7 +4,7 @@ use solana_address::Address;
 use zolana_client::Shape;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{random_blinding, PublicKey, ShieldedAddress, ViewingKey};
-use zolana_ring_client::{find_counters_message, CountersSeal, SealedCounters};
+use zolana_ring_client::{find_counters_message, open_counters, seal_counters};
 use zolana_ring_policy::{
     ListNamespace, Member, SpendCounters, SpendRecord, VelocityRow, MAX_VELOCITY_ASSETS,
 };
@@ -99,12 +99,8 @@ impl VelocityContext<'_> {
             let tx_key = keys.into_iter().next().ok_or(
                 zolana_transaction::TransactionError::IncompleteDerivation { got, want: 1 },
             )?;
-            SealedCounters {
-                body: &message.data,
-                salt,
-            }
-            .open(&tx_key)
-            .map_err(|_| TransferError::SpendCountersUnknown)?
+            open_counters(&message.data, salt, &tx_key)
+                .map_err(|_| TransferError::SpendCountersUnknown)?
         };
         if counters
             .commitment()
@@ -329,13 +325,12 @@ impl VelocityPlanInput<'_> {
             cache_slot: None,
             compact: false,
         };
-        let counters_body = CountersSeal {
-            tx: self.tx_viewing_key,
-            recipient: &self.tx_viewing_key.pubkey(),
-            salt: self.salt,
-            counters: &next,
-        }
-        .encrypt()?;
+        let counters_body = seal_counters(
+            self.tx_viewing_key,
+            &self.tx_viewing_key.pubkey(),
+            self.salt,
+            &next,
+        )?;
         let opened = facts.counters.unwrap_or(SpendCounters::EMPTY);
         let proof_input = VelocityProofInput {
             window_slots: facts.window_slots,

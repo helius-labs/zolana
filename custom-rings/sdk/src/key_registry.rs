@@ -22,7 +22,7 @@ use zolana_indexer_api::{
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 use zolana_keypair::{KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, ViewingKey};
-use zolana_ring_client::{AuditEncryptionError, NullifierKeyEnvelope, SealedNullifierKey};
+use zolana_ring_client::{AuditError, NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_policy::Member;
 
 use crate::{
@@ -42,7 +42,7 @@ pub enum KeyRegistrationError {
     #[error(transparent)]
     Keypair(#[from] KeypairError),
     #[error(transparent)]
-    Envelope(#[from] AuditEncryptionError),
+    Envelope(#[from] AuditError),
     #[error("the ring has no config")]
     MissingRingConfig,
     #[error("the ring has no key registry")]
@@ -908,10 +908,8 @@ mod tests {
         );
         assert!(matches!(
             entry.open(&ViewingKey::new()),
-            Err(
-                KeyRegistrationError::Envelope(AuditEncryptionError::NullifierPad)
-                    | KeyRegistrationError::InvalidEntryProof
-            )
+            Err(KeyRegistrationError::Envelope(AuditError::NullifierPad)
+                | KeyRegistrationError::InvalidEntryProof)
         ));
     }
 
