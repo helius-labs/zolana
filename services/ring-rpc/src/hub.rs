@@ -209,22 +209,19 @@ impl<S: TransactionSource> Hub<S> {
 
     /// `None` names the one ring a local key serves.
     pub fn service(&self, ring: Option<Address>) -> Result<AuditService<S>, RingRpcError> {
-        let (ring, auditor) = match (&self.keys, ring) {
-            (
-                KeySource::Local {
-                    ring: served,
-                    auditor,
-                },
-                ring,
-            ) => {
+        let (ring, auditor) = match &self.keys {
+            KeySource::Local {
+                ring: served,
+                auditor,
+            } => {
                 self.validate_ring(ring.unwrap_or(*served))?;
                 (*served, auditor.clone())
             }
-            (KeySource::Derived(root), Some(ring)) => (
-                ring,
-                derive_auditor_key(root, &self.shared.genesis_hash, ring)?,
-            ),
-            (KeySource::Derived(_), None) => return Err(RingRpcError::RingRequired),
+            KeySource::Derived(root) => {
+                let ring = ring.ok_or(RingRpcError::RingRequired)?;
+                let auditor = derive_auditor_key(root, &self.shared.genesis_hash, ring)?;
+                (ring, auditor)
+            }
         };
         Ok(AuditService::new(ring, auditor, self.shared.clone()))
     }
@@ -342,7 +339,7 @@ impl<S: TransactionSource> HubBuilder<S> {
     }
 
     fn build(self, signer: Keypair, keys: KeySource) -> Hub<S> {
-        let slots = |count| Some(Semaphore::new(count));
+        let lane = |count| (RequestRate::default(), Some(Semaphore::new(count)));
         let shared = Shared {
             source: self.source,
             genesis_hash: self.genesis_hash,
@@ -356,12 +353,9 @@ impl<S: TransactionSource> HubBuilder<S> {
             active_readers: Mutex::new(HashSet::new()),
             lanes: [
                 (RequestRate::default(), None),
-                (RequestRate::default(), slots(MAX_CONCURRENT_DEPOSIT_SCANS)),
-                (
-                    RequestRate::default(),
-                    slots(MAX_CONCURRENT_AUTHENTICATIONS),
-                ),
-                (RequestRate::default(), slots(MAX_CONCURRENT_READS)),
+                lane(MAX_CONCURRENT_DEPOSIT_SCANS),
+                lane(MAX_CONCURRENT_AUTHENTICATIONS),
+                lane(MAX_CONCURRENT_READS),
             ],
             readiness: AsyncMutex::new(ReadinessCache {
                 checked_at: None,
