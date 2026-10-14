@@ -39,6 +39,12 @@ Changed
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
 
+Fixed
+
+- `ConfidentialTransfer` now encodes padding tags that match the sender like
+  real outputs to that sender, so self-paid change and padding both use the
+  payer account reference.
+
 ## 0.4.1-alpha — 2026-10-08
 
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and

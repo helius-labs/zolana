@@ -1,8 +1,15 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import vectors from "../../../test-vectors/dummy_owner_tags.json" with { type: "json" };
 import type { Bytes32, OwnerTag } from "../src/interface/index.js";
-import { ShieldedKeypair, poseidon, randomBlinding, sha256Bytes } from "../src/keypair/index.js";
+import {
+  ShieldedKeypair,
+  SigningKey,
+  poseidon,
+  randomBlinding,
+  sha256Bytes,
+} from "../src/keypair/index.js";
 import {
   AssetRegistry,
   ConfidentialTransfer,
@@ -10,6 +17,7 @@ import {
   SOL_MINT,
   Utxo,
   WithdrawalTarget,
+  createExternalData,
   privateTxBlinding,
   privateTxHash,
   transactOutputBlinding,
@@ -46,11 +54,13 @@ function inlineTag(value: Bytes32): OwnerTag {
  */
 function dummyTags(signed: SppProofInputs): readonly OwnerTag[] {
   const tags = signed.outputs.flatMap((output, index) =>
-    output.isDummy() ? [{ published: signed.externalData.outputs[index]?.ownerTag, output }] : [],
+    output.isDummy()
+      ? [{ published: signed.externalData.outputs[index]?.ownerTag, output, index }]
+      : [],
   );
-  return tags.map(({ published, output }) => {
+  return tags.map(({ published, output, index }) => {
     if (published === undefined) throw new Error("dummy output without a published slot");
-    expect(published.kind).toBe("inline");
+    expect(output.ownerTag).toEqual(signed.externalData.resolvedOwnerTags[index]);
     if (published.kind === "inline") expect(output.ownerTag).toEqual(published.value);
     return published;
   });
@@ -74,6 +84,60 @@ function expectDerivedBlindings(prepared: PreparedTransfer, signed: SppProofInpu
 }
 
 describe("dummy output owner tags", () => {
+  it.each(vectors.cases)("matches real output encoding: $name", (vector) => {
+    const keypair = (seed: number): ShieldedKeypair => {
+      const bytes = new Uint8Array(32).fill(seed);
+      // The fixed-size seed satisfies the signing key's byte-length invariant.
+      return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(bytes as Bytes32));
+    };
+    const sender = keypair(vectors.sender_seed);
+    const recipient = keypair(vectors.recipient_seed);
+    const transfer = new ConfidentialTransfer(
+      sender.shieldedAddress(),
+      [solInput(sender, BigInt(vectors.input_amount))],
+      keypair(vector.payer_seed).shieldedAddress().solanaAddress(),
+    ).withShape({ inputs: 1, outputs: vectors.outputs });
+    transfer.send(recipient.shieldedAddress(), SOL_MINT, BigInt(vector.send_amount));
+    const prepared = transfer.prepare();
+    const signed = transfer.sign(sender, new AssetRegistry());
+    const resolved = Uint8Array.from(Buffer.from(vector.resolved, "hex"));
+    expect(resolved).toHaveLength(32);
+    const expected: OwnerTag =
+      vector.owner_tag_kind === "account"
+        ? { kind: "account", index: 0 }
+        : inlineTag(resolved as Bytes32);
+    const tags = dummyTags(signed);
+    const real = vector.send_amount < vectors.input_amount ? 2 : 1;
+    expect(tags).toHaveLength(vectors.outputs - real);
+    for (const tag of tags) expect(tag).toEqual(expected);
+    const participantIndex = signed.outputs.findIndex(
+      (output) =>
+        output.ownerAddress !== undefined &&
+        Buffer.from(output.ownerAddress.signingPublicKey.confidentialViewTag()).toString("hex") ===
+          vector.resolved,
+    );
+    expect(participantIndex).toBeGreaterThanOrEqual(0);
+    expect(signed.externalData.outputs[participantIndex]?.ownerTag).toEqual(expected);
+    const participantData = signed.externalData.outputs[participantIndex]?.data;
+    signed.outputs.forEach((output, index) => {
+      if (!output.isDummy()) return;
+      expect(signed.externalData.outputs[index]?.data).toHaveLength(participantData?.length ?? 0);
+    });
+    if (expected.kind === "account") {
+      const reencoded = createExternalData({
+        ...signed.externalData,
+        outputs: signed.externalData.outputs.map((output, index) =>
+          signed.outputs[index]?.isDummy()
+            ? { ...output, ownerTag: inlineTag(resolved as Bytes32) }
+            : output,
+        ),
+      });
+      expect(reencoded.resolvedOwnerTags).toEqual(signed.externalData.resolvedOwnerTags);
+      expect(reencoded.hash()).not.toEqual(signed.externalData.hash());
+    }
+    expectDerivedBlindings(prepared, signed);
+  });
+
   it("names the sender, not a foreign fee payer, on every padding slot", () => {
     const sender = ShieldedKeypair.generate();
     const recipient = ShieldedKeypair.generate();
@@ -167,11 +231,12 @@ describe("dummy output owner tags", () => {
     const signed = transfer.sign(sender, new AssetRegistry());
     expect(signed.outputs.map((output) => output.isDummy())).toEqual([false, true]);
     // The sender's own change names it, so the pad does too.
-    expect(dummyTags(signed)).toEqual([inlineTag(senderTag)]);
+    expect(dummyTags(signed)).toEqual([{ kind: "account", index: 0 }]);
     // Sender and payer coincide, so the real change slot publishes Account(0);
-    // the pad never does.
+    // the pad uses the same encoding.
     expect(signed.externalData.outputs[0]?.ownerTag).toEqual({ kind: "account", index: 0 });
-    expect(signed.externalData.outputs[1]?.ownerTag).toEqual(inlineTag(senderTag));
+    expect(signed.externalData.outputs[1]?.ownerTag).toEqual({ kind: "account", index: 0 });
+    expect(signed.externalData.resolvedOwnerTags[1]).toEqual(senderTag);
     expect(signed.externalData.interfaceTransfers).toMatchObject([
       { kind: "sol", isDeposit: false, amount: 10n, userSolAccount: payer },
     ]);

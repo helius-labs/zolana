@@ -1,6 +1,5 @@
 use zolana_test_utils::utxo::{
     assign_output_blindings, encrypt_transaction_data, get_transaction_viewing_key,
-    prepare_output_blindings,
 };
 mod shared;
 
@@ -24,12 +23,16 @@ use shared::{escrow_authority_identity, get_slot_with_retry, send, setup_with_pa
 use solana_signer::Signer;
 use zolana_client::user_registry::resolve_registered_address;
 use zolana_client::{ComputeBudgetConfig, Rpc};
+use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 use zolana_keypair::random_blinding;
 use zolana_program::instruction::Transact;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Filter, Wallet};
 use zolana_transaction::{
-    instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{
+        asset_field, ConfidentialTransaction, ExternalData, Shape, SppProofInputs,
+        SppProofOutputUtxo,
+    },
     utxo::SppProofInputUtxo,
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -100,50 +103,30 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     .first()
                     .cloned())
             })?;
-            let source_in = SppProofInputUtxo::from(funding_utxo.clone());
-            let remainder_amount = funding_utxo
-                .utxo
-                .amount
-                .checked_sub(ORDER_AMOUNT)
-                .ok_or_else(|| anyhow!("order_amount exceeds the user's funding UTXO"))?;
             let user_address = env.user.address()?;
-            let split_out = SppProofOutputUtxo::new(
-                env.assets.mint(&env.spl_mint)?,
-                ORDER_AMOUNT,
-                user_address,
-            )
-            .map_err(|e| anyhow!("split_out: {e:?}"))?;
-            let remainder_out = SppProofOutputUtxo::new(
-                env.assets.mint(&env.spl_mint)?,
-                remainder_amount,
-                user_address,
-            )
-            .map_err(|e| anyhow!("remainder_out: {e:?}"))?;
-
-            let input_utxos = vec![source_in];
-            let mut transaction_outputs = vec![split_out, remainder_out];
-            let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
-            let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
-                .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-            let encoded =
-                encrypt_transaction_data(&transaction_outputs, &viewing_key, env.localnet.tree_id)
-                    .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
-            let external_data = ExternalData::new(
-                *viewing_key.pubkey().as_bytes(),
-                encoded.salt,
-                encoded.outputs,
-                encoded.resolved_owner_tags,
-                vec![],
+            let mut split = ConfidentialTransaction::new(vec![funding_utxo], user_solana.pubkey())?;
+            split.transfer(&user_address, env.spl_mint, ORDER_AMOUNT)?;
+            split.pad_utxos(Shape::IN1_OUT4, &user_address)?;
+            let spp_proof_inputs = split.encrypt(&env.user.keypair)?;
+            // The self-paid split has change and two padding slots; all four
+            // outputs name the sender with the same account-based encoding.
+            assert_eq!(
+                spp_proof_inputs
+                    .output_utxos
+                    .iter()
+                    .filter(|output| output.is_dummy())
+                    .count(),
+                2
             );
-            let spp_proof_inputs = SppProofInputs {
-                input_utxos,
-                output_utxos: encoded.output_utxos,
-                external_data,
-                payer: user_solana.pubkey(),
-                blinding_seed,
-                output_tree_id: env.localnet.tree_id,
-                cache_accounts: Default::default(),
-            };
+            assert_eq!(
+                spp_proof_inputs
+                    .external_data
+                    .outputs
+                    .iter()
+                    .map(|output| output.owner_tag)
+                    .collect::<Vec<_>>(),
+                vec![OwnerTag::Account(0); 4],
+            );
             let split_transact = env
                 .localnet
                 .client

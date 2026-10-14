@@ -221,17 +221,14 @@ impl ConfidentialTransaction {
                 });
                 continue;
             }
-            let Some(address) = output.owner_address else {
-                let resolved = output
+            let resolved = match output.owner_address {
+                Some(address) => address.signing_pubkey.confidential_view_tag()?,
+                None => output
                     .owner_tag
-                    .ok_or(TransactionError::DummyOutputWithoutOwnerTag { slot_index })?;
-                owner_tags.push(ResolvedOwnerTag {
-                    tag: OwnerTag::Inline(resolved),
-                    resolved,
-                });
-                continue;
+                    .ok_or(TransactionError::DummyOutputWithoutOwnerTag { slot_index })?,
             };
-            let resolved = address.signing_pubkey.confidential_view_tag()?;
+            // Padding borrowing the sender's tag must use the same encoding
+            // as a real output to the sender, so the encoding cannot identify it.
             owner_tags.push(if resolved == sender_tag.resolved {
                 sender_tag
             } else {
