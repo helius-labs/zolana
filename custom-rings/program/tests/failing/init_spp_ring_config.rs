@@ -5,7 +5,7 @@
 //! successful path is covered by the localnet end-to-end test.
 
 use custom_ring_interface::tag;
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;

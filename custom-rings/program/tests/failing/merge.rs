@@ -1,4 +1,4 @@
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 

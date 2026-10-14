@@ -2,7 +2,7 @@ use crate::InstructionView;
 use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    pda, KeyRegistryLeaf, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
+    KeyRegistryLeaf, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
     COMPRESSED_P256_KEY_LEN, FIELD_MAX, KEY_REGISTRY_CAPACITY,
 };
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,11 @@ pub fn registration(instruction: InstructionView<'_>) -> Result<Option<Registrat
     }
     let ix: RegisterKeyIxData = wincode::deserialize_exact(&instruction.data[1..])
         .context("invalid key registration wire")?;
-    let root = pda::key_registry_root(instruction.program_id).0;
+    let root = solana_address::Address::find_program_address(
+        &[KeyRegistryRoot::SEED],
+        instruction.program_id,
+    )
+    .0;
     if instruction.accounts.get(accounts::REGISTER_KEY_ROOT) != Some(&root) {
         bail!("key registration does not name its canonical root");
     }

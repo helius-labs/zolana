@@ -1,9 +1,9 @@
 //! Pins signer authorization and per mint withdrawal thresholds.
 
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     CoSignScope, CoSigner, AUDITOR_MESSAGE_LEN, CO_SIGNER, MAX_CO_SIGNER_THRESHOLDS,
 };
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use pinocchio::Address;
 use solana_account::Account;

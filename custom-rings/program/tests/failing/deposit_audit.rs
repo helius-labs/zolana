@@ -1,8 +1,7 @@
-use custom_ring_interface::RingDepositAuditCapsule;
 use custom_ring_interface::{
-    pda, tag, CustomRingProof, DepositAudit, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT_HISTORY,
+    tag, CustomRingError, CustomRingProof, DepositAudit, RingDepositAuditCapsule, DEPOSIT_AUDIT,
+    KEY_REGISTRY_ROOT_HISTORY,
 };
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_account::Account;
 use solana_instruction::AccountMeta;
@@ -24,7 +23,7 @@ fn audit_account(required: u8) -> Account {
         data: bytemuck::bytes_of(&DepositAudit {
             discriminator: DEPOSIT_AUDIT,
             required,
-            bump: pda::deposit_audit(&program_id()).1,
+            bump: deposit_audit_pda().1,
         })
         .to_vec(),
         ..account(1_000_000_000)
@@ -52,7 +51,7 @@ fn setter(required: u8, existing: Account) -> Fixture {
             },
             Slot {
                 label: "deposit_audit",
-                meta: AccountMeta::new(pda::deposit_audit(&program_id()).0, false),
+                meta: AccountMeta::new(deposit_audit_pda().0, false),
                 account: existing,
             },
             system_program_slot(),
@@ -212,11 +211,11 @@ fn authority_can_create_enable_and_disable_deposit_auditing() {
             let stored = result
                 .resulting_accounts
                 .iter()
-                .find(|(key, _)| key == &pda::deposit_audit(&program_id()).0)
+                .find(|(key, _)| key == &deposit_audit_pda().0)
                 .unwrap();
             let value = bytemuck::from_bytes::<DepositAudit>(&stored.1.data);
             assert_eq!(value.required, required);
-            assert_eq!(value.bump, pda::deposit_audit(&program_id()).1);
+            assert_eq!(value.bump, deposit_audit_pda().1);
             assert_eq!(stored.1.owner, program_id());
         }
     }
@@ -373,4 +372,8 @@ fn a_registry_index_without_escrow_is_rejected_exactly() {
     let mut fixture = audited_fixture(1);
     fixture.data_mut()[REGISTRY_INDEX] = 1;
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+}
+
+fn deposit_audit_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[DepositAudit::SEED], &program_id())
 }

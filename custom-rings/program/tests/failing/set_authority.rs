@@ -1,5 +1,5 @@
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{RingProgramConfig, RING_PROGRAM_CONFIG};
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use pinocchio::Address;
 use solana_program_error::ProgramError;

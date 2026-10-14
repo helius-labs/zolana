@@ -1,6 +1,6 @@
 //! Entry-mutation input validation, each branch refused before the SPP CPI.
 
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;

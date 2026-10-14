@@ -68,6 +68,6 @@ fn set_policy_rules_tag_reaches_the_processor() {
         &mollusk,
         &instruction,
         &[],
-        ProgramError::Custom(custom_ring_program::CustomRingError::InvalidInstructionData as u32),
+        ProgramError::Custom(custom_ring_interface::CustomRingError::InvalidInstructionData as u32),
     );
 }

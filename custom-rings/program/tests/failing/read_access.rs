@@ -1,8 +1,8 @@
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, ReadAccessRecord, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
 };
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;

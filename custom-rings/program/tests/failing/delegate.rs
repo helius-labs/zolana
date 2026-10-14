@@ -1,9 +1,9 @@
 //! Pins permanent delegate authorization and transfer confinement.
 
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, CoSignScope, Delegate, KeyEscrow, RingProgramConfig, AUDITOR_MESSAGE_LEN, DELEGATE,
 };
-use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use pinocchio::Address;
 use solana_pubkey::Pubkey;

@@ -70,11 +70,3 @@ pub fn pack_2fe<const N: usize>(bytes: &[u8; N]) -> FieldPair {
     pair.hi[32 - tail.len()..].copy_from_slice(tail);
     pair
 }
-
-pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
-    pack_2fe(bytes)
-}
-
-pub fn pack33_to_2fe(bytes: &[u8; 33]) -> FieldPair {
-    pack_2fe(bytes)
-}

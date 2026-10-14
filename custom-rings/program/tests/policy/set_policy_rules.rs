@@ -1,8 +1,8 @@
 //! The upgrade authority's table re-pin.
 
 use bytemuck::Zeroable;
-use custom_ring_interface::{PolicyConfig, SourceSlot, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT};
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
+use custom_ring_interface::{compute_unit_limit, InstructionTag, PolicyConfig, SourceSlot};
 use solana_account::Account;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -193,7 +193,10 @@ fn the_largest_table_with_one_curator_fits_the_set_policy_rules_budget() {
     }
     let mut fixture = set_policy_rules_fixture(released_config(), &table_ix_data(&rules, &specs));
     fixture.push(curator_slot(initialized_curator_policy_config_account()));
-    assert!(consumed(&mollusk, &fixture) <= u64::from(SET_POLICY_RULES_COMPUTE_UNIT_LIMIT));
+    assert!(
+        consumed(&mollusk, &fixture)
+            <= u64::from(compute_unit_limit(InstructionTag::SetPolicyRules))
+    );
 }
 
 #[test]

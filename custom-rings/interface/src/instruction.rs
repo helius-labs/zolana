@@ -92,33 +92,6 @@ instruction_tags! {
     AuditedDeposit = AUDITED_DEPOSIT: 31 => PROOF_UNITS,
 }
 
-macro_rules! unit_limits {
-    ($($name:ident = $variant:ident,)*) => {
-        $(pub const $name: u32 = compute_unit_limit(InstructionTag::$variant);)*
-    };
-}
-
-// Names of the current callers, `compute_unit_limit` replaces them.
-unit_limits! {
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT = CreateConfig,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT = GrantReadAccess,
-    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT = InitSppRingConfig,
-    SET_AUTHORITY_COMPUTE_UNIT_LIMIT = SetAuthority,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT = SetPaused,
-    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT = SetCoSigner,
-    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT = SetSpendWindow,
-    SET_DELEGATE_COMPUTE_UNIT_LIMIT = SetDelegate,
-    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT = CreateKeyRegistryRoot,
-    SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT = SetDepositAudit,
-    AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT = AuditedDeposit,
-    CREATE_POLICY_COMPUTE_UNIT_LIMIT = CreatePolicy,
-    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = SetPolicyRules,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = CreateEntry,
-    REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RegisterSpend,
-    REGISTER_KEY_COMPUTE_UNIT_LIMIT = RegisterKey,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = SetPolicySource,
-}
-
 /// Config-authority change to the direct-deposit disclosure requirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetDepositAuditIxData {
@@ -272,9 +245,6 @@ pub struct SourceSpec {
     pub list_id: u8,
     pub source: u8,
 }
-
-/// The row type `PolicyTableIxData` carries.
-pub type VelocityRowIxData = VelocityRow;
 
 /// Policy parameters must reproduce the configured policy hash.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]

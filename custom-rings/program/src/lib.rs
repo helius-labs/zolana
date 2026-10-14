@@ -4,8 +4,6 @@
 mod instructions;
 mod state;
 
-pub use custom_ring_interface::CustomRingError;
-
 use custom_ring_interface::InstructionTag;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 

@@ -1,8 +1,8 @@
+use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
     AUDITOR_MESSAGE_LEN, KEY_REGISTRY_ROOT_HISTORY,
 };
-use custom_ring_program::CustomRingError;
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
