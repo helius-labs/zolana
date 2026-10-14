@@ -1,9 +1,7 @@
-use std::{future::Future, marker::PhantomData, time::Duration};
+use std::{future::Future, time::Duration};
 
-use bytemuck::Pod;
-use custom_ring_interface::{
-    ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
-};
+use custom_ring_interface::{ReadAccessRecord, RingAccount, RingProgramConfig};
+use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_loader_v3_interface::get_program_data_address;
@@ -150,7 +148,7 @@ impl ChainSource {
         &self,
         address: Address,
         owner: Address,
-    ) -> Result<Option<solana_account::Account>, ClientError> {
+    ) -> Result<Option<Account>, ClientError> {
         Ok(self
             .rpc
             .get_account(address)
@@ -251,18 +249,11 @@ impl TransactionSource for ChainSource {
     }
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {
-        let (address, bump) = Address::find_program_address(&[CONFIG_PDA_SEED], &ring);
+        let (address, bump) = Address::find_program_address(&[RingProgramConfig::SEED], &ring);
         let Some(account) = self.owned_account(address, ring).await? else {
             return Ok(None);
         };
-        Ok(Some(
-            ConfigAccount {
-                account: &account,
-                ring,
-                bump,
-            }
-            .decode()?,
-        ))
+        configuration(&account, ring, bump).map(Some)
     }
 
     async fn upgrade_authority(&self, program: Address) -> Result<Option<Address>, ClientError> {
@@ -283,11 +274,7 @@ impl TransactionSource for ChainSource {
         let Some(account) = self.rpc.get_account(address).await? else {
             return Ok(false);
         };
-        ReaderAccount {
-            account: &account,
-            grant: request,
-        }
-        .validate()?;
+        check_reader(&account, request)?;
         Ok(true)
     }
 
@@ -307,95 +294,51 @@ impl TransactionSource for ChainSource {
     }
 }
 
-struct ConfigAccount<'a> {
-    account: &'a solana_account::Account,
+const INVALID_CONFIG: &str = "custom ring config account is invalid";
+const INVALID_READER: &str = "custom ring reader account is invalid";
+
+/// The program's initialized `T` at the address `bump` derives.
+fn ring_account<T: RingAccount>(
+    account: &Account,
+    ring: &Address,
+    bump: u8,
+    error: &str,
+) -> Result<T, ClientError> {
+    T::decode(&account.owner, ring, &account.data)
+        .filter(|value| value.bump() == bump)
+        .ok_or_else(|| ClientError::Rpc(error.to_owned()))
+}
+
+fn configuration(
+    account: &Account,
     ring: Address,
     bump: u8,
+) -> Result<RingConfiguration, ClientError> {
+    let config: RingProgramConfig = ring_account(account, &ring, bump, INVALID_CONFIG)?;
+    let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+        .ok()
+        .filter(|_| !is_reserved_p256_derivation_point(&config.auditor_pubkey))
+        .ok_or_else(|| ClientError::Rpc(INVALID_CONFIG.to_owned()))?;
+    Ok(RingConfiguration {
+        auditor_pubkey,
+        authority: config.authority,
+    })
 }
 
-impl ConfigAccount<'_> {
-    fn decode(self) -> Result<RingConfiguration, ClientError> {
-        let config = AccountCheck::<RingProgramConfig> {
-            account: self.account,
-            owner: self.ring,
-            discriminator: RING_PROGRAM_CONFIG,
-            error: "custom ring config account is invalid",
-            account_type: PhantomData,
-        }
-        .decode()?;
-        if config.bump != self.bump || is_reserved_p256_derivation_point(&config.auditor_pubkey) {
-            return Err(ClientError::Rpc(
-                "custom ring config account is invalid".to_owned(),
-            ));
-        }
-        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
-            .map_err(|_| ClientError::Rpc("custom ring config account is invalid".to_owned()))?;
-        Ok(RingConfiguration {
-            auditor_pubkey,
-            authority: config.authority,
-        })
-    }
-}
-
-struct ReaderAccount<'a> {
-    account: &'a solana_account::Account,
-    grant: ReaderGrant,
-}
-
-impl ReaderAccount<'_> {
-    fn validate(self) -> Result<(), ClientError> {
-        let record = AccountCheck::<ReadAccessRecord> {
-            account: self.account,
-            owner: self.grant.ring,
-            discriminator: READ_ACCESS_RECORD,
-            error: "custom ring reader account is invalid",
-            account_type: PhantomData,
-        }
-        .decode()?;
-        let reader = self.grant.reader.to_bytes();
-        let seed_hash = ReadAccessRecord::seed_hash(&reader)
-            .map_err(|_| ClientError::Rpc("custom ring reader account is invalid".to_owned()))?;
-        let bump =
-            Address::find_program_address(&[ReadAccessRecord::SEED, &seed_hash], &self.grant.ring)
-                .1;
-        if record.reader != reader || record.bump != bump {
-            return Err(ClientError::Rpc(
-                "custom ring reader account is invalid".to_owned(),
-            ));
-        }
-        Ok(())
-    }
-}
-
-struct AccountCheck<'a, T> {
-    account: &'a solana_account::Account,
-    owner: Address,
-    discriminator: u8,
-    error: &'static str,
-    account_type: PhantomData<T>,
-}
-
-impl<T: Pod + Copy> AccountCheck<'_, T> {
-    fn decode(self) -> Result<T, ClientError> {
-        if self.account.owner.to_bytes() != self.owner.to_bytes()
-            || self.account.data.len() != core::mem::size_of::<T>()
-        {
-            return Err(ClientError::Rpc(self.error.to_owned()));
-        }
-        let value = bytemuck::try_from_bytes::<T>(&self.account.data)
-            .copied()
-            .map_err(|_| ClientError::Rpc(self.error.to_owned()))?;
-        if self.account.data.first().copied() != Some(self.discriminator) {
-            return Err(ClientError::Rpc(self.error.to_owned()));
-        }
-        Ok(value)
-    }
+fn check_reader(account: &Account, grant: ReaderGrant) -> Result<(), ClientError> {
+    let invalid = || ClientError::Rpc(INVALID_READER.to_owned());
+    let reader = grant.reader.to_bytes();
+    let seed_hash = ReadAccessRecord::seed_hash(&reader).map_err(|_| invalid())?;
+    let seeds: &[&[u8]] = &[ReadAccessRecord::SEED, &seed_hash];
+    let bump = Address::find_program_address(seeds, &grant.ring).1;
+    let record: ReadAccessRecord = ring_account(account, &grant.ring, bump, INVALID_READER)?;
+    (record.reader == reader).then_some(()).ok_or_else(invalid)
 }
 
 #[cfg(test)]
 mod tests {
-    use bytemuck::{bytes_of, Zeroable};
-    use solana_account::Account;
+    use bytemuck::{bytes_of, Pod, Zeroable};
+    use custom_ring_interface::{CONFIG_PDA_SEED, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG};
     use solana_keypair::Keypair;
     use solana_signer::Signer;
     use zolana_interface::P_CONST_SEC1;
@@ -430,28 +373,9 @@ mod tests {
         let bump = Address::find_program_address(&[CONFIG_PDA_SEED], &ring).1;
         let key = ViewingKey::new().pubkey();
         let valid = config_account(ring, *key.as_bytes(), bump);
-        assert_eq!(
-            ConfigAccount {
-                account: &valid,
-                ring,
-                bump,
-            }
-            .decode()
-            .expect("config")
-            .auditor_pubkey,
-            key
-        );
-        assert_eq!(
-            ConfigAccount {
-                account: &valid,
-                ring,
-                bump,
-            }
-            .decode()
-            .expect("config")
-            .authority,
-            AUTHORITY
-        );
+        let config = configuration(&valid, ring, bump).expect("config");
+        assert_eq!(config.auditor_pubkey, key);
+        assert_eq!(config.authority, AUTHORITY);
 
         let mut wrong_owner = valid.clone();
         wrong_owner.owner = Address::new_from_array([8; 32]);
@@ -460,30 +384,12 @@ mod tests {
         let mut wrong_discriminator = valid.clone();
         wrong_discriminator.data[0] = 0;
         for invalid in [wrong_owner, wrong_size, wrong_discriminator] {
-            assert!(ConfigAccount {
-                account: &invalid,
-                ring,
-                bump,
-            }
-            .decode()
-            .is_err());
+            assert!(configuration(&invalid, ring, bump).is_err());
         }
-        assert!(ConfigAccount {
-            account: &valid,
-            ring,
-            bump: bump.wrapping_add(1),
-        }
-        .decode()
-        .is_err());
+        assert!(configuration(&valid, ring, bump.wrapping_add(1)).is_err());
         for invalid_key in [P_CONST_SEC1, [0; 33]] {
             let invalid = config_account(ring, invalid_key, bump);
-            assert!(ConfigAccount {
-                account: &invalid,
-                ring,
-                bump,
-            }
-            .decode()
-            .is_err());
+            assert!(configuration(&invalid, ring, bump).is_err());
         }
     }
 
@@ -513,23 +419,13 @@ mod tests {
             )
             .1;
             let valid = reader_account(ring, reader, bump);
-            assert!(ReaderAccount {
-                account: &valid,
-                grant,
-            }
-            .validate()
-            .is_ok());
+            assert!(check_reader(&valid, grant).is_ok());
 
             let mut wrong_reader = valid.clone();
             wrong_reader.data[1] ^= 1;
             let wrong_bump = reader_account(ring, reader, bump.wrapping_add(1));
             for invalid in [&wrong_reader, &wrong_bump] {
-                assert!(ReaderAccount {
-                    account: invalid,
-                    grant,
-                }
-                .validate()
-                .is_err());
+                assert!(check_reader(invalid, grant).is_err());
             }
         }
     }

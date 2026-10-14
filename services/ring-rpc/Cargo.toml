@@ -12,7 +12,6 @@ name = "ring-rpc"
 path = "src/main.rs"
 
 [dependencies]
-bytemuck = { workspace = true }
 custom-ring-interface = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -51,3 +50,6 @@ zolana-keypair = { workspace = true }
 zolana-secret-file = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
 zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+bytemuck = { workspace = true }
