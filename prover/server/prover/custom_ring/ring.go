@@ -2,8 +2,6 @@ package custom_ring
 
 import (
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -63,12 +61,16 @@ func Decode(circuitType common.CircuitType, payload []byte) (frontend.Circuit, e
 	if err := Unmarshal(payload, params); err != nil {
 		return nil, err
 	}
-	return ring.Assign(params)
+	return Assign(circuitType, params)
 }
 
 // Assign fails for a request that leaves a circuit value unset.
-func (r RingCircuit) Assign(params any) (frontend.Circuit, error) {
-	assignment := r.Circuit()
+func Assign(circuitType common.CircuitType, params any) (frontend.Circuit, error) {
+	ring, err := Ring(circuitType)
+	if err != nil {
+		return nil, err
+	}
+	assignment := ring.Circuit()
 	return assignment, assign(assignment, params)
 }
 
@@ -102,24 +104,13 @@ func (r RingCircuit) Convert(pkPath, vkPath string) (*common.RingProofSystem, er
 	if err != nil {
 		return nil, err
 	}
-	pk, vk := groth16.NewProvingKey(ecc.BN254), groth16.NewVerifyingKey(ecc.BN254)
-	if err := readKey(pkPath, pk); err != nil {
+	pk, err := common.LoadProvingKey(pkPath)
+	if err != nil {
 		return nil, err
 	}
-	if err := readKey(vkPath, vk); err != nil {
+	vk, err := common.LoadVerifyingKey(vkPath)
+	if err != nil {
 		return nil, err
 	}
 	return &common.RingProofSystem{CircuitType: r.Type, ProvingKey: pk, VerifyingKey: vk, ConstraintSystem: ccs}, nil
-}
-
-func readKey(path string, key io.ReaderFrom) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	if _, err := key.ReadFrom(file); err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	return nil
 }

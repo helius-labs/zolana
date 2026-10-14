@@ -80,9 +80,9 @@ func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, p
 		return nil
 	}
 	keys := make(map[Hash]*ring.RegistryKey)
-	for i := range p.Outputs[:p.NOut] {
+	for i := range p.Outputs {
 		output := &p.Outputs[i]
-		if output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) != 0 {
+		if i >= int(p.NOut) || output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) != 0 {
 			continue
 		}
 		owner, err := transcript.HashFields([]*big.Int{output.OwnerPkHash.Int, output.NullifierPk.Int})

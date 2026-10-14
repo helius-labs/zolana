@@ -98,14 +98,13 @@ func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, checked che
 		assetGuard = api.Or(assetGuard, api.Mul(enabled, r.assetGuard))
 		unguardedInline = api.Or(unguardedInline, api.Mul(enabled, r.inline, r.always))
 	}
-	inline := checked.inline
-	shared.AssertWhen(api, ownerGuard, api.And(unguardedInline, inline.OneHot[1]))
-	shared.AssertWhen(api, assetGuard, inline.Active[0])
+	shared.AssertWhen(api, ownerGuard, api.And(unguardedInline, checked.inline.OneHot[1]))
+	shared.AssertWhen(api, assetGuard, checked.inline.Active[0])
 	for i, asset := range c.InlineAssets {
-		required := api.Mul(assetGuard, inline.Active[i])
+		required := api.Mul(assetGuard, checked.inline.Active[i])
 		shared.AssertWhen(api, required, base.NonZero(api, c.InlineLimits[i]))
 		for j, other := range c.InlineAssets[:i] {
-			shared.AssertWhen(api, api.Mul(required, inline.Active[j]), base.NonZero(api, api.Sub(asset, other)))
+			shared.AssertWhen(api, api.Mul(required, checked.inline.Active[j]), base.NonZero(api, api.Sub(asset, other)))
 		}
 	}
 }

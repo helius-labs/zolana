@@ -51,19 +51,10 @@ func decodePolicy(request Request) (*preparedProof, error) {
 		if fallback == nil || fallback.Tree != tree.Address || fallback.ID != tree.ID || fallback.UtxoRootIndex >= 500 || fallback.NullifierRootIndex >= 100 {
 			return nil, fmt.Errorf("invalid policy fallback roots")
 		}
-		state, err := common.FeFromHex(fallback.UtxoRoot)
-		if err != nil || state.Sign() == 0 {
-			return nil, fmt.Errorf("invalid policy state root")
-		}
-		exclusion, err := common.FeFromHex(fallback.NullifierRoot)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := hashField(state); err != nil {
-			return nil, err
-		}
-		if _, err := hashField(exclusion); err != nil {
-			return nil, err
+		state, stateErr := common.FeFromHex(fallback.UtxoRoot)
+		exclusion, exclusionErr := common.FeFromHex(fallback.NullifierRoot)
+		if stateErr != nil || exclusionErr != nil || state.Sign() == 0 || !canonical(state) || !canonical(exclusion) {
+			return nil, fmt.Errorf("invalid policy fallback roots")
 		}
 	}
 	p.PublicInputHash = ring.Field{Int: new(big.Int)}
@@ -100,14 +91,15 @@ func decodePolicy(request Request) (*preparedProof, error) {
 				fact.NullifierNextValue = ring.Field{Int: new(big.Int).SetBytes(exclusion.HighElement[:])}
 			}}
 	}
-	circuit, err := ring.Ring(request.CircuitType)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := circuit.Assign(value); err != nil {
+	if _, err := ring.Assign(request.CircuitType, value); err != nil {
 		return nil, fmt.Errorf("invalid prepared policy: %w", err)
 	}
 	return &preparedProof{value: value, inputs: inputs, slots: (*[]common.TreeSlotParams)(&p.TreeSlots), hash: &p.PublicInputHash.Int, policy: true, registry: p}, nil
+}
+
+func canonical(value *big.Int) bool {
+	_, err := hashField(value)
+	return err == nil
 }
 
 func zeroFields(n int) []ring.Field {

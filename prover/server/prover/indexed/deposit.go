@@ -31,11 +31,7 @@ func decodeDeposit(data []byte) (Request, *ring.DepositParams, error) {
 		return request, nil, fmt.Errorf("invalid deposit count")
 	}
 	params.Keys = make([]*ring.RegistryKey, deposit.MaxDeposits)
-	circuit, err := ring.Ring(request.CircuitType)
-	if err != nil {
-		return request, nil, err
-	}
-	if _, err := circuit.Assign(&params); err != nil {
+	if _, err := ring.Assign(request.CircuitType, &params); err != nil {
 		return request, nil, fmt.Errorf("invalid prepared deposit: %w", err)
 	}
 	expected, err := common.FeFromHex(request.PublicInputs[0])
