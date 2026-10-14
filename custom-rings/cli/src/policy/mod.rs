@@ -13,8 +13,7 @@ pub use grammar::{
 pub use render::render;
 
 use custom_ring_sdk::{
-    client_rules_match, AccountReadError, CustomRing, EntryError, PolicyConfig, PolicyMatchError,
-    SetPolicyRules, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
+    client_rules_match, compute_unit_limit, CustomRing, InstructionTag, PolicyConfig, RingError,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -35,11 +34,9 @@ pub enum PolicyCommandError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
+    Ring(#[from] RingError),
     #[error(transparent)]
     Grammar(#[from] PolicyError),
-    #[error(transparent)]
-    Build(Box<EntryError>),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error(transparent)]
@@ -51,7 +48,7 @@ pub enum PolicyCommandError {
     #[error("the ring has no policy config, run `zolana-ring init` first")]
     NotPinned,
     #[error("the pinned table differs from ring.toml")]
-    Drift(#[source] PolicyMatchError),
+    Drift(#[source] RingError),
     #[error(
         "ring.toml names address tree {toml}, the policy config pins {chain}, it is fixed at init"
     )]
@@ -181,8 +178,7 @@ fn compiled(ctx: &Context) -> Result<CompiledPolicy, PolicyCommandError> {
 }
 
 fn pinned(ctx: &Context) -> Result<PolicyConfig, PolicyCommandError> {
-    ctx.ring
-        .read_policy_config(&ctx.rpc)?
+    crate::read_account::<PolicyConfig>(&ctx.rpc, ctx.ring, ctx.ring.policy_config_pda())?
         .ok_or(PolicyCommandError::NotPinned)
 }
 
@@ -247,20 +243,17 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
     }
     let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
     ctx.fund_authority(&authority, MIN_AUTHORITY_BALANCE)?;
-    let instruction = SetPolicyRules {
-        ring: ctx.ring,
-        authority: authority.pubkey(),
-        rules: &compiled.rules,
-        shared_sources: compiled.shared_sources(),
-    }
-    .instruction()
-    .map_err(|error| PolicyCommandError::Build(Box::new(error)))?;
+    let instruction = ctx.ring.set_policy_rules(
+        authority.pubkey(),
+        &compiled.rules,
+        &compiled.shared_sources(),
+    )?;
     IdempotentStep {
         rpc: &ctx.rpc,
         authority: &authority,
         co_signers: &[],
         name: "set_policy_rules",
-        compute_unit_limit: SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
+        compute_unit_limit: compute_unit_limit(InstructionTag::SetPolicyRules),
         hint: no_hint,
     }
     .ensure_present(Observed::Absent, &[instruction])?;

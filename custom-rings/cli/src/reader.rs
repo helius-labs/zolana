@@ -1,15 +1,12 @@
-use custom_ring_sdk::{
-    AccountReadError, CustomRing, GrantReadAccess, ReaderKey, RevokeReadAccess,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT,
-};
+use custom_ring_sdk::{compute_unit_limit, CustomRing, InstructionTag, RingError};
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::SolanaRpc;
+use zolana_ring_client::ReaderKey;
 
 use crate::{
     line,
     step::{no_hint, IdempotentStep, Observed, StepError, StepOutcome},
-    Context, ContextError, ReaderCommand,
+    Context, ContextError, ReaderCommand, Zolana,
 };
 
 #[must_use]
@@ -24,15 +21,14 @@ pub enum ReaderError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
-    Build(#[from] wincode::Error),
+    Ring(#[from] RingError),
     #[error(transparent)]
     Step(#[from] StepError),
 }
 
 pub fn run(ctx: &mut Context, command: ReaderCommand) -> Result<(), ReaderError> {
     let authority = ctx.funded_authority()?;
+    let zolana = ctx.zolana();
     let (reader, outcome) = match command {
         ReaderCommand::Grant { reader } => (
             reader,
@@ -41,7 +37,7 @@ pub fn run(ctx: &mut Context, command: ReaderCommand) -> Result<(), ReaderError>
                 authority: &authority,
                 reader,
             }
-            .grant(&ctx.rpc)?,
+            .grant(&zolana)?,
         ),
         ReaderCommand::Revoke { reader } => (
             reader,
@@ -50,7 +46,7 @@ pub fn run(ctx: &mut Context, command: ReaderCommand) -> Result<(), ReaderError>
                 authority: &authority,
                 reader,
             }
-            .revoke(&ctx.rpc)?,
+            .revoke(&zolana)?,
         ),
     };
     line(
@@ -71,47 +67,40 @@ fn outcome_label(outcome: StepOutcome) -> &'static str {
 }
 
 impl ReaderAccess<'_> {
-    pub fn grant(self, rpc: &SolanaRpc) -> Result<StepOutcome, ReaderError> {
-        let observed = self.observed(rpc)?;
-        Ok(self.step(rpc, "grant_read_access").ensure_present(
-            observed,
-            &[GrantReadAccess {
-                ring: self.ring,
-                payer: self.authority.pubkey(),
-                authority: self.authority.pubkey(),
-                reader: self.reader,
-            }
-            .instruction()?],
-        )?)
+    pub fn grant(self, zolana: &Zolana) -> Result<StepOutcome, ReaderError> {
+        let observed = self.observed(zolana)?;
+        let authority = self.authority.pubkey();
+        let grant = self
+            .ring
+            .grant_read_access(authority, authority, self.reader)?;
+        Ok(self
+            .step(zolana, "grant_read_access")
+            .ensure_present(observed, &[grant])?)
     }
 
-    pub fn revoke(self, rpc: &SolanaRpc) -> Result<StepOutcome, ReaderError> {
-        let observed = self.observed(rpc)?;
-        Ok(self.step(rpc, "revoke_read_access").ensure_absent(
-            observed,
-            &[RevokeReadAccess {
-                ring: self.ring,
-                authority: self.authority.pubkey(),
-                reader: self.reader,
-                rent_recipient: self.authority.pubkey(),
-            }
-            .instruction()?],
-        )?)
+    pub fn revoke(self, zolana: &Zolana) -> Result<StepOutcome, ReaderError> {
+        let observed = self.observed(zolana)?;
+        let authority = self.authority.pubkey();
+        let revoke = self
+            .ring
+            .revoke_read_access(authority, self.reader, authority)?;
+        Ok(self
+            .step(zolana, "revoke_read_access")
+            .ensure_absent(observed, &[revoke])?)
     }
 
-    fn observed(&self, rpc: &SolanaRpc) -> Result<Observed, ReaderError> {
-        Ok(Observed::of(
-            &self.ring.read_access_record(rpc, &self.reader)?,
-        ))
+    fn observed(&self, zolana: &Zolana) -> Result<Observed, ReaderError> {
+        let record = self.ring.access_record(zolana.as_async(), &self.reader);
+        Ok(Observed::of(&zolana.block_on(record)?))
     }
 
-    fn step<'r>(&'r self, rpc: &'r SolanaRpc, name: &'static str) -> IdempotentStep<'r> {
+    fn step<'r>(&'r self, zolana: &'r Zolana, name: &'static str) -> IdempotentStep<'r> {
         IdempotentStep {
-            rpc,
+            rpc: zolana.rpc(),
             authority: self.authority,
             co_signers: &[],
             name,
-            compute_unit_limit: READ_ACCESS_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: compute_unit_limit(InstructionTag::GrantReadAccess),
             hint: no_hint,
         }
     }

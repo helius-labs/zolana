@@ -2,14 +2,13 @@ use std::{fmt, str::FromStr};
 
 use clap::Args;
 use custom_ring_sdk::{
-    AccountReadError, CreateEntry, CustomRing, EntryError as SdkEntryError, EntryProofEnvironment,
-    EntryProofError, LiveEntry, PoolTree, ReadEntry, SetSourceOwner, SourceOwner, UpdateEntry,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, CreateEntry, CustomRing, InstructionTag, LiveEntry, PolicyConfig, PoolTree,
+    ReadEntry, RingError, SourceOwner, UpdateEntry,
 };
 use solana_address::{error::ParseAddressError, Address};
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, IndexerRpcConfig, Rpc};
 use zolana_ring_policy::{EntryState, ListId, Member, MemberError};
 use zolana_transaction::SOL_MINT;
 
@@ -19,7 +18,7 @@ use crate::{
     policy::list_name,
     step::{no_hint, IdempotentStep, Observed, StepError},
     ui::{self, Icon},
-    Context, ContextError, ListCommand,
+    Context, ContextError, ListCommand, Zolana,
 };
 
 #[derive(Debug, Error)]
@@ -27,11 +26,7 @@ pub enum ListError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
-    Sdk(#[from] Box<SdkEntryError>),
-    #[error(transparent)]
-    Proof(#[from] Box<EntryProofError>),
+    Ring(#[from] Box<RingError>),
     #[error(transparent)]
     Member(#[from] MemberError),
     #[error("pass --owner or --asset")]
@@ -97,15 +92,9 @@ pub enum EntryChange {
     Moved,
 }
 
-impl From<SdkEntryError> for ListError {
-    fn from(error: SdkEntryError) -> Self {
-        Self::Sdk(Box::new(error))
-    }
-}
-
-impl From<EntryProofError> for ListError {
-    fn from(error: EntryProofError) -> Self {
-        Self::Proof(Box::new(error))
+impl From<RingError> for ListError {
+    fn from(error: RingError) -> Self {
+        Self::Ring(Box::new(error))
     }
 }
 
@@ -207,15 +196,11 @@ impl fmt::Display for Mint {
 }
 
 impl EntryMutation<'_> {
-    pub fn apply(
-        self,
-        environment: EntryProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
-    ) -> Result<EntryOutcome, ListError> {
-        let rpc = environment.rpc;
-        let config = self
-            .ring
-            .read_policy_config(rpc)?
-            .ok_or(ListError::NoPolicy)?;
+    pub fn apply(self, zolana: &Zolana) -> Result<EntryOutcome, ListError> {
+        let (rpc, client) = (zolana.rpc(), zolana.as_async());
+        let config =
+            crate::read_account::<PolicyConfig>(rpc, self.ring, self.ring.policy_config_pda())?
+                .ok_or(ListError::NoPolicy)?;
         // Mutations serve the ring's own entries only, the program refuses the rest.
         if let Some(curator) = config
             .source_for(self.list_id)
@@ -235,36 +220,40 @@ impl EntryMutation<'_> {
             self.list_id,
             self.member,
         )
-        .with_indexer_config(IndexerRpcConfig::at_slot(rpc.get_slot()?))
-        .read(environment.indexer)?;
+        .with_indexer_config(IndexerRpcConfig::at_slot(rpc.get_slot()?));
+        let live = zolana.block_on(live.read(client))?;
         let proven = match live {
-            None => CreateEntry {
-                ring: self.ring,
-                payer: self.authority.pubkey(),
-                address_tree,
-                output_tree: address_tree,
-                list_id: self.list_id,
-                member: self.member,
-                state: self.state,
-                content_hash: [0u8; 32],
+            None => {
+                let create = CreateEntry {
+                    ring: self.ring,
+                    payer: self.authority.pubkey(),
+                    address_tree,
+                    output_tree: address_tree,
+                    list_id: self.list_id,
+                    member: self.member,
+                    state: self.state,
+                    content_hash: [0u8; 32],
+                };
+                zolana.block_on(create.prove(client))?
             }
-            .prove(environment)?,
             Some(LiveEntry { entry, .. }) if entry.state == self.state => {
                 return Ok(EntryOutcome {
                     version: entry.version,
                     change: EntryChange::Unchanged,
                 });
             }
-            Some(spent) => UpdateEntry {
-                ring: self.ring,
-                payer: self.authority.pubkey(),
-                address_tree,
-                output_tree: address_tree,
-                spent,
-                state: self.state,
-                content_hash: [0u8; 32],
+            Some(spent) => {
+                let update = UpdateEntry {
+                    ring: self.ring,
+                    payer: self.authority.pubkey(),
+                    address_tree,
+                    output_tree: address_tree,
+                    spent,
+                    state: self.state,
+                    content_hash: [0u8; 32],
+                };
+                zolana.block_on(update.prove(client))?
             }
-            .prove(environment)?,
         };
         let version = proven.entry().version;
         IdempotentStep {
@@ -272,7 +261,7 @@ impl EntryMutation<'_> {
             authority: self.authority,
             co_signers: &[],
             name: "entry_mutation",
-            compute_unit_limit: ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: compute_unit_limit(InstructionTag::CreateEntry),
             hint: no_hint,
         }
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
@@ -304,8 +293,7 @@ struct EntryArg {
 impl EntryArg {
     fn set(self, ctx: &mut Context, state: EntryState) -> Result<(), ListError> {
         let authority = ctx.funded_authority()?;
-        let indexer = ctx.indexer();
-        let prover = ctx.prover();
+        let zolana = ctx.zolana();
         line(
             "entry",
             format_args!("{} {}", list_name(self.list_id), self.member),
@@ -317,11 +305,7 @@ impl EntryArg {
             member: self.member.member()?,
             state,
         }
-        .apply(EntryProofEnvironment {
-            indexer: &indexer,
-            rpc: &ctx.rpc,
-            prover: &prover,
-        })?;
+        .apply(&zolana)?;
         line(
             "state",
             format_args!("{state:?} {}", outcome.change.label()),
@@ -331,10 +315,7 @@ impl EntryArg {
     }
 
     fn show(self, ctx: &Context) -> Result<(), ListError> {
-        let config = ctx
-            .ring
-            .read_policy_config(&ctx.rpc)?
-            .ok_or(ListError::NoPolicy)?;
+        let config = policy_config(ctx)?;
         let live = ReadEntry::new(
             config.address_tree_id(),
             config
@@ -343,12 +324,14 @@ impl EntryArg {
             self.list_id,
             self.member.member()?,
         )
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?))
-        .read(&ctx.indexer())?
-        .ok_or(ListError::NoEntry {
-            list_id: self.list_id,
-            member: self.member,
-        })?;
+        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?));
+        let zolana = ctx.zolana();
+        let live = zolana
+            .block_on(live.read(zolana.as_async()))?
+            .ok_or(ListError::NoEntry {
+                list_id: self.list_id,
+                member: self.member,
+            })?;
         line(
             "entry",
             format_args!("{} {}", list_name(self.list_id), self.member),
@@ -359,11 +342,13 @@ impl EntryArg {
     }
 }
 
+fn policy_config(ctx: &Context) -> Result<PolicyConfig, ListError> {
+    crate::read_account::<PolicyConfig>(&ctx.rpc, ctx.ring, ctx.ring.policy_config_pda())?
+        .ok_or(ListError::NoPolicy)
+}
+
 fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result<(), ListError> {
-    let config = ctx
-        .ring
-        .read_policy_config(&ctx.rpc)?
-        .ok_or(ListError::NoPolicy)?;
+    let config = policy_config(ctx)?;
     let expected = match source {
         SourceOwner::Own => ctx.ring.namespace_pda(),
         SourceOwner::Shared(curator) => {
@@ -387,23 +372,16 @@ fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result
         authority: &authority,
         co_signers: &[],
         name: "set_policy_source",
-        compute_unit_limit: SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+        compute_unit_limit: compute_unit_limit(InstructionTag::SetPolicySource),
         hint: no_hint,
     }
     .ensure_present(
         observed,
-        &[SetSourceOwner {
-            ring: ctx.ring,
-            authority: authority.pubkey(),
-            list_id,
-            source,
-        }
-        .instruction()?],
+        &[ctx
+            .ring
+            .set_source_owner(authority.pubkey(), list_id, source)?],
     )?;
-    let entries = ctx
-        .ring
-        .read_policy_config(&ctx.rpc)?
-        .ok_or(ListError::NoPolicy)?
+    let entries = policy_config(ctx)?
         .source_for(list_id)
         .ok_or(ListError::NoPolicy)?;
     match source {

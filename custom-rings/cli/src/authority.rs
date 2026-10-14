@@ -3,10 +3,7 @@ use std::{
     process::Command,
 };
 
-use custom_ring_sdk::{
-    AccountReadError, CustomRing, SetAuthority, SetPaused, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT,
-};
+use custom_ring_sdk::{compute_unit_limit, CustomRing, InstructionTag, RingError};
 use solana_address::Address;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
@@ -81,15 +78,13 @@ pub enum AuthorityError {
     #[error("ring {program} is not initialized, run `init` before renouncing")]
     NotInitialized { program: Address },
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
+    Ring(#[from] RingError),
     #[error(transparent)]
     Tool(#[from] ToolError),
     #[error("cannot read the new authority keypair {path}")]
     NewAuthorityKeypair { path: String },
     #[error("sending set_authority failed")]
     SetAuthority(#[source] Box<zolana_client::ClientError>),
-    #[error(transparent)]
-    Build(#[from] wincode::Error),
     #[error(transparent)]
     Step(#[from] StepError),
 }
@@ -138,18 +133,15 @@ pub fn run(ctx: &mut Context, command: AuthorityCommand) -> Result<(), Authority
                 read_keypair_file(&path).map_err(|_| AuthorityError::NewAuthorityKeypair {
                     path: path.display().to_string(),
                 })?;
-            let instructions = [SetAuthority {
-                ring: ctx.ring,
-                authority: authority.pubkey(),
-                new_authority: new_authority.pubkey(),
-            }
-            .instruction()];
+            let instructions = [ctx
+                .ring
+                .set_authority(authority.pubkey(), new_authority.pubkey())];
             ctx.rpc
                 .create_and_send_transaction(
                     &instructions,
                     authority.pubkey(),
                     &[&authority, &new_authority],
-                    ComputeBudgetConfig::new(SET_AUTHORITY_COMPUTE_UNIT_LIMIT),
+                    ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::SetAuthority)),
                 )
                 .map_err(|source| AuthorityError::SetAuthority(Box::new(source)))?;
             println!(
@@ -209,12 +201,14 @@ fn expected_binary(
 }
 
 fn require_initialized(ctx: &Context) -> Result<RingConfig, AuthorityError> {
-    let config = ctx.ring.read_config(&ctx.rpc)?;
+    let zolana = ctx.zolana();
+    let client = zolana.as_async();
+    let config = zolana.block_on(ctx.ring.config(client))?;
     RingAccounts {
         has_policy: config.as_ref().is_some_and(|config| config.has_policy),
         config,
-        spp_ring: ctx.ring.read_spp_ring_config(&ctx.rpc)?,
-        policy: ctx.ring.read_policy_config(&ctx.rpc)?,
+        spp_ring: zolana.block_on(ctx.ring.spp_ring_config(client))?,
+        policy: zolana.block_on(ctx.ring.policy_config(client))?,
     }
     .initialization()
     .require(ctx.ring.program_id())
@@ -234,17 +228,12 @@ impl RingPause {
             authority: &authority,
             co_signers: &[],
             name: "set_paused",
-            compute_unit_limit: SET_PAUSED_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: compute_unit_limit(InstructionTag::SetPaused),
             hint: no_hint,
         }
         .ensure_present(
             observed,
-            &[SetPaused {
-                ring: ctx.ring,
-                authority: authority.pubkey(),
-                paused: self.paused,
-            }
-            .instruction()?],
+            &[ctx.ring.set_paused(authority.pubkey(), self.paused)?],
         )?;
         let label = match outcome {
             StepOutcome::Created if self.paused => "paused",

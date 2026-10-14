@@ -1,9 +1,9 @@
 use std::fmt::Write;
 
-use custom_ring_sdk::{AccountReadError, CustomRing};
+use custom_ring_sdk::{CustomRing, RingError};
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SolanaRpc};
+use zolana_client::{ClientError, Rpc};
 
 use crate::{
     config::{redact_text, redact_url, RingConfig, Target},
@@ -12,7 +12,7 @@ use crate::{
     policy::print_pinned,
     release::RingProgram,
     ui::{self, Icon},
-    Context,
+    Context, Zolana,
 };
 
 const EXPLORER: &str = "https://explorer.solana.com/address";
@@ -24,7 +24,7 @@ pub enum StatusError {
     #[error(transparent)]
     Deploy(Box<DeployError>),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
+    Ring(#[from] RingError),
 }
 
 impl From<DeployError> for StatusError {
@@ -58,7 +58,7 @@ pub fn run(ctx: &Context) {
         Err(error) => line("release", error),
     }
 
-    if let Err(error) = print_chain(config, ctx.ring, &ctx.rpc) {
+    if let Err(error) = print_chain(config, ctx.ring, &ctx.zolana()) {
         line(
             "chain",
             format_args!(
@@ -105,7 +105,8 @@ fn percent_encode(text: &str) -> String {
     })
 }
 
-fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result<(), StatusError> {
+fn print_chain(config: &RingConfig, ring: CustomRing, zolana: &Zolana) -> Result<(), StatusError> {
+    let (rpc, client) = (zolana.rpc(), zolana.as_async());
     if let Ok(authority) = config.config_authority() {
         let lamports = rpc.get_balance(authority.pubkey())?;
         line(
@@ -144,11 +145,11 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         Some(_) => line("program", "account exists but is not executable"),
         None => line("program", "not deployed"),
     }
-    let state = ring.read_config(rpc)?;
+    let state = zolana.block_on(ring.config(client))?;
     if state.is_some() {
         line(
             "deposit audit",
-            if ring.read_deposit_audit(rpc)? {
+            if zolana.block_on(ring.deposit_audit(client))? {
                 "required"
             } else {
                 "optional"
@@ -170,7 +171,7 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
             format_args!("not created ({})", ring.config_pda()),
         ),
     }
-    match ring.read_cosigner(rpc)? {
+    match zolana.block_on(ring.cosigner(client))? {
         Some(cosigner) => crate::cosigner::print(&cosigner),
         None => line("co-signer", "none"),
     }
@@ -179,7 +180,7 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         .as_ref()
         .map_or(config.policy.is_some(), |state| state.has_policy);
     if has_policy {
-        match ring.read_policy_config(rpc)? {
+        match zolana.block_on(ring.policy_config(client))? {
             Some(policy) => {
                 line("policy", ring.policy_config_pda());
                 print_pinned(ring, &policy);
@@ -192,7 +193,7 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
     } else {
         line("policy", "none (audit-only ring)");
     }
-    match ring.read_spp_ring_config(rpc)? {
+    match zolana.block_on(ring.spp_ring_config(client))? {
         Some(state) => line(
             "spp ring",
             format_args!(

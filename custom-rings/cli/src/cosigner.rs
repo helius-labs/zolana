@@ -1,6 +1,5 @@
 use custom_ring_sdk::{
-    AccountReadError, ClearCoSigner, CoSignScope, CoSignThreshold, CustomRingCoSigner, SetCoSigner,
-    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, CoSignScope, CoSignThreshold, CustomRingCoSigner, InstructionTag, RingError,
 };
 use serde::{Deserialize, Serialize};
 use solana_signer::Signer;
@@ -25,9 +24,7 @@ pub enum CoSignerError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
-    Build(#[from] wincode::Error),
+    Ring(#[from] RingError),
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error("no signer given and ring.toml has no [cosigner] table")]
@@ -74,51 +71,52 @@ pub fn run(ctx: &mut Context, command: CoSignerCommand) -> Result<(), CoSignerEr
                 None => ctx.config.cosigner.clone().ok_or(CoSignerError::NoSigner)?,
             };
             let authority = ctx.funded_authority()?;
-            let instruction = SetCoSigner {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                authority: authority.pubkey(),
-                signer: spec.key.0,
-                scope: spec.scope().ok_or(CoSignerError::EmptyScope)?,
-                thresholds: spec
-                    .thresholds
-                    .iter()
-                    .map(|row| CoSignThreshold {
-                        mint: row.mint.0,
-                        amount: row.above,
-                    })
-                    .collect(),
-            }
-            .instruction()?;
+            let thresholds: Vec<_> = spec
+                .thresholds
+                .iter()
+                .map(|row| CoSignThreshold {
+                    mint: row.mint.0,
+                    amount: row.above,
+                })
+                .collect();
+            let instruction = ctx.ring.set_cosigner(
+                authority.pubkey(),
+                authority.pubkey(),
+                spec.key.0,
+                spec.scope().ok_or(CoSignerError::EmptyScope)?,
+                &thresholds,
+            )?;
             ctx.rpc.create_and_send_transaction(
                 &[instruction],
                 authority.pubkey(),
                 &[&authority],
-                ComputeBudgetConfig::new(SET_CO_SIGNER_COMPUTE_UNIT_LIMIT),
+                ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::SetCoSigner)),
             )?;
             line("co-signer", format_args!("{} set", spec.key.0));
         }
         CoSignerCommand::Clear => {
             let authority = ctx.funded_authority()?;
-            if ctx.ring.read_cosigner(&ctx.rpc)?.is_none() {
+            let zolana = ctx.zolana();
+            if zolana
+                .block_on(ctx.ring.cosigner(zolana.as_async()))?
+                .is_none()
+            {
                 return Err(CoSignerError::NotSet);
             }
             ctx.rpc.create_and_send_transaction(
-                &[ClearCoSigner {
-                    ring: ctx.ring,
-                    authority: authority.pubkey(),
-                    rent_recipient: authority.pubkey(),
-                }
-                .instruction()],
+                &[ctx
+                    .ring
+                    .clear_cosigner(authority.pubkey(), authority.pubkey())],
                 authority.pubkey(),
                 &[&authority],
-                ComputeBudgetConfig::new(SET_CO_SIGNER_COMPUTE_UNIT_LIMIT),
+                ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::SetCoSigner)),
             )?;
             line("co-signer", "cleared");
         }
         CoSignerCommand::Show => {}
     }
-    match ctx.ring.read_cosigner(&ctx.rpc)? {
+    let zolana = ctx.zolana();
+    match zolana.block_on(ctx.ring.cosigner(zolana.as_async()))? {
         Some(cosigner) => print(&cosigner),
         None => line("co-signer", "none"),
     }

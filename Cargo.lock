@@ -2094,7 +2094,6 @@ dependencies = [
  "clap",
  "console",
  "custom-ring-interface",
- "custom-ring-program",
  "custom-ring-sdk",
  "dialoguer",
  "hex",

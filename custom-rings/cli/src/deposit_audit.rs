@@ -1,4 +1,4 @@
-use custom_ring_sdk::{AccountReadError, SetDepositAudit, SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT};
+use custom_ring_sdk::{compute_unit_limit, InstructionTag, RingError};
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
@@ -15,9 +15,7 @@ pub enum DepositAuditError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    Account(#[from] AccountReadError),
-    #[error(transparent)]
-    Build(#[from] wincode::Error),
+    Ring(#[from] RingError),
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -26,19 +24,15 @@ pub fn run(ctx: &mut Context, command: DepositAuditCommand) -> Result<(), Deposi
     match command {
         DepositAuditCommand::Set { required } => {
             let authority = ctx.funded_authority()?;
-            let instruction = SetDepositAudit {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                authority: authority.pubkey(),
-                required,
-            }
-            .instruction()?;
+            let instruction =
+                ctx.ring
+                    .set_deposit_audit(authority.pubkey(), authority.pubkey(), required)?;
             ctx.rpc
                 .create_and_send_transaction(
                     &[instruction],
                     authority.pubkey(),
                     &[&authority],
-                    ComputeBudgetConfig::new(SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT),
+                    ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::SetDepositAudit)),
                 )
                 .map_err(|error| DepositAuditError::Client(Box::new(error)))?;
             RingConfig::set_deposit_audit(&ctx.config_path, required)?;
@@ -49,7 +43,8 @@ pub fn run(ctx: &mut Context, command: DepositAuditCommand) -> Result<(), Deposi
             );
         }
         DepositAuditCommand::Show => {
-            let required = ctx.ring.read_deposit_audit(&ctx.rpc)?;
+            let zolana = ctx.zolana();
+            let required = zolana.block_on(ctx.ring.deposit_audit(zolana.as_async()))?;
             line(
                 "deposit audit",
                 if required { "required" } else { "optional" },

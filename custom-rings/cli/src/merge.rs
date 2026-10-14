@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, path::Path};
 
 use custom_ring_sdk::{
-    CoSignScope, CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment,
-    MergeError as RingMergeError, MergeProofInput, MAX_MERGE_INPUTS,
+    compute_unit_limit, CoSignScope, CustomRing, CustomRingMerge, InstructionTag, MergeProofInput,
+    RingError, MAX_MERGE_INPUTS,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -23,8 +23,6 @@ use crate::{
     Context, ContextError, MergeArgs, SENDER_KEYPAIR_FILE,
 };
 
-const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
-
 #[derive(Debug, Error)]
 pub enum MergeError {
     #[error(transparent)]
@@ -40,7 +38,7 @@ pub enum MergeError {
     #[error(transparent)]
     Transact(Box<TransactError>),
     #[error(transparent)]
-    Prove(#[from] RingMergeError),
+    Ring(Box<RingError>),
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
@@ -59,6 +57,7 @@ pub enum MergeError {
 
 boxed_from!(MergeError {
     Transact(TransactError),
+    Ring(RingError),
 });
 
 pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
@@ -101,18 +100,13 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     let prepared = CustomRingMerge::new(ctx.ring, inputs, None)?
         .with_output_tree_id(output_tree_id)
         .encrypt(&sender)?;
-    let proven = prepared.prove(
-        MergeProofInput {
-            nullifier_key: sender.nullifier_key.clone(),
-            input_tree: tree,
-            output_tree: tree,
-        },
-        CustomRingMergeProofEnvironment {
-            indexer: &indexer,
-            prover: &ctx.prover(),
-            rpc: &ctx.rpc,
-        },
-    )?;
+    let input = MergeProofInput {
+        nullifier_key: sender.nullifier_key.clone(),
+        input_tree: tree,
+        output_tree: tree,
+    };
+    let zolana = ctx.zolana();
+    let proven = zolana.block_on(prepared.prove(input, zolana.as_async()))?;
     let output_hash = proven.output_hash;
     let merged_amount = proven.merged_amount;
     let proven = match &cosigner {
@@ -129,7 +123,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         &[merge],
         payer.pubkey(),
         &signers,
-        ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge)),
     )?;
 
     wait_for_indexed_transaction(&indexer, signature)?;

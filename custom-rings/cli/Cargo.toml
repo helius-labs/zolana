@@ -20,7 +20,6 @@ clap = { workspace = true }
 console = { workspace = true }
 custom-ring-interface = { workspace = true }
 # Only for the error codes the init hints name.
-custom-ring-program = { path = "../program", features = ["no-entrypoint"] }
 custom-ring-sdk = { path = "../sdk" }
 dialoguer = { workspace = true }
 hex = { workspace = true }

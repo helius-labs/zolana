@@ -1,16 +1,14 @@
 use std::{collections::BTreeSet, path::Path};
 
 use custom_ring_sdk::{
-    ring_authority_width, CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput,
-    KeyRegistrationError, ReadCurrentSealedKey, ReadEnvironment, SetDelegate, TransactSend,
-    TransferProofEnvironment, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, ring_authority_width, CoSignScope, CustomRing, CustomRingConfig,
+    DelegateOutput, DelegateTransfer, DelegateTransferInput, InstructionTag, ReadCurrentSealedKey,
+    RingError,
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{
-    ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient,
-};
+use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc};
 use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ViewingKey};
 use zolana_ring_client::{AuditError, RingRecovery, SourceMember};
@@ -22,8 +20,8 @@ use crate::{
     assets, file,
     fund::MIN_AUTHORITY_BALANCE,
     keys, line,
-    transact::{signers, CoSignerCheck, TransactError, PAYER_FEE_BUDGET, SENDER_FEE_BUDGET},
-    Context, ContextError, DelegateCommand, DelegateMoveArgs, AUDITOR_KEY_FILE,
+    transact::{settle, CoSignerCheck, TransactError, PAYER_FEE_BUDGET, SENDER_FEE_BUDGET},
+    Context, ContextError, DelegateCommand, DelegateMoveArgs, Zolana, AUDITOR_KEY_FILE,
 };
 
 #[derive(Debug, Error)]
@@ -60,8 +58,6 @@ pub enum DelegateError {
     #[error("member {0} has no registered key, it runs `zolana-ring key register` first")]
     MemberUnregistered(ShieldedAddress),
     #[error(transparent)]
-    Registry(Box<KeyRegistrationError>),
-    #[error(transparent)]
     Recovery(Box<AuditError>),
 }
 
@@ -85,48 +81,50 @@ struct SelectedNotes {
 }
 
 pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateError> {
+    let zolana = ctx.zolana();
+    let client = zolana.as_async();
     match command {
         DelegateCommand::Set { delegate } => {
-            if !ctx
-                .ring
-                .read_config(&ctx.rpc)?
-                .ok_or(DelegateError::NoConfig)?
-                .has_policy
-            {
+            if !ring_config(ctx.ring, &zolana)?.has_policy {
                 return Err(DelegateError::NoPolicy);
             }
-            ring_auditor_key(ctx, Path::new(AUDITOR_KEY_FILE))?;
-            ctx.ring
-                .read_key_registry_root(&ctx.rpc)?
+            ring_auditor_key(ctx, &zolana, Path::new(AUDITOR_KEY_FILE))?;
+            zolana
+                .block_on(ctx.ring.key_registry_root(client))?
                 .ok_or(DelegateError::NoKeyRegistry)?;
             let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
             ctx.fund_authority(&authority, MIN_AUTHORITY_BALANCE)?;
             ctx.rpc.create_and_send_transaction(
-                &[SetDelegate {
-                    ring: ctx.ring,
-                    payer: authority.pubkey(),
-                    authority: authority.pubkey(),
-                    delegate,
-                }
-                .instruction()],
+                &[ctx
+                    .ring
+                    .set_delegate(authority.pubkey(), authority.pubkey(), delegate)],
                 authority.pubkey(),
                 &[&authority],
-                ComputeBudgetConfig::new(SET_DELEGATE_COMPUTE_UNIT_LIMIT),
+                ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::SetDelegate)),
             )?;
             line("delegate", format_args!("{delegate} set"));
         }
         DelegateCommand::Show => {}
-        DelegateCommand::Move(args) => return run_move(ctx, *args),
+        DelegateCommand::Move(args) => return run_move(ctx, &zolana, *args),
     }
-    match ctx.ring.read_delegate(&ctx.rpc)? {
-        Some(delegate) => line("delegate", delegate.delegate),
+    match zolana.block_on(ctx.ring.delegate(client))? {
+        Some(delegate) => line("delegate", delegate),
         None => line("delegate", "none"),
     }
     Ok(())
 }
 
+fn ring_config(ring: CustomRing, zolana: &Zolana) -> Result<CustomRingConfig, DelegateError> {
+    let config = zolana.block_on(ring.config(zolana.as_async()))?;
+    config.ok_or(DelegateError::NoConfig)
+}
+
 /// The source keeps note ownership until the delegate's signed move executes.
-fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateError> {
+fn run_move(
+    ctx: &mut Context,
+    zolana: &Zolana,
+    args: DelegateMoveArgs,
+) -> Result<(), DelegateError> {
     let DelegateMoveArgs {
         to,
         source,
@@ -142,14 +140,13 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     let mint = mint.map_or(SOL_MINT, |mint| mint.0);
     // 1. The configured Solana delegate key authorizes the move.
     let delegate = file::read_keypair(&ctx.project_path(&delegate_keypair))?;
-    let stored = ctx
-        .ring
-        .read_delegate(&ctx.rpc)?
+    let stored = zolana
+        .block_on(ctx.ring.delegate(zolana.as_async()))?
         .ok_or(DelegateError::NotSet)?;
-    if stored.delegate != delegate.pubkey() {
+    if stored != delegate.pubkey() {
         return Err(DelegateError::WrongDelegate {
             given: delegate.pubkey(),
-            stored: stored.delegate,
+            stored,
         });
     }
     let cosigner = CoSignerCheck {
@@ -159,7 +156,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     }
     .load(ctx)?;
     // 2. The auditor key decrypts recovery material, it does not sign.
-    let auditor = ring_auditor_key(ctx, &auditor_key)?;
+    let auditor = ring_auditor_key(ctx, zolana, &auditor_key)?;
     let member = Member::owner_tag(
         &source
             .confidential_view_tag()
@@ -167,7 +164,6 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     )
     .map_err(|_| DelegateError::SourceIdentity)?;
 
-    let indexer = ctx.indexer();
     let assets = assets::resolve(&ctx.rpc, mint)
         .map_err(TransactError::from)?
         .registry;
@@ -175,20 +171,13 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         ring: ctx.ring,
         member,
     };
-    let nullifier_key = match read.read(ReadEnvironment {
-        indexer: &indexer,
-        rpc: &ctx.rpc,
-    }) {
-        Ok(Some(entry)) => entry
-            .open(&auditor)
-            .map_err(|error| DelegateError::Registry(Box::new(error)))?,
+    let nullifier_key = match zolana.block_on(read.read(zolana.as_async())) {
+        Ok(Some(entry)) => entry.open(&auditor)?,
         Ok(None) => return Err(DelegateError::NoKeyRegistry),
-        Err(KeyRegistrationError::Client(error))
-            if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
-        {
+        Err(RingError::Client(ClientError::RingKeyRegistryMemberUnregistered)) => {
             return Err(DelegateError::MemberUnregistered(source));
         }
-        Err(error) => return Err(DelegateError::Registry(Box::new(error))),
+        Err(error) => return Err(error.into()),
     };
     // 3. Accept verified openings and report incomplete recovery.
     let recovery = RingRecovery::new(ctx.ring.program_id(), &auditor)
@@ -197,11 +186,6 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
             address: &source,
             nullifier_key: &nullifier_key,
         });
-    let zolana = ZolanaClient::new(
-        SolanaRpc::new(ctx.config.urls().rpc.clone()),
-        ctx.indexer(),
-        ctx.prover(),
-    );
     let client = zolana.as_async();
     let recovered = zolana
         .block_on(recovery.run(client.indexer(), client.rpc(), &assets))
@@ -266,22 +250,11 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     if let Some(cosigner) = &cosigner {
         transfer = transfer.with_cosigner(cosigner.pubkey());
     }
-    let proven = transfer.prove(TransferProofEnvironment {
-        indexer: &indexer,
-        rpc: &ctx.rpc,
-        prover: &ctx.prover(),
-    })?;
     // 4. The permanent delegate signs beside any required co-signer.
-    let signers = signers(
-        &delegate,
-        cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
-    );
-    let moved = TransactSend {
-        payer: &authority,
-        signers: &signers,
-        instruction: proven.instruction()?,
-    }
-    .send(&ctx.rpc)?;
+    let signers: Vec<&(dyn Signer + Sync)> = std::iter::once(&delegate as _)
+        .chain(cosigner.as_ref().map(|keypair| keypair as _))
+        .collect();
+    let moved = settle(zolana, transfer, &authority, &signers)?;
     line("to", to);
     line("amount", format_args!("{amount} base units"));
     line("mint", mint);
@@ -290,12 +263,12 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
 }
 
 /// The auditor read key cannot authorize ownership transfers or withdrawals.
-fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey, DelegateError> {
-    let ring_auditor = ctx
-        .ring
-        .read_config(&ctx.rpc)?
-        .ok_or(DelegateError::NoConfig)?
-        .auditor_pubkey;
+fn ring_auditor_key(
+    ctx: &Context,
+    zolana: &Zolana,
+    path: &Path,
+) -> Result<ViewingKey, DelegateError> {
+    let ring_auditor = ring_config(ctx.ring, zolana)?.auditor_pubkey;
     let path = ctx.project_path(path);
     let auditor = keys::read_auditor_key(&path).map_err(DelegateError::Auditor)?;
     if auditor.pubkey() != ring_auditor {
@@ -363,12 +336,12 @@ impl NoteSelection<'_> {
 mod tests {
     use custom_ring_sdk::CustomRing;
     use solana_signature::Signature;
-    use zolana_client::ProverClient;
     use zolana_client::{
         rpc::GetShieldedTransactionsByNullifiersResponse, Context,
         GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
         ShieldedTransaction,
     };
+    use zolana_client::{ProverClient, ZolanaClient};
     use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
     use zolana_ring_client::{AuditorEncryption, RingOrigin, TransactionOrigin};
     use zolana_transaction::{

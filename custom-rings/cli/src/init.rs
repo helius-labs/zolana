@@ -1,13 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use custom_ring_program::CustomRingError;
+use custom_ring_interface::CustomRingError;
 use custom_ring_sdk::{
-    AccountReadError, CreateConfig, CreateConfigError, CreateKeyRegistryRoot, CreatePolicy,
-    CustomRing, CustomRingConfig, EntryError, InitSppRingConfig, PolicyConfig, SetAuthority,
-    SetDepositAudit, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, CustomRing, CustomRingConfig, InstructionTag, PolicyConfig, RingError,
+    SourceOwner,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -28,7 +24,7 @@ use crate::{
     },
     ring_rpc::{AuditorKeyRelease, RingRpcClient, RingRpcClientError, Trust},
     step::{IdempotentStep, Observed, StepError, StepOutcome},
-    Context, ContextError, InitArgs,
+    Context, ContextError, InitArgs, Zolana,
 };
 
 pub enum AuditorKeySource<'a> {
@@ -111,15 +107,13 @@ pub struct ForeignConfigAuthority(pub Address);
 #[derive(Debug, Error)]
 pub enum InitError {
     #[error(transparent)]
-    Encoding(#[from] wincode::Error),
-    #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
     KeyFile(#[from] KeyFileError),
     #[error(transparent)]
     RingRpc(#[from] RingRpcClientError),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
+    Ring(#[from] RingError),
     #[error(transparent)]
     Policy(#[from] PolicyError),
     #[error(
@@ -132,10 +126,6 @@ pub enum InitError {
     Curator(#[from] CuratorError),
     #[error(transparent)]
     Program(Box<DeployError>),
-    #[error(transparent)]
-    Build(#[from] CreateConfigError),
-    #[error(transparent)]
-    RuleTable(#[from] EntryError),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error("ring config exists under authority {authority} with auditor {auditor}, ring.toml names another operator")]
@@ -175,12 +165,15 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         .map(|spec| spec.compile(ctx.config.target))
         .transpose()?;
     let config_authority = ctx.funded_authority()?;
-    let existing = ctx.ring.read_config(&ctx.rpc)?;
+    let zolana = ctx.zolana();
+    let existing = zolana.block_on(ctx.ring.config(zolana.as_async()))?;
     let held_by_config_authority = existing
         .as_ref()
         .is_some_and(|config| config.authority == config_authority.pubkey());
     // A partial init still needs the upgrade authority to pin the policy.
-    let policy_pinned = ctx.ring.read_policy_config(&ctx.rpc)?.is_some();
+    let policy_pinned = zolana
+        .block_on(ctx.ring.policy_config(zolana.as_async()))?
+        .is_some();
     let upgrade_authority = if held_by_config_authority && policy_pinned {
         None
     } else {
@@ -264,7 +257,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         existing,
         deposit_audit,
     }
-    .run(&ctx.rpc)?;
+    .run(&zolana)?;
     if let Some(required) = args.deposit_audit {
         crate::config::RingConfig::set_deposit_audit(&ctx.config_path, required)
             .map_err(ContextError::from)?;
@@ -354,7 +347,8 @@ impl ConfigOwnership {
 }
 
 impl Init<'_> {
-    pub fn run(self, rpc: &SolanaRpc) -> Result<InitOutcome, InitError> {
+    pub fn run(self, zolana: &Zolana) -> Result<InitOutcome, InitError> {
+        let (rpc, client) = (zolana.rpc(), zolana.as_async());
         let config_authority = self.config_authority.pubkey();
         let has_policy = self.policy.is_some();
         if let Some(config) = self
@@ -395,14 +389,12 @@ impl Init<'_> {
             ConfigState::HeldByConfigAuthority => (StepOutcome::Present, StepOutcome::Present),
             ConfigState::Missing => {
                 let deployer = self.deployer()?;
-                let mut instructions = vec![CreateConfig {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: deployer.pubkey(),
-                    auditor_pubkey: self.auditor_pk,
+                let mut instructions = vec![self.ring.create_config(
+                    config_authority,
+                    deployer.pubkey(),
+                    self.auditor_pk,
                     has_policy,
-                }
-                .instruction()?];
+                )?];
                 let transfer = deployer.pubkey() != config_authority;
                 if transfer {
                     instructions.push(self.hand_over(deployer.pubkey()));
@@ -411,7 +403,8 @@ impl Init<'_> {
                     rpc,
                     "create_config",
                     &[deployer],
-                    CREATE_CONFIG_COMPUTE_UNIT_LIMIT + SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+                    compute_unit_limit(InstructionTag::CreateConfig)
+                        + compute_unit_limit(InstructionTag::SetAuthority),
                 )
                 .ensure_present(Observed::Absent, &instructions)?;
                 (
@@ -430,7 +423,7 @@ impl Init<'_> {
                         rpc,
                         "set_authority",
                         &[deployer],
-                        SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+                        compute_unit_limit(InstructionTag::SetAuthority),
                     )
                     .ensure_present(Observed::Absent, &[self.hand_over(deployer.pubkey())])?;
                 (StepOutcome::Present, authority)
@@ -447,36 +440,29 @@ impl Init<'_> {
                 rpc,
                 "create_key_registry_root",
                 &[],
-                CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit(InstructionTag::CreateKeyRegistryRoot),
             )
             .ensure_present(
-                Observed::of(&self.ring.read_key_registry_root(rpc)?),
-                &[CreateKeyRegistryRoot {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: config_authority,
-                }
-                .instruction()],
+                Observed::of(&zolana.block_on(self.ring.key_registry_root(client))?),
+                &[self
+                    .ring
+                    .create_key_registry_root(config_authority, config_authority)],
             )?;
         let deposit_audit = if let Some(required) = self.deposit_audit {
-            if self.ring.read_deposit_audit(rpc)? == required {
+            if zolana.block_on(self.ring.deposit_audit(client))? == required {
                 StepOutcome::Present
             } else {
                 self.step(
                     rpc,
                     "set_deposit_audit",
                     &[],
-                    custom_ring_sdk::SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT,
+                    compute_unit_limit(InstructionTag::SetDepositAudit),
                 )
                 .ensure_present(
                     Observed::Absent,
-                    &[SetDepositAudit {
-                        ring: self.ring,
-                        payer: config_authority,
-                        authority: config_authority,
-                        required,
-                    }
-                    .instruction()?],
+                    &[self
+                        .ring
+                        .set_deposit_audit(config_authority, config_authority, required)?],
                 )?
             }
         } else {
@@ -488,17 +474,13 @@ impl Init<'_> {
                 rpc,
                 "init_spp_ring_config",
                 &[],
-                INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit(InstructionTag::InitSppRingConfig),
             )
             .ensure_present(
-                Observed::of(&self.ring.read_spp_ring_config(rpc)?),
-                &[InitSppRingConfig {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: config_authority,
-                    has_policy,
-                }
-                .instruction()],
+                Observed::of(&zolana.block_on(self.ring.spp_ring_config(client))?),
+                &[self
+                    .ring
+                    .init_spp_ring_config(config_authority, config_authority, has_policy)],
             )?;
         Ok(InitOutcome {
             config,
@@ -523,7 +505,7 @@ impl Init<'_> {
             }
             .run(rpc)?;
         }
-        let outcome = match Observed::of(&self.ring.read_policy_config(rpc)?) {
+        let outcome = match Observed::of(&self.policy_config(rpc)?) {
             Observed::Present => StepOutcome::Present,
             Observed::Absent => self.create_policy(rpc, policy)?,
         };
@@ -546,20 +528,18 @@ impl Init<'_> {
         policy: &CompiledPolicy,
     ) -> Result<StepOutcome, InitError> {
         let deployer = self.deployer()?;
-        let create = |shared_sources| {
-            CreatePolicy {
-                ring: self.ring,
-                payer: self.config_authority.pubkey(),
-                authority: deployer.pubkey(),
-                address_tree: policy.address_tree,
-                rules: &policy.rules,
+        let create = |shared_sources: &[_]| {
+            self.ring.create_policy(
+                self.config_authority.pubkey(),
+                deployer.pubkey(),
+                policy.address_tree,
+                &policy.rules,
                 shared_sources,
-            }
-            .instruction()
+            )
         };
-        let instruction = match create(policy.shared_sources()) {
-            Err(EntryError::TransactionTooLarge { .. }) if !policy.shared_sources.is_empty() => {
-                create(Vec::new())?
+        let instruction = match create(&policy.shared_sources) {
+            Err(RingError::TransactionTooLarge { .. }) if !policy.shared_sources.is_empty() => {
+                create(&[])?
             }
             result => result?,
         };
@@ -568,7 +548,7 @@ impl Init<'_> {
                 rpc,
                 "create_policy",
                 &[deployer],
-                CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit(InstructionTag::CreatePolicy),
             )
             .ensure_present(Observed::Absent, &[instruction])?)
     }
@@ -592,17 +572,15 @@ impl Init<'_> {
                     rpc,
                     "set_policy_source",
                     &[],
-                    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+                    compute_unit_limit(InstructionTag::SetPolicySource),
                 )
                 .ensure_present(
                     observed,
-                    &[SetSourceOwner {
-                        ring: self.ring,
-                        authority: self.config_authority.pubkey(),
-                        list_id: *list_id,
-                        source: SourceOwner::Shared(*curator),
-                    }
-                    .instruction()?],
+                    &[self.ring.set_source_owner(
+                        self.config_authority.pubkey(),
+                        *list_id,
+                        SourceOwner::Shared(*curator),
+                    )?],
                 )?;
             pointed |= matches!(outcome, StepOutcome::Created);
             line(
@@ -614,11 +592,16 @@ impl Init<'_> {
     }
 
     fn pinned(&self, rpc: &SolanaRpc) -> Result<PolicyConfig, InitError> {
-        self.ring
-            .read_policy_config(rpc)?
-            .ok_or(InitError::NotPinned {
-                program: self.ring.program_id(),
-            })
+        self.policy_config(rpc)?.ok_or(InitError::NotPinned {
+            program: self.ring.program_id(),
+        })
+    }
+
+    fn policy_config(&self, rpc: &SolanaRpc) -> Result<Option<PolicyConfig>, InitError> {
+        let address = self.ring.policy_config_pda();
+        Ok(crate::read_account::<PolicyConfig>(
+            rpc, self.ring, address,
+        )?)
     }
 
     fn deployer(&self) -> Result<&dyn Signer, InitError> {
@@ -627,12 +610,8 @@ impl Init<'_> {
     }
 
     fn hand_over(&self, deployer: Address) -> Instruction {
-        SetAuthority {
-            ring: self.ring,
-            authority: deployer,
-            new_authority: self.config_authority.pubkey(),
-        }
-        .instruction()
+        self.ring
+            .set_authority(deployer, self.config_authority.pubkey())
     }
 
     fn step<'r>(

@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use custom_ring_sdk::{AccountReadError, CustomRing, PolicyConfig};
+use custom_ring_sdk::{CustomRing, PolicyConfig, RingError};
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use thiserror::Error;
@@ -65,7 +65,7 @@ pub enum CatalogueError {
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
+    Ring(#[from] RingError),
     #[error("{address} is not a ring config of the shielded pool")]
     InvalidRingConfig { address: Address },
 }
@@ -75,7 +75,7 @@ pub enum CuratorError {
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
+    Ring(#[from] RingError),
     #[error("curator {curator} is not deployed")]
     NotDeployed { curator: Address },
     #[error("curator {curator} has no policy config")]
@@ -172,7 +172,7 @@ pub fn discover(rpc: &SolanaRpc) -> Result<Vec<Curator>, CatalogueError> {
         .into_iter()
         .filter_map(|program| {
             let ring = CustomRing::new(program);
-            ring.read_policy_config(rpc)
+            crate::read_account::<PolicyConfig>(rpc, ring, ring.policy_config_pda())
                 .map(|config| config.map(|config| curator_of(ring, &config)))
                 .transpose()
         })
@@ -215,9 +215,8 @@ impl CuratorCheck {
         if rpc.get_account(curator)?.is_none() {
             return Err(CuratorError::NotDeployed { curator });
         }
-        let config = self
-            .curator
-            .read_policy_config(rpc)?
+        let address = self.curator.policy_config_pda();
+        let config = crate::read_account::<PolicyConfig>(rpc, self.curator, address)?
             .ok_or(CuratorError::NoPolicy { curator })?;
         if config.source_for(self.list) != Some(self.curator.namespace_pda()) {
             return Err(CuratorError::DoesNotServe {
