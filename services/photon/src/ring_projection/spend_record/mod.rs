@@ -1,6 +1,7 @@
 pub(super) mod parser;
 
 use anyhow::{anyhow, Result};
+use custom_ring_interface::FIELD_MAX;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult, Value};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
@@ -8,7 +9,6 @@ use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
     GetRingSpendRecordResponse, RingSpendRecord, RingSpendRecordRequest, SerializableSignature,
 };
-use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
     api::{canonical_context, internal, ready, validation},

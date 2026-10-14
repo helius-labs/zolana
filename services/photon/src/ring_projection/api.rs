@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use anyhow::Context as _;
 
-use custom_ring_interface::{pda, KEY_REGISTRY_CAPACITY};
+use custom_ring_interface::{pda, FIELD_MAX, KEY_REGISTRY_CAPACITY};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
@@ -10,7 +10,6 @@ use zolana_indexer_api::{
     Base64String, Context as ApiContext, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, Hash, RingMemberProofRequest,
 };
-use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
     load_root,

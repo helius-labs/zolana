@@ -11,7 +11,7 @@ use std::{collections::HashMap, ops::RangeInclusive, sync::Arc, time::Duration};
 use anyhow::{bail, ensure, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    pda, KeyRegistryRoot, PolicyConfig, KEY_REGISTRY_ROOT, POLICY_CONFIG,
+    pda, KeyRegistryRoot, PolicyConfig, RingAccount,
 };
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
@@ -461,16 +461,9 @@ pub(crate) async fn load_root(
 ) -> Result<ChainRoot, ProjectError> {
     let (address, bump) = pda::key_registry_root(program);
     let account = ring_account(rpc.get_account(&address).await)?;
-    if account.owner != *program {
-        return Err(fault("key registry root has the wrong owner"));
-    }
-    let root = bytemuck::try_from_bytes::<KeyRegistryRoot>(&account.data)
-        .map_err(|_| fault("key registry root has the wrong layout"))?;
-    if root.discriminator != KEY_REGISTRY_ROOT || root.bump != bump {
-        return Err(fault(
-            "key registry root has the wrong discriminator or bump",
-        ));
-    }
+    let root = KeyRegistryRoot::decode(&account.owner, program, &account.data)
+        .filter(|root| root.bump == bump)
+        .ok_or_else(|| fault("key registry root is not the ring's initialized account"))?;
     let current = root
         .root()
         .ok_or_else(|| fault("key registry root has no current root"))?;
@@ -494,16 +487,10 @@ impl BlockEnv<'_> {
         }
         let address = Pubkey::find_program_address(&[PolicyConfig::SEED], program).0;
         let account = ring_account(self.rpc.get_account(&address).await)?;
-        if account.owner != *program {
-            return Err(fault("policy config has the wrong owner"));
-        }
-        let policy = bytemuck::try_from_bytes::<PolicyConfig>(&account.data)
-            .map_err(|_| fault("policy config has the wrong layout"))?;
-        if policy.discriminator != POLICY_CONFIG {
-            return Err(fault("policy config has the wrong discriminator"));
-        }
-        self.policies.insert(program.to_bytes(), *policy);
-        Ok(*policy)
+        let policy = PolicyConfig::decode(&account.owner, program, &account.data)
+            .ok_or_else(|| fault("policy config is not the ring's initialized account"))?;
+        self.policies.insert(program.to_bytes(), policy);
+        Ok(policy)
     }
 
     /// A leaf hashes under the id of the tree it lands in.
