@@ -9,7 +9,7 @@ use zolana_hasher::{
 };
 
 use crate::{
-    entry::{entry_nullifier, Leaf, ListNamespace},
+    entry::{entry_nullifier, ListNamespace},
     field_u64, open_plaintext, seal_plaintext, Member, RuleTableError, MAX_VELOCITY_ASSETS,
     PLAINTEXT_ENVELOPE_LEN, SPEND_ADDRESS_DOMAIN, SPEND_RECORD_DOMAIN,
 };
@@ -111,13 +111,7 @@ impl SpendRecord {
         address: &[u8; 32],
         tree_id: u16,
     ) -> Result<[u8; 32], HasherError> {
-        owner.leaf_hash(
-            Leaf {
-                data_hash: &self.data_hash(address)?,
-                blinding: &self.blinding,
-            },
-            tree_id,
-        )
+        owner.leaf_hash(&self.data_hash(address)?, &self.blinding, tree_id)
     }
 
     /// The record the one `namespace` tagged message publishes, which must open `leaf`.

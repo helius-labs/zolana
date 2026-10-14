@@ -1,115 +1,68 @@
-//! Client library for the custom ring program: instruction builders, proof-input
-//! builders, and the auditor encryption codec. Instruction data, tags, and the
-//! canonical public-input hashing are defined in `custom-ring-interface` so a single
-//! definition serves both sides.
+//! Instruction builders, proofs and submission for the custom ring program.
+//! A blocking caller runs an operation as `zolana.block_on(op.prove(zolana.as_async()))`.
 
-mod authority;
-mod budget;
-mod delegate;
+mod account;
+mod admin;
+mod audit;
+mod deposit;
+mod entry;
+mod error;
 mod escrow;
 #[cfg(test)]
 mod golden_tests;
-mod instructions;
 mod key_registry;
-mod prepared_authority;
+mod merge;
+mod pipeline;
 mod projection;
-mod shared;
-#[cfg(feature = "solana-rpc")]
+mod prover;
+mod request;
+mod spend;
 mod submission;
-mod transfer;
-#[cfg(feature = "solana-rpc")]
-mod v1;
+mod transact_ix;
+mod trees;
 mod velocity;
 mod witness;
 
 pub use custom_ring_interface::{
-    tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, KeyEscrow,
-    PolicyConfig, PolicyTableIxData, ReaderIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT,
-    CONFIG_PDA_SEED, CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
-    REGISTER_SPEND_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
-    SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
-    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
+    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, KeyEscrow, PolicyConfig,
 };
-
 pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
-pub use zolana_ring_client::{
-    auditor_view_tag, find_counters_message, open_counters, seal_counters, AuditError,
-    AuditorEncryption, AuditorMessage, SealedNullifierKey, AUDITOR_MESSAGE_LEN,
-};
-pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
-    authority::{ring_authority_width, AuthoritySeal, RingAuthorityDraft, RingAuthorityMove},
-    delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
+    account::{
+        client_rules_match, policy_config_table, CoSignThreshold, CurrentKeyRegistryRoot,
+        CustomRing, CustomRingCoSigner, CustomRingConfig, PinnedPolicy, PoolTree,
+    },
+    admin::{SetSpendWindow, SourceOwner},
+    audit::{CustomRingProofParams, EncryptedAudit, PendingCustomRingProof},
+    deposit::{Deposit, PreparedRingDeposit, RingDeposit, RingDepositReceipt},
+    entry::{CreateEntry, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry},
+    error::RingError,
     escrow::RegistryKeyOpening,
-    instructions::{
-        cosigner::{ClearCoSigner, CoSignThreshold, SetCoSigner},
-        create_config::{CreateConfig, CreateConfigError},
-        create_key_registry_root::CreateKeyRegistryRoot,
-        delegate::{CustomRingDelegateTransact, SetDelegate},
-        deposit::{Deposit, DepositInstructionError, SetDepositAudit},
-        deposit_request::RingDepositProofRequest,
-        entry::{
-            CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
-            EntryProofError, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry,
-        },
-        grant_read_access::GrantReadAccess,
-        init_spp_ring_config::InitSppRingConfig,
-        merge::{
-            AsyncCustomRingMergeProofEnvironment, CustomRingMerge, CustomRingMergeInstruction,
-            CustomRingMergeProofEnvironment, MergeError, MergeProofInput, MergeRingProver,
-            PreparedCustomRingMerge, ProvenCustomRingMerge, MAX_MERGE_INPUTS,
-            MERGE_DEFAULT_INPUT_COUNT,
-        },
-        revoke_read_access::RevokeReadAccess,
-        set_authority::SetAuthority,
-        set_paused::SetPaused,
-        set_policy_rules::SetPolicyRules,
-        set_policy_source::{SetSourceOwner, SourceOwner},
-        spend::{
-            LiveSpendRecord, ProvenSpendRegistration, ReadEnvironment, ReadSpendRecord,
-            RecordOrigin, RegisterSpend,
-        },
-        spend_window::{ClearSpendWindow, SetSpendWindow},
-        transact::{
-            to_instruction_proof, to_plain_proof, CustomRingBaseProofRequest,
-            CustomRingPolicyProofRequest, CustomRingPrivateTxHash, CustomRingProofError,
-            CustomRingProofInputError, CustomRingProofParams, CustomRingTransact, EncryptedAudit,
-            EscrowBinding, PendingCustomRingProof, PolicyReads, PolicyTreeContext, RingIdentity,
-            SpendRecordProofInput, TransactInstructionError, VelocityProofInput,
-        },
-    },
     key_registry::{
-        KeyRegistrationError, ProvenKeyRegistration, ReadCurrentSealedKey, ReadSealedKey,
-        RegisterKey, SealedKeyEntry,
+        ProvenKeyRegistration, ReadCurrentSealedKey, ReadSealedKey, RegisterKey, SealedKeyEntry,
     },
-    prepared_authority::{RingAuthorityProofInputs, RingAuthorityProofs},
-    shared::{
-        client_rules_match, policy_config_table, AccountReadError, CurrentKeyRegistryRoot,
-        CustomRing, CustomRingCoSigner, CustomRingConfig, CustomRingDelegate,
-        CustomRingSpendWindow, PinnedPolicy, PolicyMatchError, PoolTree, ReaderKey, ReaderKeyError,
+    merge::{
+        CustomRingMerge, CustomRingMergeInstruction, MergeProofInput, PreparedCustomRingMerge,
+        ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
-    transfer::{
-        tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,
-        CustomRingTransferInput, DepositError, DepositProofEnvironment, PreparedRingDeposit,
-        ProvenTransfer, RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
+    pipeline::{
+        ring_authority_width, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
+        DelegateTransfer, DelegateTransferInput, Delegated, Owner, ProvenDelegateTransfer,
+        ProvenRingTransfer, ProvenTransfer, Rail, RailKind, RingTransfer,
     },
+    prover::{to_instruction_proof, to_plain_proof},
+    request::{RingIdentity, SpendRecordProofInput, VelocityProofInput},
+    spend::{
+        LiveSpendRecord, ProvenSpendRegistration, ReadSpendRecord, RecordOrigin, RegisterSpend,
+    },
+    submission::{
+        RingMergeOperation, RingOperation, RingSubmission, SettledSubmission, SubmissionStatus,
+    },
+    transact_ix::{
+        CustomRingDelegateTransact, CustomRingTransact, EscrowBinding, PolicyReads,
+        PolicyTreeContext,
+    },
+    trees::tree_id,
+    velocity::WINDOW_GUARD_SLOTS,
 };
-
-/// The compute ceiling a custom-ring transact declares. A host assembling the
-/// v1 message itself must write the same value into its header, where an unset
-/// field means zero rather than a default.
-pub use crate::budget::TRANSACT_COMPUTE_UNIT_LIMIT;
-#[cfg(feature = "solana-rpc")]
-pub use crate::submission::{
-    AsyncSubmissionEnvironment, RingMergeOperation, RingOperation, RingSubmission,
-    RingTransferSubmission, SettledSubmission, SubmissionEnvironment, SubmissionError,
-    SubmissionStatus,
-};
-#[cfg(feature = "solana-rpc")]
-pub use crate::v1::{SendError, TransactSend};

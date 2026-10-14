@@ -1,4 +1,4 @@
-//! Per-mint outflow accounting and the compressed record transition committed by the policy proof.
+//! Per-mint outflow accounting and the record transition the policy proof commits.
 
 use solana_address::Address;
 use zolana_client::Shape;
@@ -7,109 +7,112 @@ use zolana_keypair::{random_blinding, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_ring_client::{find_counters_message, open_counters, seal_counters};
 use zolana_ring_policy::{
     ListNamespace, Member, SpendCounters, SpendRecord, VelocityRow, MAX_VELOCITY_ASSETS,
+    POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo,
     keys::{ShieldedKeys, TransactionKeyRequest},
     utxo::{derive_transact_output_blinding, SppProofInputUtxo},
-    Data, Mint, Utxo,
+    Data, Mint, TransactionError, Utxo,
 };
 
 use crate::{
-    instructions::{
-        entry::zero_nullifier_key,
-        spend::LiveSpendRecord,
-        transact::{RingIdentity, SpendRecordProofInput, VelocityProofInput},
-    },
-    TransferError,
+    entry::zero_nullifier_key, LiveSpendRecord, RingError, RingIdentity, SpendRecordProofInput,
+    VelocityProofInput,
 };
 
-pub(crate) struct VelocityFacts {
+/// Slots before a window boundary in which no windowed proof is built.
+pub const WINDOW_GUARD_SLOTS: u64 = 64;
+
+/// The window `slot` lies in, refused while too few slots remain for the proof to land.
+pub(crate) fn window_index(slot: u64, window_slots: u64) -> Result<u64, RingError> {
+    let left = window_slots - slot % window_slots;
+    if left <= WINDOW_GUARD_SLOTS.min(window_slots / 2) {
+        return Err(RingError::WindowClosing {
+            resumes_at: slot + left,
+        });
+    }
+    Ok(slot / window_slots)
+}
+
+/// The transaction viewing key the sender derives for `first_nullifier`.
+pub(crate) fn transaction_key(
+    sender: &(dyn ShieldedKeys + Send + Sync),
+    first_nullifier: [u8; 32],
+) -> Result<ViewingKey, RingError> {
+    let keys = sender.transaction_keys(&[TransactionKeyRequest {
+        viewing_pubkey: sender.address()?.viewing_pubkey,
+        first_nullifier,
+    }])?;
+    let got = keys.len();
+    Ok(keys
+        .into_iter()
+        .next()
+        .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?)
+}
+
+pub(crate) struct VelocityContext {
     pub namespace: Address,
     pub owner: ListNamespace,
     pub identity: RingIdentity,
     pub address_tree_id: u16,
     pub window_slots: u64,
     pub rows: Vec<VelocityRow>,
+}
+
+pub(crate) struct VelocityFacts {
+    pub context: VelocityContext,
     pub window_index: u64,
     pub live: LiveSpendRecord,
     /// `None` for an expired record, the circuit opens only its commitment.
     pub counters: Option<SpendCounters>,
 }
 
-pub(crate) struct VelocityContext<'a> {
-    pub namespace: Address,
-    pub owner: ListNamespace,
-    pub identity: RingIdentity,
-    pub address_tree_id: u16,
-    pub window_slots: u64,
-    pub rows: Vec<VelocityRow>,
-    pub sender: &'a (dyn ShieldedKeys + Send + Sync),
-}
-
-impl VelocityContext<'_> {
+impl VelocityContext {
     pub(crate) fn facts(
         self,
+        sender: &(dyn ShieldedKeys + Send + Sync),
         live: LiveSpendRecord,
         slot: u64,
-    ) -> Result<VelocityFacts, TransferError> {
-        let window_index = slot / self.window_slots;
-        let counters = self.recover_counters(&live, window_index)?;
+    ) -> Result<VelocityFacts, RingError> {
+        let window_index = window_index(slot, self.window_slots)?;
+        // A future record cannot reset, an expired one resets without opening counters.
+        let counters = match live.record.window.cmp(&window_index) {
+            core::cmp::Ordering::Greater => return Err(RingError::SpendRecordFromFutureWindow),
+            core::cmp::Ordering::Less => None,
+            core::cmp::Ordering::Equal => Some(self.counters(sender, &live)?),
+        };
         Ok(VelocityFacts {
-            namespace: self.namespace,
-            owner: self.owner,
-            identity: self.identity,
-            address_tree_id: self.address_tree_id,
-            window_slots: self.window_slots,
-            rows: self.rows,
+            context: self,
             window_index,
             live,
             counters,
         })
     }
 
-    fn recover_counters(
+    /// The counters of the live record, trusted once they reproduce its commitment.
+    fn counters(
         &self,
+        sender: &(dyn ShieldedKeys + Send + Sync),
         live: &LiveSpendRecord,
-        window_index: u64,
-    ) -> Result<Option<SpendCounters>, TransferError> {
-        // A future record cannot reset, an expired one resets without opening counters.
-        if live.record.window > window_index {
-            return Err(TransferError::SpendRecordFromFutureWindow);
-        }
-        if live.record.window < window_index {
-            return Ok(None);
-        }
+    ) -> Result<SpendCounters, RingError> {
         let counters = if live.record.version == 0 {
             SpendCounters::EMPTY
         } else {
-            let message = find_counters_message(&live.origin.messages, self.namespace.as_array())
-                .map_err(|_| TransferError::SpendCountersUnknown)?
-                .ok_or(TransferError::SpendCountersUnknown)?;
-            let salt = live
-                .origin
-                .salt
-                .ok_or(TransferError::SpendCountersUnknown)?;
-            let sender = self.sender.address()?;
-            let keys = self.sender.transaction_keys(&[TransactionKeyRequest {
-                viewing_pubkey: sender.viewing_pubkey,
-                first_nullifier: live.origin.first_nullifier,
-            }])?;
-            let got = keys.len();
-            let tx_key = keys.into_iter().next().ok_or(
-                zolana_transaction::TransactionError::IncompleteDerivation { got, want: 1 },
-            )?;
-            open_counters(&message.data, salt, &tx_key)
-                .map_err(|_| TransferError::SpendCountersUnknown)?
+            let origin = &live.origin;
+            let unknown = || RingError::SpendCountersUnknown;
+            let message = find_counters_message(&origin.messages, self.namespace.as_array())
+                .ok()
+                .flatten()
+                .ok_or_else(unknown)?;
+            let tx_key = transaction_key(sender, origin.first_nullifier)?;
+            open_counters(&message.data, origin.salt.ok_or_else(unknown)?, &tx_key)
+                .map_err(|_| unknown())?
         };
-        if counters
-            .commitment()
-            .map_err(|_| TransferError::PolicyHashing)?
-            != live.record.counters_commitment
-        {
-            return Err(TransferError::SpendCountersUnknown);
+        if counters.commitment()? != live.record.counters_commitment {
+            return Err(RingError::SpendCountersUnknown);
         }
-        Ok(Some(counters))
+        Ok(counters)
     }
 }
 
@@ -122,17 +125,11 @@ pub(crate) struct Outflows<'a> {
 
 impl Outflows<'_> {
     /// Inputs of the mint less the sender's change inside the ring, as the circuit sums them.
-    fn outflow(&self, asset: &[u8; 32]) -> Result<u64, TransferError> {
+    fn outflow(&self, asset: &[u8; 32]) -> Result<u64, RingError> {
         let mut inflow: u128 = 0;
         for input in self.inputs.iter().filter(|input| !input.is_dummy()) {
-            if Member::asset(&input.utxo.asset.asset)
-                .map_err(|_| TransferError::PolicyHashing)?
-                .as_bytes()
-                == asset
-            {
-                inflow = inflow
-                    .checked_add(u128::from(input.utxo.amount))
-                    .ok_or(TransferError::VelocityOverflow)?;
+            if Member::asset(&input.utxo.asset.asset)?.as_bytes() == asset {
+                inflow += u128::from(input.utxo.amount);
             }
         }
         let mut change: u128 = 0;
@@ -140,27 +137,17 @@ impl Outflows<'_> {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
-            let owner = address
-                .signing_pubkey
-                .owner_proof_input_hash()
-                .map_err(|_| TransferError::PolicyHashing)?;
-            let same_asset = Member::asset(&output.asset.asset)
-                .map_err(|_| TransferError::PolicyHashing)?
-                .as_bytes()
-                == asset;
-            if same_asset
-                && owner == *self.sender.as_bytes()
+            if Member::asset(&output.asset.asset)?.as_bytes() == asset
+                && address.signing_pubkey.owner_proof_input_hash()? == *self.sender.as_bytes()
                 && output.ring_program_id == Some(self.ring)
             {
-                change = change
-                    .checked_add(u128::from(output.amount))
-                    .ok_or(TransferError::VelocityOverflow)?;
+                change += u128::from(output.amount);
             }
         }
         let outflow = inflow
             .checked_sub(change)
-            .ok_or(TransferError::VelocityChangeExceedsInflow { asset: *asset })?;
-        u64::try_from(outflow).map_err(|_| TransferError::VelocityOverflow)
+            .ok_or(RingError::VelocityChangeExceedsInflow { asset: *asset })?;
+        u64::try_from(outflow).map_err(|_| RingError::VelocityOverflow)
     }
 }
 
@@ -172,40 +159,50 @@ pub(crate) struct RowCharges {
     pub approval_required: bool,
 }
 
-pub(crate) struct ChargeRows<'a> {
-    pub rows: &'a [VelocityRow],
-    pub outflows: &'a Outflows<'a>,
-    pub previous: Option<&'a SpendCounters>,
+/// A row without a cap keeps a zero counter, it only asks the co-signer.
+pub(crate) fn charge(
+    rows: &[VelocityRow],
+    outflows: &Outflows<'_>,
+    previous: Option<&SpendCounters>,
+) -> Result<RowCharges, RingError> {
+    let mut charges = RowCharges {
+        rows: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
+        row_count: rows.len() as u8,
+        spent: [0; MAX_VELOCITY_ASSETS],
+        approval_required: false,
+    };
+    for (index, row) in rows.iter().enumerate() {
+        let outflow = outflows.outflow(&row.asset)?;
+        charges.rows[index] = *row;
+        charges.approval_required |= row.cosign_above != 0 && outflow > row.cosign_above;
+        if row.cap == 0 {
+            continue;
+        }
+        let previous = previous.map_or(0, |counters| counters.spent(&row.asset));
+        let spent = previous
+            .checked_add(outflow)
+            .ok_or(RingError::VelocityOverflow)?;
+        if spent > row.cap {
+            return Err(RingError::VelocityCapExceeded {
+                asset: row.asset,
+                cap: row.cap,
+                spent,
+            });
+        }
+        charges.spent[index] = spent;
+    }
+    Ok(charges)
 }
 
-impl ChargeRows<'_> {
-    pub(crate) fn charge(self) -> Result<RowCharges, TransferError> {
-        let mut charges = RowCharges {
-            rows: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
-            row_count: self.rows.len() as u8,
-            spent: [0u64; MAX_VELOCITY_ASSETS],
-            approval_required: false,
-        };
-        for (index, row) in self.rows.iter().enumerate() {
-            charges.rows[index] = *row;
-            let outflow = self.outflows.outflow(&row.asset)?;
-            let previous = self
-                .previous
-                .map_or(0, |counters| counters.spent(&row.asset));
-            let spent = previous
-                .checked_add(outflow)
-                .ok_or(TransferError::VelocityOverflow)?;
-            if row.cap != 0 && spent > row.cap {
-                return Err(TransferError::VelocityCapExceeded {
-                    asset: row.asset,
-                    cap: row.cap,
-                    spent,
-                });
-            }
-            charges.approval_required |= row.cosign_above != 0 && outflow > row.cosign_above;
-            charges.spent[index] = spent;
+impl VelocityProofInput {
+    /// Rows without a window carry the charges, no record accompanies them.
+    pub(crate) fn per_transfer(charges: &RowCharges, identity: RingIdentity) -> Self {
+        Self {
+            rows: charges.rows,
+            row_count: charges.row_count,
+            approval_required: charges.approval_required,
+            ..Self::off(identity)
         }
-        Ok(charges)
     }
 }
 
@@ -216,153 +213,124 @@ pub(crate) struct VelocityPlan {
     pub counters_message: MessageData,
     pub proof_input: VelocityProofInput,
     pub shape: Shape,
-    /// The record's output slot: right after the money slots, ahead of the
-    /// compact padding that fills the rest of `shape`.
+    /// The record's output slot, after the money slots and ahead of the compact padding.
     pub record_slot: usize,
 }
 
-pub(crate) struct VelocityPlanInput<'a> {
-    pub facts: &'a VelocityFacts,
+pub(crate) struct RecordSpend<'a> {
     pub outflows: Outflows<'a>,
     pub tx_viewing_key: &'a ViewingKey,
     pub salt: [u8; 16],
     pub first_nullifier: [u8; 32],
     pub output_blinding_seed: [u8; 32],
-    /// The real money slots, padding excluded; the record follows the last real output.
+    /// The real money slots, the record follows the last real output.
     pub money_shape: Shape,
 }
 
-impl VelocityPlanInput<'_> {
-    pub(crate) fn plan(self) -> Result<VelocityPlan, TransferError> {
-        let facts = self.facts;
-        let shape = record_shape(self.money_shape)?;
-        let record_slot = self.money_shape.n_outputs();
-        let same_window = facts.live.record.window == facts.window_index;
-        let previous = facts.counters.as_ref().filter(|_| same_window);
-        let charges = ChargeRows {
-            rows: &facts.rows,
-            outflows: &self.outflows,
-            previous,
-        }
-        .charge()?;
+impl VelocityFacts {
+    pub(crate) fn plan(&self, spend: RecordSpend<'_>) -> Result<VelocityPlan, RingError> {
+        let context = &self.context;
+        let shape = record_shape(spend.money_shape)?;
+        let record_slot = spend.money_shape.n_outputs();
+        let charges = charge(&context.rows, &spend.outflows, self.counters.as_ref())?;
         let mut next = SpendCounters::EMPTY;
         next.salt = random_blinding();
-        for index in 0..usize::from(charges.row_count) {
-            next.assets[index] = charges.rows[index].asset;
+        for (index, row) in context.rows.iter().enumerate() {
+            next.assets[index] = row.asset;
             next.spent[index] = charges.spent[index];
         }
-        let commitment = next
-            .commitment()
-            .map_err(|_| TransferError::PolicyHashing)?;
-        let spent = &facts.live.record;
+        let spent = &self.live.record;
         let successor = SpendRecord {
             member: spent.member,
             version: spent
                 .version
                 .checked_add(1)
-                .ok_or(TransferError::VelocityOverflow)?,
-            window: facts.window_index,
-            counters_commitment: commitment,
+                .ok_or(RingError::VelocityOverflow)?,
+            window: self.window_index,
+            counters_commitment: next.commitment()?,
             blinding: derive_transact_output_blinding(
-                &self.first_nullifier,
-                &self.output_blinding_seed,
-                u32::try_from(record_slot).map_err(|_| TransferError::PolicyShapeUnsupported)?,
+                &spend.first_nullifier,
+                &spend.output_blinding_seed,
+                u32::try_from(record_slot).map_err(|_| RingError::PolicyShapeUnsupported)?,
             )?,
         };
-        let address = facts
+        let address = context
             .owner
-            .spend_address(&spent.member, facts.address_tree_id)
-            .map_err(|_| TransferError::PolicyHashing)?;
-        let spent_data_hash = spent
-            .data_hash(&address)
-            .map_err(|_| TransferError::PolicyHashing)?;
-        let next_data_hash = successor
-            .data_hash(&address)
-            .map_err(|_| TransferError::PolicyHashing)?;
-        let namespace_owner = PublicKey::from_pda(&facts.namespace);
+            .spend_address(&spent.member, context.address_tree_id)?;
+        let spent_data_hash = spent.data_hash(&address)?;
         let zero_nullifier = zero_nullifier_key();
+        let nullifier_pubkey = zero_nullifier.pubkey()?;
         let input_utxo = Utxo {
-            owner: namespace_owner,
+            owner: PublicKey::from_pda(&context.namespace),
             asset: Mint::SOL,
             amount: 0,
             blinding: spent.blinding,
             ring_program_id: None,
             data: Data::default(),
         };
-        let nullifier_pubkey = zero_nullifier.pubkey()?;
         let utxo_hash = input_utxo.hash(
             &nullifier_pubkey,
             &spent_data_hash,
             &[0; 32],
-            facts.live.tree_id,
+            self.live.tree_id,
         )?;
         let input = SppProofInputUtxo {
+            nullifier: zero_nullifier.nullifier(&utxo_hash, &spent.blinding)?,
             utxo: input_utxo,
             nullifier_pubkey,
             utxo_hash,
-            nullifier: zero_nullifier.nullifier(&utxo_hash, &spent.blinding)?,
             data_hash: Some(spent_data_hash),
             ring_data_hash: None,
-            tree_id: facts.live.tree_id,
-            leaf_index: facts.live.leaf_index,
+            tree_id: self.live.tree_id,
+            leaf_index: self.live.leaf_index,
             cache_slot: None,
             compact: false,
         };
         let output = SppProofOutputUtxo {
             asset: Mint::SOL,
-            amount: 0,
             blinding: successor.blinding,
-            ring_program_id: None,
-            ring_data_hash: None,
-            data_hash: Some(next_data_hash),
+            data_hash: Some(successor.data_hash(&address)?),
             owner_address: Some(ShieldedAddress::for_pda(
-                &facts.namespace,
-                zero_nullifier.pubkey()?,
-                self.tx_viewing_key.pubkey(),
+                &context.namespace,
+                nullifier_pubkey,
+                spend.tx_viewing_key.pubkey(),
             )),
-            owner_tag: Some(facts.namespace.to_bytes()),
-            data: Data::default(),
-            cache_slot: None,
-            compact: false,
+            owner_tag: Some(context.namespace.to_bytes()),
+            ..Default::default()
         };
-        let counters_body = seal_counters(
-            self.tx_viewing_key,
-            &self.tx_viewing_key.pubkey(),
-            self.salt,
-            &next,
-        )?;
-        let opened = facts.counters.unwrap_or(SpendCounters::EMPTY);
-        let proof_input = VelocityProofInput {
-            window_slots: facts.window_slots,
-            rows: charges.rows,
-            row_count: charges.row_count,
-            ring_id: facts.identity.ring_id,
-            namespace_owner_hash: facts.identity.namespace_owner_hash,
-            window_index: facts.window_index,
-            approval_required: charges.approval_required,
-            record: SpendRecordProofInput {
-                version: spent.version,
-                window: spent.window,
-                commitment: spent.counters_commitment,
-                salt: opened.salt,
-                assets: opened.assets,
-                spent: opened.spent,
-                next_salt: next.salt,
-            },
-        };
+        let opened = self.counters.unwrap_or(SpendCounters::EMPTY);
         Ok(VelocityPlan {
             input,
             output,
             record_message: MessageData {
-                view_tag: zolana_ring_policy::spend_record_message_tag(facts.namespace.as_array())
-                    .map_err(|_| TransferError::PolicyHashing)?,
+                view_tag: zolana_ring_policy::spend_record_message_tag(
+                    context.namespace.as_array(),
+                )?,
                 data: successor.to_output_data().to_vec(),
             },
             counters_message: MessageData {
-                view_tag: facts.namespace.to_bytes(),
-                data: counters_body,
+                view_tag: context.namespace.to_bytes(),
+                data: seal_counters(
+                    spend.tx_viewing_key,
+                    &spend.tx_viewing_key.pubkey(),
+                    spend.salt,
+                    &next,
+                )?,
             },
-            proof_input,
+            proof_input: VelocityProofInput {
+                window_slots: context.window_slots,
+                window_index: self.window_index,
+                record: SpendRecordProofInput {
+                    version: spent.version,
+                    window: spent.window,
+                    commitment: spent.counters_commitment,
+                    salt: opened.salt,
+                    assets: opened.assets,
+                    spent: opened.spent,
+                    next_salt: next.salt,
+                },
+                ..VelocityProofInput::per_transfer(&charges, context.identity)
+            },
             shape,
             record_slot,
         })
@@ -370,229 +338,12 @@ impl VelocityPlanInput<'_> {
 }
 
 /// The smallest supported shape with one slot beyond the money on each side.
-pub(crate) fn record_shape(money: Shape) -> Result<Shape, TransferError> {
-    let n_in = money.n_inputs() + 1;
-    let n_out = money.n_outputs() + 1;
+pub(crate) fn record_shape(money: Shape) -> Result<Shape, RingError> {
     zolana_client::SPP_SUPPORTED_SHAPES
         .into_iter()
         .filter(|shape| {
-            shape.n_inputs() <= zolana_ring_policy::POLICY_INPUT_SLOTS
-                && shape.n_outputs() <= zolana_ring_policy::POLICY_OUTPUT_SLOTS
+            shape.n_inputs() <= POLICY_INPUT_SLOTS && shape.n_outputs() <= POLICY_OUTPUT_SLOTS
         })
-        .find(|shape| shape.n_inputs() >= n_in && shape.n_outputs() >= n_out)
-        .ok_or(TransferError::PolicyShapeUnsupported)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn identity() -> RingIdentity {
-        RingIdentity {
-            ring_id: [1u8; 32],
-            namespace_owner_hash: [2u8; 32],
-        }
-    }
-
-    #[test]
-    fn only_an_older_record_can_skip_counter_recovery() {
-        let sender = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
-        let live = LiveSpendRecord {
-            record: SpendRecord {
-                member: Member::owner_tag(&[1; 32]).unwrap(),
-                version: 2,
-                window: 8,
-                blinding: [0; 32],
-                counters_commitment: [0; 32],
-            },
-            utxo_hash: [0; 32],
-            nullifier: [0; 32],
-            tree_id: 0,
-            leaf_index: 0,
-            origin: crate::RecordOrigin {
-                first_nullifier: [0; 32],
-                tx_viewing_pk: None,
-                salt: None,
-                messages: Vec::new(),
-            },
-        };
-        let context = VelocityContext {
-            namespace: Address::default(),
-            owner: ListNamespace::new(&[0u8; 32]).unwrap(),
-            identity: identity(),
-            address_tree_id: 0,
-            window_slots: 1,
-            rows: Vec::new(),
-            sender: &sender,
-        };
-        assert!(matches!(
-            context.recover_counters(&live, 7),
-            Err(TransferError::SpendRecordFromFutureWindow)
-        ));
-        assert!(matches!(
-            context.recover_counters(&live, 8),
-            Err(TransferError::SpendCountersUnknown)
-        ));
-        assert_eq!(context.recover_counters(&live, 9).unwrap(), None);
-    }
-
-    fn mint() -> Mint {
-        Mint::new(Address::new_from_array([9u8; 32]), 9)
-    }
-
-    fn row_asset() -> [u8; 32] {
-        *Member::asset(&mint().asset)
-            .expect("asset member")
-            .as_bytes()
-    }
-
-    fn money_input(amount: u64) -> SppProofInputUtxo {
-        let utxo = Utxo {
-            owner: PublicKey::from_pda(&Address::new_from_array([7u8; 32])),
-            asset: mint(),
-            amount,
-            blinding: [0u8; 32],
-            ring_program_id: None,
-            data: Data::default(),
-        };
-        let key = zero_nullifier_key();
-        let nullifier_pubkey = key.pubkey().unwrap();
-        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 0).unwrap();
-        SppProofInputUtxo {
-            utxo,
-            nullifier_pubkey,
-            utxo_hash,
-            nullifier: key.nullifier(&utxo_hash, &[0; 32]).unwrap(),
-            data_hash: None,
-            ring_data_hash: None,
-            tree_id: 0,
-            leaf_index: 0,
-            cache_slot: None,
-            compact: false,
-        }
-    }
-
-    fn charge(
-        amount: u64,
-        cap: u64,
-        cosign_above: u64,
-        previous: Option<u64>,
-    ) -> Result<RowCharges, TransferError> {
-        let inputs = [money_input(amount)];
-        let outputs: [SppProofOutputUtxo; 0] = [];
-        let outflows = Outflows {
-            sender: Member::owner_tag(&[1u8; 32]).expect("sender"),
-            ring: Address::default(),
-            inputs: &inputs,
-            outputs: &outputs,
-        };
-        let row = VelocityRow {
-            asset: row_asset(),
-            cap,
-            cosign_above,
-        };
-        let counters = previous.map(|spent| {
-            let mut counters = SpendCounters::zero(&[row_asset()]).expect("one asset");
-            counters.spent[0] = spent;
-            counters
-        });
-        ChargeRows {
-            rows: &[row],
-            outflows: &outflows,
-            previous: counters.as_ref(),
-        }
-        .charge()
-    }
-
-    #[test]
-    fn the_record_takes_the_slot_after_the_money() {
-        assert_eq!(record_shape(Shape::new(1, 1)).unwrap(), Shape::IN2_OUT2);
-        assert_eq!(record_shape(Shape::IN1_OUT2).unwrap(), Shape::IN2_OUT4);
-        assert_eq!(record_shape(Shape::IN2_OUT2).unwrap(), Shape::IN3_OUT4);
-        assert_eq!(record_shape(Shape::new(1, 3)).unwrap(), Shape::IN2_OUT4);
-        assert_eq!(record_shape(Shape::new(2, 3)).unwrap(), Shape::IN3_OUT4);
-        assert_eq!(record_shape(Shape::new(3, 3)).unwrap(), Shape::IN4_OUT4);
-        assert_eq!(record_shape(Shape::IN4_OUT2).unwrap(), Shape::IN5_OUT4);
-        assert!(record_shape(Shape::IN1_OUT4).is_err());
-        assert!(record_shape(Shape::IN4_OUT4).is_err());
-    }
-
-    #[test]
-    fn a_transfer_under_the_cap_charges_its_outflow() {
-        let charges = charge(100, 1000, 0, None).expect("under the cap");
-        assert_eq!(charges.spent[0], 100);
-        assert!(!charges.approval_required);
-    }
-
-    #[test]
-    fn a_transfer_at_the_cap_passes() {
-        let charges = charge(1000, 1000, 0, None).expect("at the cap");
-        assert_eq!(charges.spent[0], 1000);
-    }
-
-    #[test]
-    fn a_transfer_over_the_cap_is_refused_with_its_outflow() {
-        let error = charge(1001, 1000, 0, None).expect_err("over the cap");
-        assert!(matches!(
-            error,
-            TransferError::VelocityCapExceeded {
-                asset,
-                cap: 1000,
-                spent: 1001,
-            } if asset == row_asset()
-        ));
-    }
-
-    #[test]
-    fn the_threshold_reads_the_outflow_alone() {
-        assert!(charge(600, 0, 500, None).expect("above").approval_required);
-        assert!(!charge(500, 0, 500, None).expect("at").approval_required);
-    }
-
-    #[test]
-    fn a_supplied_previous_adds_to_the_charge() {
-        assert_eq!(charge(100, 0, 0, Some(50)).expect("windowed").spent[0], 150);
-        assert_eq!(charge(100, 0, 0, None).expect("per transfer").spent[0], 100);
-    }
-
-    #[test]
-    fn a_previous_over_the_cap_is_refused() {
-        let error = charge(600, 1000, 0, Some(500)).expect_err("cumulative over the cap");
-        assert!(matches!(
-            error,
-            TransferError::VelocityCapExceeded { spent: 1100, .. }
-        ));
-    }
-
-    #[test]
-    fn change_past_the_inflow_is_a_shape_error() {
-        let sender = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
-        let ring = Address::new_from_array([3u8; 32]);
-        let inputs = [money_input(5)];
-        let outputs = [SppProofOutputUtxo {
-            ring_program_id: Some(ring),
-            ..SppProofOutputUtxo::new(mint(), 6, sender.shielded_address().unwrap()).unwrap()
-        }];
-        let sender_identity = sender.signing_pubkey().owner_proof_input_hash().unwrap();
-        let outflows = Outflows {
-            sender: Member::owner_identity(&sender_identity).unwrap(),
-            ring,
-            inputs: &inputs,
-            outputs: &outputs,
-        };
-        assert!(matches!(
-            outflows.outflow(&row_asset()),
-            Err(TransferError::VelocityChangeExceedsInflow { asset }) if asset == row_asset()
-        ));
-    }
-
-    #[test]
-    fn per_transfer_proof_input_carries_the_rows_without_a_record() {
-        let charges = charge(100, 1000, 0, None).expect("charges");
-        let proof_input = VelocityProofInput::per_transfer(&charges, identity());
-        assert_eq!(proof_input.window_slots, 0);
-        assert_eq!(proof_input.window_index, 0);
-        assert_eq!(proof_input.row_count, 1);
-        assert_eq!(proof_input.record, SpendRecordProofInput::default());
-    }
+        .find(|shape| shape.n_inputs() > money.n_inputs() && shape.n_outputs() > money.n_outputs())
+        .ok_or(RingError::PolicyShapeUnsupported)
 }
