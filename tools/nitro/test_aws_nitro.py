@@ -641,7 +641,7 @@ class ImageTests(unittest.TestCase):
         self.assertTrue(served)
         self.assertLessEqual(sum(served) + max(served), size)
         self.assertFalse(
-            any(fnmatch.fnmatchcase("batch_address-append_40_250", p) for p in patterns)
+            any(fnmatch.fnmatchcase("batch_address-append_40_4999", p) for p in patterns)
         )
 
     def test_enclave_runs_the_nitro_tee_without_a_key_or_public_listener(self):

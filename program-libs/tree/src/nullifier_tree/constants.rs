@@ -1,8 +1,8 @@
 pub const DEFAULT_NULLIFIER_TREE_HEIGHT: u32 = 40;
 
-pub const DEFAULT_NULLIFIER_BATCH_SIZE: u64 = 25000;
+pub const DEFAULT_NULLIFIER_BATCH_SIZE: u64 = 24_995;
 
-pub const DEFAULT_NULLIFIER_ZKP_BATCH_SIZE: u64 = 250;
+pub const DEFAULT_NULLIFIER_ZKP_BATCH_SIZE: u64 = 4999;
 
 /// Root of a height-40 indexed Merkle tree holding the single leaf
 /// `H(0, p-1)`, where `p-1` is the BN254 sentinel. Derived from

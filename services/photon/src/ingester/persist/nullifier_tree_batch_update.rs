@@ -707,8 +707,13 @@ mod tests {
             .await
             .unwrap_err();
 
+        let expected = format!(
+            "expected {} queued nullifiers, found {}",
+            batch_size * 3,
+            batch_size * 2
+        );
         assert!(
-            format!("{err}").contains("expected 750 queued nullifiers, found 500"),
+            format!("{err}").contains(&expected),
             "unexpected error: {err}"
         );
         tx.rollback().await.unwrap();
@@ -756,7 +761,9 @@ mod tests {
                 .await
                 .unwrap_err();
 
-        assert!(format!("{err}").contains("expected 250 queued nullifiers"));
+        assert!(format!("{err}").contains(&format!(
+            "expected {NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE} queued nullifiers"
+        )));
         tx.rollback().await.unwrap();
     }
 }

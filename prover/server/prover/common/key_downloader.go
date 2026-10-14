@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -159,11 +160,18 @@ func closeResponse(resp *http.Response, originalErr error) error {
 	return originalErr
 }
 
+// downloadChunkSize is the byte range fetched per request. CloudFront refuses a
+// single response larger than 50 GB, which the batch address-append key
+// exceeds, so every key is fetched as ranges well under that cap.
+var downloadChunkSize int64 = 1 << 30
+
 // downloadAndVerify fetches url into keyPath, retrying with exponential backoff.
-// The response body is streamed to keyPath+".tmp" while its sha256 is computed in
-// the same pass; the byte count and hash are checked against entry before the
-// temp file is atomically renamed into place. A permanent HTTP error (4xx other
-// than 429) fails fast without exhausting the retry budget.
+// The object is fetched in byte ranges and appended to keyPath+".tmp"; a retry
+// resumes after the bytes already there instead of starting over. The byte count
+// and sha256 of the whole temp file are checked against entry before it is
+// atomically renamed into place, and a failed check discards it. A permanent
+// HTTP error (4xx other than 429) fails fast without exhausting the retry
+// budget.
 func downloadAndVerify(url string, keyPath string, entry lockEntry, config *DownloadConfig) error {
 	config = normalizeDownloadConfig(config)
 	tempPath := keyPath + ".tmp"
@@ -196,54 +204,51 @@ func downloadAndVerify(url string, keyPath string, entry lockEntry, config *Down
 	return fmt.Errorf("failed to download %s after %d attempts: %w", filepath.Base(keyPath), attempts, lastErr)
 }
 
-// downloadAttempt performs a single GET+verify+rename. It returns permanent=true
-// for errors that will never succeed on retry (a malformed URL or a permanent 4xx
-// other than 429). On any verification failure the temp file is removed so a bad
-// download is never renamed into place.
+// downloadAttempt fetches the rest of the object into tempPath, then verifies
+// and renames it. It returns permanent=true for errors that will never succeed
+// on retry (a malformed URL or a permanent 4xx other than 429). A transport or
+// server error keeps the temp file so the next attempt resumes; a verification
+// failure removes it, so a bad download is never renamed into place.
 func downloadAttempt(url string, keyPath string, tempPath string, entry lockEntry) (permanent bool, err error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	file, err := os.OpenFile(tempPath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
-		return true, fmt.Errorf("failed to build request for %s: %w", url, err)
+		return false, fmt.Errorf("failed to open temp file %s: %w", tempPath, err)
 	}
-
-	resp, err := assetHTTPClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, readErr := readResponseSnippet(resp)
-		var httpErr error
-		if readErr != nil {
-			httpErr = fmt.Errorf("HTTP %d; failed to read error body: %w", resp.StatusCode, readErr)
-		} else {
-			httpErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
-		}
-		httpErr = closeResponse(resp, httpErr)
-		// Permanent client errors (401/403/404, ...) never succeed on retry.
-		// Rate limiting (429) and server errors (5xx) stay retryable.
-		perm := resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests
-		return perm, httpErr
-	}
-
-	file, err := os.Create(tempPath)
-	if err != nil {
-		return false, closeResponse(resp, fmt.Errorf("failed to create temp file %s: %w", tempPath, err))
-	}
-
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(file, hash), resp.Body)
-	copyErr = closeResponse(resp, copyErr)
-	if closeErr := file.Close(); closeErr != nil {
-		copyErr = errors.Join(copyErr, fmt.Errorf("failed to close temp file %s: %w", tempPath, closeErr))
+	// Bytes kept from an earlier attempt are hashed again rather than trusted.
+	offset, err := io.Copy(hash, file)
+	if err == nil && offset > entry.Size {
+		err = fmt.Errorf("temp file %s is larger than the key", tempPath)
 	}
-	if copyErr != nil {
-		return false, cleanupTempFile(tempPath, copyErr)
+	if err != nil {
+		closeErr := file.Close()
+		return false, cleanupTempFile(tempPath, errors.Join(err, closeErr))
 	}
 
-	if written != entry.Size {
+	for offset < entry.Size {
+		end := min(offset+downloadChunkSize, entry.Size) - 1
+		var written int64
+		var full bool
+		permanent, written, full, err = fetchRange(url, file, hash, offset, end)
+		if err != nil {
+			closeErr := file.Close()
+			return permanent, errors.Join(err, closeErr)
+		}
+		if full {
+			// The server ignored the range and sent the whole object, which
+			// fetchRange wrote over the file from its start.
+			offset = written
+			break
+		}
+		offset += written
+	}
+	if err := file.Close(); err != nil {
+		return false, cleanupTempFile(tempPath, fmt.Errorf("failed to close temp file %s: %w", tempPath, err))
+	}
+
+	if offset != entry.Size {
 		return false, cleanupTempFile(tempPath, fmt.Errorf(
-			"downloaded %s size mismatch: got %d bytes, want %d", filepath.Base(keyPath), written, entry.Size))
+			"downloaded %s size mismatch: got %d bytes, want %d", filepath.Base(keyPath), offset, entry.Size))
 	}
 
 	actual := hex.EncodeToString(hash.Sum(nil))
@@ -256,6 +261,61 @@ func downloadAttempt(url string, keyPath string, tempPath string, entry lockEntr
 		return false, cleanupTempFile(tempPath, fmt.Errorf("failed to rename temp file to %s: %w", keyPath, err))
 	}
 	return false, nil
+}
+
+// fetchRange GETs bytes start..end (inclusive) of url and appends them to file
+// and digest. A 206 must carry exactly that range. A 200 means the server
+// ignored the range: the file and digest are reset and the whole body is written instead,
+// reported as full. It returns the number of bytes written.
+func fetchRange(url string, file *os.File, digest hash.Hash, start int64, end int64) (permanent bool, written int64, full bool, err error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return true, 0, false, fmt.Errorf("failed to build request for %s: %w", url, err)
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+
+	resp, err := assetHTTPClient.Do(req)
+	if err != nil {
+		return false, 0, false, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		want := fmt.Sprintf("bytes %d-%d/", start, end)
+		if got := resp.Header.Get("Content-Range"); !strings.HasPrefix(got, want) {
+			return false, 0, false, closeResponse(resp, fmt.Errorf(
+				"range response for %s has Content-Range %q, want %q", url, got, want+"*"))
+		}
+		written, err = io.Copy(io.MultiWriter(file, digest), io.LimitReader(resp.Body, end-start+1))
+		err = closeResponse(resp, err)
+		if err == nil && written != end-start+1 {
+			err = fmt.Errorf("range %d-%d of %s ended after %d bytes", start, end, url, written)
+		}
+		return false, written, false, err
+	case http.StatusOK:
+		if err := file.Truncate(0); err != nil {
+			return false, 0, false, closeResponse(resp, err)
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return false, 0, false, closeResponse(resp, err)
+		}
+		digest.Reset()
+		written, err = io.Copy(io.MultiWriter(file, digest), resp.Body)
+		return false, written, true, closeResponse(resp, err)
+	default:
+		body, readErr := readResponseSnippet(resp)
+		var httpErr error
+		if readErr != nil {
+			httpErr = fmt.Errorf("HTTP %d; failed to read error body: %w", resp.StatusCode, readErr)
+		} else {
+			httpErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
+		}
+		httpErr = closeResponse(resp, httpErr)
+		// Permanent client errors (401/403/404, ...) never succeed on retry.
+		// Rate limiting (429) and server errors (5xx) stay retryable.
+		perm := resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests
+		return perm, 0, false, httpErr
+	}
 }
 
 // EnsureProvingKey makes the proving key at keyPath available and verified

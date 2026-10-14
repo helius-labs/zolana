@@ -54,14 +54,14 @@ const TREE_0: TreeRoots = {
   utxoRoot: fill(3),
   utxoRootIndex: 4,
   nullifierRoot: fill(6),
-  nullifierRootIndex: 7,
+  nullifierRootIndex: 2,
 };
 const TREE_1: TreeRoots = {
   treeId: 1,
   utxoRoot: fill(13),
   utxoRootIndex: 5,
   nullifierRoot: fill(16),
-  nullifierRootIndex: 8,
+  nullifierRootIndex: 3,
 };
 
 function spendProof(input: ProofInputUtxo, tree: TreeRoots): SpendProof {
