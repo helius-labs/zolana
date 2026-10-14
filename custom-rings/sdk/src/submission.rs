@@ -182,9 +182,12 @@ impl<'a> RingSubmission<'a> {
                         blockhash,
                         proved.budget,
                     )?;
-                    let mut all: Vec<&dyn Signer> = vec![payer];
-                    all.extend(signers.iter().map(|signer| *signer as &dyn Signer));
-                    let transaction = sign_transaction(message, &all)?;
+                    // The signer list is not `Send`, it ends before the next await.
+                    let transaction = {
+                        let mut all: Vec<&dyn Signer> = vec![payer];
+                        all.extend(signers.iter().map(|signer| *signer as &dyn Signer));
+                        sign_transaction(message, &all)?
+                    };
                     self.attempts += 1;
                     let config = RpcSendTransactionConfig {
                         preflight_commitment: Some(CommitmentLevel::Confirmed),
