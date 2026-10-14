@@ -63,16 +63,7 @@ impl CachedTreeUpdate {
 /// One of the queue's two batches: its counters, state, hash chains, and
 /// cached tree updates. It is applied to the tree one ZKP batch at a time.
 #[repr(C)]
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    KnownLayout,
-    Immutable,
-    FromBytes,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, KnownLayout, Immutable, FromBytes)]
 pub struct Batch<const ZKP_BATCHES: usize> {
     /// Elements in the ZKP batch currently being filled.
     num_inserted: u64,
