@@ -1,7 +1,6 @@
 package custom_ring
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,192 +11,108 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
-// Keeps each ring statement's decoder and compiled witness shape together.
+// RingCircuit pairs a ring statement with the request that assigns it.
 type RingCircuit struct {
 	Type    common.CircuitType
-	circuit func() frontend.Circuit
-	request func() Request
+	Circuit func() frontend.Circuit
+	params  func() any
 }
 
-type Request interface {
-	assignment() (frontend.Circuit, error)
+func ring[P any, C any, PC interface {
+	*C
+	frontend.Circuit
+}](circuitType common.CircuitType) RingCircuit {
+	return RingCircuit{
+		Type:    circuitType,
+		Circuit: func() frontend.Circuit { return PC(new(C)) },
+		params:  func() any { return new(P) },
+	}
 }
-
-type RingProof struct {
-	System     *common.RingProofSystem
-	Parameters Request
-	Prover     common.Prover
-}
-
-type Convert struct {
-	Circuit          RingCircuit
-	ProvingKeyPath   string
-	VerifyingKeyPath string
-}
-
-var (
-	policyRing = RingCircuit{
-		Type:    common.CustomRingPolicyCircuitType,
-		circuit: func() frontend.Circuit { return &policy.CustomRingPolicyCircuit{} },
-		request: func() Request { return new(PolicyParameters) },
-	}
-	baseRing = RingCircuit{
-		Type:    common.CustomRingBaseCircuitType,
-		circuit: func() frontend.Circuit { return &base.CustomRingBaseCircuit{} },
-		request: func() Request { return new(BaseParameters) },
-	}
-	delegatePolicyRing = RingCircuit{
-		Type:    common.CustomRingDelegatePolicyCircuitType,
-		circuit: func() frontend.Circuit { return &policy.CustomRingDelegatePolicyCircuit{} },
-		request: func() Request { return new(DelegatePolicyParameters) },
-	}
-	compressedPolicyRing = RingCircuit{
-		Type:    common.CustomRingCompressedPolicyCircuitType,
-		circuit: func() frontend.Circuit { return &policy.CompressedPolicyCircuit{} },
-		request: func() Request { return new(CompressedPolicyParameters) },
-	}
-	keyRegisterRing = RingCircuit{
-		Type:    common.CustomRingKeyRegisterCircuitType,
-		circuit: func() frontend.Circuit { return &policy.KeyRegisterCircuit{} },
-		request: func() Request { return new(KeyRegisterParameters) },
-	}
-	depositRing = RingCircuit{
-		Type:    common.CustomRingDepositCircuitType,
-		circuit: func() frontend.Circuit { return &deposit.CustomRingDepositCircuit{} },
-		request: func() Request { return new(DepositParameters) },
-	}
-)
 
 var RingCircuits = []RingCircuit{
-	policyRing,
-	baseRing,
-	delegatePolicyRing,
-	compressedPolicyRing,
-	keyRegisterRing,
-	depositRing,
+	ring[PolicyParams, policy.CustomRingPolicyCircuit](common.CustomRingPolicyCircuitType),
+	ring[BaseParams, base.CustomRingBaseCircuit](common.CustomRingBaseCircuitType),
+	ring[DelegatePolicyParams, policy.CustomRingDelegatePolicyCircuit](common.CustomRingDelegatePolicyCircuitType),
+	ring[CompressedPolicyParams, policy.CompressedPolicyCircuit](common.CustomRingCompressedPolicyCircuitType),
+	ring[KeyRegisterParams, policy.KeyRegisterCircuit](common.CustomRingKeyRegisterCircuitType),
+	ring[DepositParams, deposit.CustomRingDepositCircuit](common.CustomRingDepositCircuitType),
 }
 
-func R1CSPolicy() (constraint.ConstraintSystem, error) {
-	return policyRing.R1CS()
-}
-
-func R1CSBase() (constraint.ConstraintSystem, error) {
-	return baseRing.R1CS()
-}
-
-func R1CSDelegatePolicy() (constraint.ConstraintSystem, error) {
-	return delegatePolicyRing.R1CS()
-}
-
-func R1CSCompressedPolicy() (constraint.ConstraintSystem, error) {
-	return compressedPolicyRing.R1CS()
-}
-
-func R1CSKeyRegister() (constraint.ConstraintSystem, error) {
-	return keyRegisterRing.R1CS()
-}
-
-func R1CSDeposit() (constraint.ConstraintSystem, error) {
-	return depositRing.R1CS()
-}
-
-func (r RingCircuit) R1CS() (constraint.ConstraintSystem, error) {
-	return frontend.Compile(
-		ecc.BN254.ScalarField(),
-		r1cs.NewBuilder,
-		r.circuit(),
-		frontend.WithCompressThreshold(300),
-	)
-}
-
-func (r RingCircuit) Setup() (*common.RingProofSystem, error) {
-	return r.proofSystem(func(ccs constraint.ConstraintSystem) (groth16.ProvingKey, groth16.VerifyingKey, error) {
-		return groth16.Setup(ccs)
-	})
-}
-
-func (c Convert) Run() (*common.RingProofSystem, error) {
-	return c.Circuit.proofSystem(func(constraint.ConstraintSystem) (groth16.ProvingKey, groth16.VerifyingKey, error) {
-		pk := groth16.NewProvingKey(ecc.BN254)
-		if err := readKey(c.ProvingKeyPath, pk); err != nil {
-			return nil, nil, err
-		}
-		vk := groth16.NewVerifyingKey(ecc.BN254)
-		if err := readKey(c.VerifyingKeyPath, vk); err != nil {
-			return nil, nil, err
-		}
-		return pk, vk, nil
-	})
-}
-
-func DecodeRequest(circuitType common.CircuitType, payload []byte) (Request, error) {
+func Ring(circuitType common.CircuitType) (RingCircuit, error) {
 	for _, ring := range RingCircuits {
-		if ring.Type != circuitType {
-			continue
+		if ring.Type == circuitType {
+			return ring, nil
 		}
-		request := ring.request()
-		if err := json.Unmarshal(payload, request); err != nil {
-			return nil, err
-		}
-		return request, nil
 	}
-	return nil, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
+	return RingCircuit{}, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
 }
 
-func (request RingProof) Prove() (*common.Proof, error) {
-	ps := request.System
-	proof, err := request.Prover.Run(ps.ConstraintSystem, ps.ProvingKey, request.Parameters.assignment)
+// Decode turns a request into its circuit assignment.
+func Decode(circuitType common.CircuitType, payload []byte) (frontend.Circuit, error) {
+	ring, err := Ring(circuitType)
+	if err != nil {
+		return nil, err
+	}
+	params := ring.params()
+	if err := Unmarshal(payload, params); err != nil {
+		return nil, err
+	}
+	return ring.Assign(params)
+}
+
+// Assign fails for a request that leaves a circuit value unset.
+func (r RingCircuit) Assign(params any) (frontend.Circuit, error) {
+	if prepared, ok := params.(interface{ prepare() }); ok {
+		prepared.prepare()
+	}
+	assignment := r.Circuit()
+	return assignment, assign(assignment, params)
+}
+
+func Prove(ps *common.RingProofSystem, assignment frontend.Circuit, prover common.Prover) (*common.Proof, error) {
+	proof, err := prover.Run(ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) { return assignment, nil })
 	if err != nil {
 		return nil, err
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }
 
-func (p *PolicyParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
+func (r RingCircuit) R1CS() (constraint.ConstraintSystem, error) {
+	return frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, r.Circuit(), frontend.WithCompressThreshold(300))
 }
 
-func (p *BaseParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
-}
-
-func (p *DelegatePolicyParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
-}
-
-func (p *CompressedPolicyParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
-}
-
-func (p *KeyRegisterParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
-}
-
-func (p *DepositParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
-}
-
-func (r RingCircuit) proofSystem(keys func(constraint.ConstraintSystem) (groth16.ProvingKey, groth16.VerifyingKey, error)) (*common.RingProofSystem, error) {
+func (r RingCircuit) Setup() (*common.RingProofSystem, error) {
 	ccs, err := r.R1CS()
 	if err != nil {
 		return nil, err
 	}
-	pk, vk, err := keys(ccs)
+	pk, vk, err := groth16.Setup(ccs)
 	if err != nil {
 		return nil, err
 	}
-	return &common.RingProofSystem{
-		CircuitType:      r.Type,
-		ProvingKey:       pk,
-		VerifyingKey:     vk,
-		ConstraintSystem: ccs,
-	}, nil
+	return &common.RingProofSystem{CircuitType: r.Type, ProvingKey: pk, VerifyingKey: vk, ConstraintSystem: ccs}, nil
+}
+
+// Convert wraps an existing gnark key pair, written by a setup, with the compiled circuit.
+func (r RingCircuit) Convert(pkPath, vkPath string) (*common.RingProofSystem, error) {
+	ccs, err := r.R1CS()
+	if err != nil {
+		return nil, err
+	}
+	pk, vk := groth16.NewProvingKey(ecc.BN254), groth16.NewVerifyingKey(ecc.BN254)
+	if err := readKey(pkPath, pk); err != nil {
+		return nil, err
+	}
+	if err := readKey(vkPath, vk); err != nil {
+		return nil, err
+	}
+	return &common.RingProofSystem{CircuitType: r.Type, ProvingKey: pk, VerifyingKey: vk, ConstraintSystem: ccs}, nil
 }
 
 func readKey(path string, key io.ReaderFrom) error {

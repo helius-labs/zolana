@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,10 +15,6 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
-	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
@@ -32,9 +26,6 @@ var goldenUnsolved = map[string]bool{"custom-ring-policy-sample.json": true}
 // The fixtures are frozen request bytes; a decoder change must assign the
 // recorded witness, and UPDATE_RING_GOLDENS=1 rewrites only the digests.
 func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
-	if os.Getenv("WRITE_RING_GOLDEN_REQUESTS") != "" {
-		writeGoldenRequests(t)
-	}
 	files, err := filepath.Glob("testdata/*.json")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no fixtures: %v", err)
@@ -91,30 +82,11 @@ func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 
 func goldenAssignment(t *testing.T, circuit common.CircuitType, payload []byte) frontend.Circuit {
 	t.Helper()
-	request, err := DecodeRequest(circuit, payload)
-	if err != nil {
-		t.Fatalf("%s: %v", circuit, err)
-	}
-	assignment, err := request.assignment()
+	assignment, err := Decode(circuit, payload)
 	if err != nil {
 		t.Fatalf("%s: %v", circuit, err)
 	}
 	return assignment
-}
-
-func compileRing(t *testing.T, circuit common.CircuitType) constraint.ConstraintSystem {
-	t.Helper()
-	for _, ring := range RingCircuits {
-		if ring.Type == circuit {
-			cs, err := ring.R1CS()
-			if err != nil {
-				t.Fatal(err)
-			}
-			return cs
-		}
-	}
-	t.Fatalf("unknown circuit %s", circuit)
-	return nil
 }
 
 func readDigests(t *testing.T) map[string]string {
@@ -149,65 +121,5 @@ func writeDigests(t *testing.T, digests map[string]string) {
 	}
 	if err := os.WriteFile(goldenDigests, []byte(out.String()), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// Captures the requests the original encoders wrote.
-func writeGoldenRequests(t *testing.T) {
-	t.Helper()
-	delegate := rulesFreeParams(t)
-	delegate.WindowSlots, delegate.VelocityCount = 100, 1
-	delegate.Velocity[0] = VelocityRow{Asset: delegate.Inputs[0].Asset, Cap: big.NewInt(1), CosignAbove: big.NewInt(1)}
-	keys := spptest.NewKeyRegistry(t, registry.Height)
-	delegate.Outputs[0].Key = registryKey(keys, keys.Register(t, delegate.Outputs[0].OwnerPkHash, delegate.Outputs[0].NullifierPk, big.NewInt(0x4b)))
-	delegate.KeyEscrow = KeyEscrow{Enabled: true, Root: keys.Root()}
-	bindRulesFreeStatement(t, delegate)
-
-	deposit, _ := depositFixture(t, 3)
-	escrowDeposits(t, deposit.Params)
-	encryptDepositVector(t, deposit.Params)
-
-	fixtures := map[string]any{
-		"custom-ring-base.json":              baseParams(t),
-		"custom-ring-policy.json":            rulesFreeParams(t),
-		"custom-ring-policy-sample.json":     sampleParams(),
-		"custom-ring-delegate-policy.json":   &DelegatePolicyParameters{Policy: *delegate},
-		"custom-ring-compressed-policy.json": compressedProofParameters(t, nil),
-		"custom-ring-register-key.json":      keyRegisterParams(t),
-		"custom-ring-deposit.json":           deposit.Params,
-	}
-	for name, params := range fixtures {
-		encoded, err := json.MarshalIndent(params, "", "  ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join("testdata", name), append(encoded, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func keyRegisterParams(t *testing.T) *KeyRegisterParameters {
-	t.Helper()
-	member := big.NewInt(0xbeef)
-	var nullifierSecret [scalarLen]byte
-	for i := 1; i < scalarLen; i++ {
-		nullifierSecret[i] = byte(0x40 ^ i)
-	}
-	nullifierPk := spptest.MustNullifierPk(t, new(big.Int).SetBytes(nullifierSecret[:]))
-	keys := ringaudit.DefaultKeys(t)
-	sealed := keys.Seal(t, nullifierSecret[:], policy.NfKeyEncInfo)
-	keyHash := spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk, sealed.CiphertextHash})
-	insertion := spptest.NewKeyRegistryTree(t, registry.Height).Register(t, member, keyHash)
-	return &KeyRegisterParameters{
-		PublicInputHash: spptest.MustHashChain(t, []*big.Int{
-			insertion.OldRoot, insertion.NewRoot, member, nullifierPk,
-			sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash,
-			new(big.Int).SetUint64(insertion.NewIndex),
-		}),
-		registryInsertion: fixtureInsertion(insertion, member),
-		NullifierSecret:   nullifierSecret,
-		EphSk:             keys.EphSk(),
-		AuditorPk:         keys.AuditorPk(),
 	}
 }

@@ -298,7 +298,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	}
 	*prepared.slots = slots
 	resolution.PublicInputHash = common.FeHex(*prepared.hash)
-	payload, err := prepared.value.MarshalJSON()
+	payload, err := json.Marshal(prepared.value)
 	if err != nil {
 		return nil, fmt.Errorf("cannot encode resolved inputs")
 	}

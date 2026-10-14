@@ -1,10 +1,11 @@
 package indexed
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/big"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
@@ -18,80 +19,34 @@ func policyCircuit(circuit common.CircuitType) bool {
 	}
 }
 
-type policyTarget struct {
-	fact                       *ring.ListFact
-	state, exclusion           []*big.Int
-	stateIndex, exclusionIndex *big.Int
-}
-
-type resolvedPolicy struct {
-	base    *ring.PolicyParameters
-	wrapped json.Marshaler
-	targets []policyTarget
-	slots   []common.TreeSlotParams
-}
-
-func (p *resolvedPolicy) MarshalJSON() ([]byte, error) {
-	for _, target := range p.targets {
-		copy(target.fact.StatePathElements[:], target.state)
-		copy(target.fact.NfPathElements[:], target.exclusion)
-		target.fact.StatePathIndex = target.stateIndex.Uint64()
-		target.fact.NfPathIndex = target.exclusionIndex.Uint64()
-	}
-	for i, slot := range p.slots {
-		p.base.TreeSlots[i] = ring.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
-	}
-	return p.wrapped.MarshalJSON()
-}
-
+// decodePolicy reads a policy request without the roots, paths and output keys the indexer supplies.
 func decodePolicy(request Request) (*preparedProof, error) {
-	var outer map[string]json.RawMessage
-	if json.Unmarshal(request.Prepared, &outer) != nil {
-		return nil, fmt.Errorf("invalid prepared policy")
+	var value any
+	var p *ring.PolicyParams
+	switch request.CircuitType {
+	case common.CustomRingPolicyCircuitType:
+		p = &ring.PolicyParams{}
+		value = p
+	case common.CustomRingDelegatePolicyCircuitType:
+		wrapper := &ring.DelegatePolicyParams{}
+		value, p = wrapper, &wrapper.Policy
+	default:
+		wrapper := &ring.CompressedPolicyParams{}
+		value, p = wrapper, &wrapper.Policy
 	}
-	var base map[string]json.RawMessage
-	if request.CircuitType == common.CustomRingPolicyCircuitType {
-		base = outer
-	} else {
-		if json.Unmarshal(outer["policy"], &base) != nil {
-			return nil, fmt.Errorf("missing prepared policy")
-		}
+	if err := ring.Unmarshal(request.Prepared, value); err != nil {
+		return nil, fmt.Errorf("invalid prepared policy: %w", err)
 	}
-	if base["treeSlots"] != nil || base["publicInputHash"] != nil {
+	if p.TreeSlots != nil || p.PublicInputHash.Int != nil {
 		return nil, fmt.Errorf("prepared policy contains resolved roots")
 	}
-	var facts []map[string]json.RawMessage
-	if json.Unmarshal(base["answers"], &facts) != nil || len(facts) != 10 || len(request.Inputs) != len(facts) {
+	if len(p.ListFacts) != policy.NListFacts || len(request.Inputs) != len(p.ListFacts) {
 		return nil, fmt.Errorf("invalid prepared fact count")
 	}
-	for _, fact := range facts {
-		if fact == nil {
-			return nil, fmt.Errorf("invalid prepared fact")
-		}
-		for field, height := range map[string]int{"nfPathElements": 40, "statePathElements": 32} {
-			if fact[field] != nil {
-				return nil, fmt.Errorf("prepared policy contains paths")
-			}
-			nodes := make([]string, height)
-			for i := range nodes {
-				nodes[i] = common.ToHex(new(big.Int))
-			}
-			fact[field], _ = json.Marshal(nodes)
-		}
-		for _, name := range []string{"nfPathIndex", "statePathIndex", "low", "next"} {
-			if fact[name] != nil {
-				return nil, fmt.Errorf("prepared policy contains proof data")
-			}
-		}
-		fact["nfPathIndex"], fact["statePathIndex"] = json.RawMessage("0"), json.RawMessage("0")
-		fact["low"], _ = json.Marshal(common.ToHex(new(big.Int)))
-		fact["next"] = fact["low"]
-	}
-	if err := prepareRegistry(base, request.Registry); err != nil {
+	if err := prepareRegistry(p, request.Registry); err != nil {
 		return nil, err
 	}
-	slots := make([]common.TreeSlotParams, len(request.Trees))
-	for i, tree := range request.Trees {
+	for _, tree := range request.Trees {
 		fallback := tree.Fallback
 		if fallback == nil || fallback.Tree != tree.Address || fallback.ID != tree.ID || fallback.UtxoRootIndex >= 500 || fallback.NullifierRootIndex >= 100 {
 			return nil, fmt.Errorf("invalid policy fallback roots")
@@ -110,57 +65,59 @@ func decodePolicy(request Request) (*preparedProof, error) {
 		if _, err := hashField(exclusion); err != nil {
 			return nil, err
 		}
-		slots[i] = common.TreeSlotParams{ID: new(big.Int).SetUint64(uint64(tree.ID)), UtxoRoot: state, NullifierRoot: exclusion}
 	}
-	base["treeSlots"], _ = json.Marshal(common.TreeSlotsToJSON(slots))
-	base["publicInputHash"], _ = json.Marshal(common.ToHex(new(big.Int)))
-	base["answers"], _ = json.Marshal(facts)
-	if request.CircuitType != common.CustomRingPolicyCircuitType {
-		outer["policy"], _ = json.Marshal(base)
+	p.PublicInputHash = ring.Field{Int: new(big.Int)}
+	p.TreeSlots = make(ring.TreeSlots, shared.InputTrees)
+	for i := range p.TreeSlots {
+		p.TreeSlots[i] = common.TreeSlotParams{ID: new(big.Int), UtxoRoot: new(big.Int), NullifierRoot: new(big.Int)}
 	}
-	data, err := json.Marshal(outer)
-	if err != nil {
-		return nil, err
-	}
-	p := &resolvedPolicy{}
-	switch request.CircuitType {
-	case common.CustomRingPolicyCircuitType:
-		value := &ring.PolicyParameters{}
-		if err = json.Unmarshal(data, value); err != nil {
-			return nil, err
+	inputs := make([]inputTarget, len(p.ListFacts))
+	for i := range p.ListFacts {
+		fact, lookup := &p.ListFacts[i], request.Inputs[i]
+		if fact.NullifierLowPathElements != nil || fact.StatePathElements != nil || fact.NullifierLowPathIndex != 0 || fact.StatePathIndex != 0 || fact.NullifierLowValue.Int != nil || fact.NullifierNextValue.Int != nil {
+			return nil, fmt.Errorf("prepared policy contains proof data")
 		}
-		p.base, p.wrapped = value, value
-	case common.CustomRingCompressedPolicyCircuitType:
-		value := &ring.CompressedPolicyParameters{}
-		if err = json.Unmarshal(data, value); err != nil {
-			return nil, err
-		}
-		p.base, p.wrapped = &value.Base, value
-	case common.CustomRingDelegatePolicyCircuitType:
-		value := &ring.DelegatePolicyParameters{}
-		if err = json.Unmarshal(data, value); err != nil {
-			return nil, err
-		}
-		p.base, p.wrapped = &value.Policy, value
-	}
-	p.targets = make([]policyTarget, len(facts))
-	inputs := make([]inputTarget, len(facts))
-	for i := range p.targets {
-		fact, lookup := &p.base.ListFacts[i], request.Inputs[i]
-		if int(lookup.TreeSlot) >= len(request.Trees) || fact.TreeSlot != lookup.TreeSlot || fact.Enabled != (lookup.Nullifier != nil) || (fact.Enabled && (fact.AbsentBranch == 2) != (lookup.Commitment != nil)) || (!fact.Enabled && lookup.Commitment != nil) {
+		cleared := fact.AbsentBranch == policy.AbsentBranchCleared
+		if int(lookup.TreeSlot) >= len(request.Trees) || fact.TreeSlot != lookup.TreeSlot || fact.Enabled != (lookup.Nullifier != nil) || (fact.Enabled && cleared != (lookup.Commitment != nil)) || (!fact.Enabled && lookup.Commitment != nil) {
 			return nil, fmt.Errorf("policy lookup mismatch")
 		}
-		target := &p.targets[i]
-		*target = policyTarget{fact: fact, stateIndex: new(big.Int), exclusionIndex: new(big.Int)}
+		fact.NullifierLowPathElements, fact.StatePathElements = zeroFields(shared.NullifierTreeHeight), zeroFields(shared.StateTreeHeight)
+		fact.NullifierLowValue, fact.NullifierNextValue = ring.Field{Int: new(big.Int)}, ring.Field{Int: new(big.Int)}
 		nullifier := new(big.Int)
 		if lookup.Nullifier != nil {
-			nullifier, err = lookup.Nullifier.field()
-			if err != nil {
+			var err error
+			if nullifier, err = lookup.Nullifier.field(); err != nil {
 				return nil, err
 			}
 		}
 		inputs[i] = inputTarget{slot: big.NewInt(int64(lookup.TreeSlot)), nullifier: nullifier, cached: lookup.Commitment == nil, disabled: !fact.Enabled,
-			state: &target.state, exclusion: &target.exclusion, stateIndex: &target.stateIndex, exclusionIndex: &target.exclusionIndex, low: &fact.Low, high: &fact.Next}
+			fill: func(state *stateProof, exclusion nullifierProof) {
+				if state != nil {
+					fact.StatePathElements, fact.StatePathIndex = hashFields(state.Path), state.LeafIndex
+				}
+				fact.NullifierLowPathElements, fact.NullifierLowPathIndex = hashFields(exclusion.Path), exclusion.LowElementIndex
+				fact.NullifierLowValue = ring.Field{Int: new(big.Int).SetBytes(exclusion.LowElement[:])}
+				fact.NullifierNextValue = ring.Field{Int: new(big.Int).SetBytes(exclusion.HighElement[:])}
+			}}
 	}
-	return &preparedProof{value: p, inputs: inputs, slots: &p.slots, hash: &p.base.PublicInputHash, policy: true, registry: p}, nil
+	circuit, err := ring.Ring(request.CircuitType)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := circuit.Assign(value); err != nil {
+		return nil, fmt.Errorf("invalid prepared policy: %w", err)
+	}
+	return &preparedProof{value: value, inputs: inputs, slots: (*[]common.TreeSlotParams)(&p.TreeSlots), hash: &p.PublicInputHash.Int, policy: true, registry: p}, nil
+}
+
+func zeroFields(n int) []ring.Field {
+	return hashFields(make([]Hash, n))
+}
+
+func hashFields(hashes []Hash) []ring.Field {
+	out := make([]ring.Field, len(hashes))
+	for i, hash := range hashes {
+		out[i] = ring.Field{Int: new(big.Int).SetBytes(hash[:])}
+	}
+	return out
 }
