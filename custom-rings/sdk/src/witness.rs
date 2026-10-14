@@ -637,10 +637,15 @@ async fn fetch<'a>(
                 .proofs
         }
     };
-    let absences = client
-        .get_non_inclusion_proofs(tree.address, targets.clone(), None)
-        .await?
-        .proofs;
+    let absences = match targets.is_empty() {
+        true => Vec::new(),
+        false => {
+            client
+                .get_non_inclusion_proofs(tree.address, targets.clone(), None)
+                .await?
+                .proofs
+        }
+    };
     if states.len() != leaves.len() || absences.len() != targets.len() {
         return Err(RingError::IncompleteProofSet);
     }
