@@ -1,4 +1,4 @@
-//! What an audit returns: the decrypted values themselves, which the end-to-end test asserts.
+//! What an audit returns, the decrypted values themselves.
 
 use solana_address::Address;
 use solana_signature::Signature;

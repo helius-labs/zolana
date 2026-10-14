@@ -26,7 +26,7 @@ pub struct ScanPage<T> {
 pub type RingScanPage = ScanPage<ShieldedTransaction>;
 pub type AuditedPage = ScanPage<AuditedTransaction>;
 
-/// One indexer page: its transactions, the next cursor and where the scan reached.
+/// One indexer page with its transactions, the next cursor and where the scan reached.
 pub(crate) type Page = (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>);
 
 /// Reads from `cursor` until `scanned_through` or the cap, a cursor that does not move fails.

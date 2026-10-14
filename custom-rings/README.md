@@ -402,30 +402,29 @@ is in `services/ring-rpc/README.md`.
 ## Building on it
 
 `custom-ring-sdk` starts from `CustomRing::new(program_id)`, the handle that
-derives the config, read access record and `ring_auth` addresses and reads the
-typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
-`GrantReadAccess`, `RevokeReadAccess`, `SetAuthority` and `SetPaused` from it,
-a policy ring adds `CreatePolicy`, `SetPolicyRules`, `SetSourceOwner` and the
-entry mutations `CreateEntry` and `UpdateEntry`. `CreatePolicy` and
-`SetPolicyRules` take a `RuleTable` built with `RuleTable::builder()` and the
-curator per shared list, both refuse a transaction past the 4096-byte v1
-transaction limit. A participant sends `RingDeposit`, prepares a
-`ConfidentialTransfer` from the SPP transaction SDK and proves it with
-`CustomRingTransfer::new(..).prove(env)`, where the environment is the
-indexer, the RPC and the prover. The input and output trees come from the
-prepared transaction. `prove` reads
-the table from the policy config and trusts its rows only under the pinned
-hash (`policy_config_table`), `client_rules_match` compares a table of the
-caller's with the stored rows. `prove_async` serves both tiers. `TransactSend`
-submits a V1 message with a 4096-byte limit and compute ceilings in its header.
-The opt-in `RingSubmission` accepts member transfers, delegate moves, spend
-registration, key registration and merges through `RingOperation`. Its
-`send` and `send_async` paths retain intent across eligible stale
-key-registry root, window-boundary and verified blockhash-expiry retries, with
-at most three signed attempts. Unknown send outcomes retain the original
-signature for status checks. Rust pending state is in memory. `RingTransferSubmission`
-remains an alias. A merge uses `RingMergeOperation` and `MergeProofInput`,
-binding the input and output tree accounts before proving.
+derives the ring's addresses, reads its typed accounts (`config`,
+`policy_config`, `key_registry_root`, `spend_window` and the others) and builds
+the authority instructions (`create_config`, `init_spp_ring_config`,
+`grant_read_access`, `set_paused`, `create_policy`, `set_policy_rules`,
+`set_source_owner` and the others). `create_policy` and `set_policy_rules` take
+a `RuleTable` built with `RuleTable::builder()` and the curator per shared
+list. Every read and proof is `async` over an `AsyncZolanaClient`, which holds
+the RPC, the indexer and the prover. A blocking caller runs an operation as
+`zolana.block_on(op.prove(zolana.as_async()))`. Every operation fails with one
+`RingError`.
+
+A participant sends `RingDeposit`, prepares a `ConfidentialTransaction` from
+the SPP transaction SDK and proves it with `CustomRingTransfer::new(..)`, the
+entry mutations are `CreateEntry` and `UpdateEntry`. `prove` reads the table
+from the policy config and trusts its rows only under the pinned hash
+(`policy_config_table`), `client_rules_match` compares a table of the caller's
+with the stored rows. `RingSubmission` proves, signs and sends a
+`RingOperation` (a transfer, a delegate move, a spend or key registration, a
+merge, a deposit or a built instruction) as a v1 message. It keeps the intent
+across a stale key-registry root, a window boundary and a verified blockhash
+expiry, with at most three signed attempts, and waits out a closing velocity
+window before it proves. An unknown outcome keeps the signature for status
+checks, `send_until_settled` polls it until the cluster settles it.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. Auditor
 discovery matches the auditor view tag. Spend-record discovery additionally
